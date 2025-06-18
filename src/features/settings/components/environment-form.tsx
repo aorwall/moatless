@@ -63,30 +63,76 @@ export function EnvironmentForm({
   const dockerImageId = useId();
   const useGitWorktreesId = useId();
 
-  const getInitialFormData = () => {
-    if (!initialData) {
+  const getDefaultFormData = () => ({
+    name: '',
+    description: '',
+    repositoryType: 'local' as 'local' | 'github',
+    codeExecutionType: 'local' as 'local' | 'docker',
+    // Repository fields
+    localPath: '',
+    useGitWorktrees: false,
+    githubRepoId: '',
+    githubBranch: 'main',
+    githubCommit: '',
+    githubToken: '',
+    // Execution fields
+    localSetupCommands: '',
+    dockerImage: '',
+    dockerEnvVars: {} as Record<string, string>,
+    dockerSetupCommands: '',
+    dockerVolumes: [] as Array<string>,
+    dockerPorts: {} as Record<string, number>,
+    // Variables
+    variables: {} as Record<string, string>,
+  });
+
+  const getRepositoryFields = (repo: Repository) => {
+    if (repo.type === 'local') {
       return {
-        name: '',
-        description: '',
-        repositoryType: 'local' as 'local' | 'github',
-        codeExecutionType: 'local' as 'local' | 'docker',
-        // Repository fields
-        localPath: '',
-        useGitWorktrees: false,
+        localPath: repo.path,
+        useGitWorktrees: repo.use_git_worktrees,
         githubRepoId: '',
         githubBranch: 'main',
         githubCommit: '',
         githubToken: '',
-        // Execution fields
-        localSetupCommands: '',
+      };
+    }
+
+    return {
+      localPath: '',
+      useGitWorktrees: false,
+      githubRepoId: repo.repo_id,
+      githubBranch: repo.branch || 'main',
+      githubCommit: repo.commit || '',
+      githubToken: repo.token || '',
+    };
+  };
+
+  const getExecutionFields = (exec: CodeExecution) => {
+    if (exec.type === 'local') {
+      return {
+        localSetupCommands: exec.setup_commands || '',
         dockerImage: '',
         dockerEnvVars: {} as Record<string, string>,
         dockerSetupCommands: '',
         dockerVolumes: [] as Array<string>,
         dockerPorts: {} as Record<string, number>,
-        // Variables
-        variables: {} as Record<string, string>,
       };
+    }
+
+    return {
+      localSetupCommands: '',
+      dockerImage: exec.image || '',
+      dockerEnvVars: exec.env_vars || {},
+      dockerSetupCommands: exec.setup_commands || '',
+      dockerVolumes: exec.volumes || [],
+      dockerPorts: exec.ports || {},
+    };
+  };
+
+  const getInitialFormData = () => {
+    if (!initialData) {
+      return getDefaultFormData();
     }
 
     const repo = initialData.repository;
@@ -97,23 +143,8 @@ export function EnvironmentForm({
       description: initialData.description || '',
       repositoryType: repo.type,
       codeExecutionType: exec.type,
-      // Repository fields
-      localPath: repo.type === 'local' ? repo.path : '',
-      useGitWorktrees: repo.type === 'local' ? repo.use_git_worktrees : false,
-      githubRepoId: repo.type === 'github' ? repo.repo_id : '',
-      githubBranch: repo.type === 'github' ? repo.branch || 'main' : 'main',
-      githubCommit: repo.type === 'github' ? repo.commit || '' : '',
-      githubToken: repo.type === 'github' ? repo.token || '' : '',
-      // Execution fields
-      localSetupCommands:
-        exec.type === 'local' ? exec.setup_commands || '' : '',
-      dockerImage: exec.type === 'docker' ? exec.image || '' : '',
-      dockerEnvVars: exec.type === 'docker' ? exec.env_vars || {} : {},
-      dockerSetupCommands:
-        exec.type === 'docker' ? exec.setup_commands || '' : '',
-      dockerVolumes: exec.type === 'docker' ? exec.volumes || [] : [],
-      dockerPorts: exec.type === 'docker' ? exec.ports || {} : {},
-      // Variables
+      ...getRepositoryFields(repo),
+      ...getExecutionFields(exec),
       variables: initialData.variables || {},
     };
   };

@@ -127,61 +127,7 @@ export class TaskSSEClient {
       });
 
       this.eventSource.onerror = async () => {
-        this.isConnecting = false;
-
-        // Store current shouldReconnect state before disconnect
-        const shouldAttemptReconnect =
-          this.shouldReconnect && !this.taskNotFound;
-
-        // Close the current connection but don't prevent reconnection yet
-        if (this.eventSource) {
-          this.eventSource.close();
-          this.eventSource = null;
-        }
-
-        // Check if task exists before attempting reconnection
-        if (shouldAttemptReconnect) {
-          // On first error or after a few attempts, check if task exists
-          if (this.reconnectAttempts === 0 || this.reconnectAttempts === 2) {
-            try {
-              const response = await fetch(
-                `${this.apiUrl}/api/v1/tasks/${this.taskId}`,
-                {
-                  method: 'HEAD',
-                  credentials: 'include',
-                },
-              );
-              if (response.status === 404) {
-                this.taskNotFound = true;
-                this.shouldReconnect = false;
-                this.onTaskNotFound?.();
-                this.onError?.(new Error('Task not found (404)'));
-                this.onDisconnect?.();
-                return;
-              }
-            } catch {
-              // If we can't check, proceed with normal reconnection
-              // Network error checking task existence - will attempt normal reconnection
-            }
-          }
-
-          // Only reconnect if not manually disconnected and within retry limit
-          if (
-            this.shouldReconnect &&
-            this.reconnectAttempts < this.maxReconnectAttempts
-          ) {
-            this.scheduleReconnect();
-          } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            this.onError?.(
-              new Error(
-                `SSE connection failed after ${this.maxReconnectAttempts} attempts`,
-              ),
-            );
-          }
-        } else if (!this.shouldReconnect) {
-          // Manual disconnect or task not found
-          this.onDisconnect?.();
-        }
+        await this.handleConnectionError();
       };
     } catch (error) {
       this.isConnecting = false;
@@ -213,6 +159,86 @@ export class TaskSSEClient {
     this.taskNotFound = false;
     this.shouldReconnect = true;
     this.reconnectAttempts = 0;
+  }
+
+  private async handleConnectionError(): Promise<void> {
+    this.isConnecting = false;
+
+    // Store current shouldReconnect state before disconnect
+    const shouldAttemptReconnect = this.shouldReconnect && !this.taskNotFound;
+
+    // Close the current connection but don't prevent reconnection yet
+    this.closeCurrentConnection();
+
+    if (shouldAttemptReconnect) {
+      await this.handleReconnectionLogic();
+    } else if (!this.shouldReconnect) {
+      // Manual disconnect or task not found
+      this.onDisconnect?.();
+    }
+  }
+
+  private closeCurrentConnection(): void {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+  }
+
+  private async handleReconnectionLogic(): Promise<void> {
+    // On first error or after a few attempts, check if task exists
+    if (this.reconnectAttempts === 0 || this.reconnectAttempts === 2) {
+      const taskExists = await this.checkTaskExists();
+      if (!taskExists) {
+        return;
+      }
+    }
+
+    this.attemptReconnection();
+  }
+
+  private async checkTaskExists(): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `${this.apiUrl}/api/v1/tasks/${this.taskId}`,
+        {
+          method: 'HEAD',
+          credentials: 'include',
+        },
+      );
+      if (response.status === 404) {
+        this.handleTaskNotFound();
+        return false;
+      }
+    } catch {
+      // If we can't check, proceed with normal reconnection
+      // Network error checking task existence - will attempt normal reconnection
+    }
+    return true;
+  }
+
+  private handleTaskNotFound(): void {
+    this.taskNotFound = true;
+    this.shouldReconnect = false;
+    this.onTaskNotFound?.();
+    this.onError?.(new Error('Task not found (404)'));
+    this.onDisconnect?.();
+  }
+
+  private attemptReconnection(): void {
+    // Only reconnect if not manually disconnected and within retry limit
+    if (
+      this.shouldReconnect &&
+      this.reconnectAttempts < this.maxReconnectAttempts
+    ) {
+      this.scheduleReconnect();
+    } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.onError?.(
+        new Error(
+          `SSE connection failed after ${this.maxReconnectAttempts} attempts`,
+        ),
+      );
+    }
   }
 
   private scheduleReconnect(): void {

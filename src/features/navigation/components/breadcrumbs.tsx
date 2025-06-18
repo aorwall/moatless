@@ -41,6 +41,44 @@ const getBreadcrumbLabel = (
   return segment.charAt(0).toUpperCase() + segment.slice(1);
 };
 
+// Helper function to create breadcrumb item
+const createBreadcrumbItem = (
+  segment: string,
+  index: number,
+  segments: Array<string>,
+  taskId: string | undefined,
+  task: { agent_type: string } | undefined,
+): { label: string; href?: string; key: string } => {
+  const currentPath = `/${segments.slice(0, index + 1).join('/')}`;
+  const isLast = index === segments.length - 1;
+  const prevSegment = segments[index - 1];
+  const isTaskId = taskId ? segment === taskId : false;
+
+  const label = getBreadcrumbLabel(segment, prevSegment, isTaskId, task);
+
+  if (segment === 'tasks') {
+    return {
+      label: 'Tasks',
+      href: isLast ? undefined : '/tasks',
+      key: `tasks-${index}`,
+    };
+  }
+
+  if (segment === 'settings') {
+    return {
+      label: 'Settings',
+      href: isLast ? undefined : '/settings/general',
+      key: `settings-${index}`,
+    };
+  }
+
+  return {
+    label,
+    href: isLast ? undefined : currentPath,
+    key: `${segment}-${index}`,
+  };
+};
+
 export function AppBreadcrumbs() {
   const location = useLocation();
   const params = useParams({ strict: false });
@@ -65,32 +103,8 @@ export function AppBreadcrumbs() {
 
     // Build breadcrumb items based on path segments
     segments.forEach((segment, index) => {
-      const currentPath = `/${segments.slice(0, index + 1).join('/')}`;
-      const isLast = index === segments.length - 1;
-      const prevSegment = segments[index - 1];
-      const isTaskId = taskId ? segment === taskId : false;
-
-      const label = getBreadcrumbLabel(segment, prevSegment, isTaskId, task);
-
-      if (segment === 'tasks') {
-        items.push({
-          label: 'Tasks',
-          href: isLast ? undefined : '/tasks',
-          key: `tasks-${index}`,
-        });
-      } else if (segment === 'settings') {
-        items.push({
-          label: 'Settings',
-          href: isLast ? undefined : '/settings/general',
-          key: `settings-${index}`,
-        });
-      } else {
-        items.push({
-          label,
-          href: isLast ? undefined : currentPath,
-          key: `${segment}-${index}`,
-        });
-      }
+      const item = createBreadcrumbItem(segment, index, segments, taskId, task);
+      items.push(item);
     });
 
     return items;
