@@ -2,7 +2,7 @@ import { Link, useLocation, useParams } from '@tanstack/react-router';
 import { ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
 
-import { useSession } from '@/features/sessions/hooks/use-sessions';
+import { useTask } from '@/features/tasks/hooks/use-tasks';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -16,8 +16,8 @@ import {
 const getBreadcrumbLabel = (
   segment: string,
   prevSegment: string | undefined,
-  isSessionId: boolean,
-  session: { agent_type: string } | undefined,
+  isTaskId: boolean,
+  task: { agent_type: string } | undefined,
 ): string => {
   const settingsMap: Record<string, string> = {
     environments: 'Environments',
@@ -30,11 +30,11 @@ const getBreadcrumbLabel = (
     return settingsMap[segment];
   }
 
-  if (isSessionId && session) {
-    return `${session.agent_type} - ${segment.slice(0, 8)}`;
+  if (isTaskId && task) {
+    return `${task.agent_type} - ${segment.slice(0, 8)}`;
   }
 
-  if (isSessionId) {
+  if (isTaskId) {
     return segment.slice(0, 8);
   }
 
@@ -45,10 +45,10 @@ export function AppBreadcrumbs() {
   const location = useLocation();
   const params = useParams({ strict: false });
 
-  // Get session data if we're on a session page
-  const sessionId = params.sessionId as string | undefined;
-  const { data: session } = useSession(sessionId || '', {
-    enabled: !!sessionId,
+  // Get task data if we're on a task page
+  const taskId = params.taskId as string | undefined;
+  const { data: task } = useTask(taskId || '', {
+    enabled: !!taskId,
   });
 
   const breadcrumbs = useMemo(() => {
@@ -68,20 +68,15 @@ export function AppBreadcrumbs() {
       const currentPath = `/${segments.slice(0, index + 1).join('/')}`;
       const isLast = index === segments.length - 1;
       const prevSegment = segments[index - 1];
-      const isSessionId = sessionId ? segment === sessionId : false;
+      const isTaskId = taskId ? segment === taskId : false;
 
-      const label = getBreadcrumbLabel(
-        segment,
-        prevSegment,
-        isSessionId,
-        session,
-      );
+      const label = getBreadcrumbLabel(segment, prevSegment, isTaskId, task);
 
-      if (segment === 'sessions') {
+      if (segment === 'tasks') {
         items.push({
-          label: 'Sessions',
-          href: isLast ? undefined : '/sessions',
-          key: `sessions-${index}`,
+          label: 'Tasks',
+          href: isLast ? undefined : '/tasks',
+          key: `tasks-${index}`,
         });
       } else if (segment === 'settings') {
         items.push({
@@ -99,7 +94,7 @@ export function AppBreadcrumbs() {
     });
 
     return items;
-  }, [location.pathname, session, sessionId]);
+  }, [location.pathname, task, taskId]);
 
   if (breadcrumbs.length <= 1) {
     return null; // Don't show breadcrumbs on home page

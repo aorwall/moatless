@@ -16,8 +16,8 @@ export const Layout = ({ children }: LayoutProps) => {
   const router = useRouterState();
   const pathname = router.location.pathname;
 
-  // Hide header for session detail pages
-  const hideHeader = pathname.startsWith('/sessions/');
+  // Hide header for task detail pages
+  const hideHeader = pathname.startsWith('/tasks/');
 
   return (
     <ThemeProvider>

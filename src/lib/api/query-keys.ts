@@ -1,23 +1,21 @@
 export const queryKeys = {
   all: ['swarm'] as const,
-  sessions: () => [...queryKeys.all, 'sessions'] as const,
-  sessionsList: (filters?: {
+  tasks: () => [...queryKeys.all, 'tasks'] as const,
+  tasksList: (filters?: {
     activeOnly?: boolean;
     limit?: number;
     offset?: number;
-  }) => [...queryKeys.sessions(), 'list', filters] as const,
-  sessionDetail: (sessionId: string) =>
-    [...queryKeys.sessions(), 'detail', sessionId] as const,
-  sessionMessages: (
-    sessionId: string,
+  }) => [...queryKeys.tasks(), 'list', filters] as const,
+  taskDetail: (taskId: string) =>
+    [...queryKeys.tasks(), 'detail', taskId] as const,
+  taskMessages: (
+    taskId: string,
     filters?: { limit?: number; offset?: number },
-  ) => [...queryKeys.sessions(), 'messages', sessionId, filters] as const,
-  sessionEvents: (
-    sessionId: string,
-    filters?: { limit?: number; offset?: number },
-  ) => [...queryKeys.sessions(), 'events', sessionId, filters] as const,
-  sessionGitDiff: (sessionId: string) =>
-    [...queryKeys.sessions(), 'git-diff', sessionId] as const,
+  ) => [...queryKeys.tasks(), 'messages', taskId, filters] as const,
+  taskEvents: (taskId: string, filters?: { limit?: number; offset?: number }) =>
+    [...queryKeys.tasks(), 'events', taskId, filters] as const,
+  taskGitDiff: (taskId: string) =>
+    [...queryKeys.tasks(), 'git-diff', taskId] as const,
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,
   environments: () => [...queryKeys.all, 'environments'] as const,

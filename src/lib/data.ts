@@ -2,7 +2,7 @@ import type { Task, TaskDetail } from '@/types/task';
 
 export const tasks: Array<Task> = [
   {
-    id: 1,
+    id: '1',
     title: 'Refactor authentication middleware',
     time: '8:42 AM',
     project: 'backend/auth-service',
@@ -10,7 +10,7 @@ export const tasks: Array<Task> = [
     changes: { added: 23, removed: 8 },
   },
   {
-    id: 2,
+    id: '2',
     title: 'Optimize database queries for user dashboard',
     time: '7:15 AM',
     project: 'frontend/dashboard-app',
@@ -18,7 +18,7 @@ export const tasks: Array<Task> = [
     changes: { added: 45, removed: 12 },
   },
   {
-    id: 3,
+    id: '3',
     title: 'Fix memory leak in image processing',
     time: '6:33 AM',
     project: 'services/media-processor',
@@ -26,7 +26,7 @@ export const tasks: Array<Task> = [
     changes: { added: 8, removed: 15 },
   },
   {
-    id: 4,
+    id: '4',
     title: 'Update API documentation',
     time: 'Yesterday',
     project: 'docs/api-reference',
@@ -36,19 +36,19 @@ export const tasks: Array<Task> = [
 
 export const archivedTasks: Array<Task> = [
   {
-    id: 5,
+    id: '5',
     title: 'Implement user role permissions',
     time: '2 days ago',
     project: 'backend/user-service',
-    status: 'archived',
+    status: 'completed',
     changes: { added: 67, removed: 23 },
   },
   {
-    id: 6,
+    id: '6',
     title: 'Add dark mode toggle',
     time: '3 days ago',
     project: 'frontend/ui-components',
-    status: 'archived',
+    status: 'completed',
     changes: { added: 34, removed: 5 },
   },
 ];

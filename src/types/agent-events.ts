@@ -9,11 +9,12 @@ export enum AgentEventType {
   ERROR = 'error',
   INPUT = 'input',
   RESULT = 'result',
+  ENVIRONMENT = 'environment',
 }
 
 export interface AgentEvent {
   event_id: string;
-  type: AgentEventType;
+  type: AgentEventType | string;
   agent_session_id: string;
   timestamp: string;
   is_error: boolean;

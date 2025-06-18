@@ -1,22 +1,23 @@
 import type { QueryClient } from '@tanstack/react-query';
 
-import type { BaseMessage } from '@/types/session';
+import type { BaseMessage } from '@/types/task';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface SSEClientOptions {
-  sessionId: string;
+  taskId: string;
   apiUrl?: string;
   queryClient?: QueryClient;
   onMessage?: (message: BaseMessage) => void;
   onError?: (error: Error) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
+  onTaskNotFound?: () => void;
 }
 
-export class SessionSSEClient {
+export class TaskSSEClient {
   private eventSource: EventSource | null = null;
-  private sessionId: string;
+  private taskId: string;
   private apiUrl: string;
   private queryClient?: QueryClient;
   private onMessage?: (message: BaseMessage) => void;
@@ -30,27 +31,31 @@ export class SessionSSEClient {
   private maxReconnectAttempts = 10;
   private reconnectDelay = 5000;
   private shouldReconnect = true;
+  private taskNotFound = false;
+  private onTaskNotFound?: () => void;
 
   constructor(options: SSEClientOptions) {
-    this.sessionId = options.sessionId;
+    this.taskId = options.taskId;
     this.apiUrl = options.apiUrl || API_BASE_URL;
     this.queryClient = options.queryClient;
     this.onMessage = options.onMessage;
     this.onError = options.onError;
     this.onConnect = options.onConnect;
     this.onDisconnect = options.onDisconnect;
+    this.onTaskNotFound = options.onTaskNotFound;
   }
 
   connect(): void {
-    if (this.eventSource || this.isConnecting) {
-      // SSE already connected or connecting - silently return
+    if (this.eventSource || this.isConnecting || this.taskNotFound) {
+      // SSE already connected, connecting, or task not found - silently return
       return;
     }
 
     this.isConnecting = true;
+    this.shouldReconnect = true; // Reset on new connection attempt
 
     // Build URL with optional last event ID for resuming
-    let url = `${this.apiUrl}/api/v1/sessions/${this.sessionId}/stream`;
+    let url = `${this.apiUrl}/api/v1/tasks/${this.taskId}/stream`;
     if (this.lastEventId) {
       url += `?last_event_id=${encodeURIComponent(this.lastEventId)}`;
     }
@@ -84,20 +89,20 @@ export class SessionSSEClient {
 
           // Update React Query cache
           if (this.queryClient) {
-            // Invalidate session messages query
+            // Invalidate task messages query
             this.queryClient.invalidateQueries({
-              queryKey: ['session-messages', this.sessionId],
+              queryKey: ['task-messages', this.taskId],
             });
 
-            // Invalidate session details
+            // Invalidate task details
             this.queryClient.invalidateQueries({
-              queryKey: ['session', this.sessionId],
+              queryKey: ['task', this.taskId],
             });
 
-            // Invalidate sessions list if status changed
+            // Invalidate tasks list if status changed
             if (message.type === 'result') {
               this.queryClient.invalidateQueries({
-                queryKey: ['sessions'],
+                queryKey: ['tasks'],
               });
             }
           }
@@ -117,31 +122,66 @@ export class SessionSSEClient {
       });
 
       this.eventSource.addEventListener('error', () => {
-        this.onError?.(new Error('SSE error event received'));
+        // Error event received - will be handled by onerror
+        // Don't call onError here to avoid duplicate error messages
       });
 
-      this.eventSource.onerror = () => {
+      this.eventSource.onerror = async () => {
         this.isConnecting = false;
-        // SSE connection error - will attempt to reconnect
 
-        // EventSource automatically reconnects, but we handle it manually
-        this.disconnect();
+        // Store current shouldReconnect state before disconnect
+        const shouldAttemptReconnect =
+          this.shouldReconnect && !this.taskNotFound;
 
-        // Only reconnect if not manually disconnected and within retry limit
-        if (
-          this.shouldReconnect &&
-          this.reconnectAttempts < this.maxReconnectAttempts
-        ) {
-          this.scheduleReconnect();
-        } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-          this.onError?.(
-            new Error(
-              `SSE connection failed after ${this.maxReconnectAttempts} attempts`,
-            ),
-          );
+        // Close the current connection but don't prevent reconnection yet
+        if (this.eventSource) {
+          this.eventSource.close();
+          this.eventSource = null;
         }
 
-        this.onError?.(new Error('SSE connection error'));
+        // Check if task exists before attempting reconnection
+        if (shouldAttemptReconnect) {
+          // On first error or after a few attempts, check if task exists
+          if (this.reconnectAttempts === 0 || this.reconnectAttempts === 2) {
+            try {
+              const response = await fetch(
+                `${this.apiUrl}/api/v1/tasks/${this.taskId}`,
+                {
+                  method: 'HEAD',
+                  credentials: 'include',
+                },
+              );
+              if (response.status === 404) {
+                this.taskNotFound = true;
+                this.shouldReconnect = false;
+                this.onTaskNotFound?.();
+                this.onError?.(new Error('Task not found (404)'));
+                this.onDisconnect?.();
+                return;
+              }
+            } catch {
+              // If we can't check, proceed with normal reconnection
+              // Network error checking task existence - will attempt normal reconnection
+            }
+          }
+
+          // Only reconnect if not manually disconnected and within retry limit
+          if (
+            this.shouldReconnect &&
+            this.reconnectAttempts < this.maxReconnectAttempts
+          ) {
+            this.scheduleReconnect();
+          } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            this.onError?.(
+              new Error(
+                `SSE connection failed after ${this.maxReconnectAttempts} attempts`,
+              ),
+            );
+          }
+        } else if (!this.shouldReconnect) {
+          // Manual disconnect or task not found
+          this.onDisconnect?.();
+        }
       };
     } catch (error) {
       this.isConnecting = false;
@@ -168,6 +208,13 @@ export class SessionSSEClient {
     }
   }
 
+  resetConnection(): void {
+    // Reset connection state, useful when retrying after errors
+    this.taskNotFound = false;
+    this.shouldReconnect = true;
+    this.reconnectAttempts = 0;
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimeout) {
       return;
@@ -181,9 +228,9 @@ export class SessionSSEClient {
       30000,
     );
     const jitter = Math.random() * 1000;
-    const delay = baseDelay + jitter;
+    const delay = Math.max(baseDelay + jitter, 1000); // Ensure minimum 1 second delay
 
-    // Scheduling SSE reconnection with backoff
+    // Scheduling SSE reconnection with backoff (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       this.connect();

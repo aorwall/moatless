@@ -119,7 +119,7 @@ export function EnvironmentForm({
     });
   };
 
-  const handleAddEnvVar = () => {
+  const _handleAddEnvVar = () => {
     if (envVarKey && envVarValue) {
       setFormData({
         ...formData,
@@ -133,7 +133,7 @@ export function EnvironmentForm({
     }
   };
 
-  const handleRemoveEnvVar = (key: string) => {
+  const _handleRemoveEnvVar = (key: string) => {
     const { [key]: _, ...rest } = formData.environment_variables;
     setFormData({
       ...formData,

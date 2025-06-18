@@ -4,10 +4,10 @@
 
 // Event Types
 export enum EventType {
-  // Session events
-  SESSION_STARTED = 'session_started',
-  SESSION_ENDED = 'session_ended',
-  SESSION_ERROR = 'session_error',
+  // Task events
+  TASK_STARTED = 'task_started',
+  TASK_ENDED = 'task_ended',
+  TASK_ERROR = 'task_error',
 
   // Agent events
   AGENT_TRIGGERED = 'agent_triggered',
@@ -37,17 +37,17 @@ export interface BaseEvent {
   event_id: string;
   event_type: EventType;
   timestamp: string;
-  session_id?: string;
+  task_id?: string;
   severity: EventSeverity;
   metadata: Record<string, unknown>;
 }
 
-// Session Events
-export interface SessionEvent extends BaseEvent {
+// Task Events
+export interface TaskEvent extends BaseEvent {
   event_type:
-    | EventType.SESSION_STARTED
-    | EventType.SESSION_ENDED
-    | EventType.SESSION_ERROR;
+    | EventType.TASK_STARTED
+    | EventType.TASK_ENDED
+    | EventType.TASK_ERROR;
   agent_type?: string;
   environment_id?: string;
 }
@@ -90,23 +90,23 @@ export interface ToolEvent extends BaseEvent {
 }
 
 // Union type for all events
-export type Event = SessionEvent | AgentEvent | SystemEvent | ToolEvent;
+export type Event = TaskEvent | AgentEvent | SystemEvent | ToolEvent;
 
 // Event response model for API
 export interface EventResponse {
   events: Array<Event>;
   total_events: number;
-  session_id?: string;
+  task_id?: string;
   start_time?: string;
   end_time?: string;
 }
 
 // Helper type guards
-export function isSessionEvent(event: Event): event is SessionEvent {
+export function isTaskEvent(event: Event): event is TaskEvent {
   return [
-    EventType.SESSION_STARTED,
-    EventType.SESSION_ENDED,
-    EventType.SESSION_ERROR,
+    EventType.TASK_STARTED,
+    EventType.TASK_ENDED,
+    EventType.TASK_ERROR,
   ].includes(event.event_type);
 }
 

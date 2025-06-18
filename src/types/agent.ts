@@ -9,7 +9,7 @@ export interface AgentTriggerRequest {
 }
 
 export interface AgentTriggerResponse {
-  session_id: string;
+  task_id: string;
   status: string;
   stream_url?: string;
 }

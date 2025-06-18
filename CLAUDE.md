@@ -44,10 +44,10 @@ pnpm dlx shadcn@latest add [component]
 ```
 src/
 ├── features/          # Feature-based modules
-│   └── sessions/      # Sessions feature
-│       ├── components/   # Session-related components
-│       ├── hooks/        # Session-specific hooks
-│       ├── api/          # Session API endpoints
+│   └── tasks/         # Tasks feature
+│       ├── components/   # Task-related components
+│       ├── hooks/        # Task-specific hooks
+│       ├── api/          # Task API endpoints
 │       └── index.ts      # Feature exports
 ├── lib/               # Shared utilities and components
 │   ├── api/           # Core API utilities
@@ -82,10 +82,10 @@ All API calls should use TanStack Query hooks for consistent caching, error hand
 
 ```typescript
 // Use query hooks for GET requests
-const { data, isLoading, error } = useSessionsList({ activeOnly: true });
+const { data, isLoading, error } = useTasksList({ activeOnly: true });
 
 // Use mutation hooks for POST/PUT/DELETE
-const createSession = useCreateSession({
+const createTask = useCreateTask({
   onSuccess: (data) => {
     // Handle success
   },
@@ -95,16 +95,16 @@ const createSession = useCreateSession({
 #### Query Key Management
 Query keys are centralized in `src/lib/api/query-keys.ts`:
 ```typescript
-queryKeys.sessions() // All session queries
-queryKeys.sessionDetail(id) // Specific session
-queryKeys.sessionMessages(id, filters) // Session messages
+queryKeys.tasks() // All task queries
+queryKeys.taskDetail(id) // Specific task
+queryKeys.taskMessages(id, filters) // Task messages
 ```
 
-#### WebSocket Integration
-WebSocket connections automatically invalidate related queries:
+#### Server-Sent Events (SSE) Integration
+SSE connections automatically invalidate related queries:
 ```typescript
-const ws = new SessionWebSocket(sessionId, queryClient);
-// Messages received via WebSocket will trigger query invalidation
+const sse = new TaskSSEClient({ taskId, queryClient });
+// Messages received via SSE will trigger query invalidation
 ```
 
 ### Development Patterns
