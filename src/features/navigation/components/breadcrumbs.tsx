@@ -67,7 +67,7 @@ const createBreadcrumbItem = (
   if (segment === 'settings') {
     return {
       label: 'Settings',
-      href: isLast ? undefined : '/settings/general',
+      href: isLast ? undefined : '/settings',
       key: `settings-${index}`,
     };
   }

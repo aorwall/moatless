@@ -16,10 +16,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as EnvironmentsIndexRouteImport } from './routes/environments/index'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
-import { Route as SettingsGeneralRouteImport } from './routes/settings/general'
-import { Route as SettingsEnvironmentsRouteImport } from './routes/settings/environments'
-import { Route as SettingsDataControlsRouteImport } from './routes/settings/data-controls'
-import { Route as SettingsClaudeCodeRouteImport } from './routes/settings/claude-code'
 import { Route as EnvironmentsNewRouteImport } from './routes/environments/new'
 import { Route as EnvironmentsEnvironmentIdRouteImport } from './routes/environments/$environmentId'
 
@@ -58,26 +54,6 @@ const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
   path: '/$taskId',
   getParentRoute: () => TasksRoute,
 } as any)
-const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
-  id: '/general',
-  path: '/general',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsEnvironmentsRoute = SettingsEnvironmentsRouteImport.update({
-  id: '/environments',
-  path: '/environments',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsDataControlsRoute = SettingsDataControlsRouteImport.update({
-  id: '/data-controls',
-  path: '/data-controls',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsClaudeCodeRoute = SettingsClaudeCodeRouteImport.update({
-  id: '/claude-code',
-  path: '/claude-code',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const EnvironmentsNewRoute = EnvironmentsNewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -93,27 +69,19 @@ const EnvironmentsEnvironmentIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/environments': typeof EnvironmentsRouteWithChildren
-  '/settings': typeof SettingsRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/environments/$environmentId': typeof EnvironmentsEnvironmentIdRoute
   '/environments/new': typeof EnvironmentsNewRoute
-  '/settings/claude-code': typeof SettingsClaudeCodeRoute
-  '/settings/data-controls': typeof SettingsDataControlsRoute
-  '/settings/environments': typeof SettingsEnvironmentsRoute
-  '/settings/general': typeof SettingsGeneralRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/environments/': typeof EnvironmentsIndexRoute
   '/tasks/': typeof TasksIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/settings': typeof SettingsRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/environments/$environmentId': typeof EnvironmentsEnvironmentIdRoute
   '/environments/new': typeof EnvironmentsNewRoute
-  '/settings/claude-code': typeof SettingsClaudeCodeRoute
-  '/settings/data-controls': typeof SettingsDataControlsRoute
-  '/settings/environments': typeof SettingsEnvironmentsRoute
-  '/settings/general': typeof SettingsGeneralRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/environments': typeof EnvironmentsIndexRoute
   '/tasks': typeof TasksIndexRoute
@@ -122,14 +90,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/environments': typeof EnvironmentsRouteWithChildren
-  '/settings': typeof SettingsRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/environments/$environmentId': typeof EnvironmentsEnvironmentIdRoute
   '/environments/new': typeof EnvironmentsNewRoute
-  '/settings/claude-code': typeof SettingsClaudeCodeRoute
-  '/settings/data-controls': typeof SettingsDataControlsRoute
-  '/settings/environments': typeof SettingsEnvironmentsRoute
-  '/settings/general': typeof SettingsGeneralRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/environments/': typeof EnvironmentsIndexRoute
   '/tasks/': typeof TasksIndexRoute
@@ -143,10 +107,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/environments/$environmentId'
     | '/environments/new'
-    | '/settings/claude-code'
-    | '/settings/data-controls'
-    | '/settings/environments'
-    | '/settings/general'
     | '/tasks/$taskId'
     | '/environments/'
     | '/tasks/'
@@ -156,10 +116,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/environments/$environmentId'
     | '/environments/new'
-    | '/settings/claude-code'
-    | '/settings/data-controls'
-    | '/settings/environments'
-    | '/settings/general'
     | '/tasks/$taskId'
     | '/environments'
     | '/tasks'
@@ -171,10 +127,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/environments/$environmentId'
     | '/environments/new'
-    | '/settings/claude-code'
-    | '/settings/data-controls'
-    | '/settings/environments'
-    | '/settings/general'
     | '/tasks/$taskId'
     | '/environments/'
     | '/tasks/'
@@ -183,7 +135,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EnvironmentsRoute: typeof EnvironmentsRouteWithChildren
-  SettingsRoute: typeof SettingsRouteWithChildren
+  SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
 }
 
@@ -231,34 +183,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EnvironmentsNewRouteImport
       parentRoute: typeof EnvironmentsRoute
     }
-    '/settings/claude-code': {
-      id: '/settings/claude-code'
-      path: '/claude-code'
-      fullPath: '/settings/claude-code'
-      preLoaderRoute: typeof SettingsClaudeCodeRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/data-controls': {
-      id: '/settings/data-controls'
-      path: '/data-controls'
-      fullPath: '/settings/data-controls'
-      preLoaderRoute: typeof SettingsDataControlsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/environments': {
-      id: '/settings/environments'
-      path: '/environments'
-      fullPath: '/settings/environments'
-      preLoaderRoute: typeof SettingsEnvironmentsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/general': {
-      id: '/settings/general'
-      path: '/general'
-      fullPath: '/settings/general'
-      preLoaderRoute: typeof SettingsGeneralRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/tasks/$taskId': {
       id: '/tasks/$taskId'
       path: '/$taskId'
@@ -299,24 +223,6 @@ const EnvironmentsRouteWithChildren = EnvironmentsRoute._addFileChildren(
   EnvironmentsRouteChildren,
 )
 
-interface SettingsRouteChildren {
-  SettingsClaudeCodeRoute: typeof SettingsClaudeCodeRoute
-  SettingsDataControlsRoute: typeof SettingsDataControlsRoute
-  SettingsEnvironmentsRoute: typeof SettingsEnvironmentsRoute
-  SettingsGeneralRoute: typeof SettingsGeneralRoute
-}
-
-const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsClaudeCodeRoute: SettingsClaudeCodeRoute,
-  SettingsDataControlsRoute: SettingsDataControlsRoute,
-  SettingsEnvironmentsRoute: SettingsEnvironmentsRoute,
-  SettingsGeneralRoute: SettingsGeneralRoute,
-}
-
-const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
-  SettingsRouteChildren,
-)
-
 interface TasksRouteChildren {
   TasksTaskIdRoute: typeof TasksTaskIdRoute
   TasksIndexRoute: typeof TasksIndexRoute
@@ -332,7 +238,7 @@ const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EnvironmentsRoute: EnvironmentsRouteWithChildren,
-  SettingsRoute: SettingsRouteWithChildren,
+  SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
 }
 export const routeTree = rootRouteImport
