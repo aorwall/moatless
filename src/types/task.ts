@@ -94,14 +94,30 @@ export interface ResultMessage extends BaseMessage {
 
 export type ClaudeMessage = UserMessage | AssistantMessage | ResultMessage;
 
+export interface TaskIteration {
+  iteration_id: string;
+  start_time: string;
+  end_time: string | null;
+  status: 'active' | 'completed' | 'error';
+  message_count: number;
+  cost_usd: number;
+  initial_message: string;
+  error_message: string | null;
+  result: string | null;
+  duration_ms: number;
+  git_diff: string | null;
+}
+
 export interface TaskMetadata {
   task_id: string;
   created_at: string;
   last_message_at: string;
   agent_type: string;
+  environment_id: string;
   status: 'active' | 'completed' | 'error';
   total_messages: number;
   total_cost_usd: number;
+  iterations: Array<TaskIteration>;
 }
 
 export interface TaskMessages {

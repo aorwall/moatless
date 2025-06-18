@@ -5,7 +5,6 @@ import { AppSidebar } from '@/features/navigation/components/app-sidebar';
 import { ThemeProvider } from '@/lib/components/theme-provider';
 import { SidebarProvider, SidebarTrigger } from '@/lib/components/ui/sidebar';
 
-import { Footer } from './components/footer';
 import { Header } from './components/header';
 
 type LayoutProps = {
@@ -32,7 +31,6 @@ export const Layout = ({ children }: LayoutProps) => {
               </header>
             )}
             <main className="flex-1">{children}</main>
-            <Footer />
           </div>
         </div>
       </SidebarProvider>

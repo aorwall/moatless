@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 
-import { ChatViewer } from '@/features/tasks/components/chat-viewer';
 import { DiffViewer } from '@/features/tasks/components/diff-viewer';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { TaskHeader } from '@/features/tasks/components/task-header';
+import { TaskViewer } from '@/features/tasks/components/task-viewer';
 import { useTaskSSE } from '@/features/tasks/hooks/use-sse';
 import {
   useTask,
@@ -17,7 +17,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/lib/components/ui/tabs';
-import type { ClaudeMessage } from '@/types/task';
+import type { ClaudeMessage, TaskIteration } from '@/types/task';
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
@@ -28,6 +28,11 @@ function TaskDetail() {
   const [, setLocalMessages] = useState<Array<ClaudeMessage>>([]);
   const [streamingEnabled, setStreamingEnabled] = useState(false);
   const [streamingError, setStreamingError] = useState<string | null>(null);
+  const [selectedIteration, setSelectedIteration] =
+    useState<TaskIteration | null>(null);
+  const [rightPanelView, setRightPanelView] = useState<'events' | 'diff'>(
+    'events',
+  );
 
   // Use React Query hooks
   const { data: metadata, isLoading: isLoadingMetadata } = useTask(taskId);
@@ -72,6 +77,12 @@ function TaskDetail() {
     }
   };
 
+  // Handle iteration click
+  const handleIterationClick = (iteration: TaskIteration) => {
+    setSelectedIteration(iteration);
+    setRightPanelView('events');
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -98,21 +109,30 @@ function TaskDetail() {
         onStreamingToggle={handleStreamingToggle}
       />
       <div className="flex flex-1 overflow-hidden">
-        {/* Left side - Chat Viewer */}
+        {/* Left side - Task Viewer */}
         <div className="w-1/2 border-r">
           <div className="h-full flex flex-col">
             <div className="border-b px-4 py-2">
-              <h2 className="text-sm font-medium">Chat</h2>
+              <h2 className="text-sm font-medium">Task</h2>
             </div>
             <div className="flex-1 overflow-hidden">
-              <ChatViewer taskId={taskId} />
+              <TaskViewer
+                metadata={metadata}
+                onIterationClick={handleIterationClick}
+              />
             </div>
           </div>
         </div>
 
         {/* Right side - Tabs with Events and Diff */}
         <div className="w-1/2">
-          <Tabs defaultValue="events" className="h-full flex flex-col">
+          <Tabs
+            value={rightPanelView}
+            onValueChange={(value) =>
+              setRightPanelView(value as 'events' | 'diff')
+            }
+            className="h-full flex flex-col"
+          >
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="events">Events</TabsTrigger>
               <TabsTrigger value="diff">Diff</TabsTrigger>
@@ -121,7 +141,7 @@ function TaskDetail() {
               <EventViewer events={events || []} />
             </TabsContent>
             <TabsContent value="diff" className="flex-1 overflow-hidden">
-              <DiffViewer gitDiff={gitDiff} />
+              <DiffViewer gitDiff={selectedIteration?.git_diff || gitDiff} />
             </TabsContent>
           </Tabs>
         </div>
