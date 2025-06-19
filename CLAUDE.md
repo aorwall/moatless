@@ -100,13 +100,6 @@ queryKeys.taskDetail(id) // Specific task
 queryKeys.taskMessages(id, filters) // Task messages
 ```
 
-#### Server-Sent Events (SSE) Integration
-SSE connections automatically invalidate related queries:
-```typescript
-const sse = new TaskSSEClient({ taskId, queryClient });
-// Messages received via SSE will trigger query invalidation
-```
-
 ### Development Patterns
 
 - **Path Aliases**: `@/*` maps to `./src/*` in TypeScript and Vite
@@ -135,11 +128,56 @@ const sse = new TaskSSEClient({ taskId, queryClient });
   - Use the `ApiError` class for consistent error handling
   - Display user-friendly error messages
   - Log errors to console for debugging
-- **Type Safety**:
+
+#### Error Handling & Loading States
+
+**Component Error Handling Pattern:**
+```typescript
+// Always destructure error from React Query hooks
+const { data, isLoading, error } = useTasksList();
+
+// Handle errors first
+if (error) {
+  return <ErrorAlert error={error} />;
+}
+
+// Show skeleton loaders during loading
+if (isLoading) {
+  return <TaskListSkeleton />;
+}
+
+// Handle empty states
+if (!data || data.length === 0) {
+  return <EmptyState message="No tasks found" />;
+}
+
+// Render success state
+return <TaskList tasks={data} />;
+```
+
+**Error Display Guidelines:**
+- Use `ErrorAlert` component for consistent error display
+- Extract error messages using `getErrorMessage` utility
+- Never show generic "not found" when an API error occurs
+- Distinguish between API failures and empty data
+
+**Loading State Guidelines:**
+- Use skeleton components instead of text loaders
+- Match skeleton structure to actual content layout
+- Keep skeleton animations subtle
+
+**Common Patterns:**
+- API Error: Show error alert with retry option
+- Loading: Show content-appropriate skeleton
+- Empty Data: Show helpful empty state with actions
+- Not Found: Only show when data explicitly doesn't exist (no error)
+
+**Type Safety**:
   - Define all API types in `src/types/`
   - Use TypeScript strict mode
   - Avoid `any` types
-- **State Management**:
+
+**State Management**:
   - Use TanStack Query for server state
   - Use React state for local UI state
   - Avoid redundant state storage

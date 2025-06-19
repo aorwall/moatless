@@ -5,6 +5,7 @@ import { ChatInput } from '@/features/tasks/components/chat-input';
 import { DiffViewer } from '@/features/tasks/components/diff-viewer';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { TaskHeader } from '@/features/tasks/components/task-header';
+import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
 import { useTaskSSE } from '@/features/tasks/hooks/use-sse';
 import {
@@ -12,6 +13,7 @@ import {
   useTaskEvents,
   useTaskGitDiff,
 } from '@/features/tasks/hooks/use-tasks';
+import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
   Tabs,
   TabsContent,
@@ -36,11 +38,24 @@ function TaskDetail() {
   );
 
   // Use React Query hooks
-  const { data: metadata, isLoading: isLoadingMetadata } = useTask(taskId);
-  const { data: events, isLoading: isLoadingEvents } = useTaskEvents(taskId);
-  const { data: gitDiff, isLoading: isLoadingGitDiff } = useTaskGitDiff(taskId);
+  const {
+    data: metadata,
+    isLoading: isLoadingMetadata,
+    error: metadataError,
+  } = useTask(taskId);
+  const {
+    data: events,
+    isLoading: isLoadingEvents,
+    error: eventsError,
+  } = useTaskEvents(taskId);
+  const {
+    data: gitDiff,
+    isLoading: isLoadingGitDiff,
+    error: gitDiffError,
+  } = useTaskGitDiff(taskId);
 
   const loading = isLoadingMetadata || isLoadingEvents || isLoadingGitDiff;
+  const error = metadataError || eventsError || gitDiffError;
 
   // Use SSE for real-time updates only if task exists and streaming is enabled
   const { connect, disconnect, isConnected } = useTaskSSE({
@@ -84,18 +99,30 @@ function TaskDetail() {
     setRightPanelView('events');
   };
 
-  if (loading) {
+  if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        Loading task...
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <ErrorAlert
+          error={error}
+          title="Failed to load task"
+          className="max-w-md w-full"
+        />
       </div>
     );
   }
 
+  if (loading) {
+    return <TaskDetailSkeleton />;
+  }
+
   if (!metadata) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        Task not found
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <ErrorAlert
+          error={new Error(`Task with ID ${taskId} could not be found`)}
+          title="Task not found"
+          className="max-w-md w-full"
+        />
       </div>
     );
   }

@@ -1,7 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 import { TaskList } from '@/features/tasks/components/task-list';
+import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons';
 import { useTasksList } from '@/features/tasks/hooks/use-tasks';
+import { ErrorAlert } from '@/lib/components/ui/error-alert';
 
 export const Route = createFileRoute('/tasks/')({
   component: TasksIndex,
@@ -9,7 +11,11 @@ export const Route = createFileRoute('/tasks/')({
 
 function TasksIndex() {
   // Fetch all tasks
-  const { data: tasks, isLoading } = useTasksList(
+  const {
+    data: tasks,
+    isLoading,
+    error,
+  } = useTasksList(
     {},
     {
       refetchInterval: 5000,
@@ -45,11 +51,17 @@ function TasksIndex() {
             View and manage all your active and archived tasks
           </p>
         </div>
-        <TaskList
-          activeTasks={activeTasks}
-          archivedTasks={finishedTasks}
-          loading={isLoading}
-        />
+        {error ? (
+          <ErrorAlert error={error} title="Failed to load tasks" />
+        ) : isLoading ? (
+          <TaskListSkeleton />
+        ) : (
+          <TaskList
+            activeTasks={activeTasks}
+            archivedTasks={finishedTasks}
+            loading={false}
+          />
+        )}
       </div>
     </div>
   );

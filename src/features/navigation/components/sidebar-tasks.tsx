@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { Activity, Clock } from 'lucide-react';
 
+import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons';
 import { useTasksList } from '@/features/tasks/hooks/use-tasks';
 import { Badge } from '@/lib/components/ui/badge';
 import {
@@ -14,7 +15,11 @@ import {
 
 export function SidebarTasks() {
   // Fetch all tasks
-  const { data: tasks, isLoading } = useTasksList(
+  const {
+    data: tasks,
+    isLoading,
+    error,
+  } = useTasksList(
     {},
     {
       refetchInterval: 5000,
@@ -40,8 +45,19 @@ export function SidebarTasks() {
       <SidebarGroup>
         <SidebarGroupLabel>Tasks</SidebarGroupLabel>
         <SidebarGroupContent>
-          <div className="px-3 py-2 text-sm text-muted-foreground">
-            Loading tasks...
+          <SidebarTasksSkeleton />
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
+  if (error) {
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>Tasks</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <div className="px-3 py-2 text-sm text-destructive">
+            Failed to load tasks
           </div>
         </SidebarGroupContent>
       </SidebarGroup>
