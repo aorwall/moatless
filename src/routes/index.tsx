@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { SearchSection } from '@/features/tasks/components/search-section';
+import { ChatInput } from '@/features/tasks/components/chat-input';
 import { TaskList } from '@/features/tasks/components/task-list';
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons';
 import { useTasksList } from '@/features/tasks/hooks/use-tasks';
@@ -46,7 +46,11 @@ function Dashboard() {
   return (
     <div className="container mx-auto px-6 py-8">
       <div className="mx-auto max-w-4xl space-y-8">
-        <SearchSection />
+        <ChatInput
+          showEnvironmentSelector={true}
+          showTitle={true}
+          className="text-center space-y-4"
+        />
         {error ? (
           <ErrorAlert error={error} title="Failed to load tasks" />
         ) : isLoading ? (

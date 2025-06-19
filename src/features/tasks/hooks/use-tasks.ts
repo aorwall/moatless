@@ -8,6 +8,7 @@ import { tasksApi } from '@/features/tasks/api/tasks';
 import { queryKeys } from '@/lib/api/query-keys';
 import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
 import type { AgentEvent } from '@/types/agent-events';
+import type { FileSearchResponse } from '@/types/environment';
 import type { GitDiffResponse } from '@/types/git-diff';
 import type { TaskMessages, TaskMetadata } from '@/types/task';
 
@@ -160,6 +161,20 @@ export function useTaskGitDiff(
     queryKey: queryKeys.taskGitDiff(taskId),
     queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId,
+    ...options,
+  });
+}
+
+export function useTaskFileSearch(
+  taskId: string,
+  query: string,
+  options?: Omit<UseQueryOptions<FileSearchResponse>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskFileSearch(taskId, query),
+    queryFn: () => tasksApi.searchTaskFiles(taskId, { query }),
+    enabled: !!taskId && query.length >= 3,
+    staleTime: 30 * 1000, // 30 seconds
     ...options,
   });
 }

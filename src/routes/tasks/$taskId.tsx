@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { ChatInput } from '@/features/tasks/components/chat-input';
 import { DiffViewer } from '@/features/tasks/components/diff-viewer';
@@ -57,27 +57,40 @@ function TaskDetail() {
   const loading = isLoadingMetadata || isLoadingEvents || isLoadingGitDiff;
   const error = metadataError || eventsError || gitDiffError;
 
+  // Memoize SSE callbacks to prevent reconnections
+  const handleSSEMessage = useCallback((newMessage: BaseMessage) => {
+    // Add message to local state for immediate UI update
+    setLocalMessages((prev) => [...prev, newMessage as ClaudeMessage]);
+    setStreamingError(null); // Clear error on successful message
+  }, []);
+
+  const handleSSEError = useCallback((error: Error) => {
+    console.error('SSE error:', error);
+    // If task not found, disable streaming
+    if (error.message.includes('Task not found')) {
+      setStreamingEnabled(false);
+      setStreamingError('Task not found');
+    } else if (error.message.includes('connection failed')) {
+      setStreamingError('Connection failed after multiple attempts');
+    } else {
+      setStreamingError('Streaming connection error');
+    }
+  }, []);
+
+  // Extract task status as a stable value
+  const taskStatus = metadata?.status;
+
+  // Memoize autoConnect to prevent unnecessary effect triggers
+  const autoConnect = useMemo(() => {
+    return streamingEnabled && taskStatus === 'active';
+  }, [streamingEnabled, taskStatus]);
+
   // Use SSE for real-time updates only if task exists and streaming is enabled
   const { connect, disconnect, isConnected } = useTaskSSE({
     taskId,
-    autoConnect: streamingEnabled && !!metadata && metadata.status === 'active',
-    onMessage: (newMessage) => {
-      // Add message to local state for immediate UI update
-      setLocalMessages((prev) => [...prev, newMessage as ClaudeMessage]);
-      setStreamingError(null); // Clear error on successful message
-    },
-    onError: (error) => {
-      console.error('SSE error:', error);
-      // If task not found, disable streaming
-      if (error.message.includes('Task not found')) {
-        setStreamingEnabled(false);
-        setStreamingError('Task not found');
-      } else if (error.message.includes('connection failed')) {
-        setStreamingError('Connection failed after multiple attempts');
-      } else {
-        setStreamingError('Streaming connection error');
-      }
-    },
+    autoConnect,
+    onMessage: handleSSEMessage,
+    onError: handleSSEError,
   });
 
   // Handle streaming toggle
@@ -151,12 +164,8 @@ function TaskDetail() {
             </div>
             <ChatInput
               taskId={taskId}
-              disabled={metadata.status !== 'active'}
-              placeholder={
-                metadata.status !== 'active'
-                  ? `Task is ${metadata.status}. Cannot send new messages.`
-                  : 'Type a new request...'
-              }
+              taskStatus={metadata.status}
+              className="p-4 border-t border-slate-200 dark:border-slate-700"
             />
           </div>
         </div>
@@ -175,7 +184,11 @@ function TaskDetail() {
               <TabsTrigger value="diff">Diff</TabsTrigger>
             </TabsList>
             <TabsContent value="events" className="flex-1 overflow-hidden">
-              <EventViewer events={events || []} />
+              <EventViewer
+                events={events || []}
+                taskId={taskId}
+                isTaskRunning={metadata.is_running}
+              />
             </TabsContent>
             <TabsContent value="diff" className="flex-1 overflow-hidden">
               <DiffViewer gitDiff={selectedIteration?.git_diff || gitDiff} />

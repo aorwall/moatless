@@ -33,6 +33,7 @@ export class TaskSSEClient {
   private shouldReconnect = true;
   private taskNotFound = false;
   private onTaskNotFound?: () => void;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
 
   constructor(options: SSEClientOptions) {
     this.taskId = options.taskId;
@@ -47,7 +48,6 @@ export class TaskSSEClient {
 
   connect(): void {
     if (this.eventSource || this.isConnecting || this.taskNotFound) {
-      // SSE already connected, connecting, or task not found - silently return
       return;
     }
 
@@ -65,6 +65,16 @@ export class TaskSSEClient {
         withCredentials: true,
       });
 
+      // Add a check for immediate closure
+      setTimeout(() => {
+        if (
+          this.eventSource &&
+          this.eventSource.readyState === EventSource.CLOSED
+        ) {
+          // EventSource closed immediately - this is normal
+        }
+      }, 100);
+
       this.eventSource.onopen = () => {
         this.isConnecting = false;
         this.reconnectAttempts = 0; // Reset attempts on successful connection
@@ -75,6 +85,9 @@ export class TaskSSEClient {
           clearTimeout(this.reconnectTimeout);
           this.reconnectTimeout = null;
         }
+
+        // Start health check
+        this.startHealthCheck();
       };
 
       this.eventSource.onmessage = (event) => {
@@ -121,12 +134,12 @@ export class TaskSSEClient {
         // Ping received - connection is alive
       });
 
-      this.eventSource.addEventListener('error', () => {
+      this.eventSource.addEventListener('error', (_event) => {
         // Error event received - will be handled by onerror
         // Don't call onError here to avoid duplicate error messages
       });
 
-      this.eventSource.onerror = async () => {
+      this.eventSource.onerror = async (_event) => {
         await this.handleConnectionError();
       };
     } catch (error) {
@@ -152,6 +165,8 @@ export class TaskSSEClient {
       this.eventSource = null;
       this.onDisconnect?.();
     }
+
+    this.stopHealthCheck();
   }
 
   resetConnection(): void {
@@ -182,6 +197,20 @@ export class TaskSSEClient {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
+    }
+    this.stopHealthCheck();
+  }
+
+  private getReadyStateText(state: number): string {
+    switch (state) {
+      case EventSource.CONNECTING:
+        return 'CONNECTING';
+      case EventSource.OPEN:
+        return 'OPEN';
+      case EventSource.CLOSED:
+        return 'CLOSED';
+      default:
+        return 'UNKNOWN';
     }
   }
 
@@ -256,7 +285,6 @@ export class TaskSSEClient {
     const jitter = Math.random() * 1000;
     const delay = Math.max(baseDelay + jitter, 1000); // Ensure minimum 1 second delay
 
-    // Scheduling SSE reconnection with backoff (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       this.connect();
@@ -269,5 +297,27 @@ export class TaskSSEClient {
 
   getReadyState(): number {
     return this.eventSource?.readyState ?? EventSource.CLOSED;
+  }
+
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+
+    this.healthCheckInterval = setInterval(() => {
+      if (this.eventSource) {
+        const state = this.eventSource.readyState;
+
+        // If the connection is closed unexpectedly, handle it
+        if (state === EventSource.CLOSED && this.shouldReconnect) {
+          this.handleConnectionError();
+        }
+      }
+    }, 10000); // Check every 10 seconds
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
   }
 }

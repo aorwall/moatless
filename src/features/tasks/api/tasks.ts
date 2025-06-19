@@ -1,6 +1,10 @@
 import { apiClient } from '@/lib/api/client';
 import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
 import type { AgentEvent } from '@/types/agent-events';
+import type {
+  FileSearchRequest,
+  FileSearchResponse,
+} from '@/types/environment';
 import type { GitDiffResponse } from '@/types/git-diff';
 import type { TaskMessages, TaskMetadata } from '@/types/task';
 
@@ -89,6 +93,16 @@ export const tasksApi = {
   async getTaskGitDiff(taskId: string): Promise<GitDiffResponse> {
     return await apiClient.get<GitDiffResponse>(
       `/api/v1/tasks/${taskId}/git-diff`,
+    );
+  },
+
+  async searchTaskFiles(
+    taskId: string,
+    request: FileSearchRequest,
+  ): Promise<FileSearchResponse> {
+    return await apiClient.post<FileSearchResponse>(
+      `/api/v1/tasks/${taskId}/search-files`,
+      request,
     );
   },
 };

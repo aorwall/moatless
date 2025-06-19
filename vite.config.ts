@@ -12,8 +12,8 @@ const pwaOptions: Partial<VitePWAOptions> = {
   registerType: 'autoUpdate',
   base: '/',
   manifest: {
-    short_name: 'Moatless',
-    name: 'Moatless',
+    short_name: 'moatless-swarm',
+    name: 'Moatless Swarm',
     theme_color: '#000000',
     lang: 'en',
     start_url: '/',

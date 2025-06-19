@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { TaskSSEClient } from '@/lib/api/sse';
 import type { BaseMessage } from '@/types/task';
@@ -33,47 +33,87 @@ export function useTaskSSE({
   const [lastMessage, setLastMessage] = useState<BaseMessage | null>(null);
   const [error, setError] = useState<Error | null>(null);
 
+  // Store callbacks in refs to avoid recreating SSE client
+  const onMessageRef = useRef(onMessage);
+  const onErrorRef = useRef(onError);
+
+  // Update refs when callbacks change
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  // Stable callbacks that use refs
+  const handleMessage = useCallback((message: BaseMessage) => {
+    setLastMessage(message);
+    setError(null);
+    onMessageRef.current?.(message);
+  }, []);
+
+  const handleError = useCallback((err: Error) => {
+    setError(err);
+    onErrorRef.current?.(err);
+  }, []);
+
+  const handleConnect = useCallback(() => {
+    setIsConnected(true);
+    setError(null);
+  }, []);
+
+  const handleDisconnect = useCallback(() => {
+    setIsConnected(false);
+  }, []);
+
+  const handleTaskNotFound = useCallback(() => {
+    setError(new Error('Task not found'));
+    setIsConnected(false);
+  }, []);
+
+  // Create SSE client only when taskId or apiUrl changes
   useEffect(() => {
     // Create SSE client
     const client = new TaskSSEClient({
       taskId,
       apiUrl,
       queryClient,
-      onMessage: (message) => {
-        setLastMessage(message);
-        setError(null);
-        onMessage?.(message);
-      },
-      onError: (err) => {
-        setError(err);
-        onError?.(err);
-      },
-      onConnect: () => {
-        setIsConnected(true);
-        setError(null);
-      },
-      onDisconnect: () => {
-        setIsConnected(false);
-      },
-      onTaskNotFound: () => {
-        setError(new Error('Task not found'));
-        setIsConnected(false);
-      },
+      onMessage: handleMessage,
+      onError: handleError,
+      onConnect: handleConnect,
+      onDisconnect: handleDisconnect,
+      onTaskNotFound: handleTaskNotFound,
     });
 
     sseClientRef.current = client;
-
-    // Auto-connect if enabled
-    if (autoConnect) {
-      client.connect();
-    }
 
     // Cleanup on unmount
     return () => {
       client.disconnect();
       sseClientRef.current = null;
     };
-  }, [taskId, apiUrl, queryClient, autoConnect, onMessage, onError]);
+  }, [
+    taskId,
+    apiUrl,
+    queryClient,
+    handleMessage,
+    handleError,
+    handleConnect,
+    handleDisconnect,
+    handleTaskNotFound,
+  ]);
+
+  // Handle autoConnect changes separately
+  useEffect(() => {
+    if (sseClientRef.current) {
+      if (autoConnect) {
+        sseClientRef.current.connect();
+      } else {
+        sseClientRef.current.disconnect();
+      }
+    }
+  }, [autoConnect]);
 
   const connect = () => {
     sseClientRef.current?.connect();

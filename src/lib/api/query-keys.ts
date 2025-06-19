@@ -16,6 +16,8 @@ export const queryKeys = {
     [...queryKeys.tasks(), 'events', taskId, filters] as const,
   taskGitDiff: (taskId: string) =>
     [...queryKeys.tasks(), 'git-diff', taskId] as const,
+  taskFileSearch: (taskId: string, query: string) =>
+    [...queryKeys.tasks(), 'file-search', taskId, query] as const,
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,
   environments: () => [...queryKeys.all, 'environments'] as const,
