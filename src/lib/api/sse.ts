@@ -98,28 +98,6 @@ export class TaskSSEClient {
 
         try {
           const message = JSON.parse(event.data) as BaseMessage;
-          // Message received - will be handled by callbacks
-
-          // Update React Query cache
-          if (this.queryClient) {
-            // Invalidate task messages query
-            this.queryClient.invalidateQueries({
-              queryKey: ['task-messages', this.taskId],
-            });
-
-            // Invalidate task details
-            this.queryClient.invalidateQueries({
-              queryKey: ['task', this.taskId],
-            });
-
-            // Invalidate tasks list if status changed
-            if (message.type === 'result') {
-              this.queryClient.invalidateQueries({
-                queryKey: ['tasks'],
-              });
-            }
-          }
-
           this.onMessage?.(message);
         } catch (error) {
           const parseError = new Error(
@@ -199,19 +177,6 @@ export class TaskSSEClient {
       this.eventSource = null;
     }
     this.stopHealthCheck();
-  }
-
-  private getReadyStateText(state: number): string {
-    switch (state) {
-      case EventSource.CONNECTING:
-        return 'CONNECTING';
-      case EventSource.OPEN:
-        return 'OPEN';
-      case EventSource.CLOSED:
-        return 'CLOSED';
-      default:
-        return 'UNKNOWN';
-    }
   }
 
   private async handleReconnectionLogic(): Promise<void> {

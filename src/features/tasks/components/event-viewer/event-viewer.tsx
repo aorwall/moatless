@@ -1,7 +1,6 @@
 import { FileText } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { useEventSSE } from '@/features/tasks/hooks/use-event-sse';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
 import type { AgentEvent } from '@/types/agent-events';
 
@@ -15,29 +14,8 @@ interface EventViewerProps {
 
 export function EventViewer({
   events,
-  taskId,
-  isTaskRunning = false,
 }: EventViewerProps) {
   const [localEvents, setLocalEvents] = useState<Array<AgentEvent>>(events);
-
-  // Use SSE for real-time event updates only if task is running
-  useEventSSE({
-    taskId,
-    enabled: isTaskRunning,
-    onEvent: (newEvent) => {
-      setLocalEvents((prev) => {
-        // Check if event already exists to avoid duplicates
-        const exists = prev.some((e) => e.event_id === newEvent.event_id);
-        if (!exists) {
-          return [...prev, newEvent];
-        }
-        return prev;
-      });
-    },
-    onError: (error) => {
-      console.error('Event SSE error:', error);
-    },
-  });
 
   // Update local events when props change
   useEffect(() => {
