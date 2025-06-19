@@ -1,12 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import {
-  ArrowLeft,
-  RefreshCw,
-  Share,
-  StopCircle,
-  Wifi,
-  WifiOff,
-} from 'lucide-react';
+import { ArrowLeft, Loader2, StopCircle, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks';
@@ -64,9 +57,14 @@ export function TaskHeader({
             </Button>
           </Link>
           <div className="space-y-1">
-            <h1 className="text-lg font-semibold">
-              Task {metadata.task_id.slice(0, 8)}
-            </h1>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-lg font-semibold">
+                {metadata.title || `Task ${metadata.task_id.slice(0, 8)}`}
+              </h1>
+              {metadata.is_running && (
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              )}
+            </div>
             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
               <span>{new Date(metadata.created_at).toLocaleString()}</span>
               <span>{metadata.agent_type}</span>
@@ -81,9 +79,7 @@ export function TaskHeader({
               >
                 {metadata.status}
               </Badge>
-              <Badge variant="outline">
-                {metadata.total_messages} messages
-              </Badge>
+              <Badge variant="outline">{metadata.num_turns} turns</Badge>
               <Badge variant="outline">
                 ${metadata.total_cost_usd.toFixed(4)}
               </Badge>
@@ -133,7 +129,7 @@ export function TaskHeader({
               disabled={metadata.status !== 'active' || !!streamingError}
             />
           </div>
-          {metadata.status === 'active' && (
+          {metadata.is_running && (
             <Button
               variant="outline"
               size="sm"
@@ -144,14 +140,6 @@ export function TaskHeader({
               {stopAgent.isPending ? 'Stopping...' : 'Stop'}
             </Button>
           )}
-          <Button variant="outline" size="sm">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          <Button variant="outline" size="sm">
-            <Share className="mr-2 h-4 w-4" />
-            Share
-          </Button>
         </div>
       </div>
     </header>
