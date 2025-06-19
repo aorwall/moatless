@@ -1,5 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
-
+import type { AgentEvent } from '@/types/agent-events';
 import type { BaseMessage } from '@/types/task';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -7,8 +6,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export interface SSEClientOptions {
   taskId: string;
   apiUrl?: string;
-  queryClient?: QueryClient;
   onMessage?: (message: BaseMessage) => void;
+  onEvent?: (event: AgentEvent) => void;
   onError?: (error: Error) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -19,8 +18,8 @@ export class TaskSSEClient {
   private eventSource: EventSource | null = null;
   private taskId: string;
   private apiUrl: string;
-  private queryClient?: QueryClient;
   private onMessage?: (message: BaseMessage) => void;
+  private onEvent?: (event: AgentEvent) => void;
   private onError?: (error: Error) => void;
   private onConnect?: () => void;
   private onDisconnect?: () => void;
@@ -38,8 +37,8 @@ export class TaskSSEClient {
   constructor(options: SSEClientOptions) {
     this.taskId = options.taskId;
     this.apiUrl = options.apiUrl || API_BASE_URL;
-    this.queryClient = options.queryClient;
     this.onMessage = options.onMessage;
+    this.onEvent = options.onEvent;
     this.onError = options.onError;
     this.onConnect = options.onConnect;
     this.onDisconnect = options.onDisconnect;
@@ -110,6 +109,19 @@ export class TaskSSEClient {
       // Handle custom events
       this.eventSource.addEventListener('ping', () => {
         // Ping received - connection is alive
+      });
+
+      // Handle agent events
+      this.eventSource.addEventListener('event', (event) => {
+        try {
+          const agentEvent = JSON.parse(event.data) as AgentEvent;
+          this.onEvent?.(agentEvent);
+        } catch (error) {
+          const parseError = new Error(
+            `Failed to parse agent event: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          this.onError?.(parseError);
+        }
       });
 
       this.eventSource.addEventListener('error', (_event) => {

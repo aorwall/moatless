@@ -1,13 +1,14 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { TaskSSEClient } from '@/lib/api/sse';
+import type { AgentEvent } from '@/types/agent-events';
 import type { BaseMessage } from '@/types/task';
 
 export interface UseTaskSSEOptions {
   taskId: string;
   apiUrl?: string;
   onMessage?: (message: BaseMessage) => void;
+  onEvent?: (event: AgentEvent) => void;
   onError?: (error: Error) => void;
   autoConnect?: boolean;
 }
@@ -24,10 +25,10 @@ export function useTaskSSE({
   taskId,
   apiUrl,
   onMessage,
+  onEvent,
   onError,
   autoConnect = true,
 }: UseTaskSSEOptions): UseTaskSSEReturn {
-  const queryClient = useQueryClient();
   const sseClientRef = useRef<TaskSSEClient | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<BaseMessage | null>(null);
@@ -35,12 +36,17 @@ export function useTaskSSE({
 
   // Store callbacks in refs to avoid recreating SSE client
   const onMessageRef = useRef(onMessage);
+  const onEventRef = useRef(onEvent);
   const onErrorRef = useRef(onError);
 
   // Update refs when callbacks change
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -51,6 +57,11 @@ export function useTaskSSE({
     setLastMessage(message);
     setError(null);
     onMessageRef.current?.(message);
+  }, []);
+
+  const handleEvent = useCallback((event: AgentEvent) => {
+    setError(null);
+    onEventRef.current?.(event);
   }, []);
 
   const handleError = useCallback((err: Error) => {
@@ -78,8 +89,8 @@ export function useTaskSSE({
     const client = new TaskSSEClient({
       taskId,
       apiUrl,
-      queryClient,
       onMessage: handleMessage,
+      onEvent: handleEvent,
       onError: handleError,
       onConnect: handleConnect,
       onDisconnect: handleDisconnect,
@@ -96,8 +107,8 @@ export function useTaskSSE({
   }, [
     taskId,
     apiUrl,
-    queryClient,
     handleMessage,
+    handleEvent,
     handleError,
     handleConnect,
     handleDisconnect,

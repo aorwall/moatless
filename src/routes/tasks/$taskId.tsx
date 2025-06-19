@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ChatInput } from '@/features/tasks/components/chat-input';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
@@ -25,7 +25,8 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/lib/components/ui/tabs';
-import type { ClaudeMessage, TaskIteration } from '@/types/task';
+import type { AgentEvent } from '@/types/agent-events';
+import type { BaseMessage, ClaudeMessage, TaskIteration } from '@/types/task';
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
@@ -41,6 +42,7 @@ function TaskDetail() {
   const [rightPanelView, setRightPanelView] = useState<'events' | 'diff'>(
     'events',
   );
+  const [streamEvents, setStreamEvents] = useState<Array<AgentEvent>>([]);
 
   // Use React Query hooks
   const {
@@ -69,6 +71,12 @@ function TaskDetail() {
     setStreamingError(null); // Clear error on successful message
   }, []);
 
+  const handleSSEEvent = useCallback((newEvent: AgentEvent) => {
+    // Add event to stream events
+    setStreamEvents((prev) => [...prev, newEvent]);
+    setStreamingError(null); // Clear error on successful event
+  }, []);
+
   const handleSSEError = useCallback((error: Error) => {
     console.error('SSE error:', error);
     // If task not found, disable streaming
@@ -85,6 +93,13 @@ function TaskDetail() {
   // Extract task status as a stable value
   const taskStatus = metadata?.status;
 
+  // Initialize stream events with existing events when task is running
+  useEffect(() => {
+    if (metadata?.is_running && events && streamEvents.length === 0) {
+      setStreamEvents(events);
+    }
+  }, [metadata?.is_running, events, streamEvents.length]);
+
   // Memoize autoConnect to prevent unnecessary effect triggers
   const autoConnect = useMemo(() => {
     return streamingEnabled && taskStatus === 'active';
@@ -95,6 +110,7 @@ function TaskDetail() {
     taskId,
     autoConnect,
     onMessage: handleSSEMessage,
+    onEvent: handleSSEEvent,
     onError: handleSSEError,
   });
 
@@ -196,7 +212,11 @@ function TaskDetail() {
                 className="flex-1 w-full overflow-hidden mt-0"
               >
                 <EventViewer
-                  events={events || []}
+                  events={
+                    metadata.is_running && streamingEnabled
+                      ? streamEvents
+                      : events || []
+                  }
                   taskId={taskId}
                   isTaskRunning={metadata.is_running}
                 />

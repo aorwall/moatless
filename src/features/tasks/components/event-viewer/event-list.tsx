@@ -15,19 +15,10 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible';
-
-interface Event {
-  event_id: string;
-  type: string;
-  sub_type?: string | null;
-  task_id: string;
-  timestamp: string;
-  is_error: boolean;
-  payload: unknown;
-}
+import type { AgentEvent } from '@/types/agent-events';
 
 interface EventListProps {
-  events: Array<Event>;
+  events: Array<AgentEvent>;
 }
 
 const getEventIcon = (type: string, isError: boolean) => {
@@ -82,7 +73,7 @@ const formatTimestamp = (timestamp: string) => {
   };
 };
 
-const getEventDisplayText = (event: Event): string => {
+const getEventDisplayText = (event: AgentEvent): string => {
   const payload = event.payload as Record<string, unknown>;
 
   // Handle message events
@@ -175,7 +166,7 @@ const PayloadRenderer = ({ payload }: { payload: unknown }) => {
   );
 };
 
-const EventItem = ({ event }: { event: Event }) => {
+const EventItem = ({ event }: { event: AgentEvent }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { time, date } = formatTimestamp(event.timestamp);
 
