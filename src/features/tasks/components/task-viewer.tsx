@@ -41,8 +41,8 @@ export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
         {metadata.iterations.map((iteration) => (
           <div key={iteration.iteration_id} className="space-y-4">
             {/* Initial Message */}
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-900 prose prose-sm max-w-none">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+              <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {iteration.initial_message}
                 </ReactMarkdown>
@@ -53,7 +53,7 @@ export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
             <div className="flex justify-center py-2">
               <button
                 type="button"
-                className="cursor-pointer text-sm text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-4 bg-transparent border-none p-0"
+                className="cursor-pointer text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors flex items-center gap-4 bg-transparent border-none p-0"
                 onClick={() => handleIterationClick(iteration)}
                 onKeyDown={(e) => handleKeyDown(e, iteration)}
               >
@@ -75,7 +75,7 @@ export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
 
             {/* Result Message */}
             {iteration.result && (
-              <div className="text-sm text-gray-900 prose prose-sm max-w-none">
+              <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {iteration.result}
                 </ReactMarkdown>
@@ -84,7 +84,7 @@ export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
 
             {/* Error Message */}
             {iteration.error_message && (
-              <div className="text-sm text-red-900 prose prose-sm max-w-none">
+              <div className="text-sm text-red-900 dark:text-red-400 prose prose-sm dark:prose-invert max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {iteration.error_message}
                 </ReactMarkdown>

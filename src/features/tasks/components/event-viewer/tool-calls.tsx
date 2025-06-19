@@ -47,11 +47,11 @@ function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const hasParams = Object.keys(toolCall.input).length > 0;
 
   return (
-    <Card className="border-l-4 border-l-blue-500">
+    <Card className="border-l-4 border-l-slate-400 dark:border-l-slate-600">
       <CardHeader>
         <Button variant="ghost" className="w-full justify-between p-0 h-auto">
           <div className="flex items-center gap-2">
-            <Wrench className="h-4 w-4 text-blue-500" />
+            <Wrench className="h-4 w-4 text-slate-600 dark:text-slate-400" />
             <CardTitle className="text-sm font-medium">
               {toolCall.name}
             </CardTitle>

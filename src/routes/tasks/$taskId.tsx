@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 
+import { ChatInput } from '@/features/tasks/components/chat-input';
 import { DiffViewer } from '@/features/tasks/components/diff-viewer';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { TaskHeader } from '@/features/tasks/components/task-header';
@@ -121,6 +122,15 @@ function TaskDetail() {
                 onIterationClick={handleIterationClick}
               />
             </div>
+            <ChatInput
+              taskId={taskId}
+              disabled={metadata.status !== 'active'}
+              placeholder={
+                metadata.status !== 'active'
+                  ? `Task is ${metadata.status}. Cannot send new messages.`
+                  : 'Type a new request...'
+              }
+            />
           </div>
         </div>
 

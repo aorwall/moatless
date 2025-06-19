@@ -103,7 +103,7 @@ export function EventRenderer({
     return (
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-sm">
-          <Activity className="h-4 w-4 text-blue-500" />
+          <Activity className="h-4 w-4 text-slate-600 dark:text-slate-400" />
           <span className="font-medium text-gray-700 dark:text-gray-300">
             Environment: {subtype}
           </span>

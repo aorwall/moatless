@@ -49,14 +49,14 @@ function ToolResultItem({ toolResult }: ToolResultItemProps) {
 
   return (
     <Card
-      className={`border-l-4 ${isError ? 'border-l-red-500' : 'border-l-green-500'}`}
+      className={`border-l-4 ${isError ? 'border-l-red-400 dark:border-l-red-600' : 'border-l-slate-400 dark:border-l-slate-600'}`}
     >
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           {isError ? (
-            <XCircle className="h-4 w-4 text-red-500" />
+            <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
           ) : (
-            <CheckCircle className="h-4 w-4 text-green-500" />
+            <CheckCircle className="h-4 w-4 text-slate-600 dark:text-slate-400" />
           )}
           <CardTitle className="text-sm font-medium">Tool Result</CardTitle>
         </div>

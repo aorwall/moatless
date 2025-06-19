@@ -106,6 +106,10 @@ export function useSendMessage(
       queryClient.invalidateQueries({
         queryKey: queryKeys.taskDetail(variables.taskId),
       });
+      // Invalidate task events to show new events
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskEvents(variables.taskId),
+      });
       options?.onSuccess?.(data, variables, context);
     },
     ...options,
