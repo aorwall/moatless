@@ -167,8 +167,8 @@ const getEventDisplayText = (event: Event): string => {
 
 const PayloadRenderer = ({ payload }: { payload: unknown }) => {
   return (
-    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 mt-3">
-      <pre className="text-xs text-slate-600 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed">
+    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 mt-3 w-full">
+      <pre className="text-xs text-slate-600 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed break-words">
         {JSON.stringify(payload, null, 2)}
       </pre>
     </div>
@@ -181,7 +181,7 @@ const EventItem = ({ event }: { event: Event }) => {
 
   return (
     <div
-      className={`border rounded-lg transition-all duration-200 ${
+      className={`w-full border rounded-lg transition-all duration-200 ${
         event.is_error
           ? 'border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10'
           : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-sm'
@@ -189,39 +189,40 @@ const EventItem = ({ event }: { event: Event }) => {
     >
       <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
         <CollapsibleTrigger asChild>
-          <div className="p-4 cursor-pointer hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="flex-shrink-0">
-                  {getEventIcon(event.type, event.is_error)}
+          <div className="p-4 cursor-pointer hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors w-full">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 w-full">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex-shrink-0">
+                    {getEventIcon(event.type, event.is_error)}
+                  </div>
+                  <div className="flex items-center flex-wrap gap-2">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      {event.type}
+                    </span>
+                    {event.sub_type && (
+                      <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                        {event.sub_type}
+                      </span>
+                    )}
+                    {event.is_error && (
+                      <span className="text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-2 py-0.5 rounded">
+                        error
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                    {event.type}
-                  </span>
-                  {event.sub_type && (
-                    <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                      {event.sub_type}
-                    </span>
-                  )}
-                  {event.is_error && (
-                    <span className="text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-2 py-0.5 rounded">
-                      error
-                    </span>
-                  )}
-                </div>
-
-                <div className="text-sm text-slate-600 dark:text-slate-300 truncate min-w-0">
+                <div className="text-sm text-slate-600 dark:text-slate-300 break-words sm:truncate min-w-0 flex-1">
                   {getEventDisplayText(event)}
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 flex-shrink-0 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center justify-between sm:justify-end gap-3 flex-shrink-0 text-xs text-slate-500 dark:text-slate-400">
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   <span className="font-mono">{time}</span>
-                  <span>{date}</span>
+                  <span className="hidden sm:inline">{date}</span>
                 </div>
                 <ChevronRight
                   className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -232,8 +233,8 @@ const EventItem = ({ event }: { event: Event }) => {
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <div className="px-4 pb-4">
-            <div className="text-xs text-slate-400 dark:text-slate-500 font-mono mb-2">
+          <div className="px-4 pb-4 w-full">
+            <div className="text-xs text-slate-400 dark:text-slate-500 font-mono mb-2 break-all">
               {event.event_id}
             </div>
             <PayloadRenderer payload={event.payload} />
@@ -250,7 +251,7 @@ export function EventList({ events }: EventListProps) {
   );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 w-full">
       {sortedEvents.map((event) => (
         <EventItem key={event.event_id} event={event} />
       ))}

@@ -24,45 +24,45 @@ export function GitFileDiff({ file }: GitFileDiffProps) {
   const status = statusConfig[file.status];
 
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader
         className="cursor-pointer py-3"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             {isExpanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             )}
-            <code className="text-sm font-medium">
+            <code className="text-sm font-medium truncate">
               {file.status === 'renamed' && file.old_path
                 ? `${file.old_path} → ${file.path}`
                 : file.path}
             </code>
             <Badge
               variant="secondary"
-              className={cn('text-xs', status.className)}
+              className={cn('text-xs flex-shrink-0', status.className)}
             >
               {status.label}
             </Badge>
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs flex-shrink-0">
             <span className="text-green-600">+{file.additions}</span>
             <span className="text-red-600">-{file.deletions}</span>
           </div>
         </div>
       </CardHeader>
       {isExpanded && (
-        <CardContent className="p-0">
-          <div className="diff-container">
+        <CardContent className="p-0 w-full">
+          <div className="diff-container w-full overflow-x-auto">
             {file.chunks.map((chunk, chunkIndex) => (
               <div
                 key={`${file.path}-chunk-${chunkIndex}`}
-                className="diff-chunk"
+                className="diff-chunk w-full"
               >
-                <div className="diff-header bg-gray-50 dark:bg-gray-800 px-4 py-2 text-xs text-muted-foreground font-mono">
+                <div className="diff-header bg-gray-50 dark:bg-gray-800 px-4 py-2 text-xs text-muted-foreground font-mono w-full">
                   {chunk.header}
                 </div>
                 <SyntaxDiffViewer chunk={chunk} filePath={file.path} />

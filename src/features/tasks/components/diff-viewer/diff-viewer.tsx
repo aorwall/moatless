@@ -22,14 +22,14 @@ export function DiffViewer({ gitDiff }: DiffViewerProps) {
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-6 space-y-4">
-        <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
+    <ScrollArea className="h-full w-full">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4 w-full">
+        <div className="flex items-center justify-between text-sm text-muted-foreground mb-4 w-full flex-wrap gap-2">
           <span>
             {gitDiff.total_files} {gitDiff.total_files === 1 ? 'file' : 'files'}{' '}
             changed
           </span>
-          <span>
+          <span className="flex items-center gap-2">
             <span className="text-green-600">+{gitDiff.total_additions}</span>{' '}
             <span className="text-red-600">-{gitDiff.total_deletions}</span>
           </span>

@@ -15,6 +15,11 @@ import {
 } from '@/features/tasks/hooks/use-tasks';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/lib/components/ui/resizable';
+import {
   Tabs,
   TabsContent,
   TabsList,
@@ -141,7 +146,7 @@ function TaskDetail() {
   }
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full w-full absolute inset-0">
       <TaskHeader
         metadata={metadata}
         streamingEnabled={streamingEnabled}
@@ -149,10 +154,10 @@ function TaskDetail() {
         streamingError={streamingError}
         onStreamingToggle={handleStreamingToggle}
       />
-      <div className="flex flex-1 overflow-hidden">
+      <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left side - Task Viewer */}
-        <div className="w-1/2 border-r">
-          <div className="h-full flex flex-col">
+        <ResizablePanel defaultSize={50} minSize={30}>
+          <div className="h-full flex flex-col border-r">
             <div className="border-b px-4 py-2">
               <h2 className="text-sm font-medium">Task</h2>
             </div>
@@ -168,34 +173,44 @@ function TaskDetail() {
               className="p-4 border-t border-slate-200 dark:border-slate-700"
             />
           </div>
-        </div>
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
 
         {/* Right side - Tabs with Events and Diff */}
-        <div className="w-1/2">
-          <Tabs
-            value={rightPanelView}
-            onValueChange={(value) =>
-              setRightPanelView(value as 'events' | 'diff')
-            }
-            className="h-full flex flex-col"
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="events">Events</TabsTrigger>
-              <TabsTrigger value="diff">Diff</TabsTrigger>
-            </TabsList>
-            <TabsContent value="events" className="flex-1 overflow-hidden">
-              <EventViewer
-                events={events || []}
-                taskId={taskId}
-                isTaskRunning={metadata.is_running}
-              />
-            </TabsContent>
-            <TabsContent value="diff" className="flex-1 overflow-hidden">
-              <DiffViewer gitDiff={selectedIteration?.git_diff || gitDiff} />
-            </TabsContent>
-          </Tabs>
-        </div>
-      </div>
+        <ResizablePanel defaultSize={50} minSize={30}>
+          <div className="h-full flex flex-col">
+            <Tabs
+              value={rightPanelView}
+              onValueChange={(value) =>
+                setRightPanelView(value as 'events' | 'diff')
+              }
+              className="h-full w-full flex flex-col"
+            >
+              <TabsList className="grid w-full grid-cols-2 mx-auto max-w-md">
+                <TabsTrigger value="events">Events</TabsTrigger>
+                <TabsTrigger value="diff">Diff</TabsTrigger>
+              </TabsList>
+              <TabsContent
+                value="events"
+                className="flex-1 w-full overflow-hidden mt-0"
+              >
+                <EventViewer
+                  events={events || []}
+                  taskId={taskId}
+                  isTaskRunning={metadata.is_running}
+                />
+              </TabsContent>
+              <TabsContent
+                value="diff"
+                className="flex-1 w-full overflow-hidden mt-0"
+              >
+                <DiffViewer gitDiff={selectedIteration?.git_diff || gitDiff} />
+              </TabsContent>
+            </Tabs>
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

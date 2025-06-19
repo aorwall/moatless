@@ -46,8 +46,8 @@ export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
   };
 
   return (
-    <ScrollArea className="h-full" ref={scrollAreaRef}>
-      <div className="p-6 space-y-4">
+    <ScrollArea className="h-full w-full" ref={scrollAreaRef}>
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4 w-full">
         {metadata.iterations.map((iteration, index) => (
           <div
             key={iteration.iteration_id || `iteration-${index}`}

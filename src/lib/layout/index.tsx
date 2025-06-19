@@ -30,7 +30,7 @@ export const Layout = ({ children }: LayoutProps) => {
                 <Header />
               </header>
             )}
-            <main className="flex-1">{children}</main>
+            <main className="flex-1 relative">{children}</main>
           </div>
         </div>
       </SidebarProvider>

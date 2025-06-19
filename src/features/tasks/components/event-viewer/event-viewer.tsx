@@ -12,9 +12,7 @@ interface EventViewerProps {
   isTaskRunning?: boolean;
 }
 
-export function EventViewer({
-  events,
-}: EventViewerProps) {
+export function EventViewer({ events }: EventViewerProps) {
   const [localEvents, setLocalEvents] = useState<Array<AgentEvent>>(events);
 
   // Update local events when props change
@@ -35,8 +33,8 @@ export function EventViewer({
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-6">
+    <ScrollArea className="h-full w-full">
+      <div className="p-3 sm:p-4 lg:p-6 w-full">
         <EventList events={displayEvents} />
       </div>
     </ScrollArea>
