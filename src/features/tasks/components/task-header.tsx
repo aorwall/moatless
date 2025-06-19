@@ -1,36 +1,25 @@
-import { Loader2, StopCircle, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, StopCircle, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks';
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx';
-import { Switch } from '@/lib/components/ui/switch';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip';
-import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/utils/error';
 import type { TaskMetadata } from '@/types/task';
 
 interface TaskHeaderProps {
   metadata: TaskMetadata;
-  streamingEnabled: boolean;
-  isConnected: boolean;
   streamingError?: string | null;
-  onStreamingToggle: () => void;
 }
 
-export function TaskHeader({
-  metadata,
-  streamingEnabled,
-  isConnected,
-  streamingError,
-  onStreamingToggle,
-}: TaskHeaderProps) {
+export function TaskHeader({ metadata, streamingError }: TaskHeaderProps) {
   const stopAgent = useStopAgent({
     onSuccess: () => {
       toast.success('Agent stopped successfully');
@@ -85,46 +74,23 @@ export function TaskHeader({
         </div>
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center space-x-1">
-                    {streamingError ? (
-                      <>
-                        <WifiOff className="h-4 w-4 text-red-500" />
-                        <span className="text-sm text-red-500">
-                          Streaming error
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Wifi
-                          className={cn(
-                            'h-4 w-4',
-                            isConnected
-                              ? 'text-green-500'
-                              : 'text-muted-foreground',
-                          )}
-                        />
-                        <span className="text-sm text-muted-foreground">
-                          {isConnected ? 'Live updates' : 'Disconnected'}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </TooltipTrigger>
-                {streamingError && (
+            {streamingError && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center space-x-1">
+                      <WifiOff className="h-4 w-4 text-red-500" />
+                      <span className="text-sm text-red-500">
+                        Streaming error
+                      </span>
+                    </div>
+                  </TooltipTrigger>
                   <TooltipContent>
                     <p>{streamingError}</p>
                   </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-            <Switch
-              checked={streamingEnabled}
-              onCheckedChange={onStreamingToggle}
-              disabled={metadata.status !== 'active' || !!streamingError}
-            />
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
           {metadata.is_running && (
             <Button

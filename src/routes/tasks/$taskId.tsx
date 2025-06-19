@@ -35,7 +35,6 @@ export const Route = createFileRoute('/tasks/$taskId')({
 function TaskDetail() {
   const { taskId } = Route.useParams();
   const [, setLocalMessages] = useState<Array<ClaudeMessage>>([]);
-  const [streamingEnabled, setStreamingEnabled] = useState(false);
   const [streamingError, setStreamingError] = useState<string | null>(null);
   const [selectedIteration, setSelectedIteration] =
     useState<TaskIteration | null>(null);
@@ -102,30 +101,17 @@ function TaskDetail() {
 
   // Memoize autoConnect to prevent unnecessary effect triggers
   const autoConnect = useMemo(() => {
-    return streamingEnabled && taskStatus === 'active';
-  }, [streamingEnabled, taskStatus]);
+    return metadata?.is_running && taskStatus === 'active';
+  }, [metadata?.is_running, taskStatus]);
 
   // Use SSE for real-time updates only if task exists and streaming is enabled
-  const { connect, disconnect, isConnected } = useTaskSSE({
+  useTaskSSE({
     taskId,
     autoConnect,
     onMessage: handleSSEMessage,
     onEvent: handleSSEEvent,
     onError: handleSSEError,
   });
-
-  // Handle streaming toggle
-  const handleStreamingToggle = () => {
-    if (streamingEnabled) {
-      disconnect();
-      setStreamingEnabled(false);
-    } else {
-      setStreamingEnabled(true);
-      if (metadata && metadata.status === 'active') {
-        connect();
-      }
-    }
-  };
 
   // Handle iteration click
   const handleIterationClick = (iteration: TaskIteration) => {
@@ -163,13 +149,7 @@ function TaskDetail() {
 
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
-      <TaskHeader
-        metadata={metadata}
-        streamingEnabled={streamingEnabled}
-        isConnected={isConnected}
-        streamingError={streamingError}
-        onStreamingToggle={handleStreamingToggle}
-      />
+      <TaskHeader metadata={metadata} streamingError={streamingError} />
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left side - Task Viewer */}
         <ResizablePanel defaultSize={50} minSize={30}>
@@ -212,11 +192,7 @@ function TaskDetail() {
                 className="flex-1 w-full overflow-hidden mt-0"
               >
                 <EventViewer
-                  events={
-                    metadata.is_running && streamingEnabled
-                      ? streamEvents
-                      : events || []
-                  }
+                  events={metadata.is_running ? streamEvents : events || []}
                   taskId={taskId}
                   isTaskRunning={metadata.is_running}
                 />
