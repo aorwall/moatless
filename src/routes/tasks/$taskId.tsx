@@ -25,7 +25,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/lib/components/ui/tabs';
-import type { AgentEvent } from '@/types/agent-events';
+import type { Event } from '@/types/agent-events';
 import type { BaseMessage, ClaudeMessage, TaskIteration } from '@/types/task';
 
 export const Route = createFileRoute('/tasks/$taskId')({
@@ -42,7 +42,7 @@ function TaskDetail() {
   const [rightPanelView, setRightPanelView] = useState<'events' | 'diff'>(
     'events',
   );
-  const [streamEvents, setStreamEvents] = useState<Array<AgentEvent>>([]);
+  const [streamEvents, setStreamEvents] = useState<Array<Event>>([]);
 
   // Use React Query hooks
   const {
@@ -71,7 +71,7 @@ function TaskDetail() {
     setStreamingError(null); // Clear error on successful message
   }, []);
 
-  const handleSSEEvent = useCallback((newEvent: AgentEvent) => {
+  const handleSSEEvent = useCallback((newEvent: Event) => {
     // Add event to stream events
     setStreamEvents((prev) => [...prev, newEvent]);
     setStreamingError(null); // Clear error on successful event

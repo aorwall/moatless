@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@/types/agent-events';
+import type { Event } from '@/types/agent-events';
 import type { BaseMessage } from '@/types/task';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -7,7 +7,7 @@ export interface SSEClientOptions {
   taskId: string;
   apiUrl?: string;
   onMessage?: (message: BaseMessage) => void;
-  onEvent?: (event: AgentEvent) => void;
+  onEvent?: (event: Event) => void;
   onError?: (error: Error) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -19,7 +19,7 @@ export class TaskSSEClient {
   private taskId: string;
   private apiUrl: string;
   private onMessage?: (message: BaseMessage) => void;
-  private onEvent?: (event: AgentEvent) => void;
+  private onEvent?: (event: Event) => void;
   private onError?: (error: Error) => void;
   private onConnect?: () => void;
   private onDisconnect?: () => void;
@@ -114,7 +114,7 @@ export class TaskSSEClient {
       // Handle agent events
       this.eventSource.addEventListener('event', (event) => {
         try {
-          const agentEvent = JSON.parse(event.data) as AgentEvent;
+          const agentEvent = JSON.parse(event.data) as Event;
           this.onEvent?.(agentEvent);
         } catch (error) {
           const parseError = new Error(

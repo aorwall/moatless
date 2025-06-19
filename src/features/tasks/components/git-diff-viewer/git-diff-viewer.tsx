@@ -7,35 +7,8 @@ import {
   FilePlus,
   Square,
 } from 'lucide-react';
-import Prism from 'prismjs';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
-
-// Import Prism languages
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-scss';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-rust';
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-php';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-diff';
-
-// Import Prism themes
-import 'prismjs/themes/prism.css';
-import 'prismjs/themes/prism-tomorrow.css';
 
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
@@ -92,70 +65,11 @@ const getStatusColor = (status: GitDiffFile['status']) => {
   }
 };
 
-// Language detection based on file extension
-const getLanguageFromPath = (path: string): string => {
-  const ext = path.split('.').pop()?.toLowerCase();
-  const languageMap: Record<string, string> = {
-    js: 'javascript',
-    jsx: 'jsx',
-    ts: 'typescript',
-    tsx: 'tsx',
-    py: 'python',
-    rb: 'ruby',
-    go: 'go',
-    rs: 'rust',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    cc: 'cpp',
-    cxx: 'cpp',
-    h: 'c',
-    hpp: 'cpp',
-    php: 'php',
-    css: 'css',
-    scss: 'scss',
-    sass: 'scss',
-    less: 'css',
-    html: 'html',
-    xml: 'xml',
-    md: 'markdown',
-    markdown: 'markdown',
-    json: 'json',
-    yaml: 'yaml',
-    yml: 'yaml',
-    sh: 'bash',
-    bash: 'bash',
-    zsh: 'bash',
-    sql: 'sql',
-    diff: 'diff',
-    patch: 'diff',
-  };
-  return languageMap[ext || ''] || 'plaintext';
-};
-
 export function GitDiffViewer({ gitDiff, className }: GitDiffViewerProps) {
   const [splitView, setSplitView] = useState(false);
   const isDarkMode = useMemo(() => {
     return document.documentElement.classList.contains('dark');
   }, []);
-
-  // Load appropriate Prism theme based on dark mode
-  useEffect(() => {
-    const themeLink = document.getElementById('prism-theme') as HTMLLinkElement;
-    if (!themeLink) {
-      const link = document.createElement('link');
-      link.id = 'prism-theme';
-      link.rel = 'stylesheet';
-      link.href = isDarkMode
-        ? 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css'
-        : 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism.min.css';
-      document.head.appendChild(link);
-    } else {
-      themeLink.href = isDarkMode
-        ? 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css'
-        : 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism.min.css';
-    }
-  }, [isDarkMode]);
 
   if (!gitDiff || gitDiff.files.length === 0) {
     return (
@@ -237,36 +151,6 @@ function FileDiff({ file, isDarkMode, splitView }: FileDiffProps) {
   const isDeletedFile = file.status === 'deleted';
   const defaultOpen = file.additions + file.deletions < 100;
 
-  const language = useMemo(() => getLanguageFromPath(file.path), [file.path]);
-
-  // Syntax highlighting function
-  const highlightSyntax = useMemo(() => {
-    return (str: string) => {
-      if (!str) {
-        return <pre style={{ display: 'inline' }} />;
-      }
-
-      try {
-        const grammar = Prism.languages[language];
-        if (grammar) {
-          const highlighted = Prism.highlight(str, grammar, language);
-          return (
-            <pre
-              style={{ display: 'inline' }}
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: Prism.js output is safe
-              dangerouslySetInnerHTML={{ __html: highlighted }}
-            />
-          );
-        }
-      } catch (error) {
-        console.error('Syntax highlighting error:', error);
-      }
-
-      // Fallback to plain text
-      return <pre style={{ display: 'inline' }}>{str}</pre>;
-    };
-  }, [language]);
-
   return (
     <Collapsible defaultOpen={defaultOpen}>
       <CollapsibleTrigger className="w-full">
@@ -305,12 +189,12 @@ function FileDiff({ file, isDarkMode, splitView }: FileDiffProps) {
       <CollapsibleContent>
         <div className="border-t">
           <ReactDiffViewer
+            key={`${file.path}-${file.old_content?.length || 0}-${file.new_content?.length || 0}`}
             oldValue={isNewFile ? '' : file.old_content}
             newValue={isDeletedFile ? '' : file.new_content}
             splitView={splitView}
             useDarkTheme={isDarkMode}
             showDiffOnly={false}
-            renderContent={highlightSyntax}
             styles={{
               variables: {
                 light: {
