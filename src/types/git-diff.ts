@@ -1,19 +1,11 @@
-export interface DiffChunk {
-  header: string;
-  content: string;
-  start_line_old: number;
-  line_count_old: number;
-  start_line_new: number;
-  line_count_new: number;
-}
-
 export interface GitDiffFile {
   path: string;
   status: 'added' | 'modified' | 'deleted' | 'renamed';
   additions: number;
   deletions: number;
   old_path?: string;
-  chunks: Array<DiffChunk>;
+  old_content: string;
+  new_content: string;
 }
 
 export interface GitDiffResponse {

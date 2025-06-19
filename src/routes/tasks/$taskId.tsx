@@ -2,8 +2,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 
 import { ChatInput } from '@/features/tasks/components/chat-input';
-import { DiffViewer } from '@/features/tasks/components/diff-viewer';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
+import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer';
 import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
@@ -205,7 +205,9 @@ function TaskDetail() {
                 value="diff"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <DiffViewer gitDiff={selectedIteration?.git_diff || gitDiff} />
+                <GitDiffViewer
+                  gitDiff={selectedIteration?.git_diff || gitDiff}
+                />
               </TabsContent>
             </Tabs>
           </div>

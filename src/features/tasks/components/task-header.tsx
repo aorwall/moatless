@@ -1,10 +1,10 @@
-import { Link } from '@tanstack/react-router';
-import { ArrowLeft, Loader2, StopCircle, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, StopCircle, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks';
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
+import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx';
 import { Switch } from '@/lib/components/ui/switch';
 import {
   Tooltip,
@@ -51,11 +51,8 @@ export function TaskHeader({
     <header className="border-b">
       <div className="flex h-16 items-center justify-between px-4">
         <div className="flex items-center space-x-4">
-          <Link to="/">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <SidebarTrigger />
+
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
               <h1 className="text-lg font-semibold">
