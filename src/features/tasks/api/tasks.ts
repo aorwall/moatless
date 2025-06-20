@@ -6,7 +6,11 @@ import type {
 } from '@/types/environment';
 import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
-import type { TaskMessages, TaskMetadata } from '@/types/task';
+import type {
+  TaskMessages,
+  TaskMetadata,
+  WorkspaceStatusResponse,
+} from '@/types/task';
 
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
@@ -103,6 +107,14 @@ export const tasksApi = {
     return await apiClient.post<FileSearchResponse>(
       `/api/v1/tasks/${taskId}/search-files`,
       request,
+    );
+  },
+
+  async getTaskWorkspaceStatus(
+    taskId: string,
+  ): Promise<WorkspaceStatusResponse> {
+    return await apiClient.get<WorkspaceStatusResponse>(
+      `/api/v1/tasks/${taskId}/workspace-status`,
     );
   },
 };

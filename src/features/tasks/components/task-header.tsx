@@ -1,4 +1,4 @@
-import { Loader2, StopCircle, WifiOff } from 'lucide-react';
+import { AlertCircle, Loader2, StopCircle, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks';
@@ -12,14 +12,46 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip';
 import { getErrorMessage } from '@/lib/utils/error';
-import type { TaskMetadata } from '@/types/task';
+import type {
+  TaskMetadata,
+  WorkspaceStatus,
+  WorkspaceStatusResponse,
+} from '@/types/task';
 
 interface TaskHeaderProps {
   metadata: TaskMetadata;
   streamingError?: string | null;
+  workspaceStatus?: WorkspaceStatusResponse | null;
+  isLoadingWorkspace?: boolean;
+  workspaceError?: Error | null;
 }
 
-export function TaskHeader({ metadata, streamingError }: TaskHeaderProps) {
+const getWorkspaceStatusDisplay = (status?: WorkspaceStatus) => {
+  if (!status) {
+    return { text: 'workspace: unknown', isLoading: false };
+  }
+
+  switch (status) {
+    case 'not_setup':
+      return { text: 'workspace: not set up', isLoading: false };
+    case 'setting_up':
+      return { text: 'workspace: setting up', isLoading: true };
+    case 'idle':
+      return { text: 'workspace: idle', isLoading: false };
+    case 'running':
+      return { text: 'workspace: running', isLoading: true };
+    default:
+      return { text: 'workspace: unknown', isLoading: false };
+  }
+};
+
+export function TaskHeader({
+  metadata,
+  streamingError,
+  workspaceStatus,
+  isLoadingWorkspace,
+  workspaceError,
+}: TaskHeaderProps) {
   const stopAgent = useStopAgent({
     onSuccess: () => {
       toast.success('Agent stopped successfully');
@@ -35,6 +67,8 @@ export function TaskHeader({ metadata, streamingError }: TaskHeaderProps) {
   const handleStop = () => {
     stopAgent.mutate(metadata.task_id);
   };
+
+  const workspaceDisplay = getWorkspaceStatusDisplay(workspaceStatus?.status);
 
   return (
     <header className="border-b">
@@ -69,6 +103,31 @@ export function TaskHeader({ metadata, streamingError }: TaskHeaderProps) {
               <Badge variant="outline">
                 ${metadata.total_cost_usd.toFixed(4)}
               </Badge>
+              {workspaceError ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="destructive"
+                        className="flex items-center gap-1"
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        workspace: error
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{getErrorMessage(workspaceError)}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <Badge variant="outline" className="flex items-center gap-1">
+                  {(isLoadingWorkspace || workspaceDisplay.isLoading) && (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  )}
+                  {workspaceDisplay.text}
+                </Badge>
+              )}
             </div>
           </div>
         </div>

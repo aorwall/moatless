@@ -21,6 +21,17 @@ export enum ResultSubtype {
   ERROR = 'error',
 }
 
+export enum WorkspaceStatus {
+  NOT_SETUP = 'not_setup',
+  SETTING_UP = 'setting_up',
+  IDLE = 'idle',
+  RUNNING = 'running',
+}
+
+export interface WorkspaceStatusResponse {
+  status: WorkspaceStatus;
+}
+
 export interface TextContent {
   type: ContentType.TEXT;
   text: string;

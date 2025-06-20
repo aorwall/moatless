@@ -1,6 +1,7 @@
-import { FileText } from 'lucide-react';
+import { FileText, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
 import type { Event } from '@/types/event.ts';
 
@@ -10,12 +11,19 @@ interface EventViewerProps {
   events: Array<Event>;
   taskId: string;
   isTaskRunning?: boolean;
+  isLoading?: boolean;
+  error?: Error | null;
 }
 
 // Track visited tasks to determine if this is the first time opening this task
 const visitedTasks = new Set<string>();
 
-export function EventViewer({ events, taskId }: EventViewerProps) {
+export function EventViewer({
+  events,
+  taskId,
+  isLoading,
+  error,
+}: EventViewerProps) {
   const [localEvents, setLocalEvents] = useState<Array<Event>>(events);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -118,6 +126,29 @@ export function EventViewer({ events, taskId }: EventViewerProps) {
   }, [handleScroll]);
 
   const displayEvents = localEvents.length > 0 ? localEvents : events;
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="text-center space-y-3">
+          <Loader2 className="h-8 w-8 mx-auto text-muted-foreground/50 animate-spin" />
+          <p className="text-muted-foreground">Loading events...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <ErrorAlert
+          error={error}
+          title="Failed to load events"
+          className="max-w-md"
+        />
+      </div>
+    );
+  }
 
   if (!displayEvents || displayEvents.length === 0) {
     return (

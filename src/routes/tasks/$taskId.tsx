@@ -12,6 +12,7 @@ import {
   useTask,
   useTaskEvents,
   useTaskGitDiff,
+  useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
@@ -59,9 +60,15 @@ function TaskDetail() {
     isLoading: isLoadingGitDiff,
     error: gitDiffError,
   } = useTaskGitDiff(taskId);
+  const {
+    data: workspaceStatus,
+    isLoading: isLoadingWorkspace,
+    error: workspaceError,
+  } = useTaskWorkspaceStatus(taskId);
 
-  const loading = isLoadingMetadata || isLoadingEvents || isLoadingGitDiff;
-  const error = metadataError || eventsError || gitDiffError;
+  // Only consider critical errors that should break the whole page
+  const loading = isLoadingMetadata;
+  const error = metadataError; // Only metadata error is critical
 
   // Memoize SSE callbacks to prevent reconnections
   const handleSSEMessage = useCallback((newMessage: BaseMessage) => {
@@ -148,7 +155,13 @@ function TaskDetail() {
 
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
-      <TaskHeader metadata={metadata} streamingError={streamingError} />
+      <TaskHeader
+        metadata={metadata}
+        streamingError={streamingError}
+        workspaceStatus={workspaceStatus}
+        isLoadingWorkspace={isLoadingWorkspace}
+        workspaceError={workspaceError}
+      />
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left side - Task Viewer */}
         <ResizablePanel defaultSize={50} minSize={30}>
@@ -194,6 +207,8 @@ function TaskDetail() {
                   events={metadata.is_running ? streamEvents : events || []}
                   taskId={taskId}
                   isTaskRunning={metadata.is_running}
+                  isLoading={isLoadingEvents}
+                  error={eventsError}
                 />
               </TabsContent>
               <TabsContent
@@ -202,6 +217,8 @@ function TaskDetail() {
               >
                 <GitDiffViewer
                   gitDiff={selectedIteration?.git_diff || gitDiff}
+                  isLoading={isLoadingGitDiff}
+                  error={gitDiffError}
                 />
               </TabsContent>
             </Tabs>

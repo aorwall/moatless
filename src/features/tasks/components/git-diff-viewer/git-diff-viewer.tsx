@@ -5,6 +5,7 @@ import {
   FileIcon,
   FileMinus,
   FilePlus,
+  Loader2,
   Square,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -17,6 +18,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible';
+import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
   Tooltip,
   TooltipContent,
@@ -29,6 +31,8 @@ import type { GitDiffFile, GitDiffResponse } from '@/types/git-diff';
 interface GitDiffViewerProps {
   gitDiff?: GitDiffResponse | null;
   className?: string;
+  isLoading?: boolean;
+  error?: Error | null;
 }
 
 const getFileIcon = (status: GitDiffFile['status']) => {
@@ -65,11 +69,37 @@ const getStatusColor = (status: GitDiffFile['status']) => {
   }
 };
 
-export function GitDiffViewer({ gitDiff, className }: GitDiffViewerProps) {
+export function GitDiffViewer({
+  gitDiff,
+  className,
+  isLoading,
+  error,
+}: GitDiffViewerProps) {
   const [splitView, setSplitView] = useState(false);
   const isDarkMode = useMemo(() => {
     return document.documentElement.classList.contains('dark');
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin mb-2" />
+        <p>Loading diff...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full p-8">
+        <ErrorAlert
+          error={error}
+          title="Failed to load git diff"
+          className="max-w-md"
+        />
+      </div>
+    );
+  }
 
   if (!gitDiff || gitDiff.files.length === 0) {
     return (

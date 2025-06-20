@@ -10,7 +10,7 @@ import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
 import type { FileSearchResponse } from '@/types/environment';
 import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
-import type { TaskMetadata } from '@/types/task';
+import type { TaskMetadata, WorkspaceStatusResponse } from '@/types/task';
 
 // Query hooks
 export function useTasksList(
@@ -149,6 +149,22 @@ export function useTaskFileSearch(
     queryFn: () => tasksApi.searchTaskFiles(taskId, { query }),
     enabled: !!taskId && query.length >= 3,
     staleTime: 30 * 1000, // 30 seconds
+    ...options,
+  });
+}
+
+export function useTaskWorkspaceStatus(
+  taskId: string,
+  options?: Omit<
+    UseQueryOptions<WorkspaceStatusResponse>,
+    'queryKey' | 'queryFn'
+  >,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskWorkspaceStatus(taskId),
+    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
+    enabled: !!taskId,
+    refetchInterval: 5000, // Poll every 5 seconds
     ...options,
   });
 }
