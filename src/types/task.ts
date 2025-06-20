@@ -110,13 +110,14 @@ export interface TaskIteration {
 
 export interface TaskMetadata {
   task_id: string;
+  title: string;
   created_at: string;
   last_message_at: string;
   agent_type: string;
   environment_id: string;
   is_running: boolean;
   status: 'active' | 'completed' | 'error';
-  total_messages: number;
+  num_turns: number;
   total_cost_usd: number;
   iterations: Array<TaskIteration>;
 }

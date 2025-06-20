@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AgentEvent } from '@/types/agent-events';
+import type { Event } from '@/types/event.ts';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface UseEventSSEOptions {
   taskId: string;
   enabled?: boolean;
-  onEvent?: (event: AgentEvent) => void;
+  onEvent?: (event: Event) => void;
   onError?: (error: Error) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -66,7 +66,7 @@ export function useEventSSE({
 
       eventSource.addEventListener('message', (event) => {
         try {
-          const eventData = JSON.parse(event.data) as AgentEvent;
+          const eventData = JSON.parse(event.data) as Event;
 
           // Store the last event ID for reconnection
           if (eventData.event_id) {
@@ -94,7 +94,7 @@ export function useEventSSE({
       eventTypes.forEach((eventType) => {
         eventSource.addEventListener(eventType, (event) => {
           try {
-            const eventData = JSON.parse(event.data) as AgentEvent;
+            const eventData = JSON.parse(event.data) as Event;
 
             // Store the last event ID
             if (eventData.event_id) {

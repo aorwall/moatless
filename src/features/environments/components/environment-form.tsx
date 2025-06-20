@@ -69,9 +69,6 @@ export function EnvironmentForm({
     ...getInitialRepositoryData(environment),
   });
 
-  const [envVarKey, setEnvVarKey] = useState('');
-  const [envVarValue, setEnvVarValue] = useState('');
-
   // Update form data when environment prop changes
   useEffect(() => {
     if (environment) {
@@ -116,28 +113,6 @@ export function EnvironmentForm({
       code_execution,
       variables: formData.environment_variables,
       is_active: formData.is_active,
-    });
-  };
-
-  const _handleAddEnvVar = () => {
-    if (envVarKey && envVarValue) {
-      setFormData({
-        ...formData,
-        environment_variables: {
-          ...formData.environment_variables,
-          [envVarKey]: envVarValue,
-        },
-      });
-      setEnvVarKey('');
-      setEnvVarValue('');
-    }
-  };
-
-  const _handleRemoveEnvVar = (key: string) => {
-    const { [key]: _, ...rest } = formData.environment_variables;
-    setFormData({
-      ...formData,
-      environment_variables: rest,
     });
   };
 

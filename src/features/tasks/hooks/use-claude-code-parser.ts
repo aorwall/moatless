@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import type { AgentEvent } from '@/types/agent-events';
+import type { Event } from '@/types/event.ts';
 
 export interface ParsedMessage {
   id: string;
@@ -134,13 +134,13 @@ const parseClaudeMessage = (
   return parsedMessage;
 };
 
-const createBaseEvent = (event: AgentEvent) => ({
+const createBaseEvent = (event: Event) => ({
   event_id: event.event_id,
   timestamp: event.timestamp,
   is_error: event.is_error,
 });
 
-const parseMessageEvent = (event: AgentEvent): ParsedEvent | null => {
+const parseMessageEvent = (event: Event): ParsedEvent | null => {
   const baseEvent = createBaseEvent(event);
 
   if (event.type !== 'message' || !event.payload.type) {
@@ -183,7 +183,7 @@ const getEventType = (eventType: string): ParsedEvent['type'] => {
   }
 };
 
-const parseEvent = (event: AgentEvent): ParsedEvent => {
+const parseEvent = (event: Event): ParsedEvent => {
   // First check if this is a message event with Claude format
   if (event.type === 'message' && event.payload.type) {
     const messageEvent = parseMessageEvent(event);
@@ -291,16 +291,14 @@ export const groupEvents = (
 };
 
 export const useClaudeCodeParser = (
-  events: Array<AgentEvent>,
+  events: Array<Event>,
 ): Array<ParsedEvent> => {
   return useMemo(() => {
     return events.map(parseEvent);
   }, [events]);
 };
 
-export const useEventGroups = (
-  events: Array<AgentEvent>,
-): Array<DisplayEvent> => {
+export const useEventGroups = (events: Array<Event>): Array<DisplayEvent> => {
   return useMemo(() => {
     const parsedEvents = events.map(parseEvent);
     return groupEvents(parsedEvents);

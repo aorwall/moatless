@@ -1,5 +1,5 @@
-import type { Event } from '@/types/agent-events';
-import type { BaseMessage } from '@/types/task';
+import type { Event } from '@/types/event.ts';
+import type { BaseMessage } from '@/types/task.ts';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 

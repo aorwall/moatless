@@ -1,18 +1,11 @@
-/**
- * Agent event types for the swarm system
- */
-
 export enum AgentEventType {
   MESSAGE = 'message',
-  START = 'start',
-  STOP = 'stop',
   ERROR = 'error',
-  INPUT = 'input',
   RESULT = 'result',
-  ENVIRONMENT = 'environment',
+  WORKSPACE = 'workspace',
 }
 
-export interface AgentEvent {
+export interface Event {
   event_id: string;
   type: AgentEventType | string;
   task_id: string;
@@ -24,8 +17,4 @@ export interface AgentEvent {
   num_turns: number;
   total_cost: number;
   payload: Record<string, unknown>;
-}
-
-export interface AgentEventsResponse {
-  events: Array<AgentEvent>;
 }

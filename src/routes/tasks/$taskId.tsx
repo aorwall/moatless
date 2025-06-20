@@ -25,7 +25,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/lib/components/ui/tabs';
-import type { Event } from '@/types/agent-events';
+import type { Event } from '@/types/event.ts';
 import type { BaseMessage, ClaudeMessage, TaskIteration } from '@/types/task';
 
 export const Route = createFileRoute('/tasks/$taskId')({
@@ -80,7 +80,6 @@ function TaskDetail() {
     console.error('SSE error:', error);
     // If task not found, disable streaming
     if (error.message.includes('Task not found')) {
-      setStreamingEnabled(false);
       setStreamingError('Task not found');
     } else if (error.message.includes('connection failed')) {
       setStreamingError('Connection failed after multiple attempts');
@@ -174,7 +173,7 @@ function TaskDetail() {
         <ResizableHandle withHandle />
 
         {/* Right side - Tabs with Events and Diff */}
-        <ResizablePanel defaultSize={50} minSize={30}>
+        <ResizablePanel defaultSize={50} minSize={20}>
           <div className="h-full flex flex-col">
             <Tabs
               value={rightPanelView}
@@ -183,7 +182,7 @@ function TaskDetail() {
               }
               className="h-full w-full flex flex-col"
             >
-              <TabsList className="grid w-full grid-cols-2 mx-auto max-w-md">
+              <TabsList className="grid w-full grid-cols-2 mx-auto">
                 <TabsTrigger value="events">Events</TabsTrigger>
                 <TabsTrigger value="diff">Diff</TabsTrigger>
               </TabsList>

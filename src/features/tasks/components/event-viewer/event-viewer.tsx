@@ -2,26 +2,57 @@ import { FileText } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
-import type { AgentEvent } from '@/types/agent-events';
+import type { Event } from '@/types/event.ts';
 
 import { EventList } from './event-list';
 
 interface EventViewerProps {
-  events: Array<AgentEvent>;
+  events: Array<Event>;
   taskId: string;
   isTaskRunning?: boolean;
 }
 
-export function EventViewer({ events }: EventViewerProps) {
-  const [localEvents, setLocalEvents] = useState<Array<AgentEvent>>(events);
+// Track visited tasks to determine if this is the first time opening this task
+const visitedTasks = new Set<string>();
+
+export function EventViewer({ events, taskId }: EventViewerProps) {
+  const [localEvents, setLocalEvents] = useState<Array<Event>>(events);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const previousEventCount = useRef(events.length);
+  const hasScrolledToBottomInitially = useRef(false);
 
   // Update local events when props change
   useEffect(() => {
     setLocalEvents(events);
   }, [events]);
+
+  // Scroll to bottom on initial load if task hasn't been visited before
+  useEffect(() => {
+    if (
+      !hasScrolledToBottomInitially.current &&
+      scrollAreaRef.current &&
+      events.length > 0
+    ) {
+      const isFirstVisit = !visitedTasks.has(taskId);
+
+      if (isFirstVisit) {
+        const scrollElement = scrollAreaRef.current.querySelector(
+          '[data-slot="scroll-area-viewport"]',
+        );
+        if (scrollElement) {
+          // Use requestAnimationFrame to ensure DOM has rendered
+          requestAnimationFrame(() => {
+            scrollElement.scrollTop = scrollElement.scrollHeight;
+            hasScrolledToBottomInitially.current = true;
+          });
+        }
+        visitedTasks.add(taskId);
+      } else {
+        hasScrolledToBottomInitially.current = true;
+      }
+    }
+  }, [events, taskId]);
 
   // Track scroll position
   const handleScroll = useCallback(() => {
@@ -101,7 +132,7 @@ export function EventViewer({ events }: EventViewerProps) {
 
   return (
     <ScrollArea ref={scrollAreaRef} className="h-full w-full">
-      <div className="p-3 sm:p-4 lg:p-6 w-full">
+      <div className="p-2 sm:p-3 lg:p-4 w-full">
         <EventList events={displayEvents} />
       </div>
     </ScrollArea>

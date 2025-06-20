@@ -7,10 +7,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tasksApi } from '@/features/tasks/api/tasks';
 import { queryKeys } from '@/lib/api/query-keys';
 import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
-import type { AgentEvent } from '@/types/agent-events';
 import type { FileSearchResponse } from '@/types/environment';
+import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
-import type { TaskMessages, TaskMetadata } from '@/types/task';
+import type { TaskMetadata } from '@/types/task';
 
 // Query hooks
 export function useTasksList(
@@ -36,32 +36,6 @@ export function useTask(
     queryKey: queryKeys.taskDetail(taskId),
     queryFn: () => tasksApi.getTask(taskId),
     enabled: !!taskId,
-    ...options,
-  });
-}
-
-export function useTaskMessages(
-  taskId: string,
-  params?: {
-    limit?: number;
-    offset?: number;
-  },
-  options?: Omit<UseQueryOptions<TaskMessages>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskMessages(taskId, params),
-    queryFn: () => tasksApi.getTaskMessages(taskId, params),
-    enabled: !!taskId,
-    ...options,
-  });
-}
-
-export function useActiveTasks(
-  options?: Omit<UseQueryOptions<Array<string>>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.tasksList({ activeOnly: true }),
-    queryFn: () => tasksApi.getActiveTasks(),
     ...options,
   });
 }
@@ -143,7 +117,7 @@ export function useTaskEvents(
     limit?: number;
     offset?: number;
   },
-  options?: Omit<UseQueryOptions<Array<AgentEvent>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Array<Event>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.taskEvents(taskId, params),

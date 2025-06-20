@@ -1,10 +1,10 @@
 import { apiClient } from '@/lib/api/client';
 import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
-import type { AgentEvent } from '@/types/agent-events';
 import type {
   FileSearchRequest,
   FileSearchResponse,
 } from '@/types/environment';
+import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
 import type { TaskMessages, TaskMetadata } from '@/types/task';
 
@@ -83,8 +83,8 @@ export const tasksApi = {
       limit?: number;
       offset?: number;
     },
-  ): Promise<Array<AgentEvent>> {
-    return await apiClient.get<Array<AgentEvent>>(
+  ): Promise<Array<Event>> {
+    return await apiClient.get<Array<Event>>(
       `/api/v1/tasks/${taskId}/events`,
       params,
     );

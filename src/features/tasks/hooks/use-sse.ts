@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { TaskSSEClient } from '@/lib/api/sse';
-import type { AgentEvent } from '@/types/agent-events';
+import { TaskSSEClient } from '@/features/tasks/api/sse.ts';
+import type { Event } from '@/types/event.ts';
 import type { BaseMessage } from '@/types/task';
 
 export interface UseTaskSSEOptions {
   taskId: string;
   apiUrl?: string;
   onMessage?: (message: BaseMessage) => void;
-  onEvent?: (event: AgentEvent) => void;
+  onEvent?: (event: Event) => void;
   onError?: (error: Error) => void;
   autoConnect?: boolean;
 }
@@ -59,7 +59,7 @@ export function useTaskSSE({
     onMessageRef.current?.(message);
   }, []);
 
-  const handleEvent = useCallback((event: AgentEvent) => {
+  const handleEvent = useCallback((event: Event) => {
     setError(null);
     onEventRef.current?.(event);
   }, []);
