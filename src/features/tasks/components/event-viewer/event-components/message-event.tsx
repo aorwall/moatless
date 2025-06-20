@@ -17,9 +17,15 @@ const renderMessageContent = (content: unknown): React.ReactNode => {
   if (Array.isArray(content)) {
     return (
       <>
-        {content.map((item, index) => (
-          <div key={`content-${index}`}>{renderSingleContent(item)}</div>
-        ))}
+        {content.map((item, index) => {
+          // Generate a more stable key based on content type and position
+          const itemType =
+            item && typeof item === 'object' && 'type' in item
+              ? item.type
+              : 'unknown';
+          const key = `content-${itemType}-${index}`;
+          return <div key={key}>{renderSingleContent(item)}</div>;
+        })}
       </>
     );
   }

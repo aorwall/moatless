@@ -140,9 +140,17 @@ export interface TaskMessages {
 export interface Task {
   id: string;
   title: string;
+  createdAt: string;
+  lastMessageAt: string;
+  agentType: string;
+  environmentName: string;
+  status: 'active' | 'completed' | 'error';
+  numTurns: number;
+  totalCostUsd: number;
+  workspaceStatus: 'unknown' | 'not_setup' | 'setting_up' | 'idle' | 'running';
+  // Legacy fields for backward compatibility
   time: string;
   project: string;
-  status: 'active' | 'completed' | 'error';
   changes?: { added: number; removed: number };
 }
 

@@ -108,10 +108,54 @@ queryKeys.taskMessages(id, filters) // Task messages
   - Features contain components, hooks, and API code
   - Shared utilities in `/lib/`
   - Page logic lives in `/routes/` files
-- **Separation of Concerns**:
-  - **Routes (Pages)**: Route handling, data fetching, page-level state, layout composition
-  - **Components**: UI implementation, component state, event handlers, styling
-  - Pages orchestrate, components implement
+
+#### Routing Strategy
+Routes in this application follow a simple, direct pattern where route files handle all page-level concerns:
+
+**Route Files (`/routes/*.tsx`)** handle:
+- Data fetching using React Query hooks
+- Page-level state management
+- Error and loading states
+- Layout composition and structure
+- Orchestrating child components
+
+**Feature Components (`/features/*/components/`)** handle:
+- Specific UI implementation
+- Component-level state
+- User interactions and event handlers
+- Reusable business logic
+
+This approach keeps page logic centralized in route files, making it easy to understand what each page does without navigating through multiple abstraction layers. No separate container components are needed.
+
+**Example Route Pattern:**
+```typescript
+// src/routes/tasks/$taskId.tsx
+function TaskDetail() {
+  const { taskId } = Route.useParams();
+  
+  // Data fetching in route
+  const { data, isLoading, error } = useTask(taskId);
+  
+  // Page-level state
+  const [selectedTab, setSelectedTab] = useState('details');
+  
+  // Error/loading handling
+  if (error) return <ErrorAlert error={error} />;
+  if (isLoading) return <TaskDetailSkeleton />;
+  
+  // Compose UI with feature components
+  return (
+    <div>
+      <TaskHeader task={data} />
+      <TaskTabs value={selectedTab} onChange={setSelectedTab}>
+        <TaskDetails task={data} />
+        <TaskEvents taskId={taskId} />
+      </TaskTabs>
+    </div>
+  );
+}
+```
+
 - **Component Structure**: 
   - Use functional components with TypeScript
   - Colocate related components in feature folders
