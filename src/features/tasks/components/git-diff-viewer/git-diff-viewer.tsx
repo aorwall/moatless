@@ -1,31 +1,25 @@
+import { DiffView } from '@git-diff-view/react';
+import '@git-diff-view/react/styles/diff-view.css';
+import { generateDiffFile } from '@git-diff-view/file';
+import './git-diff-viewer.css';
 import {
   ChevronRight,
-  Columns2,
   FileEdit,
   FileIcon,
   FileMinus,
   FilePlus,
   Loader2,
-  Square,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import ReactDiffViewer from 'react-diff-viewer-continued';
+import { useMemo } from 'react';
 
 import { useTaskContext } from '@/features/tasks/contexts/task-context';
 import { Badge } from '@/lib/components/ui/badge';
-import { Button } from '@/lib/components/ui/button';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/lib/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { GitDiffFile } from '@/types/git-diff';
 
@@ -83,7 +77,6 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
       : // For now, we'll handle string diffs later
         selectedIteration.git_diff
     : contextGitDiff;
-  const [splitView, setSplitView] = useState(false);
   const isDarkMode = useMemo(() => {
     return document.documentElement.classList.contains('dark');
   }, []);
@@ -120,46 +113,22 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
 
   return (
     <div className={cn('h-full overflow-auto', className)}>
-      {/* Summary and Controls */}
+      {/* Summary */}
       <div className="sticky top-0 z-10 p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 text-sm">
-            <span className="font-medium">
-              {gitDiff.total_files} file{gitDiff.total_files !== 1 ? 's' : ''}{' '}
-              changed
-            </span>
-            <span className="text-green-600 dark:text-green-400">
-              +{gitDiff.total_additions}
-            </span>
-            <span className="text-red-600 dark:text-red-400">
-              -{gitDiff.total_deletions}
-            </span>
-            {gitDiff.branch && (
-              <span className="text-muted-foreground">on {gitDiff.branch}</span>
-            )}
-          </div>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSplitView(!splitView)}
-                  className="gap-2"
-                >
-                  {splitView ? (
-                    <Square className="h-4 w-4" />
-                  ) : (
-                    <Columns2 className="h-4 w-4" />
-                  )}
-                  {splitView ? 'Unified' : 'Split'}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Toggle between split and unified view</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="font-medium">
+            {gitDiff.total_files} file{gitDiff.total_files !== 1 ? 's' : ''}{' '}
+            changed
+          </span>
+          <span className="text-green-600 dark:text-green-400">
+            +{gitDiff.total_additions}
+          </span>
+          <span className="text-red-600 dark:text-red-400">
+            -{gitDiff.total_deletions}
+          </span>
+          {gitDiff.branch && (
+            <span className="text-muted-foreground">on {gitDiff.branch}</span>
+          )}
         </div>
       </div>
 
@@ -170,7 +139,6 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
             key={`${file.path}-${index}`}
             file={file}
             isDarkMode={isDarkMode}
-            splitView={splitView}
           />
         ))}
       </div>
@@ -181,13 +149,44 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
 interface FileDiffProps {
   file: GitDiffFile;
   isDarkMode: boolean;
-  splitView: boolean;
 }
 
-function FileDiff({ file, isDarkMode, splitView }: FileDiffProps) {
-  const isNewFile = file.status === 'added';
-  const isDeletedFile = file.status === 'deleted';
+function FileDiff({ file, isDarkMode }: FileDiffProps) {
   const defaultOpen = file.additions + file.deletions < 100;
+
+  // Generate DiffFile using git-diff-view/file
+  const diffFile = useMemo(() => {
+    const oldContent = file.old_content || '';
+    const newContent = file.new_content || '';
+    const oldPath = file.old_path || file.path;
+    const newPath = file.path;
+
+    // Determine file extension for syntax highlighting
+    const getFileExtension = (path: string) => {
+      const parts = path.split('.');
+      return parts.length > 1 ? parts[parts.length - 1] : '';
+    };
+
+    const extension = getFileExtension(newPath);
+
+    // Generate the diff file
+    const generatedFile = generateDiffFile(
+      oldPath,
+      oldContent,
+      newPath,
+      newContent,
+      extension, // language for old file
+      extension, // language for new file
+    );
+
+    // Initialize the diff file
+    generatedFile.initTheme(isDarkMode ? 'dark' : 'light');
+    generatedFile.init();
+    generatedFile.buildSplitDiffLines();
+    generatedFile.buildUnifiedDiffLines();
+
+    return generatedFile;
+  }, [file, isDarkMode]);
 
   return (
     <Collapsible defaultOpen={defaultOpen}>
@@ -226,94 +225,20 @@ function FileDiff({ file, isDarkMode, splitView }: FileDiffProps) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t">
-          <ReactDiffViewer
-            key={`${file.path}-${file.old_content?.length || 0}-${file.new_content?.length || 0}`}
-            oldValue={isNewFile ? '' : file.old_content}
-            newValue={isDeletedFile ? '' : file.new_content}
-            splitView={splitView}
-            useDarkTheme={isDarkMode}
-            showDiffOnly={false}
-            styles={{
-              variables: {
-                light: {
-                  diffViewerBackground: '#ffffff',
-                  addedBackground: '#e6ffec',
-                  addedColor: '#24292e',
-                  removedBackground: '#ffebe9',
-                  removedColor: '#24292e',
-                  wordAddedBackground: '#acf2bd',
-                  wordRemovedBackground: '#fdb8c0',
-                  addedGutterBackground: '#cdffd8',
-                  removedGutterBackground: '#ffdce0',
-                  gutterBackground: '#f6f8fa',
-                  gutterBackgroundDark: '#f0f1f3',
-                  highlightBackground: '#fffbdd',
-                  highlightGutterBackground: '#fff5b1',
-                  codeFoldGutterBackground: '#dbedff',
-                  codeFoldBackground: '#f1f8ff',
-                  emptyLineBackground: '#fafbfc',
-                  gutterColor: '#666666',
-                  addedGutterColor: '#212529',
-                  removedGutterColor: '#212529',
-                  codeFoldContentColor: '#212529',
-                  diffViewerTitleBackground: '#fafbfc',
-                  diffViewerTitleColor: '#212529',
-                  diffViewerTitleBorderColor: '#eee',
-                },
-                dark: {
-                  diffViewerBackground: '#0d1117',
-                  addedBackground: '#033a16',
-                  addedColor: '#e6edf3',
-                  removedBackground: '#67060c',
-                  removedColor: '#e6edf3',
-                  wordAddedBackground: '#1c6b48',
-                  wordRemovedBackground: '#a0111f',
-                  addedGutterBackground: '#034419',
-                  removedGutterBackground: '#5d0f12',
-                  gutterBackground: '#161b22',
-                  gutterBackgroundDark: '#0d1117',
-                  highlightBackground: '#a08c14',
-                  highlightGutterBackground: '#8a7613',
-                  codeFoldGutterBackground: '#21262d',
-                  codeFoldBackground: '#161b22',
-                  emptyLineBackground: '#161b22',
-                  gutterColor: '#8b949e',
-                  addedGutterColor: '#e6edf3',
-                  removedGutterColor: '#e6edf3',
-                  codeFoldContentColor: '#8b949e',
-                  diffViewerTitleBackground: '#161b22',
-                  diffViewerTitleColor: '#e6edf3',
-                  diffViewerTitleBorderColor: '#30363d',
-                },
-              },
-              diffContainer: {
-                fontFamily:
-                  'ui-monospace, SFMono-Regular, SF Mono, Consolas, Liberation Mono, Menlo, monospace',
-                fontSize: '13px',
-              },
-              line: {
-                padding: '0 10px',
-                '&:hover': {
-                  background: isDarkMode ? '#1c2128' : '#f6f8fa',
-                },
-              },
-              gutter: {
-                minWidth: '50px',
-                padding: '0 10px',
-              },
-              contentText: {
-                // Override to ensure syntax highlighting is preserved
-                '& pre': {
-                  background: 'transparent !important',
-                  margin: '0 !important',
-                  padding: '0 !important',
-                },
-              },
-            }}
-            leftTitle={file.old_path || file.path}
-            rightTitle={file.path}
-            compareMethod="diffWords"
-          />
+          <div
+            className={cn(
+              'git-diff-view-wrapper',
+              isDarkMode ? 'diff-view-theme-dark' : 'diff-view-theme-light',
+            )}
+          >
+            <DiffView
+              diffFile={diffFile}
+              diffViewMode="unified"
+              diffViewWrap={true}
+              diffViewHighlight={true}
+              diffViewFontSize={13}
+            />
+          </div>
         </div>
       </CollapsibleContent>
     </Collapsible>
