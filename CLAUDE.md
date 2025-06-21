@@ -156,6 +156,24 @@ function TaskDetail() {
 }
 ```
 
+#### Task Context Pattern
+The task detail page uses a React Context to manage and share task-related data across components:
+
+**Context Structure (`/features/tasks/contexts/task-context.tsx`)**:
+- Centralizes all task data fetching (metadata, events, git diff, workspace status)
+- Manages SSE connections for real-time updates
+- Handles UI state (selected iteration, panel views)
+- Provides error and loading states
+
+**Components Using Task Context**:
+- `TaskHeader` - Displays task metadata and controls
+- `TaskViewer` - Shows task iterations and results
+- `TaskChatInput` - Wrapper for ChatInput that provides task context data
+- `EventViewer` - Displays task events with real-time updates
+- `GitDiffViewer` - Shows git diffs for tasks
+
+**Note**: These components require TaskContext and must be used within the TaskProvider. The generic `ChatInput` component remains context-free and can be used in both task and non-task contexts.
+
 - **Component Structure**: 
   - Use functional components with TypeScript
   - Colocate related components in feature folders

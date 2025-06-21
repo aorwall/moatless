@@ -1,19 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { ChatInput } from '@/features/tasks/components/chat-input';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer';
+import { TaskChatInput } from '@/features/tasks/components/task-chat-input';
 import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
-import { useTaskSSE } from '@/features/tasks/hooks/use-sse';
 import {
-  useTask,
-  useTaskEvents,
-  useTaskGitDiff,
-  useTaskWorkspaceStatus,
-} from '@/features/tasks/hooks/use-tasks';
+  TaskProvider,
+  useTaskContext,
+} from '@/features/tasks/contexts/task-context';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
   ResizableHandle,
@@ -26,120 +22,32 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/lib/components/ui/tabs';
-import type { Event } from '@/types/event.ts';
-import type { BaseMessage, ClaudeMessage, TaskIteration } from '@/types/task';
 
 export const Route = createFileRoute('/tasks/$taskId')({
-  component: TaskDetail,
+  component: TaskDetailWrapper,
 });
 
-function TaskDetail() {
-  const { taskId } = Route.useParams();
-  const [, setLocalMessages] = useState<Array<ClaudeMessage>>([]);
-  const [streamingError, setStreamingError] = useState<string | null>(null);
-  const [selectedIteration, setSelectedIteration] =
-    useState<TaskIteration | null>(null);
-  const [rightPanelView, setRightPanelView] = useState<'events' | 'diff'>(
-    'events',
+function TaskDetailWrapper() {
+  return (
+    <TaskProvider>
+      <TaskDetail />
+    </TaskProvider>
   );
-  const [streamEvents, setStreamEvents] = useState<Array<Event>>([]);
+}
 
-  // Use React Query hooks
+function TaskDetail() {
   const {
-    data: metadata,
-    isLoading: isLoadingMetadata,
-    error: metadataError,
-  } = useTask(taskId);
-  const {
-    data: events,
-    isLoading: isLoadingEvents,
-    error: eventsError,
-  } = useTaskEvents(taskId);
-  const {
-    data: gitDiff,
-    isLoading: isLoadingGitDiff,
-    error: gitDiffError,
-  } = useTaskGitDiff(taskId);
-  const {
-    data: workspaceStatus,
-    isLoading: isLoadingWorkspace,
-    error: workspaceError,
-  } = useTaskWorkspaceStatus(taskId);
+    taskId,
+    metadata,
+    isLoadingMetadata,
+    metadataError,
+    setRightPanelView,
+    rightPanelView,
+  } = useTaskContext();
 
   // Only consider critical errors that should break the whole page
   const loading = isLoadingMetadata;
   const error = metadataError; // Only metadata error is critical
-
-  // Memoize SSE callbacks to prevent reconnections
-  const handleSSEMessage = useCallback((newMessage: BaseMessage) => {
-    // Add message to local state for immediate UI update
-    setLocalMessages((prev) => [...prev, newMessage as ClaudeMessage]);
-    setStreamingError(null); // Clear error on successful message
-  }, []);
-
-  const handleSSEEvent = useCallback((newEvent: Event) => {
-    // Add event to stream events
-    setStreamEvents((prev) => [...prev, newEvent]);
-    setStreamingError(null); // Clear error on successful event
-  }, []);
-
-  const handleSSEError = useCallback((error: Error) => {
-    console.error('SSE error:', error);
-    // If task not found, disable streaming
-    if (error.message.includes('Task not found')) {
-      setStreamingError('Task not found');
-    } else if (error.message.includes('connection failed')) {
-      setStreamingError('Connection failed after multiple attempts');
-    } else {
-      setStreamingError('Streaming connection error');
-    }
-  }, []);
-
-  // Extract task status as a stable value
-  const taskStatus = metadata?.status;
-
-  // Determine if the task is in a running state based on both task status and workspace status
-  const isRunning = useMemo(() => {
-    if (!metadata) {
-      return false;
-    }
-
-    // Task is running if:
-    // 1. Task metadata says it's running OR
-    // 2. Task is active AND workspace is setting up or running
-    const workspaceRunning =
-      workspaceStatus?.status === 'setting_up' ||
-      workspaceStatus?.status === 'running';
-
-    return metadata.is_running || (taskStatus === 'active' && workspaceRunning);
-  }, [metadata, taskStatus, workspaceStatus]);
-
-  // Initialize stream events with existing events when task is running
-  useEffect(() => {
-    if (isRunning && events && streamEvents.length === 0) {
-      setStreamEvents(events);
-    }
-  }, [isRunning, events, streamEvents.length]);
-
-  // Memoize autoConnect to prevent unnecessary effect triggers
-  const autoConnect = useMemo(() => {
-    return isRunning;
-  }, [isRunning]);
-
-  // Use SSE for real-time updates only if task exists and streaming is enabled
-  useTaskSSE({
-    taskId,
-    autoConnect,
-    onMessage: handleSSEMessage,
-    onEvent: handleSSEEvent,
-    onError: handleSSEError,
-  });
-
-  // Handle iteration click
-  const handleIterationClick = (iteration: TaskIteration) => {
-    setSelectedIteration(iteration);
-    setRightPanelView('events');
-  };
 
   if (error) {
     return (
@@ -171,13 +79,7 @@ function TaskDetail() {
 
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
-      <TaskHeader
-        metadata={metadata}
-        streamingError={streamingError}
-        workspaceStatus={workspaceStatus}
-        isLoadingWorkspace={isLoadingWorkspace}
-        workspaceError={workspaceError}
-      />
+      <TaskHeader />
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left side - Task Viewer */}
         <ResizablePanel defaultSize={50} minSize={30}>
@@ -186,16 +88,9 @@ function TaskDetail() {
               <h2 className="text-sm font-medium">Task</h2>
             </div>
             <div className="flex-1 overflow-hidden">
-              <TaskViewer
-                metadata={metadata}
-                onIterationClick={handleIterationClick}
-              />
+              <TaskViewer />
             </div>
-            <ChatInput
-              taskId={taskId}
-              taskStatus={metadata.status}
-              className="p-4 border-t border-slate-200 dark:border-slate-700"
-            />
+            <TaskChatInput className="p-4 border-t border-slate-200 dark:border-slate-700" />
           </div>
         </ResizablePanel>
 
@@ -219,23 +114,13 @@ function TaskDetail() {
                 value="events"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <EventViewer
-                  events={isRunning ? streamEvents : events || []}
-                  taskId={taskId}
-                  isTaskRunning={isRunning}
-                  isLoading={isLoadingEvents}
-                  error={eventsError}
-                />
+                <EventViewer />
               </TabsContent>
               <TabsContent
                 value="diff"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <GitDiffViewer
-                  gitDiff={selectedIteration?.git_diff || gitDiff}
-                  isLoading={isLoadingGitDiff}
-                  error={gitDiffError}
-                />
+                <GitDiffViewer />
               </TabsContent>
             </Tabs>
           </div>

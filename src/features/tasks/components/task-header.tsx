@@ -1,6 +1,7 @@
 import { AlertCircle, Loader2, StopCircle, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useTaskContext } from '@/features/tasks/contexts/task-context';
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks';
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
@@ -12,18 +13,16 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip';
 import { getErrorMessage } from '@/lib/utils/error';
-import type {
-  TaskMetadata,
-  WorkspaceStatus,
-  WorkspaceStatusResponse,
-} from '@/types/task';
+import type { WorkspaceStatus } from '@/types/task';
 
-interface TaskHeaderProps {
-  metadata: TaskMetadata;
-  streamingError?: string | null;
-  workspaceStatus?: WorkspaceStatusResponse | null;
-  isLoadingWorkspace?: boolean;
-  workspaceError?: Error | null;
+function StatusBadge({ status }: { status: string }) {
+  const variant =
+    status === 'active'
+      ? 'default'
+      : status === 'error'
+        ? 'destructive'
+        : 'secondary';
+  return <Badge variant={variant}>{status}</Badge>;
 }
 
 const getWorkspaceStatusDisplay = (status?: WorkspaceStatus) => {
@@ -45,13 +44,15 @@ const getWorkspaceStatusDisplay = (status?: WorkspaceStatus) => {
   }
 };
 
-export function TaskHeader({
-  metadata,
-  streamingError,
-  workspaceStatus,
-  isLoadingWorkspace,
-  workspaceError,
-}: TaskHeaderProps) {
+export function TaskHeader() {
+  const {
+    metadata,
+    streamingError,
+    workspaceStatus,
+    isLoadingWorkspace,
+    workspaceError,
+  } = useTaskContext();
+
   const stopAgent = useStopAgent({
     onSuccess: () => {
       toast.success('Agent stopped successfully');
@@ -65,8 +66,14 @@ export function TaskHeader({
   });
 
   const handleStop = () => {
-    stopAgent.mutate(metadata.task_id);
+    if (metadata) {
+      stopAgent.mutate(metadata.task_id);
+    }
   };
+
+  if (!metadata) {
+    return null;
+  }
 
   const workspaceDisplay = getWorkspaceStatusDisplay(workspaceStatus?.status);
 
@@ -88,17 +95,7 @@ export function TaskHeader({
             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
               <span>{new Date(metadata.created_at).toLocaleString()}</span>
               <span>{metadata.agent_type}</span>
-              <Badge
-                variant={
-                  metadata.status === 'active'
-                    ? 'default'
-                    : metadata.status === 'error'
-                      ? 'destructive'
-                      : 'secondary'
-                }
-              >
-                {metadata.status}
-              </Badge>
+              <StatusBadge status={metadata.status} />
               <Badge variant="outline">{metadata.num_turns} turns</Badge>
               <Badge variant="outline">
                 ${metadata.total_cost_usd.toFixed(4)}

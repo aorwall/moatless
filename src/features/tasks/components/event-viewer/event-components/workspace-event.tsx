@@ -27,9 +27,6 @@ export function WorkspaceEvent({ event }: WorkspaceEventProps) {
         </div>
 
         <div className="text-sm text-slate-600 dark:text-slate-300">
-          {event.sub_type === 'setup_started' && (
-            <p>Environment ID: {payload.environment_id}</p>
-          )}
           {event.sub_type === 'worktree_created' && (
             <div className="space-y-1">
               <p>

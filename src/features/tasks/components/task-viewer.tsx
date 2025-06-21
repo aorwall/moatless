@@ -3,24 +3,25 @@ import { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import { useTaskContext } from '@/features/tasks/contexts/task-context';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
-import type { TaskIteration, TaskMetadata } from '@/types/task';
+import type { TaskIteration } from '@/types/task';
 
-interface TaskViewerProps {
-  metadata: TaskMetadata;
-  onIterationClick?: (iteration: TaskIteration) => void;
-}
-
-export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
+export function TaskViewer() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { metadata, setSelectedIteration } = useTaskContext();
 
   useEffect(() => {
     // Scroll to bottom when component mounts or when task is running
-    if (bottomRef.current && metadata.is_running) {
+    if (bottomRef.current && metadata?.is_running) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   });
+
+  if (!metadata) {
+    return null;
+  }
   const formatDuration = (durationMs: number) => {
     const minutes = Math.floor(durationMs / 60000);
     const seconds = Math.floor((durationMs % 60000) / 1000);
@@ -32,7 +33,7 @@ export function TaskViewer({ metadata, onIterationClick }: TaskViewerProps) {
   };
 
   const handleIterationClick = (iteration: TaskIteration) => {
-    onIterationClick?.(iteration);
+    setSelectedIteration(iteration);
   };
 
   const handleKeyDown = (

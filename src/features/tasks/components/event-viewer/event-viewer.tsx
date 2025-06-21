@@ -1,29 +1,27 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useTaskContext } from '@/features/tasks/contexts/task-context';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
 import type { Event } from '@/types/event.ts';
 
 import { EventList } from './event-list';
 
-interface EventViewerProps {
-  events: Array<Event>;
-  taskId: string;
-  isTaskRunning?: boolean;
-  isLoading?: boolean;
-  error?: Error | null;
-}
-
 // Track visited tasks to determine if this is the first time opening this task
 const visitedTasks = new Set<string>();
 
-export function EventViewer({
-  events,
-  taskId,
-  isLoading,
-  error,
-}: EventViewerProps) {
+export function EventViewer() {
+  const {
+    events,
+    streamEvents,
+    taskId,
+    isRunning,
+    isLoadingEvents: isLoading,
+    eventsError: error,
+  } = useTaskContext();
+
+  const displayEvents = isRunning ? streamEvents : events || [];
   const [localEvents, setLocalEvents] = useState<Array<Event>>(events);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -125,7 +123,8 @@ export function EventViewer({
     };
   }, [handleScroll]);
 
-  const displayEvents = localEvents.length > 0 ? localEvents : events;
+  const finalDisplayEvents =
+    localEvents.length > 0 ? localEvents : displayEvents;
 
   if (isLoading) {
     return (
@@ -150,7 +149,7 @@ export function EventViewer({
     );
   }
 
-  if (!displayEvents || displayEvents.length === 0) {
+  if (!finalDisplayEvents || finalDisplayEvents.length === 0) {
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="text-center space-y-3">
@@ -164,7 +163,7 @@ export function EventViewer({
   return (
     <ScrollArea ref={scrollAreaRef} className="h-full w-full">
       <div className="p-2 sm:p-3 lg:p-4 w-full">
-        <EventList events={displayEvents} />
+        <EventList events={finalDisplayEvents} />
       </div>
     </ScrollArea>
   );

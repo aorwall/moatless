@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 
+import { useTaskContext } from '@/features/tasks/contexts/task-context';
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
 import {
@@ -26,13 +27,10 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import type { GitDiffFile, GitDiffResponse } from '@/types/git-diff';
+import type { GitDiffFile } from '@/types/git-diff';
 
 interface GitDiffViewerProps {
-  gitDiff?: GitDiffResponse | null;
   className?: string;
-  isLoading?: boolean;
-  error?: Error | null;
 }
 
 const getFileIcon = (status: GitDiffFile['status']) => {
@@ -69,12 +67,22 @@ const getStatusColor = (status: GitDiffFile['status']) => {
   }
 };
 
-export function GitDiffViewer({
-  gitDiff,
-  className,
-  isLoading,
-  error,
-}: GitDiffViewerProps) {
+export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
+  const {
+    gitDiff: contextGitDiff,
+    selectedIteration,
+    isLoadingGitDiff: isLoading,
+    gitDiffError: error,
+  } = useTaskContext();
+
+  // Use iteration's git diff if available, otherwise use context's git diff
+  const gitDiff = selectedIteration?.git_diff
+    ? // Parse git diff string if it comes from selected iteration
+      typeof selectedIteration.git_diff === 'string'
+      ? null
+      : // For now, we'll handle string diffs later
+        selectedIteration.git_diff
+    : contextGitDiff;
   const [splitView, setSplitView] = useState(false);
   const isDarkMode = useMemo(() => {
     return document.documentElement.classList.contains('dark');

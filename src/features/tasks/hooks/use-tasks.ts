@@ -147,7 +147,6 @@ export function useTaskEvents(
     queryKey: queryKeys.taskEvents(taskId, params),
     queryFn: () => tasksApi.getTaskEvents(taskId, params),
     enabled: !!taskId,
-    refetchInterval: 2000, // Refetch every 2 seconds to get latest events
     ...options,
   });
 }
