@@ -27,7 +27,7 @@ interface ResultPayload {
 }
 
 export function ResultEvent({ event }: ResultEventProps) {
-  const payload = event.payload as ResultPayload;
+  const payload = event.payload as unknown as ResultPayload;
 
   const formatDuration = (ms: number) => {
     if (ms < 1000) {

@@ -4,6 +4,7 @@ import { TaskList } from '@/features/tasks/components/task-list';
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons';
 import { useTasksList } from '@/features/tasks/hooks/use-tasks';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
+import type { Task } from '@/types/task';
 
 export const Route = createFileRoute('/tasks/')({
   component: TasksIndex,
@@ -24,13 +25,21 @@ function TasksIndex() {
   );
 
   // Transform and separate tasks
-  const transformedTasks =
+  const transformedTasks: Array<Task> =
     tasks?.map((metadata) => ({
       id: metadata.task_id,
-      title: `Task ${metadata.task_id.slice(0, 8)}`,
+      title: metadata.title || `Task ${metadata.task_id.slice(0, 8)}`,
+      createdAt: metadata.created_at,
+      lastMessageAt: metadata.last_message_at,
+      agentType: metadata.agent_type,
+      environmentName: metadata.environment_id,
+      status: metadata.status,
+      numTurns: metadata.num_turns,
+      totalCostUsd: metadata.total_cost_usd,
+      workspaceStatus: 'unknown' as const,
+      // Legacy fields for backward compatibility
       time: new Date(metadata.last_message_at).toLocaleString(),
       project: metadata.agent_type,
-      status: metadata.status,
       changes: { added: 0, removed: 0 },
     })) || [];
 

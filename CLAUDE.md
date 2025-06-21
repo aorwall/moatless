@@ -35,8 +35,10 @@ pnpm dlx shadcn@latest add [component]
 ```
 
 ## Mandatory Workflow
-- You MUST run `pnpm biome:check` after code changes
+- You MUST run `pnpm type:check` after code changes to catch TypeScript errors
+- You MUST run `pnpm biome:check` after code changes for linting and formatting
 - You can run both `biome:fix` and `biome:check`
+- For comprehensive validation, run `pnpm check:turbo` which includes all checks
 
 ## Architecture
 

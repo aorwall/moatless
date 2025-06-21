@@ -1,4 +1,5 @@
 import { MessageSquare, Wrench } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import type { Event } from '@/types/event';
 
@@ -8,7 +9,7 @@ interface MessageEventProps {
   event: Event;
 }
 
-const renderMessageContent = (content: unknown): React.ReactNode => {
+const renderMessageContent = (content: unknown): ReactNode => {
   if (!content) {
     return null;
   }
@@ -34,7 +35,7 @@ const renderMessageContent = (content: unknown): React.ReactNode => {
   return renderSingleContent(content);
 };
 
-const renderSingleContent = (content: unknown): React.ReactNode => {
+const renderSingleContent = (content: unknown): ReactNode => {
   if (!content || typeof content !== 'object') {
     return <span>{String(content)}</span>;
   }
@@ -58,24 +59,26 @@ const renderSingleContent = (content: unknown): React.ReactNode => {
               {String(contentObj.name || 'Tool')}
             </span>
           </div>
-          {contentObj.input && (
+          {contentObj.input ? (
             <div className="text-xs bg-slate-100 dark:bg-slate-700 rounded p-2 overflow-x-auto">
               <pre className="font-mono">
-                {JSON.stringify(contentObj.input, null, 2)}
+                {typeof contentObj.input === 'object'
+                  ? JSON.stringify(contentObj.input, null, 2)
+                  : String(contentObj.input)}
               </pre>
             </div>
-          )}
+          ) : null}
         </div>
       );
 
     case 'tool_result':
       return (
         <div className="space-y-2">
-          {contentObj.tool_use_id && (
+          {contentObj.tool_use_id ? (
             <div className="text-xs text-slate-500 dark:text-slate-400">
               Tool ID: {String(contentObj.tool_use_id)}
             </div>
-          )}
+          ) : null}
           <div className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 rounded p-2">
             {String(contentObj.content || 'Tool result')}
           </div>
@@ -126,31 +129,33 @@ export function MessageEvent({ event }: MessageEventProps) {
                 ? 'Assistant'
                 : messageType === 'user'
                   ? 'User'
-                  : messageType}
+                  : String(messageType)}
               {isToolCall && ' (Tool Call)'}
             </span>
           </div>
-          {message.usage && typeof message.usage === 'object' && (
+          {message.usage && typeof message.usage === 'object' ? (
             <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
               {Number(
                 (message.usage as Record<string, unknown>).input_tokens || 0,
               ).toLocaleString()}{' '}
               tokens
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
-          {renderMessageContent(content) || (
+          {content ? (
+            renderMessageContent(content)
+          ) : (
             <span className="text-slate-400">No content</span>
           )}
         </div>
 
-        {message.model && (
+        {message.model ? (
           <div className="text-xs text-slate-500 dark:text-slate-400">
             Model: {String(message.model)}
           </div>
-        )}
+        ) : null}
       </div>
     </EventHeader>
   );

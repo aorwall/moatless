@@ -33,6 +33,17 @@ interface EnvironmentFormProps {
   isSubmitting?: boolean;
 }
 
+type FormData = {
+  name: string;
+  type: 'local' | 'github';
+  environment_variables: Record<string, string>;
+  is_active: boolean;
+  path: string;
+  use_git_worktrees: boolean;
+  repo_url: string;
+  branch: string;
+};
+
 export function EnvironmentForm({
   environment,
   onSubmit,
@@ -61,23 +72,30 @@ export function EnvironmentForm({
     };
   }, []);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: environment?.name || '',
     type: environment?.repository.type || 'local',
     environment_variables: environment?.variables || {},
     is_active: environment?.is_active ?? true,
     ...getInitialRepositoryData(environment),
-  });
+  } as FormData);
 
   // Update form data when environment prop changes
   useEffect(() => {
     if (environment) {
+      const repoData = getInitialRepositoryData(environment);
       setFormData({
         name: environment.name,
         type: environment.repository.type,
         environment_variables: environment.variables || {},
         is_active: environment.is_active,
-        ...getInitialRepositoryData(environment),
+        path: 'path' in repoData ? (repoData.path as string) : '',
+        use_git_worktrees:
+          'use_git_worktrees' in repoData
+            ? (repoData.use_git_worktrees as boolean)
+            : false,
+        repo_url: 'repo_url' in repoData ? (repoData.repo_url as string) : '',
+        branch: 'branch' in repoData ? (repoData.branch as string) : 'main',
       });
     }
   }, [environment, getInitialRepositoryData]); // Re-run when environment changes
@@ -107,13 +125,22 @@ export function EnvironmentForm({
       type: 'local' as const,
     };
 
-    onSubmit({
-      name: formData.name,
-      repository,
-      code_execution,
-      variables: formData.environment_variables,
-      is_active: formData.is_active,
-    });
+    const submitData = isEdit
+      ? {
+          name: formData.name,
+          repository,
+          code_execution,
+          variables: formData.environment_variables,
+          is_active: formData.is_active,
+        }
+      : {
+          name: formData.name,
+          repository,
+          code_execution,
+          variables: formData.environment_variables,
+        };
+
+    onSubmit(submitData);
   };
 
   return (
@@ -149,7 +176,10 @@ export function EnvironmentForm({
               <Select
                 value={formData.type}
                 onValueChange={(value) =>
-                  setFormData({ ...formData, type: value })
+                  setFormData({
+                    ...formData,
+                    type: value as 'local' | 'github',
+                  })
                 }
                 disabled={isEdit}
               >

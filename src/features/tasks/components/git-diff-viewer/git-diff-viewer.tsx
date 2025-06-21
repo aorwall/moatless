@@ -1,4 +1,4 @@
-import { DiffView } from '@git-diff-view/react';
+import { DiffModeEnum, DiffView } from '@git-diff-view/react';
 import '@git-diff-view/react/styles/diff-view.css';
 import { generateDiffFile } from '@git-diff-view/file';
 import './git-diff-viewer.css';
@@ -233,7 +233,7 @@ function FileDiff({ file, isDarkMode }: FileDiffProps) {
           >
             <DiffView
               diffFile={diffFile}
-              diffViewMode="unified"
+              diffViewMode={DiffModeEnum.Unified}
               diffViewWrap={true}
               diffViewHighlight={true}
               diffViewFontSize={13}

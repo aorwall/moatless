@@ -78,7 +78,7 @@ export function SidebarTasks() {
             {sortedTasks.map((task) => (
               <SidebarMenuItem key={task.task_id}>
                 <SidebarMenuButton asChild>
-                  <Link to={`/tasks/${task.task_id}`}>
+                  <Link to="/tasks/$taskId" params={{ taskId: task.task_id }}>
                     <div className="flex flex-col items-start gap-1 overflow-hidden w-full">
                       <div className="flex items-center gap-2 w-full">
                         <span className="truncate text-sm flex-1">
@@ -89,9 +89,7 @@ export function SidebarTasks() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground w-full">
-                        <span className="truncate">
-                          {task.environment_name}
-                        </span>
+                        <span className="truncate">{task.environment_id}</span>
                         <span className="text-muted-foreground/60">•</span>
                         <span className="flex-shrink-0">
                           {new Date(

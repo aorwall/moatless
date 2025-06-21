@@ -22,15 +22,15 @@ export function EventViewer() {
   } = useTaskContext();
 
   const displayEvents = isRunning ? streamEvents : events || [];
-  const [localEvents, setLocalEvents] = useState<Array<Event>>(events);
+  const [localEvents, setLocalEvents] = useState<Array<Event>>(events || []);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const previousEventCount = useRef(events.length);
+  const previousEventCount = useRef(events?.length || 0);
   const hasScrolledToBottomInitially = useRef(false);
 
   // Update local events when props change
   useEffect(() => {
-    setLocalEvents(events);
+    setLocalEvents(events || []);
   }, [events]);
 
   // Scroll to bottom on initial load if task hasn't been visited before
@@ -38,6 +38,7 @@ export function EventViewer() {
     if (
       !hasScrolledToBottomInitially.current &&
       scrollAreaRef.current &&
+      events &&
       events.length > 0
     ) {
       const isFirstVisit = !visitedTasks.has(taskId);
@@ -85,7 +86,7 @@ export function EventViewer() {
     }
 
     // Only auto-scroll if new events were added
-    if (events.length > previousEventCount.current) {
+    if (events && events.length > previousEventCount.current) {
       const scrollElement = scrollAreaRef.current.querySelector(
         '[data-slot="scroll-area-viewport"]',
       );
@@ -97,7 +98,7 @@ export function EventViewer() {
       }
     }
 
-    previousEventCount.current = events.length;
+    previousEventCount.current = events?.length || 0;
   }, [events, isAtBottom]);
 
   // Set up scroll event listener

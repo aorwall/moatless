@@ -91,9 +91,11 @@ export function EnvironmentList({
               {environments.map((env) => (
                 <TableRow key={env.id}>
                   <TableCell className="font-medium">{env.name}</TableCell>
-                  <TableCell>{env.type}</TableCell>
+                  <TableCell>{env.repository.type}</TableCell>
                   <TableCell className="max-w-xs truncate">
-                    {env.repo_url || 'N/A'}
+                    {env.repository.type === 'github'
+                      ? env.repository.repo_id
+                      : env.repository.path}
                   </TableCell>
                   <TableCell>
                     <Badge variant={env.is_active ? 'default' : 'secondary'}>

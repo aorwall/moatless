@@ -47,8 +47,9 @@ export function useTask(
     queryKey: queryKeys.task(taskId),
     queryFn: () => tasksApi.getTask(taskId),
     enabled: !!taskId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Refetch every 2 seconds when task is active/running
+      const data = query.state.data;
       if (data?.status === 'active' || data?.is_running) {
         return 2000;
       }
@@ -188,8 +189,9 @@ export function useTaskWorkspaceStatus(
     queryKey: queryKeys.taskWorkspaceStatus(taskId),
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Poll more frequently when workspace is in a transitional state
+      const data = query.state.data;
       if (data?.status === 'setting_up' || data?.status === 'running') {
         return 1000; // 1 second
       }

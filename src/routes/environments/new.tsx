@@ -3,7 +3,10 @@ import { toast } from 'sonner';
 
 import { EnvironmentForm, useCreateEnvironment } from '@/features/environments';
 import { getErrorMessage } from '@/lib/utils/error';
-import type { CreateEnvironmentRequest } from '@/types/environment';
+import type {
+  CreateEnvironmentRequest,
+  UpdateEnvironmentRequest,
+} from '@/types/environment';
 
 export const Route = createFileRoute('/environments/new')({
   component: EnvironmentNew,
@@ -13,8 +16,10 @@ function EnvironmentNew() {
   const navigate = useNavigate();
   const createEnvironment = useCreateEnvironment();
 
-  const handleSubmit = (data: CreateEnvironmentRequest) => {
-    createEnvironment.mutate(data, {
+  const handleSubmit = (
+    data: CreateEnvironmentRequest | UpdateEnvironmentRequest,
+  ) => {
+    createEnvironment.mutate(data as CreateEnvironmentRequest, {
       onSuccess: (createdEnvironment) => {
         toast.success('Environment created successfully');
         // Navigate to the edit page to configure code execution
