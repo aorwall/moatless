@@ -12,6 +12,17 @@ import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
 import type { TaskMetadata, WorkspaceStatusResponse } from '@/types/task';
 
+/**
+ * Task Query Invalidation Strategy:
+ *
+ * - queryKeys.tasks() - Invalidates all task queries (list + all individual tasks)
+ * - queryKeys.task(taskId) - Invalidates all data for a specific task (detail, messages, events, etc.)
+ *
+ * For mutations:
+ * - Always invalidate queryKeys.task(taskId) to refresh all task data
+ * - Also invalidate queryKeys.tasks() to update the task list
+ */
+
 // Query hooks
 export function useTasksList(
   params?: {
@@ -33,9 +44,16 @@ export function useTask(
   options?: Omit<UseQueryOptions<TaskMetadata>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskDetail(taskId),
+    queryKey: queryKeys.task(taskId),
     queryFn: () => tasksApi.getTask(taskId),
     enabled: !!taskId,
+    refetchInterval: (data) => {
+      // Refetch every 2 seconds when task is active/running
+      if (data?.status === 'active' || data?.is_running) {
+        return 2000;
+      }
+      return false;
+    },
     ...options,
   });
 }
@@ -72,18 +90,18 @@ export function useSendMessage(
 
   return useMutation({
     mutationFn: ({ taskId, message }) => tasksApi.sendMessage(taskId, message),
-    onSuccess: (data, variables, context) => {
-      // Invalidate messages for this task
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskMessages(variables.taskId),
+    onSuccess: async (data, variables, context) => {
+      // Invalidate all data for this specific task (detail, messages, events, etc.)
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.task(variables.taskId),
       });
-      // Invalidate task detail to update metadata
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskDetail(variables.taskId),
+      // Also invalidate the tasks list to update metadata like last_message_at
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(),
       });
-      // Invalidate task events to show new events
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskEvents(variables.taskId),
+      // Force refetch the task data immediately
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.task(variables.taskId),
       });
       options?.onSuccess?.(data, variables, context);
     },
@@ -103,8 +121,14 @@ export function useStopAgent(
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.stopAgent(taskId),
     onSuccess: (data, taskId, context) => {
-      // Invalidate all task-related queries
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
+      // Invalidate all data for this specific task
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
+      });
+      // Also invalidate the tasks list to update the status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(),
+      });
       options?.onSuccess?.(data, taskId, context);
     },
     ...options,
@@ -123,6 +147,7 @@ export function useTaskEvents(
     queryKey: queryKeys.taskEvents(taskId, params),
     queryFn: () => tasksApi.getTaskEvents(taskId, params),
     enabled: !!taskId,
+    refetchInterval: 2000, // Refetch every 2 seconds to get latest events
     ...options,
   });
 }
@@ -164,7 +189,13 @@ export function useTaskWorkspaceStatus(
     queryKey: queryKeys.taskWorkspaceStatus(taskId),
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId,
-    refetchInterval: 5000, // Poll every 5 seconds
+    refetchInterval: (data) => {
+      // Poll more frequently when workspace is in a transitional state
+      if (data?.status === 'setting_up' || data?.status === 'running') {
+        return 1000; // 1 second
+      }
+      return 5000; // 5 seconds for idle/not_setup states
+    },
     ...options,
   });
 }

@@ -98,17 +98,33 @@ function TaskDetail() {
   // Extract task status as a stable value
   const taskStatus = metadata?.status;
 
+  // Determine if the task is in a running state based on both task status and workspace status
+  const isRunning = useMemo(() => {
+    if (!metadata) {
+      return false;
+    }
+
+    // Task is running if:
+    // 1. Task metadata says it's running OR
+    // 2. Task is active AND workspace is setting up or running
+    const workspaceRunning =
+      workspaceStatus?.status === 'setting_up' ||
+      workspaceStatus?.status === 'running';
+
+    return metadata.is_running || (taskStatus === 'active' && workspaceRunning);
+  }, [metadata, taskStatus, workspaceStatus]);
+
   // Initialize stream events with existing events when task is running
   useEffect(() => {
-    if (metadata?.is_running && events && streamEvents.length === 0) {
+    if (isRunning && events && streamEvents.length === 0) {
       setStreamEvents(events);
     }
-  }, [metadata?.is_running, events, streamEvents.length]);
+  }, [isRunning, events, streamEvents.length]);
 
   // Memoize autoConnect to prevent unnecessary effect triggers
   const autoConnect = useMemo(() => {
-    return metadata?.is_running && taskStatus === 'active';
-  }, [metadata?.is_running, taskStatus]);
+    return isRunning;
+  }, [isRunning]);
 
   // Use SSE for real-time updates only if task exists and streaming is enabled
   useTaskSSE({
@@ -204,9 +220,9 @@ function TaskDetail() {
                 className="flex-1 w-full overflow-hidden mt-0"
               >
                 <EventViewer
-                  events={metadata.is_running ? streamEvents : events || []}
+                  events={isRunning ? streamEvents : events || []}
                   taskId={taskId}
-                  isTaskRunning={metadata.is_running}
+                  isTaskRunning={isRunning}
                   isLoading={isLoadingEvents}
                   error={eventsError}
                 />
