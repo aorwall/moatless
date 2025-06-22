@@ -1,9 +1,16 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { useTaskSSE } from '../use-sse';
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { TaskSSEClient } from '@/features/tasks/api/sse';
+import {
+  createMockClaudeMessage,
+  createMockEvent,
+} from '@/test-utils/factories';
 import { createWrapper } from '@/test-utils/render';
-import { createMockClaudeMessage, createMockEvent } from '@/test-utils/factories';
+import type { BaseMessage, AssistantMessage } from '@/types/task';
+import { ContentType } from '@/types/task';
+
+import { useTaskSSE } from '../use-sse';
 
 // Mock TaskSSEClient
 vi.mock('@/features/tasks/api/sse', () => ({
@@ -16,7 +23,7 @@ describe('useTaskSSE', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Create mock SSE client instance
     mockSSEClient = {
       connect: vi.fn(),
@@ -251,7 +258,15 @@ describe('useTaskSSE', () => {
         { wrapper: createWrapper() },
       );
 
-      const mockMessage = createMockClaudeMessage({ content: 'Test message' });
+      const mockMessage = createMockClaudeMessage({ 
+        message: {
+          ...(createMockClaudeMessage() as AssistantMessage).message,
+          content: [{
+            type: ContentType.TEXT,
+            text: 'Test message'
+          }]
+        }
+      }) as AssistantMessage;
 
       act(() => {
         capturedCallbacks.onMessage(mockMessage);
@@ -279,7 +294,7 @@ describe('useTaskSSE', () => {
         { wrapper: createWrapper() },
       );
 
-      const mockEvent = createMockEvent({ event_type: 'message' });
+      const mockEvent = createMockEvent({ type: 'message' });
 
       act(() => {
         capturedCallbacks.onEvent(mockEvent);
@@ -343,7 +358,7 @@ describe('useTaskSSE', () => {
     it('maintains stable callbacks when props change', () => {
       let capturedCallbacks: any = {};
       let callCount = 0;
-      
+
       vi.mocked(TaskSSEClient).mockImplementation((options) => {
         capturedCallbacks = options;
         callCount++;
@@ -351,7 +366,7 @@ describe('useTaskSSE', () => {
       });
 
       const { rerender } = renderHook(
-        ({ onMessage }) =>
+        ({ onMessage }: { onMessage: (message: BaseMessage) => void }) =>
           useTaskSSE({
             taskId: mockTaskId,
             onMessage,
@@ -363,13 +378,13 @@ describe('useTaskSSE', () => {
       );
 
       const initialCallbacks = { ...capturedCallbacks };
-      
+
       // Change the onMessage prop
       rerender({ onMessage: vi.fn() });
 
       // TaskSSEClient should not be recreated
       expect(callCount).toBe(1);
-      
+
       // Callbacks should remain the same reference
       expect(capturedCallbacks.onMessage).toBe(initialCallbacks.onMessage);
       expect(capturedCallbacks.onEvent).toBe(initialCallbacks.onEvent);

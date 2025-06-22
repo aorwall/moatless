@@ -1,23 +1,27 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
-import { TaskHeader } from '../task-header';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { WorkspaceStatus } from '@/types/task';
+
 import {
-  useTask,
-  useTaskWorkspaceStatus,
-  useServerStatus,
-  useStartServer,
-  useStopServer,
-  useStopAgent,
-} from '../../hooks/use-tasks';
-import { useTaskStreamingError } from '../../stores/task-streaming-store';
-import { renderWithRouter } from '@/test-utils/render';
-import {
+  createMockServerStatus,
   createMockTask,
   createMockWorkspaceStatus,
-  createMockServerStatus,
 } from '@/test-utils/factories';
+import { renderWithRouter } from '@/test-utils/render';
+
+import {
+  useServerStatus,
+  useStartServer,
+  useStopAgent,
+  useStopServer,
+  useTask,
+  useTaskWorkspaceStatus,
+} from '../../hooks/use-tasks';
+import { useTaskStreamingError } from '../../stores/task-streaming-store';
+import { TaskHeader } from '../task-header';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
@@ -57,7 +61,7 @@ describe('TaskHeader', () => {
     } as any);
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-      data: createMockWorkspaceStatus({ status: 'idle' }),
+      data: createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }),
       isLoading: false,
       error: null,
     } as any);
@@ -144,10 +148,18 @@ describe('TaskHeader', () => {
 
   describe('Workspace Status Display', () => {
     const workspaceTestCases = [
-      { status: 'not_setup' as const, expected: 'workspace: not set up' },
-      { status: 'setting_up' as const, expected: 'workspace: setting up', isLoading: true },
-      { status: 'idle' as const, expected: 'workspace: idle' },
-      { status: 'running' as const, expected: 'workspace: running', isLoading: true },
+      { status: WorkspaceStatus.NOT_SETUP, expected: 'workspace: not set up' },
+      {
+        status: WorkspaceStatus.SETTING_UP,
+        expected: 'workspace: setting up',
+        isLoading: true,
+      },
+      { status: WorkspaceStatus.IDLE, expected: 'workspace: idle' },
+      {
+        status: WorkspaceStatus.RUNNING,
+        expected: 'workspace: running',
+        isLoading: true,
+      },
     ];
 
     workspaceTestCases.forEach(({ status, expected, isLoading }) => {
@@ -161,10 +173,12 @@ describe('TaskHeader', () => {
         renderWithRouter(<TaskHeader />);
 
         expect(screen.getByText(expected)).toBeInTheDocument();
-        
+
         if (isLoading) {
           // Check for loading spinner using data-slot attribute
-          const badge = screen.getByText(expected).closest('[data-slot="badge"]');
+          const badge = screen
+            .getByText(expected)
+            .closest('[data-slot="badge"]');
           expect(badge?.querySelector('.animate-spin')).toBeInTheDocument();
         }
       });
@@ -199,7 +213,9 @@ describe('TaskHeader', () => {
       await user.hover(errorBadge);
       await waitFor(() => {
         // Use getAllByText since the error might appear multiple times
-        expect(screen.getAllByText('Failed to fetch workspace status')[0]).toBeInTheDocument();
+        expect(
+          screen.getAllByText('Failed to fetch workspace status')[0],
+        ).toBeInTheDocument();
       });
     });
   });
@@ -246,7 +262,9 @@ describe('TaskHeader', () => {
     it('does not show stop button when task is not running', () => {
       renderWithRouter(<TaskHeader />);
 
-      expect(screen.queryByRole('button', { name: /stop/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /stop/i }),
+      ).not.toBeInTheDocument();
     });
 
     it('handles stop agent action', async () => {
@@ -259,7 +277,9 @@ describe('TaskHeader', () => {
 
       const onSuccess = vi.fn();
       vi.mocked(useStopAgent).mockImplementation((options) => {
-        onSuccess.mockImplementation(() => options?.onSuccess?.({} as any, 'task-123', {}));
+        onSuccess.mockImplementation(() =>
+          options?.onSuccess?.({} as any, 'task-123', {}),
+        );
         return {
           mutate: mockStopAgent,
           isPending: false,
@@ -272,7 +292,7 @@ describe('TaskHeader', () => {
       await user.click(stopButton);
 
       expect(mockStopAgent).toHaveBeenCalledWith('task-123');
-      
+
       // Simulate success
       onSuccess();
       expect(toast.success).toHaveBeenCalledWith('Agent stopped successfully');
@@ -292,7 +312,9 @@ describe('TaskHeader', () => {
 
       renderWithRouter(<TaskHeader />);
 
-      const stopButton = screen.getByRole('button', { name: /stopping\.\.\./i });
+      const stopButton = screen.getByRole('button', {
+        name: /stopping\.\.\./i,
+      });
       expect(stopButton).toBeDisabled();
     });
   });
@@ -307,13 +329,17 @@ describe('TaskHeader', () => {
 
       renderWithRouter(<TaskHeader />);
 
-      expect(screen.getByRole('button', { name: /start server/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /start server/i }),
+      ).toBeInTheDocument();
     });
 
     it('does not show server controls when not configured', () => {
       renderWithRouter(<TaskHeader />);
 
-      expect(screen.queryByRole('button', { name: /server/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /server/i }),
+      ).not.toBeInTheDocument();
     });
 
     it('handles start server action', async () => {
@@ -326,7 +352,9 @@ describe('TaskHeader', () => {
 
       const onSuccess = vi.fn();
       vi.mocked(useStartServer).mockImplementation((options) => {
-        onSuccess.mockImplementation(() => options?.onSuccess?.({} as any, 'task-123', {}));
+        onSuccess.mockImplementation(() =>
+          options?.onSuccess?.({} as any, 'task-123', {}),
+        );
         return {
           mutate: mockStartServer,
           isPending: false,
@@ -339,7 +367,7 @@ describe('TaskHeader', () => {
       await user.click(startButton);
 
       expect(mockStartServer).toHaveBeenCalledWith('task-123');
-      
+
       // Simulate success
       onSuccess();
       expect(toast.success).toHaveBeenCalledWith('Server started successfully');
@@ -369,7 +397,9 @@ describe('TaskHeader', () => {
       await waitFor(() => {
         // Use getAllByText since the text might appear multiple times (in tooltip)
         expect(screen.getAllByText('Server is running')[0]).toBeInTheDocument();
-        expect(screen.getAllByText('URL: http://localhost:8080')[0]).toBeInTheDocument();
+        expect(
+          screen.getAllByText('URL: http://localhost:8080')[0],
+        ).toBeInTheDocument();
         expect(screen.getAllByText('PID: 12345')[0]).toBeInTheDocument();
         expect(screen.getAllByText('Uptime: 120s')[0]).toBeInTheDocument();
       });
@@ -385,8 +415,8 @@ describe('TaskHeader', () => {
 
       const onError = vi.fn();
       vi.mocked(useStartServer).mockImplementation((options) => {
-        onError.mockImplementation(() => 
-          options?.onError?.(new Error('Port already in use'), 'task-123', {})
+        onError.mockImplementation(() =>
+          options?.onError?.(new Error('Port already in use'), 'task-123', {}),
         );
         return {
           mutate: mockStartServer,
@@ -420,7 +450,9 @@ describe('TaskHeader', () => {
 
       renderWithRouter(<TaskHeader />);
 
-      const startButton = screen.getByRole('button', { name: /starting server/i });
+      const startButton = screen.getByRole('button', {
+        name: /starting server/i,
+      });
       expect(startButton).toBeDisabled();
     });
   });
@@ -444,9 +476,9 @@ describe('TaskHeader', () => {
 
   describe('Status Badge Variants', () => {
     const statusVariants = [
-      { status: 'active', variant: 'default' },
-      { status: 'error', variant: 'destructive' },
-      { status: 'completed', variant: 'secondary' },
+      { status: 'active' as const, variant: 'default' },
+      { status: 'error' as const, variant: 'destructive' },
+      { status: 'completed' as const, variant: 'secondary' },
     ];
 
     statusVariants.forEach(({ status }) => {

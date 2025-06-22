@@ -1,14 +1,18 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useTaskEventsWithStreaming } from '../use-task-events-with-streaming';
-import { useTask, useTaskEvents, useTaskWorkspaceStatus } from '../use-tasks';
-import { useTaskStreamEvents } from '../../stores/task-streaming-store';
-import { createWrapper } from '@/test-utils/render';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { WorkspaceStatus } from '@/types/task';
+
 import {
-  createMockTask,
   createMockEventList,
+  createMockTask,
   createMockWorkspaceStatus,
 } from '@/test-utils/factories';
+import { createWrapper } from '@/test-utils/render';
+
+import { useTaskStreamEvents } from '../../stores/task-streaming-store';
+import { useTaskEventsWithStreaming } from '../use-task-events-with-streaming';
+import { useTask, useTaskEvents, useTaskWorkspaceStatus } from '../use-tasks';
 
 // Mock dependencies
 vi.mock('../use-tasks');
@@ -25,7 +29,7 @@ describe('useTaskEventsWithStreaming', () => {
     // Default mocks - task not running, workspace idle
     vi.mocked(useTask).mockReturnValue({
       data: createMockTask({
-        id: mockTaskId,
+        task_id: mockTaskId,
         is_running: false,
         status: 'completed',
       }),
@@ -34,7 +38,7 @@ describe('useTaskEventsWithStreaming', () => {
     } as any);
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-      data: createMockWorkspaceStatus({ status: 'idle' }),
+      data: createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }),
       isLoading: false,
       error: null,
     } as any);
@@ -97,7 +101,7 @@ describe('useTaskEventsWithStreaming', () => {
 
     it('uses stream events when workspace is running', () => {
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'running' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING }),
         isLoading: false,
         error: null,
       } as any);
@@ -115,7 +119,7 @@ describe('useTaskEventsWithStreaming', () => {
 
     it('uses stream events when workspace is setting up', () => {
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'setting_up' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.SETTING_UP }),
         isLoading: false,
         error: null,
       } as any);
@@ -159,7 +163,7 @@ describe('useTaskEventsWithStreaming', () => {
       } as any);
 
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'running' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING }),
         isLoading: false,
         error: null,
       } as any);
@@ -314,7 +318,7 @@ describe('useTaskEventsWithStreaming', () => {
 
       // Update workspace to running
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'running' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING }),
         isLoading: false,
         error: null,
       } as any);

@@ -1,14 +1,18 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useTaskSSEConnection } from '../use-task-sse-connection';
-import { useTask, useTaskEvents, useTaskWorkspaceStatus } from '../use-tasks';
-import { useTaskStreamingStore } from '../../stores/task-streaming-store';
-import { createWrapper } from '@/test-utils/render';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { WorkspaceStatus } from '@/types/task';
+
 import {
-  createMockTask,
   createMockEventList,
+  createMockTask,
   createMockWorkspaceStatus,
 } from '@/test-utils/factories';
+import { createWrapper } from '@/test-utils/render';
+
+import { useTaskStreamingStore } from '../../stores/task-streaming-store';
+import { useTaskSSEConnection } from '../use-task-sse-connection';
+import { useTask, useTaskEvents, useTaskWorkspaceStatus } from '../use-tasks';
 
 // Mock dependencies
 vi.mock('../use-tasks');
@@ -17,7 +21,7 @@ vi.mock('../../stores/task-streaming-store');
 
 describe('useTaskSSEConnection', () => {
   const mockTaskId = 'task-123';
-  
+
   // Mock store actions
   const mockStoreActions = {
     addLocalMessage: vi.fn(),
@@ -31,26 +35,30 @@ describe('useTaskSSEConnection', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Default mocks
     vi.mocked(useTask).mockReturnValue({
-      data: createMockTask({ id: mockTaskId, is_running: false, status: 'completed' }),
+      data: createMockTask({
+        task_id: mockTaskId,
+        is_running: false,
+        status: 'completed',
+      }),
       isLoading: false,
       error: null,
     } as any);
-    
+
     vi.mocked(useTaskEvents).mockReturnValue({
       data: createMockEventList(3),
       isLoading: false,
       error: null,
     } as any);
-    
+
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-      data: createMockWorkspaceStatus({ status: 'idle' }),
+      data: createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }),
       isLoading: false,
       error: null,
     } as any);
-    
+
     vi.mocked(useTaskStreamingStore).mockReturnValue(mockStoreActions);
   });
 
@@ -62,46 +70,58 @@ describe('useTaskSSEConnection', () => {
         error: null,
       } as any);
 
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(true);
     });
 
     it('should stream when workspace is running', async () => {
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'running' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING }),
         isLoading: false,
         error: null,
       } as any);
 
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(true);
     });
 
     it('should stream when workspace is setting up', async () => {
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'setting_up' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.SETTING_UP }),
         isLoading: false,
         error: null,
       } as any);
 
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(true);
     });
 
     it('should not stream when both task and workspace are inactive', async () => {
       // Already set up with inactive defaults
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(false);
     });
@@ -113,16 +133,19 @@ describe('useTaskSSEConnection', () => {
         isLoading: false,
         error: null,
       } as any);
-      
+
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
-        data: createMockWorkspaceStatus({ status: 'running' }),
+        data: createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING }),
         isLoading: false,
         error: null,
       } as any);
 
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(true);
     });
@@ -136,7 +159,7 @@ describe('useTaskSSEConnection', () => {
         isLoading: false,
         error: null,
       } as any);
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: createMockTask({ is_running: true }),
         isLoading: false,
@@ -148,7 +171,10 @@ describe('useTaskSSEConnection', () => {
       });
 
       await waitFor(() => {
-        expect(mockStoreActions.setStreamEvents).toHaveBeenCalledWith(mockTaskId, mockEvents);
+        expect(mockStoreActions.setStreamEvents).toHaveBeenCalledWith(
+          mockTaskId,
+          mockEvents,
+        );
       });
     });
 
@@ -161,13 +187,13 @@ describe('useTaskSSEConnection', () => {
             isLoading: false,
             error: null,
           } as any);
-          
+
           return useTaskSSEConnection({ taskId: mockTaskId });
         },
         {
           wrapper: createWrapper(),
           initialProps: { shouldStream: true },
-        }
+        },
       );
 
       // Verify streaming is active
@@ -177,20 +203,32 @@ describe('useTaskSSEConnection', () => {
       rerender({ shouldStream: false });
 
       await waitFor(() => {
-        expect(mockStoreActions.clearLocalMessages).toHaveBeenCalledWith(mockTaskId);
-        expect(mockStoreActions.clearStreamEvents).toHaveBeenCalledWith(mockTaskId);
-        expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(mockTaskId, null);
+        expect(mockStoreActions.clearLocalMessages).toHaveBeenCalledWith(
+          mockTaskId,
+        );
+        expect(mockStoreActions.clearStreamEvents).toHaveBeenCalledWith(
+          mockTaskId,
+        );
+        expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(
+          mockTaskId,
+          null,
+        );
       });
     });
 
     it('cleans up when component unmounts', () => {
-      const { unmount } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { unmount } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       unmount();
 
-      expect(mockStoreActions.clearTaskStreaming).toHaveBeenCalledWith(mockTaskId);
+      expect(mockStoreActions.clearTaskStreaming).toHaveBeenCalledWith(
+        mockTaskId,
+      );
     });
   });
 
@@ -199,7 +237,7 @@ describe('useTaskSSEConnection', () => {
       // Import the actual hook to test SSE callbacks
       const { useTaskSSE } = await import('../use-sse');
       const mockUseTaskSSE = vi.mocked(useTaskSSE);
-      
+
       let capturedCallbacks: any = {};
       mockUseTaskSSE.mockImplementation((options) => {
         capturedCallbacks = {
@@ -209,8 +247,10 @@ describe('useTaskSSEConnection', () => {
         };
         return {
           isConnected: true,
-          error: null,
+          connect: vi.fn(),
           disconnect: vi.fn(),
+          lastMessage: null,
+          error: null,
         };
       });
 
@@ -227,41 +267,55 @@ describe('useTaskSSEConnection', () => {
       // Test message handling
       const mockMessage = { id: 'msg-1', role: 'assistant', content: 'Test' };
       capturedCallbacks.onMessage(mockMessage);
-      
-      expect(mockStoreActions.addLocalMessage).toHaveBeenCalledWith(mockTaskId, mockMessage);
-      expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(mockTaskId, null);
+
+      expect(mockStoreActions.addLocalMessage).toHaveBeenCalledWith(
+        mockTaskId,
+        mockMessage,
+      );
+      expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(
+        mockTaskId,
+        null,
+      );
 
       // Test event handling
       const mockEvent = { event_type: 'message', data: {} };
       capturedCallbacks.onEvent(mockEvent);
-      
-      expect(mockStoreActions.addStreamEvent).toHaveBeenCalledWith(mockTaskId, mockEvent);
+
+      expect(mockStoreActions.addStreamEvent).toHaveBeenCalledWith(
+        mockTaskId,
+        mockEvent,
+      );
 
       // Test error handling
       capturedCallbacks.onError(new Error('Task not found'));
-      expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(mockTaskId, 'Task not found');
+      expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(
+        mockTaskId,
+        'Task not found',
+      );
 
       capturedCallbacks.onError(new Error('connection failed'));
       expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(
-        mockTaskId, 
-        'Connection failed after multiple attempts'
+        mockTaskId,
+        'Connection failed after multiple attempts',
       );
 
       capturedCallbacks.onError(new Error('Unknown error'));
       expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(
         mockTaskId,
-        'Streaming connection error'
+        'Streaming connection error',
       );
     });
 
     it('only connects SSE when streaming should be active', async () => {
       const { useTaskSSE } = await import('../use-sse');
       const mockUseTaskSSE = vi.mocked(useTaskSSE);
-      
+
       mockUseTaskSSE.mockReturnValue({
         isConnected: false,
-        error: null,
+        connect: vi.fn(),
         disconnect: vi.fn(),
+        lastMessage: null,
+        error: null,
       });
 
       // Test with inactive state
@@ -273,7 +327,7 @@ describe('useTaskSSEConnection', () => {
         expect.objectContaining({
           taskId: mockTaskId,
           autoConnect: false, // Should not connect when inactive
-        })
+        }),
       );
 
       // Test with active state
@@ -291,7 +345,7 @@ describe('useTaskSSEConnection', () => {
         expect.objectContaining({
           taskId: mockTaskId,
           autoConnect: true, // Should connect when active
-        })
+        }),
       );
     });
   });
@@ -304,9 +358,12 @@ describe('useTaskSSEConnection', () => {
         error: null,
       } as any);
 
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(false);
     });
@@ -318,9 +375,12 @@ describe('useTaskSSEConnection', () => {
         error: null,
       } as any);
 
-      const { result } = renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
-        wrapper: createWrapper(),
-      });
+      const { result } = renderHook(
+        () => useTaskSSEConnection({ taskId: mockTaskId }),
+        {
+          wrapper: createWrapper(),
+        },
+      );
 
       expect(result.current.isStreaming).toBe(false);
     });
@@ -331,7 +391,7 @@ describe('useTaskSSEConnection', () => {
         isLoading: false,
         error: null,
       } as any);
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: createMockTask({ is_running: true }),
         isLoading: false,

@@ -1,16 +1,21 @@
-import { describe, expect, it, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import {
-  useTaskStreamingStore,
-  useTaskStreamEvents,
-  useTaskLocalMessages,
-  useTaskStreamingError,
-} from '../task-streaming-store';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { ContentType } from '@/types/task';
+import type { AssistantMessage } from '@/types/task';
+
 import {
   createMockClaudeMessage,
   createMockEvent,
   createMockEventList,
 } from '@/test-utils/factories';
+
+import {
+  useTaskLocalMessages,
+  useTaskStreamEvents,
+  useTaskStreamingError,
+  useTaskStreamingStore,
+} from '../task-streaming-store';
 
 describe('TaskStreamingStore', () => {
   beforeEach(() => {
@@ -25,21 +30,41 @@ describe('TaskStreamingStore', () => {
   describe('Local Messages', () => {
     it('adds local message to task', () => {
       const taskId = 'task-123';
-      const message = createMockClaudeMessage({ content: 'Test message' });
+      const message = createMockClaudeMessage({ 
+        message: {
+          ...(createMockClaudeMessage() as AssistantMessage).message,
+          content: [{
+            type: ContentType.TEXT,
+            text: 'Test message'
+          }]
+        }
+      }) as AssistantMessage;
 
       act(() => {
         useTaskStreamingStore.getState().addLocalMessage(taskId, message);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.localMessages).toHaveLength(1);
       expect(state.localMessages[0]).toEqual(message);
     });
 
     it('adds multiple messages to same task', () => {
       const taskId = 'task-123';
-      const message1 = createMockClaudeMessage({ id: 'msg-1' });
-      const message2 = createMockClaudeMessage({ id: 'msg-2' });
+      const message1 = createMockClaudeMessage({ 
+        message: { 
+          ...(createMockClaudeMessage() as AssistantMessage).message, 
+          id: 'msg-1' 
+        } 
+      }) as AssistantMessage;
+      const message2 = createMockClaudeMessage({ 
+        message: { 
+          ...(createMockClaudeMessage() as AssistantMessage).message, 
+          id: 'msg-2' 
+        } 
+      }) as AssistantMessage;
 
       act(() => {
         const store = useTaskStreamingStore.getState();
@@ -47,7 +72,9 @@ describe('TaskStreamingStore', () => {
         store.addLocalMessage(taskId, message2);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.localMessages).toHaveLength(2);
       expect(state.localMessages).toEqual([message1, message2]);
     });
@@ -62,7 +89,9 @@ describe('TaskStreamingStore', () => {
         store.clearLocalMessages(taskId);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.localMessages).toHaveLength(0);
     });
 
@@ -77,9 +106,13 @@ describe('TaskStreamingStore', () => {
         store.clearLocalMessages(task1);
       });
 
-      const state1 = useTaskStreamingStore.getState().getTaskStreamingState(task1);
-      const state2 = useTaskStreamingStore.getState().getTaskStreamingState(task2);
-      
+      const state1 = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(task1);
+      const state2 = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(task2);
+
       expect(state1.localMessages).toHaveLength(0);
       expect(state2.localMessages).toHaveLength(1);
     });
@@ -88,13 +121,15 @@ describe('TaskStreamingStore', () => {
   describe('Stream Events', () => {
     it('adds stream event to task', () => {
       const taskId = 'task-123';
-      const event = createMockEvent({ event_type: 'message' });
+      const event = createMockEvent({ type: 'message' });
 
       act(() => {
         useTaskStreamingStore.getState().addStreamEvent(taskId, event);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.streamEvents).toHaveLength(1);
       expect(state.streamEvents[0]).toEqual(event);
     });
@@ -107,7 +142,9 @@ describe('TaskStreamingStore', () => {
         useTaskStreamingStore.getState().setStreamEvents(taskId, events);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.streamEvents).toEqual(events);
     });
 
@@ -122,7 +159,9 @@ describe('TaskStreamingStore', () => {
         store.setStreamEvents(taskId, newEvents);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.streamEvents).toEqual(newEvents);
       expect(state.streamEvents).toHaveLength(5);
     });
@@ -137,7 +176,9 @@ describe('TaskStreamingStore', () => {
         store.clearStreamEvents(taskId);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.streamEvents).toHaveLength(0);
     });
   });
@@ -151,7 +192,9 @@ describe('TaskStreamingStore', () => {
         useTaskStreamingStore.getState().setStreamingError(taskId, error);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.streamingError).toBe(error);
     });
 
@@ -164,7 +207,9 @@ describe('TaskStreamingStore', () => {
         store.setStreamingError(taskId, null);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.streamingError).toBe(null);
     });
   });
@@ -181,7 +226,9 @@ describe('TaskStreamingStore', () => {
         store.clearTaskStreaming(taskId);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.localMessages).toHaveLength(0);
       expect(state.streamEvents).toHaveLength(0);
       expect(state.streamingError).toBe(null);
@@ -208,19 +255,33 @@ describe('TaskStreamingStore', () => {
 
       act(() => {
         const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(task1, createMockClaudeMessage({ id: 'msg-1' }));
-        store.addLocalMessage(task2, createMockClaudeMessage({ id: 'msg-2' }));
+        store.addLocalMessage(task1, createMockClaudeMessage({ 
+          message: { 
+            ...(createMockClaudeMessage() as AssistantMessage).message, 
+            id: 'msg-1' 
+          } 
+        }) as AssistantMessage);
+        store.addLocalMessage(task2, createMockClaudeMessage({ 
+          message: { 
+            ...(createMockClaudeMessage() as AssistantMessage).message, 
+            id: 'msg-2' 
+          } 
+        }) as AssistantMessage);
         store.setStreamEvents(task1, createMockEventList(2));
         store.setStreamEvents(task2, createMockEventList(3));
         store.setStreamingError(task1, 'Error 1');
         store.setStreamingError(task2, 'Error 2');
       });
 
-      const state1 = useTaskStreamingStore.getState().getTaskStreamingState(task1);
-      const state2 = useTaskStreamingStore.getState().getTaskStreamingState(task2);
+      const state1 = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(task1);
+      const state2 = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(task2);
 
-      expect(state1.localMessages[0].id).toBe('msg-1');
-      expect(state2.localMessages[0].id).toBe('msg-2');
+      expect((state1.localMessages[0] as AssistantMessage).message.id).toBe('msg-1');
+      expect((state2.localMessages[0] as AssistantMessage).message.id).toBe('msg-2');
       expect(state1.streamEvents).toHaveLength(2);
       expect(state2.streamEvents).toHaveLength(3);
       expect(state1.streamingError).toBe('Error 1');
@@ -252,7 +313,9 @@ describe('TaskStreamingStore', () => {
         store.setStreamingError(taskId, error);
       });
 
-      const state = useTaskStreamingStore.getState().getTaskStreamingState(taskId);
+      const state = useTaskStreamingStore
+        .getState()
+        .getTaskStreamingState(taskId);
       expect(state.localMessages).toEqual([message]);
       expect(state.streamEvents).toEqual(events);
       expect(state.streamingError).toBe(error);
@@ -315,14 +378,18 @@ describe('TaskStreamingStore', () => {
     it('initializes task state on first operation', () => {
       const taskId = 'new-task';
       const streamingTasks = useTaskStreamingStore.getState().streamingTasks;
-      
+
       expect(streamingTasks.has(taskId)).toBe(false);
 
       act(() => {
-        useTaskStreamingStore.getState().addLocalMessage(taskId, createMockClaudeMessage());
+        useTaskStreamingStore
+          .getState()
+          .addLocalMessage(taskId, createMockClaudeMessage());
       });
 
-      expect(useTaskStreamingStore.getState().streamingTasks.has(taskId)).toBe(true);
+      expect(useTaskStreamingStore.getState().streamingTasks.has(taskId)).toBe(
+        true,
+      );
     });
   });
 });

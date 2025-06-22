@@ -1,16 +1,25 @@
-import type {
-  TaskMetadata,
-  TaskIteration,
-  ClaudeMessage,
-  WorkspaceStatusResponse,
-  ServerStatus,
-} from '@/types/task';
+import type { AgentTriggerResponse } from '@/types/agent';
 import type { Event } from '@/types/event';
 import type { GitDiffResponse } from '@/types/git-diff';
-import type { AgentTriggerResponse } from '@/types/agent';
+import type {
+  ClaudeMessage,
+  ServerStatus,
+  TaskIteration,
+  TaskMetadata,
+  WorkspaceStatusResponse,
+  AssistantMessage,
+} from '@/types/task';
+import {
+  MessageType,
+  Role,
+  ContentType,
+  WorkspaceStatus,
+} from '@/types/task';
 
 // Task factories
-export function createMockTask(overrides?: Partial<TaskMetadata>): TaskMetadata {
+export function createMockTask(
+  overrides?: Partial<TaskMetadata>,
+): TaskMetadata {
   return {
     task_id: 'task-123',
     title: 'Test Task',
@@ -51,23 +60,36 @@ export function createMockClaudeMessage(
   overrides?: Partial<ClaudeMessage>,
 ): ClaudeMessage {
   return {
-    id: 'msg-123',
-    role: 'assistant',
-    content: 'Test message content',
-    model: 'claude-3-sonnet',
-    created_at: '2024-01-01T00:00:00Z',
+    type: MessageType.ASSISTANT,
+    task_id: 'task-123',
+    timestamp: '2024-01-01T00:00:00Z',
+    message: {
+      type: 'message',
+      role: Role.ASSISTANT,
+      content: [{
+        type: ContentType.TEXT,
+        text: 'Test message content'
+      }],
+      model: 'claude-3-sonnet',
+    },
     ...overrides,
-  };
+  } as AssistantMessage;
 }
 
 // Event factories
 export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
-    event_type: 'message',
-    event_index: 0,
+    event_id: 'event-123',
+    type: 'message',
+    task_id: 'task-123',
+    iteration_number: 1,
     timestamp: '2024-01-01T00:00:00Z',
-    session_event_idx: 0,
-    data: {
+    is_error: false,
+    sub_type: 'message',
+    context_tokens: 100,
+    num_turns: 1,
+    total_cost: 0.001,
+    payload: {
       content: 'Test event content',
     },
     ...overrides,
@@ -79,8 +101,8 @@ export function createMockMessageEvent(
   role: 'user' | 'assistant' = 'user',
 ): Event {
   return createMockEvent({
-    event_type: 'message',
-    data: {
+    type: 'message',
+    payload: {
       role,
       content,
       model: role === 'assistant' ? 'claude-3-sonnet' : undefined,
@@ -90,8 +112,8 @@ export function createMockMessageEvent(
 
 export function createMockToolEvent(toolName: string, input: any): Event {
   return createMockEvent({
-    event_type: 'tool_use',
-    data: {
+    type: 'tool_use',
+    payload: {
       tool_name: toolName,
       input,
       tool_use_id: `tool-${Date.now()}`,
@@ -104,9 +126,7 @@ export function createMockWorkspaceStatus(
   overrides?: Partial<WorkspaceStatusResponse>,
 ): WorkspaceStatusResponse {
   return {
-    status: 'idle',
-    message: 'Workspace is idle',
-    created_at: '2024-01-01T00:00:00Z',
+    status: WorkspaceStatus.IDLE,
     ...overrides,
   };
 }
@@ -116,9 +136,10 @@ export function createMockServerStatus(
 ): ServerStatus {
   return {
     running: false,
-    port: 8080,
-    pid: null,
-    logs: [],
+    configured: true,
+    url: 'http://localhost:8080',
+    pid: 1234,
+    uptime_seconds: 0,
     ...overrides,
   };
 }
@@ -128,16 +149,17 @@ export function createMockGitDiff(
   overrides?: Partial<GitDiffResponse>,
 ): GitDiffResponse {
   return {
-    diff: `diff --git a/test.ts b/test.ts
-index abc123..def456 100644
---- a/test.ts
-+++ b/test.ts
-@@ -1,3 +1,3 @@
--const old = 'value';
-+const new = 'value';`,
-    files_changed: 1,
-    insertions: 1,
-    deletions: 1,
+    files: [{
+      path: 'test.ts',
+      status: 'modified',
+      additions: 1,
+      deletions: 1,
+      old_content: `const old = 'value';`,
+      new_content: `const new = 'value';`
+    }],
+    total_files: 1,
+    total_additions: 1,
+    total_deletions: 1,
     ...overrides,
   };
 }
@@ -147,9 +169,9 @@ export function createMockAgentTriggerResponse(
   overrides?: Partial<AgentTriggerResponse>,
 ): AgentTriggerResponse {
   return {
-    success: true,
-    message: 'Task created successfully',
     task_id: 'task-123',
+    status: 'created',
+    stream_url: 'ws://localhost:8080/stream',
     ...overrides,
   };
 }
@@ -179,8 +201,7 @@ export function createMockEventList(count = 5): Event[] {
   for (let i = 0; i < count; i++) {
     events.push(
       createMockEvent({
-        event_index: i,
-        session_event_idx: i,
+        event_id: `event-${i}`,
         timestamp: new Date(Date.now() + i * 1000).toISOString(),
       }),
     );

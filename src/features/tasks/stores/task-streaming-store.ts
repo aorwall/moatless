@@ -130,25 +130,19 @@ export const useTaskStreamingStore = create<TaskStreamingState>()(
 
 // Convenience hooks with stable selectors
 export const useTaskStreamEvents = (taskId: string) =>
-  useTaskStreamingStore(
-    (state) => {
-      const taskState = state.streamingTasks.get(taskId);
-      return taskState ? taskState.streamEvents : [];
-    },
-  );
+  useTaskStreamingStore((state) => {
+    const taskState = state.streamingTasks.get(taskId);
+    return taskState ? taskState.streamEvents : [];
+  });
 
 export const useTaskLocalMessages = (taskId: string) =>
-  useTaskStreamingStore(
-    (state) => {
-      const taskState = state.streamingTasks.get(taskId);
-      return taskState ? taskState.localMessages : [];
-    },
-  );
+  useTaskStreamingStore((state) => {
+    const taskState = state.streamingTasks.get(taskId);
+    return taskState ? taskState.localMessages : [];
+  });
 
 export const useTaskStreamingError = (taskId: string) =>
-  useTaskStreamingStore(
-    (state) => {
-      const taskState = state.streamingTasks.get(taskId);
-      return taskState ? taskState.streamingError : null;
-    },
-  );
+  useTaskStreamingStore((state) => {
+    const taskState = state.streamingTasks.get(taskId);
+    return taskState ? taskState.streamingError : null;
+  });

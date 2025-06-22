@@ -1,17 +1,9 @@
-import type { ReactElement, ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RenderOptions } from '@testing-library/react';
 import { render } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-// Mock router types
-interface MockRouter {
-  subscribe: () => () => void;
-  state: { location: { pathname: string } };
-}
+import type { ReactElement, ReactNode } from 'react';
 
-const createMockRouter = (route: string): MockRouter => ({
-  subscribe: () => () => {},
-  state: { location: { pathname: route } },
-});
+
 
 interface AllTheProvidersProps {
   children: ReactNode;
@@ -28,11 +20,6 @@ export function createTestQueryClient() {
       mutations: {
         retry: false,
       },
-    },
-    logger: {
-      log: () => {},
-      warn: () => {},
-      error: () => {},
     },
   });
 }
@@ -69,9 +56,7 @@ export function renderWithRouter(
   // For testing, we just render with query client
   // Router mocking is handled in individual test files
   return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
     renderOptions,
   );
 }

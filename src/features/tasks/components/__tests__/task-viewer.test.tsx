@@ -1,15 +1,17 @@
-import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { TaskViewer } from '../task-viewer';
-import { useTask } from '../../hooks/use-tasks';
-import { useTaskUIStore } from '../../stores/task-ui-store';
-import { renderWithRouter } from '@/test-utils/render';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   createMockTask,
-  createMockTaskWithIterations,
   createMockTaskIteration,
+  createMockTaskWithIterations,
 } from '@/test-utils/factories';
+import { renderWithRouter } from '@/test-utils/render';
+
+import { useTask } from '../../hooks/use-tasks';
+import { useTaskUIStore } from '../../stores/task-ui-store';
+import { TaskViewer } from '../task-viewer';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
@@ -43,7 +45,7 @@ describe('TaskViewer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Mock store with proper Zustand mocking
     vi.mocked(useTaskUIStore).mockReturnValue(mockSetSelectedIteration);
 
@@ -67,8 +69,12 @@ describe('TaskViewer', () => {
       renderWithRouter(<TaskViewer />);
 
       // Check that both iterations are rendered
-      expect(screen.getByText(task.iterations[0].initial_message)).toBeInTheDocument();
-      expect(screen.getByText(task.iterations[1].initial_message)).toBeInTheDocument();
+      expect(
+        screen.getByText(task.iterations[0].initial_message),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(task.iterations[1].initial_message),
+      ).toBeInTheDocument();
     });
 
     it('renders iteration metadata', () => {
@@ -78,7 +84,7 @@ describe('TaskViewer', () => {
         cost_usd: 0.0123,
       });
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -97,7 +103,7 @@ describe('TaskViewer', () => {
         result: 'Task completed successfully',
       });
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -106,7 +112,9 @@ describe('TaskViewer', () => {
 
       renderWithRouter(<TaskViewer />);
 
-      expect(screen.getByText('Task completed successfully')).toBeInTheDocument();
+      expect(
+        screen.getByText('Task completed successfully'),
+      ).toBeInTheDocument();
     });
 
     it('renders error message when present', () => {
@@ -114,7 +122,7 @@ describe('TaskViewer', () => {
         error_message: 'Task failed with error',
       });
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -128,7 +136,7 @@ describe('TaskViewer', () => {
 
     it('shows processing indicator when task is running', () => {
       const task = createMockTaskWithIterations({ is_running: true }, 1);
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -142,7 +150,7 @@ describe('TaskViewer', () => {
 
     it('does not show processing indicator when task is not running', () => {
       const task = createMockTaskWithIterations({ is_running: false }, 1);
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -172,7 +180,7 @@ describe('TaskViewer', () => {
       const user = userEvent.setup();
       const iteration = createMockTaskIteration({ iteration: 1 } as any);
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -181,7 +189,9 @@ describe('TaskViewer', () => {
 
       renderWithRouter(<TaskViewer />);
 
-      const button = screen.getByRole('button', { name: /click to view events/i });
+      const button = screen.getByRole('button', {
+        name: /click to view events/i,
+      });
       await user.click(button);
 
       expect(mockSetSelectedIteration).toHaveBeenCalledWith(iteration);
@@ -190,7 +200,7 @@ describe('TaskViewer', () => {
     it('handles keyboard navigation with Enter', () => {
       const iteration = createMockTaskIteration({ iteration: 1 } as any);
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -199,7 +209,9 @@ describe('TaskViewer', () => {
 
       renderWithRouter(<TaskViewer />);
 
-      const button = screen.getByRole('button', { name: /click to view events/i });
+      const button = screen.getByRole('button', {
+        name: /click to view events/i,
+      });
       fireEvent.keyDown(button, { key: 'Enter' });
 
       expect(mockSetSelectedIteration).toHaveBeenCalledWith(iteration);
@@ -208,7 +220,7 @@ describe('TaskViewer', () => {
     it('handles keyboard navigation with Space', () => {
       const iteration = createMockTaskIteration({ iteration: 1 } as any);
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -217,7 +229,9 @@ describe('TaskViewer', () => {
 
       renderWithRouter(<TaskViewer />);
 
-      const button = screen.getByRole('button', { name: /click to view events/i });
+      const button = screen.getByRole('button', {
+        name: /click to view events/i,
+      });
       fireEvent.keyDown(button, { key: ' ' });
 
       expect(mockSetSelectedIteration).toHaveBeenCalledWith(iteration);
@@ -226,7 +240,7 @@ describe('TaskViewer', () => {
     it('ignores other keys', () => {
       const iteration = createMockTaskIteration({ iteration: 1 } as any);
       const task = createMockTask({ iterations: [iteration] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -235,7 +249,9 @@ describe('TaskViewer', () => {
 
       renderWithRouter(<TaskViewer />);
 
-      const button = screen.getByRole('button', { name: /click to view events/i });
+      const button = screen.getByRole('button', {
+        name: /click to view events/i,
+      });
       fireEvent.keyDown(button, { key: 'a' });
 
       expect(mockSetSelectedIteration).not.toHaveBeenCalled();
@@ -255,7 +271,7 @@ describe('TaskViewer', () => {
       testCases.forEach(({ ms, expected }) => {
         const iteration = createMockTaskIteration({ duration_ms: ms });
         const task = createMockTask({ iterations: [iteration] });
-        
+
         vi.mocked(useTask).mockReturnValue({
           data: task,
           isLoading: false,
@@ -279,7 +295,7 @@ describe('TaskViewer', () => {
       testCases.forEach(({ cost, expected }) => {
         const iteration = createMockTaskIteration({ cost_usd: cost });
         const task = createMockTask({ iterations: [iteration] });
-        
+
         vi.mocked(useTask).mockReturnValue({
           data: task,
           isLoading: false,
@@ -299,7 +315,7 @@ describe('TaskViewer', () => {
       Element.prototype.scrollIntoView = scrollIntoViewMock;
 
       const task = createMockTaskWithIterations({ is_running: true }, 1);
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -316,7 +332,7 @@ describe('TaskViewer', () => {
       Element.prototype.scrollIntoView = scrollIntoViewMock;
 
       const task = createMockTaskWithIterations({ is_running: false }, 1);
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -332,7 +348,7 @@ describe('TaskViewer', () => {
   describe('Edge Cases', () => {
     it('handles task with no iterations', () => {
       const task = createMockTask({ iterations: [] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -349,7 +365,7 @@ describe('TaskViewer', () => {
       const iteration1 = createMockTaskIteration({ iteration_id: undefined });
       const iteration2 = createMockTaskIteration({ iteration_id: undefined });
       const task = createMockTask({ iterations: [iteration1, iteration2] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -365,7 +381,7 @@ describe('TaskViewer', () => {
 
     it('does not show processing indicator when no iterations', () => {
       const task = createMockTask({ is_running: true, iterations: [] });
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,

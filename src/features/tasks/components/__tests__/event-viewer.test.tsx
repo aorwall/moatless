@@ -1,9 +1,11 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor, act } from '@testing-library/react';
-import { EventViewer } from '../event-viewer/event-viewer';
-import { useTaskEventsWithStreaming } from '../../hooks/use-task-events-with-streaming';
-import { renderWithRouter } from '@/test-utils/render';
+import { act, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { createMockEventList } from '@/test-utils/factories';
+import { renderWithRouter } from '@/test-utils/render';
+
+import { useTaskEventsWithStreaming } from '../../hooks/use-task-events-with-streaming';
+import { EventViewer } from '../event-viewer/event-viewer';
 
 // Mock dependencies
 vi.mock('../../hooks/use-task-events-with-streaming');
@@ -26,7 +28,7 @@ vi.mock('@/lib/components/ui/scroll-area', () => ({
 vi.mock('../event-viewer/event-list', () => ({
   EventList: ({ events }: { events: any[] }) => (
     <div data-testid="event-list">
-      {events.map((event, index) => (
+      {events.map((_, index) => (
         <div key={index} data-testid={`event-${index}`}>
           Event {index}
         </div>
@@ -193,9 +195,9 @@ describe('EventViewer', () => {
       const { rerender } = renderWithRouter(<EventViewer />);
 
       await waitFor(() => {
-        scrollElement = screen.getByTestId('scroll-area').querySelector(
-          '[data-slot="scroll-area-viewport"]',
-        ) as HTMLElement;
+        scrollElement = screen
+          .getByTestId('scroll-area')
+          .querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
       });
 
       // Simulate NOT being at bottom
@@ -246,9 +248,9 @@ describe('EventViewer', () => {
 
       renderWithRouter(<EventViewer />);
 
-      const scrollElement = screen.getByTestId('scroll-area').querySelector(
-        '[data-slot="scroll-area-viewport"]',
-      ) as HTMLElement;
+      const scrollElement = screen
+        .getByTestId('scroll-area')
+        .querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
 
       // Mock scroll properties
       Object.defineProperty(scrollElement, 'scrollTop', {
@@ -284,15 +286,21 @@ describe('EventViewer', () => {
 
       const { unmount } = renderWithRouter(<EventViewer />);
 
-      const scrollElement = screen.getByTestId('scroll-area').querySelector(
-        '[data-slot="scroll-area-viewport"]',
-      ) as HTMLElement;
+      const scrollElement = screen
+        .getByTestId('scroll-area')
+        .querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
 
-      const removeEventListenerSpy = vi.spyOn(scrollElement, 'removeEventListener');
+      const removeEventListenerSpy = vi.spyOn(
+        scrollElement,
+        'removeEventListener',
+      );
 
       unmount();
 
-      expect(removeEventListenerSpy).toHaveBeenCalledWith('scroll', expect.any(Function));
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        'scroll',
+        expect.any(Function),
+      );
     });
   });
 
@@ -307,7 +315,9 @@ describe('EventViewer', () => {
 
       // Mock ScrollArea to not have the expected structure
       const { ScrollArea } = await import('@/lib/components/ui/scroll-area');
-      vi.mocked(ScrollArea).mockImplementationOnce(({ children }: any) => <div>{children}</div>);
+      vi.mocked(ScrollArea).mockImplementationOnce(({ children }: any) => (
+        <div>{children}</div>
+      ));
 
       expect(() => {
         renderWithRouter(<EventViewer />);

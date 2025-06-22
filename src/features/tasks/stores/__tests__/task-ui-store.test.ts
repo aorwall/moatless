@@ -1,11 +1,13 @@
-import { describe, expect, it, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import {
-  useTaskUIStore,
-  useSelectedIteration,
-  useRightPanelView,
-} from '../task-ui-store';
+import { beforeEach, describe, expect, it } from 'vitest';
+
 import { createMockTaskIteration } from '@/test-utils/factories';
+
+import {
+  useRightPanelView,
+  useSelectedIteration,
+  useTaskUIStore,
+} from '../task-ui-store';
 
 describe('TaskUIStore', () => {
   beforeEach(() => {
@@ -119,9 +121,9 @@ describe('TaskUIStore', () => {
   describe('Selector Hooks', () => {
     it('useSelectedIteration returns current selected iteration', () => {
       const iteration = createMockTaskIteration({ iteration: 2 });
-      
+
       const { result } = renderHook(() => useSelectedIteration());
-      
+
       expect(result.current).toBe(null);
 
       act(() => {
@@ -133,7 +135,7 @@ describe('TaskUIStore', () => {
 
     it('useRightPanelView returns current panel view', () => {
       const { result } = renderHook(() => useRightPanelView());
-      
+
       expect(result.current).toBe('events');
 
       act(() => {
@@ -144,7 +146,9 @@ describe('TaskUIStore', () => {
     });
 
     it('selectors react to state changes', () => {
-      const { result: iterationResult } = renderHook(() => useSelectedIteration());
+      const { result: iterationResult } = renderHook(() =>
+        useSelectedIteration(),
+      );
       const { result: viewResult } = renderHook(() => useRightPanelView());
 
       const iteration = createMockTaskIteration();
@@ -195,7 +199,7 @@ describe('TaskUIStore', () => {
   describe('Subscriptions', () => {
     it('notifies subscribers on state change', () => {
       let notificationCount = 0;
-      
+
       const unsubscribe = useTaskUIStore.subscribe(() => {
         notificationCount++;
       });
@@ -207,7 +211,9 @@ describe('TaskUIStore', () => {
       expect(notificationCount).toBe(1);
 
       act(() => {
-        useTaskUIStore.getState().setSelectedIteration(createMockTaskIteration());
+        useTaskUIStore
+          .getState()
+          .setSelectedIteration(createMockTaskIteration());
       });
 
       expect(notificationCount).toBe(2);
@@ -217,7 +223,7 @@ describe('TaskUIStore', () => {
 
     it('stops notifying after unsubscribe', () => {
       let notificationCount = 0;
-      
+
       const unsubscribe = useTaskUIStore.subscribe(() => {
         notificationCount++;
       });
@@ -241,7 +247,7 @@ describe('TaskUIStore', () => {
   describe('Type Safety', () => {
     it('only accepts valid panel views', () => {
       const store = useTaskUIStore.getState();
-      
+
       // TypeScript should enforce this at compile time
       // but we can test runtime behavior
       act(() => {
@@ -256,7 +262,7 @@ describe('TaskUIStore', () => {
       const iteration = createMockTaskIteration({
         iteration: 1,
         status: 'completed',
-        message: 'Test',
+        initial_message: 'Test',
       });
 
       act(() => {
@@ -264,9 +270,9 @@ describe('TaskUIStore', () => {
       });
 
       const state = useTaskUIStore.getState();
-      expect(state.selectedIteration?.iteration).toBe(1);
+      expect(state.selectedIteration?.iteration_id).toBe('iter-1');
       expect(state.selectedIteration?.status).toBe('completed');
-      expect(state.selectedIteration?.message).toBe('Test');
+      expect(state.selectedIteration?.initial_message).toBe('Test');
     });
   });
 });

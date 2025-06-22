@@ -1,5 +1,5 @@
-import { vi } from 'vitest';
 import type { MockedFunction } from 'vitest';
+import { vi } from 'vitest';
 
 // Mock for SSE connections
 export class MockSSEConnection {
@@ -7,7 +7,7 @@ export class MockSSEConnection {
   options: any;
   listeners: Map<string, Array<(data: any) => void>> = new Map();
   connected = false;
-  
+
   constructor(url: string, options?: any) {
     this.url = url;
     this.options = options;
@@ -71,9 +71,11 @@ export function createMockUseTaskWorkspaceStatus() {
 
 // Mock EventSource for SSE
 export function mockEventSource() {
-  const MockEventSourceConstructor = vi.fn().mockImplementation((url: string) => {
-    return new MockSSEConnection(url);
-  });
+  const MockEventSourceConstructor = vi
+    .fn()
+    .mockImplementation((url: string) => {
+      return new MockSSEConnection(url);
+    });
 
   // @ts-ignore
   global.EventSource = MockEventSourceConstructor;
@@ -124,7 +126,7 @@ export class MockWebSocket {
     }
   }
 
-  send(data: string) {
+  send(_data: string) {
     // Mock implementation
   }
 
@@ -209,5 +211,5 @@ export function createMockStoreHook<T>(initialState: T) {
 export type Mocked<T> = T extends (...args: any[]) => any
   ? MockedFunction<T>
   : T extends object
-  ? { [K in keyof T]: Mocked<T[K]> }
-  : T;
+    ? { [K in keyof T]: Mocked<T[K]> }
+    : T;

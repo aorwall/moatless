@@ -1,12 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { GitDiffViewer } from '../git-diff-viewer/git-diff-viewer';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  createMockGitDiff,
+  createMockTaskIteration,
+} from '@/test-utils/factories';
+import { renderWithRouter } from '@/test-utils/render';
+import type { GitDiffFile } from '@/types/git-diff';
+
 import { useTaskGitDiff } from '../../hooks/use-tasks';
 import { useSelectedIteration } from '../../stores/task-ui-store';
-import { renderWithRouter } from '@/test-utils/render';
-import { createMockGitDiff, createMockTaskIteration } from '@/test-utils/factories';
-import type { GitDiffFile } from '@/types/git-diff';
+import { GitDiffViewer } from '../git-diff-viewer/git-diff-viewer';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
@@ -26,7 +31,12 @@ vi.mock('@git-diff-view/react', () => ({
 }));
 
 vi.mock('@git-diff-view/file', () => ({
-  generateDiffFile: (oldPath: string, _oldContent: string, newPath: string, _newContent: string) => ({
+  generateDiffFile: (
+    oldPath: string,
+    _oldContent: string,
+    newPath: string,
+    _newContent: string,
+  ) => ({
     path: newPath,
     oldPath,
     mode: 'unified',
@@ -52,7 +62,7 @@ const createMockFile = (overrides?: Partial<GitDiffFile>): GitDiffFile => ({
 describe('GitDiffViewer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Default mocks
     vi.mocked(useSelectedIteration).mockReturnValue(null);
     vi.mocked(useTaskGitDiff).mockReturnValue({
@@ -111,7 +121,6 @@ describe('GitDiffViewer', () => {
   });
 
   describe('Diff Display', () => {
-
     it('displays diff summary', () => {
       const mockDiff = createMockGitDiff({
         files: [createMockFile()],
@@ -247,7 +256,9 @@ describe('GitDiffViewer', () => {
       );
 
       const contextDiff = createMockGitDiff({
-        files: [createMockFile({ path: 'context-file.ts', status: 'modified' })],
+        files: [
+          createMockFile({ path: 'context-file.ts', status: 'modified' }),
+        ],
         total_files: 1,
         total_additions: 5,
         total_deletions: 3,
@@ -272,7 +283,9 @@ describe('GitDiffViewer', () => {
       );
 
       const contextDiff = createMockGitDiff({
-        files: [createMockFile({ path: 'context-file.ts', status: 'modified' })],
+        files: [
+          createMockFile({ path: 'context-file.ts', status: 'modified' }),
+        ],
         total_files: 1,
         total_additions: 5,
         total_deletions: 3,
@@ -292,11 +305,15 @@ describe('GitDiffViewer', () => {
     it('handles string git diff from iteration', () => {
       // When git_diff is a string (raw diff), it's currently ignored
       vi.mocked(useSelectedIteration).mockReturnValue(
-        createMockTaskIteration({ git_diff: 'diff --git a/file.ts b/file.ts' as any }),
+        createMockTaskIteration({
+          git_diff: 'diff --git a/file.ts b/file.ts' as any,
+        }),
       );
 
       const contextDiff = createMockGitDiff({
-        files: [createMockFile({ path: 'context-file.ts', status: 'modified' })],
+        files: [
+          createMockFile({ path: 'context-file.ts', status: 'modified' }),
+        ],
         total_files: 1,
         total_additions: 5,
         total_deletions: 3,
@@ -317,7 +334,9 @@ describe('GitDiffViewer', () => {
 
   describe('Dark Mode Support', () => {
     it('applies dark theme when in dark mode', () => {
-      document.documentElement.classList.contains = vi.fn().mockReturnValue(true);
+      document.documentElement.classList.contains = vi
+        .fn()
+        .mockReturnValue(true);
 
       const file = createMockFile();
       vi.mocked(useTaskGitDiff).mockReturnValue({
@@ -328,12 +347,16 @@ describe('GitDiffViewer', () => {
 
       renderWithRouter(<GitDiffViewer />);
 
-      const wrapper = screen.getByTestId('diff-view').closest('.git-diff-view-wrapper');
+      const wrapper = screen
+        .getByTestId('diff-view')
+        .closest('.git-diff-view-wrapper');
       expect(wrapper).toHaveClass('diff-view-theme-dark');
     });
 
     it('applies light theme when not in dark mode', () => {
-      document.documentElement.classList.contains = vi.fn().mockReturnValue(false);
+      document.documentElement.classList.contains = vi
+        .fn()
+        .mockReturnValue(false);
 
       const file = createMockFile();
       vi.mocked(useTaskGitDiff).mockReturnValue({
@@ -344,7 +367,9 @@ describe('GitDiffViewer', () => {
 
       renderWithRouter(<GitDiffViewer />);
 
-      const wrapper = screen.getByTestId('diff-view').closest('.git-diff-view-wrapper');
+      const wrapper = screen
+        .getByTestId('diff-view')
+        .closest('.git-diff-view-wrapper');
       expect(wrapper).toHaveClass('diff-view-theme-light');
     });
   });
@@ -424,7 +449,7 @@ describe('GitDiffViewer', () => {
       } as any);
 
       const { container } = renderWithRouter(
-        <GitDiffViewer className="custom-class" />
+        <GitDiffViewer className="custom-class" />,
       );
 
       expect(container.querySelector('.custom-class')).toBeInTheDocument();

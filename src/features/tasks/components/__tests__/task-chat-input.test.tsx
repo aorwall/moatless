@@ -1,9 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import { TaskChatInput } from '../task-chat-input';
-import { useTask } from '../../hooks/use-tasks';
-import { renderWithRouter } from '@/test-utils/render';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { createMockTask } from '@/test-utils/factories';
+import { renderWithRouter } from '@/test-utils/render';
+
+import { useTask } from '../../hooks/use-tasks';
+import { TaskChatInput } from '../task-chat-input';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
@@ -18,12 +20,12 @@ vi.mock('../chat-input', () => ({
       'data-testid': 'chat-input',
       'data-task-id': taskId,
     };
-    
+
     // Only set data-task-status if taskStatus is defined
     if (taskStatus !== undefined && taskStatus !== null) {
       attrs['data-task-status'] = taskStatus;
     }
-    
+
     return (
       <div {...attrs} className={className}>
         ChatInput Component
@@ -35,7 +37,7 @@ vi.mock('../chat-input', () => ({
 describe('TaskChatInput', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Default mock
     vi.mocked(useTask).mockReturnValue({
       data: createMockTask({
@@ -84,7 +86,7 @@ describe('TaskChatInput', () => {
   });
 
   describe('Task Status Integration', () => {
-    const statuses = ['active', 'completed', 'error', 'cancelled'];
+    const statuses = ['active', 'completed', 'error'] as const;
 
     statuses.forEach((status) => {
       it(`passes ${status} status to ChatInput`, () => {
@@ -212,7 +214,7 @@ describe('TaskChatInput', () => {
       renderWithRouter(<TaskChatInput className="test-class" />);
 
       const chatInput = screen.getByTestId('chat-input');
-      
+
       // Verify all props are passed through correctly
       expect(chatInput).toHaveAttribute('data-task-id', 'task-123'); // This uses mocked params
       expect(chatInput).toHaveAttribute('data-task-status', 'active');

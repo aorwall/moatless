@@ -1,32 +1,35 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient } from '@tanstack/react-query';
-import {
-  useTasksList,
-  useTask,
-  useCreateTask,
-  useSendMessage,
-  useStopAgent,
-  useTaskEvents,
-  useTaskGitDiff,
-  useTaskWorkspaceStatus,
-  useServerStatus,
-  useStartServer,
-  useStopServer,
-} from '../use-tasks';
+import { act } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { WorkspaceStatus } from '@/types/task';
+
 import { tasksApi } from '@/features/tasks/api/tasks';
 import { queryKeys } from '@/lib/api/query-keys';
-import { createWrapper } from '@/test-utils/render';
 import {
-  createMockTask,
-  createMockTaskWithIterations,
   createMockAgentTriggerResponse,
   createMockEventList,
   createMockGitDiff,
-  createMockWorkspaceStatus,
   createMockServerStatus,
+  createMockTask,
+  createMockTaskWithIterations,
+  createMockWorkspaceStatus,
 } from '@/test-utils/factories';
-import { act } from 'react';
+import { createWrapper } from '@/test-utils/render';
+
+import {
+  useCreateTask,
+  useSendMessage,
+  useServerStatus,
+  useStartServer,
+  useStopAgent,
+  useStopServer,
+  useTask,
+  useTaskEvents,
+  useTaskGitDiff,
+  useTasksList,
+  useTaskWorkspaceStatus,
+} from '../use-tasks';
 
 // Mock the tasks API
 vi.mock('@/features/tasks/api/tasks', () => ({
@@ -46,23 +49,15 @@ vi.mock('@/features/tasks/api/tasks', () => ({
 }));
 
 describe('Task Hooks', () => {
-  let queryClient: QueryClient;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, gcTime: 0 },
-        mutations: { retry: false },
-      },
-    });
   });
 
   describe('useTasksList', () => {
     it('fetches tasks list', async () => {
       const mockTasks = [
-        createMockTask({ id: 'task-1' }),
-        createMockTask({ id: 'task-2' }),
+        createMockTask({ task_id: 'task-1' }),
+        createMockTask({ task_id: 'task-2' }),
       ];
       vi.mocked(tasksApi.listTasks).mockResolvedValue(mockTasks);
 
@@ -158,8 +153,8 @@ describe('Task Hooks', () => {
 
       await act(async () => {
         await result.current.mutateAsync({
-          agent_name: 'test-agent',
-          environment_name: 'test-env',
+          agent_type: 'test-agent',
+          environment_id: 'test-env',
           message: 'Test message',
         });
       });
@@ -286,7 +281,7 @@ describe('Task Hooks', () => {
 
   describe('useTaskWorkspaceStatus', () => {
     it('fetches workspace status', async () => {
-      const mockStatus = createMockWorkspaceStatus({ status: 'idle' });
+      const mockStatus = createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE });
       vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(mockStatus);
 
       const { result } = renderHook(() => useTaskWorkspaceStatus('task-123'), {
@@ -301,7 +296,7 @@ describe('Task Hooks', () => {
     });
 
     it('refetches frequently when workspace is running or setting up', async () => {
-      const runningStatus = createMockWorkspaceStatus({ status: 'running' });
+      const runningStatus = createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING });
       vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(
         runningStatus,
       );
@@ -319,7 +314,7 @@ describe('Task Hooks', () => {
     });
 
     it('refetches less frequently when workspace is idle', async () => {
-      const idleStatus = createMockWorkspaceStatus({ status: 'idle' });
+      const idleStatus = createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE });
       vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(idleStatus);
 
       renderHook(() => useTaskWorkspaceStatus('task-123'), {
