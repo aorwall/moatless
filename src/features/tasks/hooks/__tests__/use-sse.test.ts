@@ -54,7 +54,6 @@ describe('useTaskSSE', () => {
       expect(TaskSSEClient).toHaveBeenCalledWith({
         taskId: mockTaskId,
         apiUrl,
-        onMessage: expect.any(Function),
         onEvent: expect.any(Function),
         onError: expect.any(Function),
         onConnect: expect.any(Function),

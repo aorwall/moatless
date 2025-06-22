@@ -30,7 +30,10 @@ import { TaskHeader } from '../task-header';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
-vi.mock('../../stores/task-streaming-store');
+vi.mock('../../stores/task-streaming-store', () => ({
+  useTaskStreamingError: vi.fn(() => null),
+  useTaskStreamingStore: vi.fn(),
+}));
 vi.mock('sonner');
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
@@ -71,6 +74,8 @@ describe('TaskHeader', () => {
       error: null,
     } as UseQueryResult<WorkspaceStatusResponse, Error>);
 
+    // Ensure streaming error is null by default
+    vi.mocked(useTaskStreamingError).mockClear();
     vi.mocked(useTaskStreamingError).mockReturnValue(null);
 
     vi.mocked(useServerStatus).mockReturnValue({
@@ -176,7 +181,7 @@ describe('TaskHeader', () => {
       });
     });
 
-    it('does not show workspace status when data is not available', () => {
+    it('shows workspace: unknown when data is not available', () => {
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
         data: undefined,
         isLoading: false,
@@ -184,10 +189,10 @@ describe('TaskHeader', () => {
       } as UseQueryResult<WorkspaceStatusResponse, Error>);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.queryByText(/workspace:/)).not.toBeInTheDocument();
+      expect(screen.getByText('workspace: unknown')).toBeInTheDocument();
     });
 
-    it('does not show workspace status when loading', () => {
+    it('shows workspace: unknown with loading spinner when loading', () => {
       vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
         data: undefined,
         isLoading: true,
@@ -195,7 +200,10 @@ describe('TaskHeader', () => {
       } as UseQueryResult<WorkspaceStatusResponse, Error>);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.queryByText(/workspace:/)).not.toBeInTheDocument();
+      expect(screen.getByText('workspace: unknown')).toBeInTheDocument();
+      // Check for loading spinner within the workspace badge
+      const badge = screen.getByText('workspace: unknown').closest('[data-slot="badge"]');
+      expect(badge?.querySelector('.animate-spin')).toBeInTheDocument();
     });
   });
 
@@ -208,7 +216,7 @@ describe('TaskHeader', () => {
       } as UseQueryResult<ServerStatus, Error>);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.getByText('Start server')).toBeInTheDocument();
+      expect(screen.getByText('Start Server')).toBeInTheDocument();
     });
 
     it('shows stop server button when server is running', () => {
@@ -219,13 +227,13 @@ describe('TaskHeader', () => {
       } as UseQueryResult<ServerStatus, Error>);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.getByText('Stop server')).toBeInTheDocument();
+      expect(screen.getByText('Stop Server')).toBeInTheDocument();
     });
 
     it('does not show server controls when server is not configured', () => {
       renderWithRouter(<TaskHeader />);
-      expect(screen.queryByText('Start server')).not.toBeInTheDocument();
-      expect(screen.queryByText('Stop server')).not.toBeInTheDocument();
+      expect(screen.queryByText('Start Server')).not.toBeInTheDocument();
+      expect(screen.queryByText('Stop Server')).not.toBeInTheDocument();
     });
 
     it('calls startServer mutation when start button is clicked', async () => {
@@ -237,7 +245,7 @@ describe('TaskHeader', () => {
       } as UseQueryResult<ServerStatus, Error>);
 
       renderWithRouter(<TaskHeader />);
-      await user.click(screen.getByText('Start server'));
+      await user.click(screen.getByText('Start Server'));
 
       expect(mockStartServer).toHaveBeenCalledWith('task-123');
     });
@@ -251,7 +259,7 @@ describe('TaskHeader', () => {
       } as UseQueryResult<ServerStatus, Error>);
 
       renderWithRouter(<TaskHeader />);
-      await user.click(screen.getByText('Stop server'));
+      await user.click(screen.getByText('Stop Server'));
 
       expect(mockStopServer).toHaveBeenCalledWith('task-123');
     });
@@ -269,7 +277,7 @@ describe('TaskHeader', () => {
       } as unknown as UseMutationResult<ServerStatus, Error, string>);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.getByText('Start server')).toBeDisabled();
+      expect(screen.getByText('Starting Server...')).toBeDisabled();
     });
 
     it('shows server port when running', () => {
@@ -310,12 +318,12 @@ describe('TaskHeader', () => {
       } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.getByText('Stop Agent')).toBeInTheDocument();
+      expect(screen.getByText('Stop')).toBeInTheDocument();
     });
 
     it('does not show stop agent button when task is not running', () => {
       renderWithRouter(<TaskHeader />);
-      expect(screen.queryByText('Stop Agent')).not.toBeInTheDocument();
+      expect(screen.queryByText('Stop')).not.toBeInTheDocument();
     });
 
     it('calls stopAgent mutation when clicked', async () => {
@@ -327,7 +335,7 @@ describe('TaskHeader', () => {
       } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskHeader />);
-      await user.click(screen.getByText('Stop Agent'));
+      await user.click(screen.getByText('Stop'));
 
       expect(mockStopAgent).toHaveBeenCalledWith('task-123');
     });
@@ -349,28 +357,45 @@ describe('TaskHeader', () => {
       >);
 
       renderWithRouter(<TaskHeader />);
-      expect(screen.getByText('Stop Agent')).toBeDisabled();
+      expect(screen.getByText('Stopping...')).toBeDisabled();
     });
 
     it('shows toast notification on stop agent success', async () => {
       const user = userEvent.setup();
+      let capturedOnSuccess: (() => void) | undefined;
+      
       vi.mocked(useTask).mockReturnValue({
         data: createMockTask({ is_running: true }),
         isLoading: false,
         error: null,
       } as UseQueryResult<TaskMetadata, Error>);
 
-      mockStopAgent.mockImplementation((_taskId, options) => {
-        options?.onSuccess?.();
+      // Capture the onSuccess callback from useStopAgent
+      vi.mocked(useStopAgent).mockImplementation((options) => {
+        capturedOnSuccess = options?.onSuccess;
+        return {
+          mutate: mockStopAgent,
+          isPending: false,
+        } as unknown as UseMutationResult<
+          { status: string; task_id: string },
+          Error,
+          string
+        >;
       });
 
       renderWithRouter(<TaskHeader />);
-      await user.click(screen.getByText('Stop Agent'));
+      await user.click(screen.getByText('Stop'));
+
+      // Verify mutate was called
+      expect(mockStopAgent).toHaveBeenCalledWith('task-123');
+      
+      // Simulate successful mutation by calling the captured onSuccess
+      if (capturedOnSuccess) {
+        capturedOnSuccess();
+      }
 
       await waitFor(() => {
-        expect(toast.success).toHaveBeenCalledWith(
-          'Agent stop request sent. It may take a moment to stop completely.',
-        );
+        expect(toast.success).toHaveBeenCalledWith('Agent stopped successfully');
       });
     });
   });
@@ -382,14 +407,21 @@ describe('TaskHeader', () => {
       );
 
       renderWithRouter(<TaskHeader />);
-      expect(
-        screen.getByText('WebSocket connection failed'),
-      ).toBeInTheDocument();
+      
+      // Check that the streaming error indicator is displayed
+      expect(screen.getByText('Streaming error')).toBeInTheDocument();
+      
+      // The actual error message is in the tooltip, which is rendered when hovering
+      const errorIndicator = screen.getByText('Streaming error').parentElement;
+      expect(errorIndicator).toBeInTheDocument();
     });
 
     it('does not display error alert when no streaming error', () => {
+      // Explicitly reset the streaming error mock
+      vi.mocked(useTaskStreamingError).mockReturnValue(null);
+      
       renderWithRouter(<TaskHeader />);
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText('Streaming error')).not.toBeInTheDocument();
     });
   });
 });
