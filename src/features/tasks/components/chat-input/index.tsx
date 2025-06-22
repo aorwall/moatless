@@ -12,7 +12,7 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { ChatForm } from './chat-form';
 import { EnvironmentSelector } from './environment-selector';
 
-interface ChatInputProps {
+interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   // For task context
   taskId?: string;
   placeholder?: string;
@@ -21,7 +21,6 @@ interface ChatInputProps {
   showEnvironmentSelector?: boolean;
   showTitle?: boolean;
   title?: string;
-  className?: string;
 
   // Task status for conditional behavior
   taskStatus?: string;
@@ -35,6 +34,7 @@ export function ChatInput({
   showTitle = false,
   title = 'What should we build today?',
   className = '',
+  ...divProps
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<
@@ -148,7 +148,7 @@ export function ChatInput({
     !(isTaskContext || selectedEnvironmentId);
 
   return (
-    <div className={className}>
+    <div className={className} {...divProps}>
       {showTitle && (
         <div className="text-center mb-4">
           <h1 className="text-4xl font-bold tracking-tight">{title}</h1>
