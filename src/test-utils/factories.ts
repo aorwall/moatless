@@ -2,19 +2,14 @@ import type { AgentTriggerResponse } from '@/types/agent';
 import type { Event } from '@/types/event';
 import type { GitDiffResponse } from '@/types/git-diff';
 import type {
+  AssistantMessage,
   ClaudeMessage,
   ServerStatus,
   TaskIteration,
   TaskMetadata,
   WorkspaceStatusResponse,
-  AssistantMessage,
 } from '@/types/task';
-import {
-  MessageType,
-  Role,
-  ContentType,
-  WorkspaceStatus,
-} from '@/types/task';
+import { ContentType, MessageType, Role, WorkspaceStatus } from '@/types/task';
 
 // Task factories
 export function createMockTask(
@@ -66,10 +61,12 @@ export function createMockClaudeMessage(
     message: {
       type: 'message',
       role: Role.ASSISTANT,
-      content: [{
-        type: ContentType.TEXT,
-        text: 'Test message content'
-      }],
+      content: [
+        {
+          type: ContentType.TEXT,
+          text: 'Test message content',
+        },
+      ],
       model: 'claude-3-sonnet',
     },
     ...overrides,
@@ -149,14 +146,16 @@ export function createMockGitDiff(
   overrides?: Partial<GitDiffResponse>,
 ): GitDiffResponse {
   return {
-    files: [{
-      path: 'test.ts',
-      status: 'modified',
-      additions: 1,
-      deletions: 1,
-      old_content: `const old = 'value';`,
-      new_content: `const new = 'value';`
-    }],
+    files: [
+      {
+        path: 'test.ts',
+        status: 'modified',
+        additions: 1,
+        deletions: 1,
+        old_content: `const old = 'value';`,
+        new_content: `const new = 'value';`,
+      },
+    ],
     total_files: 1,
     total_additions: 1,
     total_deletions: 1,

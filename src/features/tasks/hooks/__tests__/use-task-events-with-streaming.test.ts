@@ -1,14 +1,13 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { WorkspaceStatus } from '@/types/task';
-
 import {
   createMockEventList,
   createMockTask,
   createMockWorkspaceStatus,
 } from '@/test-utils/factories';
 import { createWrapper } from '@/test-utils/render';
+import { WorkspaceStatus } from '@/types/task';
 
 import { useTaskStreamEvents } from '../../stores/task-streaming-store';
 import { useTaskEventsWithStreaming } from '../use-task-events-with-streaming';

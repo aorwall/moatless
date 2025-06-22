@@ -3,14 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { WorkspaceStatus } from '@/types/task';
-
 import {
   createMockServerStatus,
   createMockTask,
   createMockWorkspaceStatus,
 } from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
+import { WorkspaceStatus } from '@/types/task';
 
 import {
   useServerStatus,

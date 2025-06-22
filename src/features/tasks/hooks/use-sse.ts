@@ -2,12 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { TaskSSEClient } from '@/features/tasks/api/sse.ts';
 import type { Event } from '@/types/event.ts';
-import type { BaseMessage } from '@/types/task';
 
 export interface UseTaskSSEOptions {
   taskId: string;
   apiUrl?: string;
-  onMessage?: (message: BaseMessage) => void;
   onEvent?: (event: Event) => void;
   onError?: (error: Error) => void;
   autoConnect?: boolean;
@@ -17,33 +15,25 @@ export interface UseTaskSSEReturn {
   isConnected: boolean;
   connect: () => void;
   disconnect: () => void;
-  lastMessage: BaseMessage | null;
   error: Error | null;
 }
 
 export function useTaskSSE({
   taskId,
   apiUrl,
-  onMessage,
   onEvent,
   onError,
   autoConnect = true,
 }: UseTaskSSEOptions): UseTaskSSEReturn {
   const sseClientRef = useRef<TaskSSEClient | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastMessage, setLastMessage] = useState<BaseMessage | null>(null);
   const [error, setError] = useState<Error | null>(null);
 
   // Store callbacks in refs to avoid recreating SSE client
-  const onMessageRef = useRef(onMessage);
   const onEventRef = useRef(onEvent);
   const onErrorRef = useRef(onError);
 
   // Update refs when callbacks change
-  useEffect(() => {
-    onMessageRef.current = onMessage;
-  }, [onMessage]);
-
   useEffect(() => {
     onEventRef.current = onEvent;
   }, [onEvent]);
@@ -53,12 +43,6 @@ export function useTaskSSE({
   }, [onError]);
 
   // Stable callbacks that use refs
-  const handleMessage = useCallback((message: BaseMessage) => {
-    setLastMessage(message);
-    setError(null);
-    onMessageRef.current?.(message);
-  }, []);
-
   const handleEvent = useCallback((event: Event) => {
     setError(null);
     onEventRef.current?.(event);
@@ -89,7 +73,6 @@ export function useTaskSSE({
     const client = new TaskSSEClient({
       taskId,
       apiUrl,
-      onMessage: handleMessage,
       onEvent: handleEvent,
       onError: handleError,
       onConnect: handleConnect,
@@ -107,7 +90,6 @@ export function useTaskSSE({
   }, [
     taskId,
     apiUrl,
-    handleMessage,
     handleEvent,
     handleError,
     handleConnect,
@@ -138,7 +120,6 @@ export function useTaskSSE({
     isConnected,
     connect,
     disconnect,
-    lastMessage,
     error,
   };
 }

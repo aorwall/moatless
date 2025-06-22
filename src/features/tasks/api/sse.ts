@@ -1,12 +1,10 @@
 import type { Event } from '@/types/event.ts';
-import type { BaseMessage } from '@/types/task.ts';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface SSEClientOptions {
   taskId: string;
   apiUrl?: string;
-  onMessage?: (message: BaseMessage) => void;
   onEvent?: (event: Event) => void;
   onError?: (error: Error) => void;
   onConnect?: () => void;
@@ -18,7 +16,6 @@ export class TaskSSEClient {
   private eventSource: EventSource | null = null;
   private taskId: string;
   private apiUrl: string;
-  private onMessage?: (message: BaseMessage) => void;
   private onEvent?: (event: Event) => void;
   private onError?: (error: Error) => void;
   private onConnect?: () => void;
@@ -37,7 +34,6 @@ export class TaskSSEClient {
   constructor(options: SSEClientOptions) {
     this.taskId = options.taskId;
     this.apiUrl = options.apiUrl || API_BASE_URL;
-    this.onMessage = options.onMessage;
     this.onEvent = options.onEvent;
     this.onError = options.onError;
     this.onConnect = options.onConnect;
@@ -89,22 +85,7 @@ export class TaskSSEClient {
         this.startHealthCheck();
       };
 
-      this.eventSource.onmessage = (event) => {
-        // Store the last event ID for reconnection
-        if (event.lastEventId) {
-          this.lastEventId = event.lastEventId;
-        }
-
-        try {
-          const message = JSON.parse(event.data) as BaseMessage;
-          this.onMessage?.(message);
-        } catch (error) {
-          const parseError = new Error(
-            `Failed to parse SSE message: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          this.onError?.(parseError);
-        }
-      };
+      // Note: onmessage handler removed as we only use named events now
 
       // Handle custom events
       this.eventSource.addEventListener('ping', () => {

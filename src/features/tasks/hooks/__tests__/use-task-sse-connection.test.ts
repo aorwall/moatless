@@ -1,14 +1,13 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { WorkspaceStatus } from '@/types/task';
-
 import {
   createMockEventList,
   createMockTask,
   createMockWorkspaceStatus,
 } from '@/test-utils/factories';
 import { createWrapper } from '@/test-utils/render';
+import { WorkspaceStatus } from '@/types/task';
 
 import { useTaskStreamingStore } from '../../stores/task-streaming-store';
 import { useTaskSSEConnection } from '../use-task-sse-connection';
@@ -24,11 +23,9 @@ describe('useTaskSSEConnection', () => {
 
   // Mock store actions
   const mockStoreActions = {
-    addLocalMessage: vi.fn(),
     addStreamEvent: vi.fn(),
     setStreamEvents: vi.fn(),
     setStreamingError: vi.fn(),
-    clearLocalMessages: vi.fn(),
     clearStreamEvents: vi.fn(),
     clearTaskStreaming: vi.fn(),
   };
@@ -203,9 +200,6 @@ describe('useTaskSSEConnection', () => {
       rerender({ shouldStream: false });
 
       await waitFor(() => {
-        expect(mockStoreActions.clearLocalMessages).toHaveBeenCalledWith(
-          mockTaskId,
-        );
         expect(mockStoreActions.clearStreamEvents).toHaveBeenCalledWith(
           mockTaskId,
         );
@@ -241,7 +235,6 @@ describe('useTaskSSEConnection', () => {
       let capturedCallbacks: any = {};
       mockUseTaskSSE.mockImplementation((options) => {
         capturedCallbacks = {
-          onMessage: options.onMessage,
           onEvent: options.onEvent,
           onError: options.onError,
         };
@@ -249,7 +242,6 @@ describe('useTaskSSEConnection', () => {
           isConnected: true,
           connect: vi.fn(),
           disconnect: vi.fn(),
-          lastMessage: null,
           error: null,
         };
       });
@@ -263,19 +255,6 @@ describe('useTaskSSEConnection', () => {
       renderHook(() => useTaskSSEConnection({ taskId: mockTaskId }), {
         wrapper: createWrapper(),
       });
-
-      // Test message handling
-      const mockMessage = { id: 'msg-1', role: 'assistant', content: 'Test' };
-      capturedCallbacks.onMessage(mockMessage);
-
-      expect(mockStoreActions.addLocalMessage).toHaveBeenCalledWith(
-        mockTaskId,
-        mockMessage,
-      );
-      expect(mockStoreActions.setStreamingError).toHaveBeenCalledWith(
-        mockTaskId,
-        null,
-      );
 
       // Test event handling
       const mockEvent = { event_type: 'message', data: {} };
@@ -314,7 +293,6 @@ describe('useTaskSSEConnection', () => {
         isConnected: false,
         connect: vi.fn(),
         disconnect: vi.fn(),
-        lastMessage: null,
         error: null,
       });
 

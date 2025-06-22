@@ -2,8 +2,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { WorkspaceStatus } from '@/types/task';
-
 import { tasksApi } from '@/features/tasks/api/tasks';
 import { queryKeys } from '@/lib/api/query-keys';
 import {
@@ -16,6 +14,7 @@ import {
   createMockWorkspaceStatus,
 } from '@/test-utils/factories';
 import { createWrapper } from '@/test-utils/render';
+import { WorkspaceStatus } from '@/types/task';
 
 import {
   useCreateTask,
@@ -281,7 +280,9 @@ describe('Task Hooks', () => {
 
   describe('useTaskWorkspaceStatus', () => {
     it('fetches workspace status', async () => {
-      const mockStatus = createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE });
+      const mockStatus = createMockWorkspaceStatus({
+        status: WorkspaceStatus.IDLE,
+      });
       vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(mockStatus);
 
       const { result } = renderHook(() => useTaskWorkspaceStatus('task-123'), {
@@ -296,7 +297,9 @@ describe('Task Hooks', () => {
     });
 
     it('refetches frequently when workspace is running or setting up', async () => {
-      const runningStatus = createMockWorkspaceStatus({ status: WorkspaceStatus.RUNNING });
+      const runningStatus = createMockWorkspaceStatus({
+        status: WorkspaceStatus.RUNNING,
+      });
       vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(
         runningStatus,
       );
@@ -314,7 +317,9 @@ describe('Task Hooks', () => {
     });
 
     it('refetches less frequently when workspace is idle', async () => {
-      const idleStatus = createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE });
+      const idleStatus = createMockWorkspaceStatus({
+        status: WorkspaceStatus.IDLE,
+      });
       vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(idleStatus);
 
       renderHook(() => useTaskWorkspaceStatus('task-123'), {

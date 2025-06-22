@@ -1,17 +1,9 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { ContentType } from '@/types/task';
-import type { AssistantMessage } from '@/types/task';
+import { createMockEvent, createMockEventList } from '@/test-utils/factories';
 
 import {
-  createMockClaudeMessage,
-  createMockEvent,
-  createMockEventList,
-} from '@/test-utils/factories';
-
-import {
-  useTaskLocalMessages,
   useTaskStreamEvents,
   useTaskStreamingError,
   useTaskStreamingStore,
@@ -24,97 +16,6 @@ describe('TaskStreamingStore', () => {
       useTaskStreamingStore.setState({
         streamingTasks: new Map(),
       });
-    });
-  });
-
-  describe('Local Messages', () => {
-    it('adds local message to task', () => {
-      const taskId = 'task-123';
-      const message = createMockClaudeMessage({ 
-        message: {
-          ...(createMockClaudeMessage() as AssistantMessage).message,
-          content: [{
-            type: ContentType.TEXT,
-            text: 'Test message'
-          }]
-        }
-      }) as AssistantMessage;
-
-      act(() => {
-        useTaskStreamingStore.getState().addLocalMessage(taskId, message);
-      });
-
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
-      expect(state.localMessages).toHaveLength(1);
-      expect(state.localMessages[0]).toEqual(message);
-    });
-
-    it('adds multiple messages to same task', () => {
-      const taskId = 'task-123';
-      const message1 = createMockClaudeMessage({ 
-        message: { 
-          ...(createMockClaudeMessage() as AssistantMessage).message, 
-          id: 'msg-1' 
-        } 
-      }) as AssistantMessage;
-      const message2 = createMockClaudeMessage({ 
-        message: { 
-          ...(createMockClaudeMessage() as AssistantMessage).message, 
-          id: 'msg-2' 
-        } 
-      }) as AssistantMessage;
-
-      act(() => {
-        const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(taskId, message1);
-        store.addLocalMessage(taskId, message2);
-      });
-
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
-      expect(state.localMessages).toHaveLength(2);
-      expect(state.localMessages).toEqual([message1, message2]);
-    });
-
-    it('clears local messages for task', () => {
-      const taskId = 'task-123';
-      const message = createMockClaudeMessage();
-
-      act(() => {
-        const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(taskId, message);
-        store.clearLocalMessages(taskId);
-      });
-
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
-      expect(state.localMessages).toHaveLength(0);
-    });
-
-    it('does not affect other tasks when clearing', () => {
-      const task1 = 'task-1';
-      const task2 = 'task-2';
-
-      act(() => {
-        const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(task1, createMockClaudeMessage());
-        store.addLocalMessage(task2, createMockClaudeMessage());
-        store.clearLocalMessages(task1);
-      });
-
-      const state1 = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(task1);
-      const state2 = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(task2);
-
-      expect(state1.localMessages).toHaveLength(0);
-      expect(state2.localMessages).toHaveLength(1);
     });
   });
 
@@ -220,7 +121,6 @@ describe('TaskStreamingStore', () => {
 
       act(() => {
         const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(taskId, createMockClaudeMessage());
         store.setStreamEvents(taskId, createMockEventList(3));
         store.setStreamingError(taskId, 'Error');
         store.clearTaskStreaming(taskId);
@@ -229,7 +129,6 @@ describe('TaskStreamingStore', () => {
       const state = useTaskStreamingStore
         .getState()
         .getTaskStreamingState(taskId);
-      expect(state.localMessages).toHaveLength(0);
       expect(state.streamEvents).toHaveLength(0);
       expect(state.streamingError).toBe(null);
     });
@@ -239,7 +138,7 @@ describe('TaskStreamingStore', () => {
 
       act(() => {
         const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(taskId, createMockClaudeMessage());
+        store.setStreamEvents(taskId, createMockEventList(1));
         store.clearTaskStreaming(taskId);
       });
 
@@ -255,18 +154,6 @@ describe('TaskStreamingStore', () => {
 
       act(() => {
         const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(task1, createMockClaudeMessage({ 
-          message: { 
-            ...(createMockClaudeMessage() as AssistantMessage).message, 
-            id: 'msg-1' 
-          } 
-        }) as AssistantMessage);
-        store.addLocalMessage(task2, createMockClaudeMessage({ 
-          message: { 
-            ...(createMockClaudeMessage() as AssistantMessage).message, 
-            id: 'msg-2' 
-          } 
-        }) as AssistantMessage);
         store.setStreamEvents(task1, createMockEventList(2));
         store.setStreamEvents(task2, createMockEventList(3));
         store.setStreamingError(task1, 'Error 1');
@@ -280,8 +167,6 @@ describe('TaskStreamingStore', () => {
         .getState()
         .getTaskStreamingState(task2);
 
-      expect((state1.localMessages[0] as AssistantMessage).message.id).toBe('msg-1');
-      expect((state2.localMessages[0] as AssistantMessage).message.id).toBe('msg-2');
       expect(state1.streamEvents).toHaveLength(2);
       expect(state2.streamEvents).toHaveLength(3);
       expect(state1.streamingError).toBe('Error 1');
@@ -295,20 +180,17 @@ describe('TaskStreamingStore', () => {
         .getState()
         .getTaskStreamingState('non-existent');
 
-      expect(state.localMessages).toEqual([]);
       expect(state.streamEvents).toEqual([]);
       expect(state.streamingError).toBe(null);
     });
 
     it('getTaskStreamingState returns correct state', () => {
       const taskId = 'task-123';
-      const message = createMockClaudeMessage();
       const events = createMockEventList(2);
       const error = 'Test error';
 
       act(() => {
         const store = useTaskStreamingStore.getState();
-        store.addLocalMessage(taskId, message);
         store.setStreamEvents(taskId, events);
         store.setStreamingError(taskId, error);
       });
@@ -316,7 +198,6 @@ describe('TaskStreamingStore', () => {
       const state = useTaskStreamingStore
         .getState()
         .getTaskStreamingState(taskId);
-      expect(state.localMessages).toEqual([message]);
       expect(state.streamEvents).toEqual(events);
       expect(state.streamingError).toBe(error);
     });
@@ -333,18 +214,6 @@ describe('TaskStreamingStore', () => {
 
       const { result } = renderHook(() => useTaskStreamEvents(taskId));
       expect(result.current).toEqual(events);
-    });
-
-    it('useTaskLocalMessages returns messages for task', () => {
-      const taskId = 'task-123';
-      const message = createMockClaudeMessage();
-
-      act(() => {
-        useTaskStreamingStore.getState().addLocalMessage(taskId, message);
-      });
-
-      const { result } = renderHook(() => useTaskLocalMessages(taskId));
-      expect(result.current).toEqual([message]);
     });
 
     it('useTaskStreamingError returns error for task', () => {
@@ -368,7 +237,6 @@ describe('TaskStreamingStore', () => {
       expect(() => {
         act(() => {
           const store = useTaskStreamingStore.getState();
-          store.clearLocalMessages('non-existent');
           store.clearStreamEvents('non-existent');
           store.clearTaskStreaming('non-existent');
         });
@@ -384,7 +252,7 @@ describe('TaskStreamingStore', () => {
       act(() => {
         useTaskStreamingStore
           .getState()
-          .addLocalMessage(taskId, createMockClaudeMessage());
+          .addStreamEvent(taskId, createMockEvent());
       });
 
       expect(useTaskStreamingStore.getState().streamingTasks.has(taskId)).toBe(

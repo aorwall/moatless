@@ -2,13 +2,8 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskSSEClient } from '@/features/tasks/api/sse';
-import {
-  createMockClaudeMessage,
-  createMockEvent,
-} from '@/test-utils/factories';
+import { createMockEvent } from '@/test-utils/factories';
 import { createWrapper } from '@/test-utils/render';
-import type { BaseMessage, AssistantMessage } from '@/types/task';
-import { ContentType } from '@/types/task';
 
 import { useTaskSSE } from '../use-sse';
 
@@ -41,7 +36,6 @@ describe('useTaskSSE', () => {
 
   describe('Connection Management', () => {
     it('creates SSE client with correct options', () => {
-      const onMessage = vi.fn();
       const onEvent = vi.fn();
       const onError = vi.fn();
       const apiUrl = 'http://test.api';
@@ -51,7 +45,6 @@ describe('useTaskSSE', () => {
           useTaskSSE({
             taskId: mockTaskId,
             apiUrl,
-            onMessage,
             onEvent,
             onError,
           }),
@@ -241,42 +234,6 @@ describe('useTaskSSE', () => {
       expect(result.current.isConnected).toBe(false);
     });
 
-    it('handles onMessage callback', () => {
-      let capturedCallbacks: any = {};
-      vi.mocked(TaskSSEClient).mockImplementation((options) => {
-        capturedCallbacks = options;
-        return mockSSEClient;
-      });
-
-      const onMessage = vi.fn();
-      const { result } = renderHook(
-        () =>
-          useTaskSSE({
-            taskId: mockTaskId,
-            onMessage,
-          }),
-        { wrapper: createWrapper() },
-      );
-
-      const mockMessage = createMockClaudeMessage({ 
-        message: {
-          ...(createMockClaudeMessage() as AssistantMessage).message,
-          content: [{
-            type: ContentType.TEXT,
-            text: 'Test message'
-          }]
-        }
-      }) as AssistantMessage;
-
-      act(() => {
-        capturedCallbacks.onMessage(mockMessage);
-      });
-
-      expect(result.current.lastMessage).toEqual(mockMessage);
-      expect(result.current.error).toBe(null);
-      expect(onMessage).toHaveBeenCalledWith(mockMessage);
-    });
-
     it('handles onEvent callback', () => {
       let capturedCallbacks: any = {};
       vi.mocked(TaskSSEClient).mockImplementation((options) => {
@@ -366,27 +323,26 @@ describe('useTaskSSE', () => {
       });
 
       const { rerender } = renderHook(
-        ({ onMessage }: { onMessage: (message: BaseMessage) => void }) =>
+        ({ onEvent }: { onEvent: (event: any) => void }) =>
           useTaskSSE({
             taskId: mockTaskId,
-            onMessage,
+            onEvent,
           }),
         {
           wrapper: createWrapper(),
-          initialProps: { onMessage: vi.fn() },
+          initialProps: { onEvent: vi.fn() },
         },
       );
 
       const initialCallbacks = { ...capturedCallbacks };
 
-      // Change the onMessage prop
-      rerender({ onMessage: vi.fn() });
+      // Change the onEvent prop
+      rerender({ onEvent: vi.fn() });
 
       // TaskSSEClient should not be recreated
       expect(callCount).toBe(1);
 
       // Callbacks should remain the same reference
-      expect(capturedCallbacks.onMessage).toBe(initialCallbacks.onMessage);
       expect(capturedCallbacks.onEvent).toBe(initialCallbacks.onEvent);
       expect(capturedCallbacks.onError).toBe(initialCallbacks.onError);
     });
@@ -398,71 +354,43 @@ describe('useTaskSSE', () => {
         return mockSSEClient;
       });
 
-      const firstOnMessage = vi.fn();
-      const secondOnMessage = vi.fn();
+      const firstOnEvent = vi.fn();
+      const secondOnEvent = vi.fn();
 
       const { rerender } = renderHook(
-        ({ onMessage }) =>
+        ({ onEvent }) =>
           useTaskSSE({
             taskId: mockTaskId,
-            onMessage,
+            onEvent,
           }),
         {
           wrapper: createWrapper(),
-          initialProps: { onMessage: firstOnMessage },
+          initialProps: { onEvent: firstOnEvent },
         },
       );
 
-      const mockMessage = createMockClaudeMessage();
+      const mockEvent = createMockEvent();
 
       // Call with first callback
       act(() => {
-        capturedCallbacks.onMessage(mockMessage);
+        capturedCallbacks.onEvent(mockEvent);
       });
-      expect(firstOnMessage).toHaveBeenCalledWith(mockMessage);
-      expect(secondOnMessage).not.toHaveBeenCalled();
+      expect(firstOnEvent).toHaveBeenCalledWith(mockEvent);
+      expect(secondOnEvent).not.toHaveBeenCalled();
 
       // Update callback
-      rerender({ onMessage: secondOnMessage });
+      rerender({ onEvent: secondOnEvent });
 
       // Call with second callback
       act(() => {
-        capturedCallbacks.onMessage(mockMessage);
+        capturedCallbacks.onEvent(mockEvent);
       });
-      expect(secondOnMessage).toHaveBeenCalledWith(mockMessage);
-      expect(firstOnMessage).toHaveBeenCalledTimes(1); // Not called again
+      expect(secondOnEvent).toHaveBeenCalledWith(mockEvent);
+      expect(firstOnEvent).toHaveBeenCalledTimes(1); // Not called again
     });
   });
 
   describe('Error Handling', () => {
-    it('clears error when message is received', () => {
-      let capturedCallbacks: any = {};
-      vi.mocked(TaskSSEClient).mockImplementation((options) => {
-        capturedCallbacks = options;
-        return mockSSEClient;
-      });
-
-      const { result } = renderHook(
-        () =>
-          useTaskSSE({
-            taskId: mockTaskId,
-          }),
-        { wrapper: createWrapper() },
-      );
-
-      // Set an error
-      act(() => {
-        capturedCallbacks.onError(new Error('Test error'));
-      });
-      expect(result.current.error).not.toBe(null);
-
-      // Receive a message
-      act(() => {
-        capturedCallbacks.onMessage(createMockClaudeMessage());
-      });
-      expect(result.current.error).toBe(null);
-    });
-
     it('clears error when event is received', () => {
       let capturedCallbacks: any = {};
       vi.mocked(TaskSSEClient).mockImplementation((options) => {

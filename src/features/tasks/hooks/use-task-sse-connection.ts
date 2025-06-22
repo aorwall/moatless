@@ -8,7 +8,6 @@ import {
 } from '@/features/tasks/hooks/use-tasks';
 import { useTaskStreamingStore } from '@/features/tasks/stores/task-streaming-store';
 import type { Event } from '@/types/event';
-import type { BaseMessage, ClaudeMessage } from '@/types/task';
 
 interface UseTaskSSEConnectionOptions {
   taskId: string;
@@ -21,11 +20,9 @@ export function useTaskSSEConnection({ taskId }: UseTaskSSEConnectionOptions) {
 
   // Get streaming actions from Zustand
   const {
-    addLocalMessage,
     addStreamEvent,
     setStreamEvents,
     setStreamingError,
-    clearLocalMessages,
     clearStreamEvents,
     clearTaskStreaming,
   } = useTaskStreamingStore();
@@ -50,17 +47,10 @@ export function useTaskSSEConnection({ taskId }: UseTaskSSEConnectionOptions) {
   // Clear streaming state when streaming should stop
   useEffect(() => {
     if (!shouldStream) {
-      clearLocalMessages(taskId);
       clearStreamEvents(taskId);
       setStreamingError(taskId, null);
     }
-  }, [
-    shouldStream,
-    clearLocalMessages,
-    clearStreamEvents,
-    setStreamingError,
-    taskId,
-  ]);
+  }, [shouldStream, clearStreamEvents, setStreamingError, taskId]);
 
   // Clean up when component unmounts
   useEffect(() => {
@@ -70,14 +60,6 @@ export function useTaskSSEConnection({ taskId }: UseTaskSSEConnectionOptions) {
   }, [taskId, clearTaskStreaming]);
 
   // Memoize SSE callbacks to prevent reconnections
-  const handleSSEMessage = useCallback(
-    (newMessage: BaseMessage) => {
-      addLocalMessage(taskId, newMessage as ClaudeMessage);
-      setStreamingError(taskId, null);
-    },
-    [addLocalMessage, setStreamingError, taskId],
-  );
-
   const handleSSEEvent = useCallback(
     (newEvent: Event) => {
       addStreamEvent(taskId, newEvent);
@@ -104,7 +86,6 @@ export function useTaskSSEConnection({ taskId }: UseTaskSSEConnectionOptions) {
   useTaskSSE({
     taskId,
     autoConnect: shouldStream,
-    onMessage: handleSSEMessage,
     onEvent: handleSSEEvent,
     onError: handleSSEError,
   });
