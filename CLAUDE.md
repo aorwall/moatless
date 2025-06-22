@@ -233,4 +233,46 @@ return <TaskList tasks={data} />;
    - Write tests for custom hooks
    - Mock API responses in tests
    - Test error states and edge cases
+
+## Testing
+
+### Overview
+This project uses Vitest for unit and integration testing, with React Testing Library for component testing. Tests are organized in `__tests__` directories co-located with source code using the following structure:
+
 ```
+src/features/tasks/
+├── components/
+│   ├── __tests__/
+│   │   ├── task-viewer.test.tsx
+│   │   └── task-header.test.tsx
+│   └── task-viewer.tsx
+├── hooks/
+│   ├── __tests__/
+│   │   └── use-tasks.test.ts
+│   └── use-tasks.ts
+```
+
+### Quick Start
+```bash
+# Run all tests
+pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+
+# Run tests with coverage
+pnpm test:coverage
+
+# Run tests with UI
+pnpm test:ui
+```
+
+### Testing Guidelines
+- Use `.test.ts` or `.test.tsx` file extensions
+- Test behavior, not implementation details
+- Mock external dependencies (APIs, SSE, stores)
+- Aim for >80% coverage on critical paths
+- Always test loading states, error states, and edge cases
+
+### Comprehensive Testing Guide
+For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).
