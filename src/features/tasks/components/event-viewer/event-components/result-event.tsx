@@ -42,11 +42,12 @@ export function ResultEvent({ event }: ResultEventProps) {
     return `${minutes}m ${remainingSeconds}s`;
   };
 
-  const totalTokens =
-    payload.usage.input_tokens +
-    payload.usage.cache_creation_input_tokens +
-    payload.usage.cache_read_input_tokens +
-    payload.usage.output_tokens;
+  const totalTokens = payload.usage
+    ? payload.usage.input_tokens +
+      payload.usage.cache_creation_input_tokens +
+      payload.usage.cache_read_input_tokens +
+      payload.usage.output_tokens
+    : 0;
 
   return (
     <EventHeader event={event}>
@@ -80,40 +81,42 @@ export function ResultEvent({ event }: ResultEventProps) {
           <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              <span>Duration: {formatDuration(payload.duration_ms)}</span>
+              <span>Duration: {formatDuration(payload.duration_ms || 0)}</span>
             </div>
             <div className="flex items-center gap-1">
-              <span>API Time: {formatDuration(payload.duration_api_ms)}</span>
+              <span>API Time: {formatDuration(payload.duration_api_ms || 0)}</span>
             </div>
             <div className="flex items-center gap-1">
-              <span>Turns: {payload.num_turns}</span>
+              <span>Turns: {payload.num_turns || 0}</span>
             </div>
             <div className="flex items-center gap-1">
               <Coins className="h-3 w-3" />
-              <span>Cost: ${payload.total_cost_usd.toFixed(4)}</span>
+              <span>Cost: ${(payload.total_cost_usd || 0).toFixed(4)}</span>
             </div>
           </div>
         </div>
 
-        <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded p-2">
-          <div className="font-mono">
-            <div>Total tokens: {totalTokens.toLocaleString()}</div>
-            <div className="mt-1 space-y-0.5 text-slate-400 dark:text-slate-500">
-              <div>• Input: {payload.usage.input_tokens.toLocaleString()}</div>
-              <div>
-                • Cache creation:{' '}
-                {payload.usage.cache_creation_input_tokens.toLocaleString()}
-              </div>
-              <div>
-                • Cache read:{' '}
-                {payload.usage.cache_read_input_tokens.toLocaleString()}
-              </div>
-              <div>
-                • Output: {payload.usage.output_tokens.toLocaleString()}
+        {payload.usage && (
+          <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded p-2">
+            <div className="font-mono">
+              <div>Total tokens: {totalTokens.toLocaleString()}</div>
+              <div className="mt-1 space-y-0.5 text-slate-400 dark:text-slate-500">
+                <div>• Input: {payload.usage.input_tokens.toLocaleString()}</div>
+                <div>
+                  • Cache creation:{' '}
+                  {payload.usage.cache_creation_input_tokens.toLocaleString()}
+                </div>
+                <div>
+                  • Cache read:{' '}
+                  {payload.usage.cache_read_input_tokens.toLocaleString()}
+                </div>
+                <div>
+                  • Output: {payload.usage.output_tokens.toLocaleString()}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </EventHeader>
   );
