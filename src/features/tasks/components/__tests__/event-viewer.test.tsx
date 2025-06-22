@@ -3,9 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMockEventList } from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
+import type { Event } from '@/types/event';
 
 import { useTaskEventsWithStreaming } from '../../hooks/use-task-events-with-streaming';
 import { EventViewer } from '../event-viewer/event-viewer';
+
+// Top-level regex for event test IDs
+const EVENT_TESTID_REGEX = /^event-\d+$/;
 
 // Mock dependencies
 vi.mock('../../hooks/use-task-events-with-streaming');
@@ -13,23 +17,31 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
 }));
 
+interface MockScrollAreaProps {
+  children?: React.ReactNode;
+  ref?: React.Ref<HTMLDivElement>;
+  className?: string;
+}
+
 // Mock ScrollArea to simplify testing
 vi.mock('@/lib/components/ui/scroll-area', () => ({
-  ScrollArea: vi.fn().mockImplementation(({ children, ...props }: any) => (
-    <div ref={props.ref} data-testid="scroll-area">
-      <div data-slot="scroll-area-viewport" style={{ overflowY: 'auto' }}>
-        {children}
+  ScrollArea: vi
+    .fn()
+    .mockImplementation(({ children, ...props }: MockScrollAreaProps) => (
+      <div ref={props.ref} data-testid="scroll-area">
+        <div data-slot="scroll-area-viewport" style={{ overflowY: 'auto' }}>
+          {children}
+        </div>
       </div>
-    </div>
-  )),
+    )),
 }));
 
 // Mock EventList
 vi.mock('../event-viewer/event-list', () => ({
-  EventList: ({ events }: { events: any[] }) => (
+  EventList: ({ events }: { events: Array<Event> }) => (
     <div data-testid="event-list">
-      {events.map((_, index) => (
-        <div key={index} data-testid={`event-${index}`}>
+      {events.map((event, index) => (
+        <div key={event.event_id || index} data-testid={`event-${index}`}>
           Event {index}
         </div>
       ))}
@@ -120,7 +132,7 @@ describe('EventViewer', () => {
 
       expect(screen.getByTestId('event-list')).toBeInTheDocument();
       // The regex /^event-/ matches event-list as well, so be more specific
-      expect(screen.getAllByTestId(/^event-\d+$/)).toHaveLength(5);
+      expect(screen.getAllByTestId(EVENT_TESTID_REGEX)).toHaveLength(5);
     });
 
     it('updates when new events arrive', () => {
@@ -147,37 +159,38 @@ describe('EventViewer', () => {
       });
 
       rerender(<EventViewer />);
-      expect(screen.getAllByTestId(/^event-\d+$/)).toHaveLength(5);
+      expect(screen.getAllByTestId(EVENT_TESTID_REGEX)).toHaveLength(5);
     });
   });
 
   describe('Auto-scrolling Behavior', () => {
     let scrollElement: HTMLElement;
+    // biome-ignore lint/suspicious/noExplicitAny: Mock type for testing
     let requestAnimationFrameSpy: any;
 
     beforeEach(() => {
       // Mock requestAnimationFrame
       requestAnimationFrameSpy = vi
         .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation((cb: any) => {
-          cb();
+        .mockImplementation((cb: FrameRequestCallback) => {
+          cb(0);
           return 1;
         });
     });
 
-    it('scrolls to bottom on first visit', async () => {
+    it('scrolls to bottom on first visit', () => {
       // Skip this test as it depends on module-level state that's hard to reset
       // The functionality is tested in integration tests
       expect(true).toBe(true);
     });
 
-    it('does not auto-scroll on subsequent visits to same task', async () => {
+    it('does not auto-scroll on subsequent visits to same task', () => {
       // Skip this test as it depends on module-level state that's hard to reset
       // The functionality is tested in integration tests
       expect(true).toBe(true);
     });
 
-    it('auto-scrolls when new events arrive if at bottom', async () => {
+    it('auto-scrolls when new events arrive if at bottom', () => {
       // Skip this test as it's flaky due to timing issues with useEffect
       // The functionality is tested in integration tests
       expect(true).toBe(true);
@@ -215,7 +228,7 @@ describe('EventViewer', () => {
       });
 
       // Fire scroll event to update isAtBottom state
-      scrollElement.dispatchEvent(new Event('scroll'));
+      scrollElement.dispatchEvent(new window.Event('scroll'));
 
       // Clear previous calls
       requestAnimationFrameSpy.mockClear();
@@ -237,7 +250,7 @@ describe('EventViewer', () => {
   });
 
   describe('Scroll Event Handling', () => {
-    it('tracks scroll position', async () => {
+    it('tracks scroll position', () => {
       const mockEvents = createMockEventList(10);
       vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
         events: mockEvents,
@@ -268,7 +281,7 @@ describe('EventViewer', () => {
 
       // Simulate scroll event
       act(() => {
-        scrollElement.dispatchEvent(new Event('scroll'));
+        scrollElement.dispatchEvent(new window.Event('scroll'));
       });
 
       // Component should track that we're not at bottom
@@ -315,7 +328,7 @@ describe('EventViewer', () => {
 
       // Mock ScrollArea to not have the expected structure
       const { ScrollArea } = await import('@/lib/components/ui/scroll-area');
-      vi.mocked(ScrollArea).mockImplementationOnce(({ children }: any) => (
+      vi.mocked(ScrollArea).mockImplementationOnce(({ children }: MockScrollAreaProps) => (
         <div>{children}</div>
       ));
 
@@ -354,8 +367,8 @@ describe('EventViewer', () => {
 
       const requestAnimationFrameSpy = vi
         .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation((cb: any) => {
-          cb();
+        .mockImplementation((cb: FrameRequestCallback) => {
+          cb(0);
           return 1;
         });
 

@@ -57,6 +57,258 @@ interface CodeExecutionConfigProps {
   environmentId?: string;
 }
 
+interface ServerCommandExamplesProps {
+  showServerExamples: boolean;
+  setShowServerExamples: (show: boolean) => void;
+}
+
+interface SetupOutputSheetProps {
+  showSetupOutput: boolean;
+  setShowSetupOutput: (show: boolean) => void;
+  setupScriptResult: SetupScriptResponse | null;
+}
+
+interface EnvironmentVariablesProps {
+  envVars: Record<string, string>;
+  envVarKey: string;
+  envVarValue: string;
+  setEnvVarKey: (key: string) => void;
+  setEnvVarValue: (value: string) => void;
+  onAddEnvVar: () => void;
+  onRemoveEnvVar: (key: string) => void;
+}
+
+function ServerCommandExamples({
+  showServerExamples,
+  setShowServerExamples,
+}: ServerCommandExamplesProps) {
+  const examples = [
+    {
+      title: 'Vite',
+      command: 'npm run dev -- --port {PORT}',
+      description: 'For Vite-based projects (Vue, React, etc.)',
+    },
+    {
+      title: 'Next.js',
+      command: 'next dev -p {PORT}',
+      description: 'For Next.js applications',
+    },
+    {
+      title: 'Python HTTP Server',
+      command: 'python -m http.server {PORT}',
+      description: 'Simple HTTP server for static files',
+    },
+    {
+      title: 'Flask',
+      command: 'flask run --port {PORT}',
+      description: 'For Flask applications',
+    },
+    {
+      title: 'Django',
+      command: 'python manage.py runserver 0.0.0.0:{PORT}',
+      description: 'For Django applications',
+    },
+    {
+      title: 'Node.js (with nodemon)',
+      command: 'nodemon --port {PORT} server.js',
+      description: 'For Node.js applications with auto-reload',
+    },
+  ];
+
+  return (
+    <Dialog open={showServerExamples} onOpenChange={setShowServerExamples}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" className="h-5 w-5 p-0">
+          <HelpCircle className="h-4 w-4" />
+          <span className="sr-only">Show examples</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Server Command Examples</DialogTitle>
+          <DialogDescription>
+            The server command should include{' '}
+            <code className="bg-muted px-1 py-0.5 rounded">{'{PORT}'}</code> as
+            a placeholder for the port number.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 mt-4">
+          <div className="space-y-3">
+            {examples.map((example) => (
+              <div
+                key={example.title}
+                className="rounded-lg border p-4 space-y-2"
+              >
+                <p className="font-medium">{example.title}</p>
+                <code className="block bg-muted p-2 rounded text-sm">
+                  {example.command}
+                </code>
+                <p className="text-sm text-muted-foreground">
+                  {example.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SetupOutputSheet({
+  showSetupOutput,
+  setShowSetupOutput,
+  setupScriptResult,
+}: SetupOutputSheetProps) {
+  return (
+    <Sheet open={showSetupOutput} onOpenChange={setShowSetupOutput}>
+      <SheetContent className="w-full sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            Setup Script Output
+          </SheetTitle>
+          <SheetDescription>
+            {setupScriptResult && (
+              <div className="flex items-center gap-2 mt-2">
+                {setupScriptResult.overall_success ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span className="text-green-600">
+                      All commands succeeded
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 text-red-500" />
+                    <span className="text-red-600">Some commands failed</span>
+                  </>
+                )}
+                {setupScriptResult.total_duration_ms && (
+                  <span className="text-sm text-muted-foreground ml-auto">
+                    Duration: {setupScriptResult.total_duration_ms}ms
+                  </span>
+                )}
+              </div>
+            )}
+          </SheetDescription>
+        </SheetHeader>
+        <ScrollArea className="h-[calc(100vh-10rem)] mt-6">
+          {setupScriptResult && (
+            <div className="space-y-4">
+              {setupScriptResult.commands.map(
+                (command: SetupScriptCommand, index: number) => (
+                  <div
+                    key={`command-${index}-${command.command.slice(0, 20)}`}
+                    className={`rounded-lg border ${
+                      command.success
+                        ? 'border-green-200 dark:border-green-800'
+                        : 'border-red-200 dark:border-red-800'
+                    } p-4 space-y-2`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <code className="text-sm font-mono bg-muted px-2 py-1 rounded flex-1">
+                        $ {command.command}
+                      </code>
+                      <div className="flex items-center gap-2">
+                        {command.success ? (
+                          <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          Exit code: {command.exit_code}
+                        </span>
+                      </div>
+                    </div>
+                    {command.output && (
+                      <div className="space-y-1">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          Output:
+                        </div>
+                        <pre className="text-xs bg-muted p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
+                          {command.output}
+                        </pre>
+                      </div>
+                    )}
+                    {command.error && (
+                      <div className="space-y-1">
+                        <div className="text-xs font-medium text-red-600">
+                          Error:
+                        </div>
+                        <pre className="text-xs bg-red-50 dark:bg-red-900/10 text-red-900 dark:text-red-100 p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
+                          {command.error}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function EnvironmentVariables({
+  envVars,
+  envVarKey,
+  envVarValue,
+  setEnvVarKey,
+  setEnvVarValue,
+  onAddEnvVar,
+  onRemoveEnvVar,
+}: EnvironmentVariablesProps) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <Label>Environment Variables</Label>
+      </div>
+      <div className="space-y-2">
+        {Object.entries(envVars).map(([key, value]) => (
+          <div key={key} className="flex items-center gap-2">
+            <Input value={key} disabled className="flex-1" />
+            <Input value={value} disabled className="flex-1" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onRemoveEnvVar(key)}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Key"
+            value={envVarKey}
+            onChange={(e) => setEnvVarKey(e.target.value)}
+            className="flex-1"
+          />
+          <Input
+            placeholder="Value"
+            value={envVarValue}
+            onChange={(e) => setEnvVarValue(e.target.value)}
+            className="flex-1"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onAddEnvVar}
+            disabled={!(envVarKey && envVarValue)}
+          >
+            Add
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CodeExecutionConfig({
   codeExecution,
   onUpdate,
@@ -88,9 +340,7 @@ export function CodeExecutionConfig({
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const buildCodeExecution = (): CodeExecution => {
     const updatedExecution: CodeExecution = {
       type: formData.type,
       setup_commands: formData.setup_commands || undefined,
@@ -105,26 +355,17 @@ export function CodeExecutionConfig({
       updatedExecution.image = formData.image;
     }
 
-    onUpdate(updatedExecution);
+    return updatedExecution;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdate(buildCodeExecution());
   };
 
   const handleValidate = () => {
     // First save the configuration
-    const updatedExecution: CodeExecution = {
-      type: formData.type,
-      setup_commands: formData.setup_commands || undefined,
-      server_command: formData.server_command || undefined,
-      env_vars:
-        Object.keys(formData.env_vars).length > 0
-          ? formData.env_vars
-          : undefined,
-    };
-
-    if (formData.type === 'docker') {
-      updatedExecution.image = formData.image;
-    }
-
-    onUpdate(updatedExecution);
+    onUpdate(buildCodeExecution());
 
     // Then run the setup script if environment ID is available
     if (environmentId) {
@@ -152,6 +393,16 @@ export function CodeExecutionConfig({
       ...formData,
       env_vars: rest,
     });
+  };
+
+  const handleServerCommandChange = (value: string) => {
+    setFormData({ ...formData, server_command: value });
+    // Validate server command
+    if (value && !value.includes('{PORT}')) {
+      setServerCommandError('Server command must include {PORT} placeholder');
+    } else {
+      setServerCommandError(null);
+    }
   };
 
   return (
@@ -222,110 +473,15 @@ export function CodeExecutionConfig({
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <Label htmlFor="server_command">Server Command</Label>
-                  <Dialog
-                    open={showServerExamples}
-                    onOpenChange={setShowServerExamples}
-                  >
-                    <DialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0"
-                      >
-                        <HelpCircle className="h-4 w-4" />
-                        <span className="sr-only">Show examples</span>
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Server Command Examples</DialogTitle>
-                        <DialogDescription>
-                          The server command should include{' '}
-                          <code className="bg-muted px-1 py-0.5 rounded">
-                            {'{PORT}'}
-                          </code>{' '}
-                          as a placeholder for the port number.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 mt-4">
-                        <div className="space-y-3">
-                          <div className="rounded-lg border p-4 space-y-2">
-                            <p className="font-medium">Vite</p>
-                            <code className="block bg-muted p-2 rounded text-sm">
-                              npm run dev -- --port {'{PORT}'}
-                            </code>
-                            <p className="text-sm text-muted-foreground">
-                              For Vite-based projects (Vue, React, etc.)
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-4 space-y-2">
-                            <p className="font-medium">Next.js</p>
-                            <code className="block bg-muted p-2 rounded text-sm">
-                              next dev -p {'{PORT}'}
-                            </code>
-                            <p className="text-sm text-muted-foreground">
-                              For Next.js applications
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-4 space-y-2">
-                            <p className="font-medium">Python HTTP Server</p>
-                            <code className="block bg-muted p-2 rounded text-sm">
-                              python -m http.server {'{PORT}'}
-                            </code>
-                            <p className="text-sm text-muted-foreground">
-                              Simple HTTP server for static files
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-4 space-y-2">
-                            <p className="font-medium">Flask</p>
-                            <code className="block bg-muted p-2 rounded text-sm">
-                              flask run --port {'{PORT}'}
-                            </code>
-                            <p className="text-sm text-muted-foreground">
-                              For Flask applications
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-4 space-y-2">
-                            <p className="font-medium">Django</p>
-                            <code className="block bg-muted p-2 rounded text-sm">
-                              python manage.py runserver 0.0.0.0:{'{PORT}'}
-                            </code>
-                            <p className="text-sm text-muted-foreground">
-                              For Django applications
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-4 space-y-2">
-                            <p className="font-medium">
-                              Node.js (with nodemon)
-                            </p>
-                            <code className="block bg-muted p-2 rounded text-sm">
-                              nodemon --port {'{PORT}'} server.js
-                            </code>
-                            <p className="text-sm text-muted-foreground">
-                              For Node.js applications with auto-reload
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <ServerCommandExamples
+                    showServerExamples={showServerExamples}
+                    setShowServerExamples={setShowServerExamples}
+                  />
                 </div>
                 <Input
                   id="server_command"
                   value={formData.server_command}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFormData({ ...formData, server_command: value });
-                    // Validate server command
-                    if (value && !value.includes('{PORT}')) {
-                      setServerCommandError(
-                        'Server command must include {PORT} placeholder',
-                      );
-                    } else {
-                      setServerCommandError(null);
-                    }
-                  }}
+                  onChange={(e) => handleServerCommandChange(e.target.value)}
                   placeholder="npm run dev -- --port {PORT}"
                   className={serverCommandError ? 'border-red-500' : ''}
                 />
@@ -346,50 +502,15 @@ export function CodeExecutionConfig({
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Label>Environment Variables</Label>
-                </div>
-                <div className="space-y-2">
-                  {Object.entries(formData.env_vars).map(([key, value]) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <Input value={key} disabled className="flex-1" />
-                      <Input value={value} disabled className="flex-1" />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRemoveEnvVar(key)}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder="Key"
-                      value={envVarKey}
-                      onChange={(e) => setEnvVarKey(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Input
-                      placeholder="Value"
-                      value={envVarValue}
-                      onChange={(e) => setEnvVarValue(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAddEnvVar}
-                      disabled={!(envVarKey && envVarValue)}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              <EnvironmentVariables
+                envVars={formData.env_vars}
+                envVarKey={envVarKey}
+                envVarValue={envVarValue}
+                setEnvVarKey={setEnvVarKey}
+                setEnvVarValue={setEnvVarValue}
+                onAddEnvVar={handleAddEnvVar}
+                onRemoveEnvVar={handleRemoveEnvVar}
+              />
             </div>
 
             <div className="flex justify-end gap-2">
@@ -415,94 +536,12 @@ export function CodeExecutionConfig({
         </CardContent>
       </Card>
 
-      <Sheet open={showSetupOutput} onOpenChange={setShowSetupOutput}>
-        <SheetContent className="w-full sm:max-w-2xl">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <Terminal className="h-5 w-5" />
-              Setup Script Output
-            </SheetTitle>
-            <SheetDescription>
-              {setupScriptResult && (
-                <div className="flex items-center gap-2 mt-2">
-                  {setupScriptResult.overall_success ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                      <span className="text-green-600">
-                        All commands succeeded
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-4 w-4 text-red-500" />
-                      <span className="text-red-600">Some commands failed</span>
-                    </>
-                  )}
-                  {setupScriptResult.total_duration_ms && (
-                    <span className="text-sm text-muted-foreground ml-auto">
-                      Duration: {setupScriptResult.total_duration_ms}ms
-                    </span>
-                  )}
-                </div>
-              )}
-            </SheetDescription>
-          </SheetHeader>
-          <ScrollArea className="h-[calc(100vh-10rem)] mt-6">
-            {setupScriptResult && (
-              <div className="space-y-4">
-                {setupScriptResult.commands.map(
-                  (command: SetupScriptCommand, index: number) => (
-                    <div
-                      key={`command-${index}-${command.command.slice(0, 20)}`}
-                      className={`rounded-lg border ${
-                        command.success
-                          ? 'border-green-200 dark:border-green-800'
-                          : 'border-red-200 dark:border-red-800'
-                      } p-4 space-y-2`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <code className="text-sm font-mono bg-muted px-2 py-1 rounded flex-1">
-                          $ {command.command}
-                        </code>
-                        <div className="flex items-center gap-2">
-                          {command.success ? (
-                            <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                          )}
-                          <span className="text-xs text-muted-foreground">
-                            Exit code: {command.exit_code}
-                          </span>
-                        </div>
-                      </div>
-                      {command.output && (
-                        <div className="space-y-1">
-                          <div className="text-xs font-medium text-muted-foreground">
-                            Output:
-                          </div>
-                          <pre className="text-xs bg-muted p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
-                            {command.output}
-                          </pre>
-                        </div>
-                      )}
-                      {command.error && (
-                        <div className="space-y-1">
-                          <div className="text-xs font-medium text-red-600">
-                            Error:
-                          </div>
-                          <pre className="text-xs bg-red-50 dark:bg-red-900/10 text-red-900 dark:text-red-100 p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
-                            {command.error}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  ),
-                )}
-              </div>
-            )}
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
+      <SetupOutputSheet
+        showSetupOutput={showSetupOutput}
+        setShowSetupOutput={setShowSetupOutput}
+        setupScriptResult={setupScriptResult}
+      />
     </>
   );
 }
+

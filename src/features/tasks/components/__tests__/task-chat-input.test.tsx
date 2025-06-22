@@ -1,8 +1,10 @@
+import type { UseQueryResult } from '@tanstack/react-query';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMockTask } from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
+import type { TaskMetadata } from '@/types/task';
 
 import { useTask } from '../../hooks/use-tasks';
 import { TaskChatInput } from '../task-chat-input';
@@ -13,10 +15,16 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
 }));
 
+interface MockChatInputProps {
+  taskId?: string;
+  taskStatus?: string;
+  className?: string;
+}
+
 // Mock ChatInput component
 vi.mock('../chat-input', () => ({
-  ChatInput: ({ taskId, taskStatus, className }: any) => {
-    const attrs: any = {
+  ChatInput: ({ taskId, taskStatus, className }: MockChatInputProps) => {
+    const attrs: Record<string, string | undefined> = {
       'data-testid': 'chat-input',
       'data-task-id': taskId,
     };
@@ -46,7 +54,7 @@ describe('TaskChatInput', () => {
       }),
       isLoading: false,
       error: null,
-    } as any);
+    } as UseQueryResult<TaskMetadata, Error>);
   });
 
   describe('Props Passing', () => {
@@ -76,7 +84,7 @@ describe('TaskChatInput', () => {
         data: undefined,
         isLoading: false,
         error: null,
-      } as any);
+      } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskChatInput />);
 
@@ -94,7 +102,7 @@ describe('TaskChatInput', () => {
           data: createMockTask({ status }),
           isLoading: false,
           error: null,
-        } as any);
+        } as UseQueryResult<TaskMetadata, Error>);
 
         renderWithRouter(<TaskChatInput />);
 
@@ -110,7 +118,7 @@ describe('TaskChatInput', () => {
         data: undefined,
         isLoading: true,
         error: null,
-      } as any);
+      } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskChatInput />);
 
@@ -123,7 +131,7 @@ describe('TaskChatInput', () => {
         data: undefined,
         isLoading: false,
         error: new Error('Failed to load task'),
-      } as any);
+      } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskChatInput />);
 
@@ -154,7 +162,7 @@ describe('TaskChatInput', () => {
         }),
         isLoading: false,
         error: null,
-      } as any);
+      } as UseQueryResult<TaskMetadata, Error>);
 
       rerender(<TaskChatInput />);
 
@@ -170,10 +178,10 @@ describe('TaskChatInput', () => {
   describe('Edge Cases', () => {
     it('handles task with minimal data', () => {
       vi.mocked(useTask).mockReturnValue({
-        data: { task_id: 'task-123' } as any,
+        data: { task_id: 'task-123' } as TaskMetadata,
         isLoading: false,
         error: null,
-      } as any);
+      } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskChatInput />);
 
@@ -209,7 +217,7 @@ describe('TaskChatInput', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any);
+      } as UseQueryResult<TaskMetadata, Error>);
 
       renderWithRouter(<TaskChatInput className="test-class" />);
 
