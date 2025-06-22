@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { useEffect } from 'react';
 
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer';
@@ -6,10 +7,12 @@ import { TaskChatInput } from '@/features/tasks/components/task-chat-input';
 import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
+import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection';
+import { useTask } from '@/features/tasks/hooks/use-tasks';
 import {
-  TaskProvider,
-  useTaskContext,
-} from '@/features/tasks/contexts/task-context';
+  useRightPanelView,
+  useTaskUIStore,
+} from '@/features/tasks/stores/task-ui-store';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
   ResizableHandle,
@@ -24,30 +27,25 @@ import {
 } from '@/lib/components/ui/tabs';
 
 export const Route = createFileRoute('/tasks/$taskId')({
-  component: TaskDetailWrapper,
+  component: TaskDetail,
 });
 
-function TaskDetailWrapper() {
-  return (
-    <TaskProvider>
-      <TaskDetail />
-    </TaskProvider>
-  );
-}
-
 function TaskDetail() {
-  const {
-    taskId,
-    metadata,
-    isLoadingMetadata,
-    metadataError,
-    setRightPanelView,
-    rightPanelView,
-  } = useTaskContext();
+  const { taskId } = Route.useParams();
+  const { data: metadata, isLoading, error } = useTask(taskId);
+  const rightPanelView = useRightPanelView();
+  const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView);
+  const resetUIState = useTaskUIStore((state) => state.resetUIState);
 
-  // Only consider critical errors that should break the whole page
-  const loading = isLoadingMetadata;
-  const error = metadataError; // Only metadata error is critical
+  // Set up SSE connection
+  useTaskSSEConnection({ taskId });
+
+  // Reset UI state when component unmounts or task changes
+  useEffect(() => {
+    return () => {
+      resetUIState();
+    };
+  }, [taskId, resetUIState]);
 
   if (error) {
     return (
@@ -61,7 +59,7 @@ function TaskDetail() {
     );
   }
 
-  if (loading) {
+  if (isLoading) {
     return <TaskDetailSkeleton />;
   }
 

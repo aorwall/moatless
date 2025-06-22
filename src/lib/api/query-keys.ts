@@ -20,6 +20,8 @@ export const queryKeys = {
     [...queryKeys.task(taskId), 'file-search', query] as const,
   taskWorkspaceStatus: (taskId: string) =>
     [...queryKeys.task(taskId), 'workspace-status'] as const,
+  taskServerStatus: (taskId: string) =>
+    [...queryKeys.task(taskId), 'server-status'] as const,
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,
   environments: () => [...queryKeys.all, 'environments'] as const,

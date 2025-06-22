@@ -1,4 +1,11 @@
-import { CheckCircle, Play, Terminal, XCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle,
+  HelpCircle,
+  Play,
+  Terminal,
+  XCircle,
+} from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/lib/components/ui/button';
@@ -9,6 +16,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/lib/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/lib/components/ui/dialog';
 import { Input } from '@/lib/components/ui/input';
 import { Label } from '@/lib/components/ui/label';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
@@ -51,6 +66,7 @@ export function CodeExecutionConfig({
   const [formData, setFormData] = useState({
     type: codeExecution.type,
     setup_commands: codeExecution.setup_commands || '',
+    server_command: codeExecution.server_command || '',
     env_vars: codeExecution.env_vars || {},
     image: codeExecution.image || 'ubuntu:latest',
   });
@@ -60,6 +76,10 @@ export function CodeExecutionConfig({
   const [showSetupOutput, setShowSetupOutput] = useState(false);
   const [setupScriptResult, setSetupScriptResult] =
     useState<SetupScriptResponse | null>(null);
+  const [serverCommandError, setServerCommandError] = useState<string | null>(
+    null,
+  );
+  const [showServerExamples, setShowServerExamples] = useState(false);
 
   const runSetupScript = useRunSetupScript({
     onSuccess: (data) => {
@@ -74,6 +94,7 @@ export function CodeExecutionConfig({
     const updatedExecution: CodeExecution = {
       type: formData.type,
       setup_commands: formData.setup_commands || undefined,
+      server_command: formData.server_command || undefined,
       env_vars:
         Object.keys(formData.env_vars).length > 0
           ? formData.env_vars
@@ -92,6 +113,7 @@ export function CodeExecutionConfig({
     const updatedExecution: CodeExecution = {
       type: formData.type,
       setup_commands: formData.setup_commands || undefined,
+      server_command: formData.server_command || undefined,
       env_vars:
         Object.keys(formData.env_vars).length > 0
           ? formData.env_vars
@@ -198,6 +220,133 @@ export function CodeExecutionConfig({
               </div>
 
               <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Label htmlFor="server_command">Server Command</Label>
+                  <Dialog
+                    open={showServerExamples}
+                    onOpenChange={setShowServerExamples}
+                  >
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0"
+                      >
+                        <HelpCircle className="h-4 w-4" />
+                        <span className="sr-only">Show examples</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>Server Command Examples</DialogTitle>
+                        <DialogDescription>
+                          The server command should include{' '}
+                          <code className="bg-muted px-1 py-0.5 rounded">
+                            {'{PORT}'}
+                          </code>{' '}
+                          as a placeholder for the port number.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 mt-4">
+                        <div className="space-y-3">
+                          <div className="rounded-lg border p-4 space-y-2">
+                            <p className="font-medium">Vite</p>
+                            <code className="block bg-muted p-2 rounded text-sm">
+                              npm run dev -- --port {'{PORT}'}
+                            </code>
+                            <p className="text-sm text-muted-foreground">
+                              For Vite-based projects (Vue, React, etc.)
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-4 space-y-2">
+                            <p className="font-medium">Next.js</p>
+                            <code className="block bg-muted p-2 rounded text-sm">
+                              next dev -p {'{PORT}'}
+                            </code>
+                            <p className="text-sm text-muted-foreground">
+                              For Next.js applications
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-4 space-y-2">
+                            <p className="font-medium">Python HTTP Server</p>
+                            <code className="block bg-muted p-2 rounded text-sm">
+                              python -m http.server {'{PORT}'}
+                            </code>
+                            <p className="text-sm text-muted-foreground">
+                              Simple HTTP server for static files
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-4 space-y-2">
+                            <p className="font-medium">Flask</p>
+                            <code className="block bg-muted p-2 rounded text-sm">
+                              flask run --port {'{PORT}'}
+                            </code>
+                            <p className="text-sm text-muted-foreground">
+                              For Flask applications
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-4 space-y-2">
+                            <p className="font-medium">Django</p>
+                            <code className="block bg-muted p-2 rounded text-sm">
+                              python manage.py runserver 0.0.0.0:{'{PORT}'}
+                            </code>
+                            <p className="text-sm text-muted-foreground">
+                              For Django applications
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-4 space-y-2">
+                            <p className="font-medium">
+                              Node.js (with nodemon)
+                            </p>
+                            <code className="block bg-muted p-2 rounded text-sm">
+                              nodemon --port {'{PORT}'} server.js
+                            </code>
+                            <p className="text-sm text-muted-foreground">
+                              For Node.js applications with auto-reload
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+                <Input
+                  id="server_command"
+                  value={formData.server_command}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, server_command: value });
+                    // Validate server command
+                    if (value && !value.includes('{PORT}')) {
+                      setServerCommandError(
+                        'Server command must include {PORT} placeholder',
+                      );
+                    } else {
+                      setServerCommandError(null);
+                    }
+                  }}
+                  placeholder="npm run dev -- --port {PORT}"
+                  className={serverCommandError ? 'border-red-500' : ''}
+                />
+                <div className="space-y-1 mt-2">
+                  {serverCommandError && (
+                    <div className="flex items-center gap-2 text-sm text-red-600">
+                      <AlertCircle className="h-4 w-4" />
+                      <span>{serverCommandError}</span>
+                    </div>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    Command to start a development server. Use{' '}
+                    <code className="bg-muted px-1 py-0.5 rounded">
+                      {'{PORT}'}
+                    </code>{' '}
+                    as a placeholder for the port number.
+                  </p>
+                </div>
+              </div>
+
+              <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label>Environment Variables</Label>
                 </div>
@@ -244,7 +393,10 @@ export function CodeExecutionConfig({
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button type="submit" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                disabled={isSubmitting || !!serverCommandError}
+              >
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
               </Button>
               {environmentId && (

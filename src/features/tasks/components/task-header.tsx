@@ -1,8 +1,23 @@
-import { AlertCircle, Loader2, StopCircle, WifiOff } from 'lucide-react';
+import { useParams } from '@tanstack/react-router';
+import {
+  AlertCircle,
+  Loader2,
+  Play,
+  Square,
+  StopCircle,
+  WifiOff,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useTaskContext } from '@/features/tasks/contexts/task-context';
-import { useStopAgent } from '@/features/tasks/hooks/use-tasks';
+import {
+  useServerStatus,
+  useStartServer,
+  useStopAgent,
+  useStopServer,
+  useTask,
+  useTaskWorkspaceStatus,
+} from '@/features/tasks/hooks/use-tasks';
+import { useTaskStreamingError } from '@/features/tasks/stores/task-streaming-store';
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx';
@@ -45,13 +60,45 @@ const getWorkspaceStatusDisplay = (status?: WorkspaceStatus) => {
 };
 
 export function TaskHeader() {
+  const params = useParams({ from: '/tasks/$taskId' });
+  const taskId = params.taskId;
+
+  const { data: metadata } = useTask(taskId);
   const {
-    metadata,
-    streamingError,
-    workspaceStatus,
-    isLoadingWorkspace,
-    workspaceError,
-  } = useTaskContext();
+    data: workspaceStatus,
+    isLoading: isLoadingWorkspace,
+    error: workspaceError,
+  } = useTaskWorkspaceStatus(taskId);
+  const streamingError = useTaskStreamingError(taskId);
+
+  const { data: serverStatus, isLoading: isLoadingServerStatus } =
+    useServerStatus(taskId, {
+      enabled: !!taskId,
+    });
+
+  const startServer = useStartServer({
+    onSuccess: () => {
+      toast.success('Server started successfully');
+    },
+    onError: (error) => {
+      console.error('Failed to start server:', error);
+      toast.error('Failed to start server', {
+        description: getErrorMessage(error),
+      });
+    },
+  });
+
+  const stopServer = useStopServer({
+    onSuccess: () => {
+      toast.success('Server stopped successfully');
+    },
+    onError: (error) => {
+      console.error('Failed to stop server:', error);
+      toast.error('Failed to stop server', {
+        description: getErrorMessage(error),
+      });
+    },
+  });
 
   const stopAgent = useStopAgent({
     onSuccess: () => {
@@ -68,6 +115,18 @@ export function TaskHeader() {
   const handleStop = () => {
     if (metadata) {
       stopAgent.mutate(metadata.task_id);
+    }
+  };
+
+  const handleStartServer = () => {
+    if (metadata) {
+      startServer.mutate(metadata.task_id);
+    }
+  };
+
+  const handleStopServer = () => {
+    if (metadata) {
+      stopServer.mutate(metadata.task_id);
     }
   };
 
@@ -148,6 +207,55 @@ export function TaskHeader() {
               </TooltipProvider>
             )}
           </div>
+          {serverStatus?.configured && (
+            <>
+              {serverStatus.running ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleStopServer}
+                        disabled={stopServer.isPending || isLoadingServerStatus}
+                      >
+                        <Square className="mr-2 h-4 w-4" />
+                        {stopServer.isPending
+                          ? 'Stopping Server...'
+                          : 'Stop Server'}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="space-y-1">
+                        <p>Server is running</p>
+                        <p className="text-xs text-muted-foreground">
+                          URL: {serverStatus.url}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          PID: {serverStatus.pid}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Uptime: {serverStatus.uptime_seconds}s
+                        </p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleStartServer}
+                  disabled={startServer.isPending || isLoadingServerStatus}
+                >
+                  <Play className="mr-2 h-4 w-4" />
+                  {startServer.isPending
+                    ? 'Starting Server...'
+                    : 'Start Server'}
+                </Button>
+              )}
+            </>
+          )}
           {metadata.is_running && (
             <Button
               variant="outline"

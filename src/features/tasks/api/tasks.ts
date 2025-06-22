@@ -7,6 +7,7 @@ import type {
 import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
 import type {
+  ServerStatus,
   TaskMessages,
   TaskMetadata,
   WorkspaceStatusResponse,
@@ -115,6 +116,24 @@ export const tasksApi = {
   ): Promise<WorkspaceStatusResponse> {
     return await apiClient.get<WorkspaceStatusResponse>(
       `/api/v1/tasks/${taskId}/workspace-status`,
+    );
+  },
+
+  async startServer(taskId: string): Promise<ServerStatus> {
+    return await apiClient.post<ServerStatus>(
+      `/api/v1/tasks/${taskId}/server/start`,
+    );
+  },
+
+  async stopServer(taskId: string): Promise<ServerStatus> {
+    return await apiClient.post<ServerStatus>(
+      `/api/v1/tasks/${taskId}/server/stop`,
+    );
+  },
+
+  async getServerStatus(taskId: string): Promise<ServerStatus> {
+    return await apiClient.get<ServerStatus>(
+      `/api/v1/tasks/${taskId}/server/status`,
     );
   },
 };

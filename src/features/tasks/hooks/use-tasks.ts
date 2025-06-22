@@ -10,7 +10,11 @@ import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
 import type { FileSearchResponse } from '@/types/environment';
 import type { Event } from '@/types/event.ts';
 import type { GitDiffResponse } from '@/types/git-diff';
-import type { TaskMetadata, WorkspaceStatusResponse } from '@/types/task';
+import type {
+  ServerStatus,
+  TaskMetadata,
+  WorkspaceStatusResponse,
+} from '@/types/task';
 
 /**
  * Task Query Invalidation Strategy:
@@ -196,6 +200,71 @@ export function useTaskWorkspaceStatus(
         return 1000; // 1 second
       }
       return 5000; // 5 seconds for idle/not_setup states
+    },
+    ...options,
+  });
+}
+
+// Server management hooks
+export function useServerStatus(
+  taskId: string,
+  options?: Omit<UseQueryOptions<ServerStatus>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskServerStatus(taskId),
+    queryFn: () => tasksApi.getServerStatus(taskId),
+    enabled: !!taskId,
+    refetchInterval: (query) => {
+      // Poll more frequently when server is running
+      const data = query.state.data;
+      if (data?.running) {
+        return 5000; // 5 seconds
+      }
+      return false;
+    },
+    ...options,
+  });
+}
+
+export function useStartServer(
+  options?: UseMutationOptions<ServerStatus, Error, string>,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (taskId: string) => tasksApi.startServer(taskId),
+    onSuccess: (data, taskId, context) => {
+      // Invalidate server status to refresh with new state
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
+      });
+      // Also invalidate task data as server state might affect task metadata
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
+      });
+      options?.onSuccess?.(data, taskId, context);
+    },
+    ...options,
+  });
+}
+
+export function useStopServer(
+  options?: UseMutationOptions<ServerStatus, Error, string>,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (taskId: string) => tasksApi.stopServer(taskId),
+    onSuccess: (data, taskId, context) => {
+      // Invalidate server status to refresh with new state
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
+      });
+      // Also invalidate task data as server state might affect task metadata
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
+      });
+      options?.onSuccess?.(data, taskId, context);
     },
     ...options,
   });

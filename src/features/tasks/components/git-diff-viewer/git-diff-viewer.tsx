@@ -2,6 +2,7 @@ import { DiffModeEnum, DiffView } from '@git-diff-view/react';
 import '@git-diff-view/react/styles/diff-view.css';
 import { generateDiffFile } from '@git-diff-view/file';
 import './git-diff-viewer.css';
+import { useParams } from '@tanstack/react-router';
 import {
   ChevronRight,
   FileEdit,
@@ -12,7 +13,8 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 
-import { useTaskContext } from '@/features/tasks/contexts/task-context';
+import { useTaskGitDiff } from '@/features/tasks/hooks/use-tasks';
+import { useSelectedIteration } from '@/features/tasks/stores/task-ui-store';
 import { Badge } from '@/lib/components/ui/badge';
 import {
   Collapsible,
@@ -62,12 +64,11 @@ const getStatusColor = (status: GitDiffFile['status']) => {
 };
 
 export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
-  const {
-    gitDiff: contextGitDiff,
-    selectedIteration,
-    isLoadingGitDiff: isLoading,
-    gitDiffError: error,
-  } = useTaskContext();
+  const params = useParams({ from: '/tasks/$taskId' });
+  const { data: contextGitDiff, isLoading, error } = useTaskGitDiff(
+    params.taskId,
+  );
+  const selectedIteration = useSelectedIteration();
 
   // Use iteration's git diff if available, otherwise use context's git diff
   const gitDiff = selectedIteration?.git_diff

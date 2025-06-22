@@ -1,4 +1,6 @@
-import { useTaskContext } from '@/features/tasks/contexts/task-context';
+import { useParams } from '@tanstack/react-router';
+
+import { useTask } from '@/features/tasks/hooks/use-tasks';
 
 import { ChatInput } from './chat-input';
 
@@ -7,9 +9,14 @@ interface TaskChatInputProps {
 }
 
 export function TaskChatInput({ className }: TaskChatInputProps) {
-  const { taskId, taskStatus } = useTaskContext();
+  const params = useParams({ from: '/tasks/$taskId' });
+  const { data: metadata } = useTask(params.taskId);
 
   return (
-    <ChatInput taskId={taskId} taskStatus={taskStatus} className={className} />
+    <ChatInput
+      taskId={params.taskId}
+      taskStatus={metadata?.status}
+      className={className}
+    />
   );
 }

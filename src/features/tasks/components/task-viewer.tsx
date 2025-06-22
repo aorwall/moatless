@@ -1,16 +1,22 @@
+import { useParams } from '@tanstack/react-router';
 import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { useTaskContext } from '@/features/tasks/contexts/task-context';
+import { useTask } from '@/features/tasks/hooks/use-tasks';
+import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
 import type { TaskIteration } from '@/types/task';
 
 export function TaskViewer() {
+  const params = useParams({ from: '/tasks/$taskId' });
+  const { data: metadata } = useTask(params.taskId);
+  const setSelectedIteration = useTaskUIStore(
+    (state) => state.setSelectedIteration,
+  );
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { metadata, setSelectedIteration } = useTaskContext();
 
   useEffect(() => {
     // Scroll to bottom when component mounts or when task is running
@@ -49,7 +55,7 @@ export function TaskViewer() {
   return (
     <ScrollArea className="h-full w-full" ref={scrollAreaRef}>
       <div className="p-3 sm:p-4 lg:p-6 space-y-4 w-full">
-        {metadata.iterations.map((iteration, index) => (
+        {metadata.iterations?.map((iteration, index) => (
           <div
             key={iteration.iteration_id || `iteration-${index}`}
             className="space-y-4"
@@ -108,14 +114,16 @@ export function TaskViewer() {
         ))}
 
         {/* Show running state after the last iteration */}
-        {metadata.is_running && metadata.iterations.length > 0 && (
-          <div className="flex items-center justify-center py-4 space-x-2">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              Processing...
-            </span>
-          </div>
-        )}
+        {metadata.is_running &&
+          metadata.iterations &&
+          metadata.iterations.length > 0 && (
+            <div className="flex items-center justify-center py-4 space-x-2">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                Processing...
+              </span>
+            </div>
+          )}
 
         <div ref={bottomRef} />
       </div>

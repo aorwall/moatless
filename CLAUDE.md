@@ -9,9 +9,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies (requires pnpm 10.7.1)
 pnpm install
 
-# Start development server on port 3000
-pnpm dev
-
 # Build for production
 pnpm build
 
@@ -126,37 +123,6 @@ Routes in this application follow a simple, direct pattern where route files han
 - Component-level state
 - User interactions and event handlers
 - Reusable business logic
-
-This approach keeps page logic centralized in route files, making it easy to understand what each page does without navigating through multiple abstraction layers. No separate container components are needed.
-
-**Example Route Pattern:**
-```typescript
-// src/routes/tasks/$taskId.tsx
-function TaskDetail() {
-  const { taskId } = Route.useParams();
-  
-  // Data fetching in route
-  const { data, isLoading, error } = useTask(taskId);
-  
-  // Page-level state
-  const [selectedTab, setSelectedTab] = useState('details');
-  
-  // Error/loading handling
-  if (error) return <ErrorAlert error={error} />;
-  if (isLoading) return <TaskDetailSkeleton />;
-  
-  // Compose UI with feature components
-  return (
-    <div>
-      <TaskHeader task={data} />
-      <TaskTabs value={selectedTab} onChange={setSelectedTab}>
-        <TaskDetails task={data} />
-        <TaskEvents taskId={taskId} />
-      </TaskTabs>
-    </div>
-  );
-}
-```
 
 #### Task Context Pattern
 The task detail page uses a React Context to manage and share task-related data across components:

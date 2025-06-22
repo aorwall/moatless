@@ -1,10 +1,10 @@
+import { useParams } from '@tanstack/react-router';
 import { FileText, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useTaskContext } from '@/features/tasks/contexts/task-context';
+import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events-with-streaming';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
-import type { Event } from '@/types/event.ts';
 
 import { EventList } from './event-list';
 
@@ -12,26 +12,16 @@ import { EventList } from './event-list';
 const visitedTasks = new Set<string>();
 
 export function EventViewer() {
-  const {
-    events,
-    streamEvents,
-    taskId,
-    isRunning,
-    isLoadingEvents: isLoading,
-    eventsError: error,
-  } = useTaskContext();
+  const params = useParams({ from: '/tasks/$taskId' });
+  const taskId = params.taskId;
 
-  const displayEvents = isRunning ? streamEvents : events || [];
-  const [localEvents, setLocalEvents] = useState<Array<Event>>(events || []);
+  // Use the abstraction that handles streaming automatically
+  const { events, isLoading, error, isStreaming } = useTaskEventsWithStreaming(taskId);
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const previousEventCount = useRef(events?.length || 0);
+  const previousEventCount = useRef(events.length);
   const hasScrolledToBottomInitially = useRef(false);
-
-  // Update local events when props change
-  useEffect(() => {
-    setLocalEvents(events || []);
-  }, [events]);
 
   // Scroll to bottom on initial load if task hasn't been visited before
   useEffect(() => {
@@ -86,7 +76,7 @@ export function EventViewer() {
     }
 
     // Only auto-scroll if new events were added
-    if (events && events.length > previousEventCount.current) {
+    if (events.length > previousEventCount.current) {
       const scrollElement = scrollAreaRef.current.querySelector(
         '[data-slot="scroll-area-viewport"]',
       );
@@ -98,7 +88,7 @@ export function EventViewer() {
       }
     }
 
-    previousEventCount.current = events?.length || 0;
+    previousEventCount.current = events.length;
   }, [events, isAtBottom]);
 
   // Set up scroll event listener
@@ -124,9 +114,6 @@ export function EventViewer() {
     };
   }, [handleScroll]);
 
-  const finalDisplayEvents =
-    localEvents.length > 0 ? localEvents : displayEvents;
-
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center p-6">
@@ -150,12 +137,14 @@ export function EventViewer() {
     );
   }
 
-  if (!finalDisplayEvents || finalDisplayEvents.length === 0) {
+  if (events.length === 0) {
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="text-center space-y-3">
           <FileText className="h-8 w-8 mx-auto text-muted-foreground/50" />
-          <p className="text-muted-foreground">No events to display</p>
+          <p className="text-muted-foreground">
+            {isStreaming ? 'Waiting for events...' : 'No events to display'}
+          </p>
         </div>
       </div>
     );
@@ -164,7 +153,7 @@ export function EventViewer() {
   return (
     <ScrollArea ref={scrollAreaRef} className="h-full w-full">
       <div className="p-2 sm:p-3 lg:p-4 w-full">
-        <EventList events={finalDisplayEvents} />
+        <EventList events={events} />
       </div>
     </ScrollArea>
   );

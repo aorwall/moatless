@@ -32,6 +32,14 @@ export interface WorkspaceStatusResponse {
   status: WorkspaceStatus;
 }
 
+export interface ServerStatus {
+  running: boolean;
+  configured: boolean;
+  url: string;
+  pid: number;
+  uptime_seconds: number;
+}
+
 export interface TextContent {
   type: ContentType.TEXT;
   text: string;

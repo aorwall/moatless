@@ -25,6 +25,7 @@ export type Repository = LocalRepository | GithubRepository;
 export interface CodeExecution {
   type: 'local' | 'docker';
   setup_commands?: string;
+  server_command?: string;
   // Docker-specific fields
   image?: string; // Required when type="docker"
   env_vars?: Record<string, string>;
