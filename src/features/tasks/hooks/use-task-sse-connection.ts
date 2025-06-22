@@ -7,8 +7,8 @@ import {
   useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks';
 import { useTaskStreamingStore } from '@/features/tasks/stores/task-streaming-store';
-import type { BaseMessage, ClaudeMessage } from '@/types/task';
 import type { Event } from '@/types/event';
+import type { BaseMessage, ClaudeMessage } from '@/types/task';
 
 interface UseTaskSSEConnectionOptions {
   taskId: string;
@@ -36,7 +36,7 @@ export function useTaskSSEConnection({ taskId }: UseTaskSSEConnectionOptions) {
     const workspaceActive =
       workspaceStatus?.status === 'running' ||
       workspaceStatus?.status === 'setting_up';
-    
+
     return taskRunning || workspaceActive;
   }, [metadata, workspaceStatus]);
 
@@ -54,7 +54,13 @@ export function useTaskSSEConnection({ taskId }: UseTaskSSEConnectionOptions) {
       clearStreamEvents(taskId);
       setStreamingError(taskId, null);
     }
-  }, [shouldStream, clearLocalMessages, clearStreamEvents, setStreamingError, taskId]);
+  }, [
+    shouldStream,
+    clearLocalMessages,
+    clearStreamEvents,
+    setStreamingError,
+    taskId,
+  ]);
 
   // Clean up when component unmounts
   useEffect(() => {

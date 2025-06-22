@@ -17,6 +17,130 @@ src/features/tasks/
 │   └── use-tasks.ts
 ```
 
+## Testing Strategy
+
+### Layered Testing Approach
+
+This project uses a layered testing strategy that balances coverage, speed, and reliability:
+
+1. **Unit Tests** - Test individual components and hooks in isolation
+2. **Integration Tests** - Test components working together with minimal mocking
+3. **Contract Tests** - Verify component interfaces and dependency contracts
+4. **E2E Tests** - Test complete user journeys (planned)
+
+### Strategic Mocking Philosophy
+
+The key principle: **Mock at the boundaries, test the behavior**.
+
+#### ✅ WHAT TO MOCK
+
+1. **External Dependencies**
+   - API calls and data fetching hooks
+   - SSE connections and WebSocket
+   - Third-party libraries
+   - Browser APIs
+
+2. **Complex Infrastructure**
+   - UI libraries that don't affect business logic (resizable panels, etc.)
+   - Router and navigation
+   - Error boundaries and skeleton components
+
+3. **Unstable Dependencies**
+   - Components that require complex setup (providers, contexts)
+   - Components with side effects (file uploads, etc.)
+
+#### ❌ WHAT NOT TO MOCK
+
+1. **Business Logic Components**
+   - Feature components when testing integration
+   - Components that contain your business logic
+   - Components under direct test
+
+2. **Simple UI Components**
+   - Buttons, inputs, basic form elements
+   - Layout components without complex logic
+
+3. **Your Own Code**
+   - Utility functions
+   - Custom hooks (test them separately)
+
+### Example: Route Integration vs Unit Testing
+
+#### ❌ Over-mocked Route Test (Anti-pattern)
+```typescript
+// This misses integration bugs!
+vi.mock('@/features/tasks/components/task-viewer', () => ({
+  TaskViewer: () => <div>Mocked Task Viewer</div>
+}));
+vi.mock('@/features/tasks/components/task-chat-input', () => ({
+  TaskChatInput: () => <div>Mocked Chat Input</div>
+}));
+
+// Test tells us nothing about real integration
+it('renders components', () => {
+  render(<TaskDetail />);
+  expect(screen.getByText('Mocked Task Viewer')).toBeInTheDocument();
+});
+```
+
+#### ✅ Strategic Integration Test
+```typescript
+// Mock only external dependencies
+vi.mock('@/features/tasks/hooks/use-tasks');
+vi.mock('@/features/tasks/hooks/use-task-sse-connection');
+
+// Test real component integration
+it('displays task data through component hierarchy', () => {
+  const taskData = createMockTaskWithIterations({
+    title: 'Integration Test Task'
+  }, 2);
+  
+  vi.mocked(useTask).mockReturnValue({
+    data: taskData,
+    isLoading: false,
+    error: null
+  });
+
+  render(<TaskDetail />);
+
+  // Verify real data flow through real components
+  expect(screen.getByText('Integration Test Task')).toBeInTheDocument();
+  expect(screen.getByText(taskData.iterations[0].initial_message)).toBeInTheDocument();
+  
+  // Test real interactions
+  const diffTab = screen.getByRole('tab', { name: /diff/i });
+  await user.click(diffTab);
+  expect(mockSetRightPanelView).toHaveBeenCalledWith('diff');
+});
+```
+
+### Benefits of Strategic Mocking
+
+#### Integration Testing Catches:
+- **Interface Mismatches**: When component props change
+- **Data Flow Issues**: When context or props aren't passed correctly
+- **Breaking Changes**: When child components break parent functionality
+- **Performance Issues**: When components don't handle large datasets
+- **User Experience Issues**: When interactions don't work as expected
+
+#### Example: Real Bug Caught by Integration Test
+```typescript
+// This integration test would catch the bug:
+it('handles task status changes', () => {
+  const runningTask = createMockTask({ is_running: true });
+  vi.mocked(useTask).mockReturnValue({ data: runningTask });
+  
+  render(<TaskDetail />);
+  
+  // Would fail if TaskViewer doesn't show processing state
+  expect(screen.getByText('Processing...')).toBeInTheDocument();
+  
+  // Would fail if ChatInput doesn't disable during running state
+  const sendButton = screen.getByRole('button', { name: /send/i });
+  expect(sendButton).toBeDisabled();
+});
+```
+
 ## Testing Patterns
 
 ### Component Testing
@@ -90,13 +214,139 @@ describe('TaskUIStore', () => {
 });
 ```
 
-## Mocking Strategies
+## Strategic Mocking Patterns
 
-### Mock TanStack Query
+### 1. External Dependencies
 
+#### API Hooks
 ```typescript
-import { vi } from 'vitest';
+// Mock the entire hooks module
+vi.mock('@/features/tasks/hooks/use-tasks', () => ({
+  useTask: vi.fn(),
+  useTasksList: vi.fn(),
+  useCreateTask: vi.fn(),
+}));
 
+// In tests, provide specific return values
+vi.mocked(useTask).mockReturnValue({
+  data: createMockTask(),
+  isLoading: false,
+  error: null,
+});
+```
+
+#### SSE and WebSocket
+```typescript
+vi.mock('@/features/tasks/hooks/use-task-sse-connection', () => ({
+  useTaskSSEConnection: vi.fn(() => ({
+    isConnected: true,
+    error: null,
+    disconnect: vi.fn(),
+  }))
+}));
+```
+
+### 2. Complex UI Libraries
+
+#### Resizable Panels
+```typescript
+// Mock complex layout components that don't affect business logic
+vi.mock('@/lib/components/ui/resizable', () => ({
+  ResizablePanel: ({ children }: any) => <div>{children}</div>,
+  ResizablePanelGroup: ({ children }: any) => <div>{children}</div>,
+  ResizableHandle: () => <div data-testid="resize-handle" />,
+}));
+```
+
+### 3. Router and Navigation
+```typescript
+vi.mock('@tanstack/react-router', () => ({
+  useParams: () => ({ taskId: 'test-task-id' }),
+  useNavigate: () => vi.fn(),
+  createFileRoute: (path: string) => (config: any) => ({
+    ...config,
+    useParams: () => ({ taskId: 'test-task-id' }),
+  }),
+}));
+```
+
+### 4. Error Boundaries and Skeletons
+```typescript
+// Mock complex loading/error components to simplify testing
+vi.mock('@/features/tasks/components/task-skeletons', () => ({
+  TaskDetailSkeleton: () => <div data-testid="task-skeleton">Loading...</div>,
+}));
+
+vi.mock('@/lib/components/ui/error-alert', () => ({
+  ErrorAlert: ({ error, title }: any) => (
+    <div data-testid="error-alert">
+      <h2>{title}</h2>
+      <p>{error.message}</p>
+    </div>
+  ),
+}));
+```
+
+## Mocking Anti-Patterns
+
+### ❌ Over-Mocking Anti-Patterns
+
+#### Don't Mock Everything
+```typescript
+// ❌ BAD: Over-mocking loses integration value
+vi.mock('@/features/tasks/components/task-viewer');
+vi.mock('@/features/tasks/components/task-chat-input');
+vi.mock('@/features/tasks/components/event-viewer');
+vi.mock('@/features/tasks/components/git-diff-viewer');
+
+// Now you're just testing mocks!
+```
+
+#### Don't Mock Simple Components
+```typescript
+// ❌ BAD: Mocking simple UI components
+vi.mock('@/lib/components/ui/button', () => ({
+  Button: ({ children, onClick }: any) => (
+    <button onClick={onClick}>{children}</button>
+  )
+}));
+
+// ✅ GOOD: Let real buttons render - they're simple!
+// No mock needed
+```
+
+#### Don't Create Fake Implementations
+```typescript
+// ❌ BAD: Creating elaborate fake implementations
+vi.mock('@/features/tasks/components/task-viewer', () => ({
+  TaskViewer: ({ onIterationSelect }: any) => {
+    const [selected, setSelected] = useState(0);
+    return (
+      <div>
+        {Array.from({length: 3}).map((_, i) => (
+          <button 
+            key={i} 
+            onClick={() => {
+              setSelected(i);
+              onIterationSelect?.(i);
+            }}
+          >
+            Iteration {i}
+          </button>
+        ))}
+      </div>
+    );
+  }
+}));
+
+// ✅ GOOD: Test the real component!
+```
+
+### ✅ Good Mocking Patterns
+
+#### Mock External Dependencies
+```typescript
+// ✅ GOOD: Mock data fetching
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
   useTask: vi.fn(() => ({
     data: mockTaskData,
@@ -106,15 +356,41 @@ vi.mock('@/features/tasks/hooks/use-tasks', () => ({
 }));
 ```
 
-### Mock SSE Connections
-
+#### Mock Complex Infrastructure
 ```typescript
-vi.mock('@/features/tasks/hooks/use-task-sse-connection', () => ({
-  useTaskSSEConnection: vi.fn(() => ({
-    isConnected: true,
-    error: null,
-  })),
+// ✅ GOOD: Mock complex layout systems
+vi.mock('@/lib/components/ui/resizable', () => ({
+  ResizablePanel: ({ children }: any) => <div>{children}</div>,
+  ResizablePanelGroup: ({ children }: any) => <div>{children}</div>,
 }));
+```
+
+#### Provide Realistic Mock Data
+```typescript
+// ✅ GOOD: Realistic mock data
+const mockTask = createMockTaskWithIterations({
+  task_id: 'task-123',
+  title: 'Real Looking Task Title',
+  status: 'active',
+  iterations: [
+    {
+      iteration_id: 'iter-1',
+      initial_message: 'First iteration message',
+      status: 'completed'
+    },
+    {
+      iteration_id: 'iter-2', 
+      initial_message: 'Second iteration message',
+      status: 'running'
+    }
+  ]
+});
+
+vi.mocked(useTask).mockReturnValue({
+  data: mockTask,
+  isLoading: false,
+  error: null
+});
 ```
 
 ### Mock API Calls with MSW
@@ -164,14 +440,57 @@ export function renderWithProviders(
 
 ## Testing Guidelines
 
+### Core Principles
+
 1. **Test File Naming**: Use `.test.ts` or `.test.tsx` extensions
 2. **Test Organization**: Group related tests using `describe` blocks
 3. **Test Focus**: Test behavior, not implementation details
-4. **Mock External Dependencies**: Mock API calls, SSE connections, and external services
-5. **Test Coverage**: Aim for >80% coverage on critical paths
-6. **Error States**: Always test error handling and edge cases
-7. **Async Testing**: Use `waitFor` for async operations
-8. **User Interactions**: Use `@testing-library/user-event` for simulating user actions
+4. **Integration First**: Prefer integration tests for routes and complex features
+5. **Strategic Mocking**: Mock only external dependencies and complex infrastructure
+6. **Test Coverage**: Aim for >80% coverage on critical paths
+7. **Error States**: Always test error handling and edge cases
+8. **Async Testing**: Use `waitFor` for async operations
+9. **User Interactions**: Use `@testing-library/user-event` for simulating user actions
+
+### Test Layer Responsibilities
+
+#### Unit Tests (`components/__tests__/`)
+- Test individual component behavior
+- Mock all external dependencies
+- Focus on component-specific logic
+- Test props, state, and event handling
+
+#### Integration Tests (`routes/__tests__/`)
+- Test multiple components working together
+- Mock only external dependencies
+- Test data flow through component hierarchy
+- Test user interactions across components
+
+#### Contract Tests
+- Verify component interfaces
+- Test that components receive expected props
+- Validate hook call signatures
+- Ensure consistent API usage
+
+### When to Use Each Type
+
+**Use Unit Tests when:**
+- Testing complex component logic
+- Testing individual hook behavior
+- Testing utility functions
+- Testing error scenarios specific to one component
+
+**Use Integration Tests when:**
+- Testing route components
+- Testing feature workflows
+- Testing component communication
+- Testing state management across components
+
+**Use Contract Tests when:**
+- Verifying component interfaces don't break
+- Testing that data flows correctly
+- Ensuring consistent prop shapes
+- Validating hook usage patterns
 
 ## Running Tests
 
@@ -287,6 +606,87 @@ it('updates when SSE event received', async () => {
    - Test invalid task IDs
    - Test SSE disconnections
 
+## Integration Testing Best Practices
+
+### Route Testing Strategy
+
+```typescript
+// Example: Strategic integration test for route component
+describe('TaskDetail Route - Integration Tests', () => {
+  beforeEach(() => {
+    // Mock external dependencies only
+    vi.mocked(useTask).mockReturnValue({
+      data: createMockTaskWithIterations(),
+      isLoading: false,
+      error: null
+    });
+    
+    vi.mocked(useTaskSSEConnection).mockReturnValue({
+      isStreaming: false
+    });
+  });
+
+  it('displays task data through real component hierarchy', () => {
+    const taskData = createMockTaskWithIterations({
+      title: 'Integration Test Task'
+    }, 2);
+    
+    vi.mocked(useTask).mockReturnValue({ data: taskData });
+    render(<TaskDetail />);
+
+    // Test real data flow
+    expect(screen.getByText('Integration Test Task')).toBeInTheDocument();
+    expect(screen.getByText(taskData.iterations[0].initial_message)).toBeInTheDocument();
+  });
+
+  it('handles user interactions across components', async () => {
+    render(<TaskDetail />);
+    
+    // Test real component interactions
+    const diffTab = screen.getByRole('tab', { name: /diff/i });
+    await user.click(diffTab);
+    
+    // Verify state changes propagate
+    expect(mockSetRightPanelView).toHaveBeenCalledWith('diff');
+  });
+});
+```
+
+### Debugging Integration Issues
+
+#### Common Problems and Solutions
+
+1. **"Component requires Provider" errors**
+   ```typescript
+   // Add required providers to test setup
+   const wrapper = ({ children }: any) => (
+     <QueryClientProvider client={queryClient}>
+       <SidebarProvider>
+         {children}
+       </SidebarProvider>
+     </QueryClientProvider>
+   );
+   ```
+
+2. **"Cannot read property of undefined" errors**
+   ```typescript
+   // Ensure mock data has all required properties
+   const completeTaskData = createMockTask({
+     // Include all properties components expect
+     total_cost_usd: 0.0123, // Don't let this be undefined
+     num_turns: 5,
+     status: 'active'
+   });
+   ```
+
+3. **Tests are too slow**
+   ```typescript
+   // Mock the heaviest dependencies
+   vi.mock('@/features/tasks/components/complex-chart', () => ({
+     ComplexChart: () => <div data-testid="chart">Chart Placeholder</div>
+   }));
+   ```
+
 ## Best Practices
 
 ### 1. Test Data Factories
@@ -330,16 +730,40 @@ expect.extend({
 ### 4. Performance Testing
 
 ```typescript
-it('renders large event lists efficiently', () => {
-  const manyEvents = Array.from({ length: 1000 }, (_, i) => 
-    createMockEvent({ id: `event-${i}` })
-  );
+it('renders large datasets efficiently', () => {
+  const taskWithManyIterations = createMockTaskWithIterations({}, 100);
   
-  const { container } = render(<EventViewer events={manyEvents} />);
+  const startTime = performance.now();
+  render(<TaskDetail />);
+  const endTime = performance.now();
   
-  // Verify virtualization or pagination is used
-  const renderedEvents = container.querySelectorAll('[data-testid="event-item"]');
-  expect(renderedEvents.length).toBeLessThan(100);
+  // Should render quickly even with large datasets
+  expect(endTime - startTime).toBeLessThan(1000);
+  expect(screen.getByText('Task')).toBeInTheDocument();
+});
+```
+
+### 5. Contract Testing
+
+```typescript
+// Verify component interfaces don't break
+describe('Component Contracts', () => {
+  it('calls hooks with correct parameters', () => {
+    render(<TaskDetail />);
+    
+    expect(useTask).toHaveBeenCalledWith('task-123');
+    expect(useTaskSSEConnection).toHaveBeenCalledWith({ taskId: 'task-123' });
+  });
+  
+  it('provides correct props to child components', () => {
+    const mockTaskViewer = vi.fn(() => <div>TaskViewer</div>);
+    
+    // Don't mock - test the real prop passing
+    render(<TaskDetail />);
+    
+    // Verify TaskViewer receives the data it needs
+    expect(screen.getByText(taskData.iterations[0].initial_message)).toBeInTheDocument();
+  });
 });
 ```
 
@@ -372,7 +796,34 @@ console.log(prettyDOM(container));
 
 ### Common Issues
 
+#### Integration Testing Issues
+1. **Provider Missing**: Add required providers to test wrapper
+2. **Mock Data Incomplete**: Ensure all required properties are present
+3. **Over-Mocking**: Reduce mocks to enable real integration testing
+4. **Under-Mocking**: Mock external dependencies to prevent network calls
+
+#### General Testing Issues
 1. **Act Warnings**: Wrap state updates in `act()`
 2. **Async Issues**: Always use `waitFor` for async operations
 3. **Memory Leaks**: Clean up subscriptions and timers
 4. **Flaky Tests**: Avoid arbitrary timeouts, use `waitFor` instead
+
+### Migration from Over-Mocked Tests
+
+If you have existing tests with too much mocking:
+
+1. **Start with Route Tests**: Focus on route components first
+2. **Remove Feature Component Mocks**: One at a time, remove mocks for your own components
+3. **Add Required Dependencies**: Mock only what breaks without mocking
+4. **Fix Data Flow Issues**: Update test data to match real component expectations
+5. **Verify Improved Coverage**: Ensure you're catching more integration bugs
+
+```typescript
+// Before: Over-mocked
+vi.mock('@/features/tasks/components/task-viewer');
+vi.mock('@/features/tasks/components/task-chat-input');
+
+// After: Strategic mocking
+vi.mock('@/features/tasks/hooks/use-tasks'); // External dependency
+// Let TaskViewer and TaskChatInput render for real!
+```

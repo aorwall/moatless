@@ -13,10 +13,12 @@ export function TaskChatInput({ className }: TaskChatInputProps) {
   const { data: metadata } = useTask(params.taskId);
 
   return (
-    <ChatInput
-      taskId={params.taskId}
-      taskStatus={metadata?.status}
-      className={className}
-    />
+    <div data-testid="task-chat-input">
+      <ChatInput
+        taskId={params.taskId}
+        taskStatus={metadata?.status}
+        className={className}
+      />
+    </div>
   );
 }

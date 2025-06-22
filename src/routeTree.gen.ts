@@ -204,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
+    '/tasks/__tests__/$taskId/test': {
+      id: '/tasks/__tests__/$taskId/test'
+      path: ''
+      fullPath: '/tasks/$taskId/test'
+      preLoaderRoute: unknown
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 

@@ -267,12 +267,69 @@ pnpm test:coverage
 pnpm test:ui
 ```
 
-### Testing Guidelines
+### Testing Strategy & Guidelines
+
+#### Layered Testing Approach
+This project uses a layered testing strategy that balances speed, reliability, and comprehensive coverage:
+
+1. **Unit Tests** - Individual component and hook testing with full mocking
+2. **Integration Tests** - Route and feature testing with minimal strategic mocking  
+3. **Contract Tests** - Verify component interfaces and dependency contracts
+4. **E2E Tests** - Critical user journey testing (planned)
+
+#### Strategic Mocking Guidelines
+
+**DO Mock:**
+- External dependencies (APIs, SSE connections, third-party libraries)
+- Complex UI libraries that don't affect business logic (resizable panels, etc.)
+- Error boundary and skeleton components
+- Router and navigation hooks
+
+**DO NOT Mock:**
+- Feature components when testing integration
+- Simple UI components (buttons, inputs, etc.)
+- Components under test
+- Business logic components
+
+**Example - Route Integration Testing:**
+```typescript
+// ✅ Mock external dependencies only
+vi.mock('@/features/tasks/hooks/use-tasks');
+vi.mock('@/features/tasks/hooks/use-task-sse-connection');
+
+// ✅ Mock complex UI libraries
+vi.mock('@/lib/components/ui/resizable');
+
+// ❌ Don't mock feature components - test integration!
+// vi.mock('@/features/tasks/components/task-viewer');
+
+// Test real component integration
+it('displays task data through component hierarchy', () => {
+  const taskData = createMockTaskWithIterations();
+  vi.mocked(useTask).mockReturnValue({ data: taskData });
+  
+  render(<TaskDetail />);
+  
+  // Verify data flows through real components
+  expect(screen.getByText(taskData.title)).toBeInTheDocument();
+  expect(screen.getByText(taskData.iterations[0].message)).toBeInTheDocument();
+});
+```
+
+#### Testing Guidelines
 - Use `.test.ts` or `.test.tsx` file extensions
 - Test behavior, not implementation details
-- Mock external dependencies (APIs, SSE, stores)
+- **Prioritize integration over isolation** for route and page components
+- Mock strategically - only what's necessary for test stability
 - Aim for >80% coverage on critical paths
 - Always test loading states, error states, and edge cases
+- Use contract tests to verify component interfaces
+
+#### Benefits of Strategic Mocking
+- **Catches Integration Bugs**: Real component interactions reveal interface mismatches
+- **Detects Breaking Changes**: Changes to child components break parent tests
+- **Validates Data Flow**: Ensures props and context flow correctly through component tree
+- **Tests User Experience**: Closer to how users actually interact with the application
 
 ### Comprehensive Testing Guide
 For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).

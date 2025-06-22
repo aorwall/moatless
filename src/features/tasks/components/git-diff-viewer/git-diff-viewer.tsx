@@ -65,18 +65,16 @@ const getStatusColor = (status: GitDiffFile['status']) => {
 
 export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
   const params = useParams({ from: '/tasks/$taskId' });
-  const { data: contextGitDiff, isLoading, error } = useTaskGitDiff(
-    params.taskId,
-  );
+  const {
+    data: contextGitDiff,
+    isLoading,
+    error,
+  } = useTaskGitDiff(params.taskId);
   const selectedIteration = useSelectedIteration();
 
   // Use iteration's git diff if available, otherwise use context's git diff
-  const gitDiff = selectedIteration?.git_diff
-    ? // Parse git diff string if it comes from selected iteration
-      typeof selectedIteration.git_diff === 'string'
-      ? null
-      : // For now, we'll handle string diffs later
-        selectedIteration.git_diff
+  const gitDiff = selectedIteration?.git_diff && typeof selectedIteration.git_diff === 'object'
+    ? selectedIteration.git_diff
     : contextGitDiff;
   const isDarkMode = useMemo(() => {
     return document.documentElement.classList.contains('dark');
@@ -85,7 +83,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <Loader2 className="h-8 w-8 animate-spin mb-2" />
+        <Loader2 className="h-8 w-8 animate-spin mb-2" data-testid="loading-spinner" />
         <p>Loading diff...</p>
       </div>
     );

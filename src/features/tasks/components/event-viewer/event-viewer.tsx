@@ -16,7 +16,8 @@ export function EventViewer() {
   const taskId = params.taskId;
 
   // Use the abstraction that handles streaming automatically
-  const { events, isLoading, error, isStreaming } = useTaskEventsWithStreaming(taskId);
+  const { events, isLoading, error, isStreaming } =
+    useTaskEventsWithStreaming(taskId);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);

@@ -6,11 +6,14 @@ import type { ClaudeMessage } from '@/types/task';
 
 interface TaskStreamingState {
   // Streaming state per task
-  streamingTasks: Map<string, {
-    localMessages: Array<ClaudeMessage>;
-    streamEvents: Array<Event>;
-    streamingError: string | null;
-  }>;
+  streamingTasks: Map<
+    string,
+    {
+      localMessages: Array<ClaudeMessage>;
+      streamEvents: Array<Event>;
+      streamingError: string | null;
+    }
+  >;
 
   // Actions
   addLocalMessage: (taskId: string, message: ClaudeMessage) => void;
@@ -20,7 +23,7 @@ interface TaskStreamingState {
   clearStreamEvents: (taskId: string) => void;
   setStreamingError: (taskId: string, error: string | null) => void;
   clearTaskStreaming: (taskId: string) => void;
-  
+
   // Selectors
   getTaskStreamingState: (taskId: string) => {
     localMessages: Array<ClaudeMessage>;
@@ -125,12 +128,27 @@ export const useTaskStreamingStore = create<TaskStreamingState>()(
   })),
 );
 
-// Convenience hooks
+// Convenience hooks with stable selectors
 export const useTaskStreamEvents = (taskId: string) =>
-  useTaskStreamingStore((state) => state.getTaskStreamingState(taskId).streamEvents);
+  useTaskStreamingStore(
+    (state) => {
+      const taskState = state.streamingTasks.get(taskId);
+      return taskState ? taskState.streamEvents : [];
+    },
+  );
 
 export const useTaskLocalMessages = (taskId: string) =>
-  useTaskStreamingStore((state) => state.getTaskStreamingState(taskId).localMessages);
+  useTaskStreamingStore(
+    (state) => {
+      const taskState = state.streamingTasks.get(taskId);
+      return taskState ? taskState.localMessages : [];
+    },
+  );
 
 export const useTaskStreamingError = (taskId: string) =>
-  useTaskStreamingStore((state) => state.getTaskStreamingState(taskId).streamingError);
+  useTaskStreamingStore(
+    (state) => {
+      const taskState = state.streamingTasks.get(taskId);
+      return taskState ? taskState.streamingError : null;
+    },
+  );
