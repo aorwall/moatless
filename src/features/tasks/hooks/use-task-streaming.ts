@@ -28,17 +28,17 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const { data: metadata } = useTask(taskId);
   const { data: workspaceStatus } = useTaskWorkspaceStatus(taskId);
 
-  // Determine if we should stream based on task or workspace status
+  // Determine if we should stream based on workspace status only
   const shouldStream = useMemo(() => {
     // Don't stream if we don't have basic task data yet
     if (!metadata) return false;
 
-    const taskRunning = metadata?.is_running || metadata?.status === 'active';
+    // Only stream if workspace is actively running or setting up
     const workspaceActive =
       workspaceStatus?.status === 'running' ||
       workspaceStatus?.status === 'setting_up';
 
-    return taskRunning || workspaceActive;
+    return workspaceActive;
   }, [metadata, workspaceStatus]);
 
   // Memoize SSE callbacks to prevent reconnections

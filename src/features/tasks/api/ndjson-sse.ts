@@ -66,7 +66,7 @@ export class NDJSONSSEClient {
       credentials: 'include',
       signal: this.abortController.signal,
       headers: {
-        Accept: 'application/x-ndjson, text/event-stream',
+        Accept: 'application/x-ndjson',
       },
     });
 
