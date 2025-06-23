@@ -1,9 +1,7 @@
 import { useMemo } from 'react';
 
-import {
-  useTaskEvents as useTaskEventsAPI,
-} from '@/features/tasks/hooks/use-tasks';
 import { useTaskStreaming } from '@/features/tasks/hooks/use-task-streaming';
+import { useTaskEvents as useTaskEventsAPI } from '@/features/tasks/hooks/use-tasks';
 import type { Event } from '@/types/event';
 
 interface UseTaskEventsResult {
@@ -31,7 +29,8 @@ export function useTaskEventsWithStreaming(
   } = useTaskEventsAPI(taskId);
 
   // Get streaming state using React state (not Zustand)
-  const { streamEvents, isStreaming, streamingError } = useTaskStreaming(taskId);
+  const { streamEvents, isStreaming, streamingError } =
+    useTaskStreaming(taskId);
 
   // Choose which events to display - NEVER mix API and stream events
   const events = useMemo(() => {

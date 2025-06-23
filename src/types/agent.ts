@@ -6,6 +6,7 @@ export interface AgentTriggerRequest {
   agent_type: string;
   message: string;
   environment_id: string;
+  branch?: string;
 }
 
 export interface AgentTriggerResponse {

@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api/client';
 import type {
+  BranchListResponse,
   CreateEnvironmentRequest,
   EnvironmentList,
   EnvironmentResponse,
@@ -59,6 +60,12 @@ export const environmentsApi = {
     return await apiClient.post<FileSearchResponse>(
       `/api/v1/environments/${envId}/search-files`,
       request,
+    );
+  },
+
+  async getBranches(envId: string): Promise<BranchListResponse> {
+    return await apiClient.get<BranchListResponse>(
+      `/api/v1/environments/${envId}/branches`,
     );
   },
 };

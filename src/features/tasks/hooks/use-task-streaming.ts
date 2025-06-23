@@ -32,7 +32,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const shouldStream = useMemo(() => {
     // Don't stream if we don't have basic task data yet
     if (!metadata) return false;
-    
+
     const taskRunning = metadata?.is_running || metadata?.status === 'active';
     const workspaceActive =
       workspaceStatus?.status === 'running' ||
@@ -42,32 +42,26 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   }, [metadata, workspaceStatus]);
 
   // Memoize SSE callbacks to prevent reconnections
-  const handleSSEEvent = useCallback(
-    (newEvent: Event) => {
-      setStreamEvents((prev) => [...prev, newEvent]);
-      setStreamingError(null);
+  const handleSSEEvent = useCallback((newEvent: Event) => {
+    setStreamEvents((prev) => [...prev, newEvent]);
+    setStreamingError(null);
 
-      // Update last event ID for stream continuation
-      if (newEvent.event_id) {
-        setLastEventId(newEvent.event_id);
-      }
-    },
-    [],
-  );
+    // Update last event ID for stream continuation
+    if (newEvent.event_id) {
+      setLastEventId(newEvent.event_id);
+    }
+  }, []);
 
-  const handleSSEError = useCallback(
-    (error: Error) => {
-      console.error('SSE error:', error);
-      if (error.message.includes('Task not found')) {
-        setStreamingError('Task not found');
-      } else if (error.message.includes('connection failed')) {
-        setStreamingError('Connection failed after multiple attempts');
-      } else {
-        setStreamingError('Streaming connection error');
-      }
-    },
-    [],
-  );
+  const handleSSEError = useCallback((error: Error) => {
+    console.error('SSE error:', error);
+    if (error.message.includes('Task not found')) {
+      setStreamingError('Task not found');
+    } else if (error.message.includes('connection failed')) {
+      setStreamingError('Connection failed after multiple attempts');
+    } else {
+      setStreamingError('Streaming connection error');
+    }
+  }, []);
 
   const handleSSEConnect = useCallback(() => {
     setIsStreaming(true);

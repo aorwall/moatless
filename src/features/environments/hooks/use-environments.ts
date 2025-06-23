@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { environmentsApi } from '@/features/environments/api/environments';
 import { queryKeys } from '@/lib/api/query-keys';
 import type {
+  BranchListResponse,
   CreateEnvironmentRequest,
   EnvironmentResponse,
   FileSearchResponse,
@@ -126,6 +127,19 @@ export function useSearchFiles(
     queryFn: () => environmentsApi.searchFiles(envId, { query, limit: 10 }),
     enabled: !!envId && query.length >= 3,
     staleTime: 30000, // Cache for 30 seconds
+    ...options,
+  });
+}
+
+export function useBranches(
+  envId: string,
+  options?: Omit<UseQueryOptions<BranchListResponse>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.environmentBranches(envId),
+    queryFn: () => environmentsApi.getBranches(envId),
+    enabled: !!envId,
+    staleTime: 60000, // Cache for 1 minute
     ...options,
   });
 }

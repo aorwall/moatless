@@ -114,3 +114,15 @@ export interface FileSearchResponse {
   total_found: number;
   query: string;
 }
+
+// Branch types
+export interface Branch {
+  name: string;
+  is_current: boolean;
+  last_commit_date: string;
+}
+
+export interface BranchListResponse {
+  branches: Array<Branch>;
+  total: number;
+}

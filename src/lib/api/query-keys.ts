@@ -32,6 +32,8 @@ export const queryKeys = {
     [...queryKeys.environments(), 'detail', envId] as const,
   environmentFileSearch: (envId: string, query: string) =>
     [...queryKeys.environments(), 'file-search', envId, query] as const,
+  environmentBranches: (envId: string) =>
+    [...queryKeys.environments(), 'branches', envId] as const,
   claudeCode: {
     all: () => [...queryKeys.all, 'claude-code'] as const,
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,
