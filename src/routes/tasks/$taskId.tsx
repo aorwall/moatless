@@ -3,48 +3,66 @@ import { useEffect } from 'react';
 
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer';
+import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer';
 import { TaskChatInput } from '@/features/tasks/components/task-chat-input';
 import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
 import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection';
-import { useTask } from '@/features/tasks/hooks/use-tasks';
+import { useTask, useServerStatus } from '@/features/tasks/hooks/use-tasks';
 import {
-  useRightPanelView,
-  useTaskUIStore,
+    useRightPanelView,
+    useTaskUIStore,
 } from '@/features/tasks/stores/task-ui-store';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
+    ResizableHandle,
+    ResizablePanel,
+    ResizablePanelGroup,
 } from '@/lib/components/ui/resizable';
-import {
-  Tabs,
-  TabsContent,
-} from '@/lib/components/ui/tabs';
+import { Tabs, TabsContent } from '@/lib/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
 });
 
+// Error boundary wrapper component
+function SafeComponent({ children, fallback }: { children: React.ReactNode; fallback: React.ReactNode }) {
+  try {
+    return <>{children}</>;
+  } catch (error) {
+    console.error('Component error:', error);
+    return <>{fallback}</>;
+  }
+}
+
 function TaskDetail() {
   const { taskId } = Route.useParams();
   const { data: metadata, isLoading, error } = useTask(taskId);
+  const { data: serverStatus } = useServerStatus(taskId);
   const rightPanelView = useRightPanelView();
   const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView);
+  const setSelectedTaskId = useTaskUIStore((state) => state.setSelectedTaskId);
   const resetUIState = useTaskUIStore((state) => state.resetUIState);
 
   // Set up SSE connection
   useTaskSSEConnection({ taskId });
 
-  // Reset UI state when component unmounts or task changes
+  // Set selected task ID and reset UI state when component unmounts or task changes
   useEffect(() => {
+    setSelectedTaskId(taskId);
     return () => {
       resetUIState();
     };
-  }, [taskId, resetUIState]);
+  }, [taskId, setSelectedTaskId, resetUIState]);
+
+  // If server tab is selected but server is not configured, switch to events tab
+  useEffect(() => {
+    if (rightPanelView === 'server' && !serverStatus?.configured) {
+      setRightPanelView('events');
+    }
+  }, [rightPanelView, serverStatus?.configured, setRightPanelView]);
 
   if (error) {
     return (
@@ -74,17 +92,33 @@ function TaskDetail() {
     );
   }
 
+  const errorFallback = (componentName: string) => (
+    <div className="h-full flex items-center justify-center p-6">
+      <div className="text-center space-y-3">
+        <ErrorAlert
+          error={new Error(`Failed to load ${componentName}`)}
+          title={`${componentName} Error`}
+          className="max-w-md w-full"
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
       <TaskHeader />
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left side - Task Viewer */}
-        <ResizablePanel defaultSize={50} minSize={30}>
-          <div className="h-full flex flex-col border-r">
-            <div className="flex-1 overflow-hidden">
-              <TaskViewer />
+        <ResizablePanel defaultSize={50} minSize={10}>
+          <div className="h-full flex flex-col mx-auto w-full">
+            <div className="flex-1 overflow-hidden  w-full">
+              <SafeComponent fallback={errorFallback('Task Viewer')}>
+                <TaskViewer />
+              </SafeComponent>
             </div>
-            <TaskChatInput className="p-4 border-slate-200 dark:border-slate-700" />
+            <SafeComponent fallback={<div className="p-4 border-t text-sm text-muted-foreground">Chat input unavailable</div>}>
+              <TaskChatInput className="p-4 border-slate-200 dark:border-slate-700" />
+            </SafeComponent>
           </div>
         </ResizablePanel>
 
@@ -96,7 +130,7 @@ function TaskDetail() {
             <Tabs
               value={rightPanelView}
               onValueChange={(value) =>
-                setRightPanelView(value as 'events' | 'diff')
+                setRightPanelView(value as 'events' | 'diff' | 'server')
               }
               className="h-full w-full flex flex-col"
             >
@@ -105,10 +139,10 @@ function TaskDetail() {
                   <button
                     onClick={() => setRightPanelView('events')}
                     className={cn(
-                      "font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer",
+                      'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
                       rightPanelView === 'events'
-                        ? "bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100"
-                        : "hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400"
+                        ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                        : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
                     )}
                     data-testid="tab-file-button"
                     data-active-tab={rightPanelView === 'events'}
@@ -122,10 +156,10 @@ function TaskDetail() {
                   <button
                     onClick={() => setRightPanelView('diff')}
                     className={cn(
-                      "font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer",
+                      'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
                       rightPanelView === 'diff'
-                        ? "bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100"
-                        : "hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400"
+                        ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                        : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
                     )}
                     data-testid="tab-file-button"
                     data-active-tab={rightPanelView === 'diff'}
@@ -136,20 +170,53 @@ function TaskDetail() {
                       </div>
                     </div>
                   </button>
+                  {serverStatus?.configured && (
+                    <button
+                      onClick={() => setRightPanelView('server')}
+                      className={cn(
+                        'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
+                        rightPanelView === 'server'
+                          ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
+                      )}
+                      data-testid="tab-file-button"
+                      data-active-tab={rightPanelView === 'server'}
+                    >
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span>Server</span>
+                        </div>
+                      </div>
+                    </button>
+                  )}
                 </div>
               </div>
               <TabsContent
                 value="events"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <EventViewer />
+                <SafeComponent fallback={errorFallback('Events')}>
+                  <EventViewer />
+                </SafeComponent>
               </TabsContent>
               <TabsContent
                 value="diff"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <GitDiffViewer />
+                <SafeComponent fallback={errorFallback('Diff Viewer')}>
+                  <GitDiffViewer />
+                </SafeComponent>
               </TabsContent>
+              {serverStatus?.configured && (
+                <TabsContent
+                  value="server"
+                  className="flex-1 w-full overflow-hidden mt-0"
+                >
+                  <SafeComponent fallback={errorFallback('Server Logs')}>
+                    <ServerLogsViewer />
+                  </SafeComponent>
+                </TabsContent>
+              )}
             </Tabs>
           </div>
         </ResizablePanel>

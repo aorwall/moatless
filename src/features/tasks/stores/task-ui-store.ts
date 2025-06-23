@@ -6,17 +6,20 @@ import type { TaskIteration } from '@/types/task';
 interface TaskUIState {
   // UI state
   selectedIteration: TaskIteration | null;
-  rightPanelView: 'events' | 'diff';
+  rightPanelView: 'events' | 'diff' | 'server';
+  selectedTaskId: string | null;
 
   // Actions
   setSelectedIteration: (iteration: TaskIteration | null) => void;
-  setRightPanelView: (view: 'events' | 'diff') => void;
+  setRightPanelView: (view: 'events' | 'diff' | 'server') => void;
+  setSelectedTaskId: (taskId: string | null) => void;
   resetUIState: () => void;
 }
 
 const initialState = {
   selectedIteration: null,
   rightPanelView: 'events' as const,
+  selectedTaskId: null,
 };
 
 export const useTaskUIStore = create<TaskUIState>()(
@@ -26,6 +29,7 @@ export const useTaskUIStore = create<TaskUIState>()(
     // UI state setters
     setSelectedIteration: (iteration) => set({ selectedIteration: iteration }),
     setRightPanelView: (view) => set({ rightPanelView: view }),
+    setSelectedTaskId: (taskId) => set({ selectedTaskId: taskId }),
 
     // Reset all UI state
     resetUIState: () => set(initialState),

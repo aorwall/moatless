@@ -18,11 +18,11 @@ interface ResultPayload {
   result: string;
   session_id: string;
   total_cost_usd: number;
-  usage: {
-    input_tokens: number;
-    cache_creation_input_tokens: number;
-    cache_read_input_tokens: number;
-    output_tokens: number;
+  usage?: {
+    input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
   };
 }
 
@@ -42,11 +42,12 @@ export function ResultEvent({ event }: ResultEventProps) {
     return `${minutes}m ${remainingSeconds}s`;
   };
 
+  // Safely calculate total tokens with fallbacks
   const totalTokens = payload.usage
-    ? payload.usage.input_tokens +
-      payload.usage.cache_creation_input_tokens +
-      payload.usage.cache_read_input_tokens +
-      payload.usage.output_tokens
+    ? (payload.usage.input_tokens || 0) +
+      (payload.usage.cache_creation_input_tokens || 0) +
+      (payload.usage.cache_read_input_tokens || 0) +
+      (payload.usage.output_tokens || 0)
     : 0;
 
   return (
@@ -63,7 +64,7 @@ export function ResultEvent({ event }: ResultEventProps) {
               payload.is_error ? 'text-foreground' : 'text-muted-foreground'
             }`}
           >
-            Result: {payload.subtype}
+            Result: {payload.subtype || 'Unknown'}
           </span>
         </div>
 
@@ -74,7 +75,7 @@ export function ResultEvent({ event }: ResultEventProps) {
               : 'bg-secondary text-muted-foreground'
           }`}
         >
-          <p className="font-medium mb-2">{payload.result}</p>
+          <p className="font-medium mb-2">{payload.result || 'No result'}</p>
 
           <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
             <div className="flex items-center gap-1">
@@ -102,18 +103,18 @@ export function ResultEvent({ event }: ResultEventProps) {
               <div>Total tokens: {totalTokens.toLocaleString()}</div>
               <div className="mt-1 space-y-0.5 text-muted-foreground">
                 <div>
-                  • Input: {payload.usage.input_tokens.toLocaleString()}
+                  • Input: {(payload.usage.input_tokens || 0).toLocaleString()}
                 </div>
                 <div>
                   • Cache creation:{' '}
-                  {payload.usage.cache_creation_input_tokens.toLocaleString()}
+                  {(payload.usage.cache_creation_input_tokens || 0).toLocaleString()}
                 </div>
                 <div>
                   • Cache read:{' '}
-                  {payload.usage.cache_read_input_tokens.toLocaleString()}
+                  {(payload.usage.cache_read_input_tokens || 0).toLocaleString()}
                 </div>
                 <div>
-                  • Output: {payload.usage.output_tokens.toLocaleString()}
+                  • Output: {(payload.usage.output_tokens || 0).toLocaleString()}
                 </div>
               </div>
             </div>

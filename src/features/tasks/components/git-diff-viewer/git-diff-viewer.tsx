@@ -218,9 +218,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       )}
 
       {/* File Diffs */}
-      <div>
-        {parsedFiles.map((file) => renderFile(file as ParsedFile))}
-      </div>
+      <div>{parsedFiles.map((file) => renderFile(file as ParsedFile))}</div>
     </div>
   );
 }

@@ -328,9 +328,9 @@ describe('EventViewer', () => {
 
       // Mock ScrollArea to not have the expected structure
       const { ScrollArea } = await import('@/lib/components/ui/scroll-area');
-      vi.mocked(ScrollArea).mockImplementationOnce(({ children }: MockScrollAreaProps) => (
-        <div>{children}</div>
-      ));
+      vi.mocked(ScrollArea).mockImplementationOnce(
+        ({ children }: MockScrollAreaProps) => <div>{children}</div>,
+      );
 
       expect(() => {
         renderWithRouter(<EventViewer />);

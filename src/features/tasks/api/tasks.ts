@@ -136,4 +136,10 @@ export const tasksApi = {
       `/api/v1/tasks/${taskId}/server/status`,
     );
   },
+
+  async getServerLogs(taskId: string): Promise<{ logs: string; lines: number }> {
+    return await apiClient.get<{ logs: string; lines: number }>(
+      `/api/v1/tasks/${taskId}/server/logs`,
+    );
+  },
 };

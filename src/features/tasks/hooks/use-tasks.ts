@@ -269,3 +269,16 @@ export function useStopServer(
     ...options,
   });
 }
+
+export function useServerLogs(
+  taskId: string,
+  options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskServerLogs(taskId),
+    queryFn: () => tasksApi.getServerLogs(taskId),
+    enabled: !!taskId,
+    refetchInterval: 2000, // Poll every 2 seconds
+    ...options,
+  });
+}

@@ -155,10 +155,7 @@ export function ChatInput({
         </div>
       )}
 
-      <form
-        onSubmit={handleSubmit}
-        className={showTitle ? 'max-w-2xl mx-auto space-y-4' : 'space-y-4'}
-      >
+      <div className={showTitle ? 'max-w-2xl mx-auto space-y-4' : 'space-y-4'}>
         <ChatForm
           message={message}
           onMessageChange={setMessage}
@@ -183,7 +180,7 @@ export function ChatInput({
             />
           </div>
         )}
-      </form>
+      </div>
 
       {isTaskContext && sendMessage.isError && (
         <p className="text-sm text-red-600 dark:text-red-400 mt-2">

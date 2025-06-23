@@ -1,134 +1,11 @@
-/* Git Diff View Theme Overrides */
+/* Git Diff View Theme Overrides for @git-diff-view/react */
 
-/* Light theme */
-.diff-view-theme-light {
-  --diff-view-font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas,
+/* Override the default styles */
+.git-diff-view-wrapper {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas,
     "Liberation Mono", Menlo, monospace;
-  --diff-view-font-size: 13px;
-  --diff-view-line-height: 21px;
-
-  /* Background colors */
-  --diff-view-bg-color: #ffffff;
-  --diff-view-added-bg: #e6ffec;
-  --diff-view-deleted-bg: #ffebe9;
-  --diff-view-added-word-bg: #acf2bd;
-  --diff-view-deleted-word-bg: #fdb8c0;
-  --diff-view-gutter-bg: #f6f8fa;
-  --diff-view-gutter-selected-bg: #e1e4e8;
-
-  /* Text colors */
-  --diff-view-text-color: #24292e;
-  --diff-view-gutter-text: #666666;
-  --diff-view-added-text: #24292e;
-  --diff-view-deleted-text: #24292e;
-}
-
-/* Dark theme */
-.diff-view-theme-dark {
-  --diff-view-font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas,
-    "Liberation Mono", Menlo, monospace;
-  --diff-view-font-size: 13px;
-  --diff-view-line-height: 21px;
-
-  /* Background colors */
-  --diff-view-bg-color: #0d1117;
-  --diff-view-added-bg: #033a16;
-  --diff-view-deleted-bg: #67060c;
-  --diff-view-added-word-bg: #1c6b48;
-  --diff-view-deleted-word-bg: #a0111f;
-  --diff-view-gutter-bg: #161b22;
-  --diff-view-gutter-selected-bg: #1c2128;
-
-  /* Text colors */
-  --diff-view-text-color: #e6edf3;
-  --diff-view-gutter-text: #8b949e;
-  --diff-view-added-text: #e6edf3;
-  --diff-view-deleted-text: #e6edf3;
-}
-
-/* Apply theme variables */
-.git-diff-view-wrapper .diff-line {
-  font-family: var(--diff-view-font-family);
-  font-size: var(--diff-view-font-size);
-  line-height: var(--diff-view-line-height);
-  background-color: var(--diff-view-bg-color);
-  color: var(--diff-view-text-color);
-}
-
-.git-diff-view-wrapper .diff-line__content {
-  padding: 0 10px;
-}
-
-.git-diff-view-wrapper .diff-line--add {
-  background-color: var(--diff-view-added-bg);
-  color: var(--diff-view-added-text);
-}
-
-.git-diff-view-wrapper .diff-line--del {
-  background-color: var(--diff-view-deleted-bg);
-  color: var(--diff-view-deleted-text);
-}
-
-.git-diff-view-wrapper .diff-line__num {
-  background-color: var(--diff-view-gutter-bg);
-  color: var(--diff-view-gutter-text);
-  min-width: 50px;
-  padding: 0 10px;
-  text-align: right;
-  user-select: none;
-}
-
-.git-diff-view-wrapper .diff-line--add .diff-line__num {
-  background-color: #cdffd8;
-  color: #212529;
-}
-
-.git-diff-view-wrapper .diff-line--del .diff-line__num {
-  background-color: #ffdce0;
-  color: #212529;
-}
-
-.diff-view-theme-dark .git-diff-view-wrapper .diff-line--add .diff-line__num {
-  background-color: #034419;
-  color: #e6edf3;
-}
-
-.diff-view-theme-dark .git-diff-view-wrapper .diff-line--del .diff-line__num {
-  background-color: #5d0f12;
-  color: #e6edf3;
-}
-
-/* Hover effects */
-.git-diff-view-wrapper .diff-line:hover {
-  background-color: #f6f8fa;
-}
-
-.diff-view-theme-dark .git-diff-view-wrapper .diff-line:hover {
-  background-color: #1c2128;
-}
-
-/* Word-level highlights */
-.git-diff-view-wrapper .diff-line--add .diff-highlighted {
-  background-color: var(--diff-view-added-word-bg);
-}
-
-.git-diff-view-wrapper .diff-line--del .diff-highlighted {
-  background-color: var(--diff-view-deleted-word-bg);
-}
-
-/* Split view specific styles */
-.git-diff-view-wrapper .diff-split-view {
-  display: flex;
-}
-
-.git-diff-view-wrapper .diff-split-view .diff-line {
-  flex: 1;
-}
-
-/* Remove default borders and shadows */
-.git-diff-view-wrapper .diff-view {
-  border: none;
-  box-shadow: none;
+  font-size: 13px;
+  line-height: 21px;
 }
 
 /* Ensure proper scrolling */
@@ -137,7 +14,4 @@
   overflow-y: visible;
 }
 
-/* Hide expand controls as we're using our own collapsible */
-.git-diff-view-wrapper .diff-widget {
-  display: none;
-}
+/* Additional theme overrides can be added here if needed */

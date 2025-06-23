@@ -145,20 +145,20 @@ export function createMockServerStatus(
 export function createMockGitDiff(
   overrides?: Partial<GitDiffResponse>,
 ): GitDiffResponse {
+  const defaultDiff = `diff --git a/test.ts b/test.ts
+index 1234567..abcdefg 100644
+--- a/test.ts
++++ b/test.ts
+@@ -1 +1 @@
+-const old = 'value';
++const new = 'value';`;
+
   return {
-    files: [
-      {
-        path: 'test.ts',
-        status: 'modified',
-        additions: 1,
-        deletions: 1,
-        old_content: `const old = 'value';`,
-        new_content: `const new = 'value';`,
-      },
-    ],
+    files: [],
     total_files: 1,
     total_additions: 1,
     total_deletions: 1,
+    diff: defaultDiff,
     ...overrides,
   };
 }

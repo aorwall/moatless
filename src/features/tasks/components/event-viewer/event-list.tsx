@@ -3,11 +3,11 @@ import { ChevronRight } from 'lucide-react';
 import type { Event } from '@/types/event.ts';
 
 import {
-  EventHeader,
-  InputEvent,
-  MessageEvent,
-  ResultEvent,
-  WorkspaceEvent,
+    EventHeader,
+    InputEvent,
+    MessageEvent,
+    ResultEvent,
+    WorkspaceEvent,
 } from './event-components';
 
 interface EventListProps {
@@ -25,27 +25,48 @@ const PayloadRenderer = ({ payload }: { payload: unknown }) => {
 };
 
 const EventContent = ({ event }: { event: Event }) => {
-  switch (event.type) {
-    case 'workspace':
-      return <WorkspaceEvent event={event} />;
-    case 'input':
-      return <InputEvent event={event} />;
-    case 'message':
-      return <MessageEvent event={event} />;
-    case 'result':
-      return <ResultEvent event={event} />;
-    default:
-      return (
-        <EventHeader event={event}>
-          <div className="text-sm text-muted-foreground">
-            <p>Event Type: {event.type}</p>
-            {event.sub_type && <p>Sub Type: {event.sub_type}</p>}
-            <div className="mt-2">
-              <PayloadRenderer payload={event.payload} />
+  try {
+    switch (event.type) {
+      case 'workspace':
+        return <WorkspaceEvent event={event} />;
+      case 'input':
+        return <InputEvent event={event} />;
+      case 'message':
+        return <MessageEvent event={event} />;
+      case 'result':
+        return <ResultEvent event={event} />;
+      default:
+        return (
+          <EventHeader event={event}>
+            <div className="text-sm text-muted-foreground">
+              <p>Event Type: {event.type}</p>
+              {event.sub_type && <p>Sub Type: {event.sub_type}</p>}
+              <div className="mt-2">
+                <PayloadRenderer payload={event.payload} />
+              </div>
             </div>
+          </EventHeader>
+        );
+    }
+  } catch (error) {
+    console.error('Error rendering event:', error, event);
+    return (
+      <EventHeader event={event}>
+        <div className="text-sm text-muted-foreground">
+          <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            <p className="text-red-600 dark:text-red-400 font-medium mb-2">
+              Failed to render {event.type} event
+            </p>
+            <p className="text-xs text-red-500 dark:text-red-400">
+              {error instanceof Error ? error.message : 'Unknown error'}
+            </p>
           </div>
-        </EventHeader>
-      );
+          <div className="mt-2">
+            <PayloadRenderer payload={event.payload} />
+          </div>
+        </div>
+      </EventHeader>
+    );
   }
 };
 

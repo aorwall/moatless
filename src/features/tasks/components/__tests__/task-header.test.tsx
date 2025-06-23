@@ -202,7 +202,9 @@ describe('TaskHeader', () => {
       renderWithRouter(<TaskHeader />);
       expect(screen.getByText('workspace: unknown')).toBeInTheDocument();
       // Check for loading spinner within the workspace badge
-      const badge = screen.getByText('workspace: unknown').closest('[data-slot="badge"]');
+      const badge = screen
+        .getByText('workspace: unknown')
+        .closest('[data-slot="badge"]');
       expect(badge?.querySelector('.animate-spin')).toBeInTheDocument();
     });
   });
@@ -362,8 +364,14 @@ describe('TaskHeader', () => {
 
     it('shows toast notification on stop agent success', async () => {
       const user = userEvent.setup();
-      let capturedOnSuccess: (() => void) | undefined;
-      
+      let capturedOnSuccess:
+        | ((
+            data: { status: string; task_id: string },
+            variables: string,
+            context: unknown,
+          ) => void)
+        | undefined;
+
       vi.mocked(useTask).mockReturnValue({
         data: createMockTask({ is_running: true }),
         isLoading: false,
@@ -388,14 +396,20 @@ describe('TaskHeader', () => {
 
       // Verify mutate was called
       expect(mockStopAgent).toHaveBeenCalledWith('task-123');
-      
+
       // Simulate successful mutation by calling the captured onSuccess
       if (capturedOnSuccess) {
-        capturedOnSuccess();
+        capturedOnSuccess(
+          { status: 'stopped', task_id: 'task-123' },
+          'task-123',
+          {},
+        );
       }
 
       await waitFor(() => {
-        expect(toast.success).toHaveBeenCalledWith('Agent stopped successfully');
+        expect(toast.success).toHaveBeenCalledWith(
+          'Agent stopped successfully',
+        );
       });
     });
   });
@@ -407,10 +421,10 @@ describe('TaskHeader', () => {
       );
 
       renderWithRouter(<TaskHeader />);
-      
+
       // Check that the streaming error indicator is displayed
       expect(screen.getByText('Streaming error')).toBeInTheDocument();
-      
+
       // The actual error message is in the tooltip, which is rendered when hovering
       const errorIndicator = screen.getByText('Streaming error').parentElement;
       expect(errorIndicator).toBeInTheDocument();
@@ -419,10 +433,9 @@ describe('TaskHeader', () => {
     it('does not display error alert when no streaming error', () => {
       // Explicitly reset the streaming error mock
       vi.mocked(useTaskStreamingError).mockReturnValue(null);
-      
+
       renderWithRouter(<TaskHeader />);
       expect(screen.queryByText('Streaming error')).not.toBeInTheDocument();
     });
   });
 });
-
