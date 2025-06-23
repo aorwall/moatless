@@ -95,7 +95,7 @@ export function EventList({ events }: EventListProps) {
   const mergedEvents = mergeToolEvents(sortedEvents);
 
   return (
-    <div className="space-y-2 w-full">
+    <div className="space-y-2 w-full max-w-[48rem] min-w-[24rem] mx-auto">
       {mergedEvents.map((event) => (
         <EventItem key={event.event_id} event={event} />
       ))}
