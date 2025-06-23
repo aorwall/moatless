@@ -4,6 +4,15 @@ import type { ReactNode } from 'react';
 import type { Event } from '@/types/event';
 
 import { EventHeader } from './event-header';
+import {
+  BashToolCall,
+  EditToolCall,
+  GlobToolCall,
+  GrepToolCall,
+  ReadToolCall,
+  TodoToolCall,
+  WriteToolCall,
+} from './tool-calls';
 
 interface MessageEventProps {
   event: Event;
@@ -50,14 +59,157 @@ const renderSingleContent = (content: unknown): ReactNode => {
         </p>
       );
 
-    case 'tool_use':
+    case 'tool_use': {
+      const toolName = String(contentObj.name || 'Tool');
+
+      // Special handling for Bash tool calls
+      if (
+        toolName === 'Bash' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <BashToolCall
+            input={
+              contentObj.input as {
+                command: string;
+                description?: string;
+                timeout?: number;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Special handling for Edit tool calls
+      if (
+        toolName === 'Edit' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <EditToolCall
+            input={
+              contentObj.input as {
+                file_path: string;
+                old_string: string;
+                new_string: string;
+                replace_all?: boolean;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Special handling for Read tool calls
+      if (
+        toolName === 'Read' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <ReadToolCall
+            input={
+              contentObj.input as {
+                file_path: string;
+                offset?: number;
+                limit?: number;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Special handling for TodoWrite tool calls
+      if (
+        toolName === 'TodoWrite' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <TodoToolCall
+            input={
+              contentObj.input as {
+                todos: Array<{
+                  id: string;
+                  content: string;
+                  status: 'pending' | 'in_progress' | 'completed';
+                  priority: 'high' | 'medium' | 'low';
+                }>;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Special handling for Grep tool calls
+      if (
+        toolName === 'Grep' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <GrepToolCall
+            input={
+              contentObj.input as {
+                pattern: string;
+                path?: string;
+                include?: string;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Special handling for Glob tool calls
+      if (
+        toolName === 'Glob' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <GlobToolCall
+            input={
+              contentObj.input as {
+                pattern: string;
+                path?: string;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Special handling for Write tool calls
+      if (
+        toolName === 'Write' &&
+        contentObj.input &&
+        typeof contentObj.input === 'object'
+      ) {
+        return (
+          <WriteToolCall
+            input={
+              contentObj.input as {
+                file_path: string;
+                content: string;
+              }
+            }
+            name={toolName}
+          />
+        );
+      }
+
+      // Default handling for other tool calls
       return (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-medium text-foreground">
-              {String(contentObj.name || 'Tool')}
-            </span>
+            <span className="font-medium text-foreground">{toolName}</span>
           </div>
           {contentObj.input ? (
             <div className="text-xs bg-muted rounded p-2 overflow-x-auto">
@@ -70,6 +222,7 @@ const renderSingleContent = (content: unknown): ReactNode => {
           ) : null}
         </div>
       );
+    }
 
     case 'tool_result':
       return (
