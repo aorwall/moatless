@@ -1,69 +1,31 @@
-import { DiffModeEnum, DiffView } from '@git-diff-view/react';
-import '@git-diff-view/react/styles/diff-view.css';
-import { generateDiffFile } from '@git-diff-view/file';
-import './git-diff-viewer.css';
 import { useParams } from '@tanstack/react-router';
-import {
-  ChevronRight,
-  FileEdit,
-  FileIcon,
-  FileMinus,
-  FilePlus,
-  Loader2,
-} from 'lucide-react';
-import { useMemo } from 'react';
+import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Diff, Hunk, parseDiff } from 'react-diff-view';
+import 'react-diff-view/style/index.css';
 
 import { useTaskGitDiff } from '@/features/tasks/hooks/use-tasks';
 import { useSelectedIteration } from '@/features/tasks/stores/task-ui-store';
-import { Badge } from '@/lib/components/ui/badge';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/lib/components/ui/collapsible';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import { cn } from '@/lib/utils';
-import type { GitDiffFile } from '@/types/git-diff';
+import './github-diff.css';
 
 interface GitDiffViewerProps {
   className?: string;
 }
 
-const getFileIcon = (status: GitDiffFile['status']) => {
-  switch (status) {
-    case 'added':
-      return (
-        <FilePlus className="h-4 w-4 text-green-600 dark:text-green-400" />
-      );
-    case 'deleted':
-      return <FileMinus className="h-4 w-4 text-red-600 dark:text-red-400" />;
-    case 'modified':
-      return (
-        <FileEdit className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-      );
-    case 'renamed':
-      return <FileIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />;
-    default:
-      return <FileIcon className="h-4 w-4" />;
-  }
-};
+// Using any for hunk types as react-diff-view doesn't provide complete type exports
+interface ParsedFile {
+  oldRevision: string;
+  newRevision: string;
+  type: 'add' | 'delete' | 'modify' | 'rename';
+  hunks: any[];
+  oldPath?: string;
+  newPath?: string;
+  [key: string]: any;
+}
 
-const getStatusColor = (status: GitDiffFile['status']) => {
-  switch (status) {
-    case 'added':
-      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-    case 'deleted':
-      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-    case 'modified':
-      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-    case 'renamed':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-    default:
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
-  }
-};
-
-export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
+export function GitDiffViewer({ className }: GitDiffViewerProps) {
   const params = useParams({ from: '/tasks/$taskId' });
   const {
     data: contextGitDiff,
@@ -78,9 +40,41 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
     typeof selectedIteration.git_diff === 'object'
       ? selectedIteration.git_diff
       : contextGitDiff;
-  const isDarkMode = useMemo(() => {
-    return document.documentElement.classList.contains('dark');
-  }, []);
+
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+
+  // Parse the git diff using gitdiff-parser - must be called before any returns for hooks rules
+  const parsedFiles = useMemo(() => {
+    if (!gitDiff?.diff) {
+      return [];
+    }
+    try {
+      const files = parseDiff(gitDiff.diff);
+      // Auto-expand all files by default
+      const allFileKeys = new Set(
+        files.map(
+          (f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`,
+        ),
+      );
+      setExpandedFiles(allFileKeys);
+      return files;
+    } catch (error) {
+      console.error('Failed to parse git diff:', error);
+      return [];
+    }
+  }, [gitDiff?.diff]);
+
+  const toggleFileExpansion = (fileKey: string) => {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileKey)) {
+        next.delete(fileKey);
+      } else {
+        next.add(fileKey);
+      }
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -106,7 +100,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
     );
   }
 
-  if (!gitDiff || gitDiff.files.length === 0) {
+  if (!gitDiff?.diff) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
         <FileIcon className="h-12 w-12 mb-2" />
@@ -115,136 +109,118 @@ export function GitDiffViewer({ className }: GitDiffViewerProps = {}) {
     );
   }
 
-  return (
-    <div className={cn('h-full overflow-auto', className)}>
-      {/* Summary */}
-      <div className="sticky top-0 z-10 p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="font-medium">
-            {gitDiff.total_files} file{gitDiff.total_files !== 1 ? 's' : ''}{' '}
-            changed
-          </span>
-          <span className="text-green-600 dark:text-green-400">
-            +{gitDiff.total_additions}
-          </span>
-          <span className="text-red-600 dark:text-red-400">
-            -{gitDiff.total_deletions}
-          </span>
-          {gitDiff.branch && (
-            <span className="text-muted-foreground">on {gitDiff.branch}</span>
-          )}
-        </div>
+  if (parsedFiles.length === 0 && gitDiff.total_files === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+        <FileIcon className="h-12 w-12 mb-2" />
+        <p>No changes to display</p>
       </div>
-
-      {/* File Diffs */}
-      <div className="divide-y">
-        {gitDiff.files.map((file, index) => (
-          <FileDiff
-            key={`${file.path}-${index}`}
-            file={file}
-            isDarkMode={isDarkMode}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface FileDiffProps {
-  file: GitDiffFile;
-  isDarkMode: boolean;
-}
-
-function FileDiff({ file, isDarkMode }: FileDiffProps) {
-  const defaultOpen = file.additions + file.deletions < 100;
-
-  // Generate DiffFile using git-diff-view/file
-  const diffFile = useMemo(() => {
-    const oldContent = file.old_content || '';
-    const newContent = file.new_content || '';
-    const oldPath = file.old_path || file.path;
-    const newPath = file.path;
-
-    // Determine file extension for syntax highlighting
-    const getFileExtension = (path: string) => {
-      const parts = path.split('.');
-      return parts.length > 1 ? parts[parts.length - 1] : '';
-    };
-
-    const extension = getFileExtension(newPath);
-
-    // Generate the diff file
-    const generatedFile = generateDiffFile(
-      oldPath,
-      oldContent,
-      newPath,
-      newContent,
-      extension, // language for old file
-      extension, // language for new file
     );
+  }
 
-    // Initialize the diff file
-    generatedFile.initTheme(isDarkMode ? 'dark' : 'light');
-    generatedFile.init();
-    generatedFile.buildSplitDiffLines();
-    generatedFile.buildUnifiedDiffLines();
+  if (parsedFiles.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+        <FileIcon className="h-12 w-12 mb-2" />
+        <p>Unable to parse diff</p>
+      </div>
+    );
+  }
 
-    return generatedFile;
-  }, [file, isDarkMode]);
+  const renderFile = (file: ParsedFile) => {
+    const { oldRevision, newRevision, type, hunks, oldPath, newPath } = file;
+    const filePath = newPath || oldPath || newRevision || oldRevision;
+    const fileKey = `${oldPath || oldRevision}-${newPath || newRevision}`;
+    const isExpanded = expandedFiles.has(fileKey);
 
-  return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger className="w-full">
-        <div className="flex items-center gap-2 p-4 hover:bg-muted/50 transition-colors">
-          <ChevronRight className="h-4 w-4 transition-transform duration-200 data-[state=open]:rotate-90" />
-          {getFileIcon(file.status)}
-          <span className="font-mono text-sm flex-1 text-left truncate">
-            {file.old_path && file.old_path !== file.path ? (
-              <>
-                <span className="line-through text-muted-foreground">
-                  {file.old_path}
-                </span>
-                {' → '}
-                <span>{file.path}</span>
-              </>
-            ) : (
-              file.path
-            )}
-          </span>
-          <Badge
-            variant="secondary"
-            className={cn('text-xs', getStatusColor(file.status))}
-          >
-            {file.status}
-          </Badge>
-          <div className="flex items-center gap-2 text-xs">
+    // Calculate additions and deletions
+    let additions = 0;
+    let deletions = 0;
+
+    hunks.forEach((hunk) => {
+      hunk.changes.forEach((change: any) => {
+        if (change.type === 'insert') {
+          additions++;
+        }
+        if (change.type === 'delete') {
+          deletions++;
+        }
+      });
+    });
+
+    const stats = { additions, deletions };
+
+    return (
+      <div
+        key={fileKey}
+        className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden"
+      >
+        {/* File Header */}
+        <button
+          type="button"
+          className="github-diff-header bg-muted/50 px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-muted/70 transition-colors w-full text-left"
+          onClick={() => toggleFileExpansion(fileKey)}
+        >
+          <div className="flex items-center gap-2">
+            <span className="p-0 hover:bg-muted rounded">
+              {isExpanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </span>
+            <FileIcon className="h-4 w-4 text-muted-foreground" />
+            <span className="font-mono text-sm">{filePath}</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm">
             <span className="text-green-600 dark:text-green-400">
-              +{file.additions}
+              +{stats.additions}
             </span>
             <span className="text-red-600 dark:text-red-400">
-              -{file.deletions}
+              −{stats.deletions}
             </span>
           </div>
-        </div>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="border-t">
-          <div
-            className={cn(
-              'git-diff-view-wrapper',
-              isDarkMode ? 'diff-view-theme-dark' : 'diff-view-theme-light',
-            )}
-          >
-            <DiffView
-              diffFile={diffFile}
-              diffViewMode={DiffModeEnum.Unified}
-              diffViewWrap={true}
-              diffViewHighlight={true}
-              diffViewFontSize={13}
-            />
+        </button>
+
+        {/* Diff Content */}
+        {isExpanded && (
+          <div className="github-diff-content">
+            <Diff
+              viewType="unified"
+              diffType={type}
+              hunks={hunks}
+              className="diff-view"
+            >
+              {(hunks) =>
+                hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)
+              }
+            </Diff>
           </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className={cn('h-full overflow-auto p-4', className)}>
+      {/* Summary Stats */}
+      {gitDiff && (
+        <div className="mb-4 text-sm text-muted-foreground">
+          Showing {parsedFiles.length} changed files with{' '}
+          <span className="text-green-600 dark:text-green-400 font-medium">
+            {gitDiff.total_additions} additions
+          </span>{' '}
+          and{' '}
+          <span className="text-red-600 dark:text-red-400 font-medium">
+            {gitDiff.total_deletions} deletions
+          </span>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
+      )}
+
+      {/* File Diffs */}
+      <div>
+        {parsedFiles.map((file) => renderFile(file as ParsedFile))}
+      </div>
+    </div>
   );
 }
