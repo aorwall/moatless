@@ -6,13 +6,13 @@ import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events';
 import type { Event } from '@/types/event';
 
 import {
-    BashToolCall,
-    EditToolCall,
-    GlobToolCall,
-    GrepToolCall,
-    ReadToolCall,
-    TodoToolCall,
-    WriteToolCall,
+  BashToolCall,
+  EditToolCall,
+  GlobToolCall,
+  GrepToolCall,
+  ReadToolCall,
+  TodoToolCall,
+  WriteToolCall,
 } from './tool-calls';
 
 interface ToolCallEventProps {
@@ -244,9 +244,9 @@ export function ToolCallEvent({ event }: ToolCallEventProps) {
     : null;
 
   return (
-        <div className="text-sm bg-muted rounded-lg p-3">
-          {renderToolCall(toolCallContent)}
-          {toolResult && <ToolResultPreview result={toolResult} />}
-        </div>
+    <div className="text-sm bg-muted rounded-lg p-3">
+      {renderToolCall(toolCallContent)}
+      {toolResult && <ToolResultPreview result={toolResult} />}
+    </div>
   );
 }

@@ -12,7 +12,7 @@ interface MessageEventProps {
 
 export function MessageEvent({ event }: MessageEventProps) {
   const payload = event.payload as Record<string, unknown>;
-  
+
   // Extract message object
   const message = payload.message as Record<string, unknown> | null;
   if (!message) {
@@ -20,19 +20,25 @@ export function MessageEvent({ event }: MessageEventProps) {
       <div className="text-sm text-muted-foreground">No message content</div>
     );
   }
-  
+
   // Determine the role/type
   const role = payload.type || message.role || 'unknown';
   const isAssistant = role === 'assistant';
   const isUser = role === 'user';
-  
+
   // Extract text content
   let textContent = '';
-  
+
   if (message.content && Array.isArray(message.content)) {
     // Extract text from content array
     for (const item of message.content) {
-      if (item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item) {
+      if (
+        item &&
+        typeof item === 'object' &&
+        'type' in item &&
+        item.type === 'text' &&
+        'text' in item
+      ) {
         textContent += String(item.text || '');
       }
     }
@@ -43,13 +49,11 @@ export function MessageEvent({ event }: MessageEventProps) {
   } else if ('message' in message) {
     textContent = String(message.message || '');
   }
-  
+
   if (!textContent) {
-    return (
-      <div className="text-sm text-muted-foreground">No text content</div>
-    );
+    return <div className="text-sm text-muted-foreground">No text content</div>;
   }
-  
+
   return (
     <EventHeader event={event}>
       <div className="space-y-2">
@@ -60,9 +64,9 @@ export function MessageEvent({ event }: MessageEventProps) {
             {isAssistant ? 'Assistant' : isUser ? 'User' : String(role)}
           </span>
         </div>
-        
+
         <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
-          <ReactMarkdown 
+          <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
               // Customize markdown components if needed
@@ -73,7 +77,11 @@ export function MessageEvent({ event }: MessageEventProps) {
                 </pre>
               ),
               code: ({ children, ...props }) => {
-                const inline = !('className' in props && typeof props.className === 'string' && props.className.includes('language-'));
+                const inline = !(
+                  'className' in props &&
+                  typeof props.className === 'string' &&
+                  props.className.includes('language-')
+                );
                 return inline ? (
                   <code className="bg-muted px-1 py-0.5 rounded text-xs">
                     {children}

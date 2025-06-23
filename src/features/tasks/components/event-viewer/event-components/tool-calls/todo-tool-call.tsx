@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, ListTodo, Loader2 } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, ListTodo } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface Todo {
@@ -24,7 +24,7 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
         );
       case 'in_progress':
         return (
-          <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+          <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
         );
       default:
         return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;

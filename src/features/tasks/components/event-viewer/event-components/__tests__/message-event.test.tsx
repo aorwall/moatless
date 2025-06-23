@@ -80,7 +80,9 @@ describe('MessageEvent', () => {
     render(<MessageEvent event={event} />);
 
     // Markdown is rendered
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Heading');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Heading',
+    );
     expect(screen.getByText('bold')).toBeInTheDocument();
     expect(screen.getByText('inline code')).toBeInTheDocument();
   });
@@ -164,7 +166,9 @@ describe('MessageEvent', () => {
 
     expect(screen.getByText('const hello = "world";')).toBeInTheDocument();
     // Code block should be in a pre element
-    const preElement = screen.getByText('const hello = "world";').closest('pre');
+    const preElement = screen
+      .getByText('const hello = "world";')
+      .closest('pre');
     expect(preElement).toHaveClass('bg-muted', 'rounded-md', 'p-3');
   });
 });

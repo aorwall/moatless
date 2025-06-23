@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import type { Event } from '@/types/event';
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events';
+import type { Event } from '@/types/event';
 
 import { ToolCallEvent } from '../tool-call-event';
 
@@ -11,7 +11,7 @@ describe('ToolCallEvent', () => {
   const createToolCallEvent = (
     toolName: string,
     input: Record<string, unknown>,
-    toolResult?: Event
+    toolResult?: Event,
   ): MergedEvent => ({
     event_id: 'test-event',
     type: 'message',
@@ -69,14 +69,19 @@ describe('ToolCallEvent', () => {
             {
               type: 'tool_result',
               tool_use_id: 'tool-123',
-              content: 'File content line 1\nFile content line 2\nFile content line 3\nFile content line 4',
+              content:
+                'File content line 1\nFile content line 2\nFile content line 3\nFile content line 4',
             },
           ],
         },
       },
     };
 
-    const event = createToolCallEvent('Read', { file_path: '/test/file.ts' }, toolResult);
+    const event = createToolCallEvent(
+      'Read',
+      { file_path: '/test/file.ts' },
+      toolResult,
+    );
 
     render(<ToolCallEvent event={event} />);
 
@@ -90,7 +95,7 @@ describe('ToolCallEvent', () => {
 
   it('should expand tool result when clicking more lines', async () => {
     const user = userEvent.setup();
-    
+
     const toolResult: Event = {
       event_id: 'result-event',
       type: 'message',
@@ -116,16 +121,20 @@ describe('ToolCallEvent', () => {
       },
     };
 
-    const event = createToolCallEvent('Bash', { command: 'ls -la' }, toolResult);
+    const event = createToolCallEvent(
+      'Bash',
+      { command: 'ls -la' },
+      toolResult,
+    );
 
     render(<ToolCallEvent event={event} />);
 
     // Initially should not show all lines
     expect(screen.queryByText(/Line 5/)).not.toBeInTheDocument();
-    
+
     // Click on "more lines" text
     await user.click(screen.getByText('... (2 more lines)'));
-    
+
     // Now should show all lines
     expect(screen.getByText(/Line 5/)).toBeInTheDocument();
   });
@@ -156,7 +165,11 @@ describe('ToolCallEvent', () => {
       },
     };
 
-    const event = createToolCallEvent('Write', { file_path: '/test.ts', content: 'test' }, toolResult);
+    const event = createToolCallEvent(
+      'Write',
+      { file_path: '/test.ts', content: 'test' },
+      toolResult,
+    );
 
     render(<ToolCallEvent event={event} />);
 

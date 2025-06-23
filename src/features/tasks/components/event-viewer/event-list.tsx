@@ -1,14 +1,14 @@
 import {
-  type MergedEvent,
-  mergeToolEvents,
+    type MergedEvent,
+    mergeToolEvents,
 } from '@/features/tasks/utils/merge-tool-events';
 import type { Event } from '@/types/event.ts';
 
 import {
-  InputEvent,
-  MessageEvent,
-  ResultEvent,
-  WorkspaceEvent,
+    InputEvent,
+    MessageEvent,
+    ResultEvent,
+    WorkspaceEvent,
 } from './event-components';
 import { ToolCallEvent } from './event-components/tool-call-event';
 
@@ -77,15 +77,6 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
   }
 };
 
-const EventItem = ({ event }: { event: Event | MergedEvent }) => {
-  return (
-    <div className="p-4">
-      {/* Event content with integrated header */}
-      <EventContent event={event} />
-    </div>
-  );
-};
-
 export function EventList({ events }: EventListProps) {
   const sortedEvents = [...events].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
@@ -95,9 +86,9 @@ export function EventList({ events }: EventListProps) {
   const mergedEvents = mergeToolEvents(sortedEvents);
 
   return (
-    <div className="space-y-2 w-full">
+    <div className="space-y-4 w-full">
       {mergedEvents.map((event) => (
-        <EventItem key={event.event_id} event={event} />
+        <EventContent key={event.event_id} event={event} />
       ))}
     </div>
   );
