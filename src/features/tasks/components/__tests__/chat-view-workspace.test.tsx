@@ -14,7 +14,7 @@ import { renderWithRouter } from '@/test-utils/render';
 import { AgentEventType } from '@/types/event';
 import { WorkspaceStatus } from '@/types/task';
 
-import { TaskViewer } from '../task-viewer';
+import { ChatView } from '../chat-view';
 
 // Mock dependencies
 vi.mock('@/features/tasks/hooks/use-tasks');
@@ -31,7 +31,23 @@ vi.mock('@/features/tasks/stores/task-ui-store', () => ({
   }),
 }));
 
-describe('TaskViewer Workspace Integration', () => {
+// Mock additional dependencies
+vi.mock('@/lib/components/ui/scroll-area', () => ({
+  ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+}));
+vi.mock('../chat-input', () => ({
+  ChatInput: () => <div data-testid="task-chat-input">Mock Chat Input</div>,
+}));
+vi.mock('@/lib/components/error-boundary', () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+vi.mock('react-markdown', () => ({
+  default: ({ children }: { children: string }) => <div>{children}</div>,
+}));
+
+describe('ChatView Workspace Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
@@ -71,7 +87,7 @@ describe('TaskViewer Workspace Integration', () => {
       isStreaming: false,
     });
 
-    renderWithRouter(<TaskViewer />);
+    renderWithRouter(<ChatView />);
 
     // Should show processing indicator even though task is not running
     expect(screen.getByText('Processing...')).toBeInTheDocument();
@@ -110,7 +126,7 @@ describe('TaskViewer Workspace Integration', () => {
       isStreaming: false,
     });
 
-    renderWithRouter(<TaskViewer />);
+    renderWithRouter(<ChatView />);
 
     expect(screen.getByText('Processing...')).toBeInTheDocument();
   });
@@ -183,7 +199,7 @@ describe('TaskViewer Workspace Integration', () => {
       isStreaming: true,
     });
 
-    renderWithRouter(<TaskViewer />);
+    renderWithRouter(<ChatView />);
 
     // Should show 5 messages (from events) instead of 3 (static count)
     expect(screen.getByText('5 messages')).toBeInTheDocument();
@@ -225,7 +241,7 @@ describe('TaskViewer Workspace Integration', () => {
       isStreaming: false,
     });
 
-    renderWithRouter(<TaskViewer />);
+    renderWithRouter(<ChatView />);
 
     // Should show time elapsed since creation (approximately 1m 5s)
     await waitFor(() => {
@@ -271,7 +287,7 @@ describe('TaskViewer Workspace Integration', () => {
       isStreaming: false,
     });
 
-    renderWithRouter(<TaskViewer />);
+    renderWithRouter(<ChatView />);
 
     // Should use static values
     expect(screen.getByText('10 messages')).toBeInTheDocument();

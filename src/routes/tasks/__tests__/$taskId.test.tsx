@@ -40,7 +40,7 @@ import { renderWithRouter } from '@/test-utils/render';
 // 3. Error boundary components
 //
 // DO NOT MOCK:
-// - Feature components (TaskViewer, TaskChatInput, etc.) - test integration
+// - Feature components (ChatView, etc.) - test integration
 // - Simple UI components that don't affect business logic
 
 // Mock external dependencies only

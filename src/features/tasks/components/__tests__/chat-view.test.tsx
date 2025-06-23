@@ -9,12 +9,14 @@ import {
 } from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
 
-import { useTask } from '../../hooks/use-tasks';
+import { useTaskEventsWithStreaming } from '../../hooks/use-task-events';
+import { useTask, useTaskWorkspaceStatus } from '../../hooks/use-tasks';
 import { useTaskUIStore } from '../../stores/task-ui-store';
-import { TaskViewer } from '../task-viewer';
+import { ChatView } from '../chat-view';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
+vi.mock('../../hooks/use-task-events');
 vi.mock('../../stores/task-ui-store');
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
@@ -30,6 +32,22 @@ vi.mock('@/lib/components/ui/scroll-area', () => ({
   ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
 }));
 
+// Mock ChatInput
+vi.mock('../chat-input', () => ({
+  ChatInput: ({ className }: { className?: string }) => (
+    <div data-testid="task-chat-input" className={className}>
+      Mock Chat Input
+    </div>
+  ),
+}));
+
+// Mock ErrorBoundary
+vi.mock('@/lib/components/error-boundary', () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
 // Mock DOM methods
 Object.defineProperty(window, 'scrollIntoView', {
   value: vi.fn(),
@@ -40,7 +58,7 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-describe('TaskViewer', () => {
+describe('ChatView', () => {
   const mockSetSelectedIteration = vi.fn();
 
   beforeEach(() => {
@@ -55,6 +73,21 @@ describe('TaskViewer', () => {
       isLoading: false,
       error: null,
     } as any);
+
+    // Default mock for useTaskWorkspaceStatus
+    vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as any);
+
+    // Default mock for useTaskEventsWithStreaming
+    vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      events: [],
+      isStreaming: false,
+      isLoading: false,
+      error: null,
+    });
   });
 
   describe('Rendering', () => {
@@ -66,7 +99,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       // Check that both iterations are rendered
       expect(
@@ -91,7 +124,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(screen.getByText('2m 5s')).toBeInTheDocument();
       expect(screen.getByText('10 messages')).toBeInTheDocument();
@@ -110,7 +143,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(
         screen.getByText('Task completed successfully'),
@@ -129,7 +162,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(screen.getByText('Task failed with error')).toBeInTheDocument();
     });
@@ -143,7 +176,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(screen.getByText('Processing...')).toBeInTheDocument();
     });
@@ -157,7 +190,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(screen.queryByText('Processing...')).not.toBeInTheDocument();
     });
@@ -169,7 +202,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      const { container } = renderWithRouter(<TaskViewer />);
+      const { container } = renderWithRouter(<ChatView />);
 
       expect(container.firstChild).toBeNull();
     });
@@ -187,7 +220,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       const button = screen.getByRole('button', {
         name: /click to view events/i,
@@ -207,7 +240,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       const button = screen.getByRole('button', {
         name: /click to view events/i,
@@ -227,7 +260,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       const button = screen.getByRole('button', {
         name: /click to view events/i,
@@ -247,7 +280,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       const button = screen.getByRole('button', {
         name: /click to view events/i,
@@ -278,9 +311,9 @@ describe('TaskViewer', () => {
           error: null,
         } as any);
 
-        const { rerender } = renderWithRouter(<TaskViewer />);
+        const { rerender } = renderWithRouter(<ChatView />);
         expect(screen.getByText(expected)).toBeInTheDocument();
-        rerender(<TaskViewer />);
+        rerender(<ChatView />);
       });
     });
 
@@ -302,9 +335,9 @@ describe('TaskViewer', () => {
           error: null,
         } as any);
 
-        const { rerender } = renderWithRouter(<TaskViewer />);
+        const { rerender } = renderWithRouter(<ChatView />);
         expect(screen.getByText(expected)).toBeInTheDocument();
-        rerender(<TaskViewer />);
+        rerender(<ChatView />);
       });
     });
   });
@@ -322,12 +355,12 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth' });
     });
 
-    it('does not scroll when task is not running', () => {
+    it('scrolls to bottom on mount regardless of task state', () => {
       const scrollIntoViewMock = vi.fn();
       Element.prototype.scrollIntoView = scrollIntoViewMock;
 
@@ -339,9 +372,10 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
-      expect(scrollIntoViewMock).not.toHaveBeenCalled();
+      // Component always scrolls to bottom on mount
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth' });
     });
   });
 
@@ -355,7 +389,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       // Should render without errors
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -372,7 +406,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       // Should render both iterations using index as key
       const buttons = screen.getAllByRole('button');
@@ -388,7 +422,7 @@ describe('TaskViewer', () => {
         error: null,
       } as any);
 
-      renderWithRouter(<TaskViewer />);
+      renderWithRouter(<ChatView />);
 
       expect(screen.queryByText('Processing...')).not.toBeInTheDocument();
     });

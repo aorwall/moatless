@@ -5,7 +5,7 @@ import { useTask } from '@/features/tasks/hooks/use-tasks';
 import { createMockTaskWithIterations } from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
 
-import { TaskViewer } from '../task-viewer';
+import { ChatView } from '../chat-view';
 
 // Mock dependencies
 vi.mock('@/features/tasks/hooks/use-tasks');
@@ -21,7 +21,23 @@ vi.mock('@/features/tasks/stores/task-ui-store', () => ({
   }),
 }));
 
-describe('TaskViewer Refetch Behavior', () => {
+// Mock additional dependencies
+vi.mock('@/lib/components/ui/scroll-area', () => ({
+  ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+}));
+vi.mock('../chat-input', () => ({
+  ChatInput: () => <div data-testid="task-chat-input">Mock Chat Input</div>,
+}));
+vi.mock('@/lib/components/error-boundary', () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+vi.mock('react-markdown', () => ({
+  default: ({ children }: { children: string }) => <div>{children}</div>,
+}));
+
+describe('ChatView Refetch Behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock scrollIntoView
@@ -58,7 +74,7 @@ describe('TaskViewer Refetch Behavior', () => {
       error: null,
     } as any);
 
-    const { rerender } = renderWithRouter(<TaskViewer />);
+    const { rerender } = renderWithRouter(<ChatView />);
 
     // Verify initial state - only 1 iteration
     expect(
@@ -74,7 +90,7 @@ describe('TaskViewer Refetch Behavior', () => {
     } as any);
 
     // Re-render the component
-    rerender(<TaskViewer />);
+    rerender(<ChatView />);
 
     // Wait for the UI to update
     await waitFor(() => {
@@ -97,7 +113,7 @@ describe('TaskViewer Refetch Behavior', () => {
       error: null,
     } as any);
 
-    const { container } = renderWithRouter(<TaskViewer />);
+    const { container } = renderWithRouter(<ChatView />);
 
     // Should render nothing
     expect(container.firstChild).toBeNull();
@@ -119,7 +135,7 @@ describe('TaskViewer Refetch Behavior', () => {
       error: null,
     } as any);
 
-    renderWithRouter(<TaskViewer />);
+    renderWithRouter(<ChatView />);
 
     // Should show the processing indicator
     expect(screen.getByText('Processing...')).toBeInTheDocument();
@@ -144,7 +160,7 @@ describe('TaskViewer Refetch Behavior', () => {
       error: null,
     } as any);
 
-    const { rerender } = renderWithRouter(<TaskViewer />);
+    const { rerender } = renderWithRouter(<ChatView />);
 
     // Verify initial cost and duration
     expect(screen.getByText('$0.0100')).toBeInTheDocument();
@@ -157,7 +173,7 @@ describe('TaskViewer Refetch Behavior', () => {
       error: null,
     } as any);
 
-    rerender(<TaskViewer />);
+    rerender(<ChatView />);
 
     await waitFor(() => {
       // Verify updated cost and duration

@@ -1,13 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect } from 'react';
 
+import { ChatView } from '@/features/tasks/components/chat-view';
 import { EventViewer } from '@/features/tasks/components/event-viewer';
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer';
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer';
-import { TaskChatInput } from '@/features/tasks/components/task-chat-input';
 import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
-import { TaskViewer } from '@/features/tasks/components/task-viewer';
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks';
 import {
   useRightPanelView,
@@ -83,29 +82,11 @@ function TaskDetail() {
     <div className="flex flex-col h-full w-full absolute inset-0">
       <TaskHeader />
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
-        {/* Left side - Task Viewer */}
+        {/* Left side - Chat View */}
         <ResizablePanel defaultSize={50} minSize={10}>
-          <div className="h-full flex flex-col mx-auto w-full">
-            <div className="flex-1 overflow-hidden  w-full">
-              <ErrorBoundary componentName="Task Viewer">
-                <TaskViewer />
-              </ErrorBoundary>
-            </div>
-            <ErrorBoundary
-              componentName="Chat Input"
-              fallback={(_error, reset) => (
-                <div className="p-4 border-t text-sm text-muted-foreground">
-                  Chat input unavailable
-                  <button
-                    onClick={reset}
-                    className="ml-2 text-primary hover:underline"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-            >
-              <TaskChatInput className="p-4 border-slate-200 dark:border-slate-700" />
+          <div className="h-full w-full">
+            <ErrorBoundary componentName="Chat View">
+              <ChatView />
             </ErrorBoundary>
           </div>
         </ResizablePanel>

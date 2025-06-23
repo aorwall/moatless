@@ -80,9 +80,7 @@ export function ChatInput({
     ? sendMessage.isPending
     : createTask.isPending;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const handleSendMessage = () => {
     if (!message.trim()) {
       return;
     }
@@ -159,7 +157,7 @@ export function ChatInput({
         <ChatForm
           message={message}
           onMessageChange={setMessage}
-          onSubmit={handleSubmit}
+          sendMessage={handleSendMessage}
           textareaDisabled={isTextareaDisabled}
           sendDisabled={isSendDisabled}
           placeholder={getPlaceholderText()}

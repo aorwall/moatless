@@ -9,7 +9,7 @@ import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-aut
 interface ChatFormProps {
   message: string;
   onMessageChange: (message: string) => void;
-  onSubmit: (e: React.FormEvent) => void;
+  sendMessage: () => void;
   textareaDisabled?: boolean;
   sendDisabled?: boolean;
   placeholder?: string;
@@ -22,7 +22,7 @@ interface ChatFormProps {
 export function ChatForm({
   message,
   onMessageChange,
-  onSubmit,
+  sendMessage,
   textareaDisabled = false,
   sendDisabled = false,
   placeholder,
@@ -87,7 +87,7 @@ export function ChatForm({
       !sendDisabled
     ) {
       e.preventDefault();
-      onSubmit(e as unknown as React.FormEvent);
+      sendMessage();
     }
   };
 
@@ -98,10 +98,17 @@ export function ChatForm({
     handleInputChange(value, cursorPosition);
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sendDisabled) {
+      sendMessage();
+    }
+  };
+
   return (
     <form
       className="duration-800 group flex flex-col gap-2 rounded-3xl border border-border bg-muted p-3 transition-colors ease-in-out relative"
-      onSubmit={onSubmit}
+      onSubmit={handleSubmit}
       ref={formRef}
     >
       <div ref={containerRef}>

@@ -79,7 +79,7 @@ export const tasksApi = {
   async stopAgent(
     taskId: string,
   ): Promise<{ status: string; task_id: string }> {
-    return await apiClient.delete(`/api/v1/tasks/${taskId}`);
+    return await apiClient.post(`/api/v1/tasks/${taskId}/stop`);
   },
 
   async getTaskEvents(

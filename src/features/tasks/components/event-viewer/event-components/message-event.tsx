@@ -1,9 +1,8 @@
-import { MessageSquare, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { Event } from '@/types/event';
 
-import { EventHeader } from './event-header';
 import {
   BashToolCall,
   EditToolCall,
@@ -274,44 +273,14 @@ export function MessageEvent({ event }: MessageEventProps) {
   }
 
   return (
-    <EventHeader event={event}>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-foreground">
-              {messageType === 'assistant'
-                ? 'Assistant'
-                : messageType === 'user'
-                  ? 'User'
-                  : String(messageType)}
-              {isToolCall && ' (Tool Call)'}
-            </span>
-          </div>
-          {message.usage && typeof message.usage === 'object' ? (
-            <div className="text-xs text-muted-foreground font-mono">
-              {Number(
-                (message.usage as Record<string, unknown>).input_tokens || 0,
-              ).toLocaleString()}{' '}
-              tokens
-            </div>
-          ) : null}
-        </div>
-
-        <div className="text-sm text-muted-foreground bg-muted rounded-lg p-3">
-          {content ? (
-            renderMessageContent(content)
-          ) : (
-            <span className="text-muted-foreground">No content</span>
-          )}
-        </div>
-
-        {message.model ? (
-          <div className="text-xs text-muted-foreground">
-            Model: {String(message.model)}
-          </div>
-        ) : null}
+    <div className="space-y-2">
+      <div className="text-sm text-muted-foreground bg-muted rounded-lg p-3">
+        {content ? (
+          renderMessageContent(content)
+        ) : (
+          <span className="text-muted-foreground">No content</span>
+        )}
       </div>
-    </EventHeader>
+    </div>
   );
 }
