@@ -3,15 +3,18 @@ import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { toast } from 'sonner';
 
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events';
 import {
+  useSendMessage,
   useTask,
   useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks';
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store';
 import { ErrorBoundary } from '@/lib/components/error-boundary';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
+import { getErrorMessage } from '@/lib/utils/error';
 import { AgentEventType } from '@/types/event';
 import type { TaskIteration } from '@/types/task';
 
@@ -28,6 +31,17 @@ export function ChatView() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  // Task message sending hook
+  const sendMessage = useSendMessage({
+    onError: (error) => {
+      console.error('Failed to send message:', error);
+      toast.error('Failed to send message', {
+        description: getErrorMessage(error),
+      });
+    },
+  });
 
   // Update current time every second for running clock
   useEffect(() => {
@@ -35,6 +49,39 @@ export function ChatView() {
       setCurrentTime(Date.now());
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Check if user is at the bottom of the scroll area
+  const checkIfAtBottom = () => {
+    const scrollArea = scrollAreaRef.current;
+    if (!scrollArea) return false;
+
+    const viewport = scrollArea.querySelector(
+      '[data-radix-scroll-area-viewport]',
+    ) as HTMLElement;
+    if (!viewport) return false;
+
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    // Consider "at bottom" if within 50px of the bottom
+    return scrollHeight - scrollTop - clientHeight < 50;
+  };
+
+  // Handle scroll events to track if user is at bottom
+  const handleScroll = () => {
+    setIsAtBottom(checkIfAtBottom());
+  };
+
+  useEffect(() => {
+    const scrollArea = scrollAreaRef.current;
+    if (!scrollArea) return;
+
+    const viewport = scrollArea.querySelector(
+      '[data-radix-scroll-area-viewport]',
+    ) as HTMLElement;
+    if (!viewport) return;
+
+    viewport.addEventListener('scroll', handleScroll);
+    return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
   useEffect(() => {
@@ -45,9 +92,10 @@ export function ChatView() {
   }, []); // Only on mount
 
   useEffect(() => {
-    // Scroll to bottom when task is running or workspace is active
+    // Only scroll to bottom when task is running/workspace is active AND user is already at bottom
     if (
       bottomRef.current &&
+      isAtBottom &&
       (metadata?.is_running || workspaceStatus?.status === 'running')
     ) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -124,6 +172,11 @@ export function ChatView() {
   const isWorkspaceRunning =
     workspaceStatus?.status === 'running' ||
     workspaceStatus?.status === 'setting_up';
+
+  // Handle sending message to task
+  const handleSendMessage = (taskId: string, message: string) => {
+    sendMessage.mutate({ taskId, message });
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -231,6 +284,8 @@ export function ChatView() {
           data-testid="task-chat-input"
           taskId={params.taskId}
           taskStatus={metadata?.status}
+          onSendMessage={handleSendMessage}
+          isLoading={sendMessage.isPending}
           className="p-4 border-t border-slate-200 dark:border-slate-700"
         />
       </ErrorBoundary>

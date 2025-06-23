@@ -1,13 +1,6 @@
-import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
-import { toast } from 'sonner';
 
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments';
-import {
-  useCreateTask,
-  useSendMessage,
-} from '@/features/tasks/hooks/use-tasks';
-import { getErrorMessage } from '@/lib/utils/error';
 
 import { ChatForm } from './chat-form';
 import { EnvironmentSelector } from './environment-selector';
@@ -24,6 +17,11 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
 
   // Task status for conditional behavior
   taskStatus?: string;
+
+  // Callbacks
+  onSendMessage?: (taskId: string, message: string) => void;
+  onCreateTask?: (message: string, environmentId: string) => void;
+  isLoading?: boolean;
 }
 
 export function ChatInput({
@@ -33,6 +31,9 @@ export function ChatInput({
   showEnvironmentSelector = false,
   showTitle = false,
   title = 'What should we build today?',
+  onSendMessage,
+  onCreateTask,
+  isLoading = false,
   className = '',
   ...divProps
 }: ChatInputProps) {
@@ -40,7 +41,6 @@ export function ChatInput({
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<
     string | undefined
   >();
-  const navigate = useNavigate();
 
   // Environment data (only needed for homepage)
   const { data: environments, isLoading: environmentsLoading } =
@@ -48,37 +48,8 @@ export function ChatInput({
       enabled: showEnvironmentSelector,
     });
 
-  // Task message sending (for task context)
-  const sendMessage = useSendMessage({
-    onSuccess: () => {
-      setMessage('');
-    },
-    onError: (error) => {
-      console.error('Failed to send message:', error);
-      toast.error('Failed to send message', {
-        description: getErrorMessage(error),
-      });
-    },
-  });
-
-  // Task creation (for homepage context)
-  const createTask = useCreateTask({
-    onSuccess: (response) => {
-      setMessage('');
-      navigate({ to: `/tasks/${response.task_id}` });
-    },
-    onError: (error) => {
-      console.error('Failed to create task:', error);
-      toast.error('Failed to create task', {
-        description: getErrorMessage(error),
-      });
-    },
-  });
-
   const isTaskContext = !!taskId;
-  const isPending = isTaskContext
-    ? sendMessage.isPending
-    : createTask.isPending;
+  const isPending = isLoading;
 
   const handleSendMessage = () => {
     if (!message.trim()) {
@@ -87,19 +58,14 @@ export function ChatInput({
 
     if (isTaskContext) {
       // Task context - send message
-      if (!sendMessage.isPending) {
-        sendMessage.mutate({ taskId, message: message.trim() });
+      if (onSendMessage && !isPending) {
+        onSendMessage(taskId, message.trim());
+        setMessage('');
       }
-    } else {
+    } else if (selectedEnvironmentId && onCreateTask && !isPending) {
       // Homepage context - create task
-      if (!(selectedEnvironmentId && !createTask.isPending)) {
-        return;
-      }
-      createTask.mutate({
-        agent_type: 'claude_code',
-        message: message.trim(),
-        environment_id: selectedEnvironmentId,
-      });
+      onCreateTask(message.trim(), selectedEnvironmentId);
+      setMessage('');
     }
   };
 
@@ -179,12 +145,6 @@ export function ChatInput({
           </div>
         )}
       </div>
-
-      {isTaskContext && sendMessage.isError && (
-        <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-          Failed to send message. Please try again.
-        </p>
-      )}
     </div>
   );
 }
