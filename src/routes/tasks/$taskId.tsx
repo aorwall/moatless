@@ -22,9 +22,8 @@ import {
 import {
   Tabs,
   TabsContent,
-  TabsList,
-  TabsTrigger,
 } from '@/lib/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
@@ -82,13 +81,10 @@ function TaskDetail() {
         {/* Left side - Task Viewer */}
         <ResizablePanel defaultSize={50} minSize={30}>
           <div className="h-full flex flex-col border-r">
-            <div className="border-b px-4 py-2">
-              <h2 className="text-sm font-medium">Task</h2>
-            </div>
             <div className="flex-1 overflow-hidden">
               <TaskViewer />
             </div>
-            <TaskChatInput className="p-4 border-t border-slate-200 dark:border-slate-700" />
+            <TaskChatInput className="p-4 border-slate-200 dark:border-slate-700" />
           </div>
         </ResizablePanel>
 
@@ -104,10 +100,44 @@ function TaskDetail() {
               }
               className="h-full w-full flex flex-col"
             >
-              <TabsList className="grid w-full grid-cols-2 mx-auto">
-                <TabsTrigger value="events">Events</TabsTrigger>
-                <TabsTrigger value="diff">Diff</TabsTrigger>
-              </TabsList>
+              <div className="px-4 py-2 border-b">
+                <div className="relative flex w-fit min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+                  <button
+                    onClick={() => setRightPanelView('events')}
+                    className={cn(
+                      "font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer",
+                      rightPanelView === 'events'
+                        ? "bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100"
+                        : "hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400"
+                    )}
+                    data-testid="tab-file-button"
+                    data-active-tab={rightPanelView === 'events'}
+                  >
+                    <div className="truncate">
+                      <div className="flex items-center gap-2">
+                        <span>Events</span>
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setRightPanelView('diff')}
+                    className={cn(
+                      "font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer",
+                      rightPanelView === 'diff'
+                        ? "bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100"
+                        : "hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400"
+                    )}
+                    data-testid="tab-file-button"
+                    data-active-tab={rightPanelView === 'diff'}
+                  >
+                    <div className="truncate">
+                      <div className="flex items-center gap-2">
+                        <span>Diff</span>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
               <TabsContent
                 value="events"
                 className="flex-1 w-full overflow-hidden mt-0"
