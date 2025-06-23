@@ -96,6 +96,10 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks(),
       });
+      // Invalidate workspace status since sending a message may trigger workspace activity
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
+      });
       // Force refetch the task data immediately
       await queryClient.refetchQueries({
         queryKey: queryKeys.task(variables.taskId),
