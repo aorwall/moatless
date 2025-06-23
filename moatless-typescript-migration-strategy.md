@@ -627,6 +627,55 @@ export async function searchFilesInDirectory(
 6. **Add notes** directly in the checklist using comments: `- [x] Task name <!-- Completed by John, used Zod for validation -->`
 7. **Review weekly** to assess progress and adjust priorities
 
+### Quality Gates - Run After Each Task
+After completing each task, verify:
+```bash
+# 1. Type checking passes
+pnpm type:check
+
+# 2. Linting passes
+pnpm lint
+
+# 3. Tests pass
+pnpm test
+
+# 4. Build succeeds
+pnpm build
+```
+
+### Git Workflow - Commit After Each Phase
+After completing all tasks in a phase:
+1. Run all quality gates one final time
+2. Review all changes
+3. Create a descriptive commit:
+   ```bash
+   git add .
+   git commit -m "feat(migration): complete Phase X - [Phase Name]
+   
+   - List key components migrated
+   - Note any significant decisions
+   - Reference Python files that were ported"
+   ```
+4. Consider creating a git tag for major milestones:
+   ```bash
+   git tag -a "migration-phase-X" -m "Completed Phase X of TypeScript migration"
+   ```
+
+### Development Workflow
+For each task in the checklist:
+1. **Create/modify files** according to the task
+2. **Run quality gates** (type:check, lint, test, build)
+3. **Fix any issues** before moving to next task
+4. **Update tests** to maintain coverage
+5. **Mark task complete** with `[x]` in this document
+
+For phase completion:
+1. **Verify all tasks** in the phase are checked
+2. **Run full test suite** across all packages
+3. **Update documentation** if needed
+4. **Commit with descriptive message**
+5. **Tag if major milestone**
+
 ### Phase 1: Foundation & Setup (Week 1)
 - [ ] Set up monorepo structure with Nx/Turborepo
 - [ ] Create Tauri desktop app scaffold with basic window
@@ -636,6 +685,7 @@ export async function searchFilesInDirectory(
 - [ ] Set up Jest/Vitest testing framework
 - [ ] Create base package.json structure for all packages
 - [ ] Set up Git hooks for code quality (Husky + lint-staged)
+- [ ] Configure CI pipeline to run quality gates on every push
 
 ### Phase 2: Type System (Week 2)
 - [ ] Create `@moatless/types` package
