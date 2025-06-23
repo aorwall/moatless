@@ -21,7 +21,7 @@ export const Layout = ({ children }: LayoutProps) => {
   return (
     <ThemeProvider>
       <SidebarProvider>
-        <div className="flex min-h-screen w-full dark:bg-black dark:text-white">
+        <div className="flex min-h-screen w-full bg-background text-foreground">
           <AppSidebar />
           <div className="flex flex-1 flex-col">
             {!hideHeader && (

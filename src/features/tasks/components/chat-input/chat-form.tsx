@@ -1,4 +1,4 @@
-import { Send } from 'lucide-react';
+import { ArrowUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete';
@@ -32,6 +32,7 @@ export function ChatForm({
   buttonText,
 }: ChatFormProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>(
     'below',
   );
@@ -97,43 +98,49 @@ export function ChatForm({
     handleInputChange(value, cursorPosition);
   };
 
-  // Remove this line as we now use separate disabled states
-
   return (
-    <div className="relative" ref={containerRef}>
-      <Textarea
-        ref={inputRef}
-        placeholder={placeholder}
-        value={message}
-        onChange={handleTextareaChange}
-        onKeyDown={handleKeyDown}
-        className="resize-none"
-        rows={isTaskContext ? 3 : 4}
-        disabled={textareaDisabled}
-      />
-      {isAutocompleteOpen && (
-        <FileAutocomplete
-          results={autocompleteResults}
-          selectedIndex={selectedIndex}
-          onSelect={selectFile}
-          isLoading={isAutocompleteLoading}
-          error={autocompleteError}
-          position={dropdownPosition}
-        />
-      )}
-      <div className="flex justify-end mt-2">
-        <Button
-          type="submit"
-          disabled={sendDisabled}
-          className={isTaskContext ? 'self-end' : 'w-full'}
-          size={isTaskContext ? 'icon' : 'default'}
-          onClick={onSubmit}
-        >
-          <Send className={`h-4 w-4 ${!isTaskContext ? 'mr-2' : ''}`} />
-          {!isTaskContext && <span>{buttonText}</span>}
-          {isTaskContext && <span className="sr-only">{buttonText}</span>}
-        </Button>
+    <form
+      className="duration-800 group flex flex-col gap-2 rounded-3xl border border-border bg-muted p-3 transition-colors ease-in-out relative"
+      onSubmit={onSubmit}
+      ref={formRef}
+    >
+      <div ref={containerRef}>
+        <div className="relative flex flex-1 items-center">
+          <Textarea
+            ref={inputRef}
+            placeholder={placeholder}
+            value={message}
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 max-h-[200px] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none"
+            style={{ minHeight: '40px' }}
+            disabled={textareaDisabled}
+          />
+          {isAutocompleteOpen && (
+            <FileAutocomplete
+              results={autocompleteResults}
+              selectedIndex={selectedIndex}
+              onSelect={selectFile}
+              isLoading={isAutocompleteLoading}
+              error={autocompleteError}
+              position={dropdownPosition}
+            />
+          )}
+        </div>
       </div>
-    </div>
+      <div className="flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="submit"
+            disabled={sendDisabled}
+            size="icon"
+            className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
+          >
+            <ArrowUp className="h-5 w-5" />
+            <span className="sr-only">{buttonText}</span>
+          </Button>
+        </div>
+      </div>
+    </form>
   );
 }

@@ -31,7 +31,7 @@ export function EventHeader({ event, children }: EventHeaderProps) {
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1">{children}</div>
 
-      <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
         {event.context_tokens > 0 && (
           <div className="flex items-center gap-2">
             <Progress

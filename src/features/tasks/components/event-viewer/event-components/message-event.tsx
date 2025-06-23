@@ -54,13 +54,13 @@ const renderSingleContent = (content: unknown): ReactNode => {
       return (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Wrench className="h-3.5 w-3.5 text-blue-500" />
-            <span className="font-medium text-blue-600 dark:text-blue-400">
+            <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-medium text-foreground">
               {String(contentObj.name || 'Tool')}
             </span>
           </div>
           {contentObj.input ? (
-            <div className="text-xs bg-slate-100 dark:bg-slate-700 rounded p-2 overflow-x-auto">
+            <div className="text-xs bg-muted rounded p-2 overflow-x-auto">
               <pre className="font-mono">
                 {typeof contentObj.input === 'object'
                   ? JSON.stringify(contentObj.input, null, 2)
@@ -75,11 +75,11 @@ const renderSingleContent = (content: unknown): ReactNode => {
       return (
         <div className="space-y-2">
           {contentObj.tool_use_id ? (
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-xs text-muted-foreground">
               Tool ID: {String(contentObj.tool_use_id)}
             </div>
           ) : null}
-          <div className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 rounded p-2">
+          <div className="text-sm bg-muted text-muted-foreground rounded p-2">
             {String(contentObj.content || 'Tool result')}
           </div>
         </div>
@@ -101,7 +101,9 @@ export function MessageEvent({ event }: MessageEventProps) {
   // Extract message object - it can have various structures
   const message = payload.message as Record<string, unknown> | null;
   if (!message) {
-    return <div className="text-sm text-slate-500">No message content</div>;
+    return (
+      <div className="text-sm text-muted-foreground">No message content</div>
+    );
   }
 
   const isToolCall = event.sub_type === 'tool_call';
@@ -123,8 +125,8 @@ export function MessageEvent({ event }: MessageEventProps) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">
               {messageType === 'assistant'
                 ? 'Assistant'
                 : messageType === 'user'
@@ -134,7 +136,7 @@ export function MessageEvent({ event }: MessageEventProps) {
             </span>
           </div>
           {message.usage && typeof message.usage === 'object' ? (
-            <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+            <div className="text-xs text-muted-foreground font-mono">
               {Number(
                 (message.usage as Record<string, unknown>).input_tokens || 0,
               ).toLocaleString()}{' '}
@@ -143,16 +145,16 @@ export function MessageEvent({ event }: MessageEventProps) {
           ) : null}
         </div>
 
-        <div className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+        <div className="text-sm text-muted-foreground bg-muted rounded-lg p-3">
           {content ? (
             renderMessageContent(content)
           ) : (
-            <span className="text-slate-400">No content</span>
+            <span className="text-muted-foreground">No content</span>
           )}
         </div>
 
         {message.model ? (
-          <div className="text-xs text-slate-500 dark:text-slate-400">
+          <div className="text-xs text-muted-foreground">
             Model: {String(message.model)}
           </div>
         ) : null}

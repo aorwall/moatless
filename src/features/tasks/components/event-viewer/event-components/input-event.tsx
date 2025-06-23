@@ -36,13 +36,13 @@ export function InputEvent({ event }: InputEventProps) {
     <EventHeader event={event}>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <User className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+          <User className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">
             {payload.type === 'user' ? 'User Input' : 'Input'}
           </span>
         </div>
 
-        <div className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+        <div className="text-sm text-muted-foreground bg-muted rounded-lg p-3">
           <p className="whitespace-pre-wrap break-words">{messageText}</p>
         </div>
       </div>

@@ -20,24 +20,24 @@ export function WorkspaceEvent({ event }: WorkspaceEventProps) {
     <EventHeader event={event}>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Settings className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+          <Settings className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">
             Workspace {event.sub_type?.replace(/_/g, ' ')}
           </span>
         </div>
 
-        <div className="text-sm text-slate-600 dark:text-slate-300">
+        <div className="text-sm text-muted-foreground">
           {event.sub_type === 'worktree_created' && (
             <div className="space-y-1">
               <p>
                 Path:{' '}
-                <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">
                   {payload.path}
                 </code>
               </p>
               <p>
                 Branch:{' '}
-                <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">
                   {payload.branch}
                 </code>
               </p>
@@ -46,7 +46,7 @@ export function WorkspaceEvent({ event }: WorkspaceEventProps) {
           {event.sub_type === 'setup_completed' && (
             <p>
               Working directory:{' '}
-              <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
+              <code className="text-xs bg-muted px-1 py-0.5 rounded">
                 {payload.working_directory}
               </code>
             </p>

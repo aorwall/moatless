@@ -119,7 +119,7 @@ export function EventViewer() {
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="text-center space-y-3">
-          <Loader2 className="h-8 w-8 mx-auto text-muted-foreground/50 animate-spin" />
+          <Loader2 className="h-8 w-8 mx-auto text-muted-foreground animate-spin" />
           <p className="text-muted-foreground">Loading events...</p>
         </div>
       </div>
@@ -142,7 +142,7 @@ export function EventViewer() {
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="text-center space-y-3">
-          <FileText className="h-8 w-8 mx-auto text-muted-foreground/50" />
+          <FileText className="h-8 w-8 mx-auto text-muted-foreground" />
           <p className="text-muted-foreground">
             {isStreaming ? 'Waiting for events...' : 'No events to display'}
           </p>

@@ -61,7 +61,7 @@ export function TaskViewer() {
             className="space-y-4"
           >
             {/* Initial Message */}
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+            <div className="bg-secondary rounded-lg p-4">
               <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {iteration.initial_message}
