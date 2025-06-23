@@ -202,6 +202,121 @@ return <TaskList tasks={data} />;
 - Empty Data: Show helpful empty state with actions
 - Not Found: Only show when data explicitly doesn't exist (no error)
 
+#### Error Boundaries & Failure Handling
+
+**Error Boundary Usage:**
+React Error Boundaries are used to catch JavaScript errors in component trees, log errors, and display fallback UI instead of crashing the entire application.
+
+```typescript
+import { ErrorBoundary } from '@/lib/components/error-boundary';
+
+// Basic usage
+<ErrorBoundary componentName="Task Viewer">
+  <TaskViewer />
+</ErrorBoundary>
+
+// With custom fallback
+<ErrorBoundary
+  componentName="Component Name"
+  fallback={(error, reset) => (
+    <div className="error-fallback">
+      <p>Something went wrong</p>
+      <button onClick={reset}>Try Again</button>
+    </div>
+  )}
+>
+  <ComponentThatMightError />
+</ErrorBoundary>
+
+// With automatic reset on prop changes
+<ErrorBoundary
+  componentName="Dynamic Component"
+  resetKeys={[userId, dataVersion]}
+  resetOnPropsChange={false}
+>
+  <ComponentWithDynamicData userId={userId} />
+</ErrorBoundary>
+
+// Combined with Suspense for loading states
+import { SafeBoundary } from '@/lib/components/error-boundary-with-fallback';
+
+<SafeBoundary
+  componentName="Async Component"
+  loadingFallback={<CustomSkeleton />}
+>
+  <AsyncComponent />
+</SafeBoundary>
+```
+
+**Error Boundary Best Practices:**
+
+1. **Granular Boundaries**: Place error boundaries strategically
+   - Wrap feature modules (good granularity)
+   - Don't wrap every single component (too granular)
+   - Don't use just one at the root (not granular enough)
+
+2. **Meaningful Error Messages**: Provide context-specific error information
+   - Include component name for debugging
+   - Show user-friendly messages
+   - Log detailed errors for developers
+
+3. **Recovery Mechanisms**:
+   - Reset buttons for user-triggered recovery
+   - Automatic reset on prop changes for dynamic content
+   - Fallback UI that maintains layout structure
+
+4. **Error Tracking Integration**:
+   - Log errors to console in development
+   - Send to error tracking service in production
+   - Include component stack traces
+
+**Failure Handling Strategy:**
+
+1. **Component-Level Isolation**: Wrap each major feature component in an ErrorBoundary to isolate failures
+   - Prevents cascading failures across the UI
+   - Allows other parts of the application to remain functional
+   - Provides contextual error messages
+
+2. **Defensive Data Access**: Always use optional chaining and nullish coalescing for data access
+   ```typescript
+   // Good - defensive
+   const value = data?.nested?.property ?? defaultValue;
+   const usage = payload.usage || {};
+   
+   // Bad - can throw errors
+   const value = data.nested.property;
+   ```
+
+3. **API Error Handling**: Use React Query's built-in error handling
+   - Errors are automatically caught and returned in the `error` property
+   - Implement retry logic for transient failures
+   - Show user-friendly error messages
+
+4. **Critical Path Protection**: Identify and protect critical user paths
+   - Authentication flows
+   - Data submission forms
+   - Core navigation
+
+5. **Error Recovery Actions**:
+   - Provide "Try Again" buttons for retryable errors
+   - Offer alternative actions when primary actions fail
+   - Include helpful error messages that guide users
+
+**What Error Boundaries DON'T Catch:**
+- Event handler errors (use try/catch)
+- Async errors (Promises, setTimeout)
+- Server-side rendering errors
+- Errors in the error boundary itself
+
+**Best Practices:**
+- Place boundaries around logical UI sections, not every component
+- Never let errors bubble up to crash the entire app
+- Log all errors to console for debugging (Error Boundaries do this automatically)
+- Provide meaningful error messages to users
+- Always include recovery options when possible
+- Test error scenarios during development
+- Consider using error tracking services (Sentry, LogRocket) in production
+
 **Type Safety**:
   - Define all API types in `src/types/`
   - Use TypeScript strict mode

@@ -9,16 +9,17 @@ import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
 import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection';
-import { useTask, useServerStatus } from '@/features/tasks/hooks/use-tasks';
+import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks';
 import {
-    useRightPanelView,
-    useTaskUIStore,
+  useRightPanelView,
+  useTaskUIStore,
 } from '@/features/tasks/stores/task-ui-store';
+import { ErrorBoundary } from '@/lib/components/error-boundary';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import {
-    ResizableHandle,
-    ResizablePanel,
-    ResizablePanelGroup,
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
 } from '@/lib/components/ui/resizable';
 import { Tabs, TabsContent } from '@/lib/components/ui/tabs';
 import { cn } from '@/lib/utils';
@@ -26,16 +27,6 @@ import { cn } from '@/lib/utils';
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
 });
-
-// Error boundary wrapper component
-function SafeComponent({ children, fallback }: { children: React.ReactNode; fallback: React.ReactNode }) {
-  try {
-    return <>{children}</>;
-  } catch (error) {
-    console.error('Component error:', error);
-    return <>{fallback}</>;
-  }
-}
 
 function TaskDetail() {
   const { taskId } = Route.useParams();
@@ -92,18 +83,6 @@ function TaskDetail() {
     );
   }
 
-  const errorFallback = (componentName: string) => (
-    <div className="h-full flex items-center justify-center p-6">
-      <div className="text-center space-y-3">
-        <ErrorAlert
-          error={new Error(`Failed to load ${componentName}`)}
-          title={`${componentName} Error`}
-          className="max-w-md w-full"
-        />
-      </div>
-    </div>
-  );
-
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
       <TaskHeader />
@@ -112,13 +91,23 @@ function TaskDetail() {
         <ResizablePanel defaultSize={50} minSize={10}>
           <div className="h-full flex flex-col mx-auto w-full">
             <div className="flex-1 overflow-hidden  w-full">
-              <SafeComponent fallback={errorFallback('Task Viewer')}>
+              <ErrorBoundary componentName="Task Viewer">
                 <TaskViewer />
-              </SafeComponent>
+              </ErrorBoundary>
             </div>
-            <SafeComponent fallback={<div className="p-4 border-t text-sm text-muted-foreground">Chat input unavailable</div>}>
+            <ErrorBoundary
+              componentName="Chat Input"
+              fallback={(_error, reset) => (
+                <div className="p-4 border-t text-sm text-muted-foreground">
+                  Chat input unavailable
+                  <button onClick={reset} className="ml-2 text-primary hover:underline">
+                    Retry
+                  </button>
+                </div>
+              )}
+            >
               <TaskChatInput className="p-4 border-slate-200 dark:border-slate-700" />
-            </SafeComponent>
+            </ErrorBoundary>
           </div>
         </ResizablePanel>
 
@@ -195,26 +184,26 @@ function TaskDetail() {
                 value="events"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <SafeComponent fallback={errorFallback('Events')}>
+                <ErrorBoundary componentName="Event Viewer">
                   <EventViewer />
-                </SafeComponent>
+                </ErrorBoundary>
               </TabsContent>
               <TabsContent
                 value="diff"
                 className="flex-1 w-full overflow-hidden mt-0"
               >
-                <SafeComponent fallback={errorFallback('Diff Viewer')}>
+                <ErrorBoundary componentName="Git Diff Viewer">
                   <GitDiffViewer />
-                </SafeComponent>
+                </ErrorBoundary>
               </TabsContent>
               {serverStatus?.configured && (
                 <TabsContent
                   value="server"
                   className="flex-1 w-full overflow-hidden mt-0"
                 >
-                  <SafeComponent fallback={errorFallback('Server Logs')}>
+                  <ErrorBoundary componentName="Server Logs Viewer">
                     <ServerLogsViewer />
-                  </SafeComponent>
+                  </ErrorBoundary>
                 </TabsContent>
               )}
             </Tabs>
