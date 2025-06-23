@@ -1,6 +1,7 @@
 import { useParams } from '@tanstack/react-router';
 import {
   AlertCircle,
+  GitMerge,
   Loader2,
   Play,
   Square,
@@ -10,6 +11,7 @@ import {
 import { toast } from 'sonner';
 
 import {
+  useMergeTask,
   useServerStatus,
   useStartServer,
   useStopAgent,
@@ -112,6 +114,20 @@ export function TaskHeader() {
     },
   });
 
+  const mergeTask = useMergeTask({
+    onSuccess: (data) => {
+      toast.success('Changes merged successfully', {
+        description: data.message,
+      });
+    },
+    onError: (error) => {
+      console.error('Failed to merge changes:', error);
+      toast.error('Failed to merge changes', {
+        description: getErrorMessage(error),
+      });
+    },
+  });
+
   const handleStop = () => {
     if (metadata) {
       stopAgent.mutate(metadata.task_id);
@@ -127,6 +143,18 @@ export function TaskHeader() {
   const handleStopServer = () => {
     if (metadata) {
       stopServer.mutate(metadata.task_id);
+    }
+  };
+
+  const handleMerge = () => {
+    if (metadata) {
+      if (workspaceStatus?.has_uncommitted_changes) {
+        toast.warning('Cannot merge: workspace has uncommitted changes', {
+          description: 'Please commit or discard changes before merging.',
+        });
+        return;
+      }
+      mergeTask.mutate(metadata.task_id);
     }
   };
 
@@ -266,6 +294,36 @@ export function TaskHeader() {
               <StopCircle className="mr-2 h-4 w-4" />
               {stopAgent.isPending ? 'Stopping...' : 'Stop'}
             </Button>
+          )}
+          {!metadata.is_running && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMerge}
+                    disabled={
+                      mergeTask.isPending ||
+                      isLoadingWorkspace ||
+                      workspaceStatus?.has_uncommitted_changes
+                    }
+                  >
+                    <GitMerge className="mr-2 h-4 w-4" />
+                    {mergeTask.isPending ? 'Merging...' : 'Merge Changes'}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {workspaceStatus?.has_uncommitted_changes ? (
+                    <p>Cannot merge: workspace has uncommitted changes</p>
+                  ) : isLoadingWorkspace ? (
+                    <p>Checking workspace status...</p>
+                  ) : (
+                    <p>Merge workspace changes to the main branch</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>

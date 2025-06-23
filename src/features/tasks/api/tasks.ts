@@ -144,4 +144,12 @@ export const tasksApi = {
       `/api/v1/tasks/${taskId}/server/logs`,
     );
   },
+
+  async mergeTask(
+    taskId: string,
+  ): Promise<{ status: string; message: string }> {
+    return await apiClient.post<{ status: string; message: string }>(
+      `/api/v1/tasks/${taskId}/merge`,
+    );
+  },
 };

@@ -125,6 +125,7 @@ export function createMockWorkspaceStatus(
 ): WorkspaceStatusResponse {
   return {
     status: WorkspaceStatus.IDLE,
+    has_uncommitted_changes: false,
     ...overrides,
   };
 }

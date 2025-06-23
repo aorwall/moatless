@@ -211,6 +211,8 @@ describe('useSendMessage Integration Test', () => {
     const calls = spyInvalidate.mock.calls;
     expect((calls[0][0] as any).queryKey).toEqual(queryKeys.task(taskId));
     expect((calls[1][0] as any).queryKey).toEqual(queryKeys.tasks());
-    expect((calls[2][0] as any).queryKey).toEqual(queryKeys.taskWorkspaceStatus(taskId));
+    expect((calls[2][0] as any).queryKey).toEqual(
+      queryKeys.taskWorkspaceStatus(taskId),
+    );
   });
 });

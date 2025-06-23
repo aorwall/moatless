@@ -30,6 +30,7 @@ export enum WorkspaceStatus {
 
 export interface WorkspaceStatusResponse {
   status: WorkspaceStatus;
+  has_uncommitted_changes: boolean;
 }
 
 export interface ServerStatus {

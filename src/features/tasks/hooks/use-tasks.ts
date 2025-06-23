@@ -281,3 +281,33 @@ export function useServerLogs(
     ...options,
   });
 }
+
+export function useMergeTask(
+  options?: UseMutationOptions<
+    { status: string; message: string },
+    Error,
+    string
+  >,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (taskId: string) => tasksApi.mergeTask(taskId),
+    onSuccess: (data, taskId, context) => {
+      // Invalidate task data to refresh
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
+      });
+      // Invalidate workspace status to reflect merge
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskWorkspaceStatus(taskId),
+      });
+      // Invalidate git diff to show updated state
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskGitDiff(taskId),
+      });
+      options?.onSuccess?.(data, taskId, context);
+    },
+    ...options,
+  });
+}

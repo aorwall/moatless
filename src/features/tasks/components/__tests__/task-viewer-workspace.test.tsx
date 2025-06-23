@@ -2,10 +2,16 @@ import { screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events';
-import { useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks';
-import { AgentEventType } from '@/types/event';
-import { createMockEvent, createMockTaskWithIterations } from '@/test-utils/factories';
+import {
+  useTask,
+  useTaskWorkspaceStatus,
+} from '@/features/tasks/hooks/use-tasks';
+import {
+  createMockEvent,
+  createMockTaskWithIterations,
+} from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
+import { AgentEventType } from '@/types/event';
 import { WorkspaceStatus } from '@/types/task';
 
 import { TaskViewer } from '../task-viewer';
@@ -38,7 +44,7 @@ describe('TaskViewer Workspace Integration', () => {
         is_running: false, // Task itself is not running
         status: 'completed',
       },
-      1
+      1,
     );
 
     vi.mocked(useTask).mockReturnValue({
@@ -78,7 +84,7 @@ describe('TaskViewer Workspace Integration', () => {
         is_running: false,
         status: 'completed',
       },
-      1
+      1,
     );
 
     vi.mocked(useTask).mockReturnValue({
@@ -116,7 +122,7 @@ describe('TaskViewer Workspace Integration', () => {
         is_running: true,
         status: 'active',
       },
-      1
+      1,
     );
     // Static count is 3
     task.iterations[0].message_count = 3;
@@ -191,7 +197,7 @@ describe('TaskViewer Workspace Integration', () => {
         is_running: true,
         status: 'active',
       },
-      1
+      1,
     );
     task.iterations[0].start_time = createdAt.toISOString();
     task.iterations[0].duration_ms = 10000; // Static duration should be ignored
@@ -237,7 +243,7 @@ describe('TaskViewer Workspace Integration', () => {
         is_running: false,
         status: 'completed',
       },
-      1
+      1,
     );
     task.iterations[0].message_count = 10;
     task.iterations[0].duration_ms = 30000; // 30 seconds
