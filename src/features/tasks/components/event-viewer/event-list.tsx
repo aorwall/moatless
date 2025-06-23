@@ -1,3 +1,7 @@
+import {
+  type MergedEvent,
+  mergeToolEvents,
+} from '@/features/tasks/utils/merge-tool-events';
 import type { Event } from '@/types/event.ts';
 
 import {
@@ -6,6 +10,7 @@ import {
   ResultEvent,
   WorkspaceEvent,
 } from './event-components';
+import { ToolCallEvent } from './event-components/tool-call-event';
 
 interface EventListProps {
   events: Array<Event>;
@@ -21,7 +26,7 @@ const PayloadRenderer = ({ payload }: { payload: unknown }) => {
   );
 };
 
-const EventContent = ({ event }: { event: Event }) => {
+const EventContent = ({ event }: { event: Event | MergedEvent }) => {
   try {
     switch (event.type) {
       case 'workspace':
@@ -29,6 +34,15 @@ const EventContent = ({ event }: { event: Event }) => {
       case 'input':
         return <InputEvent event={event} />;
       case 'message':
+        // Check if it's a tool call with merged result
+        if (event.sub_type === 'tool_call' && 'toolResult' in event) {
+          return <ToolCallEvent event={event as MergedEvent} />;
+        }
+        // Check if it's a standalone tool call (without result)
+        if (event.sub_type === 'tool_call') {
+          return <ToolCallEvent event={event as MergedEvent} />;
+        }
+        // For text messages and other non-tool messages
         return <MessageEvent event={event} />;
       case 'result':
         return <ResultEvent event={event} />;
@@ -63,7 +77,7 @@ const EventContent = ({ event }: { event: Event }) => {
   }
 };
 
-const EventItem = ({ event }: { event: Event }) => {
+const EventItem = ({ event }: { event: Event | MergedEvent }) => {
   return (
     <div className="p-4">
       {/* Event content with integrated header */}
@@ -77,9 +91,12 @@ export function EventList({ events }: EventListProps) {
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
 
+  // Merge tool calls with their results
+  const mergedEvents = mergeToolEvents(sortedEvents);
+
   return (
     <div className="space-y-2 w-full">
-      {sortedEvents.map((event) => (
+      {mergedEvents.map((event) => (
         <EventItem key={event.event_id} event={event} />
       ))}
     </div>
