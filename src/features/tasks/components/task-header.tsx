@@ -17,7 +17,7 @@ import {
   useTask,
   useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks';
-import { useTaskStreamingError } from '@/features/tasks/stores/task-streaming-store';
+import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store';
 import { Badge } from '@/lib/components/ui/badge';
 import { Button } from '@/lib/components/ui/button';
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx';

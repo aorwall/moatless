@@ -2,7 +2,7 @@ import { useParams } from '@tanstack/react-router';
 import { FileText, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events-with-streaming';
+import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import { ScrollArea } from '@/lib/components/ui/scroll-area';
 
@@ -15,7 +15,7 @@ export function EventViewer() {
   const params = useParams({ from: '/tasks/$taskId' });
   const taskId = params.taskId;
 
-  // Use the abstraction that handles streaming automatically
+  // Use the unified hook that handles streaming automatically
   const { events, isLoading, error, isStreaming } =
     useTaskEventsWithStreaming(taskId);
 

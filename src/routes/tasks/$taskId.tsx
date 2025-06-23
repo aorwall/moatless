@@ -8,7 +8,6 @@ import { TaskChatInput } from '@/features/tasks/components/task-chat-input';
 import { TaskHeader } from '@/features/tasks/components/task-header';
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
 import { TaskViewer } from '@/features/tasks/components/task-viewer';
-import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection';
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks';
 import {
   useRightPanelView,
@@ -36,9 +35,6 @@ function TaskDetail() {
   const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView);
   const setSelectedTaskId = useTaskUIStore((state) => state.setSelectedTaskId);
   const resetUIState = useTaskUIStore((state) => state.resetUIState);
-
-  // Set up SSE connection
-  useTaskSSEConnection({ taskId });
 
   // Set selected task ID and reset UI state when component unmounts or task changes
   useEffect(() => {
@@ -100,7 +96,10 @@ function TaskDetail() {
               fallback={(_error, reset) => (
                 <div className="p-4 border-t text-sm text-muted-foreground">
                   Chat input unavailable
-                  <button onClick={reset} className="ml-2 text-primary hover:underline">
+                  <button
+                    onClick={reset}
+                    className="ml-2 text-primary hover:underline"
+                  >
                     Retry
                   </button>
                 </div>

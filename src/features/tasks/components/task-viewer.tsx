@@ -19,7 +19,14 @@ export function TaskViewer() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Scroll to bottom when component mounts or when task is running
+    // Scroll to bottom when component mounts (initial load)
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [params.taskId]); // Trigger when taskId changes
+
+  useEffect(() => {
+    // Scroll to bottom when task is running
     if (bottomRef.current && metadata?.is_running) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }

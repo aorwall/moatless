@@ -1,4 +1,5 @@
 import { Component, type ReactNode, Suspense } from 'react';
+
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 import { Skeleton } from '@/lib/components/ui/skeleton';
 
@@ -18,13 +19,16 @@ interface ErrorBoundaryState {
   resetKeys?: Array<string | number>;
 }
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { 
-      hasError: false, 
+    this.state = {
+      hasError: false,
       error: null,
-      resetKeys: props.resetKeys 
+      resetKeys: props.resetKeys,
     };
   }
 
@@ -34,35 +38,42 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   static getDerivedStateFromProps(
     props: ErrorBoundaryProps,
-    state: ErrorBoundaryState
+    state: ErrorBoundaryState,
   ): Partial<ErrorBoundaryState> | null {
     // Reset error boundary when resetKeys change
     if (props.resetKeys && state.resetKeys) {
       const hasResetKeyChanged = props.resetKeys.some(
-        (key, index) => key !== state.resetKeys?.[index]
+        (key, index) => key !== state.resetKeys?.[index],
       );
       if (hasResetKeyChanged) {
         return { hasError: false, error: null, resetKeys: props.resetKeys };
       }
     }
-    
+
     // Reset on any props change if requested
     if (props.resetOnPropsChange && state.hasError) {
       return { hasError: false, error: null };
     }
-    
+
     return null;
   }
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
     // Log to error reporting service
-    console.error(`Error caught by ${this.props.componentName || 'ErrorBoundary'}:`, error, errorInfo);
-    
+    console.error(
+      `Error caught by ${this.props.componentName || 'ErrorBoundary'}:`,
+      error,
+      errorInfo,
+    );
+
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);
-    
+
     // In production, you might want to send this to an error tracking service
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    if (
+      typeof window !== 'undefined' &&
+      window.location.hostname !== 'localhost'
+    ) {
       // Example: sendToErrorTrackingService(error, errorInfo);
     }
   }
@@ -117,12 +128,12 @@ export function SafeBoundary({
   ...errorBoundaryProps
 }: ErrorBoundaryProps & { loadingFallback?: ReactNode }) {
   return (
-    <ErrorBoundary 
-      componentName={componentName} 
+    <ErrorBoundary
+      componentName={componentName}
       fallback={fallback}
       {...errorBoundaryProps}
     >
-      <Suspense 
+      <Suspense
         fallback={
           loadingFallback || (
             <div className="h-full flex items-center justify-center p-6">

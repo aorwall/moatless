@@ -3,11 +3,11 @@ import { ChevronRight } from 'lucide-react';
 import type { Event } from '@/types/event.ts';
 
 import {
-    EventHeader,
-    InputEvent,
-    MessageEvent,
-    ResultEvent,
-    WorkspaceEvent,
+  EventHeader,
+  InputEvent,
+  MessageEvent,
+  ResultEvent,
+  WorkspaceEvent,
 } from './event-components';
 
 interface EventListProps {

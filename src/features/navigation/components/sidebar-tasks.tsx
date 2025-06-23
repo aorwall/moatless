@@ -4,12 +4,12 @@ import { Loader2 } from 'lucide-react';
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons';
 import { useTasksList } from '@/features/tasks/hooks/use-tasks';
 import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
+    SidebarGroup,
+    SidebarGroupContent,
+    SidebarGroupLabel,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
 } from '@/lib/components/ui/sidebar';
 
 export function SidebarTasks() {
@@ -89,7 +89,7 @@ export function SidebarTasks() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground w-full">
-                        <span className="truncate">{task.environment_id}</span>
+                        <span className="truncate">{task.environment_name}</span>
                         <span className="text-muted-foreground/60">•</span>
                         <span className="flex-shrink-0">
                           {new Date(

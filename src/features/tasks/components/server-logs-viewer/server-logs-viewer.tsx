@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+
 import { useServerLogs } from '@/features/tasks/hooks/use-tasks';
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
@@ -7,14 +8,20 @@ import { Skeleton } from '@/lib/components/ui/skeleton';
 
 export function ServerLogsViewer() {
   const selectedTaskId = useTaskUIStore((state) => state.selectedTaskId);
-  const { data: response, isLoading, error } = useServerLogs(selectedTaskId || '');
+  const {
+    data: response,
+    isLoading,
+    error,
+  } = useServerLogs(selectedTaskId || '');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     if (response?.logs && shouldAutoScroll.current && scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      const scrollContainer = scrollAreaRef.current.querySelector(
+        '[data-radix-scroll-area-viewport]',
+      );
       if (scrollContainer) {
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }
@@ -42,7 +49,7 @@ export function ServerLogsViewer() {
   }
 
   const logContent = response?.logs || '';
-  
+
   if (!logContent || logContent.trim() === '') {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center">
@@ -58,13 +65,16 @@ export function ServerLogsViewer() {
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const element = e.currentTarget;
-    const isAtBottom = Math.abs(element.scrollHeight - element.scrollTop - element.clientHeight) < 10;
+    const isAtBottom =
+      Math.abs(
+        element.scrollHeight - element.scrollTop - element.clientHeight,
+      ) < 10;
     shouldAutoScroll.current = isAtBottom;
   };
 
   return (
     <div className="h-full w-full bg-slate-950 dark:bg-black">
-      <ScrollArea 
+      <ScrollArea
         ref={scrollAreaRef}
         className="h-full w-full"
         onScroll={handleScroll}
@@ -83,9 +93,9 @@ function ServerLogsViewerSkeleton() {
   return (
     <div className="h-full w-full bg-slate-950 dark:bg-black p-4 space-y-2">
       {Array.from({ length: 8 }).map((_, i) => (
-        <Skeleton 
+        <Skeleton
           key={i}
-          className="h-4 bg-slate-800 dark:bg-slate-900" 
+          className="h-4 bg-slate-800 dark:bg-slate-900"
           style={{ width: `${85 + Math.random() * 15}%` }}
         />
       ))}

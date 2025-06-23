@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
 
 interface ErrorBoundaryProps {
@@ -12,7 +13,10 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -23,7 +27,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
-    console.error(`Error caught by ${this.props.componentName || 'ErrorBoundary'}:`, error, errorInfo);
+    console.error(
+      `Error caught by ${this.props.componentName || 'ErrorBoundary'}:`,
+      error,
+      errorInfo,
+    );
   }
 
   reset = () => {

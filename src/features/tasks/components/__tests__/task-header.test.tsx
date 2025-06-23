@@ -25,14 +25,13 @@ import {
   useTask,
   useTaskWorkspaceStatus,
 } from '../../hooks/use-tasks';
-import { useTaskStreamingError } from '../../stores/task-streaming-store';
+import { useTaskStreamingError } from '../../stores/task-event-store';
 import { TaskHeader } from '../task-header';
 
 // Mock dependencies
 vi.mock('../../hooks/use-tasks');
-vi.mock('../../stores/task-streaming-store', () => ({
+vi.mock('../../stores/task-event-store', () => ({
   useTaskStreamingError: vi.fn(() => null),
-  useTaskStreamingStore: vi.fn(),
 }));
 vi.mock('sonner');
 vi.mock('@tanstack/react-router', () => ({

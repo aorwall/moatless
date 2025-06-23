@@ -22,6 +22,7 @@ export function createMockTask(
     last_message_at: '2024-01-01T00:00:00Z',
     agent_type: 'test-agent',
     environment_id: 'test-env',
+    environment_name: 'test-env-name',
     is_running: false,
     status: 'completed',
     num_turns: 5,

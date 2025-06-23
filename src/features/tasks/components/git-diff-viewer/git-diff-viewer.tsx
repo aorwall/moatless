@@ -7,6 +7,7 @@ import 'react-diff-view/style/index.css';
 import { useTaskGitDiff } from '@/features/tasks/hooks/use-tasks';
 import { useSelectedIteration } from '@/features/tasks/stores/task-ui-store';
 import { ErrorAlert } from '@/lib/components/ui/error-alert';
+import { ScrollArea } from '@/lib/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import './github-diff.css';
 
@@ -202,7 +203,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
   };
 
   return (
-    <div className={cn('h-full overflow-auto p-4', className)}>
+    <ScrollArea className={cn('h-full overflow-auto p-4', className)}>
       {/* Summary Stats */}
       {gitDiff && (
         <div className="mb-4 text-sm text-muted-foreground">
@@ -219,6 +220,6 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
 
       {/* File Diffs */}
       <div>{parsedFiles.map((file) => renderFile(file as ParsedFile))}</div>
-    </div>
+    </ScrollArea>
   );
 }

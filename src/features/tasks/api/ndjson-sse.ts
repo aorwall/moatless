@@ -134,9 +134,12 @@ export class NDJSONSSEClient {
     }
   }
 
-  private async processStreamData(decoder: TextDecoder, buffer: string): Promise<string> {
+  private async processStreamData(
+    decoder: TextDecoder,
+    buffer: string,
+  ): Promise<string> {
     let currentBuffer = buffer;
-    
+
     while (true) {
       const { done, value } = await this.reader!.read();
       if (done) break;
@@ -144,7 +147,7 @@ export class NDJSONSSEClient {
       currentBuffer += decoder.decode(value, { stream: true });
       currentBuffer = this.processBufferLines(currentBuffer);
     }
-    
+
     return currentBuffer;
   }
 

@@ -137,7 +137,9 @@ export const tasksApi = {
     );
   },
 
-  async getServerLogs(taskId: string): Promise<{ logs: string; lines: number }> {
+  async getServerLogs(
+    taskId: string,
+  ): Promise<{ logs: string; lines: number }> {
     return await apiClient.get<{ logs: string; lines: number }>(
       `/api/v1/tasks/${taskId}/server/logs`,
     );

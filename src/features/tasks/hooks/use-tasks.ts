@@ -51,14 +51,6 @@ export function useTask(
     queryKey: queryKeys.task(taskId),
     queryFn: () => tasksApi.getTask(taskId),
     enabled: !!taskId,
-    refetchInterval: (query) => {
-      // Refetch every 2 seconds when task is active/running
-      const data = query.state.data;
-      if (data?.status === 'active' || data?.is_running) {
-        return 2000;
-      }
-      return false;
-    },
     ...options,
   });
 }
@@ -199,7 +191,7 @@ export function useTaskWorkspaceStatus(
       if (data?.status === 'setting_up' || data?.status === 'running') {
         return 1000; // 1 second
       }
-      return 5000; // 5 seconds for idle/not_setup states
+      return 30000; // 30 seconds for idle/not_setup states
     },
     ...options,
   });
@@ -272,7 +264,10 @@ export function useStopServer(
 
 export function useServerLogs(
   taskId: string,
-  options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
+  options?: Omit<
+    UseQueryOptions<{ logs: string; lines: number }>,
+    'queryKey' | 'queryFn'
+  >,
 ) {
   return useQuery({
     queryKey: queryKeys.taskServerLogs(taskId),

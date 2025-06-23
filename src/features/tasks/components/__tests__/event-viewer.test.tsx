@@ -5,14 +5,14 @@ import { createMockEventList } from '@/test-utils/factories';
 import { renderWithRouter } from '@/test-utils/render';
 import type { Event } from '@/types/event';
 
-import { useTaskEventsWithStreaming } from '../../hooks/use-task-events-with-streaming';
+import { useTaskEventsWithStreaming } from '../../hooks/use-task-events';
 import { EventViewer } from '../event-viewer/event-viewer';
 
 // Top-level regex for event test IDs
 const EVENT_TESTID_REGEX = /^event-\d+$/;
 
 // Mock dependencies
-vi.mock('../../hooks/use-task-events-with-streaming');
+vi.mock('../../hooks/use-task-events');
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
 }));

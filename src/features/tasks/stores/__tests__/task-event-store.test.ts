@@ -4,17 +4,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createMockEvent, createMockEventList } from '@/test-utils/factories';
 
 import {
+  useTaskEventStore,
   useTaskStreamEvents,
   useTaskStreamingError,
-  useTaskStreamingStore,
-} from '../task-streaming-store';
+} from '../task-event-store';
 
-describe('TaskStreamingStore', () => {
+describe('TaskEventStore', () => {
   beforeEach(() => {
     // Reset store to initial state
     act(() => {
-      useTaskStreamingStore.setState({
-        streamingTasks: new Map(),
+      useTaskEventStore.setState({
+        eventTasks: new Map(),
       });
     });
   });
@@ -25,12 +25,10 @@ describe('TaskStreamingStore', () => {
       const event = createMockEvent({ type: 'message' });
 
       act(() => {
-        useTaskStreamingStore.getState().addStreamEvent(taskId, event);
+        useTaskEventStore.getState().addStreamEvent(taskId, event);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamEvents).toHaveLength(1);
       expect(state.streamEvents[0]).toEqual(event);
     });
@@ -40,12 +38,10 @@ describe('TaskStreamingStore', () => {
       const events = createMockEventList(5);
 
       act(() => {
-        useTaskStreamingStore.getState().setStreamEvents(taskId, events);
+        useTaskEventStore.getState().setStreamEvents(taskId, events);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamEvents).toEqual(events);
     });
 
@@ -55,14 +51,12 @@ describe('TaskStreamingStore', () => {
       const newEvents = createMockEventList(5);
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamEvents(taskId, oldEvents);
         store.setStreamEvents(taskId, newEvents);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamEvents).toEqual(newEvents);
       expect(state.streamEvents).toHaveLength(5);
     });
@@ -72,14 +66,12 @@ describe('TaskStreamingStore', () => {
       const events = createMockEventList(3);
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamEvents(taskId, events);
         store.clearStreamEvents(taskId);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamEvents).toHaveLength(0);
     });
   });
@@ -90,12 +82,10 @@ describe('TaskStreamingStore', () => {
       const error = 'Connection failed';
 
       act(() => {
-        useTaskStreamingStore.getState().setStreamingError(taskId, error);
+        useTaskEventStore.getState().setStreamingError(taskId, error);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamingError).toBe(error);
     });
 
@@ -103,14 +93,12 @@ describe('TaskStreamingStore', () => {
       const taskId = 'task-123';
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamingError(taskId, 'Error');
         store.setStreamingError(taskId, null);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamingError).toBe(null);
     });
   });
@@ -120,15 +108,13 @@ describe('TaskStreamingStore', () => {
       const taskId = 'task-123';
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamEvents(taskId, createMockEventList(3));
         store.setStreamingError(taskId, 'Error');
-        store.clearTaskStreaming(taskId);
+        store.clearTaskEvents(taskId);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamEvents).toHaveLength(0);
       expect(state.streamingError).toBe(null);
     });
@@ -137,13 +123,13 @@ describe('TaskStreamingStore', () => {
       const taskId = 'task-123';
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamEvents(taskId, createMockEventList(1));
-        store.clearTaskStreaming(taskId);
+        store.clearTaskEvents(taskId);
       });
 
-      const streamingTasks = useTaskStreamingStore.getState().streamingTasks;
-      expect(streamingTasks.has(taskId)).toBe(false);
+      const eventTasks = useTaskEventStore.getState().eventTasks;
+      expect(eventTasks.has(taskId)).toBe(false);
     });
   });
 
@@ -153,19 +139,15 @@ describe('TaskStreamingStore', () => {
       const task2 = 'task-2';
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamEvents(task1, createMockEventList(2));
         store.setStreamEvents(task2, createMockEventList(3));
         store.setStreamingError(task1, 'Error 1');
         store.setStreamingError(task2, 'Error 2');
       });
 
-      const state1 = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(task1);
-      const state2 = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(task2);
+      const state1 = useTaskEventStore.getState().getTaskEventState(task1);
+      const state2 = useTaskEventStore.getState().getTaskEventState(task2);
 
       expect(state1.streamEvents).toHaveLength(2);
       expect(state2.streamEvents).toHaveLength(3);
@@ -176,28 +158,26 @@ describe('TaskStreamingStore', () => {
 
   describe('Selectors', () => {
     it('returns default state for non-existent task', () => {
-      const state = useTaskStreamingStore
+      const state = useTaskEventStore
         .getState()
-        .getTaskStreamingState('non-existent');
+        .getTaskEventState('non-existent');
 
       expect(state.streamEvents).toEqual([]);
       expect(state.streamingError).toBe(null);
     });
 
-    it('getTaskStreamingState returns correct state', () => {
+    it('getTaskEventState returns correct state', () => {
       const taskId = 'task-123';
       const events = createMockEventList(2);
       const error = 'Test error';
 
       act(() => {
-        const store = useTaskStreamingStore.getState();
+        const store = useTaskEventStore.getState();
         store.setStreamEvents(taskId, events);
         store.setStreamingError(taskId, error);
       });
 
-      const state = useTaskStreamingStore
-        .getState()
-        .getTaskStreamingState(taskId);
+      const state = useTaskEventStore.getState().getTaskEventState(taskId);
       expect(state.streamEvents).toEqual(events);
       expect(state.streamingError).toBe(error);
     });
@@ -209,7 +189,7 @@ describe('TaskStreamingStore', () => {
       const events = createMockEventList(3);
 
       act(() => {
-        useTaskStreamingStore.getState().setStreamEvents(taskId, events);
+        useTaskEventStore.getState().setStreamEvents(taskId, events);
       });
 
       const { result } = renderHook(() => useTaskStreamEvents(taskId));
@@ -221,7 +201,7 @@ describe('TaskStreamingStore', () => {
       const error = 'Connection error';
 
       act(() => {
-        useTaskStreamingStore.getState().setStreamingError(taskId, error);
+        useTaskEventStore.getState().setStreamingError(taskId, error);
       });
 
       const { result } = renderHook(() => useTaskStreamingError(taskId));
@@ -236,28 +216,24 @@ describe('TaskStreamingStore', () => {
     it('handles clearing non-existent task', () => {
       expect(() => {
         act(() => {
-          const store = useTaskStreamingStore.getState();
+          const store = useTaskEventStore.getState();
           store.clearStreamEvents('non-existent');
-          store.clearTaskStreaming('non-existent');
+          store.clearTaskEvents('non-existent');
         });
       }).not.toThrow();
     });
 
     it('initializes task state on first operation', () => {
       const taskId = 'new-task';
-      const streamingTasks = useTaskStreamingStore.getState().streamingTasks;
+      const eventTasks = useTaskEventStore.getState().eventTasks;
 
-      expect(streamingTasks.has(taskId)).toBe(false);
+      expect(eventTasks.has(taskId)).toBe(false);
 
       act(() => {
-        useTaskStreamingStore
-          .getState()
-          .addStreamEvent(taskId, createMockEvent());
+        useTaskEventStore.getState().addStreamEvent(taskId, createMockEvent());
       });
 
-      expect(useTaskStreamingStore.getState().streamingTasks.has(taskId)).toBe(
-        true,
-      );
+      expect(useTaskEventStore.getState().eventTasks.has(taskId)).toBe(true);
     });
   });
 });

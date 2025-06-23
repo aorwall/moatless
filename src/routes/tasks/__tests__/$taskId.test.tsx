@@ -6,7 +6,6 @@ import {
   useEnvironmentsList,
   useSearchFiles,
 } from '@/features/environments/hooks/use-environments';
-import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection';
 import {
   useCreateTask,
   useSendMessage,
@@ -46,7 +45,6 @@ import { renderWithRouter } from '@/test-utils/render';
 
 // Mock external dependencies only
 vi.mock('@/features/tasks/hooks/use-tasks');
-vi.mock('@/features/tasks/hooks/use-task-sse-connection');
 vi.mock('@/features/environments/hooks/use-environments');
 vi.mock('@/features/tasks/stores/task-ui-store', () => ({
   useTaskUIStore: vi.fn(),
@@ -289,10 +287,6 @@ describe('TaskDetail Route - Integration Tests', () => {
       error: null,
     } as any);
 
-    vi.mocked(useTaskSSEConnection).mockReturnValue({
-      isStreaming: false,
-    });
-
     vi.mocked(useTaskUIStore).mockImplementation((selector) => {
       const state = {
         rightPanelView: 'events',
@@ -433,8 +427,6 @@ describe('TaskDetail Route - Integration Tests', () => {
   describe('External Dependencies Integration', () => {
     it('sets up SSE connection with correct task ID', () => {
       renderWithRouter(<TaskDetail />);
-
-      expect(useTaskSSEConnection).toHaveBeenCalledWith({ taskId: 'task-123' });
     });
 
     it('handles task data loading states correctly', () => {
@@ -552,8 +544,6 @@ describe('TaskDetail Route - Integration Tests', () => {
     it('coordinates real-time updates across components', () => {
       // Test that SSE connection is established for real-time updates
       renderWithRouter(<TaskDetail />);
-
-      expect(useTaskSSEConnection).toHaveBeenCalledWith({ taskId: 'task-123' });
 
       // Verify components that depend on real-time data are rendered
       expect(screen.getByTestId('tab-content-events')).toBeInTheDocument(); // Events panel should receive updates
@@ -762,10 +752,6 @@ describe('TaskDetail Route - Contract Tests', () => {
       error: null,
     } as any);
 
-    vi.mocked(useTaskSSEConnection).mockReturnValue({
-      isStreaming: false,
-    });
-
     vi.mocked(useTaskUIStore).mockImplementation((selector) => {
       const state = {
         rightPanelView: 'events',
@@ -784,7 +770,6 @@ describe('TaskDetail Route - Contract Tests', () => {
 
     // Verify hook contracts
     expect(useTask).toHaveBeenCalledWith('task-123');
-    expect(useTaskSSEConnection).toHaveBeenCalledWith({ taskId: 'task-123' });
     expect(useTaskUIStore).toHaveBeenCalled();
     expect(useRightPanelView).toHaveBeenCalled();
   });

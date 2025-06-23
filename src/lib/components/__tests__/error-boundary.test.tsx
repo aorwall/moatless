@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { ErrorBoundary } from '../error-boundary';
 
 // Component that throws an error
@@ -25,7 +26,7 @@ describe('ErrorBoundary', () => {
     render(
       <ErrorBoundary>
         <ThrowError shouldThrow={false} />
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
 
     expect(screen.getByText('No error')).toBeInTheDocument();
@@ -35,7 +36,7 @@ describe('ErrorBoundary', () => {
     render(
       <ErrorBoundary componentName="Test Component">
         <ThrowError shouldThrow={true} />
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
 
     expect(screen.getByText('Test Component Error')).toBeInTheDocument();
@@ -54,7 +55,7 @@ describe('ErrorBoundary', () => {
     render(
       <ErrorBoundary fallback={customFallback}>
         <ThrowError shouldThrow={true} />
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
 
     expect(screen.getByText('Custom error: Test error')).toBeInTheDocument();
@@ -64,21 +65,25 @@ describe('ErrorBoundary', () => {
   it('calls reset function when reset is clicked', async () => {
     const user = userEvent.setup();
     const resetMock = vi.fn();
-    
+
     const customFallback = (_error: Error, reset: () => void) => (
       <div>
         <p>Error occurred</p>
-        <button onClick={() => {
-          resetMock();
-          reset();
-        }}>Reset</button>
+        <button
+          onClick={() => {
+            resetMock();
+            reset();
+          }}
+        >
+          Reset
+        </button>
       </div>
     );
 
     render(
       <ErrorBoundary fallback={customFallback}>
         <ThrowError shouldThrow={true} />
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
 
     expect(screen.getByText('Error occurred')).toBeInTheDocument();
@@ -94,13 +99,13 @@ describe('ErrorBoundary', () => {
     render(
       <ErrorBoundary componentName="Test Component">
         <ThrowError shouldThrow={true} />
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
 
     expect(console.error).toHaveBeenCalledWith(
       'Error caught by Test Component:',
       expect.any(Error),
-      expect.objectContaining({ componentStack: expect.any(String) })
+      expect.objectContaining({ componentStack: expect.any(String) }),
     );
   });
 });

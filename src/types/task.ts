@@ -134,6 +134,7 @@ export interface TaskMetadata {
   last_message_at: string;
   agent_type: string;
   environment_id: string;
+  environment_name: string;
   is_running: boolean;
   status: 'active' | 'completed' | 'error';
   num_turns: number;

@@ -16,8 +16,8 @@
 
 /* Override react-diff-view styles to match GitHub */
 .github-diff-content .diff-view {
-  font-size: 12px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 22px;
   color: var(--foreground);
   background-color: transparent;
 }
