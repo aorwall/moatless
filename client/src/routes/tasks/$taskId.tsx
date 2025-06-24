@@ -9,6 +9,7 @@ import { TaskHeader } from '@/features/tasks/components/task-header'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
+import { Preview } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -36,9 +37,9 @@ function TaskDetail() {
     }
   }, [taskId, setSelectedTaskId, resetUIState])
 
-  // If server tab is selected but server is not configured, switch to events tab
+  // If server or preview tab is selected but server is not configured, switch to events tab
   useEffect(() => {
-    if (rightPanelView === 'server' && !serverStatus?.configured) {
+    if ((rightPanelView === 'server' || rightPanelView === 'preview') && !serverStatus?.configured) {
       setRightPanelView('events')
     }
   }, [rightPanelView, serverStatus?.configured, setRightPanelView])
@@ -87,7 +88,7 @@ function TaskDetail() {
           <div className="h-full flex flex-col">
             <Tabs
               value={rightPanelView}
-              onValueChange={(value) => setRightPanelView(value as 'events' | 'diff' | 'server')}
+              onValueChange={(value) => setRightPanelView(value as 'events' | 'diff' | 'server' | 'preview')}
               className="h-full w-full flex flex-col"
             >
               <div className="px-4 py-2 border-b">
@@ -127,23 +128,42 @@ function TaskDetail() {
                     </div>
                   </button>
                   {serverStatus?.configured && (
-                    <button
-                      onClick={() => setRightPanelView('server')}
-                      className={cn(
-                        'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
-                        rightPanelView === 'server'
-                          ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
-                          : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
-                      )}
-                      data-testid="tab-file-button"
-                      data-active-tab={rightPanelView === 'server'}
-                    >
-                      <div className="truncate">
-                        <div className="flex items-center gap-2">
-                          <span>Server</span>
+                    <>
+                      <button
+                        onClick={() => setRightPanelView('server')}
+                        className={cn(
+                          'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
+                          rightPanelView === 'server'
+                            ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                            : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
+                        )}
+                        data-testid="tab-file-button"
+                        data-active-tab={rightPanelView === 'server'}
+                      >
+                        <div className="truncate">
+                          <div className="flex items-center gap-2">
+                            <span>Server</span>
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                      <button
+                        onClick={() => setRightPanelView('preview')}
+                        className={cn(
+                          'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
+                          rightPanelView === 'preview'
+                            ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                            : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
+                        )}
+                        data-testid="tab-file-button"
+                        data-active-tab={rightPanelView === 'preview'}
+                      >
+                        <div className="truncate">
+                          <div className="flex items-center gap-2">
+                            <span>Preview</span>
+                          </div>
+                        </div>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -158,11 +178,28 @@ function TaskDetail() {
                 </ErrorBoundary>
               </TabsContent>
               {serverStatus?.configured && (
-                <TabsContent value="server" className="flex-1 w-full overflow-hidden mt-0">
-                  <ErrorBoundary componentName="Server Logs Viewer">
-                    <ServerLogsViewer />
-                  </ErrorBoundary>
-                </TabsContent>
+                <>
+                  <TabsContent value="server" className="flex-1 w-full overflow-hidden mt-0">
+                    <ErrorBoundary componentName="Server Logs Viewer">
+                      <ServerLogsViewer />
+                    </ErrorBoundary>
+                  </TabsContent>
+                  <TabsContent value="preview" className="flex-1 w-full overflow-hidden mt-0">
+                    <ErrorBoundary componentName="Preview">
+                      <Preview
+                        config={{
+                          url: serverStatus.url,
+                        }}
+                        onElementSelected={(element) => {
+                          if (element) {
+                            console.log('Selected element:', element.selector)
+                          }
+                        }}
+                        className="h-full"
+                      />
+                    </ErrorBoundary>
+                  </TabsContent>
+                </>
               )}
             </Tabs>
           </div>

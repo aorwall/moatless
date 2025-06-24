@@ -41,12 +41,18 @@ importers:
       glob:
         specifier: ^11.0.3
         version: 11.0.3
+      immer:
+        specifier: ^10.1.1
+        version: 10.1.1
       pino:
         specifier: ^9.7.0
         version: 9.7.0
       zod:
         specifier: ^3.25.61
         version: 3.25.61
+      zustand:
+        specifier: ^5.0.5
+        version: 5.0.5(immer@10.1.1)
     devDependencies:
       '@biomejs/biome':
         specifier: 2.0.0-beta.6
@@ -919,6 +925,9 @@ packages:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
 
+  immer@10.1.1:
+    resolution: {integrity: sha512-s2MPrmjovJcoMaHtx6K11Ra7oD05NT97w1IC5zpMkT6Atjr7H8LjaDd81iIxUYpMKSRRNMJE703M1Fhr/TctHw==}
+
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
 
@@ -1601,6 +1610,24 @@ packages:
 
   zod@3.25.61:
     resolution: {integrity: sha512-fzfJgUw78LTNnHujj9re1Ov/JJQkRZZGDMcYqSx7Hp4rPOkKywaFHq0S6GoHeXs0wGNE/sIOutkXgnwzrVOGCQ==}
+
+  zustand@5.0.5:
+    resolution: {integrity: sha512-mILtRfKW9xM47hqxGIxCv12gXusoY/xTSHBYApXozR0HmQv299whhBeeAcRy+KrPPybzosvJBCOmVjq6x12fCg==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
 
 snapshots:
 
@@ -2405,6 +2432,8 @@ snapshots:
       safer-buffer: 2.1.2
     optional: true
 
+  immer@10.1.1: {}
+
   inherits@2.0.4: {}
 
   ipaddr.js@2.2.0: {}
@@ -3081,3 +3110,7 @@ snapshots:
       yargs-parser: 21.1.1
 
   zod@3.25.61: {}
+
+  zustand@5.0.5(immer@10.1.1):
+    optionalDependencies:
+      immer: 10.1.1
