@@ -99,3 +99,9 @@ export const CreateTaskRequestSchema = z.object({
   branchName: z.string().optional(),
   start: z.boolean().default(true),
 })
+
+export const SendMessageRequestSchema = z.object({
+  message: z.string().min(1),
+})
+
+export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>

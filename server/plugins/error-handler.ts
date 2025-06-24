@@ -6,6 +6,8 @@ export async function errorHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
+  const requestId = request.id
+
   if (error instanceof MoatlessError) {
     return reply.status(error.statusCode).send({
       error: {
@@ -13,6 +15,7 @@ export async function errorHandler(
         message: error.message,
         details: error.details,
       },
+      requestId,
     })
   }
 
@@ -24,6 +27,7 @@ export async function errorHandler(
         message: 'Request validation failed',
         details: error.validation,
       },
+      requestId,
     })
   }
 
@@ -33,7 +37,8 @@ export async function errorHandler(
   return reply.status(500).send({
     error: {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'An unexpected error occurred',
+      message: 'Internal server error',
     },
+    requestId,
   })
 }

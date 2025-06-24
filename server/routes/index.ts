@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify'
+import { registerTaskRoutes } from './tasks.js'
+import { registerEnvironmentRoutes } from './environments.js'
+import { registerWorkspaceRoutes } from './workspaces.js'
 
 export async function registerRoutes(app: FastifyInstance) {
-  // API routes will be registered here
+  // Main API info endpoint
   app.get('/api', async () => ({
     message: 'Moatless API',
     version: '1.0.0',
@@ -14,8 +17,15 @@ export async function registerRoutes(app: FastifyInstance) {
     },
   }))
 
-  // TODO: Register task routes
-  // TODO: Register environment routes
-  // TODO: Register workspace routes
-  // TODO: Register WebSocket routes
+  // Register API route groups with prefixes
+  await app.register(registerTaskRoutes, { prefix: '/api/tasks' })
+  await app.register(registerEnvironmentRoutes, { prefix: '/api/environments' })
+  await app.register(registerWorkspaceRoutes, { prefix: '/api/workspaces' })
+
+  // Catch-all for client-side routing in production
+  if (process.env.NODE_ENV === 'production') {
+    app.get('/*', async (request, reply) => {
+      return reply.sendFile('index.html')
+    })
+  }
 }
