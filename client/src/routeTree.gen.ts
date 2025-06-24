@@ -141,18 +141,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/environments': {
-      id: '/environments'
-      path: '/environments'
-      fullPath: '/environments'
-      preLoaderRoute: typeof EnvironmentsRouteImport
+    '/tasks': {
+      id: '/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof TasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -162,32 +155,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tasks': {
-      id: '/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof TasksRouteImport
+    '/environments': {
+      id: '/environments'
+      path: '/environments'
+      fullPath: '/environments'
+      preLoaderRoute: typeof EnvironmentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/environments/$environmentId': {
-      id: '/environments/$environmentId'
-      path: '/$environmentId'
-      fullPath: '/environments/$environmentId'
-      preLoaderRoute: typeof EnvironmentsEnvironmentIdRouteImport
-      parentRoute: typeof EnvironmentsRoute
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/environments/new': {
-      id: '/environments/new'
-      path: '/new'
-      fullPath: '/environments/new'
-      preLoaderRoute: typeof EnvironmentsNewRouteImport
-      parentRoute: typeof EnvironmentsRoute
-    }
-    '/tasks/$taskId': {
-      id: '/tasks/$taskId'
-      path: '/$taskId'
-      fullPath: '/tasks/$taskId'
-      preLoaderRoute: typeof TasksTaskIdRouteImport
+    '/tasks/': {
+      id: '/tasks/'
+      path: '/'
+      fullPath: '/tasks/'
+      preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
     '/environments/': {
@@ -197,19 +183,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EnvironmentsIndexRouteImport
       parentRoute: typeof EnvironmentsRoute
     }
-    '/tasks/': {
-      id: '/tasks/'
-      path: '/'
-      fullPath: '/tasks/'
-      preLoaderRoute: typeof TasksIndexRouteImport
+    '/tasks/$taskId': {
+      id: '/tasks/$taskId'
+      path: '/$taskId'
+      fullPath: '/tasks/$taskId'
+      preLoaderRoute: typeof TasksTaskIdRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/tasks/__tests__/$taskId/test': {
-      id: '/tasks/__tests__/$taskId/test'
-      path: ''
-      fullPath: '/tasks/$taskId/test'
-      preLoaderRoute: unknown
-      parentRoute: typeof rootRouteImport
+    '/environments/new': {
+      id: '/environments/new'
+      path: '/new'
+      fullPath: '/environments/new'
+      preLoaderRoute: typeof EnvironmentsNewRouteImport
+      parentRoute: typeof EnvironmentsRoute
+    }
+    '/environments/$environmentId': {
+      id: '/environments/$environmentId'
+      path: '/$environmentId'
+      fullPath: '/environments/$environmentId'
+      preLoaderRoute: typeof EnvironmentsEnvironmentIdRouteImport
+      parentRoute: typeof EnvironmentsRoute
     }
   }
 }

@@ -1,127 +1,61 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.0.0-beta.6/schema.json",
   "vcs": {
-    "enabled": false,
+    "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": false
+    "useIgnoreFile": true
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": [
-      "src/**/*",
-      "!src/*.gen.ts",
-      "!turbo",
-      "!src/lib/components/ui/**/*",
-      "*.config.ts",
-      "!*.css"
-    ]
+    "includes": ["server/**/*", "shared/**/*", "bin/**/*", "client/src/**/*"],
+    "experimentalScannerIgnores": ["dist/", "node_modules/", "client/dist/"]
   },
   "formatter": {
     "enabled": true,
-    "indentStyle": "space"
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 100,
+    "attributePosition": "auto"
   },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true,
-      "a11y": {
-        "useSemanticElements": "error"
-      },
-      "complexity": {
-        "noExcessiveCognitiveComplexity": "warn",
-        "noUselessStringConcat": "error",
-        "noUselessUndefinedInitialization": "error",
-        "useSimplifiedLogicExpression": "error",
-        "noVoid": "off"
-      },
-      "correctness": {
-        "noUnusedImports": "error",
-        "noUnusedVariables": "error",
-        "noUnusedFunctionParameters": "error",
-        "useHookAtTopLevel": "error"
-      },
-      "performance": {
-        "noBarrelFile": "off",
-        "useTopLevelRegex": "error"
-      },
-      "style": {
-        "noDefaultExport": "error",
-        "useBlockStatements": "error",
-        "useCollapsedElseIf": "error",
-        "useDefaultSwitchClause": "error",
-        "useConsistentArrayType": {
-          "level": "error",
-          "options": {
-            "syntax": "generic"
-          }
-        },
-        "useFilenamingConvention": {
-          "level": "error",
-          "options": {
-            "filenameCases": ["kebab-case"]
-          }
-        }
-      },
-      "suspicious": {
-        "noDuplicateElseIf": "error",
-        "noConsole": {
-          "level": "error",
-          "options": {
-            "allow": ["error", "info"]
-          }
-        },
-        "noEmptyBlockStatements": "warn",
-        "useAwait": "error"
-      },
-      "nursery": {
-        "useUniqueElementIds": "off"
-      }
-    }
-  },
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "single"
-    }
-  },
-  "overrides": [
-    {
-      "includes": ["src/lib/pages/**/index.tsx", "src/*.ts", "*.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noDefaultExport": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["src/routes/**/*"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useFilenamingConvention": "off"
-          }
-        }
-      }
-    }
-  ],
   "assist": {
     "enabled": true,
     "actions": {
       "source": {
         "organizeImports": {
-          "level": "on",
-          "options": {
-            "groups": [
-              [":URL:", ":NODE:", ":PACKAGE:"],
-              ":BLANK_LINE:",
-              [":ALIAS:"],
-              ":BLANK_LINE:",
-              [":PATH:"]
-            ]
-          }
+          "level": "on"
         }
       }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "noNonNullAssertion": "off",
+        "useImportType": "error"
+      },
+      "correctness": {
+        "noUnusedImports": "error"
+      },
+      "complexity": {
+        "noBannedTypes": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "jsxQuoteStyle": "double",
+      "quoteProperties": "asNeeded",
+      "trailingCommas": "all",
+      "semicolons": "asNeeded",
+      "arrowParentheses": "always",
+      "bracketSpacing": true,
+      "bracketSameLine": false,
+      "quoteStyle": "single",
+      "attributePosition": "auto"
     }
   }
 }
