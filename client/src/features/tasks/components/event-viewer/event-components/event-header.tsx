@@ -48,10 +48,11 @@ const usageFieldLabels: Record<string, string> = {
 
 // Extract numeric usage fields from payload
 const extractUsageData = (payload: Record<string, unknown>) => {
-  const usage = payload.usage || {}
+  const message = payload.message as Record<string, unknown> | undefined
+  const usage = message?.usage
   const usageData: Array<{ label: string; value: number }> = []
 
-  // Process the usage object if it exists
+  // Only process the usage object if it exists
   if (typeof usage === 'object' && usage !== null) {
     Object.entries(usage).forEach(([key, value]) => {
       if (typeof value === 'number' && value > 0) {
@@ -60,17 +61,6 @@ const extractUsageData = (payload: Record<string, unknown>) => {
       }
     })
   }
-
-  // Also check for numeric fields directly in payload
-  Object.entries(payload).forEach(([key, value]) => {
-    if (key !== 'usage' && typeof value === 'number' && value > 0) {
-      const label = usageFieldLabels[key] || key.replace(/_/g, ' ')
-      // Avoid duplicates
-      if (!usageData.some((item) => item.label === label)) {
-        usageData.push({ label, value })
-      }
-    }
-  })
 
   return usageData
 }
