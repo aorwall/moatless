@@ -44,49 +44,22 @@ export function ResultEvent({ event }: ResultEventProps) {
 
   return (
     <EventHeader event={event}>
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          {payload.is_error ? (
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          )}
-          <span
-            className={`text-sm font-medium ${
-              payload.is_error ? 'text-foreground' : 'text-muted-foreground'
-            }`}
-          >
-            Result: {payload.subtype || 'Unknown'}
+      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          <span>Duration: {formatDuration(payload.duration_ms || 0)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span>
+            API Time: {formatDuration(payload.duration_api_ms || 0)}
           </span>
         </div>
-
-        <div
-          className={`text-sm rounded-lg p-3 ${
-            payload.is_error
-              ? 'bg-muted text-foreground'
-              : 'bg-secondary text-muted-foreground'
-          }`}
-        >
-          <p className="font-medium mb-2">{payload.result || 'No result'}</p>
-
-          <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-            <div className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              <span>Duration: {formatDuration(payload.duration_ms || 0)}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span>
-                API Time: {formatDuration(payload.duration_api_ms || 0)}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span>Turns: {payload.num_turns || 0}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Coins className="h-3 w-3" />
-              <span>Cost: ${(payload.total_cost_usd || 0).toFixed(4)}</span>
-            </div>
-          </div>
+        <div className="flex items-center gap-1">
+          <span>Turns: {payload.num_turns || 0}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Coins className="h-3 w-3" />
+          <span>Cost: ${(payload.total_cost_usd || 0).toFixed(4)}</span>
         </div>
       </div>
     </EventHeader>
