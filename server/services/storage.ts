@@ -55,9 +55,10 @@ export class FileStorage implements StorageBackend {
             ? `${prefix}${entry.name.replace('.json', '')}`
             : entry.name.replace('.json', '')
           files.push(key)
-        } else if (entry.isDirectory() && prefix) {
+        } else if (entry.isDirectory()) {
           // Recursively list subdirectories
-          const subFiles = await this.list(`${prefix}${entry.name}/`)
+          const subPrefix = prefix ? `${prefix}${entry.name}/` : `${entry.name}/`
+          const subFiles = await this.list(subPrefix)
           files.push(...subFiles)
         }
       }

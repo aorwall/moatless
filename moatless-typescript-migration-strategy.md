@@ -162,6 +162,24 @@ See [Client Integration Guide](./docs/migration/10-client-integration.md) for de
 6. **Add notes** directly in the checklist using comments: `- [x] Task name <!-- Completed by John, used Zod for validation -->`
 7. **Review weekly** to assess progress and adjust priorities
 
+### 🧪 TESTING REQUIREMENTS - MANDATORY FOR EACH PHASE 🧪
+
+**IMPORTANT**: Every phase MUST include comprehensive tests before being marked as complete. Tests are not optional - they are a core requirement for phase completion.
+
+#### Testing Standards:
+1. **Unit Tests**: Every new module/service must have corresponding unit tests
+2. **Integration Tests**: API endpoints and service interactions must be tested
+3. **Coverage Target**: Aim for >80% code coverage on critical paths
+4. **Test Location**: Tests must be co-located with source files in `__tests__` directories
+5. **Test Naming**: Use descriptive test names that explain the behavior being tested
+
+#### What to Test:
+- ✅ All public methods and functions
+- ✅ Error handling and edge cases
+- ✅ Service interactions and dependencies
+- ✅ API request/response validation
+- ✅ Type safety and schema validation
+
 ### Quality Gates - Run After Each Task
 After completing each task, verify:
 ```bash
@@ -169,12 +187,15 @@ After completing each task, verify:
 pnpm type:check
 
 # 2. Linting passes
-pnpm lint
+pnpm biome:check
 
-# 3. Tests pass
+# 3. Tests pass (THIS IS MANDATORY)
 pnpm test
 
-# 4. Build succeeds
+# 4. Test coverage meets targets
+pnpm test:coverage
+
+# 5. Build succeeds
 pnpm build
 ```
 
@@ -245,7 +266,7 @@ For phase completion:
 - [x] Implement health check endpoint
 - [x] Create error handling middleware
 - [x] Add request validation with Zod
-- [ ] Create server unit tests <!-- TODO: Complete unit tests -->
+- [x] Create server unit tests <!-- 45 tests passing, ~80% coverage -->
 
 ### Phase 4: Core Services (Week 4)
 - [ ] Port `swarm/eventstream/event_stream.py` → `event.ts`
