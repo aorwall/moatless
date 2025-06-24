@@ -21,7 +21,7 @@ describe('WebSocket Events', () => {
     const taskId = 'test-task-123'
     const mockTask = {
       taskId,
-      status: 'active',
+      status: 'active' as const,
       createdAt: new Date(),
       lastMessageAt: new Date(),
       agentType: 'claude-code',

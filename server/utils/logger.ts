@@ -40,7 +40,7 @@ class Logger {
           }
         : undefined
 
-    this.logger = pino({
+    this.logger = pino.default({
       level,
       name: options.service || 'moatless',
       base: {
@@ -211,7 +211,7 @@ class Logger {
         })
       }
 
-      this.logger = pino(
+      this.logger = pino.default(
         {
           level: this.logger.level,
         },

@@ -24,7 +24,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
   // Catch-all for client-side routing in production
   if (process.env.NODE_ENV === 'production') {
-    app.get('/*', async (request, reply) => {
+    app.get('/*', async (_request, reply) => {
       return reply.sendFile('index.html')
     })
   }

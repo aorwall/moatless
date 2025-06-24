@@ -1,4 +1,4 @@
-import type { FileSearchResponse } from '@shared/types'
+import type { FileSearchResponse } from '../../shared/types/index.js'
 import { promises as fs } from 'fs'
 import { glob } from 'glob'
 import path from 'path'

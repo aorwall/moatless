@@ -24,7 +24,7 @@ describe('git-utils', () => {
   describe('getGitDiffFiles', () => {
     it('should parse git diff output correctly', async () => {
       // Mock git diff --name-status
-      mockExec.mockImplementationOnce(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, 'M\tsrc/file1.js\nA\tsrc/file2.js\nD\tsrc/file3.js\n', '')
@@ -32,7 +32,7 @@ describe('git-utils', () => {
       }) as any)
 
       // Mock git diff --numstat
-      mockExec.mockImplementationOnce(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, '10\t5\tsrc/file1.js\n20\t0\tsrc/file2.js\n0\t15\tsrc/file3.js\n', '')
@@ -66,7 +66,7 @@ describe('git-utils', () => {
     })
 
     it('should handle empty diff', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, '', '')
@@ -84,7 +84,7 @@ describe('git-utils', () => {
 
   describe('getCurrentBranch', () => {
     it('should return the current branch name', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, 'main\n', '')
@@ -96,7 +96,7 @@ describe('git-utils', () => {
     })
 
     it('should handle errors', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(new Error('Not a git repository'), null, null)
@@ -109,7 +109,7 @@ describe('git-utils', () => {
 
   describe('createBranch', () => {
     it('should create a new branch', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, '', '')
@@ -128,7 +128,7 @@ describe('git-utils', () => {
 
   describe('getGitStatus', () => {
     it('should parse git status correctly', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           // Ensure proper git status format: 2 status chars + space + filename
@@ -148,7 +148,7 @@ describe('git-utils', () => {
     })
 
     it('should indicate clean repository', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, '', '')
@@ -166,7 +166,7 @@ describe('git-utils', () => {
 
   describe('getBranchList', () => {
     it('should return list of branches', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, '  main\n* feature-branch\n  develop\n', '')
@@ -181,7 +181,7 @@ describe('git-utils', () => {
 
   describe('getCommitHash', () => {
     it('should return short commit hash by default', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, 'abc1234\n', '')
@@ -199,7 +199,7 @@ describe('git-utils', () => {
     })
 
     it('should return full commit hash when requested', async () => {
-      mockExec.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           callback(null, 'abc1234567890abcdef1234567890abcdef12345\n', '')

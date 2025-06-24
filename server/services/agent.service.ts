@@ -112,7 +112,7 @@ export class AgentService {
     // Emit stop event
     await this.eventService.emitEvent({
       eventId: randomUUID(),
-      type: 'stop' as const,
+      type: 'stop' as any,
       taskId: execution.taskId,
       timestamp: new Date(),
       isError: false,
@@ -189,7 +189,7 @@ export class AgentService {
       // Emit error event
       await this.eventService.emitEvent({
         eventId: randomUUID(),
-        type: 'error' as const,
+        type: 'error' as any,
         taskId: execution.taskId,
         timestamp: new Date(),
         isError: true,
@@ -206,7 +206,7 @@ export class AgentService {
     }
   }
 
-  private createAgent(agentType: AgentType, taskId: string, options: any): BaseAgent {
+  private createAgent(agentType: AgentType, _taskId: string, _options: any): BaseAgent {
     const AgentClass = this.agentRegistry.get(agentType)
     if (!AgentClass) {
       throw new ValidationError(`Unknown agent type: ${agentType}`, { agentType })

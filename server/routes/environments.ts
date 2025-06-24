@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { EnvironmentNotFoundError } from '../../shared/constants/errors.js'
@@ -58,14 +59,15 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         body: CreateEnvironmentSchema,
       },
     },
-    async (request, reply) => {
+    async (request, _reply) => {
+      const body = request.body as z.infer<typeof CreateEnvironmentSchema>
       const environmentData = {
-        ...request.body,
-        id: crypto.randomUUID(),
+        ...body,
+        id: randomUUID(),
         createdAt: new Date(),
         updatedAt: new Date(),
         isActive: true,
-        variables: request.body.variables || {},
+        variables: body.variables || {},
       }
 
       await environmentService.createEnvironment(environmentData as any)
@@ -74,7 +76,7 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
   )
 
   // List environments
-  app.get('/', async (request, reply) => {
+  app.get('/', async (_request, _reply) => {
     const environments = await environmentService.listEnvironments()
     return { environments }
   })
@@ -87,8 +89,8 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         params: EnvironmentIdParamsSchema,
       },
     },
-    async (request, reply) => {
-      const { environmentId } = request.params
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
       const environment = await environmentService.getEnvironment(environmentId)
 
       if (!environment) {
@@ -108,9 +110,9 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         body: UpdateEnvironmentSchema,
       },
     },
-    async (request, reply) => {
-      const { environmentId } = request.params
-      const updates = request.body
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
+      const updates = request.body as z.infer<typeof UpdateEnvironmentSchema>
 
       await environmentService.updateEnvironment(environmentId, updates)
 
@@ -127,8 +129,8 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         params: EnvironmentIdParamsSchema,
       },
     },
-    async (request, reply) => {
-      const { environmentId } = request.params
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
 
       await environmentService.deleteEnvironment(environmentId)
       return { status: 'deleted' }
@@ -144,9 +146,10 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         body: FileSearchSchema,
       },
     },
-    async (request, reply) => {
-      const { environmentId } = request.params
-      const searchRequest = request.body
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
+      // TODO: Use searchRequest when implementing file search
+      // const searchRequest = request.body as z.infer<typeof FileSearchSchema>
 
       // Verify environment exists
       const environment = await environmentService.getEnvironment(environmentId)

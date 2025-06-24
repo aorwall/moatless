@@ -1,5 +1,5 @@
 import { ValidationError } from '@shared/constants/errors.js'
-import type { RemoteRepository } from '@shared/types'
+import type { RemoteRepository } from '../../shared/types/index.js'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
@@ -11,11 +11,11 @@ export async function validateRepositoryAccess(repo: RemoteRepository): Promise<
     const command = `git ls-remote --heads "${repo.url}"`
 
     const env = { ...process.env }
-    if (repo.accessToken) {
+    if ('token' in repo && repo.token) {
       // Add token to URL for authentication
-      const url = new URL(repo.url)
+      const url = new URL(repo.url!)
       url.username = 'token'
-      url.password = repo.accessToken
+      url.password = repo.token
       const authenticatedCommand = `git ls-remote --heads "${url.toString()}"`
       await execAsync(authenticatedCommand, { env, timeout: 10000 })
     } else {

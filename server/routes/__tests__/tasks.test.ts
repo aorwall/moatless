@@ -80,7 +80,7 @@ describe('Task Routes', () => {
         lastMessageAt: new Date(),
         agentType: 'claude-code',
         environmentId: 'test-env',
-        status: 'active',
+        status: 'active' as const,
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -122,7 +122,7 @@ describe('Task Routes', () => {
           lastMessageAt: new Date(),
           agentType: 'claude-code',
           environmentId: 'test-env',
-          status: 'active',
+          status: 'active' as const,
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],
@@ -133,7 +133,7 @@ describe('Task Routes', () => {
           lastMessageAt: new Date(),
           agentType: 'claude-code',
           environmentId: 'test-env',
-          status: 'completed',
+          status: 'completed' as const,
           numTurns: 5,
           totalCostUsd: 0.1,
           iterations: [],
@@ -159,7 +159,7 @@ describe('Task Routes', () => {
       const mockTasks = [
         {
           taskId: 'task-1',
-          status: 'active',
+          status: 'active' as const,
           createdAt: new Date(),
           lastMessageAt: new Date(),
           agentType: 'claude-code',
@@ -219,7 +219,7 @@ describe('Task Routes', () => {
     it('should return task events with pagination', async () => {
       const mockTask = {
         taskId: 'test-123',
-        status: 'active',
+        status: 'active' as const,
       } as any
 
       const mockEvents = [
@@ -239,7 +239,7 @@ describe('Task Routes', () => {
           isError: false,
           payload: { content: 'Hello' },
         },
-      ]
+      ] as any
 
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(mockTask)
       vi.spyOn(app.services.event, 'getEvents').mockResolvedValueOnce(mockEvents)

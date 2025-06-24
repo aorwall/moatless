@@ -6,7 +6,7 @@ import type {
   FileSearchResponse,
   LocalRepository,
   RemoteRepository,
-} from '@shared/types'
+} from '../../shared/types/index.js'
 import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'fs'
@@ -28,6 +28,8 @@ export class EnvironmentService {
       description: request.description,
       repository: request.repository,
       codeExecution: request.codeExecution,
+      variables: request.variables || {},
+      isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -188,7 +190,7 @@ export class EnvironmentService {
     try {
       const stats = await fs.stat(repo.path)
       if (!stats.isDirectory()) {
-        throw new ValidationError(`Path ${repo.path} is not a directory`)
+        throw new ValidationError(`Path ${repo.path} is not a directory`, { path: repo.path })
       }
 
       // Check if it's a git repository
@@ -196,7 +198,7 @@ export class EnvironmentService {
       try {
         await fs.access(gitPath)
       } catch {
-        throw new ValidationError(`Path ${repo.path} is not a git repository`)
+        throw new ValidationError(`Path ${repo.path} is not a git repository`, { path: repo.path })
       }
     } catch (error) {
       if (error instanceof ValidationError) {
@@ -204,6 +206,7 @@ export class EnvironmentService {
       }
       throw new ValidationError(
         `Cannot access repository at ${repo.path}: ${error instanceof Error ? error.message : String(error)}`,
+        { path: repo.path, error: error instanceof Error ? error.message : String(error) },
       )
     }
   }
@@ -211,9 +214,9 @@ export class EnvironmentService {
   private async validateRemoteRepository(repo: RemoteRepository): Promise<void> {
     // Validate URL format
     try {
-      new URL(repo.url)
+      new URL(repo.url!)
     } catch {
-      throw new ValidationError(`Invalid repository URL: ${repo.url}`)
+      throw new ValidationError(`Invalid repository URL: ${repo.url}`, { url: repo.url })
     }
 
     // Additional validation could include checking if repo is accessible
@@ -250,7 +253,7 @@ export class EnvironmentService {
 }
 
 export function createEnvironmentService(
-  app: FastifyInstance,
+  _app: FastifyInstance,
   storage: StorageBackend,
 ): EnvironmentService {
   return new EnvironmentService(storage)

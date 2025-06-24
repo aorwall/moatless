@@ -217,14 +217,16 @@ describe('PerformanceMonitor', () => {
   })
 
   describe('events', () => {
-    it('should emit metric events', (done) => {
-      performanceMonitor.once('metric', (metric) => {
-        expect(metric.name).toBe('event-test')
-        expect(metric.value).toBe(123)
-        done()
-      })
+    it('should emit metric events', () => {
+      return new Promise<void>((resolve) => {
+        performanceMonitor.once('metric', (metric) => {
+          expect(metric.name).toBe('event-test')
+          expect(metric.value).toBe(123)
+          resolve()
+        })
 
-      performanceMonitor.recordMetric('event-test', 123)
+        performanceMonitor.recordMetric('event-test', 123)
+      })
     })
   })
 

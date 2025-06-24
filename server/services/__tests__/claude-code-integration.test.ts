@@ -18,7 +18,6 @@ describe('Claude Code Integration', () => {
   it('should execute claude command and parse events', async () => {
     const agent = new ClaudeCodeAgent('test-task', {
       model: 'claude-3-haiku-20240307', // Use faster model for tests
-      maxTokens: 100,
     })
 
     const events: any[] = []

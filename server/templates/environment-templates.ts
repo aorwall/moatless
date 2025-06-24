@@ -1,10 +1,10 @@
-import type { EnvironmentMetadata } from '../../shared/types/environment.js'
+import type { Environment } from '../../shared/types/environment.js'
 
 export interface EnvironmentTemplate {
   id: string
   name: string
   description: string
-  defaultMetadata: Partial<EnvironmentMetadata>
+  defaultMetadata: Partial<Environment> & { [key: string]: any }
   requiredFiles?: string[]
   setupInstructions?: string
 }

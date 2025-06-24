@@ -122,7 +122,6 @@ describe('Async Utils', () => {
 
   describe('sleep', () => {
     it('should delay for specified time', async () => {
-      const start = Date.now()
       const promise = sleep(1000)
 
       await vi.advanceTimersByTimeAsync(1000)
@@ -228,10 +227,8 @@ describe('Async Utils', () => {
 
   describe('makeCancelable', () => {
     it('should create cancelable promise', async () => {
-      let resolved = false
       const promise = new Promise<string>((resolve) => {
         setTimeout(() => {
-          resolved = true
           resolve('done')
         }, 100)
       })

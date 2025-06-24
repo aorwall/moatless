@@ -70,7 +70,7 @@ describe('File Search Utilities', () => {
     it('should respect file pattern when provided', async () => {
       vi.mocked(glob).mockResolvedValue(['src/components/Button.tsx', 'src/components/Input.tsx'])
 
-      const result = await searchFilesInDirectory('/project', 'component', 10, '*.tsx')
+      await searchFilesInDirectory('/project', 'component', 10, '*.tsx')
 
       expect(glob).toHaveBeenCalledWith('*.tsx', expect.any(Object))
     })
@@ -183,7 +183,7 @@ describe('File Search Utilities', () => {
     it('should list files recursively when specified', async () => {
       vi.mocked(glob).mockResolvedValue(['file1.txt', 'src/file2.js', 'src/utils/file3.ts'])
 
-      const files = await listDirectory('/test', { recursive: true })
+      await listDirectory('/test', { recursive: true })
 
       expect(glob).toHaveBeenCalledWith('**/*', expect.any(Object))
     })
@@ -191,7 +191,7 @@ describe('File Search Utilities', () => {
     it('should include hidden files when specified', async () => {
       vi.mocked(glob).mockResolvedValue(['.gitignore', '.env', 'file.txt'])
 
-      const files = await listDirectory('/test', { includeHidden: true })
+      await listDirectory('/test', { includeHidden: true })
 
       expect(glob).toHaveBeenCalledWith(
         '*',
@@ -204,7 +204,7 @@ describe('File Search Utilities', () => {
     it('should list only files when specified', async () => {
       vi.mocked(glob).mockResolvedValue(['file1.txt', 'file2.js'])
 
-      const files = await listDirectory('/test', { fileOnly: true })
+      await listDirectory('/test', { fileOnly: true })
 
       expect(glob).toHaveBeenCalledWith(
         '*',

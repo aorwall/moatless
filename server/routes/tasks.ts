@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { TaskNotFoundError } from '../../shared/constants/errors.js'
 import type { EventType } from '../../shared/types/event.js'
-import { CreateTaskRequestSchema, SendMessageRequestSchema } from '../../shared/types/task.js'
+import { CreateTaskRequestSchema } from '../../shared/types/task.js'
+import { SendMessageRequestSchema } from '../../shared/types/api.js'
 
 // Schema for URL params
 const TaskIdParamsSchema = z.object({
@@ -42,8 +43,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (request, reply) => {
-      const taskId = await taskService.createTask(request.body)
+    async (request, _reply) => {
+      const taskId = await taskService.createTask(request.body as any)
       return { taskId, status: 'active' }
     },
   )
@@ -56,8 +57,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         params: TaskIdParamsSchema,
       },
     },
-    async (request, reply) => {
-      const { taskId } = request.params
+    async (request, _reply) => {
+      const { taskId } = request.params as any
       const task = await taskService.getTask(taskId)
 
       if (!task) {
@@ -76,8 +77,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         querystring: TaskListQuerySchema,
       },
     },
-    async (request, reply) => {
-      const { limit, offset, status } = request.query
+    async (request, _reply) => {
+      const { limit, offset, status } = request.query as any
       let tasks = await taskService.listTasks(limit, offset)
 
       // Filter by status if provided
@@ -105,9 +106,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         body: SendMessageRequestSchema,
       },
     },
-    async (request, reply) => {
-      const { taskId } = request.params
-      const { message } = request.body
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { message } = request.body as any
 
       await taskService.sendMessage(taskId, message)
       return { status: 'sent', timestamp: new Date().toISOString() }
@@ -123,9 +124,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         querystring: EventListQuerySchema,
       },
     },
-    async (request, reply) => {
-      const { taskId } = request.params
-      const { limit, offset, type } = request.query
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { limit, offset, type } = request.query as any
 
       // Verify task exists
       const task = await taskService.getTask(taskId)
@@ -162,9 +163,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         }),
       },
     },
-    async (request, reply) => {
-      const { taskId } = request.params
-      const updates = request.body
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const updates = request.body as any
 
       await taskService.updateTask(taskId, updates)
       return { status: 'updated' }
@@ -179,8 +180,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         params: TaskIdParamsSchema,
       },
     },
-    async (request, reply) => {
-      const { taskId } = request.params
+    async (request, _reply) => {
+      const { taskId } = request.params as any
 
       await taskService.deleteTask(taskId)
       return { status: 'deleted' }
@@ -197,7 +198,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (socket, request) => {
-      const { taskId } = request.params
+      const { taskId } = request.params as any
 
       try {
         // Verify task exists before setting up subscription

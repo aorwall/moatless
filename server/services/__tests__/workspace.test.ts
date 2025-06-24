@@ -9,7 +9,7 @@ import { WorkspaceService } from '../workspace.service.js'
 
 // Mock child_process
 vi.mock('child_process', () => ({
-  exec: vi.fn((cmd, opts, cb) => {
+  exec: vi.fn((_cmd, opts, cb) => {
     if (cb) {
       cb(null, { stdout: 'mocked output', stderr: '' })
     } else if (typeof opts === 'function') {
@@ -102,7 +102,7 @@ describe('WorkspaceService', () => {
 
       // Mock exec to simulate failure
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         callback(new Error('Git worktree creation failed'), null)
       }) as any)
@@ -126,7 +126,7 @@ describe('WorkspaceService', () => {
 
       // Mock successful worktree creation
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         callback(null, { stdout: 'success', stderr: '' })
       }) as any)
@@ -160,7 +160,7 @@ describe('WorkspaceService', () => {
 
       // Mock exec for worktree creation
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         callback(null, { stdout: tempDir, stderr: '' })
       }) as any)
@@ -192,7 +192,7 @@ describe('WorkspaceService', () => {
 
       // Mock exec for worktree creation
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         callback(null, { stdout: tempDir, stderr: '' })
       }) as any)
@@ -227,7 +227,7 @@ describe('WorkspaceService', () => {
 
       // Mock exec for worktree creation
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         callback(null, { stdout: tempDir, stderr: '' })
       }) as any)
@@ -260,10 +260,7 @@ describe('WorkspaceService', () => {
         },
         codeExecution: {
           type: 'docker',
-          config: {
-            image: 'node:18',
-            workdir: '/app',
-          },
+          image: 'node:18',
         },
       })
 
@@ -304,17 +301,17 @@ describe('WorkspaceService', () => {
 
       // Mock exec
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         callback(null, { stdout: 'success', stderr: '' })
       }) as any)
 
-      const workspace = await service.createWorkspace('test-task', environment.id)
+      await service.createWorkspace('test-task', environment.id)
       await service.cleanupWorkspace('test-task')
 
       // Verify workspace is removed from storage
-      const deletedWorkspace = await storage.getWorkspace('test-task')
-      expect(deletedWorkspace).toBeNull()
+      const _deletedWorkspace = await storage.getWorkspace('test-task')
+      expect(_deletedWorkspace).toBeNull()
 
       // Verify git worktree remove was called
       expect(execMock).toHaveBeenCalledWith(

@@ -8,6 +8,7 @@ import { promisify } from 'util'
 import type {
   DockerWorkspace,
   Environment,
+  LocalRepository,
   LocalWorkspace,
   Workspace,
 } from '../../shared/types/index.js'
@@ -225,7 +226,8 @@ export class WorkspaceService {
     try {
       if (environment.repository.type === 'local') {
         // Create git worktree for local repositories
-        const repoPath = environment.repository.path
+        const localRepo = environment.repository as LocalRepository
+        const repoPath = localRepo.path
         const worktreePath = path.join(process.env.WORKTREE_DIR || './worktrees', taskId)
 
         // Get current branch to restore later
@@ -307,9 +309,8 @@ export class WorkspaceService {
     }
 
     try {
-      const config = environment.codeExecution.config || {}
-      const image = config.image || 'node:18-alpine'
-      const workdir = config.workdir || '/workspace'
+      const image = environment.codeExecution.image || 'node:18-alpine'
+      const workdir = '/workspace'
 
       // Create container
       const containerName = `moatless-task-${taskId}`
@@ -317,15 +318,15 @@ export class WorkspaceService {
       let createCommand = `docker create --name "${containerName}" -w "${workdir}"`
 
       // Add volume mounts if specified
-      if (config.volumes) {
-        for (const volume of config.volumes) {
+      if (environment.codeExecution.volumes) {
+        for (const volume of environment.codeExecution.volumes) {
           createCommand += ` -v "${volume}"`
         }
       }
 
       // Add environment variables
-      if (config.env) {
-        for (const [key, value] of Object.entries(config.env)) {
+      if (environment.codeExecution.envVars) {
+        for (const [key, value] of Object.entries(environment.codeExecution.envVars)) {
           createCommand += ` -e "${key}=${value}"`
         }
       }

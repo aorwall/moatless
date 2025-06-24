@@ -100,8 +100,4 @@ export const CreateTaskRequestSchema = z.object({
   start: z.boolean().default(true),
 })
 
-export const SendMessageRequestSchema = z.object({
-  message: z.string().min(1),
-})
-
-export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
+// SendMessageRequestSchema and SendMessageRequest are exported from api.ts

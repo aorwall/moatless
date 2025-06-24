@@ -15,7 +15,10 @@ describe('Environment Routes', () => {
 
   describe('POST /api/environments', () => {
     it('should create a new environment', async () => {
-      vi.spyOn(app.services.environment, 'createEnvironment').mockResolvedValueOnce()
+      vi.spyOn(app.services.environment, 'createEnvironment').mockResolvedValueOnce({
+        id: 'test-env-id',
+        name: 'Test Environment',
+      } as any)
 
       const response = await app.inject({
         method: 'POST',
@@ -59,8 +62,8 @@ describe('Environment Routes', () => {
         {
           id: 'env-1',
           name: 'Environment 1',
-          repository: { type: 'local', path: '/path1' },
-          codeExecution: { type: 'local' },
+          repository: { type: 'local' as const, path: '/path1' },
+          codeExecution: { type: 'local' as const },
           variables: {},
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -69,8 +72,8 @@ describe('Environment Routes', () => {
         {
           id: 'env-2',
           name: 'Environment 2',
-          repository: { type: 'github', repoId: 'owner/repo', branch: 'main' },
-          codeExecution: { type: 'docker', image: 'node:18' },
+          repository: { type: 'github' as const, repoId: 'owner/repo', branch: 'main' },
+          codeExecution: { type: 'docker' as const, image: 'node:18' },
           variables: {},
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -96,8 +99,8 @@ describe('Environment Routes', () => {
       const mockEnvironment = {
         id: 'env-123',
         name: 'Test Environment',
-        repository: { type: 'local', path: '/test/path' },
-        codeExecution: { type: 'local' },
+        repository: { type: 'local' as const, path: '/test/path' },
+        codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -137,15 +140,15 @@ describe('Environment Routes', () => {
         id: 'env-123',
         name: 'Updated Name',
         description: 'Updated description',
-        repository: { type: 'local', path: '/test/path' },
-        codeExecution: { type: 'local' },
+        repository: { type: 'local' as const, path: '/test/path' },
+        codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
         isActive: true,
       }
 
-      vi.spyOn(app.services.environment, 'updateEnvironment').mockResolvedValueOnce()
+      vi.spyOn(app.services.environment, 'updateEnvironment').mockResolvedValueOnce(updatedEnvironment)
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(updatedEnvironment)
 
       const response = await app.inject({

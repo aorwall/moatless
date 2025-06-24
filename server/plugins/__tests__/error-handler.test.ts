@@ -1,5 +1,5 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ERROR_CODES, MoatlessError } from '../../../shared/constants/errors.js'
 import { errorHandler } from '../error-handler.js'
 

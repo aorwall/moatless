@@ -99,7 +99,6 @@ export class ProcessManager extends EventEmitter {
   }
 
   async executeShell(command: string, options: ProcessOptions = {}): Promise<ProcessResult> {
-    const processId = randomUUID()
 
     try {
       const result = await execAsync(command, {
@@ -136,7 +135,7 @@ export class ProcessManager extends EventEmitter {
   }
 
   killAllProcesses(signal: NodeJS.Signals = 'SIGTERM'): void {
-    for (const [processId, process] of this.activeProcesses) {
+    for (const [_processId, process] of this.activeProcesses) {
       if (!process.killed) {
         process.kill(signal)
       }

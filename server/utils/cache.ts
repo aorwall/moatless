@@ -89,14 +89,14 @@ export class Cache<T = any> {
   }
 
   // Get or set pattern
-  async getOrSet(key: string, factory: () => Promise<T> | T, ttl?: number): Promise<T> {
+  async getOrSet<R = T>(key: string, factory: () => Promise<R> | R, ttl?: number): Promise<R> {
     const existing = this.get(key)
     if (existing !== null) {
-      return existing
+      return existing as R
     }
 
     const value = await factory()
-    this.set(key, value, ttl)
+    this.set(key, value as T, ttl)
     return value
   }
 
@@ -108,7 +108,7 @@ export class Cache<T = any> {
   ): (...args: TArgs) => Promise<TReturn> {
     return async (...args: TArgs): Promise<TReturn> => {
       const key = keyGenerator(...args)
-      return this.getOrSet(key, () => fn(...args), ttl) as Promise<TReturn>
+      return this.getOrSet<TReturn>(key, () => fn(...args), ttl)
     }
   }
 

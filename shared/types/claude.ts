@@ -1,117 +1,31 @@
 import type {
-  Message as APIAssistantMessage,
-  MessageParam as APIUserMessage,
-  Usage,
-} from '@anthropic-ai/sdk/resources/index.mjs'
+  SDKMessage as ClaudeCodeSDKMessage,
+  SDKAssistantMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+  SDKSystemMessage,
+  NonNullableUsage,
+  ApiKeySource,
+  PermissionMode,
+  Options as ClaudeCodeOptions,
+} from '@anthropic-ai/claude-code'
 
-export type NonNullableUsage = {
-  [K in keyof Usage]: NonNullable<Usage[K]>
+// Re-export the types we need from claude-code
+export type {
+  SDKAssistantMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+  SDKSystemMessage,
+  NonNullableUsage,
+  ApiKeySource,
+  PermissionMode,
 }
 
-export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary'
 
 export type ConfigScope = 'local' | 'user' | 'project'
 
-export type McpStdioServerConfig = {
-  type?: 'stdio' // Optional for backwards compatibility
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-}
+// Re-export from claude-code
+export type { ClaudeCodeOptions }
 
-export type McpSSEServerConfig = {
-  type: 'sse'
-  url: string
-  headers?: Record<string, string>
-}
-
-export type McpHttpServerConfig = {
-  type: 'http'
-  url: string
-  headers?: Record<string, string>
-}
-
-export type McpServerConfig = McpStdioServerConfig | McpSSEServerConfig | McpHttpServerConfig
-
-export type ClaudeCodeOptions = {
-  abortController?: AbortController
-  allowedTools?: string[]
-  appendSystemPrompt?: string
-  customSystemPrompt?: string
-  cwd?: string
-  disallowedTools?: string[]
-  executable?: 'bun' | 'deno' | 'node'
-  executableArgs?: string[]
-  maxThinkingTokens?: number
-  maxTurns?: number
-  mcpServers?: Record<string, McpServerConfig>
-  pathToClaudeCodeExecutable?: string
-  permissionMode?: PermissionMode
-  permissionPromptToolName?: string
-  continue?: boolean
-  resume?: string
-  model?: string
-  fallbackModel?: string
-}
-
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
-
-export type SDKUserMessage = {
-  type: 'user'
-  message: APIUserMessage
-  parent_tool_use_id: string | null
-  session_id: string
-}
-
-export type SDKAssistantMessage = {
-  type: 'assistant'
-  message: APIAssistantMessage
-  parent_tool_use_id: string | null
-  session_id: string
-}
-
-export type SDKResultMessage =
-  | {
-      type: 'result'
-      subtype: 'success'
-      duration_ms: number
-      duration_api_ms: number
-      is_error: boolean
-      num_turns: number
-      result: string
-      session_id: string
-      total_cost_usd: number
-      usage: NonNullableUsage
-    }
-  | {
-      type: 'result'
-      subtype: 'error_max_turns' | 'error_during_execution'
-      duration_ms: number
-      duration_api_ms: number
-      is_error: boolean
-      num_turns: number
-      session_id: string
-      total_cost_usd: number
-      usage: NonNullableUsage
-    }
-
-export type SDKSystemMessage = {
-  type: 'system'
-  subtype: 'init'
-  apiKeySource: ApiKeySource
-  cwd: string
-  session_id: string
-  tools: string[]
-  mcp_servers: {
-    name: string
-    status: string
-  }[]
-  model: string
-  permissionMode: PermissionMode
-}
-
-export type ClaudeCodeSDKMessage =
-  | SDKAssistantMessage
-  | SDKUserMessage
-  | SDKResultMessage
-  | SDKSystemMessage
+// Export the imported type with our own name
+export { ClaudeCodeSDKMessage }

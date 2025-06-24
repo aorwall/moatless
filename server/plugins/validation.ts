@@ -14,13 +14,13 @@ export async function setupValidation(app: FastifyInstance) {
             return { value: result.data }
           }
           return {
-            error: new ValidationError('Validation failed', result.error.issues),
+            error: new ValidationError('Validation failed', result.error.issues) as Error,
           }
         }
         // Fallback to default validation
         return { value: data }
       } catch (error) {
-        return { error }
+        return { error: error as Error }
       }
     }
   })
@@ -33,10 +33,10 @@ export async function setupValidation(app: FastifyInstance) {
   })
 
   // Add response serialization options
-  app.setSerializerCompiler(({ schema }) => {
+  app.setSerializerCompiler(({ schema: _schema }) => {
     return (data) => {
       // Handle Date serialization
-      return JSON.stringify(data, (key, value) => {
+      return JSON.stringify(data, (_key, value) => {
         if (value instanceof Date) {
           return value.toISOString()
         }
