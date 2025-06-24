@@ -1,9 +1,8 @@
+import type { Event } from '@shared/types/event'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
-import type { Event } from '@/types/event'
 
 import { ToolCallEvent } from '../tool-call-event'
 

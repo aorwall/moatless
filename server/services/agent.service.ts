@@ -1,7 +1,7 @@
 import { ValidationError } from '@shared/constants/errors.js'
 import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
-import { createClaudeCodeOptions, validateAgentOptions } from './agents/agent-options.js'
+import { validateAgentOptions } from './agents/agent-options.js'
 import type { BaseAgent } from './agents/base-agent.js'
 import { ClaudeCodeAgent } from './agents/claude-code-agent.js'
 import type { EventService } from './event.service.js'
@@ -213,10 +213,6 @@ export class AgentService {
     }
 
     switch (agentType) {
-      case 'claude-code': {
-        const claudeOptions = createClaudeCodeOptions(options)
-        return new ClaudeCodeAgent(taskId, claudeOptions) as BaseAgent
-      }
       default:
         throw new ValidationError(`Agent type ${agentType} not implemented`, { agentType })
     }

@@ -1,7 +1,6 @@
+import type { UpdateEnvironmentRequest } from '@shared/types/environmenttypes/environment'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
 import { environmentsApi } from '@/features/environments/api/environments'
-import type { UpdateEnvironmentRequest } from '@/types/environment'
 
 export function useEnvironmentsSettings() {
   const queryClient = useQueryClient()

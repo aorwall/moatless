@@ -1,8 +1,7 @@
+import type { Event } from '@shared/types/event'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
 import { useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
-import type { Event } from '@/types/event'
 
 interface UseTaskStreamingResult {
   streamEvents: Array<Event>

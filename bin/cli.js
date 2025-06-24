@@ -1,8 +1,8 @@
-#\!/usr/bin/env node
+#!/usr/bin/env node
 
-import { spawn } from 'child_process'
-import { dirname, join } from 'path'
-import { fileURLToPath } from 'url'
+import { spawn } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -62,4 +62,3 @@ function startDevelopment() {
     process.exit(code || 0)
   })
 }
-EOF < /dev/null

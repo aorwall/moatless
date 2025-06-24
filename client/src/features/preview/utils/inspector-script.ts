@@ -332,4 +332,4 @@ export const INSPECTOR_SCRIPT = `
   // Signal that inspector is ready
   window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*');
 })();
-`;
+`

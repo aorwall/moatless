@@ -1,17 +1,16 @@
+import { EventType } from '@shared/types/event'
 import { useParams } from '@tanstack/react-router'
 import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
-
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
 import { useSendMessage, useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
-import { AgentEventType } from '@/types/event'
 import type { TaskIteration } from '@/types/task'
 
 import { ChatInput } from '../chat-input'
@@ -126,8 +125,8 @@ export function ChatView() {
     // Count message events with role assistant for this iteration (using index + 1 as iteration number)
     const messageEvents = events.filter(
       (event) =>
-        event.iterationNumber === iterationIndex + 1 &&
-        event.type === AgentEventType.MESSAGE &&
+        event.iterationId === iterationIndex + 1 &&
+        event.type === EventType.MESSAGE &&
         event.payload?.role === 'assistant',
     )
 

@@ -1,7 +1,11 @@
+import type {
+  CreateEnvironmentRequest,
+  EnvironmentResponse,
+  UpdateEnvironmentRequest,
+} from '@shared/types/environmenttypes/environment'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Input } from '@/lib/components/ui/input'
@@ -13,11 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
-import type {
-  CreateEnvironmentRequest,
-  EnvironmentResponse,
-  UpdateEnvironmentRequest,
-} from '@/types/environment'
 
 import { LocalRepositoryConfig } from './local-repository-config'
 
@@ -31,9 +30,9 @@ type FormData = {
   name: string
   type: 'local' | 'github'
   environment_variables: Record<string, string>
-  is_active: boolean
+  isActive: boolean
   path: string
-  use_git_worktrees: boolean
+  useGitWorktrees: boolean
   repo_url: string
   branch: string
 }
@@ -46,7 +45,7 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
     if (env?.repository.type === 'local') {
       return {
         path: env.repository.path,
-        use_git_worktrees: env.repository.useGitWorktrees ?? false,
+        useGitWorktrees: env.repository.useGitWorktrees ?? false,
       }
     } else if (env?.repository.type === 'github') {
       return {
@@ -56,7 +55,7 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
     }
     return {
       path: '',
-      use_git_worktrees: false,
+      useGitWorktrees: false,
       repo_url: '',
       branch: 'main',
     }
@@ -66,7 +65,7 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
     name: environment?.name || '',
     type: environment?.repository.type || 'local',
     environment_variables: environment?.variables || {},
-    is_active: environment?.is_active ?? true,
+    isActive: environment?.is_active ?? true,
     ...getInitialRepositoryData(environment),
   } as FormData)
 
@@ -78,10 +77,10 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
         name: environment.name,
         type: environment.repository.type,
         environment_variables: environment.variables || {},
-        is_active: environment.is_active,
+        isActive: environment.is_active,
         path: 'path' in repoData ? (repoData.path as string) : '',
-        use_git_worktrees:
-          'use_git_worktrees' in repoData ? (repoData.use_git_worktrees as boolean) : false,
+        useGitWorktrees:
+          'useGitWorktrees' in repoData ? (repoData.useGitWorktrees as boolean) : false,
         repo_url: 'repo_url' in repoData ? (repoData.repo_url as string) : '',
         branch: 'branch' in repoData ? (repoData.branch as string) : 'main',
       })
@@ -101,15 +100,15 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
         ? {
             type: 'local' as const,
             path: formData.path,
-            use_git_worktrees: formData.use_git_worktrees,
+            useGitWorktrees: formData.useGitWorktrees,
           }
         : {
             type: 'github' as const,
-            repo_id: formData.repo_url || '',
+            repoId: formData.repo_url || '',
             branch: formData.branch,
           }
 
-    const code_execution = {
+    const codeExecution = {
       type: 'local' as const,
     }
 
@@ -117,14 +116,14 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
       ? {
           name: formData.name,
           repository,
-          code_execution,
+          codeExecution,
           variables: formData.environment_variables,
-          is_active: formData.is_active,
+          isActive: formData.isActive,
         }
       : {
           name: formData.name,
           repository,
-          code_execution,
+          codeExecution,
           variables: formData.environment_variables,
         }
 
@@ -185,10 +184,10 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
             {formData.type === 'local' && (
               <LocalRepositoryConfig
                 path={formData.path}
-                useGitWorktrees={formData.use_git_worktrees}
+                useGitWorktrees={formData.useGitWorktrees}
                 onPathChange={(path) => setFormData({ ...formData, path })}
-                onUseGitWorktreesChange={(use_git_worktrees) =>
-                  setFormData({ ...formData, use_git_worktrees })
+                onUseGitWorktreesChange={(useGitWorktrees) =>
+                  setFormData({ ...formData, useGitWorktrees })
                 }
               />
             )}

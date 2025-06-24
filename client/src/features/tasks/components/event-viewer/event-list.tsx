@@ -1,7 +1,6 @@
+import type { Event } from '@shared/types/event'
 import { useMemo } from 'react'
-
 import { type MergedEvent, mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
-import type { Event } from '@/types/event.ts'
 
 import { InputEvent, MessageEvent, ResultEvent, WorkspaceEvent } from './event-components'
 import { ToolCallEvent } from './event-components/tool-call-event'
@@ -83,7 +82,7 @@ export function EventList({ events }: EventListProps) {
   return (
     <div className="space-y-2 w-full max-w-[48rem] min-w-[24rem] mx-auto">
       {mergedEvents.map((event) => (
-        <EventContent key={event.event_id} event={event} />
+        <EventContent key={event.eventId} event={event} />
       ))}
     </div>
   )

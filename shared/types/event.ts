@@ -1,4 +1,4 @@
-import type { SDKMessage } from '@anthropic-ai/claude-code'
+import type { ClaudeCodeSDKMessage } from '@shared/types/claude.js'
 
 export enum EventType {
   INPUT = 'input',
@@ -49,7 +49,7 @@ export interface InputEvent extends BaseEvent {
 
 export interface MessageEvent extends BaseEvent {
   type: EventType.MESSAGE
-  payload: SDKMessage
+  payload: ClaudeCodeSDKMessage
 }
 
 export interface ErrorEvent extends BaseEvent {

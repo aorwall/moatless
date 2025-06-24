@@ -70,27 +70,6 @@ export class AgentOptionsBuilder {
   }
 }
 
-export const defaultClaudeCodeOptions: ClaudeCodeOptions = {
-  model: 'claude-3-5-sonnet-20241022',
-  maxTokens: 8192,
-  temperature: 0.1,
-  timeout: 300, // 5 minutes
-  tools: ['computer', 'bash', 'str_replace_editor'],
-  outputFormat: 'json',
-  workspaceIntegration: true,
-  autoApprove: false,
-  maxIterations: 10,
-}
-
-export function createClaudeCodeOptions(
-  overrides: Partial<ClaudeCodeOptions> = {},
-): ClaudeCodeOptions {
-  return {
-    ...defaultClaudeCodeOptions,
-    ...overrides,
-  }
-}
-
 export function validateAgentOptions(options: BaseAgentOptions): string[] {
   const errors: string[] = []
 

@@ -1,4 +1,4 @@
-import type { Event } from '@/types/event'
+import type { Event } from '@shared/types/event'
 
 export interface MergedEvent extends Event {
   toolResult?: Event
@@ -39,7 +39,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
 
   for (const event of events) {
     // Skip if already processed as a tool result
-    if (processedEventIds.has(event.event_id)) {
+    if (processedEventIds.has(event.eventId)) {
       continue
     }
 
@@ -62,7 +62,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
 
             if (toolResult) {
               // Mark the tool result as processed
-              processedEventIds.add(toolResult.event_id)
+              processedEventIds.add(toolResult.eventId)
 
               // Create merged event
               const mergedEvent: MergedEvent = {

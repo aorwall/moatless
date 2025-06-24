@@ -35,6 +35,7 @@
     "check:turbo": "pnpm turbo biome:check type:check test"
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.33",
     "@fastify/cors": "^10.0.0",
     "@fastify/helmet": "^12.0.0",
     "@fastify/rate-limit": "^10.3.0",

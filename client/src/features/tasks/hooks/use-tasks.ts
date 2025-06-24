@@ -1,13 +1,13 @@
+import type { FileSearchResponse } from '@shared/types/environmenttypes/environment'
+import type { Event } from '@shared/types/event'
+import type { GitDiffResponse, TaskResponse } from '@shared/types/task'
+import type { ServerStatus } from '@shared/types/workspace'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent'
-import type { FileSearchResponse } from '@/types/environment'
-import type { Event } from '@/types/event.ts'
-import type { GitDiffResponse } from '@/types/git-diff'
-import type { ServerStatus, TaskMetadata, WorkspaceStatusResponse } from '@/types/task'
+import type { WorkspaceStatusResponse } from '@/types/task'
 
 /**
  * Task Query Invalidation Strategy:
@@ -27,7 +27,7 @@ export function useTasksList(
     limit?: number
     offset?: number
   },
-  options?: Omit<UseQueryOptions<Array<TaskMetadata>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Array<TaskResponse>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasksList(params),
@@ -38,7 +38,7 @@ export function useTasksList(
 
 export function useTask(
   taskId: string,
-  options?: Omit<UseQueryOptions<TaskMetadata>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<TaskResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.task(taskId),
@@ -96,7 +96,7 @@ export function useSendMessage(
 }
 
 export function useStopAgent(
-  options?: UseMutationOptions<{ status: string; task_id: string }, Error, string>,
+  options?: UseMutationOptions<{ status: string; taskId: string }, Error, string>,
 ) {
   const queryClient = useQueryClient()
 

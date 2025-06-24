@@ -101,6 +101,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
+      shared:
+        specifier: link:@/shared
+        version: link:@/shared
       sonner:
         specifier: ^1.4.41
         version: 1.7.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0)

@@ -1,9 +1,11 @@
+import type {
+  CreateEnvironmentRequest,
+  UpdateEnvironmentRequest,
+} from '@shared/types/environmenttypes/environment'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
-
 import { EnvironmentForm, useCreateEnvironment } from '@/features/environments'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { CreateEnvironmentRequest, UpdateEnvironmentRequest } from '@/types/environment'
 
 export const Route = createFileRoute('/environments/new')({
   component: EnvironmentNew,

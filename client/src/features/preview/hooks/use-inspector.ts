@@ -1,32 +1,28 @@
-import { useCallback } from 'react';
-import { usePreviewStore } from '../stores/preview-store';
-import type { ElementInfo } from '../types';
+import { useCallback } from 'react'
+import { usePreviewStore } from '../stores/preview-store'
+import type { ElementInfo } from '../types'
 
 export function useInspector() {
-  const {
-    isInspectorActive,
-    selectedElement,
-    toggleInspector,
-    setSelectedElement,
-  } = usePreviewStore();
+  const { isInspectorActive, selectedElement, toggleInspector, setSelectedElement } =
+    usePreviewStore()
 
   const handleElementSelected = useCallback(
     (element: ElementInfo | null) => {
-      setSelectedElement(element);
-      
+      setSelectedElement(element)
+
       // Copy selector to clipboard
       if (element?.selector) {
         navigator.clipboard.writeText(element.selector).catch(() => {
           // Ignore clipboard errors
-        });
+        })
       }
     },
-    [setSelectedElement]
-  );
+    [setSelectedElement],
+  )
 
   const clearSelection = useCallback(() => {
-    setSelectedElement(null);
-  }, [setSelectedElement]);
+    setSelectedElement(null)
+  }, [setSelectedElement])
 
   return {
     isActive: isInspectorActive,
@@ -34,5 +30,5 @@ export function useInspector() {
     toggle: toggleInspector,
     selectElement: handleElementSelected,
     clearSelection,
-  };
+  }
 }

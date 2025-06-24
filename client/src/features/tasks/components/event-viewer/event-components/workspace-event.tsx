@@ -1,6 +1,5 @@
+import type { Event } from '@shared/types/event'
 import { Settings } from 'lucide-react'
-
-import type { Event } from '@/types/event'
 
 import { EventHeader } from './event-header'
 

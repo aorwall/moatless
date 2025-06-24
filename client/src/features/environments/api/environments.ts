@@ -1,4 +1,3 @@
-import { apiClient } from '@/lib/api/client'
 import type {
   BranchListResponse,
   CreateEnvironmentRequest,
@@ -8,7 +7,8 @@ import type {
   FileSearchResponse,
   SetupScriptResponse,
   UpdateEnvironmentRequest,
-} from '@/types/environment'
+} from '@shared/types/environmenttypes/environment'
+import { apiClient } from '@/lib/api/client'
 
 export const environmentsApi = {
   async listEnvironments(): Promise<Array<EnvironmentResponse>> {

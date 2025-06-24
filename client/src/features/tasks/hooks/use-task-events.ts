@@ -1,8 +1,7 @@
+import type { Event } from '@shared/types/event'
 import { useMemo } from 'react'
-
 import { useTaskStreaming } from '@/features/tasks/hooks/use-task-streaming'
 import { useTaskEvents as useTaskEventsAPI } from '@/features/tasks/hooks/use-tasks'
-import type { Event } from '@/types/event'
 
 interface UseTaskEventsResult {
   events: Array<Event>

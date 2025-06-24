@@ -42,7 +42,6 @@ declare module 'fastify' {
 }
 
 export * from './agent.service.js'
-export * from './agents/agent-options.js'
 export * from './agents/base-agent.js'
 export { ClaudeCodeAgent } from './agents/claude-code-agent.js'
 export * from './environment.service.js'
@@ -51,4 +50,3 @@ export * from './event.service.js'
 export * from './storage.js'
 export * from './task.service.js'
 export * from './workspace.service.js'
-

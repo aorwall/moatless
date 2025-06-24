@@ -1,10 +1,9 @@
+import type { EnvironmentResponse } from '@shared/types/environmenttypes/environment'
 import { useState } from 'react'
-
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Switch } from '@/lib/components/ui/switch'
-import type { EnvironmentResponse } from '@/types/environment'
 
 interface EnvironmentListProps {
   environments: Array<EnvironmentResponse>

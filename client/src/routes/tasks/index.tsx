@@ -26,20 +26,20 @@ function TasksIndex() {
 
   // Transform and separate tasks
   const transformedTasks: Array<Task> =
-    tasks?.map((metadata) => ({
-      id: metadata.task_id,
-      title: metadata.title || `Task ${metadata.task_id.slice(0, 8)}`,
-      createdAt: metadata.created_at,
-      lastMessageAt: metadata.last_message_at,
-      agentType: metadata.agent_type,
-      environmentName: metadata.environment_id,
-      status: metadata.status,
-      numTurns: metadata.num_turns,
-      totalCostUsd: metadata.total_cost_usd,
-      workspaceStatus: 'unknown' as const,
+    tasks?.map((taskResponse) => ({
+      id: taskResponse.taskId,
+      title: taskResponse.title || `Task ${taskResponse.taskId.slice(0, 8)}`,
+      createdAt: taskResponse.createdAt.toISOString(),
+      lastMessageAt: taskResponse.lastMessageAt.toISOString(),
+      agentType: taskResponse.agentType,
+      environmentName: taskResponse.environmentName || taskResponse.environmentId,
+      status: taskResponse.status,
+      numTurns: taskResponse.numTurns,
+      totalCostUsd: taskResponse.totalCostUsd,
+      workspaceStatus: (taskResponse.workspaceStatus as any) || 'unknown',
       // Legacy fields for backward compatibility
-      time: new Date(metadata.last_message_at).toLocaleString(),
-      project: metadata.agent_type,
+      time: taskResponse.lastMessageAt.toLocaleString(),
+      project: taskResponse.agentType,
       changes: { added: 0, removed: 0 },
     })) || []
 

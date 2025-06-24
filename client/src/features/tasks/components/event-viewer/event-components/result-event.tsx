@@ -1,6 +1,5 @@
+import type { Event } from '@shared/types/event'
 import { AlertCircle, CheckCircle, Clock, Coins } from 'lucide-react'
-
-import type { Event } from '@/types/event'
 
 import { EventHeader } from './event-header'
 

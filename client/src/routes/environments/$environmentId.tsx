@@ -1,11 +1,10 @@
+import type { UpdateEnvironmentRequest } from '@shared/types/environmenttypes/environment'
 import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
-
 import { EnvironmentForm, useEnvironment, useUpdateEnvironment } from '@/features/environments'
 import { CodeExecutionConfig } from '@/features/environments/components/code-execution-config'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { UpdateEnvironmentRequest } from '@/types/environment'
 
 export const Route = createFileRoute('/environments/$environmentId')({
   component: EnvironmentEdit,

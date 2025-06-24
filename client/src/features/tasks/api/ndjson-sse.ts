@@ -1,4 +1,4 @@
-import type { Event } from '@/types/event.ts'
+import type { Event } from '@shared/types/event'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -84,7 +84,7 @@ export class NDJSONSSEClient {
   private buildUrl(): string {
     let url = `${this.apiUrl}/api/v1/tasks/${this.taskId}/stream`
     if (this.lastEventId) {
-      url += `?last_event_id=${encodeURIComponent(this.lastEventId)}`
+      url += `?lastEventId=${encodeURIComponent(this.lastEventId)}`
     }
     return url
   }
@@ -209,8 +209,8 @@ export class NDJSONSSEClient {
       const event = JSON.parse(data) as Event
 
       // Store the last event ID for reconnection
-      if (event.event_id) {
-        this.lastEventId = event.event_id
+      if (event.eventId) {
+        this.lastEventId = event.eventId
       }
 
       this.onEvent?.(event)

@@ -142,10 +142,6 @@ export interface TaskMetadata {
   iterations: Array<TaskIteration>
 }
 
-export interface TaskMessages {
-  messages: Array<ClaudeMessage>
-}
-
 export interface Task {
   id: string
   title: string
@@ -153,7 +149,7 @@ export interface Task {
   lastMessageAt: string
   agentType: string
   environmentName: string
-  status: 'active' | 'completed' | 'error'
+  status: 'active' | 'completed' | 'error' | 'closed'
   numTurns: number
   totalCostUsd: number
   workspaceStatus: 'unknown' | 'not_setup' | 'setting_up' | 'idle' | 'running'

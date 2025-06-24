@@ -1,3 +1,4 @@
+import type { Event } from '@shared/types/event'
 import { Clock } from 'lucide-react'
 import { useState } from 'react'
 import {
@@ -14,7 +15,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
-import type { Event } from '@/types/event'
 
 interface EventHeaderProps {
   event: Event
@@ -85,10 +85,7 @@ export function EventHeader({ event, children }: EventHeaderProps) {
                     className="flex items-center gap-2 cursor-pointer hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                     onClick={() => setShowPayloadDialog(true)}
                   >
-                    <Progress
-                      value={(event.contextTokens / 200000) * 100}
-                      className="w-16 h-1.5"
-                    />
+                    <Progress value={(event.contextTokens / 200000) * 100} className="w-16 h-1.5" />
                     <span className="font-mono text-xs">
                       {event.contextTokens.toLocaleString()}
                     </span>

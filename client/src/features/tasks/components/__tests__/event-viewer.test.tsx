@@ -1,9 +1,8 @@
+import type { Event } from '@shared/types/event'
 import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { createMockEventList } from '@/test-utils/factories'
 import { renderWithRouter } from '@/test-utils/render'
-import type { Event } from '@/types/event'
 
 import { useTaskEventsWithStreaming } from '../../hooks/use-task-events'
 import { EventViewer } from '../event-viewer/event-viewer'
@@ -39,7 +38,7 @@ vi.mock('../event-viewer/event-list', () => ({
   EventList: ({ events }: { events: Array<Event> }) => (
     <div data-testid="event-list">
       {events.map((event, index) => (
-        <div key={event.event_id || index} data-testid={`event-${index}`}>
+        <div key={event.eventId || index} data-testid={`event-${index}`}>
           Event {index}
         </div>
       ))}

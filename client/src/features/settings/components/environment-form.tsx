@@ -1,5 +1,13 @@
+import type {
+  CodeExecution,
+  CreateEnvironmentRequest,
+  EnvironmentResponse,
+  GithubRepository,
+  LocalRepository,
+  Repository,
+  UpdateEnvironmentRequest,
+} from '@shared/types/environmenttypes/environment'
 import { useId, useState } from 'react'
-
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Form, FormDescription, FormField, FormLabel, FormMessage } from '@/lib/components/ui/form'
@@ -13,15 +21,6 @@ import {
 } from '@/lib/components/ui/select'
 import { Switch } from '@/lib/components/ui/switch'
 import { Textarea } from '@/lib/components/ui/textarea'
-import type {
-  CodeExecution,
-  CreateEnvironmentRequest,
-  EnvironmentResponse,
-  GithubRepository,
-  LocalRepository,
-  Repository,
-  UpdateEnvironmentRequest,
-} from '@/types/environment'
 
 interface EnvironmentFormProps {
   onSubmit: (data: CreateEnvironmentRequest | UpdateEnvironmentRequest) => void

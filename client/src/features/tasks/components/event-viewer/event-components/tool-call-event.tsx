@@ -1,9 +1,8 @@
+import type { Event } from '@shared/types/event'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
-
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
-import type { Event } from '@/types/event'
 
 import {
   BashToolCall,

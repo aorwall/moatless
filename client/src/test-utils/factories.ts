@@ -1,5 +1,5 @@
+import type { Event } from '@shared/types/event'
 import type { AgentTriggerResponse } from '@/types/agent'
-import type { Event } from '@/types/event'
 import type { GitDiffResponse } from '@/types/git-diff'
 import type {
   AssistantMessage,
@@ -73,7 +73,7 @@ export function createMockClaudeMessage(overrides?: Partial<ClaudeMessage>): Cla
 // Event factories
 export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
-    event_id: 'event-123',
+    eventId: 'event-123',
     type: 'message',
     taskId: 'task-123',
     iterationNumber: 1,
@@ -191,7 +191,7 @@ export function createMockEventList(count = 5): Event[] {
   for (let i = 0; i < count; i++) {
     events.push(
       createMockEvent({
-        event_id: `event-${i}`,
+        eventId: `event-${i}`,
         timestamp: new Date(Date.now() + i * 1000).toISOString(),
       }),
     )

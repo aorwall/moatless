@@ -123,7 +123,7 @@ export class TaskService {
       eventId: randomUUID(),
       type: EventType.INPUT,
       taskId,
-      iterationNumber,
+      iterationId: iterationNumber,
       timestamp: now,
       isError: false,
       payload: { message },

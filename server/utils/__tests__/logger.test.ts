@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Logger, createRequestLogger, createTaskLogger } from '../logger.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createRequestLogger, createTaskLogger, Logger } from '../logger.js'
 
 // Mock pino
 vi.mock('pino', () => {
@@ -11,249 +11,249 @@ vi.mock('pino', () => {
     error: vi.fn(),
     fatal: vi.fn(),
     child: vi.fn().mockReturnThis(),
-    level: 'info'
-  };
-  
+    level: 'info',
+  }
+
   return {
     default: vi.fn(() => mockLogger),
     stdTimeFunctions: {
-      isoTime: () => () => new Date().toISOString()
+      isoTime: () => () => new Date().toISOString(),
     },
     destination: vi.fn(),
     multistream: vi.fn(),
-    transport: vi.fn()
-  };
-});
+    transport: vi.fn(),
+  }
+})
 
 describe('Logger', () => {
-  let logger: Logger;
-  let mockPinoLogger: any;
-  
+  let logger: Logger
+  let mockPinoLogger: any
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    logger = new Logger({ service: 'test' });
-    mockPinoLogger = vi.mocked((logger as any).logger);
-  });
-  
+    vi.clearAllMocks()
+    logger = new Logger({ service: 'test' })
+    mockPinoLogger = vi.mocked((logger as any).logger)
+  })
+
   describe('logging methods', () => {
     it('should log trace messages', () => {
-      logger.trace('Test trace', { foo: 'bar' });
-      
+      logger.trace('Test trace', { foo: 'bar' })
+
       expect(mockPinoLogger.trace).toHaveBeenCalledWith(
         expect.objectContaining({ foo: 'bar' }),
-        'Test trace'
-      );
-    });
-    
+        'Test trace',
+      )
+    })
+
     it('should log debug messages', () => {
-      logger.debug('Test debug', { foo: 'bar' });
-      
+      logger.debug('Test debug', { foo: 'bar' })
+
       expect(mockPinoLogger.debug).toHaveBeenCalledWith(
         expect.objectContaining({ foo: 'bar' }),
-        'Test debug'
-      );
-    });
-    
+        'Test debug',
+      )
+    })
+
     it('should log info messages', () => {
-      logger.info('Test info', { foo: 'bar' });
-      
+      logger.info('Test info', { foo: 'bar' })
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({ foo: 'bar' }),
-        'Test info'
-      );
-    });
-    
+        'Test info',
+      )
+    })
+
     it('should log warn messages', () => {
-      logger.warn('Test warn', { foo: 'bar' });
-      
+      logger.warn('Test warn', { foo: 'bar' })
+
       expect(mockPinoLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ foo: 'bar' }),
-        'Test warn'
-      );
-    });
-    
+        'Test warn',
+      )
+    })
+
     it('should log error messages with error object', () => {
-      const error = new Error('Test error');
-      logger.error('Test error message', error, { foo: 'bar' });
-      
+      const error = new Error('Test error')
+      logger.error('Test error message', error, { foo: 'bar' })
+
       expect(mockPinoLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           foo: 'bar',
           error: {
             message: 'Test error',
             stack: expect.any(String),
-            name: 'Error'
-          }
+            name: 'Error',
+          },
         }),
-        'Test error message'
-      );
-    });
-    
+        'Test error message',
+      )
+    })
+
     it('should log fatal messages', () => {
-      const error = new Error('Fatal error');
-      logger.fatal('Fatal error occurred', error);
-      
+      const error = new Error('Fatal error')
+      logger.fatal('Fatal error occurred', error)
+
       expect(mockPinoLogger.fatal).toHaveBeenCalledWith(
         expect.objectContaining({
           error: {
             message: 'Fatal error',
             stack: expect.any(String),
-            name: 'Error'
-          }
+            name: 'Error',
+          },
         }),
-        'Fatal error occurred'
-      );
-    });
-  });
-  
+        'Fatal error occurred',
+      )
+    })
+  })
+
   describe('context management', () => {
     it('should set and include context in logs', () => {
-      logger.setContext({ taskId: '123', userId: '456' });
-      logger.info('Test with context');
-      
+      logger.setContext({ taskId: '123', userId: '456' })
+      logger.info('Test with context')
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: '123',
-          userId: '456'
+          userId: '456',
         }),
-        'Test with context'
-      );
-    });
-    
+        'Test with context',
+      )
+    })
+
     it('should clear context', () => {
-      logger.setContext({ taskId: '123' });
-      logger.clearContext();
-      logger.info('Test without context');
-      
+      logger.setContext({ taskId: '123' })
+      logger.clearContext()
+      logger.info('Test without context')
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.not.objectContaining({
-          taskId: '123'
+          taskId: '123',
         }),
-        'Test without context'
-      );
-    });
-    
+        'Test without context',
+      )
+    })
+
     it('should create child logger with context', () => {
-      logger.child({ requestId: 'req-123' });
-      
-      expect(mockPinoLogger.child).toHaveBeenCalledWith({ requestId: 'req-123' });
-    });
-  });
-  
+      logger.child({ requestId: 'req-123' })
+
+      expect(mockPinoLogger.child).toHaveBeenCalledWith({ requestId: 'req-123' })
+    })
+  })
+
   describe('specialized logging methods', () => {
     it('should log HTTP requests', () => {
       const req = {
         method: 'GET',
         url: '/api/test',
         headers: { 'user-agent': 'test-agent' },
-        ip: '127.0.0.1'
-      };
-      
-      logger.logRequest(req);
-      
+        ip: '127.0.0.1',
+      }
+
+      logger.logRequest(req)
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'GET',
           url: '/api/test',
           userAgent: 'test-agent',
-          ip: '127.0.0.1'
+          ip: '127.0.0.1',
         }),
-        'HTTP Request'
-      );
-    });
-    
+        'HTTP Request',
+      )
+    })
+
     it('should log HTTP responses', () => {
-      const req = { method: 'GET', url: '/api/test' };
-      const res = { statusCode: 200 };
-      
-      logger.logResponse(req, res, 123.45);
-      
+      const req = { method: 'GET', url: '/api/test' }
+      const res = { statusCode: 200 }
+
+      logger.logResponse(req, res, 123.45)
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'GET',
           url: '/api/test',
           statusCode: 200,
-          responseTime: '123.45ms'
+          responseTime: '123.45ms',
         }),
-        'HTTP Response'
-      );
-    });
-    
+        'HTTP Response',
+      )
+    })
+
     it('should log performance metrics', () => {
-      logger.logPerformance('database.query', 45.67);
-      
+      logger.logPerformance('database.query', 45.67)
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           operation: 'database.query',
-          duration: '45.67ms'
+          duration: '45.67ms',
         }),
-        'Performance'
-      );
-    });
-    
+        'Performance',
+      )
+    })
+
     it('should log task events', () => {
-      logger.logTaskEvent('task-123', 'started', { agent: 'claude' });
-      
+      logger.logTaskEvent('task-123', 'started', { agent: 'claude' })
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
           event: 'started',
-          agent: 'claude'
+          agent: 'claude',
         }),
-        'Task Event'
-      );
-    });
-    
+        'Task Event',
+      )
+    })
+
     it('should log agent events', () => {
-      logger.logAgentEvent('task-123', 'claude-code', 'message.sent', { 
-        messageId: 'msg-456' 
-      });
-      
+      logger.logAgentEvent('task-123', 'claude-code', 'message.sent', {
+        messageId: 'msg-456',
+      })
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
           agentType: 'claude-code',
           event: 'message.sent',
-          messageId: 'msg-456'
+          messageId: 'msg-456',
         }),
-        'Agent Event'
-      );
-    });
-    
+        'Agent Event',
+      )
+    })
+
     it('should log workspace events', () => {
-      logger.logWorkspaceEvent('task-123', 'local', 'created', { 
-        path: '/workspace/123' 
-      });
-      
+      logger.logWorkspaceEvent('task-123', 'local', 'created', {
+        path: '/workspace/123',
+      })
+
       expect(mockPinoLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
           workspaceType: 'local',
           event: 'created',
-          path: '/workspace/123'
+          path: '/workspace/123',
         }),
-        'Workspace Event'
-      );
-    });
-  });
-  
+        'Workspace Event',
+      )
+    })
+  })
+
   describe('helper functions', () => {
     it('should create request-scoped logger', () => {
-      createRequestLogger('req-123', 'task-456');
-      
+      createRequestLogger('req-123', 'task-456')
+
       // The mock returns 'this' for child, so we just verify child was called
       expect(mockPinoLogger.child).toHaveBeenCalledWith({
         requestId: 'req-123',
-        taskId: 'task-456'
-      });
-    });
-    
+        taskId: 'task-456',
+      })
+    })
+
     it('should create task-scoped logger', () => {
-      createTaskLogger('task-789');
-      
+      createTaskLogger('task-789')
+
       expect(mockPinoLogger.child).toHaveBeenCalledWith({
-        taskId: 'task-789'
-      });
-    });
-  });
-});
+        taskId: 'task-789',
+      })
+    })
+  })
+})

@@ -31,7 +31,7 @@ const getBreadcrumbLabel = (
   }
 
   if (isTaskId && task) {
-    return `${task.agent_type} - ${segment.slice(0, 8)}`
+    return `${task.agentType} - ${segment.slice(0, 8)}`
   }
 
   if (isTaskId) {

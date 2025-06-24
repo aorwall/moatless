@@ -38,19 +38,19 @@ function Dashboard() {
   // Transform and separate tasks into active and finished
   const transformedTasks =
     tasks?.map((metadata) => ({
-      id: metadata.task_id,
-      title: metadata.title || `Task ${metadata.task_id.slice(0, 8)}`,
-      createdAt: metadata.created_at,
-      lastMessageAt: metadata.last_message_at,
-      agentType: metadata.agent_type,
-      environmentName: environmentMap.get(metadata.environment_id) || metadata.environment_id,
+      id: metadata.taskId,
+      title: metadata.title || `Task ${metadata.taskId.slice(0, 8)}`,
+      createdAt: metadata.createdAt,
+      lastMessageAt: metadata.lastMessageAt,
+      agentType: metadata.agentType,
+      environmentName: environmentMap.get(metadata.environmentId) || metadata.environmentId,
       status: metadata.status,
-      numTurns: metadata.num_turns,
-      totalCostUsd: metadata.total_cost_usd,
+      numTurns: metadata.numTurns,
+      totalCostUsd: metadata.totalCostUsd,
       workspaceStatus: 'unknown' as const, // This will be fetched separately
       // Legacy fields for compatibility
-      time: new Date(metadata.last_message_at).toLocaleString(),
-      project: metadata.agent_type,
+      time: new Date(metadata.lastMessageAt).toLocaleString(),
+      project: metadata.agentType,
       changes: { added: 0, removed: 0 },
     })) || []
 

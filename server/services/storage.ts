@@ -1,7 +1,7 @@
-import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { FastifyInstance } from 'fastify'
 import type { Environment, Event, TaskMetadata, Workspace } from '../../shared/types/index.js'
 import { fromJSON, toJSON } from '../../shared/utils/validation.js'
 
@@ -127,9 +127,9 @@ export class FileStorage implements StorageBackend {
 export async function createStorageService(_app: FastifyInstance): Promise<StorageBackend> {
   const defaultDataDir = path.join(os.homedir(), '.moatless')
   const dataDir = process.env.DATA_DIR || defaultDataDir
-  
+
   // Ensure the data directory exists
   await fs.mkdir(dataDir, { recursive: true })
-  
+
   return new FileStorage(dataDir)
 }

@@ -1,6 +1,10 @@
+import type {
+  CodeExecution,
+  SetupScriptCommand,
+  SetupScriptResponse,
+} from '@shared/types/environmenttypes/environment'
 import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
 import { useState } from 'react'
-
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import {
@@ -29,7 +33,6 @@ import {
   SheetTitle,
 } from '@/lib/components/ui/sheet'
 import { Textarea } from '@/lib/components/ui/textarea'
-import type { CodeExecution, SetupScriptCommand, SetupScriptResponse } from '@/types/environment'
 
 import { useRunSetupScript } from '../hooks/use-environments'
 

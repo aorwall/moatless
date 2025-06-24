@@ -1,8 +1,7 @@
+import type { FileSearchResult } from '@shared/types/environmenttypes/environment'
 import { AlertCircle, FileIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-
 import { getErrorMessage } from '@/lib/utils/error'
-import type { FileSearchResult } from '@/types/environment'
 
 interface FileAutocompleteProps {
   results: Array<FileSearchResult>

@@ -1,8 +1,3 @@
-import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
-import { environmentsApi } from '@/features/environments/api/environments'
-import { queryKeys } from '@/lib/api/query-keys'
 import type {
   BranchListResponse,
   CreateEnvironmentRequest,
@@ -10,7 +5,11 @@ import type {
   FileSearchResponse,
   SetupScriptResponse,
   UpdateEnvironmentRequest,
-} from '@/types/environment'
+} from '@shared/types/environment'
+import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { environmentsApi } from '@/features/environments/api/environments'
+import { queryKeys } from '@/lib/api/query-keys'
 
 // Query hooks
 export function useEnvironmentsList(

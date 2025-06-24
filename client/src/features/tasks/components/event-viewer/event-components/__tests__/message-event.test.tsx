@@ -1,7 +1,6 @@
+import type { Event } from '@shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-
-import type { Event } from '@/types/event'
 
 import { MessageEvent } from '../message-event'
 

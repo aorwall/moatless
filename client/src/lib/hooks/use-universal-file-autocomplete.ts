@@ -1,8 +1,7 @@
+import type { FileSearchResult } from '@shared/types/environmenttypes/environment'
 import { useCallback, useEffect, useRef, useState } from 'react'
-
 import { useSearchFiles } from '@/features/environments/hooks/use-environments'
 import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
-import type { FileSearchResult } from '@/types/environment'
 
 interface UseUniversalFileAutocompleteOptions {
   environmentId?: string

@@ -1,6 +1,5 @@
+import type { Event } from '@shared/types/event'
 import { User } from 'lucide-react'
-
-import type { Event } from '@/types/event'
 
 interface InputEventProps {
   event: Event

@@ -1,6 +1,6 @@
-export { Preview } from './components/preview';
-export { PreviewProvider, usePreview } from './hooks/use-preview';
-export { usePreviewConnection } from './hooks/use-preview-connection';
-export { useInspector } from './hooks/use-inspector';
-export { InspectorPanel } from './components/inspector-panel';
-export type { PreviewProps, ElementInfo, PreviewConfig } from './types';
+export { InspectorPanel } from './components/inspector-panel'
+export { Preview } from './components/preview'
+export { useInspector } from './hooks/use-inspector'
+export { PreviewProvider, usePreview } from './hooks/use-preview'
+export { usePreviewConnection } from './hooks/use-preview-connection'
+export type { ElementInfo, PreviewConfig, PreviewProps } from './types'

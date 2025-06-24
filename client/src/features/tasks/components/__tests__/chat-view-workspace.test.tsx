@@ -1,11 +1,10 @@
+import { EventType } from '@shared/types/event'
 import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
 import { useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
 import { createMockEvent, createMockTaskWithIterations } from '@/test-utils/factories'
 import { renderWithRouter } from '@/test-utils/render'
-import { AgentEventType } from '@/types/event'
 import { WorkspaceStatus } from '@/types/task'
 
 import { ChatView } from '../chat-view'
@@ -137,33 +136,33 @@ describe('ChatView Workspace Integration', () => {
 
     const events = [
       createMockEvent({
-        type: AgentEventType.MESSAGE,
-        iterationNumber: 1,
+        type: EventType.MESSAGE,
+        iterationId: 1,
         payload: { role: 'assistant', content: 'Message 1' },
       }),
       createMockEvent({
-        type: AgentEventType.MESSAGE,
-        iterationNumber: 1,
+        type: EventType.MESSAGE,
+        iterationId: 1,
         payload: { role: 'assistant', content: 'Message 2' },
       }),
       createMockEvent({
-        type: AgentEventType.MESSAGE,
-        iterationNumber: 1,
+        type: EventType.MESSAGE,
+        iterationId: 1,
         payload: { role: 'user', content: 'User message' }, // Should not count
       }),
       createMockEvent({
-        type: AgentEventType.MESSAGE,
-        iterationNumber: 1,
+        type: EventType.MESSAGE,
+        iterationId: 1,
         payload: { role: 'assistant', content: 'Message 3' },
       }),
       createMockEvent({
-        type: AgentEventType.MESSAGE,
-        iterationNumber: 1,
+        type: EventType.MESSAGE,
+        iterationId: 1,
         payload: { role: 'assistant', content: 'Message 4' },
       }),
       createMockEvent({
-        type: AgentEventType.MESSAGE,
-        iterationNumber: 1,
+        type: EventType.MESSAGE,
+        iterationId: 1,
         payload: { role: 'assistant', content: 'Message 5' },
       }),
     ]

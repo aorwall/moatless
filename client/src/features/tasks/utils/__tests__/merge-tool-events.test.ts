@@ -1,6 +1,5 @@
+import type { Event } from '@shared/types/event'
 import { describe, expect, it } from 'vitest'
-
-import type { Event } from '@/types/event'
 
 import { mergeToolEvents } from '../merge-tool-events'
 
@@ -8,11 +7,11 @@ describe('mergeToolEvents', () => {
   it('should merge tool call with matching tool result', () => {
     const events: Event[] = [
       {
-        event_id: 'event-1',
+        eventId: 'event-1',
         type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:00Z',
         isError: false,
         contextTokens: 100,
@@ -33,11 +32,11 @@ describe('mergeToolEvents', () => {
         },
       },
       {
-        event_id: 'event-2',
+        eventId: 'event-2',
         type: 'message',
         subType: '',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
         contextTokens: 100,
@@ -62,9 +61,9 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
-      event_id: 'event-1',
+      eventId: 'event-1',
       toolResult: {
-        event_id: 'event-2',
+        eventId: 'event-2',
       },
     })
   })
@@ -72,11 +71,11 @@ describe('mergeToolEvents', () => {
   it('should keep tool calls without results', () => {
     const events: Event[] = [
       {
-        event_id: 'event-1',
+        eventId: 'event-1',
         type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:00Z',
         isError: false,
         contextTokens: 100,
@@ -102,7 +101,7 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
-      event_id: 'event-1',
+      eventId: 'event-1',
     })
     expect('toolResult' in merged[0]).toBe(false)
   })
@@ -110,11 +109,11 @@ describe('mergeToolEvents', () => {
   it('should handle non-tool events correctly', () => {
     const events: Event[] = [
       {
-        event_id: 'event-1',
+        eventId: 'event-1',
         type: 'message',
         subType: '',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:00Z',
         isError: false,
         contextTokens: 100,
@@ -133,11 +132,11 @@ describe('mergeToolEvents', () => {
         },
       },
       {
-        event_id: 'event-2',
+        eventId: 'event-2',
         type: 'input',
         subType: '',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
         contextTokens: 100,
@@ -152,18 +151,18 @@ describe('mergeToolEvents', () => {
     const merged = mergeToolEvents(events)
 
     expect(merged).toHaveLength(2)
-    expect(merged[0].event_id).toBe('event-1')
-    expect(merged[1].event_id).toBe('event-2')
+    expect(merged[0].eventId).toBe('event-1')
+    expect(merged[1].eventId).toBe('event-2')
   })
 
   it('should handle multiple tool calls and results', () => {
     const events: Event[] = [
       {
-        event_id: 'event-1',
+        eventId: 'event-1',
         type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:00Z',
         isError: false,
         contextTokens: 100,
@@ -184,11 +183,11 @@ describe('mergeToolEvents', () => {
         },
       },
       {
-        event_id: 'event-2',
+        eventId: 'event-2',
         type: 'message',
         subType: '',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
         contextTokens: 100,
@@ -208,11 +207,11 @@ describe('mergeToolEvents', () => {
         },
       },
       {
-        event_id: 'event-3',
+        eventId: 'event-3',
         type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:02Z',
         isError: false,
         contextTokens: 100,
@@ -233,11 +232,11 @@ describe('mergeToolEvents', () => {
         },
       },
       {
-        event_id: 'event-4',
+        eventId: 'event-4',
         type: 'message',
         subType: '',
         taskId: 'task-1',
-        iterationNumber: 1,
+        iterationId: 1,
         timestamp: '2025-01-01T00:00:03Z',
         isError: false,
         contextTokens: 100,
@@ -262,15 +261,15 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(2)
     expect(merged[0]).toMatchObject({
-      event_id: 'event-1',
+      eventId: 'event-1',
       toolResult: {
-        event_id: 'event-2',
+        eventId: 'event-2',
       },
     })
     expect(merged[1]).toMatchObject({
-      event_id: 'event-3',
+      eventId: 'event-3',
       toolResult: {
-        event_id: 'event-4',
+        eventId: 'event-4',
       },
     })
   })

@@ -1,51 +1,40 @@
+import type {
+  FileSearchRequest,
+  FileSearchResponse,
+} from '@shared/types/environmenttypes/environment'
+import type { Event } from '@shared/types/event'
+import type { GitDiffResponse, TaskResponse } from '@shared/types/task'
+import type { ServerStatus } from '@shared/types/workspace'
 import { apiClient } from '@/lib/api/client'
 import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent'
-import type { FileSearchRequest, FileSearchResponse } from '@/types/environment'
-import type { Event } from '@/types/event.ts'
-import type { GitDiffResponse } from '@/types/git-diff'
-import type {
-  ServerStatus,
-  TaskMessages,
-  TaskMetadata,
-  WorkspaceStatusResponse,
-} from '@/types/task'
+import type { WorkspaceStatusResponse } from '@/types/task'
 
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
-    const tasks = await apiClient.get<Array<TaskMetadata>>('/api/v1/tasks', {
+    const tasks = await apiClient.get<Array<TaskResponse>>('/api/v1/tasks', {
       active_only: true,
     })
-    return tasks.map((task) => task.task_id)
+    return tasks.map((task) => task.taskId)
   },
 
   async listTasks(params?: {
     activeOnly?: boolean
     limit?: number
     offset?: number
-  }): Promise<Array<TaskMetadata>> {
-    return await apiClient.get<Array<TaskMetadata>>('/api/v1/tasks', {
+  }): Promise<Array<TaskResponse>> {
+    return await apiClient.get<Array<TaskResponse>>('/api/v1/tasks', {
       active_only: params?.activeOnly,
       limit: params?.limit,
       offset: params?.offset,
     })
   },
 
-  async getTask(taskId: string): Promise<TaskMetadata> {
-    return await apiClient.get<TaskMetadata>(`/api/v1/tasks/${taskId}`)
+  async getTask(taskId: string): Promise<TaskResponse> {
+    return await apiClient.get<TaskResponse>(`/api/v1/tasks/${taskId}`)
   },
 
-  async getTaskMessages(
-    taskId: string,
-    params?: {
-      limit?: number
-      offset?: number
-    },
-  ): Promise<TaskMessages> {
-    return await apiClient.get<TaskMessages>(`/api/v1/tasks/${taskId}/messages`, params)
-  },
-
-  async getTaskMetadata(taskId: string): Promise<TaskMetadata> {
-    return await apiClient.get<TaskMetadata>(`/api/v1/tasks/${taskId}`)
+  async getTaskMetadata(taskId: string): Promise<TaskResponse> {
+    return await apiClient.get<TaskResponse>(`/api/v1/tasks/${taskId}`)
   },
 
   async createTask(request: AgentTriggerRequest): Promise<AgentTriggerResponse> {

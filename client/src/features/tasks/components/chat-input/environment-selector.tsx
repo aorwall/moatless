@@ -1,3 +1,4 @@
+import type { Environment } from '@shared/types/environmenttypes/environment'
 import {
   Select,
   SelectContent,
@@ -5,7 +6,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
-import type { Environment } from '@/types/environment'
 
 interface EnvironmentSelectorProps {
   environments?: Array<Environment>

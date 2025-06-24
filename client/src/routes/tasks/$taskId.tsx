@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect } from 'react'
-
+import { Preview } from '@/features/preview'
 import { ChatView } from '@/features/tasks/components/chat-view'
 import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
@@ -9,7 +9,6 @@ import { TaskHeader } from '@/features/tasks/components/task-header'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
-import { Preview } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -39,7 +38,10 @@ function TaskDetail() {
 
   // If server or preview tab is selected but server is not configured, switch to events tab
   useEffect(() => {
-    if ((rightPanelView === 'server' || rightPanelView === 'preview') && !serverStatus?.configured) {
+    if (
+      (rightPanelView === 'server' || rightPanelView === 'preview') &&
+      !serverStatus?.configured
+    ) {
       setRightPanelView('events')
     }
   }, [rightPanelView, serverStatus?.configured, setRightPanelView])
@@ -88,7 +90,9 @@ function TaskDetail() {
           <div className="h-full flex flex-col">
             <Tabs
               value={rightPanelView}
-              onValueChange={(value) => setRightPanelView(value as 'events' | 'diff' | 'server' | 'preview')}
+              onValueChange={(value) =>
+                setRightPanelView(value as 'events' | 'diff' | 'server' | 'preview')
+              }
               className="h-full w-full flex flex-col"
             >
               <div className="px-4 py-2 border-b">

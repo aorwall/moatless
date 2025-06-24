@@ -1,8 +1,7 @@
+import type { Event } from '@shared/types/event'
 import { Bot, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-
-import type { Event } from '@/types/event'
 
 import { EventHeader } from './event-header'
 

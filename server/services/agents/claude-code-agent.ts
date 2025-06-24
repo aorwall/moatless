@@ -1,8 +1,7 @@
+import { query, type SDKMessage } from '@anthropic-ai/claude-code'
+import type { ClaudeCodeOptions } from '@shared/types/claude.js'
 import type { Event } from '@shared/types/event.js'
-import { query, type SDKMessage, type Options } from '@anthropic-ai/claude-code'
-import { type AgentOptions, type AgentRunOptions, BaseAgent } from './base-agent.js'
-
-export interface ClaudeCodeOptions extends AgentOptions, Options {}
+import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController?: AbortController
@@ -40,11 +39,11 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         messages.push(sdkMessage)
         const event = this.createEvent('message', sdkMessage)
-        
+
         if (event.isError) {
           hasError = true
         }
-        
+
         lastEvent = event
         yield event
       }
@@ -81,9 +80,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     await this.cleanup()
   }
 
-  private buildSDKOptions(runOptions: AgentRunOptions): Options {
+  private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
     const options = this.options as ClaudeCodeOptions
-    const sdkOptions: Options = {
+    const sdkOptions: ClaudeCodeOptions = {
       // Copy all SDK options directly from our options
       ...options,
       // Override cwd with workspace directory if provided
@@ -94,7 +93,6 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     return sdkOptions
   }
-
 
   private async cleanup(): Promise<void> {
     if (this.abortController && !this.abortController.signal.aborted) {

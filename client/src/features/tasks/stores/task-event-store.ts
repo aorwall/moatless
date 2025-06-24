@@ -1,7 +1,6 @@
+import type { Event } from '@shared/types/event'
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-
-import type { Event } from '@/types/event'
 
 interface TaskEventState {
   // Event state per task
@@ -50,7 +49,7 @@ export const useTaskEventStore = create<TaskEventState>()(
         const newTasks = new Map(state.eventTasks)
         const taskState = newTasks.get(taskId) || getDefaultTaskState()
         const updatedEvents = [...taskState.streamEvents, event]
-        const lastEventId = event.event_id || taskState.lastEventId
+        const lastEventId = event.eventId || taskState.lastEventId
         newTasks.set(taskId, {
           ...taskState,
           streamEvents: updatedEvents,
@@ -65,7 +64,7 @@ export const useTaskEventStore = create<TaskEventState>()(
         const taskState = newTasks.get(taskId) || getDefaultTaskState()
         const lastEventId =
           events.length > 0
-            ? events[events.length - 1].event_id || taskState.lastEventId
+            ? events[events.length - 1].eventId || taskState.lastEventId
             : taskState.lastEventId
         newTasks.set(taskId, {
           ...taskState,
