@@ -10,7 +10,9 @@ import {
   EditToolCall,
   GlobToolCall,
   GrepToolCall,
+  LSToolCall,
   ReadToolCall,
+  TaskToolCall,
   TodoToolCall,
   WriteToolCall,
 } from './tool-calls';
@@ -123,6 +125,30 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
             input as {
               file_path: string;
               content: string;
+            }
+          }
+          name={toolName}
+        />
+      );
+    case 'LS':
+      return (
+        <LSToolCall
+          input={
+            input as {
+              path: string;
+              ignore?: string[];
+            }
+          }
+          name={toolName}
+        />
+      );
+    case 'Task':
+      return (
+        <TaskToolCall
+          input={
+            input as {
+              description: string;
+              prompt: string;
             }
           }
           name={toolName}

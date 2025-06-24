@@ -1,10 +1,8 @@
 import { FileEdit } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
-import { Diff, Hunk, parseDiff } from 'react-diff-view';
-import 'react-diff-view/style/index.css';
 
-import '../../../git-diff-viewer/github-diff.css';
+import { DiffView } from './shared/diff-view';
 
 interface EditToolCallProps {
   input: {
@@ -34,18 +32,6 @@ export function EditToolCall({ input, name }: EditToolCallProps): ReactNode {
     return diff;
   }, [input.file_path, input.old_string, input.new_string]);
 
-  // Parse the diff
-  const parsedFiles = useMemo(() => {
-    try {
-      return parseDiff(diffContent);
-    } catch (error) {
-      console.error('Failed to parse diff:', error);
-      return [];
-    }
-  }, [diffContent]);
-
-  const file = parsedFiles[0];
-
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -61,37 +47,21 @@ export function EditToolCall({ input, name }: EditToolCallProps): ReactNode {
         )}
       </div>
 
-      {/* Diff display */}
-      {file && (
-        <div className="github-diff-file border border-border rounded-lg overflow-hidden">
-          <div className="github-diff-content">
-            <Diff
-              viewType="unified"
-              diffType={file.type}
-              hunks={file.hunks}
-              className="diff-view"
-            >
-              {(hunks) =>
-                hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)
-              }
-            </Diff>
+      <DiffView
+        diffContent={diffContent}
+        fallback={
+          <div className="space-y-2 text-xs">
+            <div className="bg-red-50 dark:bg-red-900/20 rounded p-2 font-mono">
+              <span className="text-red-600 dark:text-red-400">- Old:</span>
+              <pre className="whitespace-pre-wrap mt-1">{input.old_string}</pre>
+            </div>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded p-2 font-mono">
+              <span className="text-green-600 dark:text-green-400">+ New:</span>
+              <pre className="whitespace-pre-wrap mt-1">{input.new_string}</pre>
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Fallback if diff parsing fails */}
-      {!file && (
-        <div className="space-y-2 text-xs">
-          <div className="bg-red-50 dark:bg-red-900/20 rounded p-2 font-mono">
-            <span className="text-red-600 dark:text-red-400">- Old:</span>
-            <pre className="whitespace-pre-wrap mt-1">{input.old_string}</pre>
-          </div>
-          <div className="bg-green-50 dark:bg-green-900/20 rounded p-2 font-mono">
-            <span className="text-green-600 dark:text-green-400">+ New:</span>
-            <pre className="whitespace-pre-wrap mt-1">{input.new_string}</pre>
-          </div>
-        </div>
-      )}
+        }
+      />
     </div>
   );
 }

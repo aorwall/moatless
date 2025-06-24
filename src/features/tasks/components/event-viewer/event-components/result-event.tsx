@@ -42,14 +42,6 @@ export function ResultEvent({ event }: ResultEventProps) {
     return `${minutes}m ${remainingSeconds}s`;
   };
 
-  // Safely calculate total tokens with fallbacks
-  const usage = payload.usage || {};
-  const totalTokens =
-    (usage.input_tokens || 0) +
-    (usage.cache_creation_input_tokens || 0) +
-    (usage.cache_read_input_tokens || 0) +
-    (usage.output_tokens || 0);
-
   return (
     <EventHeader event={event}>
       <div className="space-y-3">
@@ -96,28 +88,6 @@ export function ResultEvent({ event }: ResultEventProps) {
             </div>
           </div>
         </div>
-
-        {payload.usage && (
-          <div className="text-xs text-muted-foreground bg-muted rounded p-2">
-            <div className="font-mono">
-              <div>Total tokens: {totalTokens.toLocaleString()}</div>
-              <div className="mt-1 space-y-0.5 text-muted-foreground">
-                <div>• Input: {(usage.input_tokens || 0).toLocaleString()}</div>
-                <div>
-                  • Cache creation:{' '}
-                  {(usage.cache_creation_input_tokens || 0).toLocaleString()}
-                </div>
-                <div>
-                  • Cache read:{' '}
-                  {(usage.cache_read_input_tokens || 0).toLocaleString()}
-                </div>
-                <div>
-                  • Output: {(usage.output_tokens || 0).toLocaleString()}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </EventHeader>
   );

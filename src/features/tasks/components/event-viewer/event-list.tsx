@@ -1,14 +1,14 @@
 import {
-    type MergedEvent,
-    mergeToolEvents,
+  type MergedEvent,
+  mergeToolEvents,
 } from '@/features/tasks/utils/merge-tool-events';
 import type { Event } from '@/types/event.ts';
 
 import {
-    InputEvent,
-    MessageEvent,
-    ResultEvent,
-    WorkspaceEvent,
+  InputEvent,
+  MessageEvent,
+  ResultEvent,
+  WorkspaceEvent,
 } from './event-components';
 import { ToolCallEvent } from './event-components/tool-call-event';
 

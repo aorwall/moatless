@@ -126,6 +126,89 @@
   }
 }
 
+/* Custom Scrollbar Styles */
+/* Webkit browsers (Chrome, Safari, Edge) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.4 0 0 / 0.3) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: oklch(0.4 0 0 / 0.3);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.4 0 0 / 0.5);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: oklch(0.4 0 0 / 0.7);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.4 0 0 / 0.3) transparent;
+}
+
+/* For dark mode */
+.dark * {
+  scrollbar-color: oklch(0.8 0 0 / 0.3) transparent;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background-color: oklch(0.8 0 0 / 0.3);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.8 0 0 / 0.5);
+}
+
+.dark *::-webkit-scrollbar-thumb:active {
+  background-color: oklch(0.8 0 0 / 0.7);
+}
+
+/* Scrollbar corner (where horizontal and vertical scrollbars meet) */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbar until hover for better aesthetics */
+.overflow-auto:not(:hover)::-webkit-scrollbar-thumb,
+.overflow-y-auto:not(:hover)::-webkit-scrollbar-thumb,
+.overflow-x-auto:not(:hover)::-webkit-scrollbar-thumb,
+.overflow-scroll:not(:hover)::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+/* Show scrollbar on hover */
+.overflow-auto:hover::-webkit-scrollbar-thumb,
+.overflow-y-auto:hover::-webkit-scrollbar-thumb,
+.overflow-x-auto:hover::-webkit-scrollbar-thumb,
+.overflow-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: oklch(0.4 0 0 / 0.3);
+}
+
+.dark .overflow-auto:hover::-webkit-scrollbar-thumb,
+.dark .overflow-y-auto:hover::-webkit-scrollbar-thumb,
+.dark .overflow-x-auto:hover::-webkit-scrollbar-thumb,
+.dark .overflow-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: oklch(0.8 0 0 / 0.3);
+}
+
 /* Diff viewer styles */
 .diff-container {
   @apply divide-y divide-border;

@@ -23,11 +23,12 @@ export function EventViewer() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const previousEventCount = useRef(events.length);
   const hasScrolledToBottomInitially = useRef(false);
+  const userHasScrolled = useRef(false);
 
-  // Scroll to bottom on initial load if task hasn't been visited before
+  // Scroll to bottom on initial load if task hasn't been visited before and user hasn't scrolled
   useEffect(() => {
     if (
-      !hasScrolledToBottomInitially.current &&
+      !(hasScrolledToBottomInitially.current || userHasScrolled.current) &&
       scrollAreaRef.current &&
       events &&
       events.length > 0
@@ -41,8 +42,11 @@ export function EventViewer() {
         if (scrollElement) {
           // Use requestAnimationFrame to ensure DOM has rendered
           requestAnimationFrame(() => {
-            scrollElement.scrollTop = scrollElement.scrollHeight;
-            hasScrolledToBottomInitially.current = true;
+            // Only scroll if user still hasn't manually scrolled
+            if (!userHasScrolled.current) {
+              scrollElement.scrollTop = scrollElement.scrollHeight;
+              hasScrolledToBottomInitially.current = true;
+            }
           });
         }
         visitedTasks.add(taskId);
@@ -65,28 +69,44 @@ export function EventViewer() {
       return;
     }
 
+    // Mark that user has manually scrolled
+    userHasScrolled.current = true;
+
     const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+    // Consider user at bottom if within 10px of the bottom
     const atBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
     setIsAtBottom(atBottom);
   }, []);
 
   // Auto-scroll when new events arrive if at bottom
   useEffect(() => {
-    if (!(scrollAreaRef.current && isAtBottom)) {
+    // Only proceed if we have new events
+    if (events.length <= previousEventCount.current) {
+      previousEventCount.current = events.length;
       return;
     }
 
-    // Only auto-scroll if new events were added
-    if (events.length > previousEventCount.current) {
-      const scrollElement = scrollAreaRef.current.querySelector(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      if (scrollElement) {
-        // Use requestAnimationFrame to ensure DOM has updated
-        requestAnimationFrame(() => {
+    // Only auto-scroll if user is already at bottom
+    if (!(scrollAreaRef.current && isAtBottom)) {
+      previousEventCount.current = events.length;
+      return;
+    }
+
+    const scrollElement = scrollAreaRef.current.querySelector(
+      '[data-slot="scroll-area-viewport"]',
+    );
+    if (scrollElement) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        // Double-check we're still at bottom before scrolling
+        const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+        const stillAtBottom =
+          Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
+
+        if (stillAtBottom) {
           scrollElement.scrollTop = scrollElement.scrollHeight;
-        });
-      }
+        }
+      });
     }
 
     previousEventCount.current = events.length;
