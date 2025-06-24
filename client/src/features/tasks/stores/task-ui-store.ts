@@ -6,12 +6,12 @@ import type { TaskIteration } from '@/types/task';
 interface TaskUIState {
   // UI state
   selectedIteration: TaskIteration | null;
-  rightPanelView: 'events' | 'diff' | 'server';
+  rightPanelView: 'events' | 'diff' | 'server' | 'preview';
   selectedTaskId: string | null;
 
   // Actions
   setSelectedIteration: (iteration: TaskIteration | null) => void;
-  setRightPanelView: (view: 'events' | 'diff' | 'server') => void;
+  setRightPanelView: (view: 'events' | 'diff' | 'server' | 'preview') => void;
   setSelectedTaskId: (taskId: string | null) => void;
   resetUIState: () => void;
 }
