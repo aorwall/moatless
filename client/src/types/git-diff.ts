@@ -24,9 +24,6 @@ export interface GitDiffFile {
 
 export interface GitDiffResponse {
   files: Array<GitDiffFile>
-  total_files: number
-  total_additions: number
-  total_deletions: number
   commit_hash?: string
   branch?: string
   diff?: string

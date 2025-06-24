@@ -28,10 +28,10 @@ The type system forms the foundation of the TypeScript application, providing ty
 shared/
 ├── types/
 │   ├── index.ts           # Public exports
-│   ├── task.ts            # Task-related types
-│   ├── event.ts           # Event types
-│   ├── environment.ts     # Environment types
-│   ├── workspace.ts       # Workspace types
+│   ├── task.service.ts            # Task-related types
+│   ├── event.service.ts           # Event types
+│   ├── environment.service.ts     # Environment types
+│   ├── workspace.service.ts       # Workspace types
 │   └── api.ts             # API request/response types
 ├── constants/
 │   ├── index.ts
@@ -45,7 +45,7 @@ shared/
 
 ### File Naming
 - Use kebab-case for all files: `task-manager.ts`, `event-stream.ts`
-- No redundant suffixes when context is clear (e.g., `types/task.ts` not `types/task.types.ts`)
+- No redundant suffixes when context is clear (e.g., `types/task.service.ts` not `types/task.types.ts`)
 - Index files should export public API: `index.ts`
 
 ### Code Naming
@@ -62,10 +62,10 @@ shared/
 ### 1. Task Types
 
 **Source**: `/moatless-swarm/swarm/tasks/schema.py`  
-**Target**: `shared/types/task.ts`
+**Target**: `shared/types/task.service.ts`
 
 ```typescript
-// shared/types/task.ts
+// shared/types/task.service.ts
 export interface TaskMetadata {
   taskId: string;
   createdAt: Date;
@@ -105,10 +105,10 @@ export interface TaskSummary {
 ### 2. Event Types
 
 **Source**: `/moatless-swarm/swarm/eventstream/events.py`  
-**Target**: `shared/types/event.ts`
+**Target**: `shared/types/event.service.ts`
 
 ```typescript
-// shared/types/event.ts
+// shared/types/event.service.ts
 export enum EventType {
   INPUT = 'input',
   MESSAGE = 'message',
@@ -184,10 +184,10 @@ export type SpecificEvent = InputEvent | MessageEvent | ErrorEvent | WorkspaceEv
 ### 3. Environment Types
 
 **Source**: `/moatless-swarm/swarm/environments/environments.py`  
-**Target**: `shared/types/environment.ts`
+**Target**: `shared/types/environment.service.ts`
 
 ```typescript
-// shared/types/environment.ts
+// shared/types/environment.service.ts
 export interface Environment {
   id: string;
   name: string;
@@ -239,10 +239,10 @@ export interface FileSearchResponse {
 ### 4. Workspace Types
 
 **Source**: `/moatless-swarm/swarm/workspaces/models.py`  
-**Target**: `shared/types/workspace.ts`
+**Target**: `shared/types/workspace.service.ts`
 
 ```typescript
-// shared/types/workspace.ts
+// shared/types/workspace.service.ts
 export interface BaseWorkspace {
   id: string;
   type: 'local' | 'docker';

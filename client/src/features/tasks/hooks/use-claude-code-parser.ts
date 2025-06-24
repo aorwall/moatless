@@ -125,7 +125,7 @@ const parseClaudeMessage = (payload: Record<string, unknown>): ParsedMessage | n
 const createBaseEvent = (event: Event) => ({
   event_id: event.event_id,
   timestamp: event.timestamp,
-  is_error: event.is_error,
+  is_error: event.isError,
 })
 
 const parseMessageEvent = (event: Event): ParsedEvent | null => {

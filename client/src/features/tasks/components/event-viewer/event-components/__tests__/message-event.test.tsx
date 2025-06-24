@@ -9,14 +9,14 @@ describe('MessageEvent', () => {
   const createMessageEvent = (payload: Record<string, unknown>): Event => ({
     event_id: 'test-event',
     type: 'message',
-    sub_type: '',
-    task_id: 'test-task',
-    iteration_number: 1,
+    subType: '',
+    taskId: 'test-task',
+    iterationNumber: 1,
     timestamp: '2025-01-01T00:00:00Z',
-    is_error: false,
-    context_tokens: 100,
-    num_turns: 1,
-    total_cost: 0.01,
+    isError: false,
+    contextTokens: 100,
+    numTurns: 1,
+    totalCost: 0.01,
     payload,
   })
 

@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { type AgentService, createAgentService } from './agent.js'
-import { createEnvironmentService, type EnvironmentService } from './environment.js'
-import { createEventService, type EventService } from './event.js'
+import { type AgentService, createAgentService } from './agent.service.js'
+import { createEnvironmentService, type EnvironmentService } from './environment.service.js'
+import { createEventService, type EventService } from './event.service.js'
 import { createStorageService, type StorageBackend } from './storage.js'
-import { createTaskService, type TaskService } from './task.js'
-import { createWorkspaceService, type WorkspaceService } from './workspace.js'
+import { createTaskService, type TaskService } from './task.service.js'
+import { createWorkspaceService, type WorkspaceService } from './workspace.service.js'
 
 export interface Services {
   storage: StorageBackend
@@ -15,9 +15,9 @@ export interface Services {
   agent: AgentService
 }
 
-export function setupServices(app: FastifyInstance): Services {
+export async function setupServices(app: FastifyInstance): Promise<Services> {
   // Create services with dependency injection
-  const storage = createStorageService(app)
+  const storage = await createStorageService(app)
   const event = createEventService(app, storage)
   const environment = createEnvironmentService(app, storage)
   const workspace = createWorkspaceService(app, storage, environment, event)
@@ -41,13 +41,14 @@ declare module 'fastify' {
   }
 }
 
-export * from './agent.js'
+export * from './agent.service.js'
 export * from './agents/agent-options.js'
 export * from './agents/base-agent.js'
 export { ClaudeCodeAgent } from './agents/claude-code-agent.js'
-export * from './environment.js'
-export * from './event.js'
+export * from './environment.service.js'
+export * from './event.service.js'
 // Export all services and types
 export * from './storage.js'
-export * from './task.js'
-export * from './workspace.js'
+export * from './task.service.js'
+export * from './workspace.service.js'
+

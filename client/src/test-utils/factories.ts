@@ -75,14 +75,14 @@ export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
     event_id: 'event-123',
     type: 'message',
-    task_id: 'task-123',
-    iteration_number: 1,
+    taskId: 'task-123',
+    iterationNumber: 1,
     timestamp: '2024-01-01T00:00:00Z',
-    is_error: false,
-    sub_type: 'message',
-    context_tokens: 100,
-    num_turns: 1,
-    total_cost: 0.001,
+    isError: false,
+    subType: 'message',
+    contextTokens: 100,
+    numTurns: 1,
+    totalCost: 0.001,
     payload: {
       content: 'Test event content',
     },
@@ -121,7 +121,7 @@ export function createMockWorkspaceStatus(
 ): WorkspaceStatusResponse {
   return {
     status: WorkspaceStatus.IDLE,
-    has_uncommitted_changes: false,
+    hasUncommittedChanges: false,
     ...overrides,
   }
 }
@@ -132,7 +132,7 @@ export function createMockServerStatus(overrides?: Partial<ServerStatus>): Serve
     configured: true,
     url: 'http://localhost:8080',
     pid: 1234,
-    uptime_seconds: 0,
+    uptimeSeconds: 0,
     ...overrides,
   }
 }
@@ -149,9 +149,6 @@ index 1234567..abcdefg 100644
 
   return {
     files: [],
-    total_files: 1,
-    total_additions: 1,
-    total_deletions: 1,
     diff: defaultDiff,
     ...overrides,
   }
@@ -162,7 +159,7 @@ export function createMockAgentTriggerResponse(
   overrides?: Partial<AgentTriggerResponse>,
 ): AgentTriggerResponse {
   return {
-    task_id: 'task-123',
+    taskId: 'task-123',
     status: 'created',
     stream_url: 'ws://localhost:8080/stream',
     ...overrides,

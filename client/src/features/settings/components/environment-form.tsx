@@ -78,7 +78,7 @@ export function EnvironmentForm({
     if (repo.type === 'local') {
       return {
         localPath: repo.path,
-        useGitWorktrees: repo.use_git_worktrees,
+        useGitWorktrees: repo.useGitWorktrees,
         githubRepoId: '',
         githubBranch: 'main',
         githubCommit: '',
@@ -89,7 +89,7 @@ export function EnvironmentForm({
     return {
       localPath: '',
       useGitWorktrees: false,
-      githubRepoId: repo.repo_id,
+      githubRepoId: repo.repoId,
       githubBranch: repo.branch || 'main',
       githubCommit: repo.commit || '',
       githubToken: repo.token || '',
@@ -99,7 +99,7 @@ export function EnvironmentForm({
   const getExecutionFields = (exec: CodeExecution) => {
     if (exec.type === 'local') {
       return {
-        localSetupCommands: exec.setup_commands || '',
+        localSetupCommands: exec.setupCommands || '',
         dockerImage: '',
         dockerEnvVars: {} as Record<string, string>,
         dockerSetupCommands: '',
@@ -111,8 +111,8 @@ export function EnvironmentForm({
     return {
       localSetupCommands: '',
       dockerImage: exec.image || '',
-      dockerEnvVars: exec.env_vars || {},
-      dockerSetupCommands: exec.setup_commands || '',
+      dockerEnvVars: exec.envVars || {},
+      dockerSetupCommands: exec.setupCommands || '',
       dockerVolumes: exec.volumes || [],
       dockerPorts: exec.ports || {},
     }
@@ -169,13 +169,13 @@ export function EnvironmentForm({
       return {
         type: 'local',
         path: formData.localPath,
-        use_git_worktrees: formData.useGitWorktrees || undefined,
+        useGitWorktrees: formData.useGitWorktrees || undefined,
       } as LocalRepository
     }
 
     return {
       type: 'github',
-      repo_id: formData.githubRepoId,
+      repoId: formData.githubRepoId,
       branch: formData.githubBranch || 'main',
       commit: formData.githubCommit || undefined,
       token: formData.githubToken || undefined,
@@ -186,15 +186,15 @@ export function EnvironmentForm({
     if (formData.codeExecutionType === 'local') {
       return {
         type: 'local',
-        setup_commands: formData.localSetupCommands || undefined,
+        setupCommands: formData.localSetupCommands || undefined,
       }
     }
 
     return {
       type: 'docker',
       image: formData.dockerImage,
-      env_vars: formData.dockerEnvVars,
-      setup_commands: formData.dockerSetupCommands || undefined,
+      envVars: formData.dockerEnvVars,
+      setupCommands: formData.dockerSetupCommands || undefined,
       volumes: formData.dockerVolumes.length > 0 ? formData.dockerVolumes : undefined,
       ports: Object.keys(formData.dockerPorts).length > 0 ? formData.dockerPorts : undefined,
     }
@@ -212,7 +212,7 @@ export function EnvironmentForm({
         name: formData.name,
         description: formData.description || undefined,
         repository: createRepository(),
-        code_execution: createCodeExecution(),
+        codeExecution: createCodeExecution(),
         variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
       }
       onSubmit(request)

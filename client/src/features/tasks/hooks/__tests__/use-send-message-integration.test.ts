@@ -68,7 +68,7 @@ describe('useSendMessage Integration Test', () => {
 
     // Mock the send message response
     vi.mocked(tasksApi.sendMessage).mockResolvedValueOnce(
-      createMockAgentTriggerResponse({ task_id: taskId }),
+      createMockAgentTriggerResponse({ taskId: taskId }),
     )
 
     // Mock the refetch to return updated data

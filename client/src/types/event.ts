@@ -8,13 +8,13 @@ export enum AgentEventType {
 export interface Event {
   event_id: string
   type: AgentEventType | string
-  task_id: string
-  iteration_number: number
+  taskId: string
+  iterationNumber: number
   timestamp: string
-  is_error: boolean
-  sub_type: string
-  context_tokens: number
-  num_turns: number
-  total_cost: number
+  isError: boolean
+  subType: string
+  contextTokens: number
+  numTurns: number
+  totalCost: number
   payload: Record<string, unknown>
 }

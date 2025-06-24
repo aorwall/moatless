@@ -8,12 +8,12 @@ export interface EnvironmentVariable {
 export interface LocalRepository {
   type: 'local'
   path: string
-  use_git_worktrees?: boolean
+  useGitWorktrees?: boolean
 }
 
 export interface GithubRepository {
   type: 'github'
-  repo_id: string // Format: "owner/repo"
+  repoId: string // Format: "owner/repo"
   branch?: string
   commit?: string
   token?: string // For private repos
@@ -24,11 +24,11 @@ export type Repository = LocalRepository | GithubRepository
 // Code execution types
 export interface CodeExecution {
   type: 'local' | 'docker'
-  setup_commands?: string
-  server_command?: string
+  setupCommands?: string
+  serverCommand?: string
   // Docker-specific fields
   image?: string // Required when type="docker"
-  env_vars?: Record<string, string>
+  envVars?: Record<string, string>
   volumes?: Array<string>
   ports?: Record<string, number>
 }
@@ -38,18 +38,18 @@ export interface Environment {
   name: string
   description?: string
   repository: Repository
-  code_execution: CodeExecution
+  codeExecution: CodeExecution
   variables: Record<string, string>
-  created_at: string
-  updated_at: string
-  is_active: boolean
+  createdAt: string
+  updatedAt: string
+  isActive: boolean
 }
 
 export interface CreateEnvironmentRequest {
   name: string
   description?: string
   repository: Repository
-  code_execution: CodeExecution
+  codeExecution: CodeExecution
   variables?: Record<string, string>
 }
 

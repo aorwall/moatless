@@ -2,10 +2,10 @@ import * as child_process from 'child_process'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EnvironmentService } from '../environment.js'
-import { EventService } from '../event.js'
+import { EnvironmentService } from '../environment.service.js'
+import { EventService } from '../event.service.js'
 import { FileStorage } from '../storage.js'
-import { WorkspaceService } from '../workspace.js'
+import { WorkspaceService } from '../workspace.service.js'
 
 // Mock child_process
 vi.mock('child_process', () => ({

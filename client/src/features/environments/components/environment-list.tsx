@@ -79,7 +79,7 @@ export function EnvironmentList({ environments, isLoading }: EnvironmentListProp
                   <TableCell>{env.repository.type}</TableCell>
                   <TableCell className="max-w-xs truncate">
                     {env.repository.type === 'github'
-                      ? env.repository.repo_id
+                      ? env.repository.repoId
                       : env.repository.path}
                   </TableCell>
                   <TableCell>

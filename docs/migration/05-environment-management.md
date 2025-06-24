@@ -17,7 +17,7 @@ Phase 5 focuses on migrating the environment management system that handles repo
 
 ### 1. Environment Service
 
-#### server/services/environment.ts
+#### server/services/environment.service.ts
 Port from: `swarm/environments/environment_manager.py`
 
 ```typescript

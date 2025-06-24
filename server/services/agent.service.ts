@@ -4,9 +4,9 @@ import type { FastifyInstance } from 'fastify'
 import { createClaudeCodeOptions, validateAgentOptions } from './agents/agent-options.js'
 import type { BaseAgent } from './agents/base-agent.js'
 import { ClaudeCodeAgent } from './agents/claude-code-agent.js'
-import type { EventService } from './event.js'
-import type { TaskService } from './task.js'
-import type { WorkspaceService } from './workspace.js'
+import type { EventService } from './event.service.js'
+import type { TaskService } from './task.service.js'
+import type { WorkspaceService } from './workspace.service.js'
 
 export type AgentType = 'claude-code' | 'openai' | 'custom'
 

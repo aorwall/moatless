@@ -86,7 +86,7 @@ export function EventHeader({ event, children }: EventHeaderProps) {
         <div className="flex-1">{children}</div>
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
-          {event.context_tokens > 0 && (
+          {event.contextTokens > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -96,11 +96,11 @@ export function EventHeader({ event, children }: EventHeaderProps) {
                     onClick={() => setShowPayloadDialog(true)}
                   >
                     <Progress
-                      value={(event.context_tokens / 200000) * 100}
+                      value={(event.contextTokens / 200000) * 100}
                       className="w-16 h-1.5"
                     />
                     <span className="font-mono text-xs">
-                      {event.context_tokens.toLocaleString()}
+                      {event.contextTokens.toLocaleString()}
                     </span>
                   </button>
                 </TooltipTrigger>
@@ -116,7 +116,7 @@ export function EventHeader({ event, children }: EventHeaderProps) {
                       ))
                     ) : (
                       <div className="text-xs text-muted-foreground">
-                        Context: {event.context_tokens.toLocaleString()} tokens
+                        Context: {event.contextTokens.toLocaleString()} tokens
                       </div>
                     )}
                     <div className="pt-1 mt-1 border-t text-xs text-muted-foreground">

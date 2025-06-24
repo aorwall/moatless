@@ -61,7 +61,7 @@ export function EnvironmentList({
     if (repository.type === 'local') {
       return repository.path
     } else {
-      return `${repository.repo_id}${repository.branch !== 'main' ? ` (${repository.branch})` : ''}`
+      return `${repository.repoId}${repository.branch !== 'main' ? ` (${repository.branch})` : ''}`
     }
   }
 

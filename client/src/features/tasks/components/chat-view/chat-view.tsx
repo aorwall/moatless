@@ -126,7 +126,7 @@ export function ChatView() {
     // Count message events with role assistant for this iteration (using index + 1 as iteration number)
     const messageEvents = events.filter(
       (event) =>
-        event.iteration_number === iterationIndex + 1 &&
+        event.iterationNumber === iterationIndex + 1 &&
         event.type === AgentEventType.MESSAGE &&
         event.payload?.role === 'assistant',
     )

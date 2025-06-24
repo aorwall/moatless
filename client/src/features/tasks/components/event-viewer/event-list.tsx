@@ -29,11 +29,11 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
         return <InputEvent event={event} />
       case 'message':
         // Check if it's a tool call with merged result
-        if (event.sub_type === 'tool_call' && 'toolResult' in event) {
+        if (event.subType === 'tool_call' && 'toolResult' in event) {
           return <ToolCallEvent event={event as MergedEvent} />
         }
         // Check if it's a standalone tool call (without result)
-        if (event.sub_type === 'tool_call') {
+        if (event.subType === 'tool_call') {
           return <ToolCallEvent event={event as MergedEvent} />
         }
         // For text messages and other non-tool messages
@@ -44,7 +44,7 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
         return (
           <div className="text-sm text-muted-foreground">
             <p>Event Type: {event.type}</p>
-            {event.sub_type && <p>Sub Type: {event.sub_type}</p>}
+            {event.subType && <p>Sub Type: {event.subType}</p>}
             <div className="mt-2">
               <PayloadRenderer payload={event.payload} />
             </div>

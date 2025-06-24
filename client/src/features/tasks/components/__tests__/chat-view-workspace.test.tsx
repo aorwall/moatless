@@ -138,32 +138,32 @@ describe('ChatView Workspace Integration', () => {
     const events = [
       createMockEvent({
         type: AgentEventType.MESSAGE,
-        iteration_number: 1,
+        iterationNumber: 1,
         payload: { role: 'assistant', content: 'Message 1' },
       }),
       createMockEvent({
         type: AgentEventType.MESSAGE,
-        iteration_number: 1,
+        iterationNumber: 1,
         payload: { role: 'assistant', content: 'Message 2' },
       }),
       createMockEvent({
         type: AgentEventType.MESSAGE,
-        iteration_number: 1,
+        iterationNumber: 1,
         payload: { role: 'user', content: 'User message' }, // Should not count
       }),
       createMockEvent({
         type: AgentEventType.MESSAGE,
-        iteration_number: 1,
+        iterationNumber: 1,
         payload: { role: 'assistant', content: 'Message 3' },
       }),
       createMockEvent({
         type: AgentEventType.MESSAGE,
-        iteration_number: 1,
+        iterationNumber: 1,
         payload: { role: 'assistant', content: 'Message 4' },
       }),
       createMockEvent({
         type: AgentEventType.MESSAGE,
-        iteration_number: 1,
+        iterationNumber: 1,
         payload: { role: 'assistant', content: 'Message 5' },
       }),
     ]

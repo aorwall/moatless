@@ -1,12 +1,11 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import staticPlugin from '@fastify/static'
 import websocket from '@fastify/websocket'
 import type { FastifyInstance } from 'fastify'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { errorHandler } from './plugins/error-handler.js'
-import { setupRateLimit } from './plugins/rate-limit.js'
 import { setupValidation } from './plugins/validation.js'
 import { registerRoutes } from './routes/index.js'
 import { setupServices } from './services/index.js'
@@ -29,9 +28,6 @@ export async function setupApp(app: FastifyInstance) {
   // WebSocket support
   await app.register(websocket)
 
-  // Rate limiting
-  await setupRateLimit(app)
-
   // Validation
   await setupValidation(app)
 
@@ -47,7 +43,7 @@ export async function setupApp(app: FastifyInstance) {
   }
 
   // Setup services
-  const services = setupServices(app)
+  const services = await setupServices(app)
   app.decorate('services', services)
 
   // Register API routes

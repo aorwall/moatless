@@ -13,7 +13,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
 
   // First pass: collect all tool results by tool_use_id
   for (const event of events) {
-    if (event.type === 'message' && !event.sub_type) {
+    if (event.type === 'message' && !event.subType) {
       const payload = event.payload as Record<string, unknown>
       const message = payload.message as Record<string, unknown> | null
 
@@ -43,7 +43,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
       continue
     }
 
-    if (event.type === 'message' && event.sub_type === 'tool_call') {
+    if (event.type === 'message' && event.subType === 'tool_call') {
       const payload = event.payload as Record<string, unknown>
       const message = payload.message as Record<string, unknown> | null
 

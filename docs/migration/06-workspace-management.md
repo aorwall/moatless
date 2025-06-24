@@ -18,7 +18,7 @@ Phase 6 focuses on migrating the workspace management system that handles local 
 
 ### 1. Workspace Service
 
-#### server/services/workspace.ts
+#### server/services/workspace.service.ts
 Port from: `swarm/workspaces/workspace_manager.py`
 
 ```typescript

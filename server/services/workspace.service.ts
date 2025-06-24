@@ -12,8 +12,8 @@ import type {
   Workspace,
 } from '../../shared/types/index.js'
 import { getCurrentBranch, getGitDiffFiles } from '../utils/git-utils.js'
-import type { EnvironmentService } from './environment.js'
-import type { EventService } from './event.js'
+import type { EnvironmentService } from './environment.service.js'
+import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 
 const execAsync = promisify(exec)

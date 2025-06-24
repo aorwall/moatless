@@ -46,11 +46,11 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
     if (env?.repository.type === 'local') {
       return {
         path: env.repository.path,
-        use_git_worktrees: env.repository.use_git_worktrees ?? false,
+        use_git_worktrees: env.repository.useGitWorktrees ?? false,
       }
     } else if (env?.repository.type === 'github') {
       return {
-        repo_url: env.repository.repo_id,
+        repo_url: env.repository.repoId,
         branch: env.repository.branch || 'main',
       }
     }

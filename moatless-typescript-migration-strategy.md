@@ -246,10 +246,10 @@ For phase completion:
 
 ### Phase 2: Type System (Week 2) ✅ COMPLETED
 - [x] Create `shared/types` directory structure
-- [x] Port `swarm/tasks/schema.py` → `task.ts`
-- [x] Port `swarm/eventstream/events.py` → `event.ts`
-- [x] Port `swarm/environments/environments.py` → `environment.ts`
-- [x] Port `swarm/workspaces/models.py` → `workspace.ts`
+- [x] Port `swarm/tasks/schema.py` → `task.service.ts`
+- [x] Port `swarm/eventstream/events.py` → `event.service.ts`
+- [x] Port `swarm/environments/environments.py` → `environment.service.ts`
+- [x] Port `swarm/workspaces/models.py` → `workspace.service.ts`
 - [x] Port `swarm/workspaces/schema.py` → `workspace-schema.ts`
 - [x] Create API request/response types with Zod validation
 - [x] Create shared error types and constants
@@ -269,12 +269,12 @@ For phase completion:
 - [x] Create server unit tests <!-- 45 tests passing, ~80% coverage -->
 
 ### Phase 4: Core Services (Week 4)
-- [ ] Port `swarm/eventstream/event_stream.py` → `event.ts`
+- [ ] Port `swarm/eventstream/event_stream.py` → `event.service.ts`
 - [ ] Port `swarm/eventstream/file_stream.py` → file event storage
 - [ ] Implement event subscription system with EventEmitter
-- [ ] Port `swarm/environments/environment_manager.py` → `environment.ts`
+- [ ] Port `swarm/environments/environment_manager.py` → `environment.service.ts`
 - [ ] Create environment validation and templates
-- [ ] Port `swarm/tasks/task_manager.py` → `task.ts`
+- [ ] Port `swarm/tasks/task_manager.py` → `task.service.ts`
 - [ ] Implement task lifecycle state machine
 - [ ] Add background task management
 - [ ] Create service unit tests
@@ -293,7 +293,7 @@ For phase completion:
 - [ ] Add rate limiting and security headers
 
 ### Phase 6: Workspace Management (Week 6) ✅ COMPLETED
-- [x] Port `swarm/workspaces/workspace_manager.py` → `workspace.ts`
+- [x] Port `swarm/workspaces/workspace_manager.py` → `workspace.service.ts`
 - [x] Port `swarm/workspaces/base.py` → base workspace logic
 - [x] Port `swarm/workspaces/local.py` → local workspace implementation
 - [x] Implement git worktree management
@@ -305,8 +305,8 @@ For phase completion:
 - [x] Create workspace integration tests <!-- Tests added for workspace service and git utilities -->
 
 ### Phase 7: Agent Integration (Week 7) ✅ COMPLETED
-- [x] Port `swarm/agents/base.py` → `base-agent.ts`
-- [x] Port `swarm/agents/claude_code.py` → `claude-code-agent.ts`
+- [x] Port `swarm/agents/base.py` → `base-agent.service.ts`
+- [x] Port `swarm/agents/claude_code.py` → `claude-code-agent.service.ts`
 - [x] Port `swarm/agents/options.py` → `agent-options.ts`
 - [x] Create agent service for managing agent lifecycle
 - [x] Implement CLI process spawning with child_process

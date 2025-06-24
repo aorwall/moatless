@@ -1,12 +1,12 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AgentService } from '../agent.js'
-import { EnvironmentService } from '../environment.js'
-import { EventService } from '../event.js'
+import { AgentService } from '../agent.service.js'
+import { EnvironmentService } from '../environment.service.js'
+import { EventService } from '../event.service.js'
 import { FileStorage } from '../storage.js'
-import { TaskService } from '../task.js'
-import { WorkspaceService } from '../workspace.js'
+import { TaskService } from '../task.service.js'
+import { WorkspaceService } from '../workspace.service.js'
 
 // Mock the Claude CLI
 vi.mock('child_process', async () => {

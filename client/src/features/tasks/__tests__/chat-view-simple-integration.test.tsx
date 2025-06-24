@@ -70,7 +70,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     })
 
     vi.mocked(tasksApi.sendMessage).mockResolvedValue(
-      createMockAgentTriggerResponse({ task_id: taskId }),
+      createMockAgentTriggerResponse({ taskId: taskId }),
     )
     vi.mocked(tasksApi.getTask).mockResolvedValue(updatedTask)
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(updatedWorkspace)
@@ -167,7 +167,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     getWorkspaceSpy.mockResolvedValue(createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }))
     listTasksSpy.mockResolvedValue([mockTask])
     vi.mocked(tasksApi.sendMessage).mockResolvedValue(
-      createMockAgentTriggerResponse({ task_id: taskId }),
+      createMockAgentTriggerResponse({ taskId: taskId }),
     )
 
     // Establish initial queries

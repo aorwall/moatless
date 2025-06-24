@@ -280,9 +280,9 @@ export function CodeExecutionConfig({
 }: CodeExecutionConfigProps) {
   const [formData, setFormData] = useState({
     type: codeExecution.type,
-    setup_commands: codeExecution.setup_commands || '',
-    server_command: codeExecution.server_command || '',
-    env_vars: codeExecution.env_vars || {},
+    setup_commands: codeExecution.setupCommands || '',
+    server_command: codeExecution.serverCommand || '',
+    env_vars: codeExecution.envVars || {},
     image: codeExecution.image || 'ubuntu:latest',
   })
 
@@ -303,9 +303,9 @@ export function CodeExecutionConfig({
   const buildCodeExecution = (): CodeExecution => {
     const updatedExecution: CodeExecution = {
       type: formData.type,
-      setup_commands: formData.setup_commands || undefined,
-      server_command: formData.server_command || undefined,
-      env_vars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
+      setupCommands: formData.setup_commands || undefined,
+      serverCommand: formData.server_command || undefined,
+      envVars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
     }
 
     if (formData.type === 'docker') {

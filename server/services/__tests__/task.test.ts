@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TaskNotFoundError, ValidationError } from '../../../shared/constants/errors.js'
 import { EventType } from '../../../shared/types/event.js'
 import type { CreateTaskRequest, TaskMetadata } from '../../../shared/types/task.js'
-import type { EnvironmentService } from '../environment.js'
-import type { EventService } from '../event.js'
+import type { EnvironmentService } from '../environment.service.js'
+import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
-import { TaskService } from '../task.js'
-import type { WorkspaceService } from '../workspace.js'
+import { TaskService } from '../task.service.js'
+import type { WorkspaceService } from '../workspace.service.js'
 
 describe('TaskService', () => {
   let taskService: TaskService

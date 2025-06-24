@@ -30,7 +30,7 @@ export enum WorkspaceStatus {
 
 export interface WorkspaceStatusResponse {
   status: WorkspaceStatus
-  has_uncommitted_changes: boolean
+  hasUncommittedChanges: boolean
 }
 
 export interface ServerStatus {
@@ -38,7 +38,7 @@ export interface ServerStatus {
   configured: boolean
   url: string
   pid: number
-  uptime_seconds: number
+  uptimeSeconds: number
 }
 
 export interface TextContent {
@@ -49,8 +49,8 @@ export interface TextContent {
 export interface ToolResultContent {
   type: ContentType.TOOL_RESULT
   content: string
-  is_error: boolean
-  tool_use_id: string
+  isError: boolean
+  toolUseId: string
 }
 
 export interface ToolUseInput {
@@ -65,11 +65,10 @@ export interface ToolUseContent {
 }
 
 export interface Usage {
-  input_tokens: number
-  output_tokens: number
-  cache_creation_input_tokens?: number
-  cache_read_input_tokens?: number
-  service_tier?: string
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens?: number
+  cacheReadInputTokens?: number
 }
 
 export interface MessageContent {
@@ -162,31 +161,4 @@ export interface Task {
   time: string
   project: string
   changes?: { added: number; removed: number }
-}
-
-export interface FileDiff {
-  name: string
-  status: 'Modified' | 'New' | 'Deleted'
-  changes: { added: number; removed: number }
-  diff: string
-}
-
-export interface TaskDetail {
-  id: number
-  title: string
-  time: string
-  date: string
-  project: string
-  status: 'active' | 'completed' | 'error'
-  branch: string
-  changes: { added: number; removed: number }
-  description: string
-  duration: string
-  notes: Array<string>
-  summary: Array<string>
-  testing: {
-    status: 'passed' | 'failed' | 'pending'
-    details: string
-  }
-  files: Array<FileDiff>
 }

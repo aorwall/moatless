@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../../../shared/types/event.js'
 import type { Event } from '../../../shared/types/index.js'
-import { EventService } from '../event.js'
+import { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
 
 describe('EventService', () => {

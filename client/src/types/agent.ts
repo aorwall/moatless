@@ -3,14 +3,14 @@ export interface AgentOptions {
 }
 
 export interface AgentTriggerRequest {
-  agent_type: string
+  agentType: string
   message: string
-  environment_id: string
+  environmentId: string
   branch?: string
 }
 
 export interface AgentTriggerResponse {
-  task_id: string
+  taskId: string
   status: string
   stream_url?: string
 }

@@ -17,7 +17,7 @@ Phase 7 focuses on migrating the agent system that handles Claude Code CLI integ
 
 ### 1. Base Agent Interface
 
-#### server/services/agents/base-agent.ts
+#### server/services/agents/base-agent.service.ts
 Port from: `swarm/agents/base.py`
 
 ```typescript
@@ -75,7 +75,7 @@ export abstract class BaseAgent {
 
 ### 2. Claude Code Agent Implementation
 
-#### server/services/agents/claude-code-agent.ts
+#### server/services/agents/claude-code-agent.service.ts
 Port from: `swarm/agents/claude_code.py`
 
 ```typescript
@@ -511,7 +511,7 @@ export function validateAgentOptions(options: BaseAgentOptions): string[] {
 
 ### 4. Agent Service
 
-#### server/services/agent.ts
+#### server/services/agent.service.ts
 ```typescript
 import { randomUUID } from 'crypto';
 import type { FastifyInstance } from 'fastify';

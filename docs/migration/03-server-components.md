@@ -254,7 +254,7 @@ export function createStorageService(app: FastifyInstance): StorageBackend {
 
 ### 3. Event System Service
 
-#### server/services/event.ts
+#### server/services/event.service.ts
 Port from: `swarm/eventstream/event_stream.py`
 
 ```typescript
@@ -358,7 +358,7 @@ export function createEventService(app: FastifyInstance, storage: StorageBackend
 
 ### 4. Task Service
 
-#### server/services/task.ts
+#### server/services/task.service.ts
 Port from: `swarm/tasks/task_manager.py`
 
 ```typescript
