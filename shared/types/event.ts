@@ -1,3 +1,5 @@
+import type { SDKMessage } from '@anthropic-ai/claude-code'
+
 export enum EventType {
   INPUT = 'input',
   MESSAGE = 'message',
@@ -22,7 +24,7 @@ export interface BaseEvent {
   type: EventType
   subType?: string
   taskId: string
-  iterationNumber?: number
+  iterationId?: number
   timestamp: Date
   isError: boolean
   contextTokens?: number
@@ -47,10 +49,7 @@ export interface InputEvent extends BaseEvent {
 
 export interface MessageEvent extends BaseEvent {
   type: EventType.MESSAGE
-  payload: {
-    content: string
-    role: 'user' | 'assistant' | 'system'
-  }
+  payload: SDKMessage
 }
 
 export interface ErrorEvent extends BaseEvent {
