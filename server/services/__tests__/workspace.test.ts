@@ -168,6 +168,7 @@ describe('WorkspaceService', () => {
       const workspace = await service.createWorkspace('test-task', environment.id)
 
       // Manually set the workspace path to our temp directory for testing
+
       ;(workspace as any).path = tempDir
       await storage.saveWorkspace(workspace)
 
@@ -199,6 +200,7 @@ describe('WorkspaceService', () => {
       const workspace = await service.createWorkspace('test-task', environment.id)
 
       // Manually set the workspace path to our temp directory for testing
+
       ;(workspace as any).path = tempDir
       await storage.saveWorkspace(workspace)
 
@@ -233,6 +235,7 @@ describe('WorkspaceService', () => {
       const workspace = await service.createWorkspace('test-task', environment.id)
 
       // Manually set the workspace path to our temp directory for testing
+
       ;(workspace as any).path = tempDir
       await storage.saveWorkspace(workspace)
 
