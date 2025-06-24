@@ -9,7 +9,10 @@ export default defineConfig({
     react(),
     tsconfigPaths(),
     tailwindcss(),
-    TanStackRouterVite()
+    TanStackRouterVite({
+      routesDirectory: './src/routes',
+      generatedRouteTree: './src/routeTree.gen.ts'
+    })
   ],
   server: {
     port: 3001,
