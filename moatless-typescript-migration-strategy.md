@@ -317,17 +317,17 @@ For phase completion:
 - [x] Create agent unit tests
 - [x] Add Claude CLI integration tests <!-- Some tests have integration issues but core functionality is tested -->
 
-### Phase 8: Utilities & Helpers (Week 8)
-- [ ] Port `swarm/utils/git_utils.py` → `git-utils.ts`
-- [ ] Port `swarm/utils/file_search.py` → `file-search.ts`
-- [ ] Port `swarm/utils/subprocess.py` → `process-utils.ts`
-- [ ] Add path manipulation utilities
-- [ ] Create async utility functions
-- [ ] Implement rate limiting utilities
-- [ ] Add logging utilities with pino
-- [ ] Create error handling utilities
-- [ ] Add utility unit tests
-- [ ] Create performance benchmarks
+### Phase 8: Utilities & Helpers (Week 8) ✅ COMPLETED
+- [x] Port `swarm/utils/git_utils.py` → `git-utils.ts` <!-- Completed in Phase 6 -->
+- [x] Port `swarm/utils/file_search.py` → `file-search.ts` <!-- Completed in Phase 5 -->
+- [x] Port `swarm/utils/subprocess.py` → `process-utils.ts` <!-- Completed in Phase 7 -->
+- [x] Add path manipulation utilities <!-- Included in file-search and git-utils -->
+- [x] Create async utility functions
+- [x] Implement rate limiting utilities
+- [x] Add logging utilities with pino
+- [x] Create error handling utilities <!-- Included in async-utils -->
+- [x] Add utility unit tests
+- [x] Create performance benchmarks
 
 ### Phase 9: Client Development (Week 9)
 - [ ] Set up React app with TypeScript
