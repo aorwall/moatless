@@ -1,15 +1,5 @@
 import { z } from 'zod'
 
-export const CreateTaskRequestSchema = z.object({
-  agentType: z.string(),
-  environmentId: z.string(),
-  message: z.string(),
-  branchName: z.string().optional(),
-  start: z.boolean().default(true),
-})
-
-export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
-
 export const TaskStatusSchema = z.enum(['active', 'completed', 'error', 'closed'])
 
 export const SimpleTaskResponseSchema = z.object({

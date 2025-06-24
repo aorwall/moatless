@@ -80,3 +80,22 @@ export interface GitDiffResponse {
   diff?: string
   files: GitDiffFile[]
 }
+
+export interface CreateTaskRequest {
+  agentType: string
+  environmentId: string
+  message: string
+  branchName?: string
+  start?: boolean
+}
+
+// Zod schema for validation (can be imported from api.ts if needed)
+import { z } from 'zod'
+
+export const CreateTaskRequestSchema = z.object({
+  agentType: z.string(),
+  environmentId: z.string(),
+  message: z.string(),
+  branchName: z.string().optional(),
+  start: z.boolean().default(true),
+})

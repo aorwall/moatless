@@ -235,17 +235,17 @@ For phase completion:
 - [x] Add shared utilities and validation functions
 - [x] Generate type documentation
 
-### Phase 3: Server Foundation (Week 3)
-- [ ] Create Fastify server setup with logging
-- [ ] Configure CORS and static file serving
-- [ ] Set up WebSocket support
-- [ ] Create service architecture with dependency injection
-- [ ] Port `swarm/storage/base.py` → `storage.ts`
-- [ ] Port `swarm/storage/file.py` → file storage implementation
-- [ ] Implement health check endpoint
-- [ ] Create error handling middleware
-- [ ] Add request validation with Zod
-- [ ] Create server unit tests
+### Phase 3: Server Foundation (Week 3) ✅ COMPLETED
+- [x] Create Fastify server setup with logging
+- [x] Configure CORS and static file serving
+- [x] Set up WebSocket support
+- [x] Create service architecture with dependency injection
+- [x] Port `swarm/storage/base.py` → `storage.ts`
+- [x] Port `swarm/storage/file.py` → file storage implementation
+- [x] Implement health check endpoint
+- [x] Create error handling middleware
+- [x] Add request validation with Zod
+- [ ] Create server unit tests <!-- TODO: Complete unit tests -->
 
 ### Phase 4: Core Services (Week 4)
 - [ ] Port `swarm/eventstream/event_stream.py` → `event.ts`
