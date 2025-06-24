@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+
 import {
   type MergedEvent,
   mergeToolEvents,
@@ -78,12 +80,14 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
 };
 
 export function EventList({ events }: EventListProps) {
-  const sortedEvents = [...events].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-  );
-
-  // Merge tool calls with their results
-  const mergedEvents = mergeToolEvents(sortedEvents);
+  // Memoize sorted and merged events to prevent unnecessary re-computations
+  const mergedEvents = useMemo(() => {
+    const sortedEvents = [...events].sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+    return mergeToolEvents(sortedEvents);
+  }, [events]);
 
   return (
     <div className="space-y-2 w-full max-w-[48rem] min-w-[24rem] mx-auto">

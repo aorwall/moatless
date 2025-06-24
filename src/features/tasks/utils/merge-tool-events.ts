@@ -5,6 +5,9 @@ export interface MergedEvent extends Event {
 }
 
 export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
+  // Early return for empty arrays
+  if (events.length === 0) return [];
+
   const toolResultsMap = new Map<string, Event>();
   const processedEventIds = new Set<string>();
 
