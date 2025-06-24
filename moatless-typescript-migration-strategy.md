@@ -223,17 +223,17 @@ For phase completion:
 - [x] Configure commit linting with commitlint
 - [x] Set up Turbo for monorepo task orchestration
 
-### Phase 2: Type System (Week 2)
-- [ ] Create `shared/types` directory structure
-- [ ] Port `swarm/tasks/schema.py` → `task.ts`
-- [ ] Port `swarm/eventstream/events.py` → `event.ts`
-- [ ] Port `swarm/environments/environments.py` → `environment.ts`
-- [ ] Port `swarm/workspaces/models.py` → `workspace.ts`
-- [ ] Port `swarm/workspaces/schema.py` → `workspace-schema.ts`
-- [ ] Create API request/response types with Zod validation
-- [ ] Create shared error types and constants
-- [ ] Add shared utilities and validation functions
-- [ ] Generate type documentation
+### Phase 2: Type System (Week 2) ✅ COMPLETED
+- [x] Create `shared/types` directory structure
+- [x] Port `swarm/tasks/schema.py` → `task.ts`
+- [x] Port `swarm/eventstream/events.py` → `event.ts`
+- [x] Port `swarm/environments/environments.py` → `environment.ts`
+- [x] Port `swarm/workspaces/models.py` → `workspace.ts`
+- [x] Port `swarm/workspaces/schema.py` → `workspace-schema.ts`
+- [x] Create API request/response types with Zod validation
+- [x] Create shared error types and constants
+- [x] Add shared utilities and validation functions
+- [x] Generate type documentation
 
 ### Phase 3: Server Foundation (Week 3)
 - [ ] Create Fastify server setup with logging
