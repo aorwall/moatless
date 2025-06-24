@@ -1,11 +1,8 @@
-import type {
-  UseMutationOptions,
-  UseQueryOptions,
-} from '@tanstack/react-query';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { environmentsApi } from '@/features/environments/api/environments';
-import { queryKeys } from '@/lib/api/query-keys';
+import { environmentsApi } from '@/features/environments/api/environments'
+import { queryKeys } from '@/lib/api/query-keys'
 import type {
   BranchListResponse,
   CreateEnvironmentRequest,
@@ -13,20 +10,17 @@ import type {
   FileSearchResponse,
   SetupScriptResponse,
   UpdateEnvironmentRequest,
-} from '@/types/environment';
+} from '@/types/environment'
 
 // Query hooks
 export function useEnvironmentsList(
-  options?: Omit<
-    UseQueryOptions<Array<EnvironmentResponse>>,
-    'queryKey' | 'queryFn'
-  >,
+  options?: Omit<UseQueryOptions<Array<EnvironmentResponse>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.environmentsList(),
     queryFn: () => environmentsApi.listEnvironments(),
     ...options,
-  });
+  })
 }
 
 export function useEnvironment(
@@ -38,29 +32,24 @@ export function useEnvironment(
     queryFn: () => environmentsApi.getEnvironment(envId),
     enabled: !!envId,
     ...options,
-  });
+  })
 }
 
 // Mutation hooks
 export function useCreateEnvironment(
-  options?: UseMutationOptions<
-    EnvironmentResponse,
-    Error,
-    CreateEnvironmentRequest
-  >,
+  options?: UseMutationOptions<EnvironmentResponse, Error, CreateEnvironmentRequest>,
 ) {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (request: CreateEnvironmentRequest) =>
-      environmentsApi.createEnvironment(request),
+    mutationFn: (request: CreateEnvironmentRequest) => environmentsApi.createEnvironment(request),
     onSuccess: (data, variables, context) => {
       // Invalidate environments list to refresh with new environment
-      queryClient.invalidateQueries({ queryKey: queryKeys.environments() });
-      options?.onSuccess?.(data, variables, context);
+      queryClient.invalidateQueries({ queryKey: queryKeys.environments() })
+      options?.onSuccess?.(data, variables, context)
     },
     ...options,
-  });
+  })
 }
 
 export function useUpdateEnvironment(
@@ -70,28 +59,25 @@ export function useUpdateEnvironment(
     { envId: string; request: UpdateEnvironmentRequest }
   >,
 ) {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ envId, request }) =>
-      environmentsApi.updateEnvironment(envId, request),
+    mutationFn: ({ envId, request }) => environmentsApi.updateEnvironment(envId, request),
     onSuccess: (data, variables, context) => {
       // Invalidate specific environment detail
       queryClient.invalidateQueries({
         queryKey: queryKeys.environmentDetail(variables.envId),
-      });
+      })
       // Invalidate environments list
-      queryClient.invalidateQueries({ queryKey: queryKeys.environments() });
-      options?.onSuccess?.(data, variables, context);
+      queryClient.invalidateQueries({ queryKey: queryKeys.environments() })
+      options?.onSuccess?.(data, variables, context)
     },
     ...options,
-  });
+  })
 }
 
-export function useDeleteEnvironment(
-  options?: UseMutationOptions<void, Error, string>,
-) {
-  const queryClient = useQueryClient();
+export function useDeleteEnvironment(options?: UseMutationOptions<void, Error, string>) {
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (envId: string) => environmentsApi.deleteEnvironment(envId),
@@ -99,13 +85,13 @@ export function useDeleteEnvironment(
       // Remove from cache
       queryClient.removeQueries({
         queryKey: queryKeys.environmentDetail(envId),
-      });
+      })
       // Invalidate environments list
-      queryClient.invalidateQueries({ queryKey: queryKeys.environments() });
-      options?.onSuccess?.(data, envId, context);
+      queryClient.invalidateQueries({ queryKey: queryKeys.environments() })
+      options?.onSuccess?.(data, envId, context)
     },
     ...options,
-  });
+  })
 }
 
 export function useRunSetupScript(
@@ -114,7 +100,7 @@ export function useRunSetupScript(
   return useMutation({
     mutationFn: (envId: string) => environmentsApi.runSetupScript(envId),
     ...options,
-  });
+  })
 }
 
 export function useSearchFiles(
@@ -128,7 +114,7 @@ export function useSearchFiles(
     enabled: !!envId && query.length >= 3,
     staleTime: 30000, // Cache for 30 seconds
     ...options,
-  });
+  })
 }
 
 export function useBranches(
@@ -141,5 +127,5 @@ export function useBranches(
     enabled: !!envId,
     staleTime: 60000, // Cache for 1 minute
     ...options,
-  });
+  })
 }

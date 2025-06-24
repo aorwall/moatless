@@ -1,5 +1,5 @@
-import { Link } from '@tanstack/react-router';
-import { Home, Settings } from 'lucide-react';
+import { Link } from '@tanstack/react-router'
+import { Home, Settings } from 'lucide-react'
 
 import {
   Sidebar,
@@ -11,10 +11,10 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from '@/lib/components/ui/sidebar';
+} from '@/lib/components/ui/sidebar'
 
-import { SidebarEnvironments } from './sidebar-environments';
-import { SidebarTasks } from './sidebar-tasks';
+import { SidebarEnvironments } from './sidebar-environments'
+import { SidebarTasks } from './sidebar-tasks'
 
 export function AppSidebar() {
   return (
@@ -69,5 +69,5 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
-  );
+  )
 }

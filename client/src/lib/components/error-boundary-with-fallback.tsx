@@ -1,39 +1,36 @@
-import { Component, type ReactNode, Suspense } from 'react';
+import { Component, type ReactNode, Suspense } from 'react'
 
-import { ErrorAlert } from '@/lib/components/ui/error-alert';
-import { Skeleton } from '@/lib/components/ui/skeleton';
+import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { Skeleton } from '@/lib/components/ui/skeleton'
 
 interface ErrorBoundaryProps {
-  children: ReactNode;
-  fallback?: (error: Error, reset: () => void) => ReactNode;
-  componentName?: string;
-  onError?: (error: Error, errorInfo: { componentStack: string }) => void;
-  resetKeys?: Array<string | number>;
-  resetOnPropsChange?: boolean;
-  isolate?: boolean;
+  children: ReactNode
+  fallback?: (error: Error, reset: () => void) => ReactNode
+  componentName?: string
+  onError?: (error: Error, errorInfo: { componentStack: string }) => void
+  resetKeys?: Array<string | number>
+  resetOnPropsChange?: boolean
+  isolate?: boolean
 }
 
 interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-  resetKeys?: Array<string | number>;
+  hasError: boolean
+  error: Error | null
+  resetKeys?: Array<string | number>
 }
 
-export class ErrorBoundary extends Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
-    super(props);
+    super(props)
     this.state = {
       hasError: false,
       error: null,
       resetKeys: props.resetKeys,
-    };
+    }
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return { hasError: true, error };
+    return { hasError: true, error }
   }
 
   static getDerivedStateFromProps(
@@ -44,18 +41,18 @@ export class ErrorBoundary extends Component<
     if (props.resetKeys && state.resetKeys) {
       const hasResetKeyChanged = props.resetKeys.some(
         (key, index) => key !== state.resetKeys?.[index],
-      );
+      )
       if (hasResetKeyChanged) {
-        return { hasError: false, error: null, resetKeys: props.resetKeys };
+        return { hasError: false, error: null, resetKeys: props.resetKeys }
       }
     }
 
     // Reset on any props change if requested
     if (props.resetOnPropsChange && state.hasError) {
-      return { hasError: false, error: null };
+      return { hasError: false, error: null }
     }
 
-    return null;
+    return null
   }
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
@@ -64,34 +61,31 @@ export class ErrorBoundary extends Component<
       `Error caught by ${this.props.componentName || 'ErrorBoundary'}:`,
       error,
       errorInfo,
-    );
+    )
 
     // Call custom error handler if provided
-    this.props.onError?.(error, errorInfo);
+    this.props.onError?.(error, errorInfo)
 
     // In production, you might want to send this to an error tracking service
-    if (
-      typeof window !== 'undefined' &&
-      window.location.hostname !== 'localhost'
-    ) {
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
       // Example: sendToErrorTrackingService(error, errorInfo);
     }
   }
 
   reset = () => {
-    this.setState({ hasError: false, error: null });
-  };
+    this.setState({ hasError: false, error: null })
+  }
 
   render() {
     if (this.state.hasError && this.state.error) {
       // Isolate mode - render nothing to prevent cascading failures
       if (this.props.isolate) {
-        return null;
+        return null
       }
 
       // Custom fallback
       if (this.props.fallback) {
-        return this.props.fallback(this.state.error, this.reset);
+        return this.props.fallback(this.state.error, this.reset)
       }
 
       // Default fallback
@@ -112,10 +106,10 @@ export class ErrorBoundary extends Component<
             </button>
           </div>
         </div>
-      );
+      )
     }
 
-    return this.props.children;
+    return this.props.children
   }
 }
 
@@ -128,11 +122,7 @@ export function SafeBoundary({
   ...errorBoundaryProps
 }: ErrorBoundaryProps & { loadingFallback?: ReactNode }) {
   return (
-    <ErrorBoundary
-      componentName={componentName}
-      fallback={fallback}
-      {...errorBoundaryProps}
-    >
+    <ErrorBoundary componentName={componentName} fallback={fallback} {...errorBoundaryProps}>
       <Suspense
         fallback={
           loadingFallback || (
@@ -145,5 +135,5 @@ export function SafeBoundary({
         {children}
       </Suspense>
     </ErrorBoundary>
-  );
+  )
 }

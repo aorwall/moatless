@@ -1,1 +1,1 @@
-export { ServerLogsViewer } from './server-logs-viewer';
+export { ServerLogsViewer } from './server-logs-viewer'

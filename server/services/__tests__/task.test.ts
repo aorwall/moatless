@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventType } from '../../../shared/types/event.js'
-import type { TaskMetadata, CreateTaskRequest } from '../../../shared/types/task.js'
 import { TaskNotFoundError, ValidationError } from '../../../shared/constants/errors.js'
-import type { StorageBackend } from '../storage.js'
-import type { EventService } from '../event.js'
+import { EventType } from '../../../shared/types/event.js'
+import type { CreateTaskRequest, TaskMetadata } from '../../../shared/types/task.js'
 import type { EnvironmentService } from '../environment.js'
-import type { WorkspaceService } from '../workspace.js'
+import type { EventService } from '../event.js'
+import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.js'
+import type { WorkspaceService } from '../workspace.js'
 
 describe('TaskService', () => {
   let taskService: TaskService
@@ -122,7 +122,9 @@ describe('TaskService', () => {
       vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce(null)
 
       await expect(taskService.createTask(request)).rejects.toThrow(ValidationError)
-      await expect(taskService.createTask(request)).rejects.toThrow('Environment non-existent not found')
+      await expect(taskService.createTask(request)).rejects.toThrow(
+        'Environment non-existent not found',
+      )
     })
 
     it('should handle workspace setup errors gracefully', async () => {
@@ -206,16 +208,14 @@ describe('TaskService', () => {
         iterations: [],
       }))
 
-      vi.mocked(mockStorage.list).mockResolvedValueOnce(
-        tasks.map(t => `tasks/${t.taskId}`),
-      )
+      vi.mocked(mockStorage.list).mockResolvedValueOnce(tasks.map((t) => `tasks/${t.taskId}`))
 
-      tasks.forEach(task => {
+      tasks.forEach((task) => {
         vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
       })
 
       const result = await taskService.listTasks(5, 0)
-      
+
       expect(result).toHaveLength(5)
       expect(result[0].taskId).toBe('task-0') // Most recent first
     })
@@ -340,9 +340,7 @@ describe('TaskService', () => {
     it('should throw TaskNotFoundError for non-existent task', async () => {
       vi.mocked(mockStorage.getTask).mockResolvedValueOnce(null)
 
-      await expect(taskService.deleteTask('non-existent')).rejects.toThrow(
-        TaskNotFoundError,
-      )
+      await expect(taskService.deleteTask('non-existent')).rejects.toThrow(TaskNotFoundError)
     })
   })
 
@@ -360,7 +358,7 @@ describe('TaskService', () => {
 
       // Delay workspace creation
       vi.mocked(mockWorkspaceService.createWorkspace).mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ id: 'ws-123' } as any), 50)),
+        () => new Promise((resolve) => setTimeout(() => resolve({ id: 'ws-123' } as any), 50)),
       )
 
       await taskService.createTask(request)

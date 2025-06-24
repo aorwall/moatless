@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../../../shared/types/event.js'
 import type { Event } from '../../../shared/types/index.js'
-import type { StorageBackend } from '../storage.js'
 import { EventService } from '../event.js'
+import type { StorageBackend } from '../storage.js'
 
 describe('EventService', () => {
   let eventService: EventService
@@ -110,7 +110,7 @@ describe('EventService', () => {
       await eventService.emitEvent(event)
 
       // Give event emitter time to process
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise((resolve) => setTimeout(resolve, 10))
 
       expect(taskListener).toHaveBeenCalledWith(event)
       expect(allListener).toHaveBeenCalledWith(event)
@@ -132,7 +132,7 @@ describe('EventService', () => {
       vi.mocked(mockStorage.getEvents).mockResolvedValueOnce(events)
 
       const result = await eventService.getEvents('task-123', 5, 2)
-      
+
       expect(result).toHaveLength(5)
       expect(result[0].eventId).toBe('evt-2')
       expect(result[4].eventId).toBe('evt-6')
@@ -169,9 +169,9 @@ describe('EventService', () => {
       vi.mocked(mockStorage.getEvents).mockResolvedValueOnce(events)
 
       const result = await eventService.getEvents('task-123', undefined, 0, EventType.MESSAGE)
-      
+
       expect(result).toHaveLength(2)
-      expect(result.every(e => e.type === EventType.MESSAGE)).toBe(true)
+      expect(result.every((e) => e.type === EventType.MESSAGE)).toBe(true)
     })
   })
 
@@ -190,16 +190,16 @@ describe('EventService', () => {
       }
 
       await eventService.emitEvent(event)
-      await new Promise(resolve => setTimeout(resolve, 10))
-      
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
       expect(handler).toHaveBeenCalledTimes(1)
 
       // Unsubscribe
       unsubscribe()
 
       await eventService.emitEvent(event)
-      await new Promise(resolve => setTimeout(resolve, 10))
-      
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
       // Should still be called only once
       expect(handler).toHaveBeenCalledTimes(1)
     })
@@ -221,9 +221,9 @@ describe('EventService', () => {
 
       // Should not throw - the event emission itself should succeed
       await eventService.emitEvent(event)
-      
+
       // Give time for the async error handler to run
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(errorHandler).toHaveBeenCalled()
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error))

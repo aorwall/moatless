@@ -1,11 +1,11 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils'
 
 interface MarkdownProps {
-  content: string;
-  className?: string;
+  content: string
+  className?: string
 }
 
 export function Markdown({ content, className }: MarkdownProps) {
@@ -31,33 +31,33 @@ export function Markdown({ content, className }: MarkdownProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-        pre: ({ children, ...props }) => (
-          <pre
-            className="overflow-x-auto rounded-md bg-gray-100 dark:bg-gray-800 p-4 text-sm"
-            {...props}
-          >
-            {children}
-          </pre>
-        ),
-        code: ({ children, className, ...props }) => {
-          const isInline = !className;
-          return isInline ? (
-            <code
-              className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm"
+          pre: ({ children, ...props }) => (
+            <pre
+              className="overflow-x-auto rounded-md bg-gray-100 dark:bg-gray-800 p-4 text-sm"
               {...props}
             >
               {children}
-            </code>
-          ) : (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
+            </pre>
+          ),
+          code: ({ children, className, ...props }) => {
+            const isInline = !className
+            return isInline ? (
+              <code
+                className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm"
+                {...props}
+              >
+                {children}
+              </code>
+            ) : (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            )
+          },
         }}
       >
         {content}
       </ReactMarkdown>
     </div>
-  );
+  )
 }

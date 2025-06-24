@@ -1,16 +1,16 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
-import { tasksApi } from '@/features/tasks/api/tasks';
-import { queryKeys } from '@/lib/api/query-keys';
+import { tasksApi } from '@/features/tasks/api/tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import {
   createMockAgentTriggerResponse,
   createMockTask,
   createMockTaskWithIterations,
-} from '@/test-utils/factories';
-import { createWrapper } from '@/test-utils/render';
+} from '@/test-utils/factories'
+import { createWrapper } from '@/test-utils/render'
 
-import { useSendMessage, useTask } from '../use-tasks';
+import { useSendMessage, useTask } from '../use-tasks'
 
 // Mock the tasks API
 vi.mock('@/features/tasks/api/tasks', () => ({
@@ -18,11 +18,11 @@ vi.mock('@/features/tasks/api/tasks', () => ({
     sendMessage: vi.fn(),
     getTask: vi.fn(),
   },
-}));
+}))
 
 describe('useSendMessage Integration Test', () => {
   it('should invalidate and refetch task data after sending a message', async () => {
-    const taskId = 'task-123';
+    const taskId = 'task-123'
 
     // Initial task state with 1 iteration
     const initialTask = createMockTaskWithIterations(
@@ -35,7 +35,7 @@ describe('useSendMessage Integration Test', () => {
         is_running: false,
       },
       1,
-    );
+    )
 
     // Updated task state with 2 iterations after message sent
     const updatedTask = createMockTaskWithIterations(
@@ -48,114 +48,110 @@ describe('useSendMessage Integration Test', () => {
         is_running: true,
       },
       2,
-    );
+    )
 
     // Mock initial task fetch
-    vi.mocked(tasksApi.getTask).mockResolvedValueOnce(initialTask);
+    vi.mocked(tasksApi.getTask).mockResolvedValueOnce(initialTask)
 
-    const wrapper = createWrapper();
+    const wrapper = createWrapper()
 
     // First, render the useTask hook to establish initial state
-    const { result: taskResult, rerender: rerenderTask } = renderHook(
-      () => useTask(taskId),
-      { wrapper },
-    );
+    const { result: taskResult, rerender: rerenderTask } = renderHook(() => useTask(taskId), {
+      wrapper,
+    })
 
     // Wait for initial data to load
     await waitFor(() => {
-      expect(taskResult.current.isSuccess).toBe(true);
-      expect(taskResult.current.data).toEqual(initialTask);
-    });
+      expect(taskResult.current.isSuccess).toBe(true)
+      expect(taskResult.current.data).toEqual(initialTask)
+    })
 
     // Mock the send message response
     vi.mocked(tasksApi.sendMessage).mockResolvedValueOnce(
       createMockAgentTriggerResponse({ task_id: taskId }),
-    );
+    )
 
     // Mock the refetch to return updated data
-    vi.mocked(tasksApi.getTask).mockResolvedValueOnce(updatedTask);
+    vi.mocked(tasksApi.getTask).mockResolvedValueOnce(updatedTask)
 
     // Now render the useSendMessage hook
     const { result: sendMessageResult } = renderHook(() => useSendMessage(), {
       wrapper,
-    });
+    })
 
     // Send a message
     await act(async () => {
       await sendMessageResult.current.mutateAsync({
         taskId,
         message: 'Test message',
-      });
-    });
+      })
+    })
 
     // Wait for the task data to be refetched
     await waitFor(() => {
       // Re-render to pick up the updated cache
-      rerenderTask();
+      rerenderTask()
 
       // Check that the task data has been updated
-      expect(taskResult.current.data).toEqual(updatedTask);
-      expect(taskResult.current.data?.iterations).toHaveLength(2);
-      expect(taskResult.current.data?.is_running).toBe(true);
-      expect(taskResult.current.data?.status).toBe('active');
-    });
+      expect(taskResult.current.data).toEqual(updatedTask)
+      expect(taskResult.current.data?.iterations).toHaveLength(2)
+      expect(taskResult.current.data?.is_running).toBe(true)
+      expect(taskResult.current.data?.status).toBe('active')
+    })
 
     // Verify API calls
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Test message');
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Test message')
     // React Query may call getTask multiple times due to automatic refetching
     // The important thing is that it was called at least twice (initial + refetch)
-    expect(tasksApi.getTask).toHaveBeenCalledTimes(4);
-  });
+    expect(tasksApi.getTask).toHaveBeenCalledTimes(4)
+  })
 
   it('should handle concurrent message sends correctly', async () => {
-    const taskId = 'task-123';
-    const mockTask = createMockTask({ task_id: taskId });
+    const taskId = 'task-123'
+    const mockTask = createMockTask({ task_id: taskId })
 
-    vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask);
+    vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask)
     vi.mocked(tasksApi.sendMessage).mockImplementation(
       () =>
         new Promise((resolve) => {
-          setTimeout(() => resolve(createMockAgentTriggerResponse()), 100);
+          setTimeout(() => resolve(createMockAgentTriggerResponse()), 100)
         }),
-    );
+    )
 
-    const wrapper = createWrapper();
-    const { result } = renderHook(() => useSendMessage(), { wrapper });
+    const wrapper = createWrapper()
+    const { result } = renderHook(() => useSendMessage(), { wrapper })
 
     // Send two messages concurrently
     const promise1 = result.current.mutateAsync({
       taskId,
       message: 'First message',
-    });
+    })
 
     const promise2 = result.current.mutateAsync({
       taskId,
       message: 'Second message',
-    });
+    })
 
     // Both should complete without errors
-    await expect(Promise.all([promise1, promise2])).resolves.toBeDefined();
+    await expect(Promise.all([promise1, promise2])).resolves.toBeDefined()
 
     // Both messages should have been sent
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'First message');
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Second message');
-  });
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'First message')
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Second message')
+  })
 
   it('should properly handle errors and not invalidate on failure', async () => {
-    const taskId = 'task-123';
-    const mockTask = createMockTask({ task_id: taskId });
-    const error = new Error('Network error');
+    const taskId = 'task-123'
+    const mockTask = createMockTask({ task_id: taskId })
+    const error = new Error('Network error')
 
-    vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask);
-    vi.mocked(tasksApi.sendMessage).mockRejectedValueOnce(error);
+    vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask)
+    vi.mocked(tasksApi.sendMessage).mockRejectedValueOnce(error)
 
-    const wrapper = createWrapper();
-    const spyInvalidate = vi.spyOn(
-      wrapper({ children: null }).props.client,
-      'invalidateQueries',
-    );
+    const wrapper = createWrapper()
+    const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
 
-    const { result } = renderHook(() => useSendMessage(), { wrapper });
+    const { result } = renderHook(() => useSendMessage(), { wrapper })
 
     // Try to send a message that will fail
     await expect(
@@ -163,56 +159,52 @@ describe('useSendMessage Integration Test', () => {
         taskId,
         message: 'This will fail',
       }),
-    ).rejects.toThrow('Network error');
+    ).rejects.toThrow('Network error')
 
     // Verify that queries were NOT invalidated on failure
-    expect(spyInvalidate).not.toHaveBeenCalled();
-  });
+    expect(spyInvalidate).not.toHaveBeenCalled()
+  })
 
   it('should maintain correct query key hierarchy', async () => {
-    const taskId = 'task-123';
+    const taskId = 'task-123'
 
-    vi.mocked(tasksApi.sendMessage).mockResolvedValue(
-      createMockAgentTriggerResponse(),
-    );
+    vi.mocked(tasksApi.sendMessage).mockResolvedValue(createMockAgentTriggerResponse())
 
-    const wrapper = createWrapper();
-    const testWrapper = wrapper({ children: null });
-    const client = testWrapper.props.client;
-    const spyInvalidate = vi.spyOn(client, 'invalidateQueries');
-    const spyRefetch = vi.spyOn(client, 'refetchQueries');
+    const wrapper = createWrapper()
+    const testWrapper = wrapper({ children: null })
+    const client = testWrapper.props.client
+    const spyInvalidate = vi.spyOn(client, 'invalidateQueries')
+    const spyRefetch = vi.spyOn(client, 'refetchQueries')
 
-    const { result } = renderHook(() => useSendMessage(), { wrapper });
+    const { result } = renderHook(() => useSendMessage(), { wrapper })
 
     await act(async () => {
       await result.current.mutateAsync({
         taskId,
         message: 'Test hierarchy',
-      });
-    });
+      })
+    })
 
     // Verify the exact query keys that should be invalidated
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.task(taskId),
-    });
+    })
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.tasks(),
-    });
+    })
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.taskWorkspaceStatus(taskId),
-    });
+    })
 
     // Verify immediate refetch of task data
     expect(spyRefetch).toHaveBeenCalledWith({
       queryKey: queryKeys.task(taskId),
-    });
+    })
 
     // Verify the order of operations
-    const calls = spyInvalidate.mock.calls;
-    expect((calls[0][0] as any).queryKey).toEqual(queryKeys.task(taskId));
-    expect((calls[1][0] as any).queryKey).toEqual(queryKeys.tasks());
-    expect((calls[2][0] as any).queryKey).toEqual(
-      queryKeys.taskWorkspaceStatus(taskId),
-    );
-  });
-});
+    const calls = spyInvalidate.mock.calls
+    expect((calls[0][0] as any).queryKey).toEqual(queryKeys.task(taskId))
+    expect((calls[1][0] as any).queryKey).toEqual(queryKeys.tasks())
+    expect((calls[2][0] as any).queryKey).toEqual(queryKeys.taskWorkspaceStatus(taskId))
+  })
+})

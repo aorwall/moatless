@@ -1,33 +1,31 @@
-import { Bot, User } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Bot, User } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
-import type { Event } from '@/types/event';
+import type { Event } from '@/types/event'
 
-import { EventHeader } from './event-header';
+import { EventHeader } from './event-header'
 
 interface MessageEventProps {
-  event: Event;
+  event: Event
 }
 
 export function MessageEvent({ event }: MessageEventProps) {
-  const payload = event.payload as Record<string, unknown>;
+  const payload = event.payload as Record<string, unknown>
 
   // Extract message object
-  const message = payload.message as Record<string, unknown> | null;
+  const message = payload.message as Record<string, unknown> | null
   if (!message) {
-    return (
-      <div className="text-sm text-muted-foreground">No message content</div>
-    );
+    return <div className="text-sm text-muted-foreground">No message content</div>
   }
 
   // Determine the role/type
-  const role = payload.type || message.role || 'unknown';
-  const isAssistant = role === 'assistant';
-  const isUser = role === 'user';
+  const role = payload.type || message.role || 'unknown'
+  const isAssistant = role === 'assistant'
+  const isUser = role === 'user'
 
   // Extract text content
-  let textContent = '';
+  let textContent = ''
 
   if (message.content && Array.isArray(message.content)) {
     // Extract text from content array
@@ -39,19 +37,19 @@ export function MessageEvent({ event }: MessageEventProps) {
         item.type === 'text' &&
         'text' in item
       ) {
-        textContent += String(item.text || '');
+        textContent += String(item.text || '')
       }
     }
   } else if ('content' in message && typeof message.content === 'string') {
-    textContent = message.content;
+    textContent = message.content
   } else if ('text' in message) {
-    textContent = String(message.text || '');
+    textContent = String(message.text || '')
   } else if ('message' in message) {
-    textContent = String(message.message || '');
+    textContent = String(message.message || '')
   }
 
   if (!textContent) {
-    return <div className="text-sm text-muted-foreground">No text content</div>;
+    return <div className="text-sm text-muted-foreground">No text content</div>
   }
 
   return (
@@ -72,23 +70,19 @@ export function MessageEvent({ event }: MessageEventProps) {
               // Customize markdown components if needed
               p: ({ children }) => <p className="mb-2">{children}</p>,
               pre: ({ children }) => (
-                <pre className="bg-muted rounded-md p-3 overflow-x-auto">
-                  {children}
-                </pre>
+                <pre className="bg-muted rounded-md p-3 overflow-x-auto">{children}</pre>
               ),
               code: ({ children, ...props }) => {
                 const inline = !(
                   'className' in props &&
                   typeof props.className === 'string' &&
                   props.className.includes('language-')
-                );
+                )
                 return inline ? (
-                  <code className="bg-muted px-1 py-0.5 rounded text-xs">
-                    {children}
-                  </code>
+                  <code className="bg-muted px-1 py-0.5 rounded text-xs">{children}</code>
                 ) : (
                   <code {...props}>{children}</code>
-                );
+                )
               },
             }}
           >
@@ -97,5 +91,5 @@ export function MessageEvent({ event }: MessageEventProps) {
         </div>
       </div>
     </EventHeader>
-  );
+  )
 }

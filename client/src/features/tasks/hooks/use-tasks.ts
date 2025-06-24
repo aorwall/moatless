@@ -1,20 +1,13 @@
-import type {
-  UseMutationOptions,
-  UseQueryOptions,
-} from '@tanstack/react-query';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { tasksApi } from '@/features/tasks/api/tasks';
-import { queryKeys } from '@/lib/api/query-keys';
-import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent';
-import type { FileSearchResponse } from '@/types/environment';
-import type { Event } from '@/types/event.ts';
-import type { GitDiffResponse } from '@/types/git-diff';
-import type {
-  ServerStatus,
-  TaskMetadata,
-  WorkspaceStatusResponse,
-} from '@/types/task';
+import { tasksApi } from '@/features/tasks/api/tasks'
+import { queryKeys } from '@/lib/api/query-keys'
+import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent'
+import type { FileSearchResponse } from '@/types/environment'
+import type { Event } from '@/types/event.ts'
+import type { GitDiffResponse } from '@/types/git-diff'
+import type { ServerStatus, TaskMetadata, WorkspaceStatusResponse } from '@/types/task'
 
 /**
  * Task Query Invalidation Strategy:
@@ -30,9 +23,9 @@ import type {
 // Query hooks
 export function useTasksList(
   params?: {
-    activeOnly?: boolean;
-    limit?: number;
-    offset?: number;
+    activeOnly?: boolean
+    limit?: number
+    offset?: number
   },
   options?: Omit<UseQueryOptions<Array<TaskMetadata>>, 'queryKey' | 'queryFn'>,
 ) {
@@ -40,7 +33,7 @@ export function useTasksList(
     queryKey: queryKeys.tasksList(params),
     queryFn: () => tasksApi.listTasks(params),
     ...options,
-  });
+  })
 }
 
 export function useTask(
@@ -52,38 +45,30 @@ export function useTask(
     queryFn: () => tasksApi.getTask(taskId),
     enabled: !!taskId,
     ...options,
-  });
+  })
 }
 
 // Mutation hooks
 export function useCreateTask(
-  options?: UseMutationOptions<
-    AgentTriggerResponse,
-    Error,
-    AgentTriggerRequest
-  >,
+  options?: UseMutationOptions<AgentTriggerResponse, Error, AgentTriggerRequest>,
 ) {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (request: AgentTriggerRequest) => tasksApi.createTask(request),
     onSuccess: (data, variables, context) => {
       // Invalidate tasks list to refresh with new task
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
-      options?.onSuccess?.(data, variables, context);
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
+      options?.onSuccess?.(data, variables, context)
     },
     ...options,
-  });
+  })
 }
 
 export function useSendMessage(
-  options?: UseMutationOptions<
-    AgentTriggerResponse,
-    Error,
-    { taskId: string; message: string }
-  >,
+  options?: UseMutationOptions<AgentTriggerResponse, Error, { taskId: string; message: string }>,
 ) {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ taskId, message }) => tasksApi.sendMessage(taskId, message),
@@ -91,33 +76,29 @@ export function useSendMessage(
       // Invalidate all data for this specific task (detail, messages, events, etc.)
       await queryClient.invalidateQueries({
         queryKey: queryKeys.task(variables.taskId),
-      });
+      })
       // Also invalidate the tasks list to update metadata like last_message_at
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks(),
-      });
+      })
       // Invalidate workspace status since sending a message may trigger workspace activity
       await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
-      });
+      })
       // Force refetch the task data immediately
       await queryClient.refetchQueries({
         queryKey: queryKeys.task(variables.taskId),
-      });
-      options?.onSuccess?.(data, variables, context);
+      })
+      options?.onSuccess?.(data, variables, context)
     },
     ...options,
-  });
+  })
 }
 
 export function useStopAgent(
-  options?: UseMutationOptions<
-    { status: string; task_id: string },
-    Error,
-    string
-  >,
+  options?: UseMutationOptions<{ status: string; task_id: string }, Error, string>,
 ) {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.stopAgent(taskId),
@@ -125,22 +106,22 @@ export function useStopAgent(
       // Invalidate all data for this specific task
       queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
-      });
+      })
       // Also invalidate the tasks list to update the status
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks(),
-      });
-      options?.onSuccess?.(data, taskId, context);
+      })
+      options?.onSuccess?.(data, taskId, context)
     },
     ...options,
-  });
+  })
 }
 
 export function useTaskEvents(
   taskId: string,
   params?: {
-    limit?: number;
-    offset?: number;
+    limit?: number
+    offset?: number
   },
   options?: Omit<UseQueryOptions<Array<Event>>, 'queryKey' | 'queryFn'>,
 ) {
@@ -149,7 +130,7 @@ export function useTaskEvents(
     queryFn: () => tasksApi.getTaskEvents(taskId, params),
     enabled: !!taskId,
     ...options,
-  });
+  })
 }
 
 export function useTaskGitDiff(
@@ -161,7 +142,7 @@ export function useTaskGitDiff(
     queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId,
     ...options,
-  });
+  })
 }
 
 export function useTaskFileSearch(
@@ -175,15 +156,12 @@ export function useTaskFileSearch(
     enabled: !!taskId && query.length >= 3,
     staleTime: 30 * 1000, // 30 seconds
     ...options,
-  });
+  })
 }
 
 export function useTaskWorkspaceStatus(
   taskId: string,
-  options?: Omit<
-    UseQueryOptions<WorkspaceStatusResponse>,
-    'queryKey' | 'queryFn'
-  >,
+  options?: Omit<UseQueryOptions<WorkspaceStatusResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.taskWorkspaceStatus(taskId),
@@ -191,14 +169,14 @@ export function useTaskWorkspaceStatus(
     enabled: !!taskId,
     refetchInterval: (query) => {
       // Poll more frequently when workspace is in a transitional state
-      const data = query.state.data;
+      const data = query.state.data
       if (data?.status === 'setting_up' || data?.status === 'running') {
-        return 1000; // 1 second
+        return 1000 // 1 second
       }
-      return 30000; // 30 seconds for idle/not_setup states
+      return 30000 // 30 seconds for idle/not_setup states
     },
     ...options,
-  });
+  })
 }
 
 // Server management hooks
@@ -212,20 +190,18 @@ export function useServerStatus(
     enabled: !!taskId,
     refetchInterval: (query) => {
       // Poll more frequently when server is running
-      const data = query.state.data;
+      const data = query.state.data
       if (data?.running) {
-        return 5000; // 5 seconds
+        return 5000 // 5 seconds
       }
-      return false;
+      return false
     },
     ...options,
-  });
+  })
 }
 
-export function useStartServer(
-  options?: UseMutationOptions<ServerStatus, Error, string>,
-) {
-  const queryClient = useQueryClient();
+export function useStartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.startServer(taskId),
@@ -233,21 +209,19 @@ export function useStartServer(
       // Invalidate server status to refresh with new state
       queryClient.invalidateQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
-      });
+      })
       // Also invalidate task data as server state might affect task metadata
       queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
-      });
-      options?.onSuccess?.(data, taskId, context);
+      })
+      options?.onSuccess?.(data, taskId, context)
     },
     ...options,
-  });
+  })
 }
 
-export function useStopServer(
-  options?: UseMutationOptions<ServerStatus, Error, string>,
-) {
-  const queryClient = useQueryClient();
+export function useStopServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.stopServer(taskId),
@@ -255,23 +229,20 @@ export function useStopServer(
       // Invalidate server status to refresh with new state
       queryClient.invalidateQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
-      });
+      })
       // Also invalidate task data as server state might affect task metadata
       queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
-      });
-      options?.onSuccess?.(data, taskId, context);
+      })
+      options?.onSuccess?.(data, taskId, context)
     },
     ...options,
-  });
+  })
 }
 
 export function useServerLogs(
   taskId: string,
-  options?: Omit<
-    UseQueryOptions<{ logs: string; lines: number }>,
-    'queryKey' | 'queryFn'
-  >,
+  options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.taskServerLogs(taskId),
@@ -279,17 +250,13 @@ export function useServerLogs(
     enabled: !!taskId,
     refetchInterval: 2000, // Poll every 2 seconds
     ...options,
-  });
+  })
 }
 
 export function useMergeTask(
-  options?: UseMutationOptions<
-    { status: string; message: string },
-    Error,
-    string
-  >,
+  options?: UseMutationOptions<{ status: string; message: string }, Error, string>,
 ) {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.mergeTask(taskId),
@@ -297,17 +264,17 @@ export function useMergeTask(
       // Invalidate task data to refresh
       queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
-      });
+      })
       // Invalidate workspace status to reflect merge
       queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(taskId),
-      });
+      })
       // Invalidate git diff to show updated state
       queryClient.invalidateQueries({
         queryKey: queryKeys.taskGitDiff(taskId),
-      });
-      options?.onSuccess?.(data, taskId, context);
+      })
+      options?.onSuccess?.(data, taskId, context)
     },
     ...options,
-  });
+  })
 }

@@ -1,24 +1,18 @@
-import { useState } from 'react';
+import { useState } from 'react'
 
-import { Badge } from '@/lib/components/ui/badge';
-import { Button } from '@/lib/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/lib/components/ui/card';
-import { Switch } from '@/lib/components/ui/switch';
-import type { EnvironmentResponse } from '@/types/environment';
+import { Badge } from '@/lib/components/ui/badge'
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Switch } from '@/lib/components/ui/switch'
+import type { EnvironmentResponse } from '@/types/environment'
 
 interface EnvironmentListProps {
-  environments: Array<EnvironmentResponse>;
-  onCreateNew: () => void;
-  onEdit: (environment: EnvironmentResponse) => void;
-  onDelete: (environmentId: string) => void;
-  onToggleActive: (environmentId: string, isActive: boolean) => void;
-  isLoading?: boolean;
+  environments: Array<EnvironmentResponse>
+  onCreateNew: () => void
+  onEdit: (environment: EnvironmentResponse) => void
+  onDelete: (environmentId: string) => void
+  onToggleActive: (environmentId: string, isActive: boolean) => void
+  isLoading?: boolean
 }
 
 export function EnvironmentList({
@@ -29,58 +23,56 @@ export function EnvironmentList({
   onToggleActive,
   isLoading = false,
 }: EnvironmentListProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const handleDelete = async (environmentId: string) => {
     if (
-      confirm(
-        'Are you sure you want to delete this environment? This action cannot be undone.',
-      )
+      confirm('Are you sure you want to delete this environment? This action cannot be undone.')
     ) {
-      setDeletingId(environmentId);
+      setDeletingId(environmentId)
       try {
-        await onDelete(environmentId);
+        await onDelete(environmentId)
       } finally {
-        setDeletingId(null);
+        setDeletingId(null)
       }
     }
-  };
+  }
 
   const getRepositoryBadge = (environment: EnvironmentResponse) => {
-    const { repository } = environment;
+    const { repository } = environment
     if (repository.type === 'local') {
-      return <Badge variant="outline">Local</Badge>;
+      return <Badge variant="outline">Local</Badge>
     } else {
-      return <Badge variant="outline">GitHub</Badge>;
+      return <Badge variant="outline">GitHub</Badge>
     }
-  };
+  }
 
   const getExecutionBadge = (environment: EnvironmentResponse) => {
-    const { code_execution } = environment;
+    const { code_execution } = environment
     if (code_execution.type === 'local') {
-      return <Badge variant="secondary">Local</Badge>;
+      return <Badge variant="secondary">Local</Badge>
     } else {
-      return <Badge variant="secondary">Docker</Badge>;
+      return <Badge variant="secondary">Docker</Badge>
     }
-  };
+  }
 
   const getRepositoryInfo = (environment: EnvironmentResponse) => {
-    const { repository } = environment;
+    const { repository } = environment
     if (repository.type === 'local') {
-      return repository.path;
+      return repository.path
     } else {
-      return `${repository.repo_id}${repository.branch !== 'main' ? ` (${repository.branch})` : ''}`;
+      return `${repository.repo_id}${repository.branch !== 'main' ? ` (${repository.branch})` : ''}`
     }
-  };
+  }
 
   const getExecutionInfo = (environment: EnvironmentResponse) => {
-    const { code_execution } = environment;
+    const { code_execution } = environment
     if (code_execution.type === 'local') {
-      return 'Local execution';
+      return 'Local execution'
     } else {
-      return code_execution.image || 'Docker';
+      return code_execution.image || 'Docker'
     }
-  };
+  }
 
   if (isLoading) {
     return (
@@ -102,7 +94,7 @@ export function EnvironmentList({
           ))}
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -122,9 +114,7 @@ export function EnvironmentList({
           <CardContent className="text-center py-12">
             <div className="text-muted-foreground">
               <p className="text-lg mb-2">No environments configured</p>
-              <p className="text-sm mb-4">
-                Create your first environment to get started
-              </p>
+              <p className="text-sm mb-4">Create your first environment to get started</p>
               <Button onClick={onCreateNew}>Create Environment</Button>
             </div>
           </CardContent>
@@ -132,38 +122,27 @@ export function EnvironmentList({
       ) : (
         <div className="grid gap-4">
           {environments.map((environment) => (
-            <Card
-              key={environment.id}
-              className={!environment.is_active ? 'opacity-60' : ''}
-            >
+            <Card key={environment.id} className={!environment.is_active ? 'opacity-60' : ''}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <CardTitle className="text-lg">
-                        {environment.name}
-                      </CardTitle>
+                      <CardTitle className="text-lg">{environment.name}</CardTitle>
                       <div className="flex gap-2">
                         {getRepositoryBadge(environment)}
                         {getExecutionBadge(environment)}
                       </div>
                     </div>
                     {environment.description && (
-                      <CardDescription>
-                        {environment.description}
-                      </CardDescription>
+                      <CardDescription>{environment.description}</CardDescription>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        Active
-                      </span>
+                      <span className="text-sm text-muted-foreground">Active</span>
                       <Switch
                         checked={environment.is_active}
-                        onCheckedChange={(checked) =>
-                          onToggleActive(environment.id, checked)
-                        }
+                        onCheckedChange={(checked) => onToggleActive(environment.id, checked)}
                       />
                     </div>
                   </div>
@@ -173,35 +152,21 @@ export function EnvironmentList({
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="font-medium text-muted-foreground">
-                        Repository:
-                      </span>
-                      <div className="mt-1">
-                        {getRepositoryInfo(environment)}
-                      </div>
+                      <span className="font-medium text-muted-foreground">Repository:</span>
+                      <div className="mt-1">{getRepositoryInfo(environment)}</div>
                     </div>
                     <div>
-                      <span className="font-medium text-muted-foreground">
-                        Execution:
-                      </span>
-                      <div className="mt-1">
-                        {getExecutionInfo(environment)}
-                      </div>
+                      <span className="font-medium text-muted-foreground">Execution:</span>
+                      <div className="mt-1">{getExecutionInfo(environment)}</div>
                     </div>
                   </div>
 
                   {Object.keys(environment.variables).length > 0 && (
                     <div>
-                      <span className="font-medium text-muted-foreground text-sm">
-                        Variables:
-                      </span>
+                      <span className="font-medium text-muted-foreground text-sm">Variables:</span>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {Object.keys(environment.variables).map((key) => (
-                          <Badge
-                            key={key}
-                            variant="outline"
-                            className="text-xs"
-                          >
+                          <Badge key={key} variant="outline" className="text-xs">
                             {key}
                           </Badge>
                         ))}
@@ -211,23 +176,15 @@ export function EnvironmentList({
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="text-xs text-muted-foreground">
-                      Created:{' '}
-                      {new Date(environment.created_at).toLocaleDateString()}
+                      Created: {new Date(environment.created_at).toLocaleDateString()}
                       {environment.updated_at !== environment.created_at && (
                         <span className="ml-2">
-                          Updated:{' '}
-                          {new Date(
-                            environment.updated_at,
-                          ).toLocaleDateString()}
+                          Updated: {new Date(environment.updated_at).toLocaleDateString()}
                         </span>
                       )}
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onEdit(environment)}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => onEdit(environment)}>
                         Edit
                       </Button>
                       <Button
@@ -236,9 +193,7 @@ export function EnvironmentList({
                         onClick={() => handleDelete(environment.id)}
                         disabled={deletingId === environment.id}
                       >
-                        {deletingId === environment.id
-                          ? 'Deleting...'
-                          : 'Delete'}
+                        {deletingId === environment.id ? 'Deleting...' : 'Delete'}
                       </Button>
                     </div>
                   </div>
@@ -249,5 +204,5 @@ export function EnvironmentList({
         </div>
       )}
     </div>
-  );
+  )
 }

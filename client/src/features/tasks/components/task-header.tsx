@@ -1,14 +1,6 @@
-import { useParams } from '@tanstack/react-router';
-import {
-  AlertCircle,
-  GitMerge,
-  Loader2,
-  Play,
-  Square,
-  StopCircle,
-  WifiOff,
-} from 'lucide-react';
-import { toast } from 'sonner';
+import { useParams } from '@tanstack/react-router'
+import { AlertCircle, GitMerge, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
+import { toast } from 'sonner'
 
 import {
   useMergeTask,
@@ -18,151 +10,145 @@ import {
   useStopServer,
   useTask,
   useTaskWorkspaceStatus,
-} from '@/features/tasks/hooks/use-tasks';
-import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store';
-import { Badge } from '@/lib/components/ui/badge';
-import { Button } from '@/lib/components/ui/button';
-import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx';
+} from '@/features/tasks/hooks/use-tasks'
+import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store'
+import { Badge } from '@/lib/components/ui/badge'
+import { Button } from '@/lib/components/ui/button'
+import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/lib/components/ui/tooltip';
-import { getErrorMessage } from '@/lib/utils/error';
-import type { WorkspaceStatus } from '@/types/task';
+} from '@/lib/components/ui/tooltip'
+import { getErrorMessage } from '@/lib/utils/error'
+import type { WorkspaceStatus } from '@/types/task'
 
 function StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === 'active'
-      ? 'default'
-      : status === 'error'
-        ? 'destructive'
-        : 'secondary';
-  return <Badge variant={variant}>{status}</Badge>;
+  const variant = status === 'active' ? 'default' : status === 'error' ? 'destructive' : 'secondary'
+  return <Badge variant={variant}>{status}</Badge>
 }
 
 const getWorkspaceStatusDisplay = (status?: WorkspaceStatus) => {
   if (!status) {
-    return { text: 'workspace: unknown', isLoading: false };
+    return { text: 'workspace: unknown', isLoading: false }
   }
 
   switch (status) {
     case 'not_setup':
-      return { text: 'workspace: not set up', isLoading: false };
+      return { text: 'workspace: not set up', isLoading: false }
     case 'setting_up':
-      return { text: 'workspace: setting up', isLoading: true };
+      return { text: 'workspace: setting up', isLoading: true }
     case 'idle':
-      return { text: 'workspace: idle', isLoading: false };
+      return { text: 'workspace: idle', isLoading: false }
     case 'running':
-      return { text: 'workspace: running', isLoading: true };
+      return { text: 'workspace: running', isLoading: true }
     default:
-      return { text: 'workspace: unknown', isLoading: false };
+      return { text: 'workspace: unknown', isLoading: false }
   }
-};
+}
 
 export function TaskHeader() {
-  const params = useParams({ from: '/tasks/$taskId' });
-  const taskId = params.taskId;
+  const params = useParams({ from: '/tasks/$taskId' })
+  const taskId = params.taskId
 
-  const { data: metadata } = useTask(taskId);
+  const { data: metadata } = useTask(taskId)
   const {
     data: workspaceStatus,
     isLoading: isLoadingWorkspace,
     error: workspaceError,
-  } = useTaskWorkspaceStatus(taskId);
-  const streamingError = useTaskStreamingError(taskId);
+  } = useTaskWorkspaceStatus(taskId)
+  const streamingError = useTaskStreamingError(taskId)
 
-  const { data: serverStatus, isLoading: isLoadingServerStatus } =
-    useServerStatus(taskId, {
-      enabled: !!taskId,
-    });
+  const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {
+    enabled: !!taskId,
+  })
 
   const startServer = useStartServer({
     onSuccess: () => {
-      toast.success('Server started successfully');
+      toast.success('Server started successfully')
     },
     onError: (error) => {
-      console.error('Failed to start server:', error);
+      console.error('Failed to start server:', error)
       toast.error('Failed to start server', {
         description: getErrorMessage(error),
-      });
+      })
     },
-  });
+  })
 
   const stopServer = useStopServer({
     onSuccess: () => {
-      toast.success('Server stopped successfully');
+      toast.success('Server stopped successfully')
     },
     onError: (error) => {
-      console.error('Failed to stop server:', error);
+      console.error('Failed to stop server:', error)
       toast.error('Failed to stop server', {
         description: getErrorMessage(error),
-      });
+      })
     },
-  });
+  })
 
   const stopAgent = useStopAgent({
     onSuccess: () => {
-      toast.success('Agent stopped successfully');
+      toast.success('Agent stopped successfully')
     },
     onError: (error) => {
-      console.error('Failed to stop agent:', error);
+      console.error('Failed to stop agent:', error)
       toast.error('Failed to stop agent', {
         description: getErrorMessage(error),
-      });
+      })
     },
-  });
+  })
 
   const mergeTask = useMergeTask({
     onSuccess: (data) => {
       toast.success('Changes merged successfully', {
         description: data.message,
-      });
+      })
     },
     onError: (error) => {
-      console.error('Failed to merge changes:', error);
+      console.error('Failed to merge changes:', error)
       toast.error('Failed to merge changes', {
         description: getErrorMessage(error),
-      });
+      })
     },
-  });
+  })
 
   const handleStop = () => {
     if (metadata) {
-      stopAgent.mutate(metadata.task_id);
+      stopAgent.mutate(metadata.task_id)
     }
-  };
+  }
 
   const handleStartServer = () => {
     if (metadata) {
-      startServer.mutate(metadata.task_id);
+      startServer.mutate(metadata.task_id)
     }
-  };
+  }
 
   const handleStopServer = () => {
     if (metadata) {
-      stopServer.mutate(metadata.task_id);
+      stopServer.mutate(metadata.task_id)
     }
-  };
+  }
 
   const handleMerge = () => {
     if (metadata) {
       if (workspaceStatus?.has_uncommitted_changes) {
         toast.warning('Cannot merge: workspace has uncommitted changes', {
           description: 'Please commit or discard changes before merging.',
-        });
-        return;
+        })
+        return
       }
-      mergeTask.mutate(metadata.task_id);
+      mergeTask.mutate(metadata.task_id)
     }
-  };
-
-  if (!metadata) {
-    return null;
   }
 
-  const workspaceDisplay = getWorkspaceStatusDisplay(workspaceStatus?.status);
+  if (!metadata) {
+    return null
+  }
+
+  const workspaceDisplay = getWorkspaceStatusDisplay(workspaceStatus?.status)
 
   return (
     <header className="border-b">
@@ -175,26 +161,19 @@ export function TaskHeader() {
               <h1 className="text-lg font-semibold">
                 {metadata.title || `Task ${metadata.task_id.slice(0, 8)}`}
               </h1>
-              {metadata.is_running && (
-                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-              )}
+              {metadata.is_running && <Loader2 className="h-4 w-4 animate-spin text-blue-500" />}
             </div>
             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
               <span>{new Date(metadata.created_at).toLocaleString()}</span>
               <span>{metadata.agent_type}</span>
               <StatusBadge status={metadata.status} />
               <Badge variant="outline">{metadata.num_turns} turns</Badge>
-              <Badge variant="outline">
-                ${metadata.total_cost_usd.toFixed(4)}
-              </Badge>
+              <Badge variant="outline">${metadata.total_cost_usd.toFixed(4)}</Badge>
               {workspaceError ? (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Badge
-                        variant="destructive"
-                        className="flex items-center gap-1"
-                      >
+                      <Badge variant="destructive" className="flex items-center gap-1">
                         <AlertCircle className="h-3 w-3" />
                         workspace: error
                       </Badge>
@@ -223,9 +202,7 @@ export function TaskHeader() {
                   <TooltipTrigger asChild>
                     <div className="flex items-center space-x-1">
                       <WifiOff className="h-4 w-4 text-red-500" />
-                      <span className="text-sm text-red-500">
-                        Streaming error
-                      </span>
+                      <span className="text-sm text-red-500">Streaming error</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -248,20 +225,14 @@ export function TaskHeader() {
                         disabled={stopServer.isPending || isLoadingServerStatus}
                       >
                         <Square className="mr-2 h-4 w-4" />
-                        {stopServer.isPending
-                          ? 'Stopping Server...'
-                          : 'Stop Server'}
+                        {stopServer.isPending ? 'Stopping Server...' : 'Stop Server'}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
                       <div className="space-y-1">
                         <p>Server is running</p>
-                        <p className="text-xs text-muted-foreground">
-                          URL: {serverStatus.url}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          PID: {serverStatus.pid}
-                        </p>
+                        <p className="text-xs text-muted-foreground">URL: {serverStatus.url}</p>
+                        <p className="text-xs text-muted-foreground">PID: {serverStatus.pid}</p>
                         <p className="text-xs text-muted-foreground">
                           Uptime: {serverStatus.uptime_seconds}s
                         </p>
@@ -277,20 +248,13 @@ export function TaskHeader() {
                   disabled={startServer.isPending || isLoadingServerStatus}
                 >
                   <Play className="mr-2 h-4 w-4" />
-                  {startServer.isPending
-                    ? 'Starting Server...'
-                    : 'Start Server'}
+                  {startServer.isPending ? 'Starting Server...' : 'Start Server'}
                 </Button>
               )}
             </>
           )}
           {metadata.is_running && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleStop}
-              disabled={stopAgent.isPending}
-            >
+            <Button variant="outline" size="sm" onClick={handleStop} disabled={stopAgent.isPending}>
               <StopCircle className="mr-2 h-4 w-4" />
               {stopAgent.isPending ? 'Stopping...' : 'Stop'}
             </Button>
@@ -328,5 +292,5 @@ export function TaskHeader() {
         </div>
       </div>
     </header>
-  );
+  )
 }

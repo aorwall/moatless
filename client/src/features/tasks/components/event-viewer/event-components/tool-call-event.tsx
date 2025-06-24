@@ -1,9 +1,9 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useState } from 'react'
 
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events';
-import type { Event } from '@/types/event';
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import type { Event } from '@/types/event'
 
 import {
   BashToolCall,
@@ -15,16 +15,16 @@ import {
   TaskToolCall,
   TodoToolCall,
   WriteToolCall,
-} from './tool-calls';
+} from './tool-calls'
 
 interface ToolCallEventProps {
-  event: MergedEvent;
+  event: MergedEvent
 }
 
 const renderToolCall = (content: Record<string, unknown>): ReactNode => {
-  const toolName = String(content.name || 'Tool');
-  const toolId = String(content.id || '');
-  const input = content.input as Record<string, unknown> | undefined;
+  const toolName = String(content.name || 'Tool')
+  const toolId = String(content.id || '')
+  const input = content.input as Record<string, unknown> | undefined
 
   if (!input || typeof input !== 'object') {
     return (
@@ -32,7 +32,7 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         <div className="font-medium text-foreground">{toolName}</div>
         <div className="text-xs text-muted-foreground">ID: {toolId}</div>
       </div>
-    );
+    )
   }
 
   // Use existing tool call components
@@ -42,118 +42,118 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         <BashToolCall
           input={
             input as {
-              command: string;
-              description?: string;
-              timeout?: number;
+              command: string
+              description?: string
+              timeout?: number
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'Edit':
       return (
         <EditToolCall
           input={
             input as {
-              file_path: string;
-              old_string: string;
-              new_string: string;
-              replace_all?: boolean;
+              file_path: string
+              old_string: string
+              new_string: string
+              replace_all?: boolean
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'Read':
       return (
         <ReadToolCall
           input={
             input as {
-              file_path: string;
-              offset?: number;
-              limit?: number;
+              file_path: string
+              offset?: number
+              limit?: number
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'TodoWrite':
       return (
         <TodoToolCall
           input={
             input as {
               todos: Array<{
-                id: string;
-                content: string;
-                status: 'pending' | 'in_progress' | 'completed';
-                priority: 'high' | 'medium' | 'low';
-              }>;
+                id: string
+                content: string
+                status: 'pending' | 'in_progress' | 'completed'
+                priority: 'high' | 'medium' | 'low'
+              }>
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'Grep':
       return (
         <GrepToolCall
           input={
             input as {
-              pattern: string;
-              path?: string;
-              include?: string;
+              pattern: string
+              path?: string
+              include?: string
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'Glob':
       return (
         <GlobToolCall
           input={
             input as {
-              pattern: string;
-              path?: string;
+              pattern: string
+              path?: string
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'Write':
       return (
         <WriteToolCall
           input={
             input as {
-              file_path: string;
-              content: string;
+              file_path: string
+              content: string
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'LS':
       return (
         <LSToolCall
           input={
             input as {
-              path: string;
-              ignore?: string[];
+              path: string
+              ignore?: string[]
             }
           }
           name={toolName}
         />
-      );
+      )
     case 'Task':
       return (
         <TaskToolCall
           input={
             input as {
-              description: string;
-              prompt: string;
+              description: string
+              prompt: string
             }
           }
           name={toolName}
         />
-      );
+      )
     default:
       return (
         <div className="space-y-2">
@@ -162,16 +162,16 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
             <pre className="font-mono">{JSON.stringify(input, null, 2)}</pre>
           </div>
         </div>
-      );
+      )
   }
-};
+}
 
 const extractToolResult = (event: Event): string => {
-  const payload = event.payload as Record<string, unknown>;
-  const message = payload.message as Record<string, unknown> | null;
+  const payload = event.payload as Record<string, unknown>
+  const message = payload.message as Record<string, unknown> | null
 
   if (!(message?.content && Array.isArray(message.content))) {
-    return 'No result';
+    return 'No result'
   }
 
   for (const content of message.content) {
@@ -182,20 +182,20 @@ const extractToolResult = (event: Event): string => {
       content.type === 'tool_result' &&
       'content' in content
     ) {
-      return String(content.content || 'No result');
+      return String(content.content || 'No result')
     }
   }
 
-  return 'No result';
-};
+  return 'No result'
+}
 
 const ToolResultPreview = ({ result }: { result: string }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false)
 
-  const lines = result.split('\n');
-  const hasMoreLines = lines.length > 3;
-  const previewLines = lines.slice(0, 3).join('\n');
-  const displayContent = isExpanded ? result : previewLines;
+  const lines = result.split('\n')
+  const hasMoreLines = lines.length > 3
+  const previewLines = lines.slice(0, 3).join('\n')
+  const displayContent = isExpanded ? result : previewLines
 
   return (
     <div className="mt-3 space-y-2">
@@ -229,21 +229,19 @@ const ToolResultPreview = ({ result }: { result: string }) => {
         </pre>
       </div>
     </div>
-  );
-};
+  )
+}
 
 export function ToolCallEvent({ event }: ToolCallEventProps) {
-  const payload = event.payload as Record<string, unknown>;
-  const message = payload.message as Record<string, unknown> | null;
+  const payload = event.payload as Record<string, unknown>
+  const message = payload.message as Record<string, unknown> | null
 
   if (!message) {
-    return (
-      <div className="text-sm text-muted-foreground">No message content</div>
-    );
+    return <div className="text-sm text-muted-foreground">No message content</div>
   }
 
   // Extract tool call content
-  let toolCallContent: Record<string, unknown> | null = null;
+  let toolCallContent: Record<string, unknown> | null = null
 
   if (message.content && Array.isArray(message.content)) {
     for (const content of message.content) {
@@ -253,26 +251,22 @@ export function ToolCallEvent({ event }: ToolCallEventProps) {
         'type' in content &&
         content.type === 'tool_use'
       ) {
-        toolCallContent = content as Record<string, unknown>;
-        break;
+        toolCallContent = content as Record<string, unknown>
+        break
       }
     }
   }
 
   if (!toolCallContent) {
-    return (
-      <div className="text-sm text-muted-foreground">No tool call content</div>
-    );
+    return <div className="text-sm text-muted-foreground">No tool call content</div>
   }
 
-  const toolResult = event.toolResult
-    ? extractToolResult(event.toolResult)
-    : null;
+  const toolResult = event.toolResult ? extractToolResult(event.toolResult) : null
 
   return (
     <div className="text-sm bg-muted rounded-lg p-3">
       {renderToolCall(toolCallContent)}
       {toolResult && <ToolResultPreview result={toolResult} />}
     </div>
-  );
+  )
 }

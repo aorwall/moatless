@@ -1,9 +1,9 @@
-import { Link } from '@tanstack/react-router';
-import { Plus, Server } from 'lucide-react';
+import { Link } from '@tanstack/react-router'
+import { Plus, Server } from 'lucide-react'
 
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments';
-import { Badge } from '@/lib/components/ui/badge';
-import { Button } from '@/lib/components/ui/button';
+import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { Badge } from '@/lib/components/ui/badge'
+import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
   SidebarGroupAction,
@@ -12,12 +12,12 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from '@/lib/components/ui/sidebar';
+} from '@/lib/components/ui/sidebar'
 
 export function SidebarEnvironments() {
   const { data: environments, isLoading } = useEnvironmentsList({
     refetchInterval: 30000, // Refresh every 30 seconds
-  });
+  })
 
   if (isLoading) {
     return (
@@ -27,12 +27,10 @@ export function SidebarEnvironments() {
           Environments
         </SidebarGroupLabel>
         <SidebarGroupContent>
-          <div className="px-3 py-2 text-sm text-muted-foreground">
-            Loading environments...
-          </div>
+          <div className="px-3 py-2 text-sm text-muted-foreground">Loading environments...</div>
         </SidebarGroupContent>
       </SidebarGroup>
-    );
+    )
   }
 
   if (!environments || environments.length === 0) {
@@ -50,12 +48,10 @@ export function SidebarEnvironments() {
           </Button>
         </SidebarGroupAction>
         <SidebarGroupContent>
-          <div className="px-3 py-2 text-sm text-muted-foreground">
-            No environments configured
-          </div>
+          <div className="px-3 py-2 text-sm text-muted-foreground">No environments configured</div>
         </SidebarGroupContent>
       </SidebarGroup>
-    );
+    )
   }
 
   return (
@@ -78,18 +74,12 @@ export function SidebarEnvironments() {
           {environments.map((env) => (
             <SidebarMenuItem key={env.id}>
               <SidebarMenuButton asChild>
-                <Link
-                  to="/environments/$environmentId"
-                  params={{ environmentId: env.id }}
-                >
+                <Link to="/environments/$environmentId" params={{ environmentId: env.id }}>
                   <div className="flex flex-col items-start gap-1 overflow-hidden">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm">{env.name}</span>
                       {env.is_active && (
-                        <Badge
-                          variant="secondary"
-                          className="h-5 px-1.5 text-xs"
-                        >
+                        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
                           Active
                         </Badge>
                       )}
@@ -107,5 +97,5 @@ export function SidebarEnvironments() {
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  );
+  )
 }

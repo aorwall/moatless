@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { registerTaskRoutes } from './tasks.js'
 import { registerEnvironmentRoutes } from './environments.js'
+import { registerTaskRoutes } from './tasks.js'
 import { registerWorkspaceRoutes } from './workspaces.js'
 
 export async function registerRoutes(app: FastifyInstance) {

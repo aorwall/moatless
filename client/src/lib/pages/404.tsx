@@ -1,6 +1,6 @@
-import { Link } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router'
 
-import { Button } from '@/lib/components/ui/button';
+import { Button } from '@/lib/components/ui/button'
 
 export function Page404() {
   return (
@@ -11,5 +11,5 @@ export function Page404() {
         <Button>Go Home</Button>
       </Link>
     </div>
-  );
+  )
 }

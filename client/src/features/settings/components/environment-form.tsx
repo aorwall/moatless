@@ -1,30 +1,18 @@
-import { useId, useState } from 'react';
+import { useId, useState } from 'react'
 
-import { Button } from '@/lib/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/lib/components/ui/card';
-import {
-  Form,
-  FormDescription,
-  FormField,
-  FormLabel,
-  FormMessage,
-} from '@/lib/components/ui/form';
-import { Input } from '@/lib/components/ui/input';
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Form, FormDescription, FormField, FormLabel, FormMessage } from '@/lib/components/ui/form'
+import { Input } from '@/lib/components/ui/input'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/lib/components/ui/select';
-import { Switch } from '@/lib/components/ui/switch';
-import { Textarea } from '@/lib/components/ui/textarea';
+} from '@/lib/components/ui/select'
+import { Switch } from '@/lib/components/ui/switch'
+import { Textarea } from '@/lib/components/ui/textarea'
 import type {
   CodeExecution,
   CreateEnvironmentRequest,
@@ -33,14 +21,14 @@ import type {
   LocalRepository,
   Repository,
   UpdateEnvironmentRequest,
-} from '@/types/environment';
+} from '@/types/environment'
 
 interface EnvironmentFormProps {
-  onSubmit: (data: CreateEnvironmentRequest | UpdateEnvironmentRequest) => void;
-  onCancel: () => void;
-  isSubmitting?: boolean;
-  initialData?: EnvironmentResponse;
-  mode?: 'create' | 'edit';
+  onSubmit: (data: CreateEnvironmentRequest | UpdateEnvironmentRequest) => void
+  onCancel: () => void
+  isSubmitting?: boolean
+  initialData?: EnvironmentResponse
+  mode?: 'create' | 'edit'
 }
 
 export function EnvironmentForm({
@@ -51,17 +39,17 @@ export function EnvironmentForm({
   mode = 'create',
 }: EnvironmentFormProps) {
   // Generate unique IDs for form fields
-  const nameId = useId();
-  const descriptionId = useId();
-  const repositoryTypeId = useId();
-  const localPathId = useId();
-  const githubRepoIdId = useId();
-  const githubBranchId = useId();
-  const githubCommitId = useId();
-  const githubTokenId = useId();
-  const codeExecutionTypeId = useId();
-  const dockerImageId = useId();
-  const useGitWorktreesId = useId();
+  const nameId = useId()
+  const descriptionId = useId()
+  const repositoryTypeId = useId()
+  const localPathId = useId()
+  const githubRepoIdId = useId()
+  const githubBranchId = useId()
+  const githubCommitId = useId()
+  const githubTokenId = useId()
+  const codeExecutionTypeId = useId()
+  const dockerImageId = useId()
+  const useGitWorktreesId = useId()
 
   const getDefaultFormData = () => ({
     name: '',
@@ -84,7 +72,7 @@ export function EnvironmentForm({
     dockerPorts: {} as Record<string, number>,
     // Variables
     variables: {} as Record<string, string>,
-  });
+  })
 
   const getRepositoryFields = (repo: Repository) => {
     if (repo.type === 'local') {
@@ -95,7 +83,7 @@ export function EnvironmentForm({
         githubBranch: 'main',
         githubCommit: '',
         githubToken: '',
-      };
+      }
     }
 
     return {
@@ -105,8 +93,8 @@ export function EnvironmentForm({
       githubBranch: repo.branch || 'main',
       githubCommit: repo.commit || '',
       githubToken: repo.token || '',
-    };
-  };
+    }
+  }
 
   const getExecutionFields = (exec: CodeExecution) => {
     if (exec.type === 'local') {
@@ -117,7 +105,7 @@ export function EnvironmentForm({
         dockerSetupCommands: '',
         dockerVolumes: [] as Array<string>,
         dockerPorts: {} as Record<string, number>,
-      };
+      }
     }
 
     return {
@@ -127,16 +115,16 @@ export function EnvironmentForm({
       dockerSetupCommands: exec.setup_commands || '',
       dockerVolumes: exec.volumes || [],
       dockerPorts: exec.ports || {},
-    };
-  };
+    }
+  }
 
   const getInitialFormData = () => {
     if (!initialData) {
-      return getDefaultFormData();
+      return getDefaultFormData()
     }
 
-    const repo = initialData.repository;
-    const exec = initialData.code_execution;
+    const repo = initialData.repository
+    const exec = initialData.code_execution
 
     return {
       name: initialData.name,
@@ -146,38 +134,35 @@ export function EnvironmentForm({
       ...getRepositoryFields(repo),
       ...getExecutionFields(exec),
       variables: initialData.variables || {},
-    };
-  };
+    }
+  }
 
-  const [formData, setFormData] = useState(getInitialFormData());
+  const [formData, setFormData] = useState(getInitialFormData())
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
+    const newErrors: Record<string, string> = {}
 
     if (!formData.name.trim()) {
-      newErrors.name = 'Environment name is required';
+      newErrors.name = 'Environment name is required'
     }
 
     if (formData.repositoryType === 'local' && !formData.localPath.trim()) {
-      newErrors.localPath = 'Local path is required';
+      newErrors.localPath = 'Local path is required'
     }
 
     if (formData.repositoryType === 'github' && !formData.githubRepoId.trim()) {
-      newErrors.githubRepoId = 'GitHub repository ID is required';
+      newErrors.githubRepoId = 'GitHub repository ID is required'
     }
 
-    if (
-      formData.codeExecutionType === 'docker' &&
-      !formData.dockerImage.trim()
-    ) {
-      newErrors.dockerImage = 'Docker image is required';
+    if (formData.codeExecutionType === 'docker' && !formData.dockerImage.trim()) {
+      newErrors.dockerImage = 'Docker image is required'
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
   const createRepository = (): Repository => {
     if (formData.repositoryType === 'local') {
@@ -185,7 +170,7 @@ export function EnvironmentForm({
         type: 'local',
         path: formData.localPath,
         use_git_worktrees: formData.useGitWorktrees || undefined,
-      } as LocalRepository;
+      } as LocalRepository
     }
 
     return {
@@ -194,15 +179,15 @@ export function EnvironmentForm({
       branch: formData.githubBranch || 'main',
       commit: formData.githubCommit || undefined,
       token: formData.githubToken || undefined,
-    } as GithubRepository;
-  };
+    } as GithubRepository
+  }
 
   const createCodeExecution = (): CodeExecution => {
     if (formData.codeExecutionType === 'local') {
       return {
         type: 'local',
         setup_commands: formData.localSetupCommands || undefined,
-      };
+      }
     }
 
     return {
@@ -210,20 +195,16 @@ export function EnvironmentForm({
       image: formData.dockerImage,
       env_vars: formData.dockerEnvVars,
       setup_commands: formData.dockerSetupCommands || undefined,
-      volumes:
-        formData.dockerVolumes.length > 0 ? formData.dockerVolumes : undefined,
-      ports:
-        Object.keys(formData.dockerPorts).length > 0
-          ? formData.dockerPorts
-          : undefined,
-    };
-  };
+      volumes: formData.dockerVolumes.length > 0 ? formData.dockerVolumes : undefined,
+      ports: Object.keys(formData.dockerPorts).length > 0 ? formData.dockerPorts : undefined,
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
 
     if (!validateForm()) {
-      return;
+      return
     }
 
     if (mode === 'create') {
@@ -232,44 +213,36 @@ export function EnvironmentForm({
         description: formData.description || undefined,
         repository: createRepository(),
         code_execution: createCodeExecution(),
-        variables:
-          Object.keys(formData.variables).length > 0
-            ? formData.variables
-            : undefined,
-      };
-      onSubmit(request);
+        variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
+      }
+      onSubmit(request)
     } else {
       const request: UpdateEnvironmentRequest = {
         name: formData.name,
         description: formData.description || undefined,
         repository: createRepository(),
         code_execution: createCodeExecution(),
-        variables:
-          Object.keys(formData.variables).length > 0
-            ? formData.variables
-            : undefined,
-      };
-      onSubmit(request);
+        variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
+      }
+      onSubmit(request)
     }
-  };
+  }
 
   const updateFormData = <K extends keyof typeof formData>(
     field: K,
     value: (typeof formData)[K],
   ) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }))
     // Clear error when user starts typing
     if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: '' }));
+      setErrors((prev) => ({ ...prev, [field]: '' }))
     }
-  };
+  }
 
   return (
     <Card className="w-full max-w-4xl">
       <CardHeader>
-        <CardTitle>
-          {mode === 'create' ? 'Create New Environment' : 'Edit Environment'}
-        </CardTitle>
+        <CardTitle>{mode === 'create' ? 'Create New Environment' : 'Edit Environment'}</CardTitle>
         <CardDescription>
           {mode === 'create'
             ? 'Configure a new environment with repository and execution settings'
@@ -317,10 +290,7 @@ export function EnvironmentForm({
                   updateFormData('repositoryType', value as 'local' | 'github')
                 }
               >
-                <SelectTrigger
-                  id={repositoryTypeId}
-                  aria-label="Repository type"
-                >
+                <SelectTrigger id={repositoryTypeId} aria-label="Repository type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -337,17 +307,11 @@ export function EnvironmentForm({
                   <Input
                     id={localPathId}
                     value={formData.localPath}
-                    onChange={(e) =>
-                      updateFormData('localPath', e.target.value)
-                    }
+                    onChange={(e) => updateFormData('localPath', e.target.value)}
                     placeholder="/path/to/your/project"
                   />
-                  <FormDescription>
-                    Absolute path to the local repository
-                  </FormDescription>
-                  {errors.localPath && (
-                    <FormMessage>{errors.localPath}</FormMessage>
-                  )}
+                  <FormDescription>Absolute path to the local repository</FormDescription>
+                  {errors.localPath && <FormMessage>{errors.localPath}</FormMessage>}
                 </FormField>
 
                 <FormField>
@@ -355,14 +319,9 @@ export function EnvironmentForm({
                     <Switch
                       id={useGitWorktreesId}
                       checked={formData.useGitWorktrees}
-                      onCheckedChange={(checked) =>
-                        updateFormData('useGitWorktrees', checked)
-                      }
+                      onCheckedChange={(checked) => updateFormData('useGitWorktrees', checked)}
                     />
-                    <FormLabel
-                      htmlFor={useGitWorktreesId}
-                      className="cursor-pointer"
-                    >
+                    <FormLabel htmlFor={useGitWorktreesId} className="cursor-pointer">
                       Use Git Worktrees
                     </FormLabel>
                   </div>
@@ -376,21 +335,15 @@ export function EnvironmentForm({
             {formData.repositoryType === 'github' && (
               <div className="space-y-4">
                 <FormField>
-                  <FormLabel htmlFor={githubRepoIdId}>
-                    Repository ID *
-                  </FormLabel>
+                  <FormLabel htmlFor={githubRepoIdId}>Repository ID *</FormLabel>
                   <Input
                     id={githubRepoIdId}
                     value={formData.githubRepoId}
-                    onChange={(e) =>
-                      updateFormData('githubRepoId', e.target.value)
-                    }
+                    onChange={(e) => updateFormData('githubRepoId', e.target.value)}
                     placeholder="owner/repository"
                   />
                   <FormDescription>Format: owner/repository</FormDescription>
-                  {errors.githubRepoId && (
-                    <FormMessage>{errors.githubRepoId}</FormMessage>
-                  )}
+                  {errors.githubRepoId && <FormMessage>{errors.githubRepoId}</FormMessage>}
                 </FormField>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -399,39 +352,29 @@ export function EnvironmentForm({
                     <Input
                       id={githubBranchId}
                       value={formData.githubBranch}
-                      onChange={(e) =>
-                        updateFormData('githubBranch', e.target.value)
-                      }
+                      onChange={(e) => updateFormData('githubBranch', e.target.value)}
                       placeholder="main"
                     />
                   </FormField>
 
                   <FormField>
-                    <FormLabel htmlFor={githubCommitId}>
-                      Commit (optional)
-                    </FormLabel>
+                    <FormLabel htmlFor={githubCommitId}>Commit (optional)</FormLabel>
                     <Input
                       id={githubCommitId}
                       value={formData.githubCommit}
-                      onChange={(e) =>
-                        updateFormData('githubCommit', e.target.value)
-                      }
+                      onChange={(e) => updateFormData('githubCommit', e.target.value)}
                       placeholder="commit hash"
                     />
                   </FormField>
                 </div>
 
                 <FormField>
-                  <FormLabel htmlFor={githubTokenId}>
-                    Access Token (for private repos)
-                  </FormLabel>
+                  <FormLabel htmlFor={githubTokenId}>Access Token (for private repos)</FormLabel>
                   <Input
                     id={githubTokenId}
                     type="password"
                     value={formData.githubToken}
-                    onChange={(e) =>
-                      updateFormData('githubToken', e.target.value)
-                    }
+                    onChange={(e) => updateFormData('githubToken', e.target.value)}
                     placeholder="github_pat_..."
                   />
                 </FormField>
@@ -444,22 +387,14 @@ export function EnvironmentForm({
             <h3 className="text-lg font-medium">Code Execution</h3>
 
             <FormField>
-              <FormLabel htmlFor={codeExecutionTypeId}>
-                Execution Type
-              </FormLabel>
+              <FormLabel htmlFor={codeExecutionTypeId}>Execution Type</FormLabel>
               <Select
                 value={formData.codeExecutionType}
                 onValueChange={(value) =>
-                  updateFormData(
-                    'codeExecutionType',
-                    value as 'local' | 'docker',
-                  )
+                  updateFormData('codeExecutionType', value as 'local' | 'docker')
                 }
               >
-                <SelectTrigger
-                  id={codeExecutionTypeId}
-                  aria-label="Code execution type"
-                >
+                <SelectTrigger id={codeExecutionTypeId} aria-label="Code execution type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -475,15 +410,12 @@ export function EnvironmentForm({
                   <FormLabel>Setup Commands</FormLabel>
                   <Textarea
                     value={formData.localSetupCommands}
-                    onChange={(e) =>
-                      updateFormData('localSetupCommands', e.target.value)
-                    }
+                    onChange={(e) => updateFormData('localSetupCommands', e.target.value)}
                     placeholder="pip install -r requirements.txt"
                     rows={3}
                   />
                   <FormDescription>
-                    Commands to run when setting up the environment (one per
-                    line)
+                    Commands to run when setting up the environment (one per line)
                   </FormDescription>
                 </FormField>
               </div>
@@ -496,23 +428,17 @@ export function EnvironmentForm({
                   <Input
                     id={dockerImageId}
                     value={formData.dockerImage}
-                    onChange={(e) =>
-                      updateFormData('dockerImage', e.target.value)
-                    }
+                    onChange={(e) => updateFormData('dockerImage', e.target.value)}
                     placeholder="python:3.11"
                   />
-                  {errors.dockerImage && (
-                    <FormMessage>{errors.dockerImage}</FormMessage>
-                  )}
+                  {errors.dockerImage && <FormMessage>{errors.dockerImage}</FormMessage>}
                 </FormField>
 
                 <FormField>
                   <FormLabel>Setup Commands</FormLabel>
                   <Textarea
                     value={formData.dockerSetupCommands}
-                    onChange={(e) =>
-                      updateFormData('dockerSetupCommands', e.target.value)
-                    }
+                    onChange={(e) => updateFormData('dockerSetupCommands', e.target.value)}
                     placeholder="apt-get update"
                     rows={3}
                   />
@@ -542,5 +468,5 @@ export function EnvironmentForm({
         </Form>
       </CardContent>
     </Card>
-  );
+  )
 }

@@ -1,24 +1,24 @@
-import { FileEdit } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useMemo } from 'react';
+import { FileEdit } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 
-import { DiffView } from './shared/diff-view';
+import { DiffView } from './shared/diff-view'
 
 interface EditToolCallProps {
   input: {
-    file_path: string;
-    old_string: string;
-    new_string: string;
-    replace_all?: boolean;
-  };
-  name: string;
+    file_path: string
+    old_string: string
+    new_string: string
+    replace_all?: boolean
+  }
+  name: string
 }
 
 export function EditToolCall({ input, name }: EditToolCallProps): ReactNode {
   // Create a unified diff format from the old and new strings
   const diffContent = useMemo(() => {
     // Extract just the filename from the path
-    const fileName = input.file_path.split('/').pop() || input.file_path;
+    const fileName = input.file_path.split('/').pop() || input.file_path
 
     // Create a unified diff format
     const diff = [
@@ -27,19 +27,17 @@ export function EditToolCall({ input, name }: EditToolCallProps): ReactNode {
       '@@ -1,1 +1,1 @@',
       ...input.old_string.split('\n').map((line) => `- ${line}`),
       ...input.new_string.split('\n').map((line) => `+ ${line}`),
-    ].join('\n');
+    ].join('\n')
 
-    return diff;
-  }, [input.file_path, input.old_string, input.new_string]);
+    return diff
+  }, [input.file_path, input.old_string, input.new_string])
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <FileEdit className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
         <span className="font-medium text-foreground">{name}</span>
-        <span className="text-xs text-muted-foreground">
-          - {input.file_path}
-        </span>
+        <span className="text-xs text-muted-foreground">- {input.file_path}</span>
         {input.replace_all && (
           <span className="text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 px-1.5 py-0.5 rounded">
             Replace All
@@ -63,5 +61,5 @@ export function EditToolCall({ input, name }: EditToolCallProps): ReactNode {
         }
       />
     </div>
-  );
+  )
 }

@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TaskMetadata, Environment, Workspace, Event } from '../../../shared/types/index.js'
+import type { Environment, Event, TaskMetadata, Workspace } from '../../../shared/types/index.js'
 import { FileStorage } from '../storage.js'
 
 describe('FileStorage', () => {
@@ -66,7 +65,7 @@ describe('FileStorage', () => {
 
     it('should check if key exists', async () => {
       expect(await storage.exists('non-existent')).toBe(false)
-      
+
       await storage.save('existing', { data: 'test' })
       expect(await storage.exists('existing')).toBe(true)
     })
@@ -88,7 +87,7 @@ describe('FileStorage', () => {
 
       await storage.saveTask(task)
       const retrieved = await storage.getTask('test-123')
-      
+
       expect(retrieved).toBeTruthy()
       expect(retrieved?.taskId).toBe('test-123')
       expect(retrieved?.agentType).toBe('test-agent')
@@ -108,7 +107,7 @@ describe('FileStorage', () => {
 
       await storage.saveEnvironment(env)
       const retrieved = await storage.getEnvironment('env-123')
-      
+
       expect(retrieved).toBeTruthy()
       expect(retrieved?.id).toBe('env-123')
       expect(retrieved?.name).toBe('Test Environment')
@@ -126,7 +125,7 @@ describe('FileStorage', () => {
 
       await storage.saveWorkspace(workspace)
       const retrieved = await storage.getWorkspace('ws-123')
-      
+
       expect(retrieved).toBeTruthy()
       expect(retrieved?.id).toBe('ws-123')
       expect(retrieved?.type).toBe('local')
@@ -154,7 +153,7 @@ describe('FileStorage', () => {
 
       await storage.saveEvents('task-123', events)
       const retrieved = await storage.getEvents('task-123')
-      
+
       expect(retrieved).toHaveLength(2)
       expect(retrieved[0].eventId).toBe('evt-1')
       expect(retrieved[1].eventId).toBe('evt-2')
@@ -178,7 +177,7 @@ describe('FileStorage', () => {
 
       await storage.save('date-test', data)
       const retrieved = await storage.get<typeof data>('date-test')
-      
+
       expect(retrieved?.createdAt).toBeInstanceOf(Date)
       expect(retrieved?.createdAt.toISOString()).toBe(now.toISOString())
       expect(retrieved?.metadata.timestamp).toBeInstanceOf(Date)
@@ -189,18 +188,18 @@ describe('FileStorage', () => {
     it('should handle file system errors gracefully', async () => {
       // Mock fs.readFile to throw an error
       const spy = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'))
-      
+
       const result = await storage.get('error-key')
       expect(result).toBeNull()
-      
+
       spy.mockRestore()
     })
 
     it('should throw on delete if file cannot be removed', async () => {
       const spy = vi.spyOn(fs, 'unlink').mockRejectedValueOnce(new Error('EPERM'))
-      
+
       await expect(storage.delete('protected-key')).rejects.toThrow('EPERM')
-      
+
       spy.mockRestore()
     })
   })

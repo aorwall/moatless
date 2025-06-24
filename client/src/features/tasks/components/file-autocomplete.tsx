@@ -1,16 +1,16 @@
-import { AlertCircle, FileIcon } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { AlertCircle, FileIcon } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 
-import { getErrorMessage } from '@/lib/utils/error';
-import type { FileSearchResult } from '@/types/environment';
+import { getErrorMessage } from '@/lib/utils/error'
+import type { FileSearchResult } from '@/types/environment'
 
 interface FileAutocompleteProps {
-  results: Array<FileSearchResult>;
-  selectedIndex: number;
-  onSelect: (file: FileSearchResult) => void;
-  isLoading: boolean;
-  error?: Error | null;
-  position?: 'above' | 'below';
+  results: Array<FileSearchResult>
+  selectedIndex: number
+  onSelect: (file: FileSearchResult) => void
+  isLoading: boolean
+  error?: Error | null
+  position?: 'above' | 'below'
 }
 
 export function FileAutocomplete({
@@ -21,22 +21,19 @@ export function FileAutocomplete({
   error,
   position = 'below',
 }: FileAutocompleteProps) {
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null)
 
   // Scroll selected item into view
   useEffect(() => {
     if (listRef.current) {
-      const selectedElement = listRef.current.children[
-        selectedIndex
-      ] as HTMLElement;
+      const selectedElement = listRef.current.children[selectedIndex] as HTMLElement
       if (selectedElement) {
-        selectedElement.scrollIntoView({ block: 'nearest' });
+        selectedElement.scrollIntoView({ block: 'nearest' })
       }
     }
-  }, [selectedIndex]);
+  }, [selectedIndex])
 
-  const positionClasses =
-    position === 'above' ? 'bottom-full mb-1' : 'top-full mt-1';
+  const positionClasses = position === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'
 
   if (isLoading) {
     return (
@@ -45,7 +42,7 @@ export function FileAutocomplete({
       >
         <div className="text-sm text-muted-foreground">Searching files...</div>
       </div>
-    );
+    )
   }
 
   if (error) {
@@ -58,12 +55,10 @@ export function FileAutocomplete({
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span className="font-medium">File search failed</span>
           </div>
-          <div className="text-xs text-muted-foreground pl-6">
-            {getErrorMessage(error)}
-          </div>
+          <div className="text-xs text-muted-foreground pl-6">{getErrorMessage(error)}</div>
         </div>
       </div>
-    );
+    )
   }
 
   if (results.length === 0) {
@@ -73,7 +68,7 @@ export function FileAutocomplete({
       >
         <div className="text-sm text-muted-foreground">No files found</div>
       </div>
-    );
+    )
   }
 
   return (
@@ -82,7 +77,7 @@ export function FileAutocomplete({
       className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg`}
     >
       {results.map((file, index) => {
-        const isSelected = index === selectedIndex;
+        const isSelected = index === selectedIndex
         return (
           <button
             key={file.path}
@@ -96,14 +91,12 @@ export function FileAutocomplete({
             <div className="flex-1 min-w-0">
               <div className="text-sm truncate">{file.path}</div>
               {file.score && (
-                <div className="text-xs text-muted-foreground">
-                  Score: {file.score.toFixed(2)}
-                </div>
+                <div className="text-xs text-muted-foreground">Score: {file.score.toFixed(2)}</div>
               )}
             </div>
           </button>
-        );
+        )
       })}
     </div>
-  );
+  )
 }

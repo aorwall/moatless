@@ -1,104 +1,90 @@
-import { useParams } from '@tanstack/react-router';
-import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { Diff, Hunk, parseDiff } from 'react-diff-view';
-import 'react-diff-view/style/index.css';
+import { useParams } from '@tanstack/react-router'
+import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Diff, Hunk, parseDiff } from 'react-diff-view'
+import 'react-diff-view/style/index.css'
 
-import { useTaskGitDiff } from '@/features/tasks/hooks/use-tasks';
-import { useSelectedIteration } from '@/features/tasks/stores/task-ui-store';
-import { ErrorAlert } from '@/lib/components/ui/error-alert';
-import { ScrollArea } from '@/lib/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
-import './github-diff.css';
+import { useTaskGitDiff } from '@/features/tasks/hooks/use-tasks'
+import { useSelectedIteration } from '@/features/tasks/stores/task-ui-store'
+import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
+import './github-diff.css'
 
 interface GitDiffViewerProps {
-  className?: string;
+  className?: string
 }
 
 // Using any for hunk types as react-diff-view doesn't provide complete type exports
 interface ParsedFile {
-  oldRevision: string;
-  newRevision: string;
-  type: 'add' | 'delete' | 'modify' | 'rename';
-  hunks: any[];
-  oldPath?: string;
-  newPath?: string;
-  [key: string]: any;
+  oldRevision: string
+  newRevision: string
+  type: 'add' | 'delete' | 'modify' | 'rename'
+  hunks: any[]
+  oldPath?: string
+  newPath?: string
+  [key: string]: any
 }
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
-  const params = useParams({ from: '/tasks/$taskId' });
-  const {
-    data: contextGitDiff,
-    isLoading,
-    error,
-  } = useTaskGitDiff(params.taskId);
-  const selectedIteration = useSelectedIteration();
+  const params = useParams({ from: '/tasks/$taskId' })
+  const { data: contextGitDiff, isLoading, error } = useTaskGitDiff(params.taskId)
+  const selectedIteration = useSelectedIteration()
 
   // Use iteration's git diff if available, otherwise use context's git diff
   const gitDiff =
-    selectedIteration?.git_diff &&
-    typeof selectedIteration.git_diff === 'object'
+    selectedIteration?.git_diff && typeof selectedIteration.git_diff === 'object'
       ? selectedIteration.git_diff
-      : contextGitDiff;
+      : contextGitDiff
 
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 
   // Parse the git diff using gitdiff-parser - must be called before any returns for hooks rules
   const parsedFiles = useMemo(() => {
     if (!gitDiff?.diff) {
-      return [];
+      return []
     }
     try {
-      const files = parseDiff(gitDiff.diff);
+      const files = parseDiff(gitDiff.diff)
       // Auto-expand all files by default
       const allFileKeys = new Set(
-        files.map(
-          (f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`,
-        ),
-      );
-      setExpandedFiles(allFileKeys);
-      return files;
+        files.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
+      )
+      setExpandedFiles(allFileKeys)
+      return files
     } catch (error) {
-      console.error('Failed to parse git diff:', error);
-      return [];
+      console.error('Failed to parse git diff:', error)
+      return []
     }
-  }, [gitDiff?.diff]);
+  }, [gitDiff?.diff])
 
   const toggleFileExpansion = (fileKey: string) => {
     setExpandedFiles((prev) => {
-      const next = new Set(prev);
+      const next = new Set(prev)
       if (next.has(fileKey)) {
-        next.delete(fileKey);
+        next.delete(fileKey)
       } else {
-        next.add(fileKey);
+        next.add(fileKey)
       }
-      return next;
-    });
-  };
+      return next
+    })
+  }
 
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <Loader2
-          className="h-8 w-8 animate-spin mb-2"
-          data-testid="loading-spinner"
-        />
+        <Loader2 className="h-8 w-8 animate-spin mb-2" data-testid="loading-spinner" />
         <p>Loading diff...</p>
       </div>
-    );
+    )
   }
 
   if (error) {
     return (
       <div className="flex items-center justify-center h-full p-8">
-        <ErrorAlert
-          error={error}
-          title="Failed to load git diff"
-          className="max-w-md"
-        />
+        <ErrorAlert error={error} title="Failed to load git diff" className="max-w-md" />
       </div>
-    );
+    )
   }
 
   if (!gitDiff?.diff) {
@@ -107,7 +93,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
         <FileIcon className="h-12 w-12 mb-2" />
         <p>No changes to display</p>
       </div>
-    );
+    )
   }
 
   if (parsedFiles.length === 0 && gitDiff.total_files === 0) {
@@ -116,7 +102,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
         <FileIcon className="h-12 w-12 mb-2" />
         <p>No changes to display</p>
       </div>
-    );
+    )
   }
 
   if (parsedFiles.length === 0) {
@@ -125,31 +111,31 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
         <FileIcon className="h-12 w-12 mb-2" />
         <p>Unable to parse diff</p>
       </div>
-    );
+    )
   }
 
   const renderFile = (file: ParsedFile) => {
-    const { oldRevision, newRevision, type, hunks, oldPath, newPath } = file;
-    const filePath = newPath || oldPath || newRevision || oldRevision;
-    const fileKey = `${oldPath || oldRevision}-${newPath || newRevision}`;
-    const isExpanded = expandedFiles.has(fileKey);
+    const { oldRevision, newRevision, type, hunks, oldPath, newPath } = file
+    const filePath = newPath || oldPath || newRevision || oldRevision
+    const fileKey = `${oldPath || oldRevision}-${newPath || newRevision}`
+    const isExpanded = expandedFiles.has(fileKey)
 
     // Calculate additions and deletions
-    let additions = 0;
-    let deletions = 0;
+    let additions = 0
+    let deletions = 0
 
     hunks.forEach((hunk) => {
       hunk.changes.forEach((change: any) => {
         if (change.type === 'insert') {
-          additions++;
+          additions++
         }
         if (change.type === 'delete') {
-          deletions++;
+          deletions++
         }
-      });
-    });
+      })
+    })
 
-    const stats = { additions, deletions };
+    const stats = { additions, deletions }
 
     return (
       <div
@@ -174,33 +160,22 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
             <span className="font-mono text-sm">{filePath}</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-green-600 dark:text-green-400">
-              +{stats.additions}
-            </span>
-            <span className="text-red-600 dark:text-red-400">
-              −{stats.deletions}
-            </span>
+            <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
+            <span className="text-red-600 dark:text-red-400">−{stats.deletions}</span>
           </div>
         </button>
 
         {/* Diff Content */}
         {isExpanded && (
           <div className="github-diff-content">
-            <Diff
-              viewType="unified"
-              diffType={type}
-              hunks={hunks}
-              className="diff-view"
-            >
-              {(hunks) =>
-                hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)
-              }
+            <Diff viewType="unified" diffType={type} hunks={hunks} className="diff-view">
+              {(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
             </Diff>
           </div>
         )}
       </div>
-    );
-  };
+    )
+  }
 
   return (
     <ScrollArea className={cn('h-full overflow-auto p-4', className)}>
@@ -221,5 +196,5 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       {/* File Diffs */}
       <div>{parsedFiles.map((file) => renderFile(file as ParsedFile))}</div>
     </ScrollArea>
-  );
+  )
 }

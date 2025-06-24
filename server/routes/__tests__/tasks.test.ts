@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
 describe('Task Routes', () => {

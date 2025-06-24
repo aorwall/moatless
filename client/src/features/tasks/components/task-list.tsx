@@ -1,26 +1,17 @@
-import { Archive, FileText } from 'lucide-react';
+import { Archive, FileText } from 'lucide-react'
 
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/lib/components/ui/tabs';
-import type { Task } from '@/types/task';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
+import type { Task } from '@/types/task'
 
-import { TaskCard } from './task-card';
+import { TaskCard } from './task-card'
 
 interface TaskListProps {
-  activeTasks: Array<Task>;
-  archivedTasks: Array<Task>;
-  loading?: boolean;
+  activeTasks: Array<Task>
+  archivedTasks: Array<Task>
+  loading?: boolean
 }
 
-export function TaskList({
-  activeTasks,
-  archivedTasks,
-  loading,
-}: TaskListProps) {
+export function TaskList({ activeTasks, archivedTasks, loading }: TaskListProps) {
   return (
     <Tabs defaultValue="tasks" className="w-full">
       <TabsList className="grid w-full grid-cols-2">
@@ -36,13 +27,9 @@ export function TaskList({
 
       <TabsContent value="tasks" className="space-y-4">
         {loading ? (
-          <div className="text-center py-8 text-muted-foreground">
-            Loading tasks...
-          </div>
+          <div className="text-center py-8 text-muted-foreground">Loading tasks...</div>
         ) : activeTasks.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            No active tasks
-          </div>
+          <div className="text-center py-8 text-muted-foreground">No active tasks</div>
         ) : (
           activeTasks.map((task) => <TaskCard key={task.id} task={task} />)
         )}
@@ -50,13 +37,11 @@ export function TaskList({
 
       <TabsContent value="archive" className="space-y-4">
         {archivedTasks.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            No finished tasks
-          </div>
+          <div className="text-center py-8 text-muted-foreground">No finished tasks</div>
         ) : (
           archivedTasks.map((task) => <TaskCard key={task.id} task={task} />)
         )}
       </TabsContent>
     </Tabs>
-  );
+  )
 }

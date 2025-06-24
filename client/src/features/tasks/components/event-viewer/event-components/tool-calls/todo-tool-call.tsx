@@ -1,48 +1,44 @@
-import { CheckCircle2, Circle, Clock, ListTodo } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { CheckCircle2, Circle, Clock, ListTodo } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 interface Todo {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  priority: 'high' | 'medium' | 'low';
+  id: string
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  priority: 'high' | 'medium' | 'low'
 }
 
 interface TodoToolCallProps {
   input: {
-    todos: Array<Todo>;
-  };
-  name: string;
+    todos: Array<Todo>
+  }
+  name: string
 }
 
 export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
   const getStatusIcon = (status: Todo['status']) => {
     switch (status) {
       case 'completed':
-        return (
-          <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-        );
+        return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
       case 'in_progress':
-        return (
-          <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-        );
+        return <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
       default:
-        return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;
+        return <Circle className="h-3.5 w-3.5 text-muted-foreground" />
     }
-  };
+  }
 
   const getPriorityColor = (priority: Todo['priority']) => {
     switch (priority) {
       case 'high':
-        return 'text-red-600 dark:text-red-400';
+        return 'text-red-600 dark:text-red-400'
       case 'medium':
-        return 'text-yellow-600 dark:text-yellow-400';
+        return 'text-yellow-600 dark:text-yellow-400'
       case 'low':
-        return 'text-muted-foreground';
+        return 'text-muted-foreground'
       default:
-        return 'text-muted-foreground';
+        return 'text-muted-foreground'
     }
-  };
+  }
 
   return (
     <div className="space-y-2">
@@ -64,9 +60,7 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
               >
                 {todo.content}
               </span>
-              <span
-                className={`ml-2 text-xs ${getPriorityColor(todo.priority)}`}
-              >
+              <span className={`ml-2 text-xs ${getPriorityColor(todo.priority)}`}>
                 ({todo.priority})
               </span>
             </div>
@@ -74,5 +68,5 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
         ))}
       </div>
     </div>
-  );
+  )
 }

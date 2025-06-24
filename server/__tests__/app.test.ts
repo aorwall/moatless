@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import fastify, { FastifyInstance } from 'fastify'
+import fastify, { type FastifyInstance } from 'fastify'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { setupApp } from '../app.js'
 
 describe('App Setup', () => {
@@ -22,7 +22,7 @@ describe('App Setup', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      
+
       const body = JSON.parse(response.body)
       expect(body).toHaveProperty('status', 'ok')
       expect(body).toHaveProperty('timestamp')
@@ -38,7 +38,7 @@ describe('App Setup', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      
+
       const body = JSON.parse(response.body)
       expect(body).toHaveProperty('message', 'Moatless API')
       expect(body).toHaveProperty('version', '1.0.0')
@@ -76,7 +76,7 @@ describe('App Setup', () => {
         method: 'OPTIONS',
         url: '/health',
         headers: {
-          'Origin': 'http://localhost:3000',
+          Origin: 'http://localhost:3000',
           'Access-Control-Request-Method': 'GET',
         },
       })

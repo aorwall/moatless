@@ -1,1 +1,1 @@
-export { GitDiffViewer } from './git-diff-viewer';
+export { GitDiffViewer } from './git-diff-viewer'

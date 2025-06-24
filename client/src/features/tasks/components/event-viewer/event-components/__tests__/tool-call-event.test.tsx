@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
 
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events';
-import type { Event } from '@/types/event';
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import type { Event } from '@/types/event'
 
-import { ToolCallEvent } from '../tool-call-event';
+import { ToolCallEvent } from '../tool-call-event'
 
 describe('ToolCallEvent', () => {
   const createToolCallEvent = (
@@ -37,18 +37,18 @@ describe('ToolCallEvent', () => {
       },
     },
     toolResult,
-  });
+  })
 
   it('should render tool call without result', () => {
     const event = createToolCallEvent('Read', {
       file_path: '/test/file.ts',
-    });
+    })
 
-    render(<ToolCallEvent event={event} />);
+    render(<ToolCallEvent event={event} />)
 
-    expect(screen.getByText('Read')).toBeInTheDocument();
-    expect(screen.getByText('/test/file.ts')).toBeInTheDocument();
-  });
+    expect(screen.getByText('Read')).toBeInTheDocument()
+    expect(screen.getByText('/test/file.ts')).toBeInTheDocument()
+  })
 
   it('should render tool call with result', () => {
     const toolResult: Event = {
@@ -75,26 +75,22 @@ describe('ToolCallEvent', () => {
           ],
         },
       },
-    };
+    }
 
-    const event = createToolCallEvent(
-      'Read',
-      { file_path: '/test/file.ts' },
-      toolResult,
-    );
+    const event = createToolCallEvent('Read', { file_path: '/test/file.ts' }, toolResult)
 
-    render(<ToolCallEvent event={event} />);
+    render(<ToolCallEvent event={event} />)
 
-    expect(screen.getByText('Tool Result')).toBeInTheDocument();
+    expect(screen.getByText('Tool Result')).toBeInTheDocument()
     // Should show first 3 lines
-    expect(screen.getByText(/File content line 1/)).toBeInTheDocument();
-    expect(screen.getByText(/File content line 3/)).toBeInTheDocument();
+    expect(screen.getByText(/File content line 1/)).toBeInTheDocument()
+    expect(screen.getByText(/File content line 3/)).toBeInTheDocument()
     // Should show "more lines" text
-    expect(screen.getByText('... (1 more lines)')).toBeInTheDocument();
-  });
+    expect(screen.getByText('... (1 more lines)')).toBeInTheDocument()
+  })
 
   it('should expand tool result when clicking more lines', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup()
 
     const toolResult: Event = {
       event_id: 'result-event',
@@ -119,25 +115,21 @@ describe('ToolCallEvent', () => {
           ],
         },
       },
-    };
+    }
 
-    const event = createToolCallEvent(
-      'Bash',
-      { command: 'ls -la' },
-      toolResult,
-    );
+    const event = createToolCallEvent('Bash', { command: 'ls -la' }, toolResult)
 
-    render(<ToolCallEvent event={event} />);
+    render(<ToolCallEvent event={event} />)
 
     // Initially should not show all lines
-    expect(screen.queryByText(/Line 5/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Line 5/)).not.toBeInTheDocument()
 
     // Click on "more lines" text
-    await user.click(screen.getByText('... (2 more lines)'));
+    await user.click(screen.getByText('... (2 more lines)'))
 
     // Now should show all lines
-    expect(screen.getByText(/Line 5/)).toBeInTheDocument();
-  });
+    expect(screen.getByText(/Line 5/)).toBeInTheDocument()
+  })
 
   it('should use dark background for tool results', () => {
     const toolResult: Event = {
@@ -163,17 +155,17 @@ describe('ToolCallEvent', () => {
           ],
         },
       },
-    };
+    }
 
     const event = createToolCallEvent(
       'Write',
       { file_path: '/test.ts', content: 'test' },
       toolResult,
-    );
+    )
 
-    render(<ToolCallEvent event={event} />);
+    render(<ToolCallEvent event={event} />)
 
-    const resultContainer = screen.getByText('Test result').closest('div');
-    expect(resultContainer).toHaveClass('bg-zinc-800', 'dark:bg-zinc-900');
-  });
-});
+    const resultContainer = screen.getByText('Test result').closest('div')
+    expect(resultContainer).toHaveClass('bg-zinc-800', 'dark:bg-zinc-900')
+  })
+})

@@ -51,23 +51,27 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
   const { environment: environmentService } = app.services
 
   // Create environment
-  app.post('/', {
-    schema: {
-      body: CreateEnvironmentSchema,
+  app.post(
+    '/',
+    {
+      schema: {
+        body: CreateEnvironmentSchema,
+      },
     },
-  }, async (request, reply) => {
-    const environmentData = {
-      ...request.body,
-      id: crypto.randomUUID(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      isActive: true,
-      variables: request.body.variables || {},
-    }
-    
-    await environmentService.createEnvironment(environmentData as any)
-    return environmentData
-  })
+    async (request, reply) => {
+      const environmentData = {
+        ...request.body,
+        id: crypto.randomUUID(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isActive: true,
+        variables: request.body.variables || {},
+      }
+
+      await environmentService.createEnvironment(environmentData as any)
+      return environmentData
+    },
+  )
 
   // List environments
   app.get('/', async (request, reply) => {
@@ -76,70 +80,86 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
   })
 
   // Get environment by ID
-  app.get('/:environmentId', {
-    schema: {
-      params: EnvironmentIdParamsSchema,
+  app.get(
+    '/:environmentId',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { environmentId } = request.params
-    const environment = await environmentService.getEnvironment(environmentId)
+    async (request, reply) => {
+      const { environmentId } = request.params
+      const environment = await environmentService.getEnvironment(environmentId)
 
-    if (!environment) {
-      throw new EnvironmentNotFoundError(environmentId)
-    }
+      if (!environment) {
+        throw new EnvironmentNotFoundError(environmentId)
+      }
 
-    return environment
-  })
+      return environment
+    },
+  )
 
   // Update environment
-  app.patch('/:environmentId', {
-    schema: {
-      params: EnvironmentIdParamsSchema,
-      body: UpdateEnvironmentSchema,
+  app.patch(
+    '/:environmentId',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+        body: UpdateEnvironmentSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { environmentId } = request.params
-    const updates = request.body
+    async (request, reply) => {
+      const { environmentId } = request.params
+      const updates = request.body
 
-    await environmentService.updateEnvironment(environmentId, updates)
-    
-    const updatedEnvironment = await environmentService.getEnvironment(environmentId)
-    return updatedEnvironment
-  })
+      await environmentService.updateEnvironment(environmentId, updates)
+
+      const updatedEnvironment = await environmentService.getEnvironment(environmentId)
+      return updatedEnvironment
+    },
+  )
 
   // Delete environment
-  app.delete('/:environmentId', {
-    schema: {
-      params: EnvironmentIdParamsSchema,
+  app.delete(
+    '/:environmentId',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { environmentId } = request.params
+    async (request, reply) => {
+      const { environmentId } = request.params
 
-    await environmentService.deleteEnvironment(environmentId)
-    return { status: 'deleted' }
-  })
+      await environmentService.deleteEnvironment(environmentId)
+      return { status: 'deleted' }
+    },
+  )
 
   // Search files in environment
-  app.post('/:environmentId/search', {
-    schema: {
-      params: EnvironmentIdParamsSchema,
-      body: FileSearchSchema,
+  app.post(
+    '/:environmentId/search',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+        body: FileSearchSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { environmentId } = request.params
-    const searchRequest = request.body
+    async (request, reply) => {
+      const { environmentId } = request.params
+      const searchRequest = request.body
 
-    // Verify environment exists
-    const environment = await environmentService.getEnvironment(environmentId)
-    if (!environment) {
-      throw new EnvironmentNotFoundError(environmentId)
-    }
+      // Verify environment exists
+      const environment = await environmentService.getEnvironment(environmentId)
+      if (!environment) {
+        throw new EnvironmentNotFoundError(environmentId)
+      }
 
-    // TODO: Implement file search when workspace service is complete
-    return {
-      files: [],
-      totalCount: 0,
-      truncated: false,
-    }
-  })
+      // TODO: Implement file search when workspace service is complete
+      return {
+        files: [],
+        totalCount: 0,
+        truncated: false,
+      }
+    },
+  )
 }

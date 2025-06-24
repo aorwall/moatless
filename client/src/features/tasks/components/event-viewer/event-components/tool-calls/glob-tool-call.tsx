@@ -1,12 +1,12 @@
-import { FolderSearch } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { FolderSearch } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 interface GlobToolCallProps {
   input: {
-    pattern: string;
-    path?: string;
-  };
-  name: string;
+    pattern: string
+    path?: string
+  }
+  name: string
 }
 
 export function GlobToolCall({ input, name }: GlobToolCallProps): ReactNode {
@@ -26,5 +26,5 @@ export function GlobToolCall({ input, name }: GlobToolCallProps): ReactNode {
         </div>
       </div>
     </div>
-  );
+  )
 }

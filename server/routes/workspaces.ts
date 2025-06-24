@@ -28,108 +28,136 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
   const { workspace: workspaceService } = app.services
 
   // Get workspace by task ID
-  app.get('/:taskId', {
-    schema: {
-      params: TaskIdParamsSchema,
+  app.get(
+    '/:taskId',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
-    const workspace = await workspaceService.getWorkspace(taskId)
+    async (request, reply) => {
+      const { taskId } = request.params
+      const workspace = await workspaceService.getWorkspace(taskId)
 
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
+      if (!workspace) {
+        throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
+      }
 
-    return workspace
-  })
+      return workspace
+    },
+  )
 
   // Get workspace status
-  app.get('/:taskId/status', {
-    schema: {
-      params: TaskIdParamsSchema,
+  app.get(
+    '/:taskId/status',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
-    const workspace = await workspaceService.getWorkspace(taskId)
+    async (request, reply) => {
+      const { taskId } = request.params
+      const workspace = await workspaceService.getWorkspace(taskId)
 
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
+      if (!workspace) {
+        throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
+      }
 
-    return {
-      status: workspace.status,
-      type: workspace.type,
-      createdAt: workspace.createdAt,
-      error: workspace.error,
-    }
-  })
+      return {
+        status: workspace.status,
+        type: workspace.type,
+        createdAt: workspace.createdAt,
+        error: workspace.error,
+      }
+    },
+  )
 
   // Cleanup workspace
-  app.delete('/:taskId', {
-    schema: {
-      params: TaskIdParamsSchema,
+  app.delete(
+    '/:taskId',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
+    async (request, reply) => {
+      const { taskId } = request.params
 
-    await workspaceService.cleanupWorkspace(taskId)
-    return { status: 'cleaned' }
-  })
+      await workspaceService.cleanupWorkspace(taskId)
+      return { status: 'cleaned' }
+    },
+  )
 
   // Get workspace files (for local workspaces)
-  app.get('/:taskId/files', {
-    schema: {
-      params: TaskIdParamsSchema,
-      querystring: FileListQuerySchema,
+  app.get(
+    '/:taskId/files',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        querystring: FileListQuerySchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
-    const { path, recursive } = request.query
+    async (request, reply) => {
+      const { taskId } = request.params
+      const { path, recursive } = request.query
 
-    // TODO: Implement file listing when workspace service is complete
-    return { files: [] }
-  })
+      // TODO: Implement file listing when workspace service is complete
+      return { files: [] }
+    },
+  )
 
   // Read workspace file
-  app.get('/:taskId/files/*', {
-    schema: {
-      params: FilePathParamsSchema,
+  app.get(
+    '/:taskId/files/*',
+    {
+      schema: {
+        params: FilePathParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
-    const filePath = request.params['*']
+    async (request, reply) => {
+      const { taskId } = request.params
+      const filePath = request.params['*']
 
-    // TODO: Implement file reading when workspace service is complete
-    throw new WorkspaceError('File operations not yet implemented', taskId)
-  })
+      // TODO: Implement file reading when workspace service is complete
+      throw new WorkspaceError('File operations not yet implemented', taskId)
+    },
+  )
 
   // Write workspace file
-  app.put('/:taskId/files/*', {
-    schema: {
-      params: FilePathParamsSchema,
-      body: FileWriteSchema,
+  app.put(
+    '/:taskId/files/*',
+    {
+      schema: {
+        params: FilePathParamsSchema,
+        body: FileWriteSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
-    const filePath = request.params['*']
-    const { content } = request.body
+    async (request, reply) => {
+      const { taskId } = request.params
+      const filePath = request.params['*']
+      const { content } = request.body
 
-    // TODO: Implement file writing when workspace service is complete
-    throw new WorkspaceError('File operations not yet implemented', taskId)
-  })
+      // TODO: Implement file writing when workspace service is complete
+      throw new WorkspaceError('File operations not yet implemented', taskId)
+    },
+  )
 
   // Get git diff for workspace
-  app.get('/:taskId/diff', {
-    schema: {
-      params: TaskIdParamsSchema,
+  app.get(
+    '/:taskId/diff',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
     },
-  }, async (request, reply) => {
-    const { taskId } = request.params
+    async (request, reply) => {
+      const { taskId } = request.params
 
-    // TODO: Implement git diff when workspace service is complete
-    return {
-      diff: null,
-      files: [],
-    }
-  })
+      // TODO: Implement git diff when workspace service is complete
+      return {
+        diff: null,
+        files: [],
+      }
+    },
+  )
 }

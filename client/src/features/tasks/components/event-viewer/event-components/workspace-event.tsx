@@ -1,20 +1,20 @@
-import { Settings } from 'lucide-react';
+import { Settings } from 'lucide-react'
 
-import type { Event } from '@/types/event';
+import type { Event } from '@/types/event'
 
-import { EventHeader } from './event-header';
+import { EventHeader } from './event-header'
 
 interface WorkspaceEventProps {
-  event: Event;
+  event: Event
 }
 
 export function WorkspaceEvent({ event }: WorkspaceEventProps) {
   const payload = event.payload as {
-    environment_id?: string;
-    path?: string;
-    branch?: string;
-    working_directory?: string;
-  };
+    environment_id?: string
+    path?: string
+    branch?: string
+    working_directory?: string
+  }
 
   return (
     <EventHeader event={event}>
@@ -30,16 +30,11 @@ export function WorkspaceEvent({ event }: WorkspaceEventProps) {
           {event.sub_type === 'worktree_created' && (
             <div className="space-y-1">
               <p>
-                Path:{' '}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                  {payload.path}
-                </code>
+                Path: <code className="text-xs bg-muted px-1 py-0.5 rounded">{payload.path}</code>
               </p>
               <p>
                 Branch:{' '}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                  {payload.branch}
-                </code>
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">{payload.branch}</code>
               </p>
             </div>
           )}
@@ -54,5 +49,5 @@ export function WorkspaceEvent({ event }: WorkspaceEventProps) {
         </div>
       </div>
     </EventHeader>
-  );
+  )
 }

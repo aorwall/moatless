@@ -1,13 +1,13 @@
-import { Terminal } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Terminal } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 interface BashToolCallProps {
   input: {
-    command: string;
-    description?: string;
-    timeout?: number;
-  };
-  name: string;
+    command: string
+    description?: string
+    timeout?: number
+  }
+  name: string
 }
 
 export function BashToolCall({ input, name }: BashToolCallProps): ReactNode {
@@ -17,9 +17,7 @@ export function BashToolCall({ input, name }: BashToolCallProps): ReactNode {
         <Terminal className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
         <span className="font-medium text-foreground">{name}</span>
         {input.description && (
-          <span className="text-xs text-muted-foreground">
-            - {input.description}
-          </span>
+          <span className="text-xs text-muted-foreground">- {input.description}</span>
         )}
       </div>
 
@@ -27,9 +25,7 @@ export function BashToolCall({ input, name }: BashToolCallProps): ReactNode {
       <div className="bg-zinc-900 dark:bg-zinc-950 rounded-lg p-3 font-mono text-sm">
         <div className="flex items-start gap-2">
           <span className="text-green-400 select-none">$</span>
-          <code className="text-zinc-100 break-all whitespace-pre-wrap">
-            {input.command}
-          </code>
+          <code className="text-zinc-100 break-all whitespace-pre-wrap">{input.command}</code>
         </div>
       </div>
 
@@ -39,5 +35,5 @@ export function BashToolCall({ input, name }: BashToolCallProps): ReactNode {
         </div>
       )}
     </div>
-  );
+  )
 }

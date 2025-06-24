@@ -1,76 +1,66 @@
-import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { useNavigate } from '@tanstack/react-router'
+import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 
-import { Button } from '@/lib/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/lib/components/ui/card';
-import { Input } from '@/lib/components/ui/input';
-import { Label } from '@/lib/components/ui/label';
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Input } from '@/lib/components/ui/input'
+import { Label } from '@/lib/components/ui/label'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/lib/components/ui/select';
+} from '@/lib/components/ui/select'
 import type {
   CreateEnvironmentRequest,
   EnvironmentResponse,
   UpdateEnvironmentRequest,
-} from '@/types/environment';
+} from '@/types/environment'
 
-import { LocalRepositoryConfig } from './local-repository-config';
+import { LocalRepositoryConfig } from './local-repository-config'
 
 interface EnvironmentFormProps {
-  environment?: EnvironmentResponse;
-  onSubmit: (data: CreateEnvironmentRequest | UpdateEnvironmentRequest) => void;
-  isSubmitting?: boolean;
+  environment?: EnvironmentResponse
+  onSubmit: (data: CreateEnvironmentRequest | UpdateEnvironmentRequest) => void
+  isSubmitting?: boolean
 }
 
 type FormData = {
-  name: string;
-  type: 'local' | 'github';
-  environment_variables: Record<string, string>;
-  is_active: boolean;
-  path: string;
-  use_git_worktrees: boolean;
-  repo_url: string;
-  branch: string;
-};
+  name: string
+  type: 'local' | 'github'
+  environment_variables: Record<string, string>
+  is_active: boolean
+  path: string
+  use_git_worktrees: boolean
+  repo_url: string
+  branch: string
+}
 
-export function EnvironmentForm({
-  environment,
-  onSubmit,
-  isSubmitting,
-}: EnvironmentFormProps) {
-  const navigate = useNavigate();
-  const isEdit = !!environment;
+export function EnvironmentForm({ environment, onSubmit, isSubmitting }: EnvironmentFormProps) {
+  const navigate = useNavigate()
+  const isEdit = !!environment
 
   const getInitialRepositoryData = useCallback((env?: EnvironmentResponse) => {
     if (env?.repository.type === 'local') {
       return {
         path: env.repository.path,
         use_git_worktrees: env.repository.use_git_worktrees ?? false,
-      };
+      }
     } else if (env?.repository.type === 'github') {
       return {
         repo_url: env.repository.repo_id,
         branch: env.repository.branch || 'main',
-      };
+      }
     }
     return {
       path: '',
       use_git_worktrees: false,
       repo_url: '',
       branch: 'main',
-    };
-  }, []);
+    }
+  }, [])
 
   const [formData, setFormData] = useState<FormData>({
     name: environment?.name || '',
@@ -78,12 +68,12 @@ export function EnvironmentForm({
     environment_variables: environment?.variables || {},
     is_active: environment?.is_active ?? true,
     ...getInitialRepositoryData(environment),
-  } as FormData);
+  } as FormData)
 
   // Update form data when environment prop changes
   useEffect(() => {
     if (environment) {
-      const repoData = getInitialRepositoryData(environment);
+      const repoData = getInitialRepositoryData(environment)
       setFormData({
         name: environment.name,
         type: environment.repository.type,
@@ -91,21 +81,19 @@ export function EnvironmentForm({
         is_active: environment.is_active,
         path: 'path' in repoData ? (repoData.path as string) : '',
         use_git_worktrees:
-          'use_git_worktrees' in repoData
-            ? (repoData.use_git_worktrees as boolean)
-            : false,
+          'use_git_worktrees' in repoData ? (repoData.use_git_worktrees as boolean) : false,
         repo_url: 'repo_url' in repoData ? (repoData.repo_url as string) : '',
         branch: 'branch' in repoData ? (repoData.branch as string) : 'main',
-      });
+      })
     }
-  }, [environment, getInitialRepositoryData]); // Re-run when environment changes
+  }, [environment, getInitialRepositoryData]) // Re-run when environment changes
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
 
     if (!formData.name.trim()) {
-      toast.error('Please provide an environment name');
-      return;
+      toast.error('Please provide an environment name')
+      return
     }
 
     const repository =
@@ -119,11 +107,11 @@ export function EnvironmentForm({
             type: 'github' as const,
             repo_id: formData.repo_url || '',
             branch: formData.branch,
-          };
+          }
 
     const code_execution = {
       type: 'local' as const,
-    };
+    }
 
     const submitData = isEdit
       ? {
@@ -138,17 +126,15 @@ export function EnvironmentForm({
           repository,
           code_execution,
           variables: formData.environment_variables,
-        };
+        }
 
-    onSubmit(submitData);
-  };
+    onSubmit(submitData)
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          {isEdit ? 'Environment Repository Settings' : 'Create Environment'}
-        </CardTitle>
+        <CardTitle>{isEdit ? 'Environment Repository Settings' : 'Create Environment'}</CardTitle>
         <CardDescription>
           {isEdit
             ? 'Update repository configuration'
@@ -163,9 +149,7 @@ export function EnvironmentForm({
               <Input
                 id="name"
                 value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="Production Environment"
                 required
               />
@@ -216,9 +200,7 @@ export function EnvironmentForm({
                   <Input
                     id="repo_url"
                     value={formData.repo_url}
-                    onChange={(e) =>
-                      setFormData({ ...formData, repo_url: e.target.value })
-                    }
+                    onChange={(e) => setFormData({ ...formData, repo_url: e.target.value })}
                     placeholder="example/repo"
                   />
                 </div>
@@ -228,9 +210,7 @@ export function EnvironmentForm({
                   <Input
                     id="branch"
                     value={formData.branch}
-                    onChange={(e) =>
-                      setFormData({ ...formData, branch: e.target.value })
-                    }
+                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                     placeholder="main"
                   />
                 </div>
@@ -253,5 +233,5 @@ export function EnvironmentForm({
         </form>
       </CardContent>
     </Card>
-  );
+  )
 }

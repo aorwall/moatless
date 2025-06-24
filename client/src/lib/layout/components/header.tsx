@@ -1,5 +1,5 @@
-import { AppBreadcrumbs } from '@/features/navigation/components/breadcrumbs';
-import { ThemeToggle } from '@/lib/components/theme-toggle';
+import { AppBreadcrumbs } from '@/features/navigation/components/breadcrumbs'
+import { ThemeToggle } from '@/lib/components/theme-toggle'
 
 export const Header = () => {
   return (
@@ -7,5 +7,5 @@ export const Header = () => {
       <AppBreadcrumbs />
       <ThemeToggle />
     </div>
-  );
-};
+  )
+}

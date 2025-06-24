@@ -2,8 +2,8 @@
 
 /* Override the default styles */
 .git-diff-view-wrapper {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas,
-    "Liberation Mono", Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo,
+    monospace;
   font-size: 13px;
   line-height: 21px;
 }

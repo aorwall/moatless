@@ -1,21 +1,8 @@
-import {
-  AlertCircle,
-  CheckCircle,
-  HelpCircle,
-  Play,
-  Terminal,
-  XCircle,
-} from 'lucide-react';
-import { useState } from 'react';
+import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
+import { useState } from 'react'
 
-import { Button } from '@/lib/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/lib/components/ui/card';
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -23,59 +10,55 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/lib/components/ui/dialog';
-import { Input } from '@/lib/components/ui/input';
-import { Label } from '@/lib/components/ui/label';
-import { ScrollArea } from '@/lib/components/ui/scroll-area';
+} from '@/lib/components/ui/dialog'
+import { Input } from '@/lib/components/ui/input'
+import { Label } from '@/lib/components/ui/label'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/lib/components/ui/select';
+} from '@/lib/components/ui/select'
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/lib/components/ui/sheet';
-import { Textarea } from '@/lib/components/ui/textarea';
-import type {
-  CodeExecution,
-  SetupScriptCommand,
-  SetupScriptResponse,
-} from '@/types/environment';
+} from '@/lib/components/ui/sheet'
+import { Textarea } from '@/lib/components/ui/textarea'
+import type { CodeExecution, SetupScriptCommand, SetupScriptResponse } from '@/types/environment'
 
-import { useRunSetupScript } from '../hooks/use-environments';
+import { useRunSetupScript } from '../hooks/use-environments'
 
 interface CodeExecutionConfigProps {
-  codeExecution: CodeExecution;
-  onUpdate: (codeExecution: CodeExecution) => void;
-  isSubmitting?: boolean;
-  environmentId?: string;
+  codeExecution: CodeExecution
+  onUpdate: (codeExecution: CodeExecution) => void
+  isSubmitting?: boolean
+  environmentId?: string
 }
 
 interface ServerCommandExamplesProps {
-  showServerExamples: boolean;
-  setShowServerExamples: (show: boolean) => void;
+  showServerExamples: boolean
+  setShowServerExamples: (show: boolean) => void
 }
 
 interface SetupOutputSheetProps {
-  showSetupOutput: boolean;
-  setShowSetupOutput: (show: boolean) => void;
-  setupScriptResult: SetupScriptResponse | null;
+  showSetupOutput: boolean
+  setShowSetupOutput: (show: boolean) => void
+  setupScriptResult: SetupScriptResponse | null
 }
 
 interface EnvironmentVariablesProps {
-  envVars: Record<string, string>;
-  envVarKey: string;
-  envVarValue: string;
-  setEnvVarKey: (key: string) => void;
-  setEnvVarValue: (value: string) => void;
-  onAddEnvVar: () => void;
-  onRemoveEnvVar: (key: string) => void;
+  envVars: Record<string, string>
+  envVarKey: string
+  envVarValue: string
+  setEnvVarKey: (key: string) => void
+  setEnvVarValue: (value: string) => void
+  onAddEnvVar: () => void
+  onRemoveEnvVar: (key: string) => void
 }
 
 function ServerCommandExamples({
@@ -113,7 +96,7 @@ function ServerCommandExamples({
       command: 'nodemon --port {PORT} server.js',
       description: 'For Node.js applications with auto-reload',
     },
-  ];
+  ]
 
   return (
     <Dialog open={showServerExamples} onOpenChange={setShowServerExamples}>
@@ -128,31 +111,24 @@ function ServerCommandExamples({
           <DialogTitle>Server Command Examples</DialogTitle>
           <DialogDescription>
             The server command should include{' '}
-            <code className="bg-muted px-1 py-0.5 rounded">{'{PORT}'}</code> as
-            a placeholder for the port number.
+            <code className="bg-muted px-1 py-0.5 rounded">{'{PORT}'}</code> as a placeholder for
+            the port number.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 mt-4">
           <div className="space-y-3">
             {examples.map((example) => (
-              <div
-                key={example.title}
-                className="rounded-lg border p-4 space-y-2"
-              >
+              <div key={example.title} className="rounded-lg border p-4 space-y-2">
                 <p className="font-medium">{example.title}</p>
-                <code className="block bg-muted p-2 rounded text-sm">
-                  {example.command}
-                </code>
-                <p className="text-sm text-muted-foreground">
-                  {example.description}
-                </p>
+                <code className="block bg-muted p-2 rounded text-sm">{example.command}</code>
+                <p className="text-sm text-muted-foreground">{example.description}</p>
               </div>
             ))}
           </div>
         </div>
       </DialogContent>
     </Dialog>
-  );
+  )
 }
 
 function SetupOutputSheet({
@@ -174,9 +150,7 @@ function SetupOutputSheet({
                 {setupScriptResult.overall_success ? (
                   <>
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-green-600">
-                      All commands succeeded
-                    </span>
+                    <span className="text-green-600">All commands succeeded</span>
                   </>
                 ) : (
                   <>
@@ -196,60 +170,54 @@ function SetupOutputSheet({
         <ScrollArea className="h-[calc(100vh-10rem)] mt-6">
           {setupScriptResult && (
             <div className="space-y-4">
-              {setupScriptResult.commands.map(
-                (command: SetupScriptCommand, index: number) => (
-                  <div
-                    key={`command-${index}-${command.command.slice(0, 20)}`}
-                    className={`rounded-lg border ${
-                      command.success
-                        ? 'border-green-200 dark:border-green-800'
-                        : 'border-red-200 dark:border-red-800'
-                    } p-4 space-y-2`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <code className="text-sm font-mono bg-muted px-2 py-1 rounded flex-1">
-                        $ {command.command}
-                      </code>
-                      <div className="flex items-center gap-2">
-                        {command.success ? (
-                          <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                        )}
-                        <span className="text-xs text-muted-foreground">
-                          Exit code: {command.exit_code}
-                        </span>
-                      </div>
+              {setupScriptResult.commands.map((command: SetupScriptCommand, index: number) => (
+                <div
+                  key={`command-${index}-${command.command.slice(0, 20)}`}
+                  className={`rounded-lg border ${
+                    command.success
+                      ? 'border-green-200 dark:border-green-800'
+                      : 'border-red-200 dark:border-red-800'
+                  } p-4 space-y-2`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <code className="text-sm font-mono bg-muted px-2 py-1 rounded flex-1">
+                      $ {command.command}
+                    </code>
+                    <div className="flex items-center gap-2">
+                      {command.success ? (
+                        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        Exit code: {command.exit_code}
+                      </span>
                     </div>
-                    {command.output && (
-                      <div className="space-y-1">
-                        <div className="text-xs font-medium text-muted-foreground">
-                          Output:
-                        </div>
-                        <pre className="text-xs bg-muted p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
-                          {command.output}
-                        </pre>
-                      </div>
-                    )}
-                    {command.error && (
-                      <div className="space-y-1">
-                        <div className="text-xs font-medium text-red-600">
-                          Error:
-                        </div>
-                        <pre className="text-xs bg-red-50 dark:bg-red-900/10 text-red-900 dark:text-red-100 p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
-                          {command.error}
-                        </pre>
-                      </div>
-                    )}
                   </div>
-                ),
-              )}
+                  {command.output && (
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium text-muted-foreground">Output:</div>
+                      <pre className="text-xs bg-muted p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
+                        {command.output}
+                      </pre>
+                    </div>
+                  )}
+                  {command.error && (
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium text-red-600">Error:</div>
+                      <pre className="text-xs bg-red-50 dark:bg-red-900/10 text-red-900 dark:text-red-100 p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
+                        {command.error}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </ScrollArea>
       </SheetContent>
     </Sheet>
-  );
+  )
 }
 
 function EnvironmentVariables({
@@ -271,12 +239,7 @@ function EnvironmentVariables({
           <div key={key} className="flex items-center gap-2">
             <Input value={key} disabled className="flex-1" />
             <Input value={value} disabled className="flex-1" />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onRemoveEnvVar(key)}
-            >
+            <Button type="button" variant="outline" size="sm" onClick={() => onRemoveEnvVar(key)}>
               Remove
             </Button>
           </div>
@@ -306,7 +269,7 @@ function EnvironmentVariables({
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 export function CodeExecutionConfig({
@@ -321,57 +284,51 @@ export function CodeExecutionConfig({
     server_command: codeExecution.server_command || '',
     env_vars: codeExecution.env_vars || {},
     image: codeExecution.image || 'ubuntu:latest',
-  });
+  })
 
-  const [envVarKey, setEnvVarKey] = useState('');
-  const [envVarValue, setEnvVarValue] = useState('');
-  const [showSetupOutput, setShowSetupOutput] = useState(false);
-  const [setupScriptResult, setSetupScriptResult] =
-    useState<SetupScriptResponse | null>(null);
-  const [serverCommandError, setServerCommandError] = useState<string | null>(
-    null,
-  );
-  const [showServerExamples, setShowServerExamples] = useState(false);
+  const [envVarKey, setEnvVarKey] = useState('')
+  const [envVarValue, setEnvVarValue] = useState('')
+  const [showSetupOutput, setShowSetupOutput] = useState(false)
+  const [setupScriptResult, setSetupScriptResult] = useState<SetupScriptResponse | null>(null)
+  const [serverCommandError, setServerCommandError] = useState<string | null>(null)
+  const [showServerExamples, setShowServerExamples] = useState(false)
 
   const runSetupScript = useRunSetupScript({
     onSuccess: (data) => {
-      setSetupScriptResult(data);
-      setShowSetupOutput(true);
+      setSetupScriptResult(data)
+      setShowSetupOutput(true)
     },
-  });
+  })
 
   const buildCodeExecution = (): CodeExecution => {
     const updatedExecution: CodeExecution = {
       type: formData.type,
       setup_commands: formData.setup_commands || undefined,
       server_command: formData.server_command || undefined,
-      env_vars:
-        Object.keys(formData.env_vars).length > 0
-          ? formData.env_vars
-          : undefined,
-    };
-
-    if (formData.type === 'docker') {
-      updatedExecution.image = formData.image;
+      env_vars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
     }
 
-    return updatedExecution;
-  };
+    if (formData.type === 'docker') {
+      updatedExecution.image = formData.image
+    }
+
+    return updatedExecution
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onUpdate(buildCodeExecution());
-  };
+    e.preventDefault()
+    onUpdate(buildCodeExecution())
+  }
 
   const handleValidate = () => {
     // First save the configuration
-    onUpdate(buildCodeExecution());
+    onUpdate(buildCodeExecution())
 
     // Then run the setup script if environment ID is available
     if (environmentId) {
-      runSetupScript.mutate(environmentId);
+      runSetupScript.mutate(environmentId)
     }
-  };
+  }
 
   const handleAddEnvVar = () => {
     if (envVarKey && envVarValue) {
@@ -381,38 +338,36 @@ export function CodeExecutionConfig({
           ...formData.env_vars,
           [envVarKey]: envVarValue,
         },
-      });
-      setEnvVarKey('');
-      setEnvVarValue('');
+      })
+      setEnvVarKey('')
+      setEnvVarValue('')
     }
-  };
+  }
 
   const handleRemoveEnvVar = (key: string) => {
-    const { [key]: _, ...rest } = formData.env_vars;
+    const { [key]: _, ...rest } = formData.env_vars
     setFormData({
       ...formData,
       env_vars: rest,
-    });
-  };
+    })
+  }
 
   const handleServerCommandChange = (value: string) => {
-    setFormData({ ...formData, server_command: value });
+    setFormData({ ...formData, server_command: value })
     // Validate server command
     if (value && !value.includes('{PORT}')) {
-      setServerCommandError('Server command must include {PORT} placeholder');
+      setServerCommandError('Server command must include {PORT} placeholder')
     } else {
-      setServerCommandError(null);
+      setServerCommandError(null)
     }
-  };
+  }
 
   return (
     <>
       <Card>
         <CardHeader>
           <CardTitle>Code Execution Settings</CardTitle>
-          <CardDescription>
-            Configure how code will be executed in this environment
-          </CardDescription>
+          <CardDescription>Configure how code will be executed in this environment</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -445,9 +400,7 @@ export function CodeExecutionConfig({
                   <Input
                     id="image"
                     value={formData.image}
-                    onChange={(e) =>
-                      setFormData({ ...formData, image: e.target.value })
-                    }
+                    onChange={(e) => setFormData({ ...formData, image: e.target.value })}
                     placeholder="ubuntu:latest"
                     required
                   />
@@ -459,9 +412,7 @@ export function CodeExecutionConfig({
                 <Textarea
                   id="setup_commands"
                   value={formData.setup_commands}
-                  onChange={(e) =>
-                    setFormData({ ...formData, setup_commands: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, setup_commands: e.target.value })}
                   placeholder="pip install -r requirements.txt&#10;npm install"
                   rows={4}
                 />
@@ -494,10 +445,8 @@ export function CodeExecutionConfig({
                   )}
                   <p className="text-sm text-muted-foreground">
                     Command to start a development server. Use{' '}
-                    <code className="bg-muted px-1 py-0.5 rounded">
-                      {'{PORT}'}
-                    </code>{' '}
-                    as a placeholder for the port number.
+                    <code className="bg-muted px-1 py-0.5 rounded">{'{PORT}'}</code> as a
+                    placeholder for the port number.
                   </p>
                 </div>
               </div>
@@ -514,10 +463,7 @@ export function CodeExecutionConfig({
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button
-                type="submit"
-                disabled={isSubmitting || !!serverCommandError}
-              >
+              <Button type="submit" disabled={isSubmitting || !!serverCommandError}>
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
               </Button>
               {environmentId && (
@@ -542,5 +488,5 @@ export function CodeExecutionConfig({
         setupScriptResult={setupScriptResult}
       />
     </>
-  );
+  )
 }

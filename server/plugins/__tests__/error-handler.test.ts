@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify'
-import { MoatlessError, ERROR_CODES } from '../../../shared/constants/errors.js'
+import { describe, expect, it, vi } from 'vitest'
+import { ERROR_CODES, MoatlessError } from '../../../shared/constants/errors.js'
 import { errorHandler } from '../error-handler.js'
 
 describe('errorHandler', () => {
@@ -20,12 +20,9 @@ describe('errorHandler', () => {
   })
 
   it('should handle MoatlessError correctly', async () => {
-    const error = new MoatlessError(
-      'Task not found',
-      ERROR_CODES.TASK_NOT_FOUND,
-      404,
-      { taskId: 'task-123' },
-    )
+    const error = new MoatlessError('Task not found', ERROR_CODES.TASK_NOT_FOUND, 404, {
+      taskId: 'task-123',
+    })
 
     await errorHandler(error, mockRequest, mockReply)
 

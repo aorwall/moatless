@@ -1,95 +1,85 @@
-import { useParams } from '@tanstack/react-router';
-import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { toast } from 'sonner';
+import { useParams } from '@tanstack/react-router'
+import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { toast } from 'sonner'
 
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events';
-import {
-  useSendMessage,
-  useTask,
-  useTaskWorkspaceStatus,
-} from '@/features/tasks/hooks/use-tasks';
-import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store';
-import { ErrorBoundary } from '@/lib/components/error-boundary';
-import { ScrollArea } from '@/lib/components/ui/scroll-area';
-import { getErrorMessage } from '@/lib/utils/error';
-import { AgentEventType } from '@/types/event';
-import type { TaskIteration } from '@/types/task';
+import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
+import { useSendMessage, useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
+import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import { getErrorMessage } from '@/lib/utils/error'
+import { AgentEventType } from '@/types/event'
+import type { TaskIteration } from '@/types/task'
 
-import { ChatInput } from '../chat-input';
+import { ChatInput } from '../chat-input'
 
 export function ChatView() {
-  const params = useParams({ from: '/tasks/$taskId' });
-  const { data: metadata } = useTask(params.taskId);
-  const { data: workspaceStatus } = useTaskWorkspaceStatus(params.taskId);
-  const { events, isStreaming } = useTaskEventsWithStreaming(params.taskId);
-  const setSelectedIteration = useTaskUIStore(
-    (state) => state.setSelectedIteration,
-  );
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [currentTime, setCurrentTime] = useState(Date.now());
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  const params = useParams({ from: '/tasks/$taskId' })
+  const { data: metadata } = useTask(params.taskId)
+  const { data: workspaceStatus } = useTaskWorkspaceStatus(params.taskId)
+  const { events, isStreaming } = useTaskEventsWithStreaming(params.taskId)
+  const setSelectedIteration = useTaskUIStore((state) => state.setSelectedIteration)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const [currentTime, setCurrentTime] = useState(Date.now())
+  const [isAtBottom, setIsAtBottom] = useState(true)
 
   // Task message sending hook
   const sendMessage = useSendMessage({
     onError: (error) => {
-      console.error('Failed to send message:', error);
+      console.error('Failed to send message:', error)
       toast.error('Failed to send message', {
         description: getErrorMessage(error),
-      });
+      })
     },
-  });
+  })
 
   // Update current time every second for running clock
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+      setCurrentTime(Date.now())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Check if user is at the bottom of the scroll area
   const checkIfAtBottom = () => {
-    const scrollArea = scrollAreaRef.current;
-    if (!scrollArea) return false;
+    const scrollArea = scrollAreaRef.current
+    if (!scrollArea) return false
 
-    const viewport = scrollArea.querySelector(
-      '[data-radix-scroll-area-viewport]',
-    ) as HTMLElement;
-    if (!viewport) return false;
+    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+    if (!viewport) return false
 
-    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    const { scrollTop, scrollHeight, clientHeight } = viewport
     // Consider "at bottom" if within 50px of the bottom
-    return scrollHeight - scrollTop - clientHeight < 50;
-  };
+    return scrollHeight - scrollTop - clientHeight < 50
+  }
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = () => {
-    setIsAtBottom(checkIfAtBottom());
-  };
+    setIsAtBottom(checkIfAtBottom())
+  }
 
   useEffect(() => {
-    const scrollArea = scrollAreaRef.current;
-    if (!scrollArea) return;
+    const scrollArea = scrollAreaRef.current
+    if (!scrollArea) return
 
-    const viewport = scrollArea.querySelector(
-      '[data-radix-scroll-area-viewport]',
-    ) as HTMLElement;
-    if (!viewport) return;
+    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+    if (!viewport) return
 
-    viewport.addEventListener('scroll', handleScroll);
-    return () => viewport.removeEventListener('scroll', handleScroll);
-  }, []);
+    viewport.addEventListener('scroll', handleScroll)
+    return () => viewport.removeEventListener('scroll', handleScroll)
+  }, [])
 
   useEffect(() => {
     // Scroll to bottom when component mounts (initial load)
     if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, []); // Only on mount
+  }, []) // Only on mount
 
   useEffect(() => {
     // Only scroll to bottom when task is running/workspace is active AND user is already at bottom
@@ -98,45 +88,39 @@ export function ChatView() {
       isAtBottom &&
       (metadata?.is_running || workspaceStatus?.status === 'running')
     ) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  });
+  })
 
   if (!metadata) {
-    return null;
+    return null
   }
 
   const formatDuration = (durationMs: number) => {
-    const minutes = Math.floor(durationMs / 60000);
-    const seconds = Math.floor((durationMs % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-  };
+    const minutes = Math.floor(durationMs / 60000)
+    const seconds = Math.floor((durationMs % 60000) / 1000)
+    return `${minutes}m ${seconds}s`
+  }
 
   const formatCost = (cost: number) => {
-    return `$${cost.toFixed(4)}`;
-  };
+    return `$${cost.toFixed(4)}`
+  }
 
   const handleIterationClick = (iteration: TaskIteration) => {
-    setSelectedIteration(iteration);
-  };
+    setSelectedIteration(iteration)
+  }
 
-  const handleKeyDown = (
-    event: React.KeyboardEvent,
-    iteration: TaskIteration,
-  ) => {
+  const handleKeyDown = (event: React.KeyboardEvent, iteration: TaskIteration) => {
     if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleIterationClick(iteration);
+      event.preventDefault()
+      handleIterationClick(iteration)
     }
-  };
+  }
 
   // Calculate message count from events for active iterations
-  const getMessageCountForIteration = (
-    iterationIndex: number,
-    staticCount: number,
-  ): number => {
+  const getMessageCountForIteration = (iterationIndex: number, staticCount: number): number => {
     if (!(isStreaming && events.length)) {
-      return staticCount;
+      return staticCount
     }
 
     // Count message events with role assistant for this iteration (using index + 1 as iteration number)
@@ -145,38 +129,33 @@ export function ChatView() {
         event.iteration_number === iterationIndex + 1 &&
         event.type === AgentEventType.MESSAGE &&
         event.payload?.role === 'assistant',
-    );
+    )
 
-    return messageEvents.length || staticCount;
-  };
+    return messageEvents.length || staticCount
+  }
 
   // Calculate running duration for active iteration
-  const getRunningDuration = (
-    iteration: TaskIteration,
-    index: number,
-  ): number => {
-    const isLastIteration = index === (metadata.iterations?.length || 0) - 1;
+  const getRunningDuration = (iteration: TaskIteration, index: number): number => {
+    const isLastIteration = index === (metadata.iterations?.length || 0) - 1
     const isRunning =
-      isLastIteration &&
-      (metadata.is_running || workspaceStatus?.status === 'running');
+      isLastIteration && (metadata.is_running || workspaceStatus?.status === 'running')
 
     if (!isRunning) {
-      return iteration.duration_ms;
+      return iteration.duration_ms
     }
 
     // Calculate elapsed time since iteration started
-    const startTime = new Date(iteration.start_time).getTime();
-    return currentTime - startTime;
-  };
+    const startTime = new Date(iteration.start_time).getTime()
+    return currentTime - startTime
+  }
 
   const isWorkspaceRunning =
-    workspaceStatus?.status === 'running' ||
-    workspaceStatus?.status === 'setting_up';
+    workspaceStatus?.status === 'running' || workspaceStatus?.status === 'setting_up'
 
   // Handle sending message to task
   const handleSendMessage = (taskId: string, message: string) => {
-    sendMessage.mutate({ taskId, message });
-  };
+    sendMessage.mutate({ taskId, message })
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -184,17 +163,11 @@ export function ChatView() {
         <ScrollArea className="h-full w-full" ref={scrollAreaRef}>
           <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">
             {metadata.iterations?.map((iteration, index) => {
-              const duration = getRunningDuration(iteration, index);
-              const messageCount = getMessageCountForIteration(
-                index,
-                iteration.message_count,
-              );
+              const duration = getRunningDuration(iteration, index)
+              const messageCount = getMessageCountForIteration(index, iteration.message_count)
 
               return (
-                <div
-                  key={iteration.iteration_id || `iteration-${index}`}
-                  className="space-y-4"
-                >
+                <div key={iteration.iteration_id || `iteration-${index}`} className="space-y-4">
                   {/* Initial Message */}
                   <div className="bg-secondary rounded-lg p-4">
                     <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
@@ -231,9 +204,7 @@ export function ChatView() {
                   {/* Result Message */}
                   {iteration.result && (
                     <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {iteration.result}
-                      </ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
                     </div>
                   )}
 
@@ -246,7 +217,7 @@ export function ChatView() {
                     </div>
                   )}
                 </div>
-              );
+              )
             })}
 
             {/* Show running state when workspace is running or task is running */}
@@ -255,9 +226,7 @@ export function ChatView() {
               metadata.iterations.length > 0 && (
                 <div className="flex items-center justify-center py-4 space-x-2">
                   <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Processing...
-                  </span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Processing...</span>
                 </div>
               )}
 
@@ -270,11 +239,7 @@ export function ChatView() {
         fallback={(_error, reset) => (
           <div className="p-4 border-t text-sm text-muted-foreground">
             Chat input unavailable
-            <button
-              type="button"
-              onClick={reset}
-              className="ml-2 text-primary hover:underline"
-            >
+            <button type="button" onClick={reset} className="ml-2 text-primary hover:underline">
               Retry
             </button>
           </div>
@@ -290,5 +255,5 @@ export function ChatView() {
         />
       </ErrorBoundary>
     </div>
-  );
+  )
 }

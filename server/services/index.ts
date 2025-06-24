@@ -18,7 +18,7 @@ export function setupServices(app: FastifyInstance): Services {
   const storage = createStorageService(app)
   const event = createEventService(app, storage)
   const environment = createEnvironmentService(app, storage)
-  const workspace = createWorkspaceService(app, storage)
+  const workspace = createWorkspaceService(app, storage, environment, event)
   const task = createTaskService(app, storage, event, environment, workspace)
 
   return {

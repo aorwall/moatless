@@ -1,5 +1,5 @@
-import type { FastifyInstance } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
+import type { FastifyInstance } from 'fastify'
 
 export async function setupRateLimit(app: FastifyInstance) {
   await app.register(rateLimit, {

@@ -1,51 +1,47 @@
-import { FilePlus } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useMemo } from 'react';
+import { FilePlus } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 
-import { DiffView } from './shared/diff-view';
+import { DiffView } from './shared/diff-view'
 
 interface WriteToolCallProps {
   input: {
-    file_path: string;
-    content: string;
-  };
-  name: string;
+    file_path: string
+    content: string
+  }
+  name: string
 }
 
 export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
   // Create a unified diff format showing only additions (new file)
   const diffContent = useMemo(() => {
     // Extract just the filename from the path
-    const fileName = input.file_path.split('/').pop() || input.file_path;
+    const fileName = input.file_path.split('/').pop() || input.file_path
 
     // Create a unified diff format for a new file (all additions)
-    const lines = input.content.split('\n');
+    const lines = input.content.split('\n')
     const diff = [
       `--- /dev/null`,
       `+++ b/${fileName}`,
       `@@ -0,0 +1,${lines.length} @@`,
       ...lines.map((line) => `+ ${line}`),
-    ].join('\n');
+    ].join('\n')
 
-    return diff;
-  }, [input.file_path, input.content]);
+    return diff
+  }, [input.file_path, input.content])
 
   // Count lines for display
   const lineCount = useMemo(() => {
-    return input.content.split('\n').length;
-  }, [input.content]);
+    return input.content.split('\n').length
+  }, [input.content])
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <FilePlus className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
         <span className="font-medium text-foreground">{name}</span>
-        <span className="text-xs text-muted-foreground">
-          - {input.file_path}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          ({lineCount} lines)
-        </span>
+        <span className="text-xs text-muted-foreground">- {input.file_path}</span>
+        <span className="text-xs text-muted-foreground">({lineCount} lines)</span>
       </div>
 
       <DiffView
@@ -55,12 +51,10 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
             <span className="text-xs text-green-600 dark:text-green-400 font-mono">
               + New file:
             </span>
-            <pre className="text-xs font-mono whitespace-pre-wrap mt-1">
-              {input.content}
-            </pre>
+            <pre className="text-xs font-mono whitespace-pre-wrap mt-1">{input.content}</pre>
           </div>
         }
       />
     </div>
-  );
+  )
 }

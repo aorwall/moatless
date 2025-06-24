@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest'
 
-import type { Event } from '@/types/event';
+import type { Event } from '@/types/event'
 
-import { mergeToolEvents } from '../merge-tool-events';
+import { mergeToolEvents } from '../merge-tool-events'
 
 describe('mergeToolEvents', () => {
   it('should merge tool call with matching tool result', () => {
@@ -56,18 +56,18 @@ describe('mergeToolEvents', () => {
           },
         },
       },
-    ];
+    ]
 
-    const merged = mergeToolEvents(events);
+    const merged = mergeToolEvents(events)
 
-    expect(merged).toHaveLength(1);
+    expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
       event_id: 'event-1',
       toolResult: {
         event_id: 'event-2',
       },
-    });
-  });
+    })
+  })
 
   it('should keep tool calls without results', () => {
     const events: Event[] = [
@@ -96,16 +96,16 @@ describe('mergeToolEvents', () => {
           },
         },
       },
-    ];
+    ]
 
-    const merged = mergeToolEvents(events);
+    const merged = mergeToolEvents(events)
 
-    expect(merged).toHaveLength(1);
+    expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
       event_id: 'event-1',
-    });
-    expect('toolResult' in merged[0]).toBe(false);
-  });
+    })
+    expect('toolResult' in merged[0]).toBe(false)
+  })
 
   it('should handle non-tool events correctly', () => {
     const events: Event[] = [
@@ -147,14 +147,14 @@ describe('mergeToolEvents', () => {
           message: 'User input',
         },
       },
-    ];
+    ]
 
-    const merged = mergeToolEvents(events);
+    const merged = mergeToolEvents(events)
 
-    expect(merged).toHaveLength(2);
-    expect(merged[0].event_id).toBe('event-1');
-    expect(merged[1].event_id).toBe('event-2');
-  });
+    expect(merged).toHaveLength(2)
+    expect(merged[0].event_id).toBe('event-1')
+    expect(merged[1].event_id).toBe('event-2')
+  })
 
   it('should handle multiple tool calls and results', () => {
     const events: Event[] = [
@@ -256,22 +256,22 @@ describe('mergeToolEvents', () => {
           },
         },
       },
-    ];
+    ]
 
-    const merged = mergeToolEvents(events);
+    const merged = mergeToolEvents(events)
 
-    expect(merged).toHaveLength(2);
+    expect(merged).toHaveLength(2)
     expect(merged[0]).toMatchObject({
       event_id: 'event-1',
       toolResult: {
         event_id: 'event-2',
       },
-    });
+    })
     expect(merged[1]).toMatchObject({
       event_id: 'event-3',
       toolResult: {
         event_id: 'event-4',
       },
-    });
-  });
-});
+    })
+  })
+})

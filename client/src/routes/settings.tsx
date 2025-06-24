@@ -1,15 +1,15 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { AlertCircle, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { createFileRoute } from '@tanstack/react-router'
+import { AlertCircle, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 
 import {
   useClaudeCodeSettings,
   useClaudeCodeTools,
   useDeleteClaudeCodeSettings,
   useUpdateClaudeCodeSettings,
-} from '@/features/claude-code';
-import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert';
+} from '@/features/claude-code'
+import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,43 +19,34 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/lib/components/ui/alert-dialog';
-import { Button } from '@/lib/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/lib/components/ui/card';
-import { Checkbox } from '@/lib/components/ui/checkbox';
-import { Input } from '@/lib/components/ui/input';
-import { Label } from '@/lib/components/ui/label';
+} from '@/lib/components/ui/alert-dialog'
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Checkbox } from '@/lib/components/ui/checkbox'
+import { Input } from '@/lib/components/ui/input'
+import { Label } from '@/lib/components/ui/label'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/lib/components/ui/select';
-import { Textarea } from '@/lib/components/ui/textarea';
-import { getErrorMessage } from '@/lib/utils/error';
-import type {
-  PermissionMode,
-  UpdateClaudeCodeSettingsRequest,
-} from '@/types/claude-code';
+} from '@/lib/components/ui/select'
+import { Textarea } from '@/lib/components/ui/textarea'
+import { getErrorMessage } from '@/lib/utils/error'
+import type { PermissionMode, UpdateClaudeCodeSettingsRequest } from '@/types/claude-code'
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
-});
+})
 
 function SettingsPage() {
-  const { data: settings, isLoading, error } = useClaudeCodeSettings();
-  const { data: toolsData } = useClaudeCodeTools();
-  const updateSettings = useUpdateClaudeCodeSettings();
-  const deleteSettings = useDeleteClaudeCodeSettings();
+  const { data: settings, isLoading, error } = useClaudeCodeSettings()
+  const { data: toolsData } = useClaudeCodeTools()
+  const updateSettings = useUpdateClaudeCodeSettings()
+  const deleteSettings = useDeleteClaudeCodeSettings()
 
-  const [showBypassWarning, setShowBypassWarning] = useState(false);
+  const [showBypassWarning, setShowBypassWarning] = useState(false)
   const [formData, setFormData] = useState<UpdateClaudeCodeSettingsRequest>({
     model: null,
     max_turns: null,
@@ -65,7 +56,7 @@ function SettingsPage() {
     allowed_tools: [],
     disallowed_tools: [],
     permission_mode: null,
-  });
+  })
 
   // Update form data when settings are loaded
   useEffect(() => {
@@ -79,32 +70,29 @@ function SettingsPage() {
         allowed_tools: settings.allowed_tools,
         disallowed_tools: settings.disallowed_tools,
         permission_mode: settings.permission_mode,
-      });
+      })
     }
-  }, [settings]);
+  }, [settings])
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
 
-    if (
-      formData.permission_mode === 'bypassPermissions' &&
-      !showBypassWarning
-    ) {
-      setShowBypassWarning(true);
-      return;
+    if (formData.permission_mode === 'bypassPermissions' && !showBypassWarning) {
+      setShowBypassWarning(true)
+      return
     }
 
     updateSettings.mutate(formData, {
       onSuccess: () => {
-        toast.success('Settings saved successfully');
+        toast.success('Settings saved successfully')
       },
       onError: (error) => {
         toast.error('Failed to save settings', {
           description: getErrorMessage(error),
-        });
+        })
       },
-    });
-  };
+    })
+  }
 
   const handleReset = () => {
     deleteSettings.mutate(undefined, {
@@ -119,43 +107,38 @@ function SettingsPage() {
           allowed_tools: [],
           disallowed_tools: [],
           permission_mode: null,
-        });
-        toast.success('Settings reset to defaults');
+        })
+        toast.success('Settings reset to defaults')
       },
       onError: (error) => {
         toast.error('Failed to reset settings', {
           description: getErrorMessage(error),
-        });
+        })
       },
-    });
-  };
+    })
+  }
 
-  const handleToolToggle = (
-    toolName: string,
-    listType: 'allowed' | 'disallowed',
-  ) => {
-    const otherList =
-      listType === 'allowed' ? 'disallowed_tools' : 'allowed_tools';
-    const currentList =
-      listType === 'allowed' ? 'allowed_tools' : 'disallowed_tools';
+  const handleToolToggle = (toolName: string, listType: 'allowed' | 'disallowed') => {
+    const otherList = listType === 'allowed' ? 'disallowed_tools' : 'allowed_tools'
+    const currentList = listType === 'allowed' ? 'allowed_tools' : 'disallowed_tools'
 
     setFormData((prev) => {
       // Remove from other list if present
-      const newOtherList = prev[otherList]?.filter((t) => t !== toolName) || [];
+      const newOtherList = prev[otherList]?.filter((t) => t !== toolName) || []
 
       // Toggle in current list
-      const currentTools = prev[currentList] || [];
+      const currentTools = prev[currentList] || []
       const newCurrentList = currentTools.includes(toolName)
         ? currentTools.filter((t) => t !== toolName)
-        : [...currentTools, toolName];
+        : [...currentTools, toolName]
 
       return {
         ...prev,
         [otherList]: newOtherList,
         [currentList]: newCurrentList,
-      };
-    });
-  };
+      }
+    })
+  }
 
   return (
     <div className="container mx-auto px-6 py-8">
@@ -224,18 +207,14 @@ function SettingsPage() {
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            max_turns: e.target.value
-                              ? parseInt(e.target.value)
-                              : null,
+                            max_turns: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="max_thinking_tokens">
-                        Max Thinking Tokens
-                      </Label>
+                      <Label htmlFor="max_thinking_tokens">Max Thinking Tokens</Label>
                       <Input
                         id="max_thinking_tokens"
                         type="number"
@@ -245,8 +224,7 @@ function SettingsPage() {
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            max_thinking_tokens:
-                              parseInt(e.target.value) || 8000,
+                            max_thinking_tokens: parseInt(e.target.value) || 8000,
                           })
                         }
                       />
@@ -281,9 +259,7 @@ function SettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="append_system_prompt">
-                      Append System Prompt
-                    </Label>
+                    <Label htmlFor="append_system_prompt">Append System Prompt</Label>
                     <Textarea
                       id="append_system_prompt"
                       placeholder="Additional instructions to append to the system prompt"
@@ -316,10 +292,7 @@ function SettingsPage() {
                       onValueChange={(value) =>
                         setFormData({
                           ...formData,
-                          permission_mode:
-                            value === 'default'
-                              ? null
-                              : (value as PermissionMode),
+                          permission_mode: value === 'default' ? null : (value as PermissionMode),
                         })
                       }
                     >
@@ -328,19 +301,15 @@ function SettingsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="default">Default</SelectItem>
-                        <SelectItem value="acceptEdits">
-                          Accept Edits
-                        </SelectItem>
-                        <SelectItem value="bypassPermissions">
-                          Bypass Permissions ⚠️
-                        </SelectItem>
+                        <SelectItem value="acceptEdits">Accept Edits</SelectItem>
+                        <SelectItem value="bypassPermissions">Bypass Permissions ⚠️</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-sm text-muted-foreground">
                       {formData.permission_mode === 'bypassPermissions' && (
                         <span className="text-amber-600">
-                          Warning: This mode allows Claude Code to perform any
-                          action without asking for permission.
+                          Warning: This mode allows Claude Code to perform any action without asking
+                          for permission.
                         </span>
                       )}
                     </p>
@@ -352,9 +321,7 @@ function SettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Tool Configuration</CardTitle>
-                  <CardDescription>
-                    Configure which tools Claude Code can use
-                  </CardDescription>
+                  <CardDescription>Configure which tools Claude Code can use</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {toolsData?.tools && (
@@ -364,10 +331,7 @@ function SettingsPage() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {toolsData.tools.map((tool) => (
-                          <div
-                            key={tool.name}
-                            className="space-y-2 p-3 border rounded-lg"
-                          >
+                          <div key={tool.name} className="space-y-2 p-3 border rounded-lg">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 <div className="font-medium flex items-center gap-2">
@@ -376,21 +340,15 @@ function SettingsPage() {
                                     <span title="Requires permission">🔒</span>
                                   )}
                                 </div>
-                                <p className="text-sm text-muted-foreground">
-                                  {tool.description}
-                                </p>
+                                <p className="text-sm text-muted-foreground">{tool.description}</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-4">
                               <div className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`${tool.name}-allowed`}
-                                  checked={formData.allowed_tools?.includes(
-                                    tool.name,
-                                  )}
-                                  onCheckedChange={() =>
-                                    handleToolToggle(tool.name, 'allowed')
-                                  }
+                                  checked={formData.allowed_tools?.includes(tool.name)}
+                                  onCheckedChange={() => handleToolToggle(tool.name, 'allowed')}
                                 />
                                 <Label
                                   htmlFor={`${tool.name}-allowed`}
@@ -402,12 +360,8 @@ function SettingsPage() {
                               <div className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`${tool.name}-disallowed`}
-                                  checked={formData.disallowed_tools?.includes(
-                                    tool.name,
-                                  )}
-                                  onCheckedChange={() =>
-                                    handleToolToggle(tool.name, 'disallowed')
-                                  }
+                                  checked={formData.disallowed_tools?.includes(tool.name)}
+                                  onCheckedChange={() => handleToolToggle(tool.name, 'disallowed')}
                                 />
                                 <Label
                                   htmlFor={`${tool.name}-disallowed`}
@@ -436,9 +390,7 @@ function SettingsPage() {
                   Reset to Defaults
                 </Button>
                 <Button type="submit" disabled={updateSettings.isPending}>
-                  {updateSettings.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Save Settings
                 </Button>
               </div>
@@ -447,53 +399,42 @@ function SettingsPage() {
         </div>
 
         {/* Bypass Permissions Warning Dialog */}
-        <AlertDialog
-          open={showBypassWarning}
-          onOpenChange={setShowBypassWarning}
-        >
+        <AlertDialog open={showBypassWarning} onOpenChange={setShowBypassWarning}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>⚠️ Bypass Permissions Warning</AlertDialogTitle>
               <AlertDialogDescription className="space-y-2">
-                <p>
-                  You are about to enable "Bypass Permissions" mode. This means:
-                </p>
+                <p>You are about to enable "Bypass Permissions" mode. This means:</p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>
-                    Claude Code will be able to execute ANY command without
-                    asking
-                  </li>
-                  <li>
-                    Files can be created, modified, or deleted without
-                    confirmation
-                  </li>
+                  <li>Claude Code will be able to execute ANY command without asking</li>
+                  <li>Files can be created, modified, or deleted without confirmation</li>
                   <li>System commands can be run without your approval</li>
                   <li>This could potentially be dangerous if misused</li>
                 </ul>
                 <p className="font-semibold">
-                  Only enable this if you fully trust the code being executed
-                  and understand the risks.
+                  Only enable this if you fully trust the code being executed and understand the
+                  risks.
                 </p>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel
                 onClick={() => {
-                  setFormData({ ...formData, permission_mode: null });
+                  setFormData({ ...formData, permission_mode: null })
                 }}
               >
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
-                  setShowBypassWarning(false);
+                  setShowBypassWarning(false)
                   // Create a synthetic form event
                   const syntheticEvent = {
                     preventDefault: () => {
                       /* no-op - synthetic event */
                     },
-                  } as React.FormEvent;
-                  handleSubmit(syntheticEvent);
+                  } as React.FormEvent
+                  handleSubmit(syntheticEvent)
                 }}
                 className="bg-amber-600 hover:bg-amber-700"
               >
@@ -504,5 +445,5 @@ function SettingsPage() {
         </AlertDialog>
       </div>
     </div>
-  );
+  )
 }

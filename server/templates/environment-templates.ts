@@ -1,12 +1,12 @@
-import type { EnvironmentMetadata } from '../../shared/types/environment.js';
+import type { EnvironmentMetadata } from '../../shared/types/environment.js'
 
 export interface EnvironmentTemplate {
-  id: string;
-  name: string;
-  description: string;
-  defaultMetadata: Partial<EnvironmentMetadata>;
-  requiredFiles?: string[];
-  setupInstructions?: string;
+  id: string
+  name: string
+  description: string
+  defaultMetadata: Partial<EnvironmentMetadata>
+  requiredFiles?: string[]
+  setupInstructions?: string
 }
 
 export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
@@ -22,7 +22,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['pyproject.toml', 'requirements.txt', 'setup.py'],
     setupInstructions: 'Ensure Python 3.8+ is installed. Run pip install -r requirements.txt',
   },
-  
+
   django: {
     id: 'django',
     name: 'Django Web Application',
@@ -35,7 +35,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['manage.py', 'settings.py'],
     setupInstructions: 'Install dependencies and run migrations: python manage.py migrate',
   },
-  
+
   fastapi: {
     id: 'fastapi',
     name: 'FastAPI Application',
@@ -48,7 +48,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['main.py', 'requirements.txt'],
     setupInstructions: 'Install with pip install -r requirements.txt, run with uvicorn main:app',
   },
-  
+
   typescript: {
     id: 'typescript',
     name: 'TypeScript Project',
@@ -61,7 +61,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['package.json', 'tsconfig.json'],
     setupInstructions: 'Run npm install or yarn install',
   },
-  
+
   react: {
     id: 'react',
     name: 'React Application',
@@ -74,7 +74,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['package.json', 'src/index.tsx', 'src/App.tsx'],
     setupInstructions: 'Install dependencies with npm install and start with npm start',
   },
-  
+
   nextjs: {
     id: 'nextjs',
     name: 'Next.js Application',
@@ -87,7 +87,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['package.json', 'next.config.js', 'pages/', 'app/'],
     setupInstructions: 'Run npm install && npm run dev',
   },
-  
+
   express: {
     id: 'express',
     name: 'Express.js API',
@@ -100,7 +100,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['package.json', 'server.js', 'app.js'],
     setupInstructions: 'Install with npm install, run with npm start',
   },
-  
+
   java: {
     id: 'java',
     name: 'Java Project',
@@ -113,7 +113,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['pom.xml', 'build.gradle'],
     setupInstructions: 'Build with mvn install or gradle build',
   },
-  
+
   springboot: {
     id: 'springboot',
     name: 'Spring Boot Application',
@@ -126,7 +126,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['pom.xml', 'src/main/java/**/Application.java'],
     setupInstructions: 'Run with mvn spring-boot:run',
   },
-  
+
   go: {
     id: 'go',
     name: 'Go Project',
@@ -139,7 +139,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['go.mod', 'main.go'],
     setupInstructions: 'Run go mod download && go build',
   },
-  
+
   rust: {
     id: 'rust',
     name: 'Rust Project',
@@ -152,7 +152,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['Cargo.toml', 'src/main.rs'],
     setupInstructions: 'Build with cargo build, run with cargo run',
   },
-  
+
   ruby: {
     id: 'ruby',
     name: 'Ruby Project',
@@ -165,7 +165,7 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['Gemfile', '.ruby-version'],
     setupInstructions: 'Install dependencies with bundle install',
   },
-  
+
   rails: {
     id: 'rails',
     name: 'Ruby on Rails Application',
@@ -178,58 +178,68 @@ export const ENVIRONMENT_TEMPLATES: Record<string, EnvironmentTemplate> = {
     requiredFiles: ['Gemfile', 'config/application.rb', 'config/routes.rb'],
     setupInstructions: 'Run bundle install && rails db:create && rails db:migrate',
   },
-};
+}
 
 export function getTemplateById(id: string): EnvironmentTemplate | undefined {
-  return ENVIRONMENT_TEMPLATES[id];
+  return ENVIRONMENT_TEMPLATES[id]
 }
 
 export function detectTemplate(files: string[]): EnvironmentTemplate | undefined {
   // Convert to lowercase for case-insensitive matching
-  const lowerFiles = files.map(f => f.toLowerCase());
-  
+  const lowerFiles = files.map((f) => f.toLowerCase())
+
   // Check templates in priority order (more specific first)
   const templatePriority = [
-    'django', 'fastapi', 'rails', 'springboot', 'nextjs',
-    'react', 'express', 'python', 'typescript', 'java',
-    'go', 'rust', 'ruby'
-  ];
-  
+    'django',
+    'fastapi',
+    'rails',
+    'springboot',
+    'nextjs',
+    'react',
+    'express',
+    'python',
+    'typescript',
+    'java',
+    'go',
+    'rust',
+    'ruby',
+  ]
+
   for (const templateId of templatePriority) {
-    const template = ENVIRONMENT_TEMPLATES[templateId];
-    if (!template.requiredFiles) continue;
-    
+    const template = ENVIRONMENT_TEMPLATES[templateId]
+    if (!template.requiredFiles) continue
+
     // Check if any required file pattern matches
-    const hasRequiredFile = template.requiredFiles.some(pattern => {
+    const hasRequiredFile = template.requiredFiles.some((pattern) => {
       // Handle glob patterns
       if (pattern.includes('*')) {
-        const regex = new RegExp(pattern.replace(/\*/g, '.*'));
-        return files.some(file => regex.test(file));
+        const regex = new RegExp(pattern.replace(/\*/g, '.*'))
+        return files.some((file) => regex.test(file))
       }
-      
+
       // Handle directory checks
       if (pattern.endsWith('/')) {
-        return lowerFiles.some(file => file.startsWith(pattern.toLowerCase()));
+        return lowerFiles.some((file) => file.startsWith(pattern.toLowerCase()))
       }
-      
+
       // Exact file match
-      return lowerFiles.includes(pattern.toLowerCase());
-    });
-    
+      return lowerFiles.includes(pattern.toLowerCase())
+    })
+
     if (hasRequiredFile) {
-      return template;
+      return template
     }
   }
-  
-  return undefined;
+
+  return undefined
 }
 
 export function suggestTemplates(language?: string): EnvironmentTemplate[] {
   if (!language) {
-    return Object.values(ENVIRONMENT_TEMPLATES);
+    return Object.values(ENVIRONMENT_TEMPLATES)
   }
-  
+
   return Object.values(ENVIRONMENT_TEMPLATES).filter(
-    template => template.defaultMetadata.language === language.toLowerCase()
-  );
+    (template) => template.defaultMetadata.language === language.toLowerCase(),
+  )
 }

@@ -1,57 +1,49 @@
-import { screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events';
-import {
-  useTask,
-  useTaskWorkspaceStatus,
-} from '@/features/tasks/hooks/use-tasks';
-import {
-  createMockEvent,
-  createMockTaskWithIterations,
-} from '@/test-utils/factories';
-import { renderWithRouter } from '@/test-utils/render';
-import { AgentEventType } from '@/types/event';
-import { WorkspaceStatus } from '@/types/task';
+import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
+import { useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import { createMockEvent, createMockTaskWithIterations } from '@/test-utils/factories'
+import { renderWithRouter } from '@/test-utils/render'
+import { AgentEventType } from '@/types/event'
+import { WorkspaceStatus } from '@/types/task'
 
-import { ChatView } from '../chat-view';
+import { ChatView } from '../chat-view'
 
 // Mock dependencies
-vi.mock('@/features/tasks/hooks/use-tasks');
-vi.mock('@/features/tasks/hooks/use-task-events');
+vi.mock('@/features/tasks/hooks/use-tasks')
+vi.mock('@/features/tasks/hooks/use-task-events')
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
-}));
+}))
 vi.mock('@/features/tasks/stores/task-ui-store', () => ({
   useTaskUIStore: vi.fn((selector) => {
     const state = {
       setSelectedIteration: vi.fn(),
-    };
-    return selector ? selector(state) : state;
+    }
+    return selector ? selector(state) : state
   }),
-}));
+}))
 
 // Mock additional dependencies
 vi.mock('@/lib/components/ui/scroll-area', () => ({
   ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-}));
+}))
 vi.mock('../chat-input', () => ({
   ChatInput: () => <div data-testid="task-chat-input">Mock Chat Input</div>,
-}));
+}))
 vi.mock('@/lib/components/error-boundary', () => ({
-  ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
 vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+}))
 
 describe('ChatView Workspace Integration', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    Element.prototype.scrollIntoView = vi.fn();
-  });
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
 
   it('should show processing when workspace is running', () => {
     const task = createMockTaskWithIterations(
@@ -61,13 +53,13 @@ describe('ChatView Workspace Integration', () => {
         status: 'completed',
       },
       1,
-    );
+    )
 
     vi.mocked(useTask).mockReturnValue({
       data: task,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     // Workspace is running
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
@@ -78,20 +70,20 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
       isLoading: false,
       error: null,
       isStreaming: false,
-    });
+    })
 
-    renderWithRouter(<ChatView />);
+    renderWithRouter(<ChatView />)
 
     // Should show processing indicator even though task is not running
-    expect(screen.getByText('Processing...')).toBeInTheDocument();
-  });
+    expect(screen.getByText('Processing...')).toBeInTheDocument()
+  })
 
   it('should show processing when workspace is setting up', () => {
     const task = createMockTaskWithIterations(
@@ -101,13 +93,13 @@ describe('ChatView Workspace Integration', () => {
         status: 'completed',
       },
       1,
-    );
+    )
 
     vi.mocked(useTask).mockReturnValue({
       data: task,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -117,19 +109,19 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
       isLoading: false,
       error: null,
       isStreaming: false,
-    });
+    })
 
-    renderWithRouter(<ChatView />);
+    renderWithRouter(<ChatView />)
 
-    expect(screen.getByText('Processing...')).toBeInTheDocument();
-  });
+    expect(screen.getByText('Processing...')).toBeInTheDocument()
+  })
 
   it('should update message count from event stream', () => {
     const task = createMockTaskWithIterations(
@@ -139,9 +131,9 @@ describe('ChatView Workspace Integration', () => {
         status: 'active',
       },
       1,
-    );
+    )
     // Static count is 3
-    task.iterations[0].message_count = 3;
+    task.iterations[0].message_count = 3
 
     const events = [
       createMockEvent({
@@ -174,13 +166,13 @@ describe('ChatView Workspace Integration', () => {
         iteration_number: 1,
         payload: { role: 'assistant', content: 'Message 5' },
       }),
-    ];
+    ]
 
     vi.mocked(useTask).mockReturnValue({
       data: task,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -190,23 +182,23 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events,
       isLoading: false,
       error: null,
       isStreaming: true,
-    });
+    })
 
-    renderWithRouter(<ChatView />);
+    renderWithRouter(<ChatView />)
 
     // Should show 5 messages (from events) instead of 3 (static count)
-    expect(screen.getByText('5 messages')).toBeInTheDocument();
-  });
+    expect(screen.getByText('5 messages')).toBeInTheDocument()
+  })
 
   it('should show running clock for active iteration', async () => {
-    const createdAt = new Date(Date.now() - 65000); // 65 seconds ago
+    const createdAt = new Date(Date.now() - 65000) // 65 seconds ago
     const task = createMockTaskWithIterations(
       {
         task_id: 'task-123',
@@ -214,15 +206,15 @@ describe('ChatView Workspace Integration', () => {
         status: 'active',
       },
       1,
-    );
-    task.iterations[0].start_time = createdAt.toISOString();
-    task.iterations[0].duration_ms = 10000; // Static duration should be ignored
+    )
+    task.iterations[0].start_time = createdAt.toISOString()
+    task.iterations[0].duration_ms = 10000 // Static duration should be ignored
 
     vi.mocked(useTask).mockReturnValue({
       data: task,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -232,25 +224,25 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
       isLoading: false,
       error: null,
       isStreaming: false,
-    });
+    })
 
-    renderWithRouter(<ChatView />);
+    renderWithRouter(<ChatView />)
 
     // Should show time elapsed since creation (approximately 1m 5s)
     await waitFor(() => {
-      const durationText = screen.getByText(/\d+m \d+s/);
-      expect(durationText).toBeInTheDocument();
+      const durationText = screen.getByText(/\d+m \d+s/)
+      expect(durationText).toBeInTheDocument()
       // Check it's showing at least 1 minute
-      expect(durationText.textContent).toMatch(/[1-9]\d*m/);
-    });
-  });
+      expect(durationText.textContent).toMatch(/[1-9]\d*m/)
+    })
+  })
 
   it('should use static values when not streaming', () => {
     const task = createMockTaskWithIterations(
@@ -260,15 +252,15 @@ describe('ChatView Workspace Integration', () => {
         status: 'completed',
       },
       1,
-    );
-    task.iterations[0].message_count = 10;
-    task.iterations[0].duration_ms = 30000; // 30 seconds
+    )
+    task.iterations[0].message_count = 10
+    task.iterations[0].duration_ms = 30000 // 30 seconds
 
     vi.mocked(useTask).mockReturnValue({
       data: task,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -278,19 +270,19 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
       isLoading: false,
       error: null,
       isStreaming: false,
-    });
+    })
 
-    renderWithRouter(<ChatView />);
+    renderWithRouter(<ChatView />)
 
     // Should use static values
-    expect(screen.getByText('10 messages')).toBeInTheDocument();
-    expect(screen.getByText('0m 30s')).toBeInTheDocument();
-  });
-});
+    expect(screen.getByText('10 messages')).toBeInTheDocument()
+    expect(screen.getByText('0m 30s')).toBeInTheDocument()
+  })
+})

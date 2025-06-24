@@ -1,14 +1,14 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router'
 
-import { TaskList } from '@/features/tasks/components/task-list';
-import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons';
-import { useTasksList } from '@/features/tasks/hooks/use-tasks';
-import { ErrorAlert } from '@/lib/components/ui/error-alert';
-import type { Task } from '@/types/task';
+import { TaskList } from '@/features/tasks/components/task-list'
+import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
+import { useTasksList } from '@/features/tasks/hooks/use-tasks'
+import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import type { Task } from '@/types/task'
 
 export const Route = createFileRoute('/tasks/')({
   component: TasksIndex,
-});
+})
 
 function TasksIndex() {
   // Fetch all tasks
@@ -22,7 +22,7 @@ function TasksIndex() {
       refetchInterval: 5000,
       refetchIntervalInBackground: true,
     },
-  );
+  )
 
   // Transform and separate tasks
   const transformedTasks: Array<Task> =
@@ -41,15 +41,11 @@ function TasksIndex() {
       time: new Date(metadata.last_message_at).toLocaleString(),
       project: metadata.agent_type,
       changes: { added: 0, removed: 0 },
-    })) || [];
+    })) || []
 
-  const activeTasks = transformedTasks.filter(
-    (task) => task.status === 'active',
-  );
+  const activeTasks = transformedTasks.filter((task) => task.status === 'active')
 
-  const finishedTasks = transformedTasks.filter(
-    (task) => task.status !== 'active',
-  );
+  const finishedTasks = transformedTasks.filter((task) => task.status !== 'active')
 
   return (
     <div className="container mx-auto px-6 py-8">
@@ -65,13 +61,9 @@ function TasksIndex() {
         ) : isLoading ? (
           <TaskListSkeleton />
         ) : (
-          <TaskList
-            activeTasks={activeTasks}
-            archivedTasks={finishedTasks}
-            loading={false}
-          />
+          <TaskList activeTasks={activeTasks} archivedTasks={finishedTasks} loading={false} />
         )}
       </div>
     </div>
-  );
+  )
 }

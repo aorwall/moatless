@@ -1,13 +1,13 @@
-import { Search } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Search } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 interface GrepToolCallProps {
   input: {
-    pattern: string;
-    path?: string;
-    include?: string;
-  };
-  name: string;
+    pattern: string
+    path?: string
+    include?: string
+  }
+  name: string
 }
 
 export function GrepToolCall({ input, name }: GrepToolCallProps): ReactNode {
@@ -28,5 +28,5 @@ export function GrepToolCall({ input, name }: GrepToolCallProps): ReactNode {
         </div>
       </div>
     </div>
-  );
+  )
 }

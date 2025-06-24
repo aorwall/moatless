@@ -1,69 +1,58 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { useEffect } from 'react';
+import { createFileRoute } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
-import { ChatView } from '@/features/tasks/components/chat-view';
-import { EventViewer } from '@/features/tasks/components/event-viewer';
-import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer';
-import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer';
-import { TaskHeader } from '@/features/tasks/components/task-header';
-import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons';
-import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks';
-import {
-  useRightPanelView,
-  useTaskUIStore,
-} from '@/features/tasks/stores/task-ui-store';
-import { ErrorBoundary } from '@/lib/components/error-boundary';
-import { ErrorAlert } from '@/lib/components/ui/error-alert';
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@/lib/components/ui/resizable';
-import { Tabs, TabsContent } from '@/lib/components/ui/tabs';
-import { cn } from '@/lib/utils';
+import { ChatView } from '@/features/tasks/components/chat-view'
+import { EventViewer } from '@/features/tasks/components/event-viewer'
+import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
+import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
+import { TaskHeader } from '@/features/tasks/components/task-header'
+import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
+import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
+import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
+import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { Tabs, TabsContent } from '@/lib/components/ui/tabs'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
-});
+})
 
 function TaskDetail() {
-  const { taskId } = Route.useParams();
-  const { data: metadata, isLoading, error } = useTask(taskId);
-  const { data: serverStatus } = useServerStatus(taskId);
-  const rightPanelView = useRightPanelView();
-  const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView);
-  const setSelectedTaskId = useTaskUIStore((state) => state.setSelectedTaskId);
-  const resetUIState = useTaskUIStore((state) => state.resetUIState);
+  const { taskId } = Route.useParams()
+  const { data: metadata, isLoading, error } = useTask(taskId)
+  const { data: serverStatus } = useServerStatus(taskId)
+  const rightPanelView = useRightPanelView()
+  const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView)
+  const setSelectedTaskId = useTaskUIStore((state) => state.setSelectedTaskId)
+  const resetUIState = useTaskUIStore((state) => state.resetUIState)
 
   // Set selected task ID and reset UI state when component unmounts or task changes
   useEffect(() => {
-    setSelectedTaskId(taskId);
+    setSelectedTaskId(taskId)
     return () => {
-      resetUIState();
-    };
-  }, [taskId, setSelectedTaskId, resetUIState]);
+      resetUIState()
+    }
+  }, [taskId, setSelectedTaskId, resetUIState])
 
   // If server tab is selected but server is not configured, switch to events tab
   useEffect(() => {
     if (rightPanelView === 'server' && !serverStatus?.configured) {
-      setRightPanelView('events');
+      setRightPanelView('events')
     }
-  }, [rightPanelView, serverStatus?.configured, setRightPanelView]);
+  }, [rightPanelView, serverStatus?.configured, setRightPanelView])
 
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
-        <ErrorAlert
-          error={error}
-          title="Failed to load task"
-          className="max-w-md w-full"
-        />
+        <ErrorAlert error={error} title="Failed to load task" className="max-w-md w-full" />
       </div>
-    );
+    )
   }
 
   if (isLoading) {
-    return <TaskDetailSkeleton />;
+    return <TaskDetailSkeleton />
   }
 
   if (!metadata) {
@@ -75,7 +64,7 @@ function TaskDetail() {
           className="max-w-md w-full"
         />
       </div>
-    );
+    )
   }
 
   return (
@@ -98,9 +87,7 @@ function TaskDetail() {
           <div className="h-full flex flex-col">
             <Tabs
               value={rightPanelView}
-              onValueChange={(value) =>
-                setRightPanelView(value as 'events' | 'diff' | 'server')
-              }
+              onValueChange={(value) => setRightPanelView(value as 'events' | 'diff' | 'server')}
               className="h-full w-full flex flex-col"
             >
               <div className="px-4 py-2 border-b">
@@ -160,27 +147,18 @@ function TaskDetail() {
                   )}
                 </div>
               </div>
-              <TabsContent
-                value="events"
-                className="flex-1 w-full overflow-hidden mt-0"
-              >
+              <TabsContent value="events" className="flex-1 w-full overflow-hidden mt-0">
                 <ErrorBoundary componentName="Event Viewer">
                   <EventViewer />
                 </ErrorBoundary>
               </TabsContent>
-              <TabsContent
-                value="diff"
-                className="flex-1 w-full overflow-hidden mt-0"
-              >
+              <TabsContent value="diff" className="flex-1 w-full overflow-hidden mt-0">
                 <ErrorBoundary componentName="Git Diff Viewer">
                   <GitDiffViewer />
                 </ErrorBoundary>
               </TabsContent>
               {serverStatus?.configured && (
-                <TabsContent
-                  value="server"
-                  className="flex-1 w-full overflow-hidden mt-0"
-                >
+                <TabsContent value="server" className="flex-1 w-full overflow-hidden mt-0">
                   <ErrorBoundary componentName="Server Logs Viewer">
                     <ServerLogsViewer />
                   </ErrorBoundary>
@@ -191,5 +169,5 @@ function TaskDetail() {
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
-  );
+  )
 }

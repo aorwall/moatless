@@ -1,12 +1,12 @@
-import { Input } from '@/lib/components/ui/input';
-import { Label } from '@/lib/components/ui/label';
-import { Switch } from '@/lib/components/ui/switch';
+import { Input } from '@/lib/components/ui/input'
+import { Label } from '@/lib/components/ui/label'
+import { Switch } from '@/lib/components/ui/switch'
 
 interface LocalRepositoryConfigProps {
-  path: string;
-  useGitWorktrees: boolean;
-  onPathChange: (path: string) => void;
-  onUseGitWorktreesChange: (useGitWorktrees: boolean) => void;
+  path: string
+  useGitWorktrees: boolean
+  onPathChange: (path: string) => void
+  onUseGitWorktreesChange: (useGitWorktrees: boolean) => void
 }
 
 export function LocalRepositoryConfig({
@@ -43,5 +43,5 @@ export function LocalRepositoryConfig({
         Create Git worktrees for each session to isolate changes
       </p>
     </div>
-  );
+  )
 }

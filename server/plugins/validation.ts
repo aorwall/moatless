@@ -5,7 +5,7 @@ import { ValidationError } from '../../shared/constants/errors.js'
 export async function setupValidation(app: FastifyInstance) {
   // Custom schema compiler for Zod integration
   app.setValidatorCompiler(({ schema }) => {
-    return data => {
+    return (data) => {
       try {
         if ('safeParse' in schema && typeof schema.safeParse === 'function') {
           // Zod schema
@@ -34,7 +34,7 @@ export async function setupValidation(app: FastifyInstance) {
 
   // Add response serialization options
   app.setSerializerCompiler(({ schema }) => {
-    return data => {
+    return (data) => {
       // Handle Date serialization
       return JSON.stringify(data, (key, value) => {
         if (value instanceof Date) {

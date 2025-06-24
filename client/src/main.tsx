@@ -1,17 +1,17 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { createRouter, RouterProvider } from '@tanstack/react-router';
-import { StrictMode } from 'react';
-import ReactDOM from 'react-dom/client';
-import { Toaster } from 'sonner';
+import { QueryClientProvider } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import { createRouter, RouterProvider } from '@tanstack/react-router'
+import { StrictMode } from 'react'
+import ReactDOM from 'react-dom/client'
+import { Toaster } from 'sonner'
 
 // Import the generated route tree
-import { routeTree } from './routeTree.gen';
+import { routeTree } from './routeTree.gen'
 
-import '@/lib/styles/globals.css';
+import '@/lib/styles/globals.css'
 
-import { queryClient } from '@/lib/api/query-client';
-import { Page404 } from '@/lib/pages/404';
+import { queryClient } from '@/lib/api/query-client'
+import { Page404 } from '@/lib/pages/404'
 
 // Create a new router instance
 const router = createRouter({
@@ -27,19 +27,19 @@ const router = createRouter({
     </div>
   ),
   defaultNotFoundComponent: () => <Page404 />,
-});
+})
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
   interface Register {
-    router: typeof router;
+    router: typeof router
   }
 }
 
 // Render the app
-const rootElement = document.getElementById('app');
+const rootElement = document.getElementById('app')
 if (rootElement && !rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement);
+  const root = ReactDOM.createRoot(rootElement)
   root.render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
@@ -48,7 +48,7 @@ if (rootElement && !rootElement.innerHTML) {
         <Toaster position="top-right" />
       </QueryClientProvider>
     </StrictMode>,
-  );
+  )
 }
 
 // If you want to start measuring performance in your app, pass a function

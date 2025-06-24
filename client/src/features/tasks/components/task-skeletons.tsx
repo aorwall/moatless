@@ -1,13 +1,10 @@
-import { Skeleton } from '@/lib/components/ui/skeleton';
+import { Skeleton } from '@/lib/components/ui/skeleton'
 
 export function TaskListSkeleton() {
   return (
     <div className="space-y-3 p-4">
       {[0, 1, 2, 3, 4].map((num) => (
-        <div
-          key={`skeleton-item-${num}`}
-          className="flex items-start space-x-3"
-        >
+        <div key={`skeleton-item-${num}`} className="flex items-start space-x-3">
           <Skeleton className="h-12 w-12 rounded-lg" />
           <div className="flex-1 space-y-2">
             <Skeleton className="h-4 w-3/4" />
@@ -16,7 +13,7 @@ export function TaskListSkeleton() {
         </div>
       ))}
     </div>
-  );
+  )
 }
 
 export function TaskDetailSkeleton() {
@@ -53,7 +50,7 @@ export function TaskDetailSkeleton() {
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 export function TaskCardSkeleton() {
@@ -70,7 +67,7 @@ export function TaskCardSkeleton() {
         <Skeleton className="h-4 w-24" />
       </div>
     </div>
-  );
+  )
 }
 
 export function SidebarTasksSkeleton() {
@@ -80,5 +77,5 @@ export function SidebarTasksSkeleton() {
         <Skeleton key={`sidebar-item-${num}`} className="h-8 w-full rounded" />
       ))}
     </div>
-  );
+  )
 }

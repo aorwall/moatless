@@ -1,13 +1,13 @@
-import { createRootRoute, HeadContent, Outlet } from '@tanstack/react-router';
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools';
+import { createRootRoute, HeadContent, Outlet } from '@tanstack/react-router'
+import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
-import { Layout } from '@/lib/layout';
+import { Layout } from '@/lib/layout'
 
-const title = 'Moatless Swarm';
-const description = 'Moatless Swarm';
-const url = 'https://swarm.moatless.ai';
+const title = 'Moatless Swarm'
+const description = 'Moatless Swarm'
+const url = 'https://swarm.moatless.ai'
 const ogImgUrl =
-  'https://og.sznm.dev/api/generate?heading=Moatless+Swarm&text=Moatless+Swarm&template=color';
+  'https://og.sznm.dev/api/generate?heading=Moatless+Swarm&text=Moatless+Swarm&template=color'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -112,4 +112,4 @@ export const Route = createRootRoute({
       <TanStackRouterDevtools position="bottom-right" />
     </>
   ),
-});
+})

@@ -1,48 +1,46 @@
-import { screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useTask } from '@/features/tasks/hooks/use-tasks';
-import { createMockTaskWithIterations } from '@/test-utils/factories';
-import { renderWithRouter } from '@/test-utils/render';
+import { useTask } from '@/features/tasks/hooks/use-tasks'
+import { createMockTaskWithIterations } from '@/test-utils/factories'
+import { renderWithRouter } from '@/test-utils/render'
 
-import { ChatView } from '../chat-view';
+import { ChatView } from '../chat-view'
 
 // Mock dependencies
-vi.mock('@/features/tasks/hooks/use-tasks');
+vi.mock('@/features/tasks/hooks/use-tasks')
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
-}));
+}))
 vi.mock('@/features/tasks/stores/task-ui-store', () => ({
   useTaskUIStore: vi.fn((selector) => {
     const state = {
       setSelectedIteration: vi.fn(),
-    };
-    return selector ? selector(state) : state;
+    }
+    return selector ? selector(state) : state
   }),
-}));
+}))
 
 // Mock additional dependencies
 vi.mock('@/lib/components/ui/scroll-area', () => ({
   ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-}));
+}))
 vi.mock('../chat-input', () => ({
   ChatInput: () => <div data-testid="task-chat-input">Mock Chat Input</div>,
-}));
+}))
 vi.mock('@/lib/components/error-boundary', () => ({
-  ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
 vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+}))
 
 describe('ChatView Refetch Behavior', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.clearAllMocks()
     // Mock scrollIntoView
-    Element.prototype.scrollIntoView = vi.fn();
-  });
+    Element.prototype.scrollIntoView = vi.fn()
+  })
 
   it('should display updated task data when useTask returns new data', async () => {
     // Initial task with 1 iteration
@@ -54,7 +52,7 @@ describe('ChatView Refetch Behavior', () => {
         status: 'completed',
       },
       1,
-    );
+    )
 
     // Updated task with 2 iterations
     const updatedTask = createMockTaskWithIterations(
@@ -65,59 +63,53 @@ describe('ChatView Refetch Behavior', () => {
         status: 'active',
       },
       2,
-    );
+    )
 
     // Start with initial task
     vi.mocked(useTask).mockReturnValue({
       data: initialTask,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
-    const { rerender } = renderWithRouter(<ChatView />);
+    const { rerender } = renderWithRouter(<ChatView />)
 
     // Verify initial state - only 1 iteration
-    expect(
-      screen.getByText(initialTask.iterations[0].initial_message),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Processing...')).not.toBeInTheDocument();
+    expect(screen.getByText(initialTask.iterations[0].initial_message)).toBeInTheDocument()
+    expect(screen.queryByText('Processing...')).not.toBeInTheDocument()
 
     // Update the mock to return updated task
     vi.mocked(useTask).mockReturnValue({
       data: updatedTask,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
     // Re-render the component
-    rerender(<ChatView />);
+    rerender(<ChatView />)
 
     // Wait for the UI to update
     await waitFor(() => {
       // Should now show both iterations
-      expect(
-        screen.getByText(updatedTask.iterations[0].initial_message),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(updatedTask.iterations[1].initial_message),
-      ).toBeInTheDocument();
+      expect(screen.getByText(updatedTask.iterations[0].initial_message)).toBeInTheDocument()
+      expect(screen.getByText(updatedTask.iterations[1].initial_message)).toBeInTheDocument()
       // Should show processing indicator when task is running
-      expect(screen.getByText('Processing...')).toBeInTheDocument();
-    });
-  });
+      expect(screen.getByText('Processing...')).toBeInTheDocument()
+    })
+  })
 
   it('should handle null task data gracefully', () => {
     vi.mocked(useTask).mockReturnValue({
       data: null,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
-    const { container } = renderWithRouter(<ChatView />);
+    const { container } = renderWithRouter(<ChatView />)
 
     // Should render nothing
-    expect(container.firstChild).toBeNull();
-  });
+    expect(container.firstChild).toBeNull()
+  })
 
   it('should display loading indicator only for running tasks with iterations', () => {
     const runningTask = createMockTaskWithIterations(
@@ -127,58 +119,58 @@ describe('ChatView Refetch Behavior', () => {
         status: 'active',
       },
       2,
-    );
+    )
 
     vi.mocked(useTask).mockReturnValue({
       data: runningTask,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
-    renderWithRouter(<ChatView />);
+    renderWithRouter(<ChatView />)
 
     // Should show the processing indicator
-    expect(screen.getByText('Processing...')).toBeInTheDocument();
+    expect(screen.getByText('Processing...')).toBeInTheDocument()
     // Check for the spinner by its class
-    const spinner = screen.getByText('Processing...').previousElementSibling;
-    expect(spinner).toHaveClass('animate-spin');
-  });
+    const spinner = screen.getByText('Processing...').previousElementSibling
+    expect(spinner).toHaveClass('animate-spin')
+  })
 
   it('should update cost and duration when task data changes', async () => {
-    const task1 = createMockTaskWithIterations({ task_id: 'task-123' }, 1);
-    task1.iterations[0].cost_usd = 0.01;
-    task1.iterations[0].duration_ms = 1000;
+    const task1 = createMockTaskWithIterations({ task_id: 'task-123' }, 1)
+    task1.iterations[0].cost_usd = 0.01
+    task1.iterations[0].duration_ms = 1000
 
-    const task2 = createMockTaskWithIterations({ task_id: 'task-123' }, 1);
-    task2.iterations[0].cost_usd = 0.02;
-    task2.iterations[0].duration_ms = 2000;
+    const task2 = createMockTaskWithIterations({ task_id: 'task-123' }, 1)
+    task2.iterations[0].cost_usd = 0.02
+    task2.iterations[0].duration_ms = 2000
 
     // Start with task1
     vi.mocked(useTask).mockReturnValue({
       data: task1,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
-    const { rerender } = renderWithRouter(<ChatView />);
+    const { rerender } = renderWithRouter(<ChatView />)
 
     // Verify initial cost and duration
-    expect(screen.getByText('$0.0100')).toBeInTheDocument();
-    expect(screen.getByText('0m 1s')).toBeInTheDocument();
+    expect(screen.getByText('$0.0100')).toBeInTheDocument()
+    expect(screen.getByText('0m 1s')).toBeInTheDocument()
 
     // Update to task2
     vi.mocked(useTask).mockReturnValue({
       data: task2,
       isLoading: false,
       error: null,
-    } as any);
+    } as any)
 
-    rerender(<ChatView />);
+    rerender(<ChatView />)
 
     await waitFor(() => {
       // Verify updated cost and duration
-      expect(screen.getByText('$0.0200')).toBeInTheDocument();
-      expect(screen.getByText('0m 2s')).toBeInTheDocument();
-    });
-  });
-});
+      expect(screen.getByText('$0.0200')).toBeInTheDocument()
+      expect(screen.getByText('0m 2s')).toBeInTheDocument()
+    })
+  })
+})

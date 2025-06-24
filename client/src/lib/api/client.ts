@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export class ApiError extends Error {
   constructor(
@@ -6,33 +6,30 @@ export class ApiError extends Error {
     public statusText: string,
     public data?: unknown,
   ) {
-    super(`API request failed: ${status} ${statusText}`);
-    this.name = 'ApiError';
+    super(`API request failed: ${status} ${statusText}`)
+    this.name = 'ApiError'
   }
 }
 
 interface RequestOptions extends RequestInit {
-  params?: Record<string, string | number | boolean | undefined>;
+  params?: Record<string, string | number | boolean | undefined>
 }
 
-async function request<T>(
-  path: string,
-  options: RequestOptions = {},
-): Promise<T> {
-  const { params, ...fetchOptions } = options;
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { params, ...fetchOptions } = options
 
-  let url = `${API_BASE_URL}${path}`;
+  let url = `${API_BASE_URL}${path}`
 
   if (params) {
-    const searchParams = new URLSearchParams();
+    const searchParams = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) {
-        searchParams.append(key, String(value));
+        searchParams.append(key, String(value))
       }
-    });
-    const queryString = searchParams.toString();
+    })
+    const queryString = searchParams.toString()
     if (queryString) {
-      url += `?${queryString}`;
+      url += `?${queryString}`
     }
   }
 
@@ -42,55 +39,52 @@ async function request<T>(
       'Content-Type': 'application/json',
       ...fetchOptions.headers,
     },
-  });
+  })
 
   if (!response.ok) {
-    let errorData: unknown;
+    let errorData: unknown
     try {
-      errorData = await response.json();
+      errorData = await response.json()
     } catch {
-      errorData = null;
+      errorData = null
     }
-    throw new ApiError(response.status, response.statusText, errorData);
+    throw new ApiError(response.status, response.statusText, errorData)
   }
 
   if (response.status === 204) {
-    return null as unknown as T;
+    return null as unknown as T
   }
 
-  return response.json();
+  return response.json()
 }
 
 export const apiClient = {
-  get<T>(
-    path: string,
-    params?: Record<string, string | number | boolean | undefined>,
-  ): Promise<T> {
-    return request<T>(path, { method: 'GET', params });
+  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+    return request<T>(path, { method: 'GET', params })
   },
 
   post<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
-    });
+    })
   },
 
   put<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PUT',
       body: data ? JSON.stringify(data) : undefined,
-    });
+    })
   },
 
   patch<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PATCH',
       body: data ? JSON.stringify(data) : undefined,
-    });
+    })
   },
 
   delete<T>(path: string): Promise<T> {
-    return request<T>(path, { method: 'DELETE' });
+    return request<T>(path, { method: 'DELETE' })
   },
-};
+}

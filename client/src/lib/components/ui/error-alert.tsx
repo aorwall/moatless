@@ -1,21 +1,17 @@
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react'
 
-import { getErrorMessage } from '@/lib/utils/error';
+import { getErrorMessage } from '@/lib/utils/error'
 
-import { Alert, AlertDescription, AlertTitle } from './alert';
+import { Alert, AlertDescription, AlertTitle } from './alert'
 
 interface ErrorAlertProps {
-  error: unknown;
-  title?: string;
-  className?: string;
+  error: unknown
+  title?: string
+  className?: string
 }
 
-export function ErrorAlert({
-  error,
-  title = 'Error',
-  className,
-}: ErrorAlertProps) {
-  const message = getErrorMessage(error);
+export function ErrorAlert({ error, title = 'Error', className }: ErrorAlertProps) {
+  const message = getErrorMessage(error)
 
   return (
     <Alert variant="destructive" className={className}>
@@ -23,5 +19,5 @@ export function ErrorAlert({
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{message}</AlertDescription>
     </Alert>
-  );
+  )
 }

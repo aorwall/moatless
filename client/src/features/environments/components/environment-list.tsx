@@ -1,16 +1,10 @@
-import { Link } from '@tanstack/react-router';
-import { Plus } from 'lucide-react';
+import { Link } from '@tanstack/react-router'
+import { Plus } from 'lucide-react'
 
-import { Badge } from '@/lib/components/ui/badge';
-import { Button } from '@/lib/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/lib/components/ui/card';
-import { Skeleton } from '@/lib/components/ui/skeleton';
+import { Badge } from '@/lib/components/ui/badge'
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Skeleton } from '@/lib/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -18,26 +12,21 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/lib/components/ui/table';
-import type { EnvironmentResponse } from '@/types/environment';
+} from '@/lib/components/ui/table'
+import type { EnvironmentResponse } from '@/types/environment'
 
 interface EnvironmentListProps {
-  environments?: Array<EnvironmentResponse>;
-  isLoading: boolean;
+  environments?: Array<EnvironmentResponse>
+  isLoading: boolean
 }
 
-export function EnvironmentList({
-  environments,
-  isLoading,
-}: EnvironmentListProps) {
+export function EnvironmentList({ environments, isLoading }: EnvironmentListProps) {
   if (isLoading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Environments</CardTitle>
-          <CardDescription>
-            Manage your agent execution environments
-          </CardDescription>
+          <CardDescription>Manage your agent execution environments</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -47,7 +36,7 @@ export function EnvironmentList({
           </div>
         </CardContent>
       </Card>
-    );
+    )
   }
 
   return (
@@ -56,9 +45,7 @@ export function EnvironmentList({
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Environments</CardTitle>
-            <CardDescription>
-              Manage your agent execution environments
-            </CardDescription>
+            <CardDescription>Manage your agent execution environments</CardDescription>
           </div>
           <Button size="sm" asChild>
             <Link to="/environments/new">
@@ -72,9 +59,7 @@ export function EnvironmentList({
         {!environments || environments.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>No environments configured yet.</p>
-            <p className="text-sm mt-2">
-              Create your first environment to get started.
-            </p>
+            <p className="text-sm mt-2">Create your first environment to get started.</p>
           </div>
         ) : (
           <Table>
@@ -104,10 +89,7 @@ export function EnvironmentList({
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" asChild>
-                      <Link
-                        to="/environments/$environmentId"
-                        params={{ environmentId: env.id }}
-                      >
+                      <Link to="/environments/$environmentId" params={{ environmentId: env.id }}>
                         Edit
                       </Link>
                     </Button>
@@ -119,5 +101,5 @@ export function EnvironmentList({
         )}
       </CardContent>
     </Card>
-  );
+  )
 }

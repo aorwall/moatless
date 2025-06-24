@@ -1,21 +1,21 @@
-import type { Event } from '@/types/event';
+import type { Event } from '@/types/event'
 
 export interface MergedEvent extends Event {
-  toolResult?: Event;
+  toolResult?: Event
 }
 
 export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
   // Early return for empty arrays
-  if (events.length === 0) return [];
+  if (events.length === 0) return []
 
-  const toolResultsMap = new Map<string, Event>();
-  const processedEventIds = new Set<string>();
+  const toolResultsMap = new Map<string, Event>()
+  const processedEventIds = new Set<string>()
 
   // First pass: collect all tool results by tool_use_id
   for (const event of events) {
     if (event.type === 'message' && !event.sub_type) {
-      const payload = event.payload as Record<string, unknown>;
-      const message = payload.message as Record<string, unknown> | null;
+      const payload = event.payload as Record<string, unknown>
+      const message = payload.message as Record<string, unknown> | null
 
       if (message?.content && Array.isArray(message.content)) {
         for (const content of message.content) {
@@ -27,7 +27,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
             'tool_use_id' in content &&
             typeof content.tool_use_id === 'string'
           ) {
-            toolResultsMap.set(content.tool_use_id, event);
+            toolResultsMap.set(content.tool_use_id, event)
           }
         }
       }
@@ -35,17 +35,17 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
   }
 
   // Second pass: merge tool calls with their results
-  const mergedEvents: (Event | MergedEvent)[] = [];
+  const mergedEvents: (Event | MergedEvent)[] = []
 
   for (const event of events) {
     // Skip if already processed as a tool result
     if (processedEventIds.has(event.event_id)) {
-      continue;
+      continue
     }
 
     if (event.type === 'message' && event.sub_type === 'tool_call') {
-      const payload = event.payload as Record<string, unknown>;
-      const message = payload.message as Record<string, unknown> | null;
+      const payload = event.payload as Record<string, unknown>
+      const message = payload.message as Record<string, unknown> | null
 
       if (message?.content && Array.isArray(message.content)) {
         for (const content of message.content) {
@@ -57,37 +57,37 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
             'id' in content &&
             typeof content.id === 'string'
           ) {
-            const toolUseId = content.id;
-            const toolResult = toolResultsMap.get(toolUseId);
+            const toolUseId = content.id
+            const toolResult = toolResultsMap.get(toolUseId)
 
             if (toolResult) {
               // Mark the tool result as processed
-              processedEventIds.add(toolResult.event_id);
+              processedEventIds.add(toolResult.event_id)
 
               // Create merged event
               const mergedEvent: MergedEvent = {
                 ...event,
                 toolResult,
-              };
-              mergedEvents.push(mergedEvent);
+              }
+              mergedEvents.push(mergedEvent)
             } else {
               // No matching result found, add as-is
-              mergedEvents.push(event);
+              mergedEvents.push(event)
             }
           } else {
             // Not a tool use, add as-is
-            mergedEvents.push(event);
+            mergedEvents.push(event)
           }
         }
       } else {
         // No content array, add as-is
-        mergedEvents.push(event);
+        mergedEvents.push(event)
       }
     } else {
       // Not a tool call, add as-is (unless it's already processed as a result)
-      mergedEvents.push(event);
+      mergedEvents.push(event)
     }
   }
 
-  return mergedEvents;
+  return mergedEvents
 }

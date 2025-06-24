@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
 describe('Environment Routes', () => {
@@ -78,9 +78,7 @@ describe('Environment Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.environment, 'listEnvironments').mockResolvedValueOnce(
-        mockEnvironments,
-      )
+      vi.spyOn(app.services.environment, 'listEnvironments').mockResolvedValueOnce(mockEnvironments)
 
       const response = await app.inject({
         method: 'GET',
@@ -106,9 +104,7 @@ describe('Environment Routes', () => {
         isActive: true,
       }
 
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(
-        mockEnvironment,
-      )
+      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
 
       const response = await app.inject({
         method: 'GET',
@@ -150,9 +146,7 @@ describe('Environment Routes', () => {
       }
 
       vi.spyOn(app.services.environment, 'updateEnvironment').mockResolvedValueOnce()
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(
-        updatedEnvironment,
-      )
+      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(updatedEnvironment)
 
       const response = await app.inject({
         method: 'PATCH',
@@ -192,9 +186,7 @@ describe('Environment Routes', () => {
         name: 'Test Environment',
       } as any
 
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(
-        mockEnvironment,
-      )
+      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
 
       const response = await app.inject({
         method: 'POST',

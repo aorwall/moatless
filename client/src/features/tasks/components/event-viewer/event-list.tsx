@@ -1,21 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo } from 'react'
 
-import {
-  type MergedEvent,
-  mergeToolEvents,
-} from '@/features/tasks/utils/merge-tool-events';
-import type { Event } from '@/types/event.ts';
+import { type MergedEvent, mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
+import type { Event } from '@/types/event.ts'
 
-import {
-  InputEvent,
-  MessageEvent,
-  ResultEvent,
-  WorkspaceEvent,
-} from './event-components';
-import { ToolCallEvent } from './event-components/tool-call-event';
+import { InputEvent, MessageEvent, ResultEvent, WorkspaceEvent } from './event-components'
+import { ToolCallEvent } from './event-components/tool-call-event'
 
 interface EventListProps {
-  events: Array<Event>;
+  events: Array<Event>
 }
 
 const PayloadRenderer = ({ payload }: { payload: unknown }) => {
@@ -25,29 +17,29 @@ const PayloadRenderer = ({ payload }: { payload: unknown }) => {
         {JSON.stringify(payload, null, 2)}
       </pre>
     </div>
-  );
-};
+  )
+}
 
 const EventContent = ({ event }: { event: Event | MergedEvent }) => {
   try {
     switch (event.type) {
       case 'workspace':
-        return <WorkspaceEvent event={event} />;
+        return <WorkspaceEvent event={event} />
       case 'input':
-        return <InputEvent event={event} />;
+        return <InputEvent event={event} />
       case 'message':
         // Check if it's a tool call with merged result
         if (event.sub_type === 'tool_call' && 'toolResult' in event) {
-          return <ToolCallEvent event={event as MergedEvent} />;
+          return <ToolCallEvent event={event as MergedEvent} />
         }
         // Check if it's a standalone tool call (without result)
         if (event.sub_type === 'tool_call') {
-          return <ToolCallEvent event={event as MergedEvent} />;
+          return <ToolCallEvent event={event as MergedEvent} />
         }
         // For text messages and other non-tool messages
-        return <MessageEvent event={event} />;
+        return <MessageEvent event={event} />
       case 'result':
-        return <ResultEvent event={event} />;
+        return <ResultEvent event={event} />
       default:
         return (
           <div className="text-sm text-muted-foreground">
@@ -57,10 +49,10 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
               <PayloadRenderer payload={event.payload} />
             </div>
           </div>
-        );
+        )
     }
   } catch (error) {
-    console.error('Error rendering event:', error, event);
+    console.error('Error rendering event:', error, event)
     return (
       <div className="text-sm text-muted-foreground">
         <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
@@ -75,19 +67,18 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
           <PayloadRenderer payload={event.payload} />
         </div>
       </div>
-    );
+    )
   }
-};
+}
 
 export function EventList({ events }: EventListProps) {
   // Memoize sorted and merged events to prevent unnecessary re-computations
   const mergedEvents = useMemo(() => {
     const sortedEvents = [...events].sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-    );
-    return mergeToolEvents(sortedEvents);
-  }, [events]);
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    )
+    return mergeToolEvents(sortedEvents)
+  }, [events])
 
   return (
     <div className="space-y-2 w-full max-w-[48rem] min-w-[24rem] mx-auto">
@@ -95,5 +86,5 @@ export function EventList({ events }: EventListProps) {
         <EventContent key={event.event_id} event={event} />
       ))}
     </div>
-  );
+  )
 }

@@ -1,22 +1,22 @@
-import { ArrowUp } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowUp } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
-import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete';
-import { Button } from '@/lib/components/ui/button';
-import { Textarea } from '@/lib/components/ui/textarea';
-import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete';
+import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
+import { Button } from '@/lib/components/ui/button'
+import { Textarea } from '@/lib/components/ui/textarea'
+import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete'
 
 interface ChatFormProps {
-  message: string;
-  onMessageChange: (message: string) => void;
-  sendMessage: () => void;
-  textareaDisabled?: boolean;
-  sendDisabled?: boolean;
-  placeholder?: string;
-  environmentId?: string;
-  taskId?: string;
-  isTaskContext: boolean;
-  buttonText: string;
+  message: string
+  onMessageChange: (message: string) => void
+  sendMessage: () => void
+  textareaDisabled?: boolean
+  sendDisabled?: boolean
+  placeholder?: string
+  environmentId?: string
+  taskId?: string
+  isTaskContext: boolean
+  buttonText: string
 }
 
 export function ChatForm({
@@ -31,11 +31,9 @@ export function ChatForm({
   isTaskContext,
   buttonText,
 }: ChatFormProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-  const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>(
-    'below',
-  );
+  const containerRef = useRef<HTMLDivElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below')
 
   // File autocomplete functionality
   const {
@@ -53,57 +51,52 @@ export function ChatForm({
     taskId,
     value: message,
     onValueChange: onMessageChange,
-  });
+  })
 
   // Detect if dropdown should appear above or below
   useEffect(() => {
     if (isAutocompleteOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const dropdownHeight = 240; // max-h-60 = 15rem = 240px
+      const rect = containerRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      const dropdownHeight = 240 // max-h-60 = 15rem = 240px
 
       // If not enough space below and we're in task context (likely at bottom), show above
       if (spaceBelow < dropdownHeight && isTaskContext) {
-        setDropdownPosition('above');
+        setDropdownPosition('above')
       } else {
-        setDropdownPosition('below');
+        setDropdownPosition('below')
       }
     }
-  }, [isAutocompleteOpen, isTaskContext]);
+  }, [isAutocompleteOpen, isTaskContext])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Let autocomplete handle key events first
     if (isAutocompleteOpen) {
-      handleAutocompleteKeyDown(e);
+      handleAutocompleteKeyDown(e)
       if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) {
-        return;
+        return
       }
     }
 
-    if (
-      e.key === 'Enter' &&
-      !e.shiftKey &&
-      !isAutocompleteOpen &&
-      !sendDisabled
-    ) {
-      e.preventDefault();
-      sendMessage();
+    if (e.key === 'Enter' && !e.shiftKey && !isAutocompleteOpen && !sendDisabled) {
+      e.preventDefault()
+      sendMessage()
     }
-  };
+  }
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    const cursorPosition = e.target.selectionStart || 0;
-    onMessageChange(value);
-    handleInputChange(value, cursorPosition);
-  };
+    const value = e.target.value
+    const cursorPosition = e.target.selectionStart || 0
+    onMessageChange(value)
+    handleInputChange(value, cursorPosition)
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (!sendDisabled) {
-      sendMessage();
+      sendMessage()
     }
-  };
+  }
 
   return (
     <form
@@ -149,5 +142,5 @@ export function ChatForm({
         </div>
       </div>
     </form>
-  );
+  )
 }

@@ -292,17 +292,17 @@ For phase completion:
 - [ ] Create API integration tests
 - [ ] Add rate limiting and security headers
 
-### Phase 6: Workspace Management (Week 6)
-- [ ] Port `swarm/workspaces/workspace_manager.py` → `workspace.ts`
-- [ ] Port `swarm/workspaces/base.py` → base workspace logic
-- [ ] Port `swarm/workspaces/local.py` → local workspace implementation
-- [ ] Implement git worktree management
-- [ ] Port `swarm/workspaces/docker.py` → Docker workspace support
-- [ ] Add workspace cleanup utilities
-- [ ] Create workspace state tracking
-- [ ] Implement workspace isolation
-- [ ] Add workspace unit tests
-- [ ] Create workspace integration tests
+### Phase 6: Workspace Management (Week 6) ✅ COMPLETED
+- [x] Port `swarm/workspaces/workspace_manager.py` → `workspace.ts`
+- [x] Port `swarm/workspaces/base.py` → base workspace logic
+- [x] Port `swarm/workspaces/local.py` → local workspace implementation
+- [x] Implement git worktree management
+- [x] Port `swarm/workspaces/docker.py` → Docker workspace support
+- [x] Add workspace cleanup utilities
+- [x] Create workspace state tracking
+- [x] Implement workspace isolation
+- [x] Add workspace unit tests
+- [x] Create workspace integration tests <!-- Tests added for workspace service and git utilities -->
 
 ### Phase 7: Agent Integration (Week 7)
 - [ ] Port `swarm/agents/base.py` → `base-agent.ts`
@@ -468,7 +468,6 @@ export async function errorHandler(
 
 ### 5. Security Considerations
 - CORS configuration for API endpoints
-- Rate limiting with @fastify/rate-limit
 - Input validation with Zod schemas
 - Secure environment variable handling
 - File path sanitization to prevent directory traversal
@@ -494,92 +493,3 @@ export async function errorHandler(
   }
 }
 ```
-
-### 7. Development Workflow
-```bash
-# Development
-pnpm run dev              # Runs both server and client
-pnpm run dev:server       # Server only
-pnpm run dev:client       # Client only
-
-# Testing
-pnpm test                 # Run all tests
-pnpm test:watch           # Run tests in watch mode
-pnpm test:ui              # Run tests with UI and coverage
-pnpm test:coverage        # Run tests with coverage report
-
-# Code Quality with Biome
-pnpm biome:check          # Check for issues
-pnpm biome:fix            # Auto-fix issues
-pnpm biome:ci             # CI mode checking
-
-# Type Checking
-pnpm type:check           # Check TypeScript types
-
-# All Checks (using Turbo)
-pnpm check:turbo          # Run all checks in parallel
-
-# Production
-pnpm run build            # Build both server and client
-pnpm start                # Start production server
-
-# NPX usage
-npx moatless-app         # Run the application
-```
-
-## File Migration Reference
-
-### Priority 1 - Core Types (Week 2)
-- `swarm/tasks/schema.py` → `shared/types/task.types.ts`
-- `swarm/eventstream/events.py` → `shared/types/event.types.ts`
-- `swarm/environments/environments.py` → `shared/types/environment.types.ts`
-- `swarm/workspaces/models.py` → `shared/types/workspace.types.ts`
-
-### Priority 2 - Server Foundation (Week 3)
-- `swarm/storage/base.py` → `server/services/storage.ts`
-- `swarm/storage/file.py` → `server/services/storage.ts`
-- `swarm/main.py` → `server/index.ts` + `server/app.ts`
-
-### Priority 3 - Core Services (Week 4)
-- `swarm/eventstream/event_stream.py` → `server/services/event.ts`
-- `swarm/eventstream/file_stream.py` → `server/services/event.ts`
-- `swarm/tasks/task_manager.py` → `server/services/task.ts`
-- `swarm/environments/environment_manager.py` → `server/services/environment.ts`
-
-### Priority 4 - API Routes (Week 5)
-- `swarm/api/tasks.py` → `server/routes/tasks.ts`
-- `swarm/api/environments.py` → `server/routes/environments.ts`
-- `swarm/api/workspaces.py` → `server/routes/workspaces.ts`
-
-### Priority 5 - Workspaces (Week 6)
-- `swarm/workspaces/workspace_manager.py` → `server/services/workspace.ts`
-- `swarm/workspaces/base.py` → `server/services/workspace.ts`
-- `swarm/workspaces/local.py` → `server/services/workspace.ts`
-- `swarm/workspaces/docker.py` → `server/services/workspace.ts`
-
-### Priority 6 - Agents (Week 7)
-- `swarm/agents/base.py` → `server/services/agents/base-agent.ts`
-- `swarm/agents/claude_code.py` → `server/services/agents/claude-code-agent.ts`
-- `swarm/agents/options.py` → `server/services/agents/agent-options.ts`
-
-### Priority 7 - Utilities (Week 8)
-- `swarm/utils/git_utils.py` → `server/utils/git-utils.ts`
-- `swarm/utils/file_search.py` → `server/utils/file-search.ts`
-- `swarm/utils/subprocess.py` → `server/utils/process-utils.ts`
-
-## Summary
-
-This migration strategy transforms the Python-based Moatless Swarm into a modern TypeScript application using:
-- **Fastify** for high-performance HTTP/WebSocket server
-- **React** for the client-side UI
-- **File-based storage** maintaining compatibility with the Python version
-- **NPX distribution** for easy installation and usage
-- **Monolithic architecture** simplifying deployment and distribution
-
-The resulting application will be:
-- Easy to install: `npx moatless-app`
-- Cross-platform compatible (Windows, macOS, Linux)
-- Performant with async/await throughout
-- Type-safe with full TypeScript coverage
-- Well-tested with comprehensive test suites
-- Production-ready with proper error handling and logging

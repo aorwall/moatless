@@ -1,1 +1,1 @@
-export { EventViewer } from './event-viewer';
+export { EventViewer } from './event-viewer'

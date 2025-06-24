@@ -1,27 +1,27 @@
-import { useState } from 'react';
+import { useState } from 'react'
 
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments';
+import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 
-import { ChatForm } from './chat-form';
-import { EnvironmentSelector } from './environment-selector';
+import { ChatForm } from './chat-form'
+import { EnvironmentSelector } from './environment-selector'
 
 interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   // For task context
-  taskId?: string;
-  placeholder?: string;
+  taskId?: string
+  placeholder?: string
 
   // For homepage context
-  showEnvironmentSelector?: boolean;
-  showTitle?: boolean;
-  title?: string;
+  showEnvironmentSelector?: boolean
+  showTitle?: boolean
+  title?: string
 
   // Task status for conditional behavior
-  taskStatus?: string;
+  taskStatus?: string
 
   // Callbacks
-  onSendMessage?: (taskId: string, message: string) => void;
-  onCreateTask?: (message: string, environmentId: string) => void;
-  isLoading?: boolean;
+  onSendMessage?: (taskId: string, message: string) => void
+  onCreateTask?: (message: string, environmentId: string) => void
+  isLoading?: boolean
 }
 
 export function ChatInput({
@@ -37,79 +37,74 @@ export function ChatInput({
   className = '',
   ...divProps
 }: ChatInputProps) {
-  const [message, setMessage] = useState('');
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<
-    string | undefined
-  >();
+  const [message, setMessage] = useState('')
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>()
 
   // Environment data (only needed for homepage)
-  const { data: environments, isLoading: environmentsLoading } =
-    useEnvironmentsList({
-      enabled: showEnvironmentSelector,
-    });
+  const { data: environments, isLoading: environmentsLoading } = useEnvironmentsList({
+    enabled: showEnvironmentSelector,
+  })
 
-  const isTaskContext = !!taskId;
-  const isPending = isLoading;
+  const isTaskContext = !!taskId
+  const isPending = isLoading
 
   const handleSendMessage = () => {
     if (!message.trim()) {
-      return;
+      return
     }
 
     if (isTaskContext) {
       // Task context - send message
       if (onSendMessage && !isPending) {
-        onSendMessage(taskId, message.trim());
-        setMessage('');
+        onSendMessage(taskId, message.trim())
+        setMessage('')
       }
     } else if (selectedEnvironmentId && onCreateTask && !isPending) {
       // Homepage context - create task
-      onCreateTask(message.trim(), selectedEnvironmentId);
-      setMessage('');
+      onCreateTask(message.trim(), selectedEnvironmentId)
+      setMessage('')
     }
-  };
+  }
 
   const getButtonText = () => {
     if (isTaskContext) {
       if (taskStatus === 'running') {
-        return 'Task Running...';
+        return 'Task Running...'
       }
       if (taskStatus === 'completed' || taskStatus === 'failed') {
-        return 'Task Completed';
+        return 'Task Completed'
       }
-      return isPending ? 'Sending...' : 'Send';
+      return isPending ? 'Sending...' : 'Send'
     }
-    return isPending ? 'Starting...' : 'Start Task';
-  };
+    return isPending ? 'Starting...' : 'Start Task'
+  }
 
   const getPlaceholderText = () => {
     if (placeholder) {
-      return placeholder;
+      return placeholder
     }
     if (isTaskContext) {
       if (taskStatus === 'running') {
-        return 'Task is running... Type your next request';
+        return 'Task is running... Type your next request'
       }
       if (taskStatus === 'completed' || taskStatus === 'failed') {
-        return `Task is ${taskStatus}. Type a new request to continue`;
+        return `Task is ${taskStatus}. Type a new request to continue`
       }
-      return 'Type a new request... (use @ to reference files)';
+      return 'Type a new request... (use @ to reference files)'
     }
-    return 'Describe your coding task or feature... (use @ to reference files)';
-  };
+    return 'Describe your coding task or feature... (use @ to reference files)'
+  }
 
   // Always allow editing the textarea
-  const isTextareaDisabled = false;
+  const isTextareaDisabled = false
 
   // But disable sending based on conditions
   const isSendDisabled =
     isPending ||
     !message.trim() ||
     (isTaskContext &&
-      (taskStatus === 'running' ||
-        taskStatus === 'completed' ||
-        taskStatus === 'failed')) ||
-    !(isTaskContext || selectedEnvironmentId);
+      (taskStatus === 'running' || taskStatus === 'completed' || taskStatus === 'failed')) ||
+    !(isTaskContext || selectedEnvironmentId)
 
   return (
     <div className={className} {...divProps}>
@@ -146,5 +141,5 @@ export function ChatInput({
         )}
       </div>
     </div>
-  );
+  )
 }

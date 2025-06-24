@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MoatlessError } from '../../../shared/constants/errors.js'
 import { build } from '../../test/helper.js'
 
@@ -118,7 +118,7 @@ describe('API Error Handling', () => {
       }
 
       const responses = await Promise.all(promises)
-      const rateLimitedResponses = responses.filter(r => r.statusCode === 429)
+      const rateLimitedResponses = responses.filter((r) => r.statusCode === 429)
 
       expect(rateLimitedResponses.length).toBeGreaterThan(0)
       const body = JSON.parse(rateLimitedResponses[0].body)
@@ -154,9 +154,7 @@ describe('API Error Handling', () => {
 
   describe('Request ID Tracking', () => {
     it('should include request ID in error responses', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockRejectedValueOnce(
-        new Error('Test error'),
-      )
+      vi.spyOn(app.services.task, 'getTask').mockRejectedValueOnce(new Error('Test error'))
 
       const response = await app.inject({
         method: 'GET',

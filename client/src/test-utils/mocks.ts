@@ -1,43 +1,43 @@
-import type { MockedFunction } from 'vitest';
-import { vi } from 'vitest';
+import type { MockedFunction } from 'vitest'
+import { vi } from 'vitest'
 
 // Mock for SSE connections
 export class MockSSEConnection {
-  url: string;
-  options: any;
-  listeners: Map<string, Array<(data: any) => void>> = new Map();
-  connected = false;
+  url: string
+  options: any
+  listeners: Map<string, Array<(data: any) => void>> = new Map()
+  connected = false
 
   constructor(url: string, options?: any) {
-    this.url = url;
-    this.options = options;
-    this.connected = true;
+    this.url = url
+    this.options = options
+    this.connected = true
   }
 
   addEventListener(event: string, callback: (data: any) => void) {
     if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
+      this.listeners.set(event, [])
     }
-    this.listeners.get(event)!.push(callback);
+    this.listeners.get(event)!.push(callback)
   }
 
   removeEventListener(event: string, callback: (data: any) => void) {
-    const listeners = this.listeners.get(event) || [];
-    const index = listeners.indexOf(callback);
+    const listeners = this.listeners.get(event) || []
+    const index = listeners.indexOf(callback)
     if (index > -1) {
-      listeners.splice(index, 1);
+      listeners.splice(index, 1)
     }
   }
 
   close() {
-    this.connected = false;
-    this.listeners.clear();
+    this.connected = false
+    this.listeners.clear()
   }
 
   // Test helper to emit events
   emit(event: string, data: any) {
-    const listeners = this.listeners.get(event) || [];
-    listeners.forEach((callback) => callback({ data }));
+    const listeners = this.listeners.get(event) || []
+    listeners.forEach((callback) => callback({ data }))
   }
 }
 
@@ -48,7 +48,7 @@ export function createMockUseTask() {
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-  }));
+  }))
 }
 
 export function createMockUseTaskEvents() {
@@ -57,7 +57,7 @@ export function createMockUseTaskEvents() {
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-  }));
+  }))
 }
 
 export function createMockUseTaskWorkspaceStatus() {
@@ -66,28 +66,26 @@ export function createMockUseTaskWorkspaceStatus() {
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-  }));
+  }))
 }
 
 // Mock EventSource for SSE
 export function mockEventSource() {
-  const MockEventSourceConstructor = vi
-    .fn()
-    .mockImplementation((url: string) => {
-      return new MockSSEConnection(url);
-    });
+  const MockEventSourceConstructor = vi.fn().mockImplementation((url: string) => {
+    return new MockSSEConnection(url)
+  })
 
   // @ts-ignore
-  global.EventSource = MockEventSourceConstructor;
+  global.EventSource = MockEventSourceConstructor
 
-  return MockEventSourceConstructor;
+  return MockEventSourceConstructor
 }
 
 // Mock fetch for API calls
 export function mockFetch() {
-  const fetchMock = vi.fn();
-  global.fetch = fetchMock as any;
-  return fetchMock;
+  const fetchMock = vi.fn()
+  global.fetch = fetchMock as any
+  return fetchMock
 }
 
 // Helper to create a mock query client
@@ -98,31 +96,31 @@ export function createMockQueryClient() {
     setQueryData: vi.fn(),
     getQueryData: vi.fn(),
     getQueryState: vi.fn(),
-  };
+  }
 }
 
 // Mock for WebSocket
 export class MockWebSocket {
-  url: string;
-  readyState: number = 1; // OPEN
-  listeners: Map<string, Array<(event: any) => void>> = new Map();
+  url: string
+  readyState: number = 1 // OPEN
+  listeners: Map<string, Array<(event: any) => void>> = new Map()
 
   constructor(url: string) {
-    this.url = url;
+    this.url = url
   }
 
   addEventListener(event: string, callback: (event: any) => void) {
     if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
+      this.listeners.set(event, [])
     }
-    this.listeners.get(event)!.push(callback);
+    this.listeners.get(event)!.push(callback)
   }
 
   removeEventListener(event: string, callback: (event: any) => void) {
-    const listeners = this.listeners.get(event) || [];
-    const index = listeners.indexOf(callback);
+    const listeners = this.listeners.get(event) || []
+    const index = listeners.indexOf(callback)
     if (index > -1) {
-      listeners.splice(index, 1);
+      listeners.splice(index, 1)
     }
   }
 
@@ -131,80 +129,80 @@ export class MockWebSocket {
   }
 
   close() {
-    this.readyState = 3; // CLOSED
-    this.emit('close', {});
+    this.readyState = 3 // CLOSED
+    this.emit('close', {})
   }
 
   // Test helper to emit events
   emit(event: string, data: any) {
-    const listeners = this.listeners.get(event) || [];
-    listeners.forEach((callback) => callback(data));
+    const listeners = this.listeners.get(event) || []
+    listeners.forEach((callback) => callback(data))
   }
 }
 
 // Mock WebSocket
 export function mockWebSocket() {
   const MockWebSocketConstructor = vi.fn().mockImplementation((url: string) => {
-    return new MockWebSocket(url);
-  });
+    return new MockWebSocket(url)
+  })
 
   // @ts-ignore
-  global.WebSocket = MockWebSocketConstructor;
+  global.WebSocket = MockWebSocketConstructor
 
-  return MockWebSocketConstructor;
+  return MockWebSocketConstructor
 }
 
 // Mock localStorage
 export function mockLocalStorage() {
-  const storage: Record<string, string> = {};
+  const storage: Record<string, string> = {}
 
   return {
     getItem: vi.fn((key: string) => storage[key] || null),
     setItem: vi.fn((key: string, value: string) => {
-      storage[key] = value;
+      storage[key] = value
     }),
     removeItem: vi.fn((key: string) => {
-      delete storage[key];
+      delete storage[key]
     }),
     clear: vi.fn(() => {
-      Object.keys(storage).forEach((key) => delete storage[key]);
+      Object.keys(storage).forEach((key) => delete storage[key])
     }),
-  };
+  }
 }
 
 // Mock for zustand stores
 export function createMockStoreHook<T>(initialState: T) {
-  let state = initialState;
-  const listeners = new Set<() => void>();
+  let state = initialState
+  const listeners = new Set<() => void>()
 
   const setState = (newState: Partial<T> | ((state: T) => Partial<T>)) => {
     if (typeof newState === 'function') {
-      state = { ...state, ...newState(state) };
+      state = { ...state, ...newState(state) }
     } else {
-      state = { ...state, ...newState };
+      state = { ...state, ...newState }
     }
-    listeners.forEach((listener) => listener());
-  };
+    listeners.forEach((listener) => listener())
+  }
 
-  const getState = () => state;
+  const getState = () => state
 
   const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  }
 
   const useStore = (selector?: (state: T) => any) => {
     if (selector) {
-      return selector(state);
+      return selector(state)
     }
-    return state;
-  };
+    return state
+  }
 
-  useStore.setState = setState;
-  useStore.getState = getState;
-  useStore.subscribe = subscribe;
+  useStore.setState = setState
+  useStore.getState = getState
+  useStore.subscribe = subscribe
 
-  return useStore;
+  return useStore
 }
 
 // Type helper for mocked functions
@@ -212,4 +210,4 @@ export type Mocked<T> = T extends (...args: any[]) => any
   ? MockedFunction<T>
   : T extends object
     ? { [K in keyof T]: Mocked<T[K]> }
-    : T;
+    : T

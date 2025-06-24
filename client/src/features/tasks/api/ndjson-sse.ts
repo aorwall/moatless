@@ -1,65 +1,65 @@
-import type { Event } from '@/types/event.ts';
+import type { Event } from '@/types/event.ts'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export interface NDJSONSSEClientOptions {
-  taskId: string;
-  apiUrl?: string;
-  onEvent?: (event: Event) => void;
-  onError?: (error: Error) => void;
-  onConnect?: () => void;
-  onDisconnect?: () => void;
-  onTaskNotFound?: () => void;
+  taskId: string
+  apiUrl?: string
+  onEvent?: (event: Event) => void
+  onError?: (error: Error) => void
+  onConnect?: () => void
+  onDisconnect?: () => void
+  onTaskNotFound?: () => void
 }
 
 export class NDJSONSSEClient {
-  private abortController: AbortController | null = null;
-  private taskId: string;
-  private apiUrl: string;
-  private onEvent?: (event: Event) => void;
-  private onError?: (error: Error) => void;
-  private onConnect?: () => void;
-  private onDisconnect?: () => void;
-  private onTaskNotFound?: () => void;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
-  private lastEventId: string | null = null;
-  private isConnecting = false;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectDelay = 5000;
-  private shouldReconnect = true;
-  private taskNotFound = false;
-  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  private abortController: AbortController | null = null
+  private taskId: string
+  private apiUrl: string
+  private onEvent?: (event: Event) => void
+  private onError?: (error: Error) => void
+  private onConnect?: () => void
+  private onDisconnect?: () => void
+  private onTaskNotFound?: () => void
+  private reconnectTimeout: NodeJS.Timeout | null = null
+  private lastEventId: string | null = null
+  private isConnecting = false
+  private reconnectAttempts = 0
+  private maxReconnectAttempts = 10
+  private reconnectDelay = 5000
+  private shouldReconnect = true
+  private taskNotFound = false
+  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null
 
   constructor(options: NDJSONSSEClientOptions) {
-    this.taskId = options.taskId;
-    this.apiUrl = options.apiUrl || API_BASE_URL;
-    this.onEvent = options.onEvent;
-    this.onError = options.onError;
-    this.onConnect = options.onConnect;
-    this.onDisconnect = options.onDisconnect;
-    this.onTaskNotFound = options.onTaskNotFound;
+    this.taskId = options.taskId
+    this.apiUrl = options.apiUrl || API_BASE_URL
+    this.onEvent = options.onEvent
+    this.onError = options.onError
+    this.onConnect = options.onConnect
+    this.onDisconnect = options.onDisconnect
+    this.onTaskNotFound = options.onTaskNotFound
   }
 
   async connect(): Promise<void> {
     if (this.abortController || this.isConnecting || this.taskNotFound) {
-      return;
+      return
     }
 
-    this.isConnecting = true;
-    this.shouldReconnect = true;
+    this.isConnecting = true
+    this.shouldReconnect = true
 
     try {
-      const response = await this.makeRequest();
-      await this.handleSuccessfulConnection(response);
+      const response = await this.makeRequest()
+      await this.handleSuccessfulConnection(response)
     } catch (error) {
-      this.handleConnectionError(error);
+      this.handleConnectionError(error)
     }
   }
 
   private async makeRequest(): Promise<Response> {
-    const url = this.buildUrl();
-    this.abortController = new AbortController();
+    const url = this.buildUrl()
+    this.abortController = new AbortController()
 
     const response = await fetch(url, {
       method: 'GET',
@@ -68,120 +68,117 @@ export class NDJSONSSEClient {
       headers: {
         Accept: 'application/x-ndjson',
       },
-    });
+    })
 
     if (!response.ok) {
       if (response.status === 404) {
-        this.handleTaskNotFound();
-        throw new Error('Task not found');
+        this.handleTaskNotFound()
+        throw new Error('Task not found')
       }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
 
-    return response;
+    return response
   }
 
   private buildUrl(): string {
-    let url = `${this.apiUrl}/api/v1/tasks/${this.taskId}/stream`;
+    let url = `${this.apiUrl}/api/v1/tasks/${this.taskId}/stream`
     if (this.lastEventId) {
-      url += `?last_event_id=${encodeURIComponent(this.lastEventId)}`;
+      url += `?last_event_id=${encodeURIComponent(this.lastEventId)}`
     }
-    return url;
+    return url
   }
 
   private async handleSuccessfulConnection(response: Response): Promise<void> {
-    this.isConnecting = false;
-    this.reconnectAttempts = 0;
-    this.onConnect?.();
+    this.isConnecting = false
+    this.reconnectAttempts = 0
+    this.onConnect?.()
 
     if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
     }
 
     if (response.body) {
-      await this.readStream(response.body);
+      await this.readStream(response.body)
     }
   }
 
   private handleConnectionError(error: unknown): void {
-    this.isConnecting = false;
+    this.isConnecting = false
 
     if (error instanceof Error && error.name === 'AbortError') {
       if (this.shouldReconnect) {
-        this.scheduleReconnect();
+        this.scheduleReconnect()
       }
     } else if (error instanceof Error) {
-      this.onError?.(error);
+      this.onError?.(error)
       if (this.shouldReconnect) {
-        this.scheduleReconnect();
+        this.scheduleReconnect()
       }
     }
   }
 
   private async readStream(body: ReadableStream<Uint8Array>): Promise<void> {
-    const decoder = new TextDecoder();
-    let buffer = '';
+    const decoder = new TextDecoder()
+    let buffer = ''
 
     try {
-      this.reader = body.getReader();
-      buffer = await this.processStreamData(decoder, buffer);
-      this.processRemainingBuffer(buffer);
+      this.reader = body.getReader()
+      buffer = await this.processStreamData(decoder, buffer)
+      this.processRemainingBuffer(buffer)
     } catch (error) {
-      this.handleStreamError(error);
+      this.handleStreamError(error)
     } finally {
-      this.cleanupStream();
+      this.cleanupStream()
     }
   }
 
-  private async processStreamData(
-    decoder: TextDecoder,
-    buffer: string,
-  ): Promise<string> {
-    let currentBuffer = buffer;
+  private async processStreamData(decoder: TextDecoder, buffer: string): Promise<string> {
+    let currentBuffer = buffer
 
     while (true) {
-      const { done, value } = await this.reader!.read();
-      if (done) break;
+      const { done, value } = await this.reader!.read()
+      if (done) break
 
-      currentBuffer += decoder.decode(value, { stream: true });
-      currentBuffer = this.processBufferLines(currentBuffer);
+      currentBuffer += decoder.decode(value, { stream: true })
+      currentBuffer = this.processBufferLines(currentBuffer)
     }
 
-    return currentBuffer;
+    return currentBuffer
   }
 
   private processBufferLines(buffer: string): string {
-    const lines = buffer.split('\n');
-    const remainingBuffer = lines.pop() || '';
+    const lines = buffer.split('\n')
+    const remainingBuffer = lines.pop() || ''
 
     for (const line of lines) {
       if (line.trim()) {
-        this.processLine(line);
+        this.processLine(line)
       }
     }
 
-    return remainingBuffer;
+    return remainingBuffer
   }
 
   private processRemainingBuffer(buffer: string): void {
     if (buffer.trim()) {
-      this.processLine(buffer);
+      this.processLine(buffer)
     }
   }
 
   private handleStreamError(error: unknown): void {
     if (error instanceof Error && error.name !== 'AbortError') {
-      this.onError?.(error);
+      this.onError?.(error)
     }
   }
 
   private cleanupStream(): void {
-    this.reader = null;
-    this.onDisconnect?.();
+    this.reader = null
+    this.onDisconnect?.()
 
     if (this.shouldReconnect && !this.taskNotFound) {
-      this.scheduleReconnect();
+      this.scheduleReconnect()
     }
   }
 
@@ -189,109 +186,100 @@ export class NDJSONSSEClient {
     try {
       // Handle SSE format (if server sends it)
       if (line.startsWith('data: ')) {
-        const data = line.slice(6);
+        const data = line.slice(6)
         if (data === '[DONE]') {
-          return;
+          return
         }
-        this.parseAndEmitEvent(data);
+        this.parseAndEmitEvent(data)
       } else if (line.startsWith('event: ')) {
         // Handle named events if needed
-        return;
+        return
       } else {
         // Handle plain NDJSON
-        this.parseAndEmitEvent(line);
+        this.parseAndEmitEvent(line)
       }
     } catch (error) {
-      console.error('Failed to process line:', error);
-      this.onError?.(new Error('Failed to process stream data'));
+      console.error('Failed to process line:', error)
+      this.onError?.(new Error('Failed to process stream data'))
     }
   }
 
   private parseAndEmitEvent(data: string): void {
     try {
-      const event = JSON.parse(data) as Event;
+      const event = JSON.parse(data) as Event
 
       // Store the last event ID for reconnection
       if (event.event_id) {
-        this.lastEventId = event.event_id;
+        this.lastEventId = event.event_id
       }
 
-      this.onEvent?.(event);
+      this.onEvent?.(event)
     } catch (error) {
-      console.error('Failed to parse event:', error);
-      this.onError?.(new Error('Failed to parse event data'));
+      console.error('Failed to parse event:', error)
+      this.onError?.(new Error('Failed to parse event data'))
     }
   }
 
   disconnect(): void {
-    this.shouldReconnect = false;
+    this.shouldReconnect = false
 
     if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
     }
 
     if (this.reader) {
       this.reader.cancel().catch(() => {
         // Ignore cancellation errors
-      });
-      this.reader = null;
+      })
+      this.reader = null
     }
 
     if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-      this.onDisconnect?.();
+      this.abortController.abort()
+      this.abortController = null
+      this.onDisconnect?.()
     }
   }
 
   resetConnection(): void {
-    this.taskNotFound = false;
-    this.shouldReconnect = true;
-    this.reconnectAttempts = 0;
+    this.taskNotFound = false
+    this.shouldReconnect = true
+    this.reconnectAttempts = 0
   }
 
   private handleTaskNotFound(): void {
-    this.taskNotFound = true;
-    this.shouldReconnect = false;
-    this.onTaskNotFound?.();
-    this.onError?.(new Error('Task not found (404)'));
-    this.onDisconnect?.();
+    this.taskNotFound = true
+    this.shouldReconnect = false
+    this.onTaskNotFound?.()
+    this.onError?.(new Error('Task not found (404)'))
+    this.onDisconnect?.()
   }
 
   private scheduleReconnect(): void {
     if (this.reconnectTimeout || !this.shouldReconnect) {
-      return;
+      return
     }
 
-    this.reconnectAttempts++;
+    this.reconnectAttempts++
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.onError?.(
-        new Error(
-          `SSE connection failed after ${this.maxReconnectAttempts} attempts`,
-        ),
-      );
-      return;
+      this.onError?.(new Error(`SSE connection failed after ${this.maxReconnectAttempts} attempts`))
+      return
     }
 
     // Calculate exponential backoff with jitter
-    const baseDelay = Math.min(
-      this.reconnectDelay * 2 ** (this.reconnectAttempts - 1),
-      30000,
-    );
-    const jitter = Math.random() * 1000;
-    const delay = Math.max(baseDelay + jitter, 1000);
+    const baseDelay = Math.min(this.reconnectDelay * 2 ** (this.reconnectAttempts - 1), 30000)
+    const jitter = Math.random() * 1000
+    const delay = Math.max(baseDelay + jitter, 1000)
 
     this.reconnectTimeout = setTimeout(() => {
-      this.reconnectTimeout = null;
-      this.connect();
-    }, delay);
+      this.reconnectTimeout = null
+      this.connect()
+    }, delay)
   }
 
   isConnected(): boolean {
-    return (
-      this.abortController !== null && !this.abortController.signal.aborted
-    );
+    return this.abortController !== null && !this.abortController.signal.aborted
   }
 }

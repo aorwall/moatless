@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import { build } from '../../test/helper.js'
 
@@ -40,7 +40,7 @@ describe('WebSocket Events', () => {
 
     const messages: any[] = []
 
-    ws.on('message', data => {
+    ws.on('message', (data) => {
       messages.push(JSON.parse(data.toString()))
     })
 
@@ -52,7 +52,7 @@ describe('WebSocket Events', () => {
     })
 
     // Should receive connection event
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(messages).toHaveLength(1)
     expect(messages[0].type).toBe('connection')
     expect(messages[0].status).toBe('connected')
@@ -69,7 +69,7 @@ describe('WebSocket Events', () => {
     })
 
     // Wait for event to be received
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(messages).toHaveLength(2)
     expect(messages[1].type).toBe('message')
     expect(messages[1].payload.content).toBe('Test message')
@@ -84,7 +84,7 @@ describe('WebSocket Events', () => {
     const port = typeof address === 'string' ? address : address?.port
     const ws = new WebSocket(`ws://localhost:${port}/api/tasks/non-existent/events/stream`)
 
-    await new Promise<void>(resolve => {
+    await new Promise<void>((resolve) => {
       ws.on('close', (code, reason) => {
         expect(code).toBe(1008)
         expect(reason.toString()).toBe('Task not found')
@@ -119,7 +119,7 @@ describe('WebSocket Events', () => {
     ws.close()
 
     // Wait for cleanup
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
 
     // Verify unsubscribe was called
     expect(unsubscribeSpy).toHaveBeenCalled()

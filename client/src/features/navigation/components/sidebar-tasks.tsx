@@ -1,8 +1,8 @@
-import { Link } from '@tanstack/react-router';
-import { Loader2 } from 'lucide-react';
+import { Link } from '@tanstack/react-router'
+import { Loader2 } from 'lucide-react'
 
-import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons';
-import { useTasksList } from '@/features/tasks/hooks/use-tasks';
+import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
+import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -10,7 +10,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from '@/lib/components/ui/sidebar';
+} from '@/lib/components/ui/sidebar'
 
 export function SidebarTasks() {
   // Fetch all tasks
@@ -24,7 +24,7 @@ export function SidebarTasks() {
       refetchInterval: 5000,
       refetchIntervalInBackground: true,
     },
-  );
+  )
 
   // Sort all tasks by last_message_at, with running tasks first
   const sortedTasks =
@@ -32,18 +32,18 @@ export function SidebarTasks() {
       ?.sort((a, b) => {
         // First sort by is_running
         if (a.is_running && !b.is_running) {
-          return -1;
+          return -1
         }
         if (!a.is_running && b.is_running) {
-          return 1;
+          return 1
         }
         // Then by last_message_at
         return (
           new Date(b.last_message_at || b.created_at).getTime() -
           new Date(a.last_message_at || a.created_at).getTime()
-        );
+        )
       })
-      .slice(0, 20) || [];
+      .slice(0, 20) || []
 
   if (isLoading) {
     return (
@@ -53,7 +53,7 @@ export function SidebarTasks() {
           <SidebarTasksSkeleton />
         </SidebarGroupContent>
       </SidebarGroup>
-    );
+    )
   }
 
   if (error) {
@@ -61,12 +61,10 @@ export function SidebarTasks() {
       <SidebarGroup>
         <SidebarGroupLabel>Tasks</SidebarGroupLabel>
         <SidebarGroupContent>
-          <div className="px-3 py-2 text-sm text-destructive">
-            Failed to load tasks
-          </div>
+          <div className="px-3 py-2 text-sm text-destructive">Failed to load tasks</div>
         </SidebarGroupContent>
       </SidebarGroup>
-    );
+    )
   }
 
   return (
@@ -89,14 +87,10 @@ export function SidebarTasks() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground w-full">
-                        <span className="truncate">
-                          {task.environment_name}
-                        </span>
+                        <span className="truncate">{task.environment_name}</span>
                         <span className="text-muted-foreground/60">•</span>
                         <span className="flex-shrink-0">
-                          {new Date(
-                            task.last_message_at || task.created_at,
-                          ).toLocaleDateString()}
+                          {new Date(task.last_message_at || task.created_at).toLocaleDateString()}
                         </span>
                       </div>
                     </div>
@@ -106,11 +100,9 @@ export function SidebarTasks() {
             ))}
           </SidebarMenu>
         ) : (
-          <div className="px-3 py-2 text-sm text-muted-foreground">
-            No tasks found
-          </div>
+          <div className="px-3 py-2 text-sm text-muted-foreground">No tasks found</div>
         )}
       </SidebarGroupContent>
     </SidebarGroup>
-  );
+  )
 }

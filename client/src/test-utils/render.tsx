@@ -1,10 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { RenderOptions } from '@testing-library/react';
-import { render } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { RenderOptions } from '@testing-library/react'
+import { render } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 
 interface AllTheProvidersProps {
-  children: ReactNode;
+  children: ReactNode
 }
 
 export function createTestQueryClient() {
@@ -19,25 +19,21 @@ export function createTestQueryClient() {
         retry: false,
       },
     },
-  });
+  })
 }
 
 function AllTheProviders({ children }: AllTheProvidersProps) {
-  const queryClient = createTestQueryClient();
+  const queryClient = createTestQueryClient()
 
-  return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }
 
-const customRender = (
-  ui: ReactElement,
-  options?: Omit<RenderOptions, 'wrapper'>,
-) => render(ui, { wrapper: AllTheProviders, ...options });
+const customRender = (ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) =>
+  render(ui, { wrapper: AllTheProviders, ...options })
 
 // Re-export everything
-export * from '@testing-library/react';
-export { customRender as render };
+export * from '@testing-library/react'
+export { customRender as render }
 
 // Helper to render with router context
 export function renderWithRouter(
@@ -46,24 +42,21 @@ export function renderWithRouter(
     route = '/',
     ...renderOptions
   }: {
-    route?: string;
+    route?: string
   } & Omit<RenderOptions, 'wrapper'> = {},
 ) {
-  const queryClient = createTestQueryClient();
+  const queryClient = createTestQueryClient()
 
   // For testing, we just render with query client
   // Router mocking is handled in individual test files
-  return render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
-    renderOptions,
-  );
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>, renderOptions)
 }
 
 // Helper to create wrapper for renderHook
 export function createWrapper() {
-  const queryClient = createTestQueryClient();
+  const queryClient = createTestQueryClient()
 
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  )
 }

@@ -4,15 +4,15 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/lib/components/ui/select';
-import type { Environment } from '@/types/environment';
+} from '@/lib/components/ui/select'
+import type { Environment } from '@/types/environment'
 
 interface EnvironmentSelectorProps {
-  environments?: Array<Environment>;
-  selectedEnvironmentId?: string;
-  onEnvironmentChange: (environmentId: string) => void;
-  disabled?: boolean;
-  loading?: boolean;
+  environments?: Array<Environment>
+  selectedEnvironmentId?: string
+  onEnvironmentChange: (environmentId: string) => void
+  disabled?: boolean
+  loading?: boolean
 }
 
 export function EnvironmentSelector({
@@ -39,5 +39,5 @@ export function EnvironmentSelector({
         ))}
       </SelectContent>
     </Select>
-  );
+  )
 }
