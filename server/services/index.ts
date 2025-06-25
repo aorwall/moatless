@@ -22,7 +22,7 @@ export async function setupServices(app: FastifyInstance): Promise<Services> {
   const event = createEventService(app, storage)
   const environment = createEnvironmentService(app, storage)
   const workspace = createWorkspaceService(app, environment, event, taskStorage)
-  const task = createTaskService(app, taskStorage, event, environment, workspace)
+  const task = createTaskService(app, taskStorage, event, workspace)
 
   return {
     storage,

@@ -3,11 +3,11 @@ import type { FastifyInstance } from 'fastify'
 import { TaskNotFoundError, ValidationError } from '../../shared/constants/errors.js'
 import { EventType } from '../../shared/types/event.js'
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
-import { createTaskLogger } from '../utils/logger.js'
-import type { EnvironmentService } from './environment.service.js'
+import {createTaskLogger, logger} from '../utils/logger.js'
 import type { EventService } from './event.service.js'
 import type { TaskStorageService } from './task-storage.service.js'
 import type { WorkspaceService } from './workspace.service.js'
+import {BaseAgent} from "@server/services/agents/base-agent.js";
 
 export class TaskService {
   private backgroundTasks = new Set<Promise<void>>()
@@ -15,14 +15,11 @@ export class TaskService {
   constructor(
     private taskStorageService: TaskStorageService,
     private eventService: EventService,
-    private environmentService: EnvironmentService,
     private workspaceService: WorkspaceService,
   ) {}
 
   async createTask(params: CreateTaskRequest): Promise<string> {
-    const taskLogger = createTaskLogger('')
-
-    taskLogger.debug('Starting task creation', {
+    logger.info('Starting task creation', {
       agentType: params.agentType,
       environmentId: params.environmentId,
       hasBranchName: !!params.branchName,
@@ -30,25 +27,9 @@ export class TaskService {
       start: params.start ?? true,
     })
 
-    // Validate environment exists
-    const environment = await this.environmentService.getEnvironment(params.environmentId)
-    if (!environment) {
-      taskLogger.error('Environment validation failed', undefined, {
-        environmentId: params.environmentId,
-      })
-      throw new ValidationError(`Environment ${params.environmentId} not found`, {
-        environmentId: params.environmentId,
-      })
-    }
-
-    const taskId = randomUUID()
     const now = new Date()
-
-    // Update logger context with actual taskId
-    const taskSpecificLogger = createTaskLogger(taskId)
-
-    const metadata: Task = {
-      taskId,
+    const task: Task = {
+      taskId: randomUUID(),
       createdAt: now,
       lastMessageAt: now,
       agentType: params.agentType,
@@ -59,38 +40,40 @@ export class TaskService {
       iterations: [],
     }
 
-    taskSpecificLogger.info('Task metadata created', {
-      taskId,
-      agentType: params.agentType,
-      environmentId: params.environmentId,
-    })
+    const workspace = await this.workspaceService.createWorkspace(task.taskId, params.environmentId)
+    task.workspacePath = workspace.getWorkspacePath()
 
     try {
-      await this.saveMetadata(taskId, metadata)
-      taskSpecificLogger.debug('Task metadata saved successfully')
+      await this.saveMetadata(task.taskId, task)
+
+      logger.info('Task metadata created successfully', {
+        taskId: task.taskId,
+        agentType: params.agentType,
+        environmentId: params.environmentId,
+        workspacePath: task.workspacePath,
+      })
     } catch (error) {
-      taskSpecificLogger.error('Failed to save task metadata', error as Error)
+      logger.error('Failed to save task metadata', error as Error)
       throw error
     }
 
-    // Setup workspace asynchronously in background
-    taskSpecificLogger.info('Starting background workspace setup')
     const setupTask = this.setupWorkspaceAsync(
-      taskId,
-      metadata,
+      task.taskId,
+      task,
       params.branchName,
       params.message,
       params.start ?? true,
     )
 
     this.backgroundTasks.add(setupTask)
+
     setupTask.finally(() => {
       this.backgroundTasks.delete(setupTask)
-      taskSpecificLogger.debug('Background workspace setup task completed')
+      logger.debug('Background workspace setup task completed')
     })
 
-    taskSpecificLogger.info('Task creation completed successfully', { taskId })
-    return taskId
+    logger.info('Task creation completed successfully', { taskId: task.taskId })
+    return task.taskId
   }
 
   async getTask(taskId: string): Promise<Task | null> {
@@ -139,17 +122,6 @@ export class TaskService {
 
     await this.saveMetadata(taskId, metadata)
 
-    // Emit input event
-    await this.eventService.emitEvent({
-      eventId: randomUUID(),
-      type: EventType.INPUT,
-      taskId,
-      iterationId: iterationNumber,
-      timestamp: now,
-      isError: false,
-      payload: { message },
-    })
-
     // Get or create workspace
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
 
@@ -169,25 +141,9 @@ export class TaskService {
     }
 
     // Start workspace (will run setup if needed and trigger agent)
-    await this.workspaceService.startWorkspace(
-      taskId,
-      metadata.agentType,
-      message,
-      iterationNumber,
-    )
-    
-    // Get agent session ID from the workspace
-    const agentSessionId = undefined // Session ID is handled within the agent now
-
-    // Update the current iteration with the agent session ID
-    if (agentSessionId && metadata.iterations.length > 0) {
-      metadata.iterations[metadata.iterations.length - 1].agentSessionId = agentSessionId
-      await this.saveMetadata(taskId, metadata)
-      taskLogger.debug('Updated iteration with agent session ID', {
-        agentSessionId,
-        iterationNumber,
-      })
-    }
+    const agent: BaseAgent = await this.workspaceService.startWorkspace(taskId, metadata.agentType, message, iterationNumber)
+    iteration.agentSessionId = agent.getSessionId()
+    await this.saveMetadata(taskId, metadata)
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
@@ -246,9 +202,6 @@ export class TaskService {
     })
 
     try {
-      // Create workspace (will wait for worktree creation if needed)
-      await this.workspaceService.createWorkspace(taskId, branchName)
-      
       // Setup workspace in background
       await this.workspaceService.setupWorkspace(taskId)
 
@@ -289,8 +242,7 @@ export function createTaskService(
   _app: FastifyInstance,
   taskStorageService: TaskStorageService,
   eventService: EventService,
-  environmentService: EnvironmentService,
   workspaceService: WorkspaceService,
 ): TaskService {
-  return new TaskService(taskStorageService, eventService, environmentService, workspaceService)
+  return new TaskService(taskStorageService, eventService, workspaceService)
 }

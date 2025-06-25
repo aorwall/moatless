@@ -48,22 +48,18 @@ export class EventService extends EventEmitter {
     eventType?: EventType,
     task?: Task,
   ): Promise<Event[]> {
-    let events = await this.storage.getEvents(taskId)
+    let events: Event[] = []
 
     // If task is provided and agent type is claude-code, merge with Claude events from disk
     if (task && task.agentType === 'claude-code') {
       try {
-        const claudeEvents = await readClaudeCodeEvents(this.claudeCodeSettings, task)
-        // Merge events, sorting by timestamp
-        events = [...events, ...claudeEvents].sort((a, b) => {
-          const timeA = new Date(a.timestamp).getTime()
-          const timeB = new Date(b.timestamp).getTime()
-          return timeA - timeB
-        })
+        events = await readClaudeCodeEvents(this.claudeCodeSettings, task)
       } catch (error) {
         // Log error but don't fail the request
         console.error('Failed to read Claude Code events from disk:', error)
       }
+    } else {
+      events = await this.storage.getEvents(taskId)
     }
 
     // Filter by event type if specified

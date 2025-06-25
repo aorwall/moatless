@@ -2,8 +2,9 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeSettings } from '@shared/types/claude.js'
-import {type Event, EventType, MessageEvent} from '@shared/types/event.js'
+import { type Event, EventType, type MessageEvent } from '@shared/types/event.js'
 import type { Task } from '@shared/types/task.js'
+import { logger } from './logger.js'
 
 /**
  * Convert SDK message to Event format
@@ -39,6 +40,7 @@ export function generateProjectId(workspacePath: string): string {
  */
 export function getClaudeEventsFilePath(settings: ClaudeCodeSettings, task: Task): string | null {
   if (!task.workspacePath) {
+    logger.warn('No workspace path for Claude Code events', { taskId: task.taskId })
     return null
   }
 
@@ -49,13 +51,26 @@ export function getClaudeEventsFilePath(settings: ClaudeCodeSettings, task: Task
     .find((iter) => iter.agentSessionId)
 
   if (!lastIteration?.agentSessionId) {
+    logger.warn('No iteration with Claude Code session ID found', {
+      taskId: task.taskId,
+      totalIterations: task.iterations.length,
+      iterationsWithSessionIds: task.iterations.filter((iter) => iter.agentSessionId).length,
+    })
     return null
   }
 
   const projectId = generateProjectId(task.workspacePath)
   const sessionId = lastIteration.agentSessionId
+  const filePath = path.join(settings.claudeConfigPath, 'projects', projectId, `${sessionId}.jsonl`)
 
-  return path.join(settings.claudeConfigPath, 'projects', projectId, `${sessionId}.jsonl`)
+  logger.info('Generated Claude Code events file path', {
+    taskId: task.taskId,
+    projectId,
+    sessionId,
+    filePath,
+  })
+
+  return filePath
 }
 
 /**
@@ -67,6 +82,9 @@ export async function readClaudeCodeEvents(
 ): Promise<Event[]> {
   const filePath = getClaudeEventsFilePath(settings, task)
   if (!filePath) {
+    logger.warn('Cannot read Claude Code events - no file path available', {
+      taskId: task.taskId,
+    })
     return []
   }
 
@@ -80,22 +98,43 @@ export async function readClaudeCodeEvents(
       .reverse()
       .find((iter) => iter.agentSessionId)
 
+    let parseErrors = 0
     for (const line of lines) {
       try {
         const sdkMessage = JSON.parse(line) as SDKMessage
         const event = sdkMessageToEvent(sdkMessage, task.taskId, lastIteration?.iterationNumber)
         events.push(event)
       } catch (parseError) {
-        console.error('Failed to parse SDK message:', parseError)
+        parseErrors++
+        logger.warn('Failed to parse Claude Code SDK message', {
+          taskId: task.taskId,
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+        })
       }
     }
+
+    logger.info('Successfully read Claude Code events', {
+      taskId: task.taskId,
+      filePath,
+      totalLines: lines.length,
+      eventsRead: events.length,
+      parseErrors,
+    })
 
     return events
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      // File doesn't exist, return empty array
+      logger.debug('Claude Code events file does not exist', {
+        taskId: task.taskId,
+        filePath,
+      })
       return []
     }
+
+    logger.error('Error reading Claude Code events file', error as Error, {
+      taskId: task.taskId,
+      filePath,
+    })
     throw error
   }
 }

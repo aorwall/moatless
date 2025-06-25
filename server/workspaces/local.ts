@@ -77,7 +77,7 @@ export class LocalWorkspace extends BaseWorkspace {
     this.originalBranch = originalBranch
     this.branchName = branchName
     this.logger = createTaskLogger(taskId)
-    
+
     // Use existing workspace path if provided
     if (existingWorkspacePath) {
       this.workspacePath = existingWorkspacePath
@@ -93,13 +93,13 @@ export class LocalWorkspace extends BaseWorkspace {
     })
   }
 
-  async setup(iterationNumber?: number): Promise<void> {
+  async setup(): Promise<void> {
     this.setupInProgress = true
     const startTime = Date.now()
 
     this.logger.info('Starting LocalWorkspace setup', {
-      iterationNumber,
       environmentId: this.environment.id,
+      workspacePath: this.workspacePath,
     })
 
     try {
@@ -111,22 +111,15 @@ export class LocalWorkspace extends BaseWorkspace {
         throw new Error('LocalWorkspace requires local repository')
       }
 
-      const repo = this.environment.repository as LocalRepository
-
-      // Step 2: Set workspace path if not already set
+      // Step 2: Validate workspace path is set
       if (!this.workspacePath) {
-        await this.setWorkspacePath(repo)
-      } else {
-        this.logger.info('Using existing workspace path', { workspacePath: this.workspacePath })
-        // Extract branch info from existing workspace if needed
-        await this.extractBranchInfoFromExistingWorkspace(repo)
+        throw new Error('Workspace path must be provided to LocalWorkspace constructor')
       }
 
-      // Step 3: Create worktree if needed (synchronously)
-      if (!(await this.pathExists(this.workspacePath))) {
-        if (repo.useGitWorktrees) {
-          await this.createWorktreeWorkspace(repo)
-        }
+      // Step 3: Extract branch info from existing workspace if needed
+      const repo = this.environment.repository as LocalRepository
+      if (repo.useGitWorktrees) {
+        await this.extractBranchInfoFromExistingWorkspace(repo)
       }
 
       // Step 4: Mark setup as partially complete (workspace ready)
@@ -139,7 +132,6 @@ export class LocalWorkspace extends BaseWorkspace {
         this._error = error instanceof Error ? error.message : String(error)
         this.logger.error('Background setup commands failed', error as Error)
       })
-
     } catch (error) {
       const failureTime = Date.now() - startTime
       this._error = error instanceof Error ? error.message : String(error)
@@ -155,38 +147,6 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  private async setWorkspacePath(repo: LocalRepository): Promise<void> {
-    // Step 1: Check if environment repo path exists
-    if (!(await this.pathExists(repo.path))) {
-      throw new Error(`Repository path does not exist: ${repo.path}`)
-    }
-
-    const workspaceDir = this.getWorktreeDir()
-
-    this.logger.debug('Repository configuration loaded', {
-      repositoryPath: repo.path,
-      useGitWorktrees: repo.useGitWorktrees,
-      workspaceDir,
-    })
-
-    // Step 2: Determine workspace path based on worktree configuration
-    if (repo.useGitWorktrees) {
-      this.workspacePath = path.join(workspaceDir, this.getWorktreeFolderName())
-      this.logger.info('Using git worktree setup', { workspacePath: this.workspacePath })
-
-      // Check if worktree path already exists
-      if (!(await this.pathExists(this.workspacePath))) {
-        // Verify repo is a git repository before creating worktree
-        if (!(await isGitRepository(repo.path))) {
-          throw new Error('Repository path is not a git repository')
-        }
-        // Create worktree directory will happen in background setup
-      }
-    } else {
-      this.workspacePath = repo.path
-      this.logger.info('Using direct repository path', { workspacePath: this.workspacePath })
-    }
-  }
 
   private async extractBranchInfoFromExistingWorkspace(repo: LocalRepository): Promise<void> {
     // If we have an existing workspace path with git worktrees, extract the branch info
@@ -212,7 +172,6 @@ export class LocalWorkspace extends BaseWorkspace {
         setupTimeMs: totalSetupTime,
         workspacePath: this.workspacePath,
       })
-
     } catch (error) {
       const failureTime = Date.now() - startTime
       this._error = error instanceof Error ? error.message : String(error)
@@ -228,29 +187,6 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  private async createWorktreeWorkspace(repo: LocalRepository): Promise<void> {
-    this.logger.info('Creating git worktree for workspace')
-
-    const worktreeStartTime = Date.now()
-    try {
-      await this.createGitWorktree(repo.path, this.workspacePath)
-
-      const worktreeCreationTime = Date.now() - worktreeStartTime
-      this.logger.info('Git worktree created successfully', {
-        path: this.workspacePath,
-        branch: this.getBranchName(),
-        creationTimeMs: worktreeCreationTime,
-      })
-    } catch (error) {
-      const worktreeFailureTime = Date.now() - worktreeStartTime
-      this.logger.error('Failed to create git worktree', error as Error, {
-        repositoryPath: repo.path,
-        workspacePath: this.workspacePath,
-        timeToFailureMs: worktreeFailureTime,
-      })
-      throw error
-    }
-  }
 
   private async runSetupCommands(): Promise<void> {
     if (!this.environment.codeExecution.setupCommands) {
@@ -543,33 +479,33 @@ export class LocalWorkspace extends BaseWorkspace {
     return agent
   }
 
-  async start(agentType: string, message: string, iterationNumber: number): Promise<void> {
+  async start(agentType: string, message: string, iterationNumber: number): Promise<BaseAgent> {
     if (this.getStatus() === WorkspaceStatus.RUNNING) {
       throw new Error(`Workspace ${this.taskId} is already running`)
     }
 
     // Run setup (will wait for worktree creation but not setup commands)
-    await this.setup(iterationNumber)
+    await this.setup()
 
     // Wait for setup commands to complete before triggering agent
     await this.waitForSetupCompletion()
 
     // Trigger the agent
-    await this.triggerAgent(agentType, message, iterationNumber)
+    return await this.triggerAgent(agentType, message, iterationNumber)
   }
 
   private async waitForSetupCompletion(timeout = 60000): Promise<void> {
     const startTime = Date.now()
-    
+
     while (!this.setupComplete && !this._error) {
       if (Date.now() - startTime > timeout) {
         throw new Error('Setup timeout exceeded')
       }
-      
+
       // Wait a bit before checking again
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    
+
     if (this._error) {
       throw new Error(`Setup failed: ${this._error}`)
     }
@@ -761,82 +697,12 @@ export class LocalWorkspace extends BaseWorkspace {
   getWorkspacePath(): string {
     return this.workspacePath
   }
-  
+
   isWorkspacePathSet(): boolean {
     return !!this.workspacePath
   }
 
-  // Private helper methods
-  private getWorktreeDir(): string {
-    // Ensure we have a LocalRepository
-    if (this.environment.repository.type !== 'local') {
-      throw new Error('Workspace directory calculation requires local repository')
-    }
 
-    const repo = this.environment.repository as LocalRepository
-
-    // If worktrees are disabled, use repository path directly
-    if (!repo.useGitWorktrees) {
-      return repo.path
-    }
-
-    // Check for environment variable first
-    const worktreeDir = process.env.WORKTREE_DIR
-    if (worktreeDir) {
-      return worktreeDir
-    }
-
-    // Default to "../" relative to repo path
-    return path.join(repo.path, '..')
-  }
-
-  private getBranchName(): string {
-    return `workspace-${this.taskId}`
-  }
-
-  private getWorktreeFolderName(): string {
-    // Get the last directory name from the repo path
-    const repo = this.environment.repository as LocalRepository
-    const repoLastDirName = path.basename(repo.path)
-
-    // Use the branch name for the worktree folder
-    return `${repoLastDirName}-${this.getBranchName()}`
-  }
-
-  private async createGitWorktree(repoPath: string, workspacePath: string): Promise<void> {
-    this.logger.debug('Creating git worktree', { repoPath, workspacePath })
-
-    // Get current branch to restore later
-    this.originalBranch = await getCurrentBranch(repoPath)
-    this.logger.debug('Original branch detected', { originalBranch: this.originalBranch })
-
-    // Use provided branch name or create new branch name
-    if (this.branchName) {
-      // Create worktree from existing branch (no -b flag)
-      this.branch = this.branchName
-      this.logger.debug('Using existing branch for worktree', { branch: this.branch })
-
-      await execAsync(`git worktree add "${workspacePath}" "${this.branch}"`, {
-        cwd: repoPath,
-        timeout: 30000,
-      })
-    } else {
-      // Create new branch for worktree
-      this.branch = this.getBranchName()
-      this.logger.debug('Creating new branch for worktree', { branch: this.branch })
-
-      await execAsync(`git worktree add -b "${this.branch}" "${workspacePath}"`, {
-        cwd: repoPath,
-        timeout: 30000,
-      })
-    }
-
-    this.logger.info('Git worktree created successfully', {
-      workspacePath,
-      branch: this.branch,
-      originalBranch: this.originalBranch,
-    })
-  }
 
   private async removeGitWorktree(repoPath: string, workspacePath: string): Promise<void> {
     this.logger.debug('Removing git worktree', {

@@ -19,6 +19,19 @@ vi.mock('child_process', () => ({
   }),
 }))
 
+// Mock fs promises
+vi.mock('fs', () => ({
+  promises: {
+    access: vi.fn().mockResolvedValue(undefined),
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    readFile: vi.fn().mockResolvedValue('file content'),
+    rm: vi.fn().mockResolvedValue(undefined),
+    stat: vi.fn().mockResolvedValue({ isFile: () => false, isDirectory: () => true }),
+    readdir: vi.fn().mockResolvedValue([]),
+  },
+}))
+
 // Mock git-utils
 vi.mock('../../utils/git-utils.js', () => ({
   getCurrentBranch: vi.fn().mockResolvedValue('main'),
@@ -64,6 +77,8 @@ describe('WorkspaceService', () => {
 
   describe('getOrCreateWorkspace', () => {
     it('should create a local workspace', async () => {
+      // Mock fs.access to return true for repo path
+      vi.mocked(fs.access).mockResolvedValue(undefined)
       // Create test environment
       const environment = await environmentService.createEnvironment({
         name: 'Test Environment',
@@ -110,6 +125,8 @@ describe('WorkspaceService', () => {
     })
 
     it('should persist and reuse workspace path', async () => {
+      // Mock fs.access to return true for repo path
+      vi.mocked(fs.access).mockResolvedValue(undefined)
       // Create test environment
       const environment = await environmentService.createEnvironment({
         name: 'Test Environment',
@@ -148,9 +165,9 @@ describe('WorkspaceService', () => {
       vi.spyOn(fs, 'access').mockResolvedValue(undefined)
 
       // First creation
-      const workspace1 = await service.createWorkspace('test-task-persist')
+      const workspace1 = await service.createWorkspace('test-task-persist', environment.id)
       await service.setupWorkspace('test-task-persist')
-      
+
       const workspacePath = workspace1.getWorkspacePath()
       expect(workspacePath).toBeTruthy()
 
@@ -159,6 +176,7 @@ describe('WorkspaceService', () => {
       expect(updatedTask?.workspacePath).toBe(workspacePath)
 
       // Clear active workspaces to simulate restart
+
       ;(service as any).activeWorkspaces.clear()
 
       // Second creation should use saved path
@@ -201,17 +219,21 @@ describe('WorkspaceService', () => {
 
       // Mock fs.access to simulate workspace doesn't exist
       vi.spyOn(fs, 'access').mockRejectedValue(new Error('File not found'))
-      
+
       // Mock fs.mkdir to fail
       vi.spyOn(fs, 'mkdir').mockRejectedValue(new Error('ENOENT: no such file or directory'))
 
       await service.getOrCreateWorkspace('test-task-fail')
 
       // Setup should fail
-      await expect(service.setupWorkspace('test-task-fail')).rejects.toThrow('Repository path does not exist')
+      await expect(service.setupWorkspace('test-task-fail')).rejects.toThrow(
+        'Repository path does not exist',
+      )
     })
 
     it('should return existing workspace if already created', async () => {
+      // Mock fs.access to return true for repo path
+      vi.mocked(fs.access).mockResolvedValue(undefined)
       const environment = await environmentService.createEnvironment({
         name: 'Test Environment',
         repository: {
@@ -459,6 +481,8 @@ describe('WorkspaceService', () => {
 
   describe('workspace cleanup', () => {
     it('should cleanup local workspace with worktree', async () => {
+      // Mock fs.access to return true for repo path
+      vi.mocked(fs.access).mockResolvedValue(undefined)
       const environment = await environmentService.createEnvironment({
         name: 'Test Environment',
         repository: {

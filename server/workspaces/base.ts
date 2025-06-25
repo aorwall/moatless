@@ -77,7 +77,7 @@ export abstract class BaseWorkspace {
   /**
    * Start the workspace by running setup and triggering agent
    */
-  abstract start(agentType: string, message: string, iterationNumber: number): Promise<void>
+  abstract start(agentType: string, message: string, iterationNumber: number): Promise<BaseAgent>
 
   /**
    * Check if an agent is currently running in this workspace

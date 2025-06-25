@@ -48,7 +48,22 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         messages.push(sdkMessage)
-        const event = this.createEvent('message', sdkMessage)
+
+        // Detect if this is a tool call or tool result message
+        let subType: string | undefined
+        if (sdkMessage.type === 'assistant' && sdkMessage.message?.content) {
+          const content = sdkMessage.message.content
+          if (Array.isArray(content) && content.some((item) => item.type === 'tool_use')) {
+            subType = 'tool_call'
+          }
+        } else if (sdkMessage.type === 'user' && sdkMessage.message?.content) {
+          const content = sdkMessage.message.content
+          if (Array.isArray(content) && content.some((item) => item.type === 'tool_result')) {
+            subType = 'tool_result'
+          }
+        }
+
+        const event = this.createEvent('message', sdkMessage, false, subType)
 
         if (event.isError) {
           hasError = true

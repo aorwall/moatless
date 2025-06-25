@@ -57,7 +57,6 @@ describe('TaskService', () => {
     taskService = new TaskService(
       mockTaskStorage,
       mockEventService,
-      mockEnvironmentService,
       mockWorkspaceService,
     )
   })
@@ -84,7 +83,7 @@ describe('TaskService', () => {
       } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
       vi.mocked(mockWorkspaceService.startWorkspace).mockResolvedValueOnce(undefined)
-      
+
       // Mock getTask to return the saved task for background processing
       vi.mocked(mockTaskStorage.getTask).mockImplementation((id) => {
         return Promise.resolve({
@@ -96,9 +95,10 @@ describe('TaskService', () => {
           totalCostUsd: 0,
           iterations: [],
           createdAt: new Date(),
+          lastMessageAt: new Date(),
         })
       })
-      
+
       // Mock getOrCreateWorkspace for sendMessage
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue({
         getStatus: vi.fn().mockReturnValue('ready'),
@@ -352,7 +352,12 @@ describe('TaskService', () => {
 
       // Verify workspace interaction
       expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith('task-123')
-      expect(mockWorkspaceService.startWorkspace).toHaveBeenCalledWith('task-123', 'test-agent', 'Hello, task!', 1)
+      expect(mockWorkspaceService.startWorkspace).toHaveBeenCalledWith(
+        'task-123',
+        'test-agent',
+        'Hello, task!',
+        1,
+      )
     })
 
     it('should setup workspace if not yet setup', async () => {
@@ -384,10 +389,10 @@ describe('TaskService', () => {
 
       // Verify workspace was started with the right parameters
       expect(mockWorkspaceService.startWorkspace).toHaveBeenCalledWith(
-        'task-123', 
-        'test-agent', 
-        'Hello, task!', 
-        1
+        'task-123',
+        'test-agent',
+        'Hello, task!',
+        1,
       )
     })
 
@@ -483,11 +488,17 @@ describe('TaskService', () => {
 
       // Delay workspace creation
       vi.mocked(mockWorkspaceService.createWorkspace).mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve({ id: 'ws-123', getWorkspacePath: () => '/test/path' } as any), 50)),
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ id: 'ws-123', getWorkspacePath: () => '/test/path' } as any),
+              50,
+            ),
+          ),
       )
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
       vi.mocked(mockWorkspaceService.startWorkspace).mockResolvedValueOnce(undefined)
-      
+
       // Mock getTask for background processing
       vi.mocked(mockTaskStorage.getTask).mockImplementation((id) => {
         return Promise.resolve({
@@ -499,9 +510,10 @@ describe('TaskService', () => {
           totalCostUsd: 0,
           iterations: [],
           createdAt: new Date(),
+          lastMessageAt: new Date(),
         })
       })
-      
+
       // Mock getOrCreateWorkspace for sendMessage
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue({
         getStatus: vi.fn().mockReturnValue('ready'),
