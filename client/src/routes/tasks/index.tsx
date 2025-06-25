@@ -1,10 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-
 import { TaskList } from '@/features/tasks/components/task-list'
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import type { Task } from '@shared/types/task'
 
 export const Route = createFileRoute('/tasks/')({
   component: TasksIndex,

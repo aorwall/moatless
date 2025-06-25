@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { TaskNotFoundError, ValidationError } from '../../shared/constants/errors.js'
 import { EventType } from '../../shared/types/event.js'
-import type { CreateTaskRequest, TaskIteration, TaskMetadata } from '../../shared/types/task.js'
+import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
@@ -30,7 +30,7 @@ export class TaskService {
     const taskId = randomUUID()
     const now = new Date()
 
-    const metadata: TaskMetadata = {
+    const metadata: Task = {
       taskId,
       createdAt: now,
       lastMessageAt: now,
@@ -72,13 +72,13 @@ export class TaskService {
     return taskId
   }
 
-  async getTask(taskId: string): Promise<TaskMetadata | null> {
+  async getTask(taskId: string): Promise<Task | null> {
     return this.storage.getTask(taskId)
   }
 
-  async listTasks(limit = 50, offset = 0): Promise<TaskMetadata[]> {
+  async listTasks(limit = 50, offset = 0): Promise<Task[]> {
     const taskKeys = await this.storage.list('tasks/')
-    const tasks: TaskMetadata[] = []
+    const tasks: Task[] = []
 
     for (const key of taskKeys) {
       const taskId = key.replace('tasks/', '')
@@ -128,9 +128,33 @@ export class TaskService {
       isError: false,
       payload: { message },
     })
+
+    // Get or create workspace
+    const workspace = await this.workspaceService.getWorkspace(taskId)
+    if (!workspace) {
+      throw new ValidationError(`Workspace not found for task ${taskId}`, { taskId })
+    }
+
+    // Check workspace status and setup if needed
+    const status = workspace.getStatus()
+    if (status === 'running') {
+      throw new ValidationError(`Task ${taskId} is already running`, { taskId })
+    } else if (status === 'setting_up') {
+      // Wait for setup to complete
+      console.log(`Waiting for workspace setup to complete for task ${taskId}`)
+      // TODO: Implement wait logic
+    }
+
+    // If workspace is not setup, run setup first
+    if (status === 'not_setup') {
+      await workspace.setup(iterationNumber)
+    }
+
+    // Trigger the agent
+    await workspace.triggerAgent(metadata.agentType, message, iterationNumber)
   }
 
-  async updateTask(taskId: string, updates: Partial<TaskMetadata>): Promise<void> {
+  async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
     const metadata = await this.getTask(taskId)
     if (!metadata) {
       throw new TaskNotFoundError(taskId)
@@ -164,20 +188,20 @@ export class TaskService {
     })
   }
 
-  private async saveMetadata(_taskId: string, metadata: TaskMetadata): Promise<void> {
+  private async saveMetadata(_taskId: string, metadata: Task): Promise<void> {
     await this.storage.saveTask(metadata)
   }
 
   private async setupWorkspaceAsync(
     taskId: string,
-    metadata: TaskMetadata,
+    metadata: Task,
     branchName?: string,
     message?: string,
     start?: boolean,
   ): Promise<void> {
     try {
       // Create workspace
-      const workspace = await this.workspaceService.createWorkspace(
+      await this.workspaceService.createWorkspace(
         taskId,
         metadata.environmentId,
         branchName,
@@ -191,7 +215,7 @@ export class TaskService {
         taskId,
         timestamp: new Date(),
         isError: false,
-        payload: { workspaceId: workspace.id },
+        payload: { workspaceId: taskId },
       })
 
       if (start && message) {

@@ -1,4 +1,5 @@
 import { EventType } from '@shared/types/event'
+import type { TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
 import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -11,7 +12,6 @@ import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { TaskIteration } from '@shared/types/task'
 
 import { ChatInput } from '../chat-input'
 
@@ -82,11 +82,7 @@ export function ChatView() {
 
   useEffect(() => {
     // Only scroll to bottom when task is running/workspace is active AND user is already at bottom
-    if (
-      bottomRef.current &&
-      isAtBottom &&
-      (workspaceStatus?.status === 'running')
-    ) {
+    if (bottomRef.current && isAtBottom && workspaceStatus?.status === 'running') {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   })
@@ -136,8 +132,7 @@ export function ChatView() {
   // Calculate running duration for active iteration
   const getRunningDuration = (iteration: TaskIteration, index: number): number => {
     const isLastIteration = index === (metadata.iterations?.length || 0) - 1
-    const isRunning =
-      isLastIteration && (workspaceStatus?.status === 'running')
+    const isRunning = isLastIteration && workspaceStatus?.status === 'running'
 
     if (!isRunning) {
       return iteration.durationMs || 0
@@ -206,20 +201,17 @@ export function ChatView() {
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
                     </div>
                   )}
-
                 </div>
               )
             })}
 
             {/* Show running state when workspace is running or task is running */}
-            {isWorkspaceRunning &&
-              metadata.iterations &&
-              metadata.iterations.length > 0 && (
-                <div className="flex items-center justify-center py-4 space-x-2">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Processing...</span>
-                </div>
-              )}
+            {isWorkspaceRunning && metadata.iterations && metadata.iterations.length > 0 && (
+              <div className="flex items-center justify-center py-4 space-x-2">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                <span className="text-sm text-gray-600 dark:text-gray-400">Processing...</span>
+              </div>
+            )}
 
             <div ref={bottomRef} />
           </div>

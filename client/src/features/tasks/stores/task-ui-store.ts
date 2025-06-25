@@ -1,7 +1,6 @@
+import type { TaskIteration } from '@shared/types/task'
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-
-import type { TaskIteration } from '@/types/task'
 
 interface TaskUIState {
   // UI state

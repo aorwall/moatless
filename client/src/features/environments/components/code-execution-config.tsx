@@ -2,7 +2,7 @@ import type {
   CodeExecution,
   SetupScriptCommand,
   SetupScriptResponse,
-} from '@shared/types/environmenttypes/environment'
+} from '@shared/types/environment'
 import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/lib/components/ui/button'

@@ -1,8 +1,8 @@
+import type { PermissionMode, UpdateClaudeCodeSettingsRequest } from '@shared/types/claude-code'
 import { createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-
 import {
   useClaudeCodeSettings,
   useClaudeCodeTools,
@@ -34,7 +34,6 @@ import {
 } from '@/lib/components/ui/select'
 import { Textarea } from '@/lib/components/ui/textarea'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { PermissionMode, UpdateClaudeCodeSettingsRequest } from '@/types/claude-code'
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,

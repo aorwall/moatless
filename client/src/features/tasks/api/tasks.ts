@@ -1,60 +1,65 @@
 import type {
-  FileSearchRequest,
-  FileSearchResponse,
-} from '@shared/types/environmenttypes/environment'
+  CreateTaskRequest,
+  EventListResponse,
+  MergeTaskResponse,
+  ServerLogsResponse,
+  SimpleTaskResponse,
+  StopAgentResponse,
+  TaskListResponse,
+} from '@shared/types/api'
+import type { FileSearchRequest, FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
-import type { GitDiffResponse, TaskResponse } from '@shared/types/task'
+import type { GitDiffResponse, Task, WorkspaceStatusResponse } from '@shared/types/task'
 import type { ServerStatus } from '@shared/types/workspace'
 import { apiClient } from '@/lib/api/client'
-import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent'
-import type { WorkspaceStatusResponse } from '@/types/task'
 
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
-    const tasks = await apiClient.get<Array<TaskResponse>>('/api/v1/tasks', {
-      active_only: true,
+    const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
+      status: 'active',
     })
-    return tasks.map((task) => task.taskId)
+    return response.tasks.map((task) => task.taskId)
   },
 
   async listTasks(params?: {
     activeOnly?: boolean
     limit?: number
     offset?: number
-  }): Promise<Array<TaskResponse>> {
-    return await apiClient.get<Array<TaskResponse>>('/api/v1/tasks', {
-      active_only: params?.activeOnly,
+  }): Promise<Array<Task>> {
+    const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
+      status: params?.activeOnly ? 'active' : undefined,
       limit: params?.limit,
       offset: params?.offset,
     })
+    return response.tasks
   },
 
-  async getTask(taskId: string): Promise<TaskResponse> {
-    return await apiClient.get<TaskResponse>(`/api/v1/tasks/${taskId}`)
+  async getTask(taskId: string): Promise<Task> {
+    return await apiClient.get<Task>(`/api/v1/tasks/${taskId}`)
   },
 
-  async getTaskMetadata(taskId: string): Promise<TaskResponse> {
-    return await apiClient.get<TaskResponse>(`/api/v1/tasks/${taskId}`)
+  async getTaskMetadata(taskId: string): Promise<Task> {
+    return await apiClient.get<Task>(`/api/v1/tasks/${taskId}`)
   },
 
-  async createTask(request: AgentTriggerRequest): Promise<AgentTriggerResponse> {
-    return await apiClient.post<AgentTriggerResponse>('/api/v1/tasks', request)
+  async createTask(request: CreateTaskRequest): Promise<SimpleTaskResponse> {
+    return await apiClient.post<SimpleTaskResponse>('/api/v1/tasks', request)
   },
 
-  async sendMessage(taskId: string, message: string): Promise<AgentTriggerResponse> {
-    return await apiClient.post<AgentTriggerResponse>(`/api/v1/tasks/${taskId}/messages`, {
+  async sendMessage(taskId: string, message: string): Promise<SimpleTaskResponse> {
+    return await apiClient.post<SimpleTaskResponse>(`/api/v1/tasks/${taskId}/messages`, {
       message,
     })
   },
 
   // Deprecated: Use createTask instead
-  triggerAgent(request: AgentTriggerRequest): Promise<AgentTriggerResponse> {
+  triggerAgent(request: CreateTaskRequest): Promise<SimpleTaskResponse> {
     return this.createTask(request)
   },
 
   // Deprecated: Use deleteTask instead
-  async stopAgent(taskId: string): Promise<{ status: string; task_id: string }> {
-    return await apiClient.post(`/api/v1/tasks/${taskId}/stop`)
+  async stopAgent(taskId: string): Promise<StopAgentResponse> {
+    return await apiClient.post<StopAgentResponse>(`/api/v1/tasks/${taskId}/stop`)
   },
 
   async getTaskEvents(
@@ -64,7 +69,11 @@ export const tasksApi = {
       offset?: number
     },
   ): Promise<Array<Event>> {
-    return await apiClient.get<Array<Event>>(`/api/v1/tasks/${taskId}/events`, params)
+    const response = await apiClient.get<EventListResponse>(
+      `/api/v1/tasks/${taskId}/events`,
+      params,
+    )
+    return response.events
   },
 
   async getTaskGitDiff(taskId: string): Promise<GitDiffResponse> {
@@ -91,15 +100,11 @@ export const tasksApi = {
     return await apiClient.get<ServerStatus>(`/api/v1/tasks/${taskId}/server/status`)
   },
 
-  async getServerLogs(taskId: string): Promise<{ logs: string; lines: number }> {
-    return await apiClient.get<{ logs: string; lines: number }>(
-      `/api/v1/tasks/${taskId}/server/logs`,
-    )
+  async getServerLogs(taskId: string): Promise<ServerLogsResponse> {
+    return await apiClient.get<ServerLogsResponse>(`/api/v1/tasks/${taskId}/server/logs`)
   },
 
-  async mergeTask(taskId: string): Promise<{ status: string; message: string }> {
-    return await apiClient.post<{ status: string; message: string }>(
-      `/api/v1/tasks/${taskId}/merge`,
-    )
+  async mergeTask(taskId: string): Promise<MergeTaskResponse> {
+    return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`)
   },
 }

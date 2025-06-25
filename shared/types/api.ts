@@ -1,20 +1,150 @@
 import { z } from 'zod'
+import type { Event } from './event.js'
+import type { Task } from './task.js'
+
+// ============================================
+// Base Types and Enums
+// ============================================
 
 export const TaskStatusSchema = z.enum(['active', 'completed', 'error', 'closed'])
+export type TaskStatus = z.infer<typeof TaskStatusSchema>
 
-export const SimpleTaskResponseSchema = z.object({
-  taskId: z.string(),
-  status: TaskStatusSchema,
-  message: z.string().optional(),
+// ============================================
+// Request Schemas and Types
+// ============================================
+
+// Create Task
+export const CreateTaskRequestSchema = z.object({
+  agentType: z.string(),
+  environmentId: z.string(),
+  message: z.string(),
+  branchName: z.string().optional(),
+  start: z.boolean().optional(),
 })
+export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 
-export type SimpleTaskResponse = z.infer<typeof SimpleTaskResponseSchema>
-
+// Send Message
 export const SendMessageRequestSchema = z.object({
   message: z.string().min(1),
 })
-
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
+
+// Update Task
+export const UpdateTaskRequestSchema = z.object({
+  status: TaskStatusSchema.optional(),
+})
+export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>
+
+// ============================================
+// Response Schemas and Types
+// ============================================
+
+// Simple Task Response (for create/update operations)
+export const SimpleTaskResponseSchema = z.object({
+  taskId: z.string(),
+  status: z.string(),
+})
+export type SimpleTaskResponse = z.infer<typeof SimpleTaskResponseSchema>
+
+// Send Message Response
+export const SendMessageResponseSchema = z.object({
+  status: z.string(),
+  timestamp: z.string(),
+})
+export type SendMessageResponse = z.infer<typeof SendMessageResponseSchema>
+
+// Delete Task Response
+export const DeleteTaskResponseSchema = z.object({
+  status: z.string(),
+})
+export type DeleteTaskResponse = z.infer<typeof DeleteTaskResponseSchema>
+
+// Update Task Response
+export const UpdateTaskResponseSchema = z.object({
+  status: z.string(),
+})
+export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>
+
+// Stop Agent Response
+export const StopAgentResponseSchema = z.object({
+  status: z.string(),
+  task_id: z.string(),
+})
+export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
+
+// Merge Task Response
+export const MergeTaskResponseSchema = z.object({
+  status: z.string(),
+  message: z.string(),
+})
+export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
+
+// Server Logs Response
+export const ServerLogsResponseSchema = z.object({
+  logs: z.string(),
+  lines: z.number(),
+})
+export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
+
+// ============================================
+// Query Schemas and Types
+// ============================================
+
+// Pagination Query
+export const PaginationQuerySchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(20),
+  offset: z.coerce.number().min(0).default(0),
+})
+export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
+
+// Task List Query
+export const TaskListQuerySchema = PaginationQuerySchema.extend({
+  status: TaskStatusSchema.optional(),
+})
+export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
+
+// Event List Query
+export const EventListQuerySchema = PaginationQuerySchema.extend({
+  type: z.string().optional(),
+})
+export type EventListQuery = z.infer<typeof EventListQuerySchema>
+
+// File Search Query
+export const FileSearchQuerySchema = z.object({
+  query: z.string(),
+  filePattern: z.string().optional(),
+  maxResults: z.number().min(1).max(1000).default(100),
+})
+export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
+
+// ============================================
+// Paginated Response Types
+// ============================================
+
+export interface PaginationInfo {
+  limit: number
+  offset: number
+  total?: number
+  hasMore?: boolean
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  pagination: PaginationInfo
+}
+
+// Specific paginated responses
+export interface TaskListResponse extends PaginatedResponse<Task> {
+  tasks: Task[]
+}
+
+export interface EventListResponse extends PaginatedResponse<Event> {
+  events: Event[]
+}
+
+// ============================================
+// Error Types
+// ============================================
 
 export interface ApiError {
   code: string
@@ -22,39 +152,27 @@ export interface ApiError {
   details?: any
 }
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  pageSize: number
-  hasMore: boolean
+// ============================================
+// WebSocket Types
+// ============================================
+
+export interface WebSocketConnectionEvent {
+  type: 'connection'
+  status: 'connected'
+  taskId: string
+  timestamp: string
 }
 
-export const PaginationQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  pageSize: z.coerce.number().min(1).max(100).default(20),
-})
+// ============================================
+// Legacy Support / Deprecated Types
+// ============================================
 
-export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
+// @deprecated Use CreateTaskRequest instead
+export interface AgentTriggerRequest extends CreateTaskRequest {
+  branch?: string // Maps to branchName in CreateTaskRequest
+}
 
-export const TaskListQuerySchema = PaginationQuerySchema.extend({
-  status: z.enum(['active', 'completed', 'error', 'closed']).optional(),
-  agentType: z.string().optional(),
-  environmentId: z.string().optional(),
-})
-
-export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
-
-export const FileSearchQuerySchema = z.object({
-  query: z.string(),
-  filePattern: z.string().optional(),
-  maxResults: z.number().min(1).max(1000).default(100),
-})
-
-export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
-
-export const WorkspaceActionRequestSchema = z.object({
-  action: z.enum(['start', 'stop', 'restart', 'clean']),
-})
-
-export type WorkspaceActionRequest = z.infer<typeof WorkspaceActionRequestSchema>
+// @deprecated Use SimpleTaskResponse instead
+export interface AgentTriggerResponse extends SimpleTaskResponse {
+  stream_url?: string
+}

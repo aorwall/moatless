@@ -1,7 +1,7 @@
+import type { WorkspaceStatus } from '@shared/types/workspace'
 import { useParams } from '@tanstack/react-router'
 import { AlertCircle, GitMerge, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
-
 import {
   useMergeTask,
   useServerStatus,
@@ -22,7 +22,6 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { WorkspaceStatus } from '@shared/types/workspace'
 
 function StatusBadge({ status }: { status: string }) {
   const variant = status === 'active' ? 'default' : status === 'error' ? 'destructive' : 'secondary'
@@ -158,9 +157,7 @@ export function TaskHeader() {
 
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
-              <h1 className="text-lg font-semibold">
-                {`Task ${metadata.taskId.slice(0, 8)}`}
-              </h1>
+              <h1 className="text-lg font-semibold">{`Task ${metadata.taskId.slice(0, 8)}`}</h1>
             </div>
             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
               <span>{new Date(metadata.createdAt).toLocaleString()}</span>
@@ -211,45 +208,44 @@ export function TaskHeader() {
               </TooltipProvider>
             )}
           </div>
-          {serverStatus?.configured && (
-            serverStatus.running ? (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleStopServer}
-                        disabled={stopServer.isPending || isLoadingServerStatus}
-                      >
-                        <Square className="mr-2 h-4 w-4" />
-                        {stopServer.isPending ? 'Stopping Server...' : 'Stop Server'}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <div className="space-y-1">
-                        <p>Server is running</p>
-                        <p className="text-xs text-muted-foreground">URL: {serverStatus.url}</p>
-                        <p className="text-xs text-muted-foreground">PID: {serverStatus.pid}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Uptime: {serverStatus.uptimeSeconds}s
-                        </p>
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleStartServer}
-                  disabled={startServer.isPending || isLoadingServerStatus}
-                >
-                  <Play className="mr-2 h-4 w-4" />
-                  {startServer.isPending ? 'Starting Server...' : 'Start Server'}
-                </Button>
-              )
-          )}
+          {serverStatus?.configured &&
+            (serverStatus.running ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStopServer}
+                      disabled={stopServer.isPending || isLoadingServerStatus}
+                    >
+                      <Square className="mr-2 h-4 w-4" />
+                      {stopServer.isPending ? 'Stopping Server...' : 'Stop Server'}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="space-y-1">
+                      <p>Server is running</p>
+                      <p className="text-xs text-muted-foreground">URL: {serverStatus.url}</p>
+                      <p className="text-xs text-muted-foreground">PID: {serverStatus.pid}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Uptime: {serverStatus.uptimeSeconds}s
+                      </p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleStartServer}
+                disabled={startServer.isPending || isLoadingServerStatus}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {startServer.isPending ? 'Starting Server...' : 'Start Server'}
+              </Button>
+            ))}
           {metadata.status === 'active' && (
             <Button variant="outline" size="sm" onClick={handleStop} disabled={stopAgent.isPending}>
               <StopCircle className="mr-2 h-4 w-4" />

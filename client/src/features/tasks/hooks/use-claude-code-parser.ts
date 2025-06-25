@@ -1,6 +1,5 @@
+import type { Event } from '@shared/types/event.ts'
 import { useMemo } from 'react'
-
-import type { Event } from '@/types/event.ts'
 
 export interface ParsedMessage {
   id: string

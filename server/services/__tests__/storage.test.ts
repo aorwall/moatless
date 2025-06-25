@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Environment, Event, TaskMetadata, Workspace } from '../../../shared/types/index.js'
+import type { Environment, Event, Task, Workspace } from '../../../shared/types/index.js'
 import { FileStorage } from '../storage.js'
 
 describe('FileStorage', () => {
@@ -73,7 +73,7 @@ describe('FileStorage', () => {
 
   describe('Type-safe convenience methods', () => {
     it('should save and retrieve tasks', async () => {
-      const task: TaskMetadata = {
+      const task: Task = {
         taskId: 'test-123',
         createdAt: new Date(),
         lastMessageAt: new Date(),

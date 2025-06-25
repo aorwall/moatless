@@ -7,7 +7,7 @@ import type {
   FileSearchResponse,
   SetupScriptResponse,
   UpdateEnvironmentRequest,
-} from '@shared/types/environmenttypes/environment'
+} from '@shared/types/environment'
 import { apiClient } from '@/lib/api/client'
 
 export const environmentsApi = {

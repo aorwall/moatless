@@ -84,11 +84,11 @@ describe('WorkspaceService', () => {
 
       expect(workspace.id).toBe('test-task')
       expect(workspace.type).toBe('local')
-      expect(workspace.status).toBe('ready')
+      expect(workspace.status).toBe('initializing')
       expect(workspace.environmentId).toBe(environment.id)
     })
 
-    it('should handle workspace creation failures', async () => {
+    it('should handle workspace setup failures', async () => {
       const environment = await environmentService.createEnvironment({
         name: 'Invalid Environment',
         repository: {
@@ -107,9 +107,10 @@ describe('WorkspaceService', () => {
         callback(new Error('Git worktree creation failed'), null)
       }) as any)
 
-      await expect(service.createWorkspace('test-task', environment.id)).rejects.toThrow(
-        'Failed to create local workspace',
-      )
+      await service.createWorkspace('test-task', environment.id)
+      
+      // Setup should fail
+      await expect(service.setupWorkspace('test-task')).rejects.toThrow()
     })
 
     it('should return existing workspace if already created', async () => {
@@ -169,8 +170,8 @@ describe('WorkspaceService', () => {
 
       // Manually set the workspace path to our temp directory for testing
 
-      ;(workspace as any).path = tempDir
-      await storage.saveWorkspace(workspace)
+      ;(workspace as any).workspacePath = tempDir
+      await storage.saveWorkspace(workspace.toWorkspaceInfo())
 
       const files = await service.listFiles('test-task')
 
@@ -201,8 +202,8 @@ describe('WorkspaceService', () => {
 
       // Manually set the workspace path to our temp directory for testing
 
-      ;(workspace as any).path = tempDir
-      await storage.saveWorkspace(workspace)
+      ;(workspace as any).workspacePath = tempDir
+      await storage.saveWorkspace(workspace.toWorkspaceInfo())
 
       // Write file
       const content = 'console.log("Hello, world!");'
@@ -236,8 +237,8 @@ describe('WorkspaceService', () => {
 
       // Manually set the workspace path to our temp directory for testing
 
-      ;(workspace as any).path = tempDir
-      await storage.saveWorkspace(workspace)
+      ;(workspace as any).workspacePath = tempDir
+      await storage.saveWorkspace(workspace.toWorkspaceInfo())
 
       // Attempt path traversal
       await expect(service.readFile('test-task', '../../../etc/passwd')).rejects.toThrow(
@@ -280,9 +281,9 @@ describe('WorkspaceService', () => {
       const workspace = await service.createWorkspace('test-task', environment.id)
 
       expect(workspace.type).toBe('docker')
-      expect(workspace.status).toBe('ready')
-      expect((workspace as any).containerId).toBe(containerId)
-      expect((workspace as any).image).toBe('node:18')
+      expect(workspace.status).toBe('initializing')
+      // Container ID will be empty until setup is called
+      expect((workspace as any).containerId).toBe('')
     })
   })
 

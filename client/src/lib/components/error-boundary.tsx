@@ -49,9 +49,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               title={`${this.props.componentName || 'Component'} Error`}
               className="max-w-md w-full"
             />
-            <button onClick={this.reset} className="text-sm text-primary hover:underline">
-              Try Again
-            </button>
           </div>
         </div>
       )

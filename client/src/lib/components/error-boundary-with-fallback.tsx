@@ -97,13 +97,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               title={`${this.props.componentName || 'Component'} Error`}
               className="max-w-md w-full"
             />
-            <button
-              onClick={this.reset}
-              className="text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
-              aria-label="Try again"
-            >
-              Try Again
-            </button>
           </div>
         </div>
       )

@@ -1,7 +1,7 @@
-import type { FileSearchResponse } from '../../shared/types/index.js'
 import { promises as fs } from 'fs'
 import { glob } from 'glob'
 import path from 'path'
+import type { FileSearchResponse } from '../../shared/types/index.js'
 
 const DEFAULT_IGNORE_PATTERNS = [
   '**/node_modules/**',

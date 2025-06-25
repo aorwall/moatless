@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
-import type { Environment, Event, TaskMetadata, Workspace } from '../../shared/types/index.js'
+import type { Environment, Event, Task, Workspace } from '../../shared/types/index.js'
 import { fromJSON, toJSON } from '../../shared/utils/validation.js'
 
 export interface StorageBackend {
@@ -14,8 +14,8 @@ export interface StorageBackend {
   exists(key: string): Promise<boolean>
 
   // Type-safe convenience methods
-  saveTask(task: TaskMetadata): Promise<void>
-  getTask(taskId: string): Promise<TaskMetadata | null>
+  saveTask(task: Task): Promise<void>
+  getTask(taskId: string): Promise<Task | null>
   saveEnvironment(env: Environment): Promise<void>
   getEnvironment(envId: string): Promise<Environment | null>
   saveWorkspace(workspace: Workspace): Promise<void>
@@ -86,12 +86,12 @@ export class FileStorage implements StorageBackend {
   }
 
   // Type-safe convenience methods
-  async saveTask(task: TaskMetadata): Promise<void> {
+  async saveTask(task: Task): Promise<void> {
     await this.save(`tasks/${task.taskId}`, task)
   }
 
-  async getTask(taskId: string): Promise<TaskMetadata | null> {
-    return this.get<TaskMetadata>(`tasks/${taskId}`)
+  async getTask(taskId: string): Promise<Task | null> {
+    return this.get<Task>(`tasks/${taskId}`)
   }
 
   async saveEnvironment(env: Environment): Promise<void> {

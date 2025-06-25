@@ -27,7 +27,7 @@ export function CreateTaskForm() {
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
-      navigate({ to: `/tasks/${data.task_id}` })
+      navigate({ to: `/tasks/${data.taskId}` })
     },
   })
 
@@ -42,10 +42,10 @@ export function CreateTaskForm() {
     }
 
     createTask.mutate({
-      agent_type: 'claude_code',
+      agentType: 'claude_code',
       message: '',
-      environment_id: selectedEnvironmentId,
-      branch: selectedBranch === '__none__' ? undefined : selectedBranch,
+      environmentId: selectedEnvironmentId,
+      branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
     })
   }
 

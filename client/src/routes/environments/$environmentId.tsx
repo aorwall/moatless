@@ -1,4 +1,4 @@
-import type { UpdateEnvironmentRequest } from '@shared/types/environmenttypes/environment'
+import type { UpdateEnvironmentRequest } from '@shared/types/environment'
 import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { EnvironmentForm, useEnvironment, useUpdateEnvironment } from '@/features/environments'

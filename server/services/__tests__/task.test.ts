@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TaskNotFoundError, ValidationError } from '../../../shared/constants/errors.js'
 import { EventType } from '../../../shared/types/event.js'
-import type { CreateTaskRequest, TaskMetadata } from '../../../shared/types/task.js'
+import type { CreateTaskRequest, Task } from '../../../shared/types/task.js'
 import type { EnvironmentService } from '../environment.service.js'
 import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
@@ -168,7 +168,7 @@ describe('TaskService', () => {
 
   describe('getTask', () => {
     it('should retrieve a task by ID', async () => {
-      const task: TaskMetadata = {
+      const task: Task = {
         taskId: 'task-123',
         createdAt: new Date(),
         lastMessageAt: new Date(),
@@ -196,7 +196,7 @@ describe('TaskService', () => {
 
   describe('listTasks', () => {
     it('should list tasks with pagination', async () => {
-      const tasks: TaskMetadata[] = Array.from({ length: 10 }, (_, i) => ({
+      const tasks: Task[] = Array.from({ length: 10 }, (_, i) => ({
         taskId: `task-${i}`,
         createdAt: new Date(Date.now() - i * 1000),
         lastMessageAt: new Date(Date.now() - i * 1000),
@@ -223,7 +223,7 @@ describe('TaskService', () => {
 
   describe('sendMessage', () => {
     it('should send a message to an active task', async () => {
-      const task: TaskMetadata = {
+      const task: Task = {
         taskId: 'task-123',
         createdAt: new Date(),
         lastMessageAt: new Date(),
@@ -277,7 +277,7 @@ describe('TaskService', () => {
 
   describe('updateTask', () => {
     it('should update task metadata', async () => {
-      const task: TaskMetadata = {
+      const task: Task = {
         taskId: 'task-123',
         createdAt: new Date(),
         lastMessageAt: new Date(),
@@ -304,7 +304,7 @@ describe('TaskService', () => {
 
   describe('deleteTask', () => {
     it('should delete task and clean up resources', async () => {
-      const task: TaskMetadata = {
+      const task: Task = {
         taskId: 'task-123',
         createdAt: new Date(),
         lastMessageAt: new Date(),

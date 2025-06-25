@@ -36,7 +36,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = (request.params as any)
+      const { taskId } = request.params as any
       const workspace = await workspaceService.getWorkspace(taskId)
 
       if (!workspace) {
@@ -56,7 +56,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = (request.params as any)
+      const { taskId } = request.params as any
       const workspace = await workspaceService.getWorkspace(taskId)
 
       if (!workspace) {
@@ -81,7 +81,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = (request.params as any)
+      const { taskId } = request.params as any
 
       await workspaceService.cleanupWorkspace(taskId)
       return { status: 'cleaned' }
@@ -98,8 +98,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId: _taskId } = (request.params as any)
-      const { path: _path, recursive: _recursive } = (request.query as any)
+      const { taskId: _taskId } = request.params as any
+      const { path: _path, recursive: _recursive } = request.query as any
 
       // TODO: Implement file listing when workspace service is complete
       return { files: [] }
@@ -115,7 +115,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = (request.params as any)
+      const { taskId } = request.params as any
 
       // TODO: Implement file reading when workspace service is complete
       throw new WorkspaceError('File operations not yet implemented', taskId)
@@ -132,7 +132,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = (request.params as any)
+      const { taskId } = request.params as any
 
       // TODO: Implement file writing when workspace service is complete
       throw new WorkspaceError('File operations not yet implemented', taskId)
@@ -148,7 +148,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId: _taskId } = (request.params as any)
+      const { taskId: _taskId } = request.params as any
 
       // TODO: Implement git diff when workspace service is complete
       return {

@@ -1,29 +1,25 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { TaskNotFoundError } from '../../shared/constants/errors.js'
+import {
+  CreateTaskRequestSchema,
+  DeleteTaskResponseSchema,
+  EventListQuerySchema,
+  type EventListResponse,
+  SendMessageRequestSchema,
+  SendMessageResponseSchema,
+  SimpleTaskResponseSchema,
+  TaskListQuerySchema,
+  type TaskListResponse,
+  UpdateTaskRequestSchema,
+  UpdateTaskResponseSchema,
+  type WebSocketConnectionEvent,
+} from '../../shared/types/api.js'
 import type { EventType } from '../../shared/types/event.js'
-import { CreateTaskRequestSchema } from '../../shared/types/task.js'
-import { SendMessageRequestSchema } from '../../shared/types/api.js'
 
 // Schema for URL params
 const TaskIdParamsSchema = z.object({
   taskId: z.string(),
-})
-
-// Schema for pagination query
-const PaginationQuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(20),
-  offset: z.coerce.number().min(0).default(0),
-})
-
-// Schema for task list query
-const TaskListQuerySchema = PaginationQuerySchema.extend({
-  status: z.enum(['active', 'completed', 'error', 'closed']).optional(),
-})
-
-// Schema for event list query
-const EventListQuerySchema = PaginationQuerySchema.extend({
-  type: z.string().optional(),
 })
 
 export async function registerTaskRoutes(app: FastifyInstance) {
@@ -36,10 +32,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       schema: {
         body: CreateTaskRequestSchema,
         response: {
-          200: z.object({
-            taskId: z.string(),
-            status: z.string(),
-          }),
+          200: SimpleTaskResponseSchema,
         },
       },
     },
@@ -86,14 +79,16 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         tasks = tasks.filter((task) => task.status === status)
       }
 
-      return {
-        tasks,
+      const response: TaskListResponse = {
+        tasks: tasks,
+        items: tasks,
         pagination: {
           limit,
           offset,
           total: tasks.length, // Note: This is simplified, real implementation would need total count
         },
       }
+      return response
     },
   )
 
@@ -104,6 +99,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       schema: {
         params: TaskIdParamsSchema,
         body: SendMessageRequestSchema,
+        response: {
+          200: SendMessageResponseSchema,
+        },
       },
     },
     async (request, _reply) => {
@@ -141,14 +139,16 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         type as EventType | undefined,
       )
 
-      return {
+      const response: EventListResponse = {
         events,
+        items: events,
         pagination: {
           limit,
           offset,
           hasMore: events.length === limit,
         },
       }
+      return response
     },
   )
 
@@ -158,9 +158,10 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     {
       schema: {
         params: TaskIdParamsSchema,
-        body: z.object({
-          status: z.enum(['active', 'completed', 'error', 'closed']).optional(),
-        }),
+        body: UpdateTaskRequestSchema,
+        response: {
+          200: UpdateTaskResponseSchema,
+        },
       },
     },
     async (request, _reply) => {
@@ -178,6 +179,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     {
       schema: {
         params: TaskIdParamsSchema,
+        response: {
+          200: DeleteTaskResponseSchema,
+        },
       },
     },
     async (request, _reply) => {
@@ -221,14 +225,13 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         })
 
         // Send initial connection event
-        socket.send(
-          JSON.stringify({
-            type: 'connection',
-            status: 'connected',
-            taskId,
-            timestamp: new Date().toISOString(),
-          }),
-        )
+        const connectionEvent: WebSocketConnectionEvent = {
+          type: 'connection',
+          status: 'connected',
+          taskId,
+          timestamp: new Date().toISOString(),
+        }
+        socket.send(JSON.stringify(connectionEvent))
 
         socket.on('close', () => {
           unsubscribe()

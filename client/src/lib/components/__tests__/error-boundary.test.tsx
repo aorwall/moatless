@@ -41,7 +41,6 @@ describe('ErrorBoundary', () => {
 
     expect(screen.getByText('Test Component Error')).toBeInTheDocument()
     expect(screen.getByText('Test error')).toBeInTheDocument()
-    expect(screen.getByText('Try Again')).toBeInTheDocument()
   })
 
   it('renders custom fallback when provided', () => {

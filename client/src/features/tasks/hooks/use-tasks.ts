@@ -1,13 +1,12 @@
-import type { FileSearchResponse } from '@shared/types/environmenttypes/environment'
+import type { CreateTaskRequest, SimpleTaskResponse } from '@shared/types/api'
+import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
-import type { GitDiffResponse, TaskResponse } from '@shared/types/task'
-import type { ServerStatus } from '@shared/types/workspace'
+import type { GitDiffResponse, Task } from '@shared/types/task'
+import type { ServerStatus, WorkspaceStatusResponse } from '@shared/types/workspace'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
-import type { AgentTriggerRequest, AgentTriggerResponse } from '@/types/agent'
-import type { WorkspaceStatusResponse } from '@/types/task'
 
 /**
  * Task Query Invalidation Strategy:
@@ -27,7 +26,7 @@ export function useTasksList(
     limit?: number
     offset?: number
   },
-  options?: Omit<UseQueryOptions<Array<TaskResponse>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Array<Task>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasksList(params),
@@ -38,7 +37,7 @@ export function useTasksList(
 
 export function useTask(
   taskId: string,
-  options?: Omit<UseQueryOptions<TaskResponse>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Task>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.task(taskId),
@@ -50,12 +49,12 @@ export function useTask(
 
 // Mutation hooks
 export function useCreateTask(
-  options?: UseMutationOptions<AgentTriggerResponse, Error, AgentTriggerRequest>,
+  options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (request: AgentTriggerRequest) => tasksApi.createTask(request),
+    mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onSuccess: (data, variables, context) => {
       // Invalidate tasks list to refresh with new task
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
@@ -66,7 +65,7 @@ export function useCreateTask(
 }
 
 export function useSendMessage(
-  options?: UseMutationOptions<AgentTriggerResponse, Error, { taskId: string; message: string }>,
+  options?: UseMutationOptions<SimpleTaskResponse, Error, { taskId: string; message: string }>,
 ) {
   const queryClient = useQueryClient()
 
@@ -96,7 +95,7 @@ export function useSendMessage(
 }
 
 export function useStopAgent(
-  options?: UseMutationOptions<{ status: string; taskId: string }, Error, string>,
+  options?: UseMutationOptions<{ status: string; task_id: string }, Error, string>,
 ) {
   const queryClient = useQueryClient()
 

@@ -1,4 +1,4 @@
-import type { Environment } from '@shared/types/environmenttypes/environment'
+import type { Environment } from '@shared/types/environment'
 import {
   Select,
   SelectContent,

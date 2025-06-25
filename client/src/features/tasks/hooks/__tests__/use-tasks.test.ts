@@ -1,7 +1,7 @@
+import { WorkspaceStatus } from '@shared/types/task'
 import { renderHook, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
@@ -14,7 +14,6 @@ import {
   createMockWorkspaceStatus,
 } from '@/test-utils/factories'
 import { createWrapper } from '@/test-utils/render'
-import { WorkspaceStatus } from '@/types/task'
 
 import {
   useCreateTask,

@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@shared/types/environmenttypes/environment'
+import type { FileSearchResult } from '@shared/types/environment'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchFiles } from '@/features/environments/hooks/use-environments'
 import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'

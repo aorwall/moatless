@@ -1,6 +1,6 @@
+import { WorkspaceStatus } from '@shared/types/workspace'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { useSendMessage, useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -11,7 +11,6 @@ import {
   createMockWorkspaceStatus,
 } from '@/test-utils/factories'
 import { createWrapper } from '@/test-utils/render'
-import { WorkspaceStatus } from '@/types/task'
 
 // Mock the tasks API
 vi.mock('@/features/tasks/api/tasks', () => ({
@@ -33,7 +32,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const wrapper = createWrapper()
 
     // Setup initial data
-    const initialTask = createMockTaskWithIterations({ task_id: taskId }, 1)
+    const initialTask = createMockTaskWithIterations({ taskId: taskId }, 1)
     const initialWorkspace = createMockWorkspaceStatus({
       status: WorkspaceStatus.IDLE,
     })
@@ -59,7 +58,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     // Setup updated data after message sent
     const updatedTask = createMockTaskWithIterations(
       {
-        task_id: taskId,
+        taskId: taskId,
         status: 'active',
         is_running: true,
       },
@@ -120,7 +119,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const taskId = 'task-123'
     const wrapper = createWrapper()
 
-    const task = createMockTask({ task_id: taskId, is_running: false })
+    const task = createMockTask({ taskId: taskId })
     vi.mocked(tasksApi.getTask).mockResolvedValue(task)
 
     // Start with idle workspace
@@ -162,7 +161,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const listTasksSpy = vi.mocked(tasksApi.listTasks)
 
     // Setup mocks
-    const mockTask = createMockTask({ task_id: taskId })
+    const mockTask = createMockTask({ taskId: taskId })
     getTaskSpy.mockResolvedValue(mockTask)
     getWorkspaceSpy.mockResolvedValue(createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }))
     listTasksSpy.mockResolvedValue([mockTask])

@@ -1,4 +1,4 @@
-import type { UpdateEnvironmentRequest } from '@shared/types/environmenttypes/environment'
+import type { UpdateEnvironmentRequest } from '@shared/types/environment'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { environmentsApi } from '@/features/environments/api/environments'
 

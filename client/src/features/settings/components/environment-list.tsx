@@ -1,4 +1,4 @@
-import type { EnvironmentResponse } from '@shared/types/environmenttypes/environment'
+import type { EnvironmentResponse } from '@shared/types/environment'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'

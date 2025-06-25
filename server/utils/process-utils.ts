@@ -99,7 +99,6 @@ export class ProcessManager extends EventEmitter {
   }
 
   async executeShell(command: string, options: ProcessOptions = {}): Promise<ProcessResult> {
-
     try {
       const result = await execAsync(command, {
         cwd: options.cwd,

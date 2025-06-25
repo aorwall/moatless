@@ -1,7 +1,6 @@
-import { Archive, FileText } from 'lucide-react'
-
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 import type { Task } from '@shared/types/task'
+import { Archive, FileText } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 
 import { TaskCard } from './task-card'
 

@@ -14,10 +14,12 @@ export interface AgentRunOptions {
   environmentVariables?: Record<string, string>
   timeout?: number
   onProgress?: (event: Event) => void
+  iterationNumber?: number
 }
 
 export abstract class BaseAgent {
   protected stopRequested = false
+  protected iterationNumber?: number
 
   constructor(
     protected taskId: string,
@@ -38,6 +40,7 @@ export abstract class BaseAgent {
       type: type as any,
       subType,
       taskId: this.taskId,
+      iterationId: this.iterationNumber,
       timestamp: new Date(),
       isError,
       payload,

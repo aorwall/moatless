@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { CreateTask } from '@/features/tasks/components/create-task'
 import { TaskList } from '@/features/tasks/components/task-list'
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
@@ -15,8 +14,8 @@ function Dashboard() {
   // Fetch all tasks (both active and finished)
   const {
     data: tasks,
-    isLoading: isLoadingTasks,
-    error: tasksError,
+    isLoading,
+    error,
   } = useTasksList(
     {}, // Remove activeOnly filter to get all tasks
     {
@@ -24,42 +23,6 @@ function Dashboard() {
       refetchIntervalInBackground: true,
     },
   )
-
-  // Fetch environments to map IDs to names
-  const {
-    data: environments,
-    isLoading: isLoadingEnvironments,
-    error: environmentsError,
-  } = useEnvironmentsList()
-
-  // Create a map of environment IDs to names
-  const environmentMap = new Map(environments?.map((env) => [env.id, env.name]) || [])
-
-  // Transform and separate tasks into active and finished
-  const transformedTasks =
-    tasks?.map((metadata) => ({
-      id: metadata.taskId,
-      title: metadata.title || `Task ${metadata.taskId.slice(0, 8)}`,
-      createdAt: metadata.createdAt,
-      lastMessageAt: metadata.lastMessageAt,
-      agentType: metadata.agentType,
-      environmentName: environmentMap.get(metadata.environmentId) || metadata.environmentId,
-      status: metadata.status,
-      numTurns: metadata.numTurns,
-      totalCostUsd: metadata.totalCostUsd,
-      workspaceStatus: 'unknown' as const, // This will be fetched separately
-      // Legacy fields for compatibility
-      time: new Date(metadata.lastMessageAt).toLocaleString(),
-      project: metadata.agentType,
-      changes: { added: 0, removed: 0 },
-    })) || []
-
-  const activeTasks = transformedTasks.filter((task) => task.status === 'active')
-
-  const finishedTasks = transformedTasks.filter((task) => task.status !== 'active')
-
-  const error = tasksError || environmentsError
-  const isLoading = isLoadingTasks || isLoadingEnvironments
 
   return (
     <div className="container mx-auto px-6 py-8">
@@ -70,7 +33,7 @@ function Dashboard() {
         ) : isLoading ? (
           <TaskListSkeleton />
         ) : (
-          <TaskList activeTasks={activeTasks} archivedTasks={finishedTasks} loading={false} />
+          <TaskList activeTasks={tasks || []} archivedTasks={[]} loading={false} />
         )}
       </div>
     </div>

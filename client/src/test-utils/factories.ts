@@ -1,12 +1,12 @@
-import type { Event } from '@shared/types/event'
 import type { SimpleTaskResponse } from '@shared/types/api'
+import type { Event } from '@shared/types/event'
 import type { GitDiffResponse } from '@shared/types/git-diff'
 import type {
   AssistantMessage,
   ClaudeMessage,
   ServerStatus,
-  TaskIteration,
   Task,
+  TaskIteration,
   WorkspaceStatusResponse,
 } from '@shared/types/task'
 import { ContentType, MessageType, Role, WorkspaceStatus } from '@shared/types/task'

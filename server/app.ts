@@ -21,7 +21,20 @@ export async function setupApp(app: FastifyInstance) {
 
   // CORS
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN || true,
+    origin: (origin, callback) => {
+      // In development, allow all localhost origins
+      if (process.env.NODE_ENV !== 'production' && origin) {
+        const url = new URL(origin)
+        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+          callback(null, true)
+          return
+        }
+      }
+
+      // In production or for non-localhost origins, use configured origin
+      const allowedOrigin = process.env.CORS_ORIGIN || true
+      callback(null, allowedOrigin)
+    },
     credentials: true,
   })
 

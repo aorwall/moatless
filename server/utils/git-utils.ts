@@ -96,6 +96,74 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
   }
 }
 
+export async function hasUncommittedChanges(repoPath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync('git status --porcelain', {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    return stdout.trim().length > 0
+  } catch (error) {
+    throw new Error(
+      `Failed to check uncommitted changes: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+export async function getGitDiffString(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<[string, string]> {
+  try {
+    // Get the current branch if base branch not specified
+    const base = baseBranch || 'main'
+
+    // Get the diff
+    const { stdout } = await execAsync(`git diff ${base}...HEAD`, {
+      cwd: repoPath,
+      timeout: 30000,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+    })
+
+    return [stdout, base]
+  } catch (error) {
+    // Try with master if main fails
+    if (!baseBranch) {
+      try {
+        const { stdout } = await execAsync('git diff master...HEAD', {
+          cwd: repoPath,
+          timeout: 30000,
+          maxBuffer: 10 * 1024 * 1024,
+        })
+        return [stdout, 'master']
+      } catch {
+        // Fall back to just git diff
+        const { stdout } = await execAsync('git diff', {
+          cwd: repoPath,
+          timeout: 30000,
+          maxBuffer: 10 * 1024 * 1024,
+        })
+        return [stdout, 'HEAD']
+      }
+    }
+    throw new Error(
+      `Failed to get git diff: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+export async function isGitRepository(repoPath: string): Promise<boolean> {
+  try {
+    await execAsync('git rev-parse --git-dir', {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
   try {
     await execAsync(`git checkout -b "${branchName}"`, {

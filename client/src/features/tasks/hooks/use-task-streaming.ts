@@ -87,7 +87,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
 
       // Set last event ID if available
       if (lastEventId) {
-        client['lastEventId'] = lastEventId
+        client.lastEventId = lastEventId
       }
 
       sseClientRef.current = client

@@ -148,7 +148,9 @@ describe('Environment Routes', () => {
         isActive: true,
       }
 
-      vi.spyOn(app.services.environment, 'updateEnvironment').mockResolvedValueOnce(updatedEnvironment)
+      vi.spyOn(app.services.environment, 'updateEnvironment').mockResolvedValueOnce(
+        updatedEnvironment,
+      )
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(updatedEnvironment)
 
       const response = await app.inject({

@@ -13,6 +13,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   async *run(message: string, runOptions: AgentRunOptions = {}): AsyncGenerator<Event> {
     this.stopRequested = false
     this.abortController = new AbortController()
+    this.iterationNumber = runOptions.iterationNumber
 
     try {
       yield this.createEvent('start', {

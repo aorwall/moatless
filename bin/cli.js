@@ -33,7 +33,7 @@ function startServer() {
   const child = spawn('node', [serverPath], {
     cwd: rootDir,
     stdio: 'inherit',
-    env: { ...process.env }
+    env: { ...process.env },
   })
 
   child.on('error', (err) => {
@@ -50,7 +50,7 @@ function startDevelopment() {
   const child = spawn('pnpm', ['dev'], {
     cwd: rootDir,
     stdio: 'inherit',
-    shell: true
+    shell: true,
   })
 
   child.on('error', (err) => {

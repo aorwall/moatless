@@ -1,9 +1,9 @@
-import { apiClient } from '@/lib/api/client'
 import type {
   ClaudeCodeSettingsResponse,
   ClaudeCodeToolsResponse,
   UpdateClaudeCodeSettingsRequest,
-} from '@/types/claude-code'
+} from '@shared/types/claude-code'
+import { apiClient } from '@/lib/api/client'
 
 export const claudeCodeApi = {
   async getSettings(): Promise<ClaudeCodeSettingsResponse> {

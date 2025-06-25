@@ -74,9 +74,6 @@ export function Preview({ config, onElementSelected, className }: PreviewProps) 
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
             <div className="text-center space-y-2">
               <p className="text-destructive">{error}</p>
-              <button onClick={reloadPreview} className="text-sm text-primary hover:underline">
-                Try again
-              </button>
             </div>
           </div>
         )}

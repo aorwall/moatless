@@ -1,17 +1,16 @@
+import type { ServerStatus, Task, WorkspaceStatusResponse } from '@shared/types/task'
+import { WorkspaceStatus } from '@shared/types/task'
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
 import {
   createMockServerStatus,
   createMockTask,
   createMockWorkspaceStatus,
 } from '@/test-utils/factories'
 import { renderWithRouter } from '@/test-utils/render'
-import type { ServerStatus, TaskMetadata, WorkspaceStatusResponse } from '@/types/task'
-import { WorkspaceStatus } from '@/types/task'
 
 import {
   useServerStatus,
@@ -61,7 +60,7 @@ describe('TaskHeader', () => {
       }),
       isLoading: false,
       error: null,
-    } as UseQueryResult<TaskMetadata, Error>)
+    } as UseQueryResult<Task, Error>)
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }),
@@ -113,7 +112,7 @@ describe('TaskHeader', () => {
         }),
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       renderWithRouter(<TaskHeader />)
 
@@ -130,7 +129,7 @@ describe('TaskHeader', () => {
         data: createMockTask({ is_running: true }),
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       renderWithRouter(<TaskHeader />)
 
@@ -144,7 +143,7 @@ describe('TaskHeader', () => {
         data: undefined,
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       const { container } = renderWithRouter(<TaskHeader />)
       expect(container.firstChild).toBeNull()
@@ -306,7 +305,7 @@ describe('TaskHeader', () => {
         data: createMockTask({ is_running: true }),
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       renderWithRouter(<TaskHeader />)
       expect(screen.getByText('Stop')).toBeInTheDocument()
@@ -323,7 +322,7 @@ describe('TaskHeader', () => {
         data: createMockTask({ is_running: true }),
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       renderWithRouter(<TaskHeader />)
       await user.click(screen.getByText('Stop'))
@@ -336,7 +335,7 @@ describe('TaskHeader', () => {
         data: createMockTask({ is_running: true }),
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       vi.mocked(useStopAgent).mockReturnValue({
         mutate: mockStopAgent,
@@ -357,7 +356,7 @@ describe('TaskHeader', () => {
         data: createMockTask({ is_running: true }),
         isLoading: false,
         error: null,
-      } as UseQueryResult<TaskMetadata, Error>)
+      } as UseQueryResult<Task, Error>)
 
       // Capture the onSuccess callback from useStopAgent
       vi.mocked(useStopAgent).mockImplementation((options) => {

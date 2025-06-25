@@ -1,10 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
-import { queryKeys } from '@/lib/api/query-keys'
 import type {
   ClaudeCodeSettingsResponse,
   UpdateClaudeCodeSettingsRequest,
-} from '@/types/claude-code'
+} from '@shared/types/claude-code'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/api/query-keys'
 
 import { claudeCodeApi } from '../api/claude-code'
 

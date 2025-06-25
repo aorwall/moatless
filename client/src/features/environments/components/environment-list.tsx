@@ -1,4 +1,4 @@
-import type { EnvironmentResponse } from '@shared/types/environmenttypes/environment'
+import type { EnvironmentResponse } from '@shared/types/environment'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { Badge } from '@/lib/components/ui/badge'

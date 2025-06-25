@@ -2,7 +2,7 @@ import type {
   CreateEnvironmentRequest,
   EnvironmentResponse,
   UpdateEnvironmentRequest,
-} from '@shared/types/environmenttypes/environment'
+} from '@shared/types/environment'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'

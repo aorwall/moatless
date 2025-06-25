@@ -6,7 +6,7 @@ import type {
   LocalRepository,
   Repository,
   UpdateEnvironmentRequest,
-} from '@shared/types/environmenttypes/environment'
+} from '@shared/types/environment'
 import { useId, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
