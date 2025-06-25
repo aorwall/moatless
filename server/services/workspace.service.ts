@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { EnvironmentNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
+import {
+  EnvironmentNotFoundError,
+  TaskNotFoundError,
+  WorkspaceError,
+} from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
-import type { CommandResult, ServerStatus, Workspace } from '../../shared/types/index.js'
+import type { CommandResult, ServerStatus } from '../../shared/types/index.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
@@ -9,6 +13,7 @@ import { LocalWorkspace } from '../workspaces/local.js'
 import type { BaseAgent } from './agents/base-agent.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
+import type { TaskStorageService } from './task-storage.service.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
@@ -16,18 +21,14 @@ export class WorkspaceService {
   constructor(
     private environmentService: EnvironmentService,
     private eventService: EventService,
+    private taskStorageService: TaskStorageService,
   ) {}
 
-  async getOrCreateWorkspace(
-    taskId: string,
-    environmentId: string,
-    branchName?: string,
-  ): Promise<BaseWorkspace> {
-    const workspaceLogger = logger.child({ taskId, environmentId })
+  async getOrCreateWorkspace(taskId: string, branchName?: string): Promise<BaseWorkspace> {
+    const workspaceLogger = logger.child({ taskId })
 
     workspaceLogger.info('Creating workspace', {
       taskId,
-      environmentId,
       hasBranchName: !!branchName,
     })
 
@@ -37,6 +38,16 @@ export class WorkspaceService {
       workspaceLogger.debug('Workspace already exists, returning existing instance')
       return existing
     }
+
+    // Get task to retrieve environment ID
+    const taskData = await this.taskStorageService.getTaskWithEnvironmentId(taskId)
+    if (!taskData) {
+      workspaceLogger.error('Task not found', undefined, { taskId })
+      throw new TaskNotFoundError(taskId)
+    }
+
+    const { environmentId } = taskData
+    workspaceLogger.debug('Retrieved environment ID from task', { environmentId })
 
     // Get environment
     const environment = await this.environmentService.getEnvironment(environmentId)
@@ -78,9 +89,6 @@ export class WorkspaceService {
       })
 
       this.activeWorkspaces.set(taskId, workspace)
-      workspaceLogger.debug('Workspace added to active workspaces map')
-
-      // Workspace created and stored in activeWorkspaces
 
       workspaceLogger.info('Workspace creation completed successfully', {
         workspaceType: workspace.type,
@@ -104,56 +112,22 @@ export class WorkspaceService {
     return this.activeWorkspaces.get(taskId) || null
   }
 
-  async listWorkspaces(): Promise<Workspace[]> {
-    const workspaces: Workspace[] = []
-    for (const [_taskId, workspace] of this.activeWorkspaces) {
-      workspaces.push(workspace.toWorkspaceInfo())
-    }
-    return workspaces
-  }
-
-  async updateWorkspaceStatus(
-    taskId: string,
-    _status: Workspace['status'],
-    _error?: string,
-  ): Promise<void> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
-    // Status is managed by the workspace instance itself
-    // No storage needed as we verify existence through activeWorkspaces
-  }
-
   async listFiles(
     taskId: string,
     relativePath: string = '.',
     recursive: boolean = false,
   ): Promise<string[]> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.listFiles(relativePath, recursive)
   }
 
   async readFile(taskId: string, filePath: string): Promise<string> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.readFile(filePath)
   }
 
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.writeFile(filePath, content)
 
     // Emit file change event
@@ -169,11 +143,7 @@ export class WorkspaceService {
   }
 
   async getGitDiff(taskId: string): Promise<any> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.getGitDiff()
   }
 
@@ -182,7 +152,7 @@ export class WorkspaceService {
 
     workspaceLogger.info('Starting workspace cleanup')
 
-    const workspace = await this.getWorkspace(taskId)
+    const workspace = this.activeWorkspaces.get(taskId)
     if (!workspace) {
       workspaceLogger.debug('No workspace found for cleanup')
       return
@@ -218,11 +188,7 @@ export class WorkspaceService {
   }
 
   async setupWorkspace(taskId: string, iterationNumber?: number): Promise<void> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.setup(iterationNumber)
   }
 
@@ -232,29 +198,17 @@ export class WorkspaceService {
     message: string,
     iterationNumber: number,
   ): Promise<BaseAgent> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.triggerAgent(agentType, message, iterationNumber)
   }
 
   async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.runCommand(command, timeout)
   }
 
   async getWorkspaceStatus(taskId: string): Promise<any> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     return {
       status: workspace.getStatus(),
       hasUncommittedChanges: await workspace.hasUncommittedChanges(),
@@ -262,11 +216,7 @@ export class WorkspaceService {
   }
 
   async startServer(taskId: string): Promise<any> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.startServer) {
       throw new WorkspaceError(`Server not supported for this workspace type`, taskId)
     }
@@ -275,11 +225,7 @@ export class WorkspaceService {
   }
 
   async stopServer(taskId: string): Promise<boolean> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.stopServer) {
       return false
     }
@@ -288,11 +234,7 @@ export class WorkspaceService {
   }
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.getServerStatus) {
       return {
         running: false,
@@ -305,11 +247,7 @@ export class WorkspaceService {
   }
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
-    const workspace = await this.getWorkspace(taskId)
-    if (!workspace) {
-      throw new WorkspaceError(`Workspace not found for task ${taskId}`, taskId)
-    }
-
+    const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.getServerLogs) {
       return 'Server logs not available for this workspace type'
     }
@@ -322,6 +260,7 @@ export function createWorkspaceService(
   _app: FastifyInstance,
   environmentService: EnvironmentService,
   eventService: EventService,
+  taskStorageService: TaskStorageService,
 ): WorkspaceService {
-  return new WorkspaceService(environmentService, eventService)
+  return new WorkspaceService(environmentService, eventService, taskStorageService)
 }

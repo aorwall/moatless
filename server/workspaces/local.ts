@@ -21,6 +21,7 @@ import {
   hasUncommittedChanges,
   isGitRepository,
 } from '../utils/git-utils.js'
+import { createTaskLogger } from '../utils/logger.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 
 const execAsync = promisify(exec)
@@ -35,6 +36,7 @@ export class LocalWorkspace extends BaseWorkspace {
   private branchName?: string
   private _createdAt = new Date()
   private _error?: string
+  private logger = createTaskLogger(this.taskId)
 
   get worktreePath(): string {
     return this.workspacePath
@@ -69,10 +71,26 @@ export class LocalWorkspace extends BaseWorkspace {
     super(taskId, environment, eventService)
     this.originalBranch = originalBranch
     this.branchName = branchName
+    this.logger = createTaskLogger(taskId)
+
+    this.logger.debug('LocalWorkspace constructor', {
+      environmentId: environment.id,
+      environmentType: environment.repository.type,
+      codeExecutionType: environment.codeExecution.type,
+      hasOriginalBranch: !!originalBranch,
+      hasBranchName: !!branchName,
+    })
   }
 
   async setup(iterationNumber?: number): Promise<void> {
     this.setupInProgress = true
+    const startTime = Date.now()
+
+    this.logger.info('Starting LocalWorkspace setup', {
+      iterationNumber,
+      environmentId: this.environment.id,
+    })
+
     try {
       // Emit setup started event
       await this.eventService.emitEvent({
@@ -90,64 +108,118 @@ export class LocalWorkspace extends BaseWorkspace {
 
       // Check if repository is local
       if (this.environment.repository.type !== 'local') {
+        this.logger.error('Invalid repository type for LocalWorkspace', undefined, {
+          repositoryType: this.environment.repository.type,
+        })
         throw new Error('LocalWorkspace requires local repository')
       }
 
       const repo = this.environment.repository as LocalRepository
       const workspaceDir = this.getWorktreeDir()
 
+      this.logger.debug('Repository configuration loaded', {
+        repositoryPath: repo.path,
+        useGitWorktrees: repo.useGitWorktrees,
+        workspaceDir,
+      })
+
       // If worktrees are enabled, create specific workspace path
       if (repo.useGitWorktrees) {
         this.workspacePath = path.join(workspaceDir, this.getWorktreeFolderName())
+        this.logger.debug('Using git worktree setup', { workspacePath: this.workspacePath })
       } else {
         this.workspacePath = workspaceDir
+        this.logger.debug('Using direct repository path', { workspacePath: this.workspacePath })
       }
 
       // Create workspace directory if it doesn't exist
       if (!(await this.pathExists(this.workspacePath))) {
+        this.logger.debug('Workspace path does not exist, creating', {
+          workspacePath: this.workspacePath,
+        })
+
         // Check if we should create a git worktree
         if (repo.useGitWorktrees && (await isGitRepository(repo.path))) {
-          // Create git worktree
-          await this.createGitWorktree(repo.path, this.workspacePath)
+          this.logger.info('Creating git worktree for workspace')
 
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            type: EventType.WORKSPACE,
-            subType: 'worktree_created',
-            taskId: this.taskId,
-            iterationId: iterationNumber,
-            timestamp: new Date(),
-            isError: false,
-            payload: {
+          const worktreeStartTime = Date.now()
+          try {
+            // Create git worktree
+            await this.createGitWorktree(repo.path, this.workspacePath)
+
+            const worktreeCreationTime = Date.now() - worktreeStartTime
+            this.logger.info('Git worktree created successfully', {
               path: this.workspacePath,
               branch: this.getBranchName(),
-            },
-          })
-        } else {
-          // Just create a regular directory
-          await fs.mkdir(this.workspacePath, { recursive: true })
+              creationTimeMs: worktreeCreationTime,
+            })
 
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            type: EventType.WORKSPACE,
-            subType: 'directory_created',
-            taskId: this.taskId,
-            iterationId: iterationNumber,
-            timestamp: new Date(),
-            isError: false,
-            payload: {
-              path: this.workspacePath,
-            },
-          })
+            await this.eventService.emitEvent({
+              eventId: randomUUID(),
+              type: EventType.WORKSPACE,
+              subType: 'worktree_created',
+              taskId: this.taskId,
+              iterationId: iterationNumber,
+              timestamp: new Date(),
+              isError: false,
+              payload: {
+                path: this.workspacePath,
+                branch: this.getBranchName(),
+              },
+            })
+          } catch (error) {
+            const worktreeFailureTime = Date.now() - worktreeStartTime
+            this.logger.error('Failed to create git worktree', error as Error, {
+              repositoryPath: repo.path,
+              workspacePath: this.workspacePath,
+              timeToFailureMs: worktreeFailureTime,
+            })
+            throw error
+          }
+        } else {
+          this.logger.info('Creating regular directory for workspace')
+
+          try {
+            // Just create a regular directory
+            await fs.mkdir(this.workspacePath, { recursive: true })
+
+            this.logger.debug('Directory created successfully', { path: this.workspacePath })
+
+            await this.eventService.emitEvent({
+              eventId: randomUUID(),
+              type: EventType.WORKSPACE,
+              subType: 'directory_created',
+              taskId: this.taskId,
+              iterationId: iterationNumber,
+              timestamp: new Date(),
+              isError: false,
+              payload: {
+                path: this.workspacePath,
+              },
+            })
+          } catch (error) {
+            this.logger.error('Failed to create workspace directory', error as Error, {
+              workspacePath: this.workspacePath,
+            })
+            throw error
+          }
         }
+      } else {
+        this.logger.debug('Workspace path already exists', { workspacePath: this.workspacePath })
       }
 
       // Run setup commands if specified
       if (this.environment.codeExecution.setupCommands) {
         const commands = this.environment.codeExecution.setupCommands.split('\n')
+        this.logger.info('Running setup commands', {
+          commandCount: commands.filter((c) => c.trim()).length,
+        })
+
         for (const command of commands) {
           const trimmedCommand = command.trim()
           if (!trimmedCommand) continue
+
+          this.logger.debug('Executing setup command', { command: trimmedCommand })
 
           await this.eventService.emitEvent({
             eventId: randomUUID(),
@@ -164,6 +236,12 @@ export class LocalWorkspace extends BaseWorkspace {
             const result = await this.runCommand(trimmedCommand)
 
             if (result.exitCode === 0) {
+              this.logger.debug('Setup command completed successfully', {
+                command: trimmedCommand,
+                durationMs: result.durationMs,
+                outputLength: result.output.length,
+              })
+
               await this.eventService.emitEvent({
                 eventId: randomUUID(),
                 type: EventType.WORKSPACE,
@@ -178,6 +256,12 @@ export class LocalWorkspace extends BaseWorkspace {
                 },
               })
             } else {
+              this.logger.warn('Setup command failed', {
+                command: trimmedCommand,
+                exitCode: result.exitCode,
+                outputLength: result.output.length,
+              })
+
               await this.eventService.emitEvent({
                 eventId: randomUUID(),
                 type: EventType.WORKSPACE,
@@ -194,6 +278,10 @@ export class LocalWorkspace extends BaseWorkspace {
               })
             }
           } catch (error) {
+            this.logger.error('Setup command execution failed', error as Error, {
+              command: trimmedCommand,
+            })
+
             await this.eventService.emitEvent({
               eventId: randomUUID(),
               type: EventType.WORKSPACE,
@@ -209,6 +297,8 @@ export class LocalWorkspace extends BaseWorkspace {
             })
           }
         }
+      } else {
+        this.logger.debug('No setup commands configured')
       }
 
       // TODO: Initialize and start server if configured
@@ -228,8 +318,22 @@ export class LocalWorkspace extends BaseWorkspace {
       })
 
       this.setupComplete = true
+
+      const totalSetupTime = Date.now() - startTime
+      this.logger.info('LocalWorkspace setup completed successfully', {
+        setupTimeMs: totalSetupTime,
+        workspacePath: this.workspacePath,
+      })
     } catch (error) {
+      const failureTime = Date.now() - startTime
       this._error = error instanceof Error ? error.message : String(error)
+
+      this.logger.error('LocalWorkspace setup failed', error as Error, {
+        setupTimeMs: failureTime,
+        workspacePath: this.workspacePath,
+        setupPhase: this.workspacePath ? 'command_execution' : 'directory_creation',
+      })
+
       throw error
     } finally {
       this.setupInProgress = false
@@ -237,20 +341,33 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   async teardown(force = false): Promise<void> {
+    const startTime = Date.now()
+
+    this.logger.info('Starting workspace teardown', {
+      force,
+      workspacePath: this.workspacePath,
+      hasRunningAgent: !!this.runningAgent,
+    })
+
     // Check for uncommitted changes first
     if (!force) {
+      this.logger.debug('Checking for uncommitted changes')
       const hasChanges = await this.hasUncommittedChanges()
       if (hasChanges) {
+        this.logger.warn('Teardown aborted due to uncommitted changes')
         throw new Error('Workspace has uncommitted changes. Use force=true to close anyway.')
       }
+      this.logger.debug('No uncommitted changes detected')
     }
 
     // Stop the running agent if any
     if (this.runningAgent) {
+      this.logger.debug('Stopping running agent')
       try {
         await this.runningAgent.stop()
+        this.logger.debug('Agent stopped successfully')
       } catch (error) {
-        console.error('Error stopping agent:', error)
+        this.logger.error('Error stopping agent', error as Error)
       }
       this.runningAgent = undefined
     }
@@ -264,18 +381,36 @@ export class LocalWorkspace extends BaseWorkspace {
     if (this.workspacePath && (await this.pathExists(this.workspacePath))) {
       const repo = this.environment.repository as LocalRepository
       if (repo.useGitWorktrees && this.originalBranch) {
+        this.logger.debug('Removing git worktree', {
+          repositoryPath: repo.path,
+          workspacePath: this.workspacePath,
+          branch: this.branch,
+        })
+
         try {
           await this.removeGitWorktree(repo.path, this.workspacePath)
+          this.logger.debug('Git worktree removed successfully')
         } catch (error) {
-          console.error('Error removing git worktree:', error)
+          this.logger.error(
+            'Error removing git worktree, attempting manual cleanup',
+            error as Error,
+          )
           // Try manual cleanup as fallback
           await fs.rm(this.workspacePath, { recursive: true, force: true })
+          this.logger.debug('Manual cleanup completed')
         }
       } else {
+        this.logger.debug('Removing workspace directory')
         // Just remove the directory
         await fs.rm(this.workspacePath, { recursive: true, force: true })
+        this.logger.debug('Workspace directory removed successfully')
       }
+    } else {
+      this.logger.debug('No workspace path to clean up')
     }
+
+    const teardownTime = Date.now() - startTime
+    this.logger.info('Workspace teardown completed', { teardownTimeMs: teardownTime })
   }
 
   async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
@@ -358,10 +493,14 @@ export class LocalWorkspace extends BaseWorkspace {
     // Start the agent in the background
     this.runningAgent = agent
     this.runAgentAsync(agent, message, iterationNumber).catch((error) => {
-      console.error(`Error running agent for task ${this.taskId}:`, error)
+      this.logger.error('Error in background agent execution', error as Error, { agentType })
     })
 
-    console.log(`Started ${agentType} agent for task ${this.taskId} in ${this.workspacePath}`)
+    this.logger.info('Agent started successfully', {
+      agentType,
+      workspacePath: this.workspacePath,
+      iterationNumber,
+    })
     return agent
   }
 
@@ -438,18 +577,18 @@ export class LocalWorkspace extends BaseWorkspace {
 
   async stopAgent(): Promise<boolean> {
     if (!this.runningAgent) {
-      console.log(`No agent running for task ${this.taskId}`)
+      this.logger.debug('No agent running to stop')
       return false
     }
 
-    console.log(`Stopping agent for task ${this.taskId}`)
+    this.logger.info('Stopping running agent')
     try {
       await this.runningAgent.stop()
       this.runningAgent = undefined
-      console.log(`Agent stopped successfully for task ${this.taskId}`)
+      this.logger.info('Agent stopped successfully')
       return true
     } catch (error) {
-      console.error(`Error stopping agent for task ${this.taskId}:`, error)
+      this.logger.error('Error stopping agent', error as Error)
       this.runningAgent = undefined
       return false
     }
@@ -585,6 +724,7 @@ export class LocalWorkspace extends BaseWorkspace {
       }
 
       for await (const event of agent.run(message, runOptions)) {
+        this.logger.info('Agent event received', { event })
         // Save event to event stream
         await this.eventService.emitEvent(event)
 
@@ -595,7 +735,7 @@ export class LocalWorkspace extends BaseWorkspace {
         }
       }
     } catch (error) {
-      console.error(`Error running agent for task ${this.taskId}:`, error)
+      this.logger.error('Agent execution failed', error as Error, { iterationNumber })
       // Create error event
       await this.eventService.emitEvent({
         eventId: randomUUID(),
@@ -611,6 +751,7 @@ export class LocalWorkspace extends BaseWorkspace {
       })
     } finally {
       this.runningAgent = undefined
+      this.logger.debug('Agent execution completed, cleared running agent reference')
     }
   }
 
@@ -651,13 +792,18 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   private async createGitWorktree(repoPath: string, workspacePath: string): Promise<void> {
+    this.logger.debug('Creating git worktree', { repoPath, workspacePath })
+
     // Get current branch to restore later
     this.originalBranch = await getCurrentBranch(repoPath)
+    this.logger.debug('Original branch detected', { originalBranch: this.originalBranch })
 
     // Use provided branch name or create new branch name
     if (this.branchName) {
       // Create worktree from existing branch (no -b flag)
       this.branch = this.branchName
+      this.logger.debug('Using existing branch for worktree', { branch: this.branch })
+
       await execAsync(`git worktree add "${workspacePath}" "${this.branch}"`, {
         cwd: repoPath,
         timeout: 30000,
@@ -665,16 +811,29 @@ export class LocalWorkspace extends BaseWorkspace {
     } else {
       // Create new branch for worktree
       this.branch = this.getBranchName()
+      this.logger.debug('Creating new branch for worktree', { branch: this.branch })
+
       await execAsync(`git worktree add -b "${this.branch}" "${workspacePath}"`, {
         cwd: repoPath,
         timeout: 30000,
       })
     }
 
-    console.log(`Created worktree at ${workspacePath} with branch ${this.branch}`)
+    this.logger.info('Git worktree created successfully', {
+      workspacePath,
+      branch: this.branch,
+      originalBranch: this.originalBranch,
+    })
   }
 
   private async removeGitWorktree(repoPath: string, workspacePath: string): Promise<void> {
+    this.logger.debug('Removing git worktree', {
+      repoPath,
+      workspacePath,
+      branch: this.branch,
+      willDeleteBranch: !this.branchName && !!this.branch,
+    })
+
     try {
       // Remove worktree - always use --force to ensure removal
       await execAsync(`git worktree remove --force "${workspacePath}"`, {
@@ -682,19 +841,29 @@ export class LocalWorkspace extends BaseWorkspace {
         timeout: 10000,
       })
 
+      this.logger.debug('Worktree removed successfully')
+
       // Only try to delete the branch if we created it (no custom branch_name provided)
       if (!this.branchName && this.branch) {
+        this.logger.debug('Attempting to delete created branch', { branch: this.branch })
         try {
           await execAsync(`git branch -D "${this.branch}"`, {
             cwd: repoPath,
             timeout: 5000,
           })
-        } catch {
+          this.logger.debug('Branch deleted successfully', { branch: this.branch })
+        } catch (error) {
+          this.logger.warn('Branch deletion failed (best effort)', {
+            branch: this.branch,
+            error: error instanceof Error ? error.message : String(error),
+          })
           // Branch deletion is best effort
         }
+      } else {
+        this.logger.debug('Skipping branch deletion (using existing branch or no branch)')
       }
     } catch (error) {
-      console.error('Error removing worktree:', error)
+      this.logger.error('Failed to remove worktree', error as Error, { repoPath, workspacePath })
       throw error
     }
   }

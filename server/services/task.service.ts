@@ -6,14 +6,14 @@ import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/
 import { createTaskLogger } from '../utils/logger.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
-import type { StorageBackend } from './storage.js'
+import type { TaskStorageService } from './task-storage.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class TaskService {
   private backgroundTasks = new Set<Promise<void>>()
 
   constructor(
-    private storage: StorageBackend,
+    private taskStorageService: TaskStorageService,
     private eventService: EventService,
     private environmentService: EnvironmentService,
     private workspaceService: WorkspaceService,
@@ -94,16 +94,16 @@ export class TaskService {
   }
 
   async getTask(taskId: string): Promise<Task | null> {
-    return this.storage.getTask(taskId)
+    return this.taskStorageService.getTask(taskId)
   }
 
   async listTasks(limit = 50, offset = 0): Promise<Task[]> {
-    const taskKeys = await this.storage.list('tasks/')
+    const taskKeys = await this.taskStorageService.listTasks()
     const tasks: Task[] = []
 
     for (const key of taskKeys) {
       const taskId = key.replace('tasks/', '')
-      const task = await this.storage.getTask(taskId)
+      const task = await this.taskStorageService.getTask(taskId)
       if (task) tasks.push(task)
     }
 
@@ -151,7 +151,7 @@ export class TaskService {
     })
 
     // Get or create workspace
-    const workspace = await this.workspaceService.getOrCreateWorkspace(taskId, metadata.environmentId)
+    const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
 
     // Check workspace status and setup if needed
     const taskLogger = createTaskLogger(taskId)
@@ -197,8 +197,8 @@ export class TaskService {
     await this.workspaceService.cleanupWorkspace(taskId)
 
     // Delete task data
-    await this.storage.delete(`tasks/${taskId}`)
-    await this.storage.delete(`events/${taskId}`)
+    await this.taskStorageService.deleteTask(taskId)
+    await this.taskStorageService.deleteTaskEvents(taskId)
 
     // Emit deletion event
     await this.eventService.emitEvent({
@@ -212,7 +212,7 @@ export class TaskService {
   }
 
   private async saveMetadata(_taskId: string, metadata: Task): Promise<void> {
-    await this.storage.saveTask(metadata)
+    await this.taskStorageService.saveTask(metadata)
   }
 
   private async setupWorkspaceAsync(
@@ -234,7 +234,7 @@ export class TaskService {
 
     try {
       // Get or create workspace
-      await this.workspaceService.getOrCreateWorkspace(taskId, metadata.environmentId, branchName)
+      await this.workspaceService.getOrCreateWorkspace(taskId, branchName)
 
       const setupDuration = Date.now() - startTime
       taskLogger.info('Workspace created successfully', {
@@ -295,10 +295,10 @@ export class TaskService {
 
 export function createTaskService(
   _app: FastifyInstance,
-  storage: StorageBackend,
+  taskStorageService: TaskStorageService,
   eventService: EventService,
   environmentService: EnvironmentService,
   workspaceService: WorkspaceService,
 ): TaskService {
-  return new TaskService(storage, eventService, environmentService, workspaceService)
+  return new TaskService(taskStorageService, eventService, environmentService, workspaceService)
 }

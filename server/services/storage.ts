@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { logger } from '@server/utils/index.js'
 import type { FastifyInstance } from 'fastify'
 import type { Environment, Event, Task, Workspace } from '../../shared/types/index.js'
 import { fromJSON, toJSON } from '../../shared/utils/validation.js'
@@ -25,7 +26,9 @@ export interface StorageBackend {
 }
 
 export class FileStorage implements StorageBackend {
-  constructor(private basePath: string) {}
+  constructor(private basePath: string) {
+    logger.info(`Using data directory: ${basePath}`)
+  }
 
   async save(key: string, data: any): Promise<void> {
     const filePath = await this.getPath(key)

@@ -3,10 +3,12 @@ import { createEnvironmentService, type EnvironmentService } from './environment
 import { createEventService, type EventService } from './event.service.js'
 import { createStorageService, type StorageBackend } from './storage.js'
 import { createTaskService, type TaskService } from './task.service.js'
+import { createTaskStorageService, type TaskStorageService } from './task-storage.service.js'
 import { createWorkspaceService, type WorkspaceService } from './workspace.service.js'
 
 export interface Services {
   storage: StorageBackend
+  taskStorage: TaskStorageService
   event: EventService
   environment: EnvironmentService
   workspace: WorkspaceService
@@ -16,13 +18,15 @@ export interface Services {
 export async function setupServices(app: FastifyInstance): Promise<Services> {
   // Create services with dependency injection
   const storage = await createStorageService(app)
+  const taskStorage = createTaskStorageService(storage)
   const event = createEventService(app, storage)
   const environment = createEnvironmentService(app, storage)
-  const workspace = createWorkspaceService(app, environment, event)
-  const task = createTaskService(app, storage, event, environment, workspace)
+  const workspace = createWorkspaceService(app, environment, event, taskStorage)
+  const task = createTaskService(app, taskStorage, event, environment, workspace)
 
   return {
     storage,
+    taskStorage,
     event,
     environment,
     workspace,
@@ -44,4 +48,5 @@ export * from './event.service.js'
 // Export all services and types
 export * from './storage.js'
 export * from './task.service.js'
+export * from './task-storage.service.js'
 export * from './workspace.service.js'

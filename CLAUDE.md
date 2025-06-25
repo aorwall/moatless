@@ -61,9 +61,12 @@ src/
 │   ├── styles/        # Global styles
 │   └── utils/         # Utility functions
 ├── routes/            # Page components & routing
-├── types/             # TypeScript type definitions
+├── types/             # TypeScript type definitions (only git-diff.ts remains)
 └── main.tsx          # Application entry point
 ```
+
+### Type System Migration Status
+The codebase has migrated from local `@/types` to shared types at `@shared/types`. All API types, event types, task types, and environment types now use the shared type definitions. The only remaining local type file is `types/git-diff.ts` for git-specific functionality.
 
 ### Technology Stack
 - **Framework**: React 19 with TypeScript
@@ -318,7 +321,8 @@ import { SafeBoundary } from '@/lib/components/error-boundary-with-fallback';
 - Consider using error tracking services (Sentry, LogRocket) in production
 
 **Type Safety**:
-  - Define all API types in `src/types/`
+  - Use shared API types from `@shared/types/`
+  - Local types only for client-specific needs (e.g., git-diff)
   - Use TypeScript strict mode
   - Avoid `any` types
 
@@ -448,3 +452,14 @@ it('displays task data through component hierarchy', () => {
 
 ### Comprehensive Testing Guide
 For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).
+
+## Migration Notes
+
+### Shared Types Usage
+The project uses shared type definitions from `@shared/types/` for all API-related types including:
+- Task types (`TaskMetadata`, `Task`, `TaskIteration`)
+- Event types (`Event`, `EventPayload`)
+- Environment types
+- Workspace types
+
+**Important**: There is currently a known issue with property naming conventions between the TypeScript types (camelCase) and runtime data. See migration-inconsistencies-todo.md for details on pending fixes.

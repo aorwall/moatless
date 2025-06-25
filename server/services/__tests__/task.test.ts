@@ -4,34 +4,27 @@ import { EventType } from '../../../shared/types/event.js'
 import type { CreateTaskRequest, Task } from '../../../shared/types/task.js'
 import type { EnvironmentService } from '../environment.service.js'
 import type { EventService } from '../event.service.js'
-import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.service.js'
+import type { TaskStorageService } from '../task-storage.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
 
 describe('TaskService', () => {
   let taskService: TaskService
-  let mockStorage: StorageBackend
+  let mockTaskStorage: TaskStorageService
   let mockEventService: EventService
   let mockEnvironmentService: EnvironmentService
   let mockWorkspaceService: WorkspaceService
 
   beforeEach(() => {
     // Create mock services
-    mockStorage = {
-      save: vi.fn(),
-      get: vi.fn(),
-      list: vi.fn().mockResolvedValue([]),
-      delete: vi.fn(),
-      exists: vi.fn(),
+    mockTaskStorage = {
       saveTask: vi.fn(),
       getTask: vi.fn(),
-      saveEnvironment: vi.fn(),
-      getEnvironment: vi.fn(),
-      saveWorkspace: vi.fn(),
-      getWorkspace: vi.fn(),
-      saveEvents: vi.fn(),
-      getEvents: vi.fn().mockResolvedValue([]),
-    }
+      listTasks: vi.fn().mockResolvedValue([]),
+      deleteTask: vi.fn(),
+      deleteTaskEvents: vi.fn(),
+      getTaskWithEnvironmentId: vi.fn(),
+    } as any
 
     mockEventService = {
       emitEvent: vi.fn(),
@@ -58,7 +51,7 @@ describe('TaskService', () => {
     } as any
 
     taskService = new TaskService(
-      mockStorage,
+      mockTaskStorage,
       mockEventService,
       mockEnvironmentService,
       mockWorkspaceService,
@@ -90,7 +83,7 @@ describe('TaskService', () => {
       expect(taskId).toMatch(/^[0-9a-f-]+$/) // UUID pattern
 
       // Verify task was saved
-      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+      expect(mockTaskStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId,
           agentType: 'test-agent',
@@ -117,7 +110,6 @@ describe('TaskService', () => {
       // IMPORTANT: Verify workspace was created for the task
       expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
         taskId,
-        'env-123',
         undefined, // branchName
       )
     })
@@ -141,11 +133,7 @@ describe('TaskService', () => {
       await taskService.waitForBackgroundTasks()
 
       // Workspace should ALWAYS be created regardless of start flag or message
-      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
-        taskId,
-        'env-123',
-        undefined,
-      )
+      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(taskId, undefined)
 
       // Verify workspace setup completed event was emitted
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
@@ -178,7 +166,6 @@ describe('TaskService', () => {
       // Verify workspace was created with the custom branch
       expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
         taskId,
-        'env-123',
         'feature/custom-branch',
       )
     })
@@ -251,14 +238,14 @@ describe('TaskService', () => {
         iterations: [],
       }
 
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(task)
 
       const result = await taskService.getTask('task-123')
       expect(result).toEqual(task)
     })
 
     it('should return null for non-existent task', async () => {
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(null)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(null)
 
       const result = await taskService.getTask('non-existent')
       expect(result).toBeNull()
@@ -279,10 +266,12 @@ describe('TaskService', () => {
         iterations: [],
       }))
 
-      vi.mocked(mockStorage.list).mockResolvedValueOnce(tasks.map((t) => `tasks/${t.taskId}`))
+      vi.mocked(mockTaskStorage.listTasks).mockResolvedValueOnce(
+        tasks.map((t) => `tasks/${t.taskId}`),
+      )
 
       tasks.forEach((task) => {
-        vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+        vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(task)
       })
 
       const result = await taskService.listTasks(5, 0)
@@ -312,13 +301,15 @@ describe('TaskService', () => {
         triggerAgent: vi.fn(),
       }
 
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
-      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValueOnce(mockWorkspace as any)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(
+        mockWorkspace as any,
+      )
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
       // Verify task was updated
-      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+      expect(mockTaskStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
           numTurns: 1,
@@ -344,30 +335,8 @@ describe('TaskService', () => {
       )
 
       // Verify workspace interaction
-      expect(mockWorkspaceService.getWorkspace).toHaveBeenCalledWith('task-123')
+      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith('task-123')
       expect(mockWorkspace.triggerAgent).toHaveBeenCalledWith('test-agent', 'Hello, task!', 1)
-    })
-
-    it('should throw error if workspace not found', async () => {
-      const task: Task = {
-        taskId: 'task-123',
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        agentType: 'test-agent',
-        environmentId: 'env-123',
-        status: 'active',
-        numTurns: 0,
-        totalCostUsd: 0,
-        iterations: [],
-      }
-
-      vi.mocked(mockStorage.getTask).mockResolvedValue(task)
-      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(null)
-
-      await expect(taskService.sendMessage('task-123', 'Hello')).rejects.toThrow(ValidationError)
-      await expect(taskService.sendMessage('task-123', 'Hello')).rejects.toThrow(
-        'Workspace not found for task task-123',
-      )
     })
 
     it('should setup workspace if not yet setup', async () => {
@@ -389,8 +358,10 @@ describe('TaskService', () => {
         triggerAgent: vi.fn(),
       }
 
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
-      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValueOnce(mockWorkspace as any)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(
+        mockWorkspace as any,
+      )
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
@@ -400,7 +371,7 @@ describe('TaskService', () => {
     })
 
     it('should throw TaskNotFoundError for non-existent task', async () => {
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(null)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(null)
 
       await expect(taskService.sendMessage('non-existent', 'Hello')).rejects.toThrow(
         TaskNotFoundError,
@@ -422,11 +393,11 @@ describe('TaskService', () => {
         iterations: [],
       }
 
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(task)
 
       await taskService.updateTask('task-123', { status: 'completed' })
 
-      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+      expect(mockTaskStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
           status: 'completed',
@@ -449,7 +420,7 @@ describe('TaskService', () => {
         iterations: [],
       }
 
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(task)
 
       await taskService.deleteTask('task-123')
 
@@ -457,8 +428,8 @@ describe('TaskService', () => {
       expect(mockWorkspaceService.cleanupWorkspace).toHaveBeenCalledWith('task-123')
 
       // Verify storage was cleaned up
-      expect(mockStorage.delete).toHaveBeenCalledWith('tasks/task-123')
-      expect(mockStorage.delete).toHaveBeenCalledWith('events/task-123')
+      expect(mockTaskStorage.deleteTask).toHaveBeenCalledWith('task-123')
+      expect(mockTaskStorage.deleteTaskEvents).toHaveBeenCalledWith('task-123')
 
       // Verify stop event was emitted
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
@@ -471,7 +442,7 @@ describe('TaskService', () => {
     })
 
     it('should throw TaskNotFoundError for non-existent task', async () => {
-      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(null)
+      vi.mocked(mockTaskStorage.getTask).mockResolvedValueOnce(null)
 
       await expect(taskService.deleteTask('non-existent')).rejects.toThrow(TaskNotFoundError)
     })
