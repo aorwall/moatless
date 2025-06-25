@@ -1,7 +1,7 @@
 import { Archive, FileText } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
-import type { Task } from '@/types/task'
+import type { Task } from '@shared/types/task'
 
 import { TaskCard } from './task-card'
 
@@ -31,7 +31,7 @@ export function TaskList({ activeTasks, archivedTasks, loading }: TaskListProps)
         ) : activeTasks.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No active tasks</div>
         ) : (
-          activeTasks.map((task) => <TaskCard key={task.id} task={task} />)
+          activeTasks.map((task) => <TaskCard key={task.taskId} task={task} />)
         )}
       </TabsContent>
 
@@ -39,7 +39,7 @@ export function TaskList({ activeTasks, archivedTasks, loading }: TaskListProps)
         {archivedTasks.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No finished tasks</div>
         ) : (
-          archivedTasks.map((task) => <TaskCard key={task.id} task={task} />)
+          archivedTasks.map((task) => <TaskCard key={task.taskId} task={task} />)
         )}
       </TabsContent>
     </Tabs>

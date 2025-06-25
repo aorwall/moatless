@@ -1,7 +1,7 @@
 import { EventType } from '@shared/types/event'
 import { useParams } from '@tanstack/react-router'
 import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
@@ -11,7 +11,7 @@ import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { TaskIteration } from '@/types/task'
+import type { TaskIteration } from '@shared/types/task'
 
 import { ChatInput } from '../chat-input'
 
@@ -58,9 +58,9 @@ export function ChatView() {
   }
 
   // Handle scroll events to track if user is at bottom
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     setIsAtBottom(checkIfAtBottom())
-  }
+  }, [])
 
   useEffect(() => {
     const scrollArea = scrollAreaRef.current
@@ -71,7 +71,7 @@ export function ChatView() {
 
     viewport.addEventListener('scroll', handleScroll)
     return () => viewport.removeEventListener('scroll', handleScroll)
-  }, [])
+  }, [handleScroll])
 
   useEffect(() => {
     // Scroll to bottom when component mounts (initial load)
@@ -85,7 +85,7 @@ export function ChatView() {
     if (
       bottomRef.current &&
       isAtBottom &&
-      (metadata?.is_running || workspaceStatus?.status === 'running')
+      (workspaceStatus?.status === 'running')
     ) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
@@ -137,14 +137,14 @@ export function ChatView() {
   const getRunningDuration = (iteration: TaskIteration, index: number): number => {
     const isLastIteration = index === (metadata.iterations?.length || 0) - 1
     const isRunning =
-      isLastIteration && (metadata.is_running || workspaceStatus?.status === 'running')
+      isLastIteration && (workspaceStatus?.status === 'running')
 
     if (!isRunning) {
-      return iteration.duration_ms
+      return iteration.durationMs || 0
     }
 
     // Calculate elapsed time since iteration started
-    const startTime = new Date(iteration.start_time).getTime()
+    const startTime = new Date(iteration.startTime).getTime()
     return currentTime - startTime
   }
 
@@ -163,15 +163,15 @@ export function ChatView() {
           <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">
             {metadata.iterations?.map((iteration, index) => {
               const duration = getRunningDuration(iteration, index)
-              const messageCount = getMessageCountForIteration(index, iteration.message_count)
+              const messageCount = getMessageCountForIteration(index, iteration.messageCount)
 
               return (
-                <div key={iteration.iteration_id || `iteration-${index}`} className="space-y-4">
+                <div key={iteration.iterationNumber || `iteration-${index}`} className="space-y-4">
                   {/* Initial Message */}
                   <div className="bg-secondary rounded-lg p-4">
                     <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {iteration.initial_message}
+                        {iteration.initialMessage}
                       </ReactMarkdown>
                     </div>
                   </div>
@@ -194,7 +194,7 @@ export function ChatView() {
                       </div>
                       <div className="flex items-center gap-1">
                         <DollarSign className="h-4 w-4" />
-                        <span>{formatCost(iteration.cost_usd)}</span>
+                        <span>{formatCost(iteration.costUsd)}</span>
                       </div>
                       <span className="text-xs">• Click to view events</span>
                     </button>
@@ -207,20 +207,12 @@ export function ChatView() {
                     </div>
                   )}
 
-                  {/* Error Message */}
-                  {iteration.error_message && (
-                    <div className="text-sm text-red-900 dark:text-red-400 prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {iteration.error_message}
-                      </ReactMarkdown>
-                    </div>
-                  )}
                 </div>
               )
             })}
 
             {/* Show running state when workspace is running or task is running */}
-            {(metadata.is_running || isWorkspaceRunning) &&
+            {isWorkspaceRunning &&
               metadata.iterations &&
               metadata.iterations.length > 0 && (
                 <div className="flex items-center justify-center py-4 space-x-2">

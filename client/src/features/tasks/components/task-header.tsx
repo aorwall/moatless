@@ -22,7 +22,7 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { WorkspaceStatus } from '@/types/task'
+import type { WorkspaceStatus } from '@shared/types/workspace'
 
 function StatusBadge({ status }: { status: string }) {
   const variant = status === 'active' ? 'default' : status === 'error' ? 'destructive' : 'secondary'
@@ -116,31 +116,31 @@ export function TaskHeader() {
 
   const handleStop = () => {
     if (metadata) {
-      stopAgent.mutate(metadata.task_id)
+      stopAgent.mutate(metadata.taskId)
     }
   }
 
   const handleStartServer = () => {
     if (metadata) {
-      startServer.mutate(metadata.task_id)
+      startServer.mutate(metadata.taskId)
     }
   }
 
   const handleStopServer = () => {
     if (metadata) {
-      stopServer.mutate(metadata.task_id)
+      stopServer.mutate(metadata.taskId)
     }
   }
 
   const handleMerge = () => {
     if (metadata) {
-      if (workspaceStatus?.has_uncommitted_changes) {
+      if (workspaceStatus?.hasUncommittedChanges) {
         toast.warning('Cannot merge: workspace has uncommitted changes', {
           description: 'Please commit or discard changes before merging.',
         })
         return
       }
-      mergeTask.mutate(metadata.task_id)
+      mergeTask.mutate(metadata.taskId)
     }
   }
 
@@ -159,16 +159,15 @@ export function TaskHeader() {
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
               <h1 className="text-lg font-semibold">
-                {metadata.title || `Task ${metadata.task_id.slice(0, 8)}`}
+                {`Task ${metadata.taskId.slice(0, 8)}`}
               </h1>
-              {metadata.is_running && <Loader2 className="h-4 w-4 animate-spin text-blue-500" />}
             </div>
             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-              <span>{new Date(metadata.created_at).toLocaleString()}</span>
-              <span>{metadata.agent_type}</span>
+              <span>{new Date(metadata.createdAt).toLocaleString()}</span>
+              <span>{metadata.agentType}</span>
               <StatusBadge status={metadata.status} />
-              <Badge variant="outline">{metadata.num_turns} turns</Badge>
-              <Badge variant="outline">${metadata.total_cost_usd.toFixed(4)}</Badge>
+              <Badge variant="outline">{metadata.numTurns} turns</Badge>
+              <Badge variant="outline">${metadata.totalCostUsd.toFixed(4)}</Badge>
               {workspaceError ? (
                 <TooltipProvider>
                   <Tooltip>
@@ -213,8 +212,7 @@ export function TaskHeader() {
             )}
           </div>
           {serverStatus?.configured && (
-            <>
-              {serverStatus.running ? (
+            serverStatus.running ? (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -234,7 +232,7 @@ export function TaskHeader() {
                         <p className="text-xs text-muted-foreground">URL: {serverStatus.url}</p>
                         <p className="text-xs text-muted-foreground">PID: {serverStatus.pid}</p>
                         <p className="text-xs text-muted-foreground">
-                          Uptime: {serverStatus.uptime_seconds}s
+                          Uptime: {serverStatus.uptimeSeconds}s
                         </p>
                       </div>
                     </TooltipContent>
@@ -250,16 +248,15 @@ export function TaskHeader() {
                   <Play className="mr-2 h-4 w-4" />
                   {startServer.isPending ? 'Starting Server...' : 'Start Server'}
                 </Button>
-              )}
-            </>
+              )
           )}
-          {metadata.is_running && (
+          {metadata.status === 'active' && (
             <Button variant="outline" size="sm" onClick={handleStop} disabled={stopAgent.isPending}>
               <StopCircle className="mr-2 h-4 w-4" />
               {stopAgent.isPending ? 'Stopping...' : 'Stop'}
             </Button>
           )}
-          {!metadata.is_running && (
+          {metadata.status !== 'active' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -270,7 +267,7 @@ export function TaskHeader() {
                     disabled={
                       mergeTask.isPending ||
                       isLoadingWorkspace ||
-                      workspaceStatus?.has_uncommitted_changes
+                      workspaceStatus?.hasUncommittedChanges
                     }
                   >
                     <GitMerge className="mr-2 h-4 w-4" />
@@ -278,7 +275,7 @@ export function TaskHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {workspaceStatus?.has_uncommitted_changes ? (
+                  {workspaceStatus?.hasUncommittedChanges ? (
                     <p>Cannot merge: workspace has uncommitted changes</p>
                   ) : isLoadingWorkspace ? (
                     <p>Checking workspace status...</p>

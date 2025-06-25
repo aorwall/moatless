@@ -1,30 +1,27 @@
 import type { Event } from '@shared/types/event'
-import type { AgentTriggerResponse } from '@/types/agent'
-import type { GitDiffResponse } from '@/types/git-diff'
+import type { SimpleTaskResponse } from '@shared/types/api'
+import type { GitDiffResponse } from '@shared/types/git-diff'
 import type {
   AssistantMessage,
   ClaudeMessage,
   ServerStatus,
   TaskIteration,
-  TaskMetadata,
+  Task,
   WorkspaceStatusResponse,
-} from '@/types/task'
-import { ContentType, MessageType, Role, WorkspaceStatus } from '@/types/task'
+} from '@shared/types/task'
+import { ContentType, MessageType, Role, WorkspaceStatus } from '@shared/types/task'
 
 // Task factories
-export function createMockTask(overrides?: Partial<TaskMetadata>): TaskMetadata {
+export function createMockTask(overrides?: Partial<Task>): Task {
   return {
-    task_id: 'task-123',
-    title: 'Test Task',
-    created_at: '2024-01-01T00:00:00Z',
-    last_message_at: '2024-01-01T00:00:00Z',
-    agent_type: 'test-agent',
-    environment_id: 'test-env',
-    environment_name: 'test-env-name',
-    is_running: false,
+    taskId: 'task-123',
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    lastMessageAt: new Date('2024-01-01T00:00:00Z'),
+    agentType: 'test-agent',
+    environmentId: 'test-env',
     status: 'completed',
-    num_turns: 5,
-    total_cost_usd: 0.0234,
+    numTurns: 5,
+    totalCostUsd: 0.0234,
     iterations: [],
     ...overrides,
   }
@@ -35,17 +32,16 @@ export function createMockTaskIteration(
 ): TaskIteration {
   const iteration = overrides?.iteration || 1
   return {
-    iteration_id: `iter-${iteration}`,
-    start_time: '2024-01-01T00:00:00Z',
-    end_time: '2024-01-01T00:00:10Z',
+    iterationNumber: iteration,
+    startTime: new Date('2024-01-01T00:00:00Z'),
+    endTime: new Date('2024-01-01T00:00:10Z'),
     status: 'completed',
-    message_count: 3,
-    cost_usd: 0.01,
-    initial_message: `Test iteration ${iteration} message`,
-    error_message: null,
+    messageCount: 3,
+    costUsd: 0.01,
+    initialMessage: `Test iteration ${iteration} message`,
     result: 'Task completed successfully',
-    duration_ms: 10000,
-    git_diff: null,
+    durationMs: 10000,
+    gitDiff: undefined,
     ...overrides,
   }
 }
@@ -53,7 +49,7 @@ export function createMockTaskIteration(
 export function createMockClaudeMessage(overrides?: Partial<ClaudeMessage>): ClaudeMessage {
   return {
     type: MessageType.ASSISTANT,
-    task_id: 'task-123',
+    taskId: 'task-123',
     timestamp: '2024-01-01T00:00:00Z',
     message: {
       type: 'message',
@@ -156,21 +152,20 @@ index 1234567..abcdefg 100644
 
 // Agent trigger response factory
 export function createMockAgentTriggerResponse(
-  overrides?: Partial<AgentTriggerResponse>,
-): AgentTriggerResponse {
+  overrides?: Partial<SimpleTaskResponse>,
+): SimpleTaskResponse {
   return {
     taskId: 'task-123',
     status: 'created',
-    stream_url: 'ws://localhost:8080/stream',
     ...overrides,
   }
 }
 
 // Bulk factories
 export function createMockTaskWithIterations(
-  taskOverrides?: Partial<TaskMetadata>,
+  taskOverrides?: Partial<Task>,
   iterationCount = 3,
-): TaskMetadata {
+): Task {
   const iterations: TaskIteration[] = []
   for (let i = 1; i <= iterationCount; i++) {
     iterations.push(

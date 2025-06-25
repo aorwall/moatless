@@ -4,7 +4,7 @@ import { TaskList } from '@/features/tasks/components/task-list'
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import type { Task } from '@/types/task'
+import type { Task } from '@shared/types/task'
 
 export const Route = createFileRoute('/tasks/')({
   component: TasksIndex,
@@ -24,28 +24,9 @@ function TasksIndex() {
     },
   )
 
-  // Transform and separate tasks
-  const transformedTasks: Array<Task> =
-    tasks?.map((taskResponse) => ({
-      id: taskResponse.taskId,
-      title: taskResponse.title || `Task ${taskResponse.taskId.slice(0, 8)}`,
-      createdAt: taskResponse.createdAt.toISOString(),
-      lastMessageAt: taskResponse.lastMessageAt.toISOString(),
-      agentType: taskResponse.agentType,
-      environmentName: taskResponse.environmentName || taskResponse.environmentId,
-      status: taskResponse.status,
-      numTurns: taskResponse.numTurns,
-      totalCostUsd: taskResponse.totalCostUsd,
-      workspaceStatus: (taskResponse.workspaceStatus as any) || 'unknown',
-      // Legacy fields for backward compatibility
-      time: taskResponse.lastMessageAt.toLocaleString(),
-      project: taskResponse.agentType,
-      changes: { added: 0, removed: 0 },
-    })) || []
+  const activeTasks = tasks?.filter((task) => task.status === 'active') || []
 
-  const activeTasks = transformedTasks.filter((task) => task.status === 'active')
-
-  const finishedTasks = transformedTasks.filter((task) => task.status !== 'active')
+  const finishedTasks = tasks?.filter((task) => task.status !== 'active') || []
 
   return (
     <div className="container mx-auto px-6 py-8">
