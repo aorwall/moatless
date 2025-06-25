@@ -23,6 +23,7 @@ export interface Task {
   numTurns: number
   totalCostUsd: number
   iterations: TaskIteration[]
+  workspacePath?: string
 }
 
 export interface GitDiffFile {

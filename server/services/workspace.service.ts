@@ -38,15 +38,20 @@ export class WorkspaceService {
       return existing
     }
 
-    // Get task to retrieve environment ID
+    // Get task to retrieve environment ID and workspace path
     const taskData = await this.taskStorageService.getTaskWithEnvironmentId(taskId)
     if (!taskData) {
       workspaceLogger.error('Task not found', undefined, { taskId })
       throw new TaskNotFoundError(taskId)
     }
 
-    const { environmentId } = taskData
-    workspaceLogger.debug('Retrieved environment ID from task', { environmentId })
+    const { task, environmentId } = taskData
+    const existingWorkspacePath = task.workspacePath
+    
+    workspaceLogger.debug('Retrieved task data', { 
+      environmentId,
+      hasExistingWorkspacePath: !!existingWorkspacePath 
+    })
 
     // Get environment
     const environment = await this.environmentService.getEnvironment(environmentId)
@@ -71,13 +76,14 @@ export class WorkspaceService {
         workspaceLogger.debug('Creating Docker workspace')
         workspace = new DockerWorkspace(taskId, environment, this.eventService)
       } else {
-        workspaceLogger.debug('Creating Local workspace', { branchName })
+        workspaceLogger.debug('Creating Local workspace', { branchName, existingWorkspacePath })
         workspace = new LocalWorkspace(
           taskId,
           environment,
           this.eventService,
           undefined,
           branchName,
+          existingWorkspacePath,
         )
       }
 
@@ -189,6 +195,17 @@ export class WorkspaceService {
   async setupWorkspace(taskId: string, iterationNumber?: number): Promise<void> {
     const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.setup(iterationNumber)
+    
+    // Save the workspace path to the task after successful setup
+    const workspacePath = workspace.getWorkspacePath()
+    if (workspacePath) {
+      const task = await this.taskStorageService.getTask(taskId)
+      if (task) {
+        task.workspacePath = workspacePath
+        await this.taskStorageService.saveTask(task)
+        logger.debug('Saved workspace path to task', { taskId, workspacePath })
+      }
+    }
   }
 
   async triggerAgent(

@@ -472,4 +472,8 @@ export class DockerWorkspace extends BaseWorkspace {
       error: this.error,
     }
   }
+
+  getWorkspacePath(): string {
+    return this.containerId
+  }
 }

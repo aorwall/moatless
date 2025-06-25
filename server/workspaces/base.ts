@@ -143,4 +143,9 @@ export abstract class BaseWorkspace {
    * Convert to storage-compatible Workspace object
    */
   abstract toWorkspaceInfo(): Workspace
+
+  /**
+   * Get the workspace path (for local workspaces) or container ID (for docker workspaces)
+   */
+  abstract getWorkspacePath(): string
 }

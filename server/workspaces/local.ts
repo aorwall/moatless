@@ -67,11 +67,17 @@ export class LocalWorkspace extends BaseWorkspace {
     eventService: EventService,
     originalBranch?: string,
     branchName?: string,
+    existingWorkspacePath?: string,
   ) {
     super(taskId, environment, eventService)
     this.originalBranch = originalBranch
     this.branchName = branchName
     this.logger = createTaskLogger(taskId)
+    
+    // Use existing workspace path if provided
+    if (existingWorkspacePath) {
+      this.workspacePath = existingWorkspacePath
+    }
 
     this.logger.debug('LocalWorkspace constructor', {
       environmentId: environment.id,
@@ -79,6 +85,7 @@ export class LocalWorkspace extends BaseWorkspace {
       codeExecutionType: environment.codeExecution.type,
       hasOriginalBranch: !!originalBranch,
       hasBranchName: !!branchName,
+      hasExistingWorkspacePath: !!existingWorkspacePath,
     })
   }
 
@@ -123,13 +130,17 @@ export class LocalWorkspace extends BaseWorkspace {
         workspaceDir,
       })
 
-      // If worktrees are enabled, create specific workspace path
-      if (repo.useGitWorktrees) {
-        this.workspacePath = path.join(workspaceDir, this.getWorktreeFolderName())
-        this.logger.debug('Using git worktree setup', { workspacePath: this.workspacePath })
+      // If worktrees are enabled, create specific workspace path (if not already set)
+      if (!this.workspacePath) {
+        if (repo.useGitWorktrees) {
+          this.workspacePath = path.join(workspaceDir, this.getWorktreeFolderName())
+          this.logger.debug('Using git worktree setup', { workspacePath: this.workspacePath })
+        } else {
+          this.workspacePath = workspaceDir
+          this.logger.debug('Using direct repository path', { workspacePath: this.workspacePath })
+        }
       } else {
-        this.workspacePath = workspaceDir
-        this.logger.debug('Using direct repository path', { workspacePath: this.workspacePath })
+        this.logger.debug('Using existing workspace path', { workspacePath: this.workspacePath })
       }
 
       // Create workspace directory if it doesn't exist
@@ -205,7 +216,33 @@ export class LocalWorkspace extends BaseWorkspace {
           }
         }
       } else {
-        this.logger.debug('Workspace path already exists', { workspacePath: this.workspacePath })
+        this.logger.debug('Workspace path already exists, reusing', { workspacePath: this.workspacePath })
+        
+        // If we have an existing workspace path with git worktrees, we need to extract the branch info
+        if (repo.useGitWorktrees && (await isGitRepository(this.workspacePath))) {
+          try {
+            // Get the current branch from the existing worktree
+            this.branch = await getCurrentBranch(this.workspacePath)
+            this.logger.debug('Detected existing worktree branch', { branch: this.branch })
+          } catch (error) {
+            this.logger.warn('Could not detect branch from existing worktree', { error })
+          }
+        }
+        
+        // Emit event that we're reusing an existing workspace
+        await this.eventService.emitEvent({
+          eventId: randomUUID(),
+          type: EventType.WORKSPACE,
+          subType: 'workspace_reused',
+          taskId: this.taskId,
+          iterationId: iterationNumber,
+          timestamp: new Date(),
+          isError: false,
+          payload: {
+            path: this.workspacePath,
+            branch: this.branch,
+          },
+        })
       }
 
       // Run setup commands if specified
@@ -380,7 +417,7 @@ export class LocalWorkspace extends BaseWorkspace {
     // If we created a git worktree, remove it
     if (this.workspacePath && (await this.pathExists(this.workspacePath))) {
       const repo = this.environment.repository as LocalRepository
-      if (repo.useGitWorktrees && this.originalBranch) {
+      if (repo.useGitWorktrees && (this.originalBranch || this.branch)) {
         this.logger.debug('Removing git worktree', {
           repositoryPath: repo.path,
           workspacePath: this.workspacePath,
@@ -783,6 +820,10 @@ export class LocalWorkspace extends BaseWorkspace {
       path: this.workspacePath,
       error: this.error,
     }
+  }
+
+  getWorkspacePath(): string {
+    return this.workspacePath
   }
 
   // Private helper methods
