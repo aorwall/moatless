@@ -14,16 +14,22 @@ describe('Task Routes', () => {
   })
 
   describe('POST /api/tasks', () => {
-    it('should create a new task', async () => {
+    it('should create a new task with workspace', async () => {
       // Mock environment exists
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce({
         id: 'test-env',
         name: 'Test Environment',
       } as any)
 
+      // Mock workspace creation
+      vi.spyOn(app.services.workspace, 'createWorkspace').mockResolvedValueOnce({
+        id: 'workspace-id',
+        type: 'local',
+      } as any)
+
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         payload: {
           agentType: 'claude-code',
           environmentId: 'test-env',
@@ -35,12 +41,56 @@ describe('Task Routes', () => {
       const body = JSON.parse(response.body)
       expect(body.taskId).toBeDefined()
       expect(body.status).toBe('active')
+
+      // Wait for background tasks to complete
+      await app.services.task.waitForBackgroundTasks()
+
+      // Verify workspace was created for the task
+      expect(app.services.workspace.createWorkspace).toHaveBeenCalledWith(
+        body.taskId,
+        'test-env',
+        undefined,
+      )
+    })
+
+    it('should always create workspace even without initial message', async () => {
+      // Mock environment exists
+      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce({
+        id: 'test-env',
+        name: 'Test Environment',
+      } as any)
+
+      // Mock workspace creation
+      vi.spyOn(app.services.workspace, 'createWorkspace').mockResolvedValueOnce({
+        id: 'workspace-id',
+        type: 'local',
+      } as any)
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/tasks',
+        payload: {
+          agentType: 'claude-code',
+          environmentId: 'test-env',
+          message: 'Test message', // Required field
+          start: false,
+        },
+      })
+
+      expect(response.statusCode).toBe(200)
+      const body = JSON.parse(response.body)
+
+      // Wait for background tasks
+      await app.services.task.waitForBackgroundTasks()
+
+      // Workspace should ALWAYS be created
+      expect(app.services.workspace.createWorkspace).toHaveBeenCalled()
     })
 
     it('should validate request body', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         payload: {
           // Missing required fields
         },
@@ -58,7 +108,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         payload: {
           agentType: 'claude-code',
           environmentId: 'non-existent',
@@ -90,7 +140,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
       })
 
       expect(response.statusCode).toBe(200)
@@ -104,7 +154,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/non-existent-id',
+        url: '/api/v1/tasks/non-existent-id',
       })
 
       expect(response.statusCode).toBe(404)
@@ -190,7 +240,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks/test-123/messages',
+        url: '/api/v1/tasks/test-123/messages',
         payload: {
           message: 'Test message',
         },
@@ -205,7 +255,7 @@ describe('Task Routes', () => {
     it('should validate message body', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks/test-123/messages',
+        url: '/api/v1/tasks/test-123/messages',
         payload: {
           message: '', // Empty message
         },
@@ -246,7 +296,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/test-123/events?limit=10',
+        url: '/api/v1/tasks/test-123/events?limit=10',
       })
 
       expect(response.statusCode).toBe(200)
@@ -260,7 +310,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/non-existent/events',
+        url: '/api/v1/tasks/non-existent/events',
       })
 
       expect(response.statusCode).toBe(404)
@@ -273,7 +323,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'PATCH',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
         payload: {
           status: 'completed',
         },
@@ -287,7 +337,7 @@ describe('Task Routes', () => {
     it('should validate status value', async () => {
       const response = await app.inject({
         method: 'PATCH',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
         payload: {
           status: 'invalid-status',
         },
@@ -303,7 +353,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'DELETE',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
       })
 
       expect(response.statusCode).toBe(200)
@@ -320,7 +370,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'DELETE',
-        url: '/api/tasks/non-existent',
+        url: '/api/v1/tasks/non-existent',
       })
 
       expect(response.statusCode).toBe(500) // Default error handler returns 500
