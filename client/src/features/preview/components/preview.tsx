@@ -33,7 +33,9 @@ export function Preview({ config, onElementSelected, className }: PreviewProps) 
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src
+      // Force reload by reassigning the same URL
+      const currentSrc = iframeRef.current.src
+      iframeRef.current.src = currentSrc
     }
   }, [])
 

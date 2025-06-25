@@ -1,13 +1,28 @@
+import type { ApiErrorResponse } from '@shared/types/api-errors'
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export class ApiError extends Error {
   constructor(
     public status: number,
     public statusText: string,
-    public data?: unknown,
+    public data?: ApiErrorResponse | unknown,
   ) {
     super(`API request failed: ${status} ${statusText}`)
     this.name = 'ApiError'
+  }
+
+  get isApiError(): boolean {
+    return (
+      typeof this.data === 'object' &&
+      this.data !== null &&
+      'error' in this.data &&
+      typeof (this.data as any).error === 'object'
+    )
+  }
+
+  get apiError(): ApiErrorResponse | undefined {
+    return this.isApiError ? (this.data as ApiErrorResponse) : undefined
   }
 }
 

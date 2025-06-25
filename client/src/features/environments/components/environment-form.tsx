@@ -4,7 +4,7 @@ import type {
   UpdateEnvironmentRequest,
 } from '@shared/types/environment'
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -30,7 +30,6 @@ type FormData = {
   name: string
   type: 'local' | 'github'
   environment_variables: Record<string, string>
-  isActive: boolean
   path: string
   useGitWorktrees: boolean
   repo_url: string
@@ -40,6 +39,11 @@ type FormData = {
 export function EnvironmentForm({ environment, onSubmit, isSubmitting }: EnvironmentFormProps) {
   const navigate = useNavigate()
   const isEdit = !!environment
+
+  const nameId = useId()
+  const typeId = useId()
+  const repoUrlId = useId()
+  const branchId = useId()
 
   const getInitialRepositoryData = useCallback((env?: EnvironmentResponse) => {
     if (env?.repository.type === 'local') {
@@ -65,7 +69,6 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
     name: environment?.name || '',
     type: environment?.repository.type || 'local',
     environment_variables: environment?.variables || {},
-    isActive: environment?.is_active ?? true,
     ...getInitialRepositoryData(environment),
   } as FormData)
 
@@ -77,7 +80,6 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
         name: environment.name,
         type: environment.repository.type,
         environment_variables: environment.variables || {},
-        isActive: environment.is_active,
         path: 'path' in repoData ? (repoData.path as string) : '',
         useGitWorktrees:
           'useGitWorktrees' in repoData ? (repoData.useGitWorktrees as boolean) : false,
@@ -112,20 +114,12 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
       type: 'local' as const,
     }
 
-    const submitData = isEdit
-      ? {
-          name: formData.name,
-          repository,
-          codeExecution,
-          variables: formData.environment_variables,
-          isActive: formData.isActive,
-        }
-      : {
-          name: formData.name,
-          repository,
-          codeExecution,
-          variables: formData.environment_variables,
-        }
+    const submitData = {
+      name: formData.name,
+      repository,
+      codeExecution,
+      variables: formData.environment_variables,
+    }
 
     onSubmit(submitData)
   }
@@ -144,9 +138,9 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4">
             <div>
-              <Label htmlFor="name">Environment Name</Label>
+              <Label htmlFor={nameId}>Environment Name</Label>
               <Input
-                id="name"
+                id={nameId}
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="Production Environment"
@@ -155,7 +149,7 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
             </div>
 
             <div>
-              <Label htmlFor="type">Environment Type</Label>
+              <Label htmlFor={typeId}>Environment Type</Label>
               <Select
                 value={formData.type}
                 onValueChange={(value) =>
@@ -166,7 +160,7 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
                 }
                 disabled={isEdit}
               >
-                <SelectTrigger id="type">
+                <SelectTrigger id={typeId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -195,9 +189,9 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
             {formData.type === 'github' && (
               <>
                 <div>
-                  <Label htmlFor="repo_url">Repository (owner/repo)</Label>
+                  <Label htmlFor={repoUrlId}>Repository (owner/repo)</Label>
                   <Input
-                    id="repo_url"
+                    id={repoUrlId}
                     value={formData.repo_url}
                     onChange={(e) => setFormData({ ...formData, repo_url: e.target.value })}
                     placeholder="example/repo"
@@ -205,9 +199,9 @@ export function EnvironmentForm({ environment, onSubmit, isSubmitting }: Environ
                 </div>
 
                 <div>
-                  <Label htmlFor="branch">Branch</Label>
+                  <Label htmlFor={branchId}>Branch</Label>
                   <Input
-                    id="branch"
+                    id={branchId}
                     value={formData.branch}
                     onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                     placeholder="main"

@@ -20,7 +20,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
       if (e.key === 'Enter') {
         let path = pathInput.trim()
         if (!path.startsWith('/')) {
-          path = '/' + path
+          path = `/${path}`
         }
         setCurrentPath(path)
       }

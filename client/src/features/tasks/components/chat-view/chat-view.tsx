@@ -60,7 +60,7 @@ export function ChatView() {
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
     setIsAtBottom(checkIfAtBottom())
-  }, [])
+  }, [checkIfAtBottom])
 
   useEffect(() => {
     const scrollArea = scrollAreaRef.current

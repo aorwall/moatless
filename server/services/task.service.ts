@@ -201,11 +201,7 @@ export class TaskService {
   ): Promise<void> {
     try {
       // Create workspace
-      await this.workspaceService.createWorkspace(
-        taskId,
-        metadata.environmentId,
-        branchName,
-      )
+      await this.workspaceService.createWorkspace(taskId, metadata.environmentId, branchName)
 
       // Emit setup complete event
       await this.eventService.emitEvent({

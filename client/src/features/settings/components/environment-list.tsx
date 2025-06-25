@@ -3,14 +3,12 @@ import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
-import { Switch } from '@/lib/components/ui/switch'
 
 interface EnvironmentListProps {
   environments: Array<EnvironmentResponse>
   onCreateNew: () => void
   onEdit: (environment: EnvironmentResponse) => void
   onDelete: (environmentId: string) => void
-  onToggleActive: (environmentId: string, isActive: boolean) => void
   isLoading?: boolean
 }
 
@@ -19,7 +17,6 @@ export function EnvironmentList({
   onCreateNew,
   onEdit,
   onDelete,
-  onToggleActive,
   isLoading = false,
 }: EnvironmentListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -47,8 +44,8 @@ export function EnvironmentList({
   }
 
   const getExecutionBadge = (environment: EnvironmentResponse) => {
-    const { code_execution } = environment
-    if (code_execution.type === 'local') {
+    const { codeExecution } = environment
+    if (codeExecution.type === 'local') {
       return <Badge variant="secondary">Local</Badge>
     } else {
       return <Badge variant="secondary">Docker</Badge>
@@ -65,11 +62,11 @@ export function EnvironmentList({
   }
 
   const getExecutionInfo = (environment: EnvironmentResponse) => {
-    const { code_execution } = environment
-    if (code_execution.type === 'local') {
+    const { codeExecution } = environment
+    if (codeExecution.type === 'local') {
       return 'Local execution'
     } else {
-      return code_execution.image || 'Docker'
+      return codeExecution.image || 'Docker'
     }
   }
 
@@ -121,7 +118,7 @@ export function EnvironmentList({
       ) : (
         <div className="grid gap-4">
           {environments.map((environment) => (
-            <Card key={environment.id} className={!environment.is_active ? 'opacity-60' : ''}>
+            <Card key={environment.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -135,15 +132,6 @@ export function EnvironmentList({
                     {environment.description && (
                       <CardDescription>{environment.description}</CardDescription>
                     )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Active</span>
-                      <Switch
-                        checked={environment.is_active}
-                        onCheckedChange={(checked) => onToggleActive(environment.id, checked)}
-                      />
-                    </div>
                   </div>
                 </div>
               </CardHeader>
@@ -175,10 +163,10 @@ export function EnvironmentList({
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="text-xs text-muted-foreground">
-                      Created: {new Date(environment.created_at).toLocaleDateString()}
-                      {environment.updated_at !== environment.created_at && (
+                      Created: {new Date(environment.createdAt).toLocaleDateString()}
+                      {environment.updatedAt !== environment.createdAt && (
                         <span className="ml-2">
-                          Updated: {new Date(environment.updated_at).toLocaleDateString()}
+                          Updated: {new Date(environment.updatedAt).toLocaleDateString()}
                         </span>
                       )}
                     </div>

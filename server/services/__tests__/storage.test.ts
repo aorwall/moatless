@@ -102,7 +102,6 @@ describe('FileStorage', () => {
         variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
-        isActive: true,
       }
 
       await storage.saveEnvironment(env)

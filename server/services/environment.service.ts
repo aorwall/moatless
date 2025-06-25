@@ -29,7 +29,6 @@ export class EnvironmentService {
       repository: request.repository,
       codeExecution: request.codeExecution,
       variables: request.variables || {},
-      isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -237,15 +236,7 @@ export class EnvironmentService {
         }
       }
       case 'github':
-      case 'gitlab': {
-        const remoteRepo = repository as RemoteRepository
-        return {
-          url: remoteRepo.url,
-          branch: remoteRepo.branch,
-          commit: remoteRepo.commit,
-          // Could add API info like last commit date, repository stats, etc.
-        }
-      }
+
       default:
         return {}
     }

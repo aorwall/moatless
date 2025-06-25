@@ -108,7 +108,7 @@ describe('WorkspaceService', () => {
       }) as any)
 
       await service.createWorkspace('test-task', environment.id)
-      
+
       // Setup should fail
       await expect(service.setupWorkspace('test-task')).rejects.toThrow()
     })
@@ -258,6 +258,8 @@ describe('WorkspaceService', () => {
         repository: {
           type: 'github',
           url: 'https://github.com/test/repo',
+          repoId: 'test/repo',
+          branch: 'main',
         },
         codeExecution: {
           type: 'docker',
@@ -328,6 +330,8 @@ describe('WorkspaceService', () => {
         repository: {
           type: 'github',
           url: 'https://github.com/test/repo',
+          repoId: 'test/repo',
+          branch: 'main',
         },
         codeExecution: {
           type: 'docker',

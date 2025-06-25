@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
 import { Switch } from '@/lib/components/ui/switch'
@@ -15,12 +16,15 @@ export function LocalRepositoryConfig({
   onPathChange,
   onUseGitWorktreesChange,
 }: LocalRepositoryConfigProps) {
+  const pathId = useId()
+  const worktreesId = useId()
+
   return (
     <div className="space-y-4">
       <div>
-        <Label htmlFor="path">Repository Path</Label>
+        <Label htmlFor={pathId}>Repository Path</Label>
         <Input
-          id="path"
+          id={pathId}
           value={path}
           onChange={(e) => onPathChange(e.target.value)}
           placeholder="/path/to/local/repository"
@@ -33,11 +37,11 @@ export function LocalRepositoryConfig({
 
       <div className="flex items-center space-x-2">
         <Switch
-          id="use_git_worktrees"
+          id={worktreesId}
           checked={useGitWorktrees}
           onCheckedChange={onUseGitWorktreesChange}
         />
-        <Label htmlFor="use_git_worktrees">Use Git Worktrees</Label>
+        <Label htmlFor={worktreesId}>Use Git Worktrees</Label>
       </div>
       <p className="text-sm text-muted-foreground">
         Create Git worktrees for each session to isolate changes

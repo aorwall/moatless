@@ -15,14 +15,22 @@ describe('Environment Routes', () => {
 
   describe('POST /api/environments', () => {
     it('should create a new environment', async () => {
-      vi.spyOn(app.services.environment, 'createEnvironment').mockResolvedValueOnce({
+      const mockEnvironment = {
         id: 'test-env-id',
         name: 'Test Environment',
-      } as any)
+        description: 'A test environment',
+        repository: { type: 'local' as const, path: '/test/path' },
+        codeExecution: { type: 'local' as const },
+        variables: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      vi.spyOn(app.services.environment, 'createEnvironment').mockResolvedValueOnce(mockEnvironment)
 
       const response = await app.inject({
         method: 'POST',
-        url: '/api/environments',
+        url: '/api/v1/environments',
         payload: {
           name: 'Test Environment',
           description: 'A test environment',
@@ -39,14 +47,14 @@ describe('Environment Routes', () => {
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
       expect(body.name).toBe('Test Environment')
-      expect(body.id).toBeDefined()
+      expect(body.id).toBe('test-env-id')
       expect(body.createdAt).toBeDefined()
     })
 
     it('should validate required fields', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: '/api/environments',
+        url: '/api/v1/environments',
         payload: {
           // Missing required fields
         },
@@ -67,7 +75,6 @@ describe('Environment Routes', () => {
           variables: {},
           createdAt: new Date(),
           updatedAt: new Date(),
-          isActive: true,
         },
         {
           id: 'env-2',
@@ -77,7 +84,6 @@ describe('Environment Routes', () => {
           variables: {},
           createdAt: new Date(),
           updatedAt: new Date(),
-          isActive: true,
         },
       ]
 
@@ -85,7 +91,7 @@ describe('Environment Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/environments',
+        url: '/api/v1/environments',
       })
 
       expect(response.statusCode).toBe(200)
@@ -104,14 +110,13 @@ describe('Environment Routes', () => {
         variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
-        isActive: true,
       }
 
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/environments/env-123',
+        url: '/api/v1/environments/env-123',
       })
 
       expect(response.statusCode).toBe(200)
@@ -125,7 +130,7 @@ describe('Environment Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/environments/non-existent',
+        url: '/api/v1/environments/non-existent',
       })
 
       expect(response.statusCode).toBe(404)
@@ -134,7 +139,7 @@ describe('Environment Routes', () => {
     })
   })
 
-  describe('PATCH /api/environments/:environmentId', () => {
+  describe('PUT /api/environments/:environmentId', () => {
     it('should update environment', async () => {
       const updatedEnvironment = {
         id: 'env-123',
@@ -145,17 +150,15 @@ describe('Environment Routes', () => {
         variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
-        isActive: true,
       }
 
       vi.spyOn(app.services.environment, 'updateEnvironment').mockResolvedValueOnce(
         updatedEnvironment,
       )
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(updatedEnvironment)
 
       const response = await app.inject({
-        method: 'PATCH',
-        url: '/api/environments/env-123',
+        method: 'PUT',
+        url: '/api/v1/environments/env-123',
         payload: {
           name: 'Updated Name',
           description: 'Updated description',
@@ -175,7 +178,7 @@ describe('Environment Routes', () => {
 
       const response = await app.inject({
         method: 'DELETE',
-        url: '/api/environments/env-123',
+        url: '/api/v1/environments/env-123',
       })
 
       expect(response.statusCode).toBe(200)
@@ -184,18 +187,23 @@ describe('Environment Routes', () => {
     })
   })
 
-  describe('POST /api/environments/:environmentId/search', () => {
+  describe('POST /api/environments/:environmentId/search-files', () => {
     it('should search files in environment', async () => {
       const mockEnvironment = {
         id: 'env-123',
         name: 'Test Environment',
-      } as any
+        repository: { type: 'local' as const, path: '/test/path' },
+        codeExecution: { type: 'local' as const },
+        variables: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
 
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
 
       const response = await app.inject({
         method: 'POST',
-        url: '/api/environments/env-123/search',
+        url: '/api/v1/environments/env-123/search-files',
         payload: {
           query: 'test',
           filePattern: '*.ts',
@@ -213,13 +221,65 @@ describe('Environment Routes', () => {
     it('should validate search query', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: '/api/environments/env-123/search',
+        url: '/api/v1/environments/env-123/search-files',
         payload: {
           query: '', // Empty query
         },
       })
 
       expect(response.statusCode).toBe(400)
+    })
+  })
+
+  describe('POST /api/environments/:environmentId/run-setup', () => {
+    it('should run setup script', async () => {
+      const mockEnvironment = {
+        id: 'env-123',
+        name: 'Test Environment',
+        repository: { type: 'local' as const, path: '/test/path' },
+        codeExecution: { type: 'local' as const, setupCommands: 'echo "test"' },
+        variables: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/environments/env-123/run-setup',
+      })
+
+      expect(response.statusCode).toBe(200)
+      const body = JSON.parse(response.body)
+      expect(body.success).toBeDefined()
+      expect(body.output).toBeDefined()
+    })
+  })
+
+  describe('GET /api/environments/:environmentId/branches', () => {
+    it('should get branches', async () => {
+      const mockEnvironment = {
+        id: 'env-123',
+        name: 'Test Environment',
+        repository: { type: 'github' as const, repoId: 'owner/repo', branch: 'main' },
+        codeExecution: { type: 'docker' as const, image: 'node:18' },
+        variables: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/environments/env-123/branches',
+      })
+
+      expect(response.statusCode).toBe(200)
+      const body = JSON.parse(response.body)
+      expect(body.branches).toBeDefined()
+      expect(Array.isArray(body.branches)).toBe(true)
     })
   })
 })

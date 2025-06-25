@@ -32,13 +32,13 @@ function EnvironmentEdit() {
     )
   }
 
-  const handleCodeExecutionUpdate = (codeExecution: UpdateEnvironmentRequest['code_execution']) => {
+  const handleCodeExecutionUpdate = (codeExecution: UpdateEnvironmentRequest['codeExecution']) => {
     if (!codeExecution) {
       return
     }
 
     updateEnvironment.mutate(
-      { envId: environmentId, request: { code_execution: codeExecution } },
+      { envId: environmentId, request: { codeExecution: codeExecution } },
       {
         onSuccess: () => {
           toast.success('Code execution settings updated successfully')
@@ -82,7 +82,7 @@ function EnvironmentEdit() {
           isSubmitting={updateEnvironment.isPending}
         />
         <CodeExecutionConfig
-          codeExecution={environment.code_execution}
+          codeExecution={environment.codeExecution}
           onUpdate={handleCodeExecutionUpdate}
           isSubmitting={updateEnvironment.isPending}
           environmentId={environmentId}

@@ -4,7 +4,7 @@ import type {
   SetupScriptResponse,
 } from '@shared/types/environment'
 import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import {
@@ -150,7 +150,7 @@ function SetupOutputSheet({
           <SheetDescription>
             {setupScriptResult && (
               <div className="flex items-center gap-2 mt-2">
-                {setupScriptResult.overall_success ? (
+                {setupScriptResult.success ? (
                   <>
                     <CheckCircle className="h-4 w-4 text-green-500" />
                     <span className="text-green-600">All commands succeeded</span>
@@ -160,11 +160,6 @@ function SetupOutputSheet({
                     <XCircle className="h-4 w-4 text-red-500" />
                     <span className="text-red-600">Some commands failed</span>
                   </>
-                )}
-                {setupScriptResult.total_duration_ms && (
-                  <span className="text-sm text-muted-foreground ml-auto">
-                    Duration: {setupScriptResult.total_duration_ms}ms
-                  </span>
                 )}
               </div>
             )}
@@ -281,6 +276,11 @@ export function CodeExecutionConfig({
   isSubmitting,
   environmentId,
 }: CodeExecutionConfigProps) {
+  const executionTypeId = useId()
+  const imageId = useId()
+  const setupCommandsId = useId()
+  const serverCommandId = useId()
+
   const [formData, setFormData] = useState({
     type: codeExecution.type,
     setup_commands: codeExecution.setupCommands || '',
@@ -376,7 +376,7 @@ export function CodeExecutionConfig({
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <div>
-                <Label htmlFor="execution_type">Execution Type</Label>
+                <Label htmlFor={executionTypeId}>Execution Type</Label>
                 <Select
                   value={formData.type}
                   onValueChange={(value: 'local' | 'docker') =>
@@ -384,7 +384,7 @@ export function CodeExecutionConfig({
                   }
                   disabled
                 >
-                  <SelectTrigger id="execution_type">
+                  <SelectTrigger id={executionTypeId}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -399,9 +399,9 @@ export function CodeExecutionConfig({
 
               {formData.type === 'docker' && (
                 <div>
-                  <Label htmlFor="image">Docker Image</Label>
+                  <Label htmlFor={imageId}>Docker Image</Label>
                   <Input
-                    id="image"
+                    id={imageId}
                     value={formData.image}
                     onChange={(e) => setFormData({ ...formData, image: e.target.value })}
                     placeholder="ubuntu:latest"
@@ -411,9 +411,9 @@ export function CodeExecutionConfig({
               )}
 
               <div>
-                <Label htmlFor="setup_commands">Setup Commands</Label>
+                <Label htmlFor={setupCommandsId}>Setup Commands</Label>
                 <Textarea
-                  id="setup_commands"
+                  id={setupCommandsId}
                   value={formData.setup_commands}
                   onChange={(e) => setFormData({ ...formData, setup_commands: e.target.value })}
                   placeholder="pip install -r requirements.txt&#10;npm install"
@@ -426,14 +426,14 @@ export function CodeExecutionConfig({
 
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <Label htmlFor="server_command">Server Command</Label>
+                  <Label htmlFor={serverCommandId}>Server Command</Label>
                   <ServerCommandExamples
                     showServerExamples={showServerExamples}
                     setShowServerExamples={setShowServerExamples}
                   />
                 </div>
                 <Input
-                  id="server_command"
+                  id={serverCommandId}
                   value={formData.server_command}
                   onChange={(e) => handleServerCommandChange(e.target.value)}
                   placeholder="npm run dev -- --port {PORT}"

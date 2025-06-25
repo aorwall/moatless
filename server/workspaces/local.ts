@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { EventType } from '@shared/types/event.js'
 import type { Environment, LocalRepository } from '@shared/types/environment.js'
+import { EventType } from '@shared/types/event.js'
 import {
   type CommandResult,
   type ServerStatus,
@@ -14,13 +14,13 @@ import {
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
+import { searchFilesInDirectory } from '../utils/file-search.js'
 import {
   getCurrentBranch,
   getGitDiffString,
   hasUncommittedChanges,
   isGitRepository,
 } from '../utils/git-utils.js'
-import { searchFilesInDirectory } from '../utils/file-search.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 
 const execAsync = promisify(exec)
@@ -289,7 +289,7 @@ export class LocalWorkspace extends BaseWorkspace {
       searchPath,
       query,
       100, // maxResults
-      undefined // filePattern
+      undefined, // filePattern
     )
     return searchResult
   }
@@ -645,7 +645,7 @@ export class LocalWorkspace extends BaseWorkspace {
     // Get the last directory name from the repo path
     const repo = this.environment.repository as LocalRepository
     const repoLastDirName = path.basename(repo.path)
-    
+
     // Use the branch name for the worktree folder
     return `${repoLastDirName}-${this.getBranchName()}`
   }

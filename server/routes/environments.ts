@@ -1,52 +1,18 @@
-import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
-import { z } from 'zod'
+import type { z } from 'zod'
 import { EnvironmentNotFoundError } from '../../shared/constants/errors.js'
-
-// Schema for URL params
-const EnvironmentIdParamsSchema = z.object({
-  environmentId: z.string(),
-})
-
-// Schema for environment creation
-const CreateEnvironmentSchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-  repository: z.object({
-    type: z.enum(['local', 'github', 'gitlab']),
-    path: z.string().optional(),
-    url: z.string().optional(),
-    branch: z.string().optional(),
-    commit: z.string().optional(),
-    repoId: z.string().optional(),
-    token: z.string().optional(),
-  }),
-  codeExecution: z.object({
-    type: z.enum(['local', 'docker', 'sandbox']),
-    setupCommands: z.string().optional(),
-    serverCommand: z.string().optional(),
-    serverPortPlaceholder: z.string().optional(),
-    image: z.string().optional(),
-    envVars: z.record(z.string()).optional(),
-    volumes: z.array(z.string()).optional(),
-    ports: z.record(z.number()).optional(),
-  }),
-  variables: z.record(z.string()).optional(),
-})
-
-// Schema for environment update
-const UpdateEnvironmentSchema = z.object({
-  name: z.string().optional(),
-  description: z.string().optional(),
-  isActive: z.boolean().optional(),
-})
-
-// Schema for file search
-const FileSearchSchema = z.object({
-  query: z.string().min(1),
-  filePattern: z.string().optional(),
-  maxResults: z.number().min(1).max(1000).default(100),
-})
+import {
+  CreateEnvironmentSchema,
+  EnvironmentIdParamsSchema,
+  FileSearchSchema,
+  UpdateEnvironmentSchema,
+} from '../../shared/schemas/environment.schemas.js'
+import type {
+  BranchListResponse,
+  EnvironmentList,
+  FileSearchResponse,
+  SetupScriptResponse,
+} from '../../shared/types/environment.js'
 
 export async function registerEnvironmentRoutes(app: FastifyInstance) {
   const { environment: environmentService } = app.services
@@ -61,24 +27,16 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const body = request.body as z.infer<typeof CreateEnvironmentSchema>
-      const environmentData = {
-        ...body,
-        id: randomUUID(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        isActive: true,
-        variables: body.variables || {},
-      }
 
-      await environmentService.createEnvironment(environmentData as any)
-      return environmentData
+      const environment = await environmentService.createEnvironment(body)
+      return environment
     },
   )
 
   // List environments
   app.get('/', async (_request, _reply) => {
     const environments = await environmentService.listEnvironments()
-    return { environments }
+    return { environments } as EnvironmentList
   })
 
   // Get environment by ID
@@ -102,7 +60,7 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
   )
 
   // Update environment
-  app.patch(
+  app.put(
     '/:environmentId',
     {
       schema: {
@@ -137,9 +95,34 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
     },
   )
 
+  // Run setup script
+  app.post(
+    '/:environmentId/run-setup',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
+
+      // Verify environment exists
+      const environment = await environmentService.getEnvironment(environmentId)
+      if (!environment) {
+        throw new EnvironmentNotFoundError(environmentId)
+      }
+
+      // TODO: Implement setup script execution
+      return {
+        success: true,
+        output: 'Setup script execution not yet implemented',
+      } as SetupScriptResponse
+    },
+  )
+
   // Search files in environment
   app.post(
-    '/:environmentId/search',
+    '/:environmentId/search-files',
     {
       schema: {
         params: EnvironmentIdParamsSchema,
@@ -162,7 +145,32 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         files: [],
         totalCount: 0,
         truncated: false,
+      } as FileSearchResponse
+    },
+  )
+
+  // Get branches
+  app.get(
+    '/:environmentId/branches',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
+
+      // Verify environment exists
+      const environment = await environmentService.getEnvironment(environmentId)
+      if (!environment) {
+        throw new EnvironmentNotFoundError(environmentId)
       }
+
+      // TODO: Implement branch listing when workspace service is complete
+      return {
+        branches: [],
+        currentBranch: undefined,
+      } as BranchListResponse
     },
   )
 }

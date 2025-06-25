@@ -2,6 +2,8 @@
  * Utilities for element inspection functionality
  */
 
+import type { ElementInfo } from '../types'
+
 /**
  * Generate a human-readable CSS selector for an element
  */
@@ -42,7 +44,7 @@ export function generateSelector(element: Element): string {
   const path: string[] = []
   let current: Element | null = element
 
-  while (current && current.tagName && current.tagName !== 'HTML') {
+  while (current?.tagName && current.tagName !== 'HTML') {
     let selector = current.tagName.toLowerCase()
 
     if (current.id) {
@@ -84,7 +86,7 @@ export function getElementPath(element: Element): string[] {
   const path: string[] = []
   let current: Element | null = element
 
-  while (current && current.tagName && current.tagName !== 'HTML') {
+  while (current?.tagName && current.tagName !== 'HTML') {
     const selector = createReadableSelector(current)
     path.unshift(selector)
     current = current.parentElement
@@ -131,7 +133,7 @@ export function getComputedStyles(element: Element): Record<string, string> {
 /**
  * Create a complete ElementInfo object from a DOM element
  */
-export function createElementInfo(element: Element): any {
+export function createElementInfo(element: Element): ElementInfo {
   const rect = element.getBoundingClientRect()
   const displayText = createReadableSelector(element)
 

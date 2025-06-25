@@ -1,7 +1,6 @@
 import type { EnvironmentResponse } from '@shared/types/environment'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
-import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -67,7 +66,6 @@ export function EnvironmentList({ environments, isLoading }: EnvironmentListProp
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Repository URL</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -78,11 +76,6 @@ export function EnvironmentList({ environments, isLoading }: EnvironmentListProp
                   <TableCell>{env.repository.type}</TableCell>
                   <TableCell className="max-w-xs truncate">
                     {env.repository.type === 'github' ? env.repository.repoId : env.repository.path}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={env.is_active ? 'default' : 'secondary'}>
-                      {env.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" asChild>

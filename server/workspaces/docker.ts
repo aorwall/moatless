@@ -1,8 +1,8 @@
 import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
-import { EventType } from '@shared/types/event.js'
 import type { Environment } from '@shared/types/environment.js'
+import { EventType } from '@shared/types/event.js'
 import {
   type CommandResult,
   type ServerStatus,

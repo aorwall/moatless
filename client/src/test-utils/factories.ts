@@ -11,6 +11,9 @@ import type {
 } from '@shared/types/task'
 import { ContentType, MessageType, Role, WorkspaceStatus } from '@shared/types/task'
 
+// Re-export environment factories
+export * from './factories/environment'
+
 // Task factories
 export function createMockTask(overrides?: Partial<Task>): Task {
   return {

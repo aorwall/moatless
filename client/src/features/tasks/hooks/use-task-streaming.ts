@@ -128,7 +128,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
         sseClientRef.current = null
       }
     }
-  }, [taskId])
+  }, [])
 
   return {
     streamEvents,

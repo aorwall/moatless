@@ -92,8 +92,8 @@ export function InspectorPanel({ className, onClose }: InspectorPanelProps) {
                     {selectedElement.className
                       .split(' ')
                       .filter((c) => c)
-                      .map((cls, i) => (
-                        <code key={i} className="block p-1 bg-muted rounded text-xs">
+                      .map((cls) => (
+                        <code key={cls} className="block p-1 bg-muted rounded text-xs">
                           .{cls}
                         </code>
                       ))}

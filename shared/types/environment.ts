@@ -1,51 +1,22 @@
-export interface Environment {
-  id: string
-  name: string
-  description?: string
-  repository: Repository
-  codeExecution: CodeExecution
-  variables: Record<string, string>
-  createdAt: Date
-  updatedAt: Date
-  isActive: boolean
-}
+// Re-export types from schemas
+export type {
+  CodeExecution,
+  CreateEnvironmentRequest,
+  Environment,
+  GithubRepository,
+  LocalRepository,
+  Repository,
+  UpdateEnvironmentRequest,
+} from '../schemas/environment.schemas.js'
 
-export interface Repository {
-  type: 'local' | 'github' | 'gitlab'
-  path?: string
-  url?: string
-  branch?: string
-  commit?: string
-}
+import type {
+  CodeExecution as CodeExec,
+  GithubRepository as GithubRepo,
+  Repository as Repo,
+} from '../schemas/environment.schemas.js'
 
-export interface LocalRepository extends Repository {
-  type: 'local'
-  path: string
-  useGitWorktrees?: boolean
-  originalBranch?: string
-}
-
-export interface GithubRepository extends Repository {
-  type: 'github'
-  repoId: string
-  branch: string
-  commit?: string
-  token?: string
-}
-
-export type RemoteRepository = GithubRepository
-
-export interface CodeExecution {
-  type: 'local' | 'docker' | 'sandbox'
-  setupCommands?: string
-  serverCommand?: string
-  serverPortPlaceholder?: string
-  serverLogFile?: string
-  image?: string
-  envVars?: Record<string, string>
-  volumes?: string[]
-  ports?: Record<string, number>
-}
+// Additional types not in schemas
+export type RemoteRepository = GithubRepo
 
 export interface EnvironmentVariable {
   key: string
@@ -53,25 +24,15 @@ export interface EnvironmentVariable {
   description?: string
 }
 
-export interface CreateEnvironmentRequest {
+export interface EnvironmentResponse {
+  id: string
   name: string
   description?: string
-  repository: Repository
-  codeExecution: CodeExecution
-  variables?: Record<string, string>
-}
-
-export interface UpdateEnvironmentRequest {
-  name?: string
-  description?: string
-  repository?: Repository
-  codeExecution?: CodeExecution
-  variables?: Record<string, string>
-  isActive?: boolean
-}
-
-export interface EnvironmentResponse extends Environment {
-  id: string
+  repository: Repo
+  codeExecution: CodeExec
+  variables: Record<string, string>
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface FileSearchRequest {
@@ -85,4 +46,19 @@ export interface FileSearchResponse {
   files: string[]
   totalCount: number
   truncated: boolean
+}
+
+export interface EnvironmentList {
+  environments: EnvironmentResponse[]
+}
+
+export interface SetupScriptResponse {
+  success: boolean
+  output?: string
+  error?: string
+}
+
+export interface BranchListResponse {
+  branches: string[]
+  currentBranch?: string
 }

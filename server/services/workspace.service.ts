@@ -1,14 +1,14 @@
-import { EnvironmentNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
 import { randomUUID } from 'node:crypto'
+import { EnvironmentNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
 import type { CommandResult, ServerStatus, Workspace } from '../../shared/types/index.js'
-import { LocalWorkspace } from '../workspaces/local.js'
-import { DockerWorkspace } from '../workspaces/docker.js'
 import type { BaseWorkspace } from '../workspaces/base.js'
+import { DockerWorkspace } from '../workspaces/docker.js'
+import { LocalWorkspace } from '../workspaces/local.js'
+import type { BaseAgent } from './agents/base-agent.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
-import type { BaseAgent } from './agents/base-agent.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
@@ -43,7 +43,7 @@ export class WorkspaceService {
     }
 
     this.activeWorkspaces.set(taskId, workspace)
-    
+
     // Store workspace info
     await this.storage.saveWorkspace(workspace.toWorkspaceInfo())
 
