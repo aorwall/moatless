@@ -4,7 +4,12 @@ import { setupApp } from './app.js'
 
 config() // Load environment variables
 
+// Determine if we should disable request logging
+// Default to true (disable) unless explicitly set to false
+const disableRequestLogging = process.env.DISABLE_REQUEST_LOGGING !== 'false'
+
 const server = fastify({
+  disableRequestLogging,
   logger: {
     level: process.env.LOG_LEVEL || 'info',
     transport: {
@@ -14,9 +19,8 @@ const server = fastify({
         ignore: 'pid,hostname',
       },
     },
-    // Custom serializers to control what gets logged
     serializers: {
-      req(request) {
+      req(request: any) {
         return {
           method: request.method,
           url: request.url,
@@ -25,25 +29,10 @@ const server = fastify({
           remotePort: request.socket.remotePort,
         }
       },
-      res(reply) {
+      res(reply: any) {
         return {
           statusCode: reply.statusCode,
         }
-      },
-    },
-    // Custom hooks to control when logging happens
-    hooks: {
-      // Only log errors for incoming requests
-      logMethod(inputArgs, method, level) {
-        const [message] = inputArgs
-        
-        // If it's an incoming request log and not an error, skip it
-        if (message === 'incoming request' && level !== 50) { // 50 is error level
-          return // Skip logging
-        }
-        
-        // Otherwise, proceed with normal logging
-        return method.apply(this, inputArgs)
       },
     },
   },
