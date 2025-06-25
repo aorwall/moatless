@@ -14,6 +14,38 @@ const server = fastify({
         ignore: 'pid,hostname',
       },
     },
+    // Custom serializers to control what gets logged
+    serializers: {
+      req(request) {
+        return {
+          method: request.method,
+          url: request.url,
+          host: request.headers.host,
+          remoteAddress: request.socket.remoteAddress,
+          remotePort: request.socket.remotePort,
+        }
+      },
+      res(reply) {
+        return {
+          statusCode: reply.statusCode,
+        }
+      },
+    },
+    // Custom hooks to control when logging happens
+    hooks: {
+      // Only log errors for incoming requests
+      logMethod(inputArgs, method, level) {
+        const [message] = inputArgs
+        
+        // If it's an incoming request log and not an error, skip it
+        if (message === 'incoming request' && level !== 50) { // 50 is error level
+          return // Skip logging
+        }
+        
+        // Otherwise, proceed with normal logging
+        return method.apply(this, inputArgs)
+      },
+    },
   },
 })
 

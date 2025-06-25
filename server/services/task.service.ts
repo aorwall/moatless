@@ -168,18 +168,16 @@ export class TaskService {
       // TODO: Implement wait logic
     }
 
-    // If workspace is not setup, run setup first
-    if (status === 'not_setup') {
-      await workspace.setup(iterationNumber)
-    }
-
-    // Trigger the agent and get session ID
-    const agentSessionId = await this.workspaceService.triggerAgent(
+    // Start workspace (will run setup if needed and trigger agent)
+    await this.workspaceService.startWorkspace(
       taskId,
       metadata.agentType,
       message,
       iterationNumber,
     )
+    
+    // Get agent session ID from the workspace
+    const agentSessionId = undefined // Session ID is handled within the agent now
 
     // Update the current iteration with the agent session ID
     if (agentSessionId && metadata.iterations.length > 0) {
@@ -248,24 +246,16 @@ export class TaskService {
     })
 
     try {
-      // Get or create workspace
-      await this.workspaceService.getOrCreateWorkspace(taskId, branchName)
+      // Create workspace (will wait for worktree creation if needed)
+      await this.workspaceService.createWorkspace(taskId, branchName)
+      
+      // Setup workspace in background
+      await this.workspaceService.setupWorkspace(taskId)
 
       const setupDuration = Date.now() - startTime
       taskLogger.info('Workspace created successfully', {
         durationMs: setupDuration,
         environmentId: metadata.environmentId,
-      })
-
-      // Emit setup complete event
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.WORKSPACE,
-        subType: 'setup_completed',
-        taskId,
-        timestamp: new Date(),
-        isError: false,
-        payload: { workspaceId: taskId },
       })
 
       taskLogger.debug('Workspace setup complete event emitted')
@@ -286,19 +276,6 @@ export class TaskService {
         phase: 'workspace_setup',
       })
 
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.ERROR,
-        taskId,
-        timestamp: new Date(),
-        isError: true,
-        payload: {
-          error: error instanceof Error ? error.message : String(error),
-          phase: 'workspace_setup',
-        },
-      })
-
-      // Re-throw to ensure background task failure is visible
       throw error
     }
   }

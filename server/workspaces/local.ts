@@ -27,7 +27,7 @@ import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from '
 const execAsync = promisify(exec)
 
 export class LocalWorkspace extends BaseWorkspace {
-  private runningAgent?: BaseAgent
+  private _runningAgent?: BaseAgent
   private setupInProgress = false
   private setupComplete = false
   private workspacePath = ''
@@ -59,6 +59,10 @@ export class LocalWorkspace extends BaseWorkspace {
 
   get error(): string | undefined {
     return this._error
+  }
+
+  get runningAgent(): BaseAgent | undefined {
+    return this._runningAgent
   }
 
   constructor(
@@ -99,21 +103,7 @@ export class LocalWorkspace extends BaseWorkspace {
     })
 
     try {
-      // Emit setup started event
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.WORKSPACE,
-        subType: 'setup_started',
-        taskId: this.taskId,
-        iterationId: iterationNumber,
-        timestamp: new Date(),
-        isError: false,
-        payload: {
-          environmentId: this.environment.id,
-        },
-      })
-
-      // Check if repository is local
+      // Step 1: Validate repository type
       if (this.environment.repository.type !== 'local') {
         this.logger.error('Invalid repository type for LocalWorkspace', undefined, {
           repositoryType: this.environment.repository.type,
@@ -122,237 +112,98 @@ export class LocalWorkspace extends BaseWorkspace {
       }
 
       const repo = this.environment.repository as LocalRepository
-      const workspaceDir = this.getWorktreeDir()
 
-      this.logger.debug('Repository configuration loaded', {
-        repositoryPath: repo.path,
-        useGitWorktrees: repo.useGitWorktrees,
-        workspaceDir,
-      })
-
-      // If worktrees are enabled, create specific workspace path (if not already set)
+      // Step 2: Set workspace path if not already set
       if (!this.workspacePath) {
-        if (repo.useGitWorktrees) {
-          this.workspacePath = path.join(workspaceDir, this.getWorktreeFolderName())
-          this.logger.debug('Using git worktree setup', { workspacePath: this.workspacePath })
-        } else {
-          this.workspacePath = workspaceDir
-          this.logger.debug('Using direct repository path', { workspacePath: this.workspacePath })
-        }
+        await this.setWorkspacePath(repo)
       } else {
-        this.logger.debug('Using existing workspace path', { workspacePath: this.workspacePath })
+        this.logger.info('Using existing workspace path', { workspacePath: this.workspacePath })
+        // Extract branch info from existing workspace if needed
+        await this.extractBranchInfoFromExistingWorkspace(repo)
       }
 
-      // Create workspace directory if it doesn't exist
+      // Step 3: Create worktree if needed (synchronously)
       if (!(await this.pathExists(this.workspacePath))) {
-        this.logger.debug('Workspace path does not exist, creating', {
-          workspacePath: this.workspacePath,
-        })
-
-        // Check if we should create a git worktree
-        if (repo.useGitWorktrees && (await isGitRepository(repo.path))) {
-          this.logger.info('Creating git worktree for workspace')
-
-          const worktreeStartTime = Date.now()
-          try {
-            // Create git worktree
-            await this.createGitWorktree(repo.path, this.workspacePath)
-
-            const worktreeCreationTime = Date.now() - worktreeStartTime
-            this.logger.info('Git worktree created successfully', {
-              path: this.workspacePath,
-              branch: this.getBranchName(),
-              creationTimeMs: worktreeCreationTime,
-            })
-
-            await this.eventService.emitEvent({
-              eventId: randomUUID(),
-              type: EventType.WORKSPACE,
-              subType: 'worktree_created',
-              taskId: this.taskId,
-              iterationId: iterationNumber,
-              timestamp: new Date(),
-              isError: false,
-              payload: {
-                path: this.workspacePath,
-                branch: this.getBranchName(),
-              },
-            })
-          } catch (error) {
-            const worktreeFailureTime = Date.now() - worktreeStartTime
-            this.logger.error('Failed to create git worktree', error as Error, {
-              repositoryPath: repo.path,
-              workspacePath: this.workspacePath,
-              timeToFailureMs: worktreeFailureTime,
-            })
-            throw error
-          }
-        } else {
-          this.logger.info('Creating regular directory for workspace')
-
-          try {
-            // Just create a regular directory
-            await fs.mkdir(this.workspacePath, { recursive: true })
-
-            this.logger.debug('Directory created successfully', { path: this.workspacePath })
-
-            await this.eventService.emitEvent({
-              eventId: randomUUID(),
-              type: EventType.WORKSPACE,
-              subType: 'directory_created',
-              taskId: this.taskId,
-              iterationId: iterationNumber,
-              timestamp: new Date(),
-              isError: false,
-              payload: {
-                path: this.workspacePath,
-              },
-            })
-          } catch (error) {
-            this.logger.error('Failed to create workspace directory', error as Error, {
-              workspacePath: this.workspacePath,
-            })
-            throw error
-          }
+        if (repo.useGitWorktrees) {
+          await this.createWorktreeWorkspace(repo)
         }
-      } else {
-        this.logger.debug('Workspace path already exists, reusing', { workspacePath: this.workspacePath })
-        
-        // If we have an existing workspace path with git worktrees, we need to extract the branch info
-        if (repo.useGitWorktrees && (await isGitRepository(this.workspacePath))) {
-          try {
-            // Get the current branch from the existing worktree
-            this.branch = await getCurrentBranch(this.workspacePath)
-            this.logger.debug('Detected existing worktree branch', { branch: this.branch })
-          } catch (error) {
-            this.logger.warn('Could not detect branch from existing worktree', { error })
-          }
-        }
-        
-        // Emit event that we're reusing an existing workspace
-        await this.eventService.emitEvent({
-          eventId: randomUUID(),
-          type: EventType.WORKSPACE,
-          subType: 'workspace_reused',
-          taskId: this.taskId,
-          iterationId: iterationNumber,
-          timestamp: new Date(),
-          isError: false,
-          payload: {
-            path: this.workspacePath,
-            branch: this.branch,
-          },
-        })
       }
 
-      // Run setup commands if specified
-      if (this.environment.codeExecution.setupCommands) {
-        const commands = this.environment.codeExecution.setupCommands.split('\n')
-        this.logger.info('Running setup commands', {
-          commandCount: commands.filter((c) => c.trim()).length,
-        })
-
-        for (const command of commands) {
-          const trimmedCommand = command.trim()
-          if (!trimmedCommand) continue
-
-          this.logger.debug('Executing setup command', { command: trimmedCommand })
-
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            type: EventType.WORKSPACE,
-            subType: 'command_running',
-            taskId: this.taskId,
-            iterationId: iterationNumber,
-            timestamp: new Date(),
-            isError: false,
-            payload: { command: trimmedCommand },
-          })
-
-          try {
-            const result = await this.runCommand(trimmedCommand)
-
-            if (result.exitCode === 0) {
-              this.logger.debug('Setup command completed successfully', {
-                command: trimmedCommand,
-                durationMs: result.durationMs,
-                outputLength: result.output.length,
-              })
-
-              await this.eventService.emitEvent({
-                eventId: randomUUID(),
-                type: EventType.WORKSPACE,
-                subType: 'command_completed',
-                taskId: this.taskId,
-                iterationId: iterationNumber,
-                timestamp: new Date(),
-                isError: false,
-                payload: {
-                  command: trimmedCommand,
-                  durationMs: result.durationMs,
-                },
-              })
-            } else {
-              this.logger.warn('Setup command failed', {
-                command: trimmedCommand,
-                exitCode: result.exitCode,
-                outputLength: result.output.length,
-              })
-
-              await this.eventService.emitEvent({
-                eventId: randomUUID(),
-                type: EventType.WORKSPACE,
-                subType: 'command_failed',
-                taskId: this.taskId,
-                iterationId: iterationNumber,
-                timestamp: new Date(),
-                isError: true,
-                payload: {
-                  command: trimmedCommand,
-                  error: result.output,
-                  exitCode: result.exitCode,
-                },
-              })
-            }
-          } catch (error) {
-            this.logger.error('Setup command execution failed', error as Error, {
-              command: trimmedCommand,
-            })
-
-            await this.eventService.emitEvent({
-              eventId: randomUUID(),
-              type: EventType.WORKSPACE,
-              subType: 'command_failed',
-              taskId: this.taskId,
-              iterationId: iterationNumber,
-              timestamp: new Date(),
-              isError: true,
-              payload: {
-                command: trimmedCommand,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            })
-          }
-        }
-      } else {
-        this.logger.debug('No setup commands configured')
-      }
-
-      // TODO: Initialize and start server if configured
-
-      // Emit setup completed event
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.WORKSPACE,
-        subType: 'setup_completed',
-        taskId: this.taskId,
-        iterationId: iterationNumber,
-        timestamp: new Date(),
-        isError: false,
-        payload: {
-          workingDirectory: this.workspacePath,
-        },
+      // Step 4: Mark setup as partially complete (workspace ready)
+      this.logger.info('Workspace ready, continuing with setup commands in background', {
+        workspacePath: this.workspacePath,
       })
+
+      // Step 5: Run setup commands in background
+      this.runSetupCommandsInBackground(startTime).catch((error) => {
+        this._error = error instanceof Error ? error.message : String(error)
+        this.logger.error('Background setup commands failed', error as Error)
+      })
+
+    } catch (error) {
+      const failureTime = Date.now() - startTime
+      this._error = error instanceof Error ? error.message : String(error)
+
+      this.logger.error('LocalWorkspace setup failed', error as Error, {
+        setupTimeMs: failureTime,
+        workspacePath: this.workspacePath,
+        setupPhase: 'initialization',
+      })
+
+      this.setupInProgress = false
+      throw error
+    }
+  }
+
+  private async setWorkspacePath(repo: LocalRepository): Promise<void> {
+    // Step 1: Check if environment repo path exists
+    if (!(await this.pathExists(repo.path))) {
+      throw new Error(`Repository path does not exist: ${repo.path}`)
+    }
+
+    const workspaceDir = this.getWorktreeDir()
+
+    this.logger.debug('Repository configuration loaded', {
+      repositoryPath: repo.path,
+      useGitWorktrees: repo.useGitWorktrees,
+      workspaceDir,
+    })
+
+    // Step 2: Determine workspace path based on worktree configuration
+    if (repo.useGitWorktrees) {
+      this.workspacePath = path.join(workspaceDir, this.getWorktreeFolderName())
+      this.logger.info('Using git worktree setup', { workspacePath: this.workspacePath })
+
+      // Check if worktree path already exists
+      if (!(await this.pathExists(this.workspacePath))) {
+        // Verify repo is a git repository before creating worktree
+        if (!(await isGitRepository(repo.path))) {
+          throw new Error('Repository path is not a git repository')
+        }
+        // Create worktree directory will happen in background setup
+      }
+    } else {
+      this.workspacePath = repo.path
+      this.logger.info('Using direct repository path', { workspacePath: this.workspacePath })
+    }
+  }
+
+  private async extractBranchInfoFromExistingWorkspace(repo: LocalRepository): Promise<void> {
+    // If we have an existing workspace path with git worktrees, extract the branch info
+    if (repo.useGitWorktrees && (await isGitRepository(this.workspacePath))) {
+      try {
+        this.branch = await getCurrentBranch(this.workspacePath)
+        this.logger.debug('Detected existing worktree branch', { branch: this.branch })
+      } catch (error) {
+        this.logger.warn('Could not detect branch from existing worktree', { error })
+      }
+    }
+  }
+
+  private async runSetupCommandsInBackground(startTime: number): Promise<void> {
+    try {
+      // Run setup commands if specified
+      await this.runSetupCommands()
 
       this.setupComplete = true
 
@@ -361,19 +212,84 @@ export class LocalWorkspace extends BaseWorkspace {
         setupTimeMs: totalSetupTime,
         workspacePath: this.workspacePath,
       })
+
     } catch (error) {
       const failureTime = Date.now() - startTime
       this._error = error instanceof Error ? error.message : String(error)
 
-      this.logger.error('LocalWorkspace setup failed', error as Error, {
+      this.logger.error('Setup commands failed', error as Error, {
         setupTimeMs: failureTime,
         workspacePath: this.workspacePath,
-        setupPhase: this.workspacePath ? 'command_execution' : 'directory_creation',
       })
 
       throw error
     } finally {
       this.setupInProgress = false
+    }
+  }
+
+  private async createWorktreeWorkspace(repo: LocalRepository): Promise<void> {
+    this.logger.info('Creating git worktree for workspace')
+
+    const worktreeStartTime = Date.now()
+    try {
+      await this.createGitWorktree(repo.path, this.workspacePath)
+
+      const worktreeCreationTime = Date.now() - worktreeStartTime
+      this.logger.info('Git worktree created successfully', {
+        path: this.workspacePath,
+        branch: this.getBranchName(),
+        creationTimeMs: worktreeCreationTime,
+      })
+    } catch (error) {
+      const worktreeFailureTime = Date.now() - worktreeStartTime
+      this.logger.error('Failed to create git worktree', error as Error, {
+        repositoryPath: repo.path,
+        workspacePath: this.workspacePath,
+        timeToFailureMs: worktreeFailureTime,
+      })
+      throw error
+    }
+  }
+
+  private async runSetupCommands(): Promise<void> {
+    if (!this.environment.codeExecution.setupCommands) {
+      this.logger.debug('No setup commands configured')
+      return
+    }
+
+    const commands = this.environment.codeExecution.setupCommands.split('\n')
+    this.logger.info('Running setup commands', {
+      commandCount: commands.filter((c) => c.trim()).length,
+    })
+
+    for (const command of commands) {
+      const trimmedCommand = command.trim()
+      if (!trimmedCommand) continue
+
+      this.logger.debug('Executing setup command', { command: trimmedCommand })
+
+      try {
+        const result = await this.runCommand(trimmedCommand)
+
+        if (result.exitCode === 0) {
+          this.logger.info('Setup command completed successfully', {
+            command: trimmedCommand,
+            durationMs: result.durationMs,
+            outputLength: result.output.length,
+          })
+        } else {
+          this.logger.warn('Setup command failed', {
+            command: trimmedCommand,
+            exitCode: result.exitCode,
+            outputLength: result.output.length,
+          })
+        }
+      } catch (error) {
+        this.logger.error('Setup command execution failed', error as Error, {
+          command: trimmedCommand,
+        })
+      }
     }
   }
 
@@ -398,15 +314,15 @@ export class LocalWorkspace extends BaseWorkspace {
     }
 
     // Stop the running agent if any
-    if (this.runningAgent) {
+    if (this._runningAgent) {
       this.logger.debug('Stopping running agent')
       try {
-        await this.runningAgent.stop()
+        await this._runningAgent.stop()
         this.logger.debug('Agent stopped successfully')
       } catch (error) {
         this.logger.error('Error stopping agent', error as Error)
       }
-      this.runningAgent = undefined
+      this._runningAgent = undefined
     }
 
     // TODO: Stop the server if running
@@ -528,7 +444,7 @@ export class LocalWorkspace extends BaseWorkspace {
     }
 
     // Start the agent and wait for the first system message
-    this.runningAgent = agent
+    this._runningAgent = agent
 
     // Create a promise that resolves when we receive the first system message
     const sessionIdPromise = new Promise<string | undefined>((resolve) => {
@@ -600,7 +516,7 @@ export class LocalWorkspace extends BaseWorkspace {
             resolve(undefined)
           }
         } finally {
-          this.runningAgent = undefined
+          this._runningAgent = undefined
           this.logger.debug('Agent execution completed, cleared running agent reference')
         }
       }
@@ -632,20 +548,40 @@ export class LocalWorkspace extends BaseWorkspace {
       throw new Error(`Workspace ${this.taskId} is already running`)
     }
 
-    // Run setup
+    // Run setup (will wait for worktree creation but not setup commands)
     await this.setup(iterationNumber)
+
+    // Wait for setup commands to complete before triggering agent
+    await this.waitForSetupCompletion()
 
     // Trigger the agent
     await this.triggerAgent(agentType, message, iterationNumber)
   }
 
+  private async waitForSetupCompletion(timeout = 60000): Promise<void> {
+    const startTime = Date.now()
+    
+    while (!this.setupComplete && !this._error) {
+      if (Date.now() - startTime > timeout) {
+        throw new Error('Setup timeout exceeded')
+      }
+      
+      // Wait a bit before checking again
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    
+    if (this._error) {
+      throw new Error(`Setup failed: ${this._error}`)
+    }
+  }
+
   isRunning(): boolean {
-    return this.runningAgent !== undefined
+    return this._runningAgent !== undefined
   }
 
   getStatus(): WorkspaceStatus {
     // Check if agent is running
-    if (this.runningAgent) {
+    if (this._runningAgent) {
       return WorkspaceStatus.RUNNING
     }
 
@@ -699,20 +635,20 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   async stopAgent(): Promise<boolean> {
-    if (!this.runningAgent) {
+    if (!this._runningAgent) {
       this.logger.debug('No agent running to stop')
       return false
     }
 
     this.logger.info('Stopping running agent')
     try {
-      await this.runningAgent.stop()
-      this.runningAgent = undefined
+      await this._runningAgent.stop()
+      this._runningAgent = undefined
       this.logger.info('Agent stopped successfully')
       return true
     } catch (error) {
       this.logger.error('Error stopping agent', error as Error)
-      this.runningAgent = undefined
+      this._runningAgent = undefined
       return false
     }
   }
@@ -824,6 +760,10 @@ export class LocalWorkspace extends BaseWorkspace {
 
   getWorkspacePath(): string {
     return this.workspacePath
+  }
+  
+  isWorkspacePathSet(): boolean {
+    return !!this.workspacePath
   }
 
   // Private helper methods

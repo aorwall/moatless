@@ -13,19 +13,13 @@ export enum EventType {
   COMPLETION = 'completion',
 }
 
-export enum MessageSubType {
-  TOOL_CALL = 'tool_call',
-  TOOL_RESULT = 'tool_result',
-  TEXT = 'text',
-}
-
 export interface BaseEvent {
   eventId: string
   type: EventType
   subType?: string
   taskId: string
   iterationId?: number
-  timestamp: Date
+  timestamp?: Date
   isError: boolean
   contextTokens?: number
   numTurns?: number
@@ -49,6 +43,7 @@ export interface InputEvent extends BaseEvent {
 
 export interface MessageEvent extends BaseEvent {
   type: EventType.MESSAGE
+  agentSessionId?: string
   payload: ClaudeCodeSDKMessage
 }
 
@@ -94,17 +89,6 @@ export interface ServerEvent extends BaseEvent {
     pid?: number
     error?: string
   }
-}
-
-export interface MessageContent {
-  type: string
-  text?: string
-  id?: string
-  name?: string
-  input?: Record<string, any>
-  toolUseId?: string
-  content?: string
-  isError?: boolean
 }
 
 export type SpecificEvent = InputEvent | MessageEvent | ErrorEvent | WorkspaceEvent | ServerEvent

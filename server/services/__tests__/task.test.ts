@@ -48,6 +48,10 @@ describe('TaskService', () => {
       getWorkspace: vi.fn(),
       updateWorkspace: vi.fn(),
       cleanupWorkspace: vi.fn(),
+      createWorkspace: vi.fn(),
+      setupWorkspace: vi.fn(),
+      startWorkspace: vi.fn(),
+      triggerAgent: vi.fn(),
     } as any
 
     taskService = new TaskService(
@@ -72,9 +76,32 @@ describe('TaskService', () => {
         name: 'Test Environment',
       } as any)
 
-      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce({
+      // Mock the new workspace methods
+      vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
         id: 'task-id',
         type: 'local',
+        getWorkspacePath: () => '/test/workspace',
+      } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+      vi.mocked(mockWorkspaceService.startWorkspace).mockResolvedValueOnce(undefined)
+      
+      // Mock getTask to return the saved task for background processing
+      vi.mocked(mockTaskStorage.getTask).mockImplementation((id) => {
+        return Promise.resolve({
+          taskId: id,
+          agentType: 'test-agent',
+          environmentId: 'env-123',
+          status: 'active',
+          numTurns: 0,
+          totalCostUsd: 0,
+          iterations: [],
+          createdAt: new Date(),
+        })
+      })
+      
+      // Mock getOrCreateWorkspace for sendMessage
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue({
+        getStatus: vi.fn().mockReturnValue('ready'),
       } as any)
 
       const taskId = await taskService.createTask(request)
@@ -95,23 +122,14 @@ describe('TaskService', () => {
         }),
       )
 
-      // Verify start event was emitted
-      expect(mockEventService.emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: EventType.START,
-          taskId,
-          isError: false,
-        }),
-      )
+      // Events are no longer emitted on task creation
 
       // Wait for background tasks to complete
       await taskService.waitForBackgroundTasks()
 
       // IMPORTANT: Verify workspace was created for the task
-      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
-        taskId,
-        undefined, // branchName
-      )
+      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(taskId, undefined)
+      expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(taskId)
     })
 
     it('should always create workspace even without initial message', async () => {
@@ -127,23 +145,23 @@ describe('TaskService', () => {
         name: 'Test Environment',
       } as any)
 
+      // Mock workspace creation
+      vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
+        id: 'task-id',
+        type: 'local',
+        getWorkspacePath: () => '/test/workspace',
+      } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+
       const taskId = await taskService.createTask(request)
 
       // Wait for background tasks
       await taskService.waitForBackgroundTasks()
 
       // Workspace should ALWAYS be created regardless of start flag or message
-      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(taskId, undefined)
+      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(taskId, undefined)
 
-      // Verify workspace setup completed event was emitted
-      expect(mockEventService.emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: EventType.WORKSPACE,
-          subType: 'setup_completed',
-          taskId,
-          isError: false,
-        }),
-      )
+      // Events are no longer emitted
     })
 
     it('should create workspace with custom branch name', async () => {
@@ -159,12 +177,20 @@ describe('TaskService', () => {
         name: 'Test Environment',
       } as any)
 
+      // Mock workspace creation
+      vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
+        id: 'task-id',
+        type: 'local',
+        getWorkspacePath: () => '/test/workspace',
+      } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+
       const taskId = await taskService.createTask(request)
 
       await taskService.waitForBackgroundTasks()
 
       // Verify workspace was created with the custom branch
-      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
+      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
         taskId,
         'feature/custom-branch',
       )
@@ -197,7 +223,7 @@ describe('TaskService', () => {
         id: 'env-123',
       } as any)
 
-      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockRejectedValueOnce(
+      vi.mocked(mockWorkspaceService.createWorkspace).mockRejectedValueOnce(
         new Error('Workspace setup failed'),
       )
 
@@ -209,18 +235,7 @@ describe('TaskService', () => {
       // Wait for background task to complete
       await taskService.waitForBackgroundTasks()
 
-      // Error event should be emitted
-      expect(mockEventService.emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: EventType.ERROR,
-          taskId,
-          isError: true,
-          payload: expect.objectContaining({
-            error: 'Workspace setup failed',
-            phase: 'workspace_setup',
-          }),
-        }),
-      )
+      // Error events are no longer emitted
     })
   })
 
@@ -305,6 +320,7 @@ describe('TaskService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(
         mockWorkspace as any,
       )
+      vi.mocked(mockWorkspaceService.startWorkspace).mockResolvedValueOnce(undefined)
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
@@ -336,7 +352,7 @@ describe('TaskService', () => {
 
       // Verify workspace interaction
       expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith('task-123')
-      expect(mockWorkspace.triggerAgent).toHaveBeenCalledWith('test-agent', 'Hello, task!', 1)
+      expect(mockWorkspaceService.startWorkspace).toHaveBeenCalledWith('task-123', 'test-agent', 'Hello, task!', 1)
     })
 
     it('should setup workspace if not yet setup', async () => {
@@ -362,12 +378,17 @@ describe('TaskService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(
         mockWorkspace as any,
       )
+      vi.mocked(mockWorkspaceService.startWorkspace).mockResolvedValueOnce(undefined)
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
-      // Verify workspace was setup before triggering agent
-      expect(mockWorkspace.setup).toHaveBeenCalledWith(1)
-      expect(mockWorkspace.triggerAgent).toHaveBeenCalledWith('test-agent', 'Hello, task!', 1)
+      // Verify workspace was started with the right parameters
+      expect(mockWorkspaceService.startWorkspace).toHaveBeenCalledWith(
+        'task-123', 
+        'test-agent', 
+        'Hello, task!', 
+        1
+      )
     })
 
     it('should throw TaskNotFoundError for non-existent task', async () => {
@@ -461,9 +482,30 @@ describe('TaskService', () => {
       } as any)
 
       // Delay workspace creation
-      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve({ id: 'ws-123' } as any), 50)),
+      vi.mocked(mockWorkspaceService.createWorkspace).mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ id: 'ws-123', getWorkspacePath: () => '/test/path' } as any), 50)),
       )
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+      vi.mocked(mockWorkspaceService.startWorkspace).mockResolvedValueOnce(undefined)
+      
+      // Mock getTask for background processing
+      vi.mocked(mockTaskStorage.getTask).mockImplementation((id) => {
+        return Promise.resolve({
+          taskId: id,
+          agentType: 'test-agent',
+          environmentId: 'env-123',
+          status: 'active',
+          numTurns: 0,
+          totalCostUsd: 0,
+          iterations: [],
+          createdAt: new Date(),
+        })
+      })
+      
+      // Mock getOrCreateWorkspace for sendMessage
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue({
+        getStatus: vi.fn().mockReturnValue('ready'),
+      } as any)
 
       await taskService.createTask(request)
 

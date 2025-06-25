@@ -148,7 +148,7 @@ describe('WorkspaceService', () => {
       vi.spyOn(fs, 'access').mockResolvedValue(undefined)
 
       // First creation
-      const workspace1 = await service.getOrCreateWorkspace('test-task-persist')
+      const workspace1 = await service.createWorkspace('test-task-persist')
       await service.setupWorkspace('test-task-persist')
       
       const workspacePath = workspace1.getWorkspacePath()
@@ -208,7 +208,7 @@ describe('WorkspaceService', () => {
       await service.getOrCreateWorkspace('test-task-fail')
 
       // Setup should fail
-      await expect(service.setupWorkspace('test-task-fail')).rejects.toThrow('ENOENT')
+      await expect(service.setupWorkspace('test-task-fail')).rejects.toThrow('Repository path does not exist')
     })
 
     it('should return existing workspace if already created', async () => {

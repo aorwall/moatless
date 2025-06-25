@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import {
   EnvironmentNotFoundError,
   TaskNotFoundError,
@@ -134,17 +133,6 @@ export class WorkspaceService {
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
     const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.writeFile(filePath, content)
-
-    // Emit file change event
-    await this.eventService.emit(
-      randomUUID(),
-      'workspace',
-      taskId,
-      new Date(),
-      false,
-      { filePath, action: 'write' },
-      'file_changed',
-    )
   }
 
   async getGitDiff(taskId: string): Promise<any> {
@@ -192,6 +180,15 @@ export class WorkspaceService {
     }
   }
 
+  async createWorkspace(taskId: string, branchName?: string): Promise<BaseWorkspace> {
+    const workspace = await this.getOrCreateWorkspace(taskId, branchName)
+    
+    // Note: Workspace path will be saved after setup is called
+    // because the path is not determined until setup runs
+    
+    return workspace
+  }
+
   async setupWorkspace(taskId: string, iterationNumber?: number): Promise<void> {
     const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.setup(iterationNumber)
@@ -200,7 +197,7 @@ export class WorkspaceService {
     const workspacePath = workspace.getWorkspacePath()
     if (workspacePath) {
       const task = await this.taskStorageService.getTask(taskId)
-      if (task) {
+      if (task && !task.workspacePath) {
         task.workspacePath = workspacePath
         await this.taskStorageService.saveTask(task)
         logger.debug('Saved workspace path to task', { taskId, workspacePath })
@@ -217,6 +214,16 @@ export class WorkspaceService {
     const workspace = await this.getOrCreateWorkspace(taskId)
     const agent = await workspace.triggerAgent(agentType, message, iterationNumber)
     return agent.getSessionId()
+  }
+
+  async startWorkspace(
+    taskId: string,
+    agentType: string,
+    message: string,
+    iterationNumber: number,
+  ): Promise<void> {
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    await workspace.start(agentType, message, iterationNumber)
   }
 
   async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {

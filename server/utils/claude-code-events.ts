@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeSettings } from '@shared/types/claude.js'
-import { type Event, EventType } from '@shared/types/event.js'
+import {type Event, EventType, MessageEvent} from '@shared/types/event.js'
 import type { Task } from '@shared/types/task.js'
 
 /**
@@ -12,16 +12,16 @@ export function sdkMessageToEvent(
   sdkMessage: SDKMessage,
   taskId: string,
   iterationNumber?: number,
-): Event {
+): MessageEvent {
   // Check if this is an error message
   const isError = 'error' in sdkMessage && sdkMessage.error !== undefined
 
   return {
     eventId: crypto.randomUUID(),
     type: EventType.MESSAGE,
+    agentSessionId: sdkMessage.session_id,
     taskId,
     iterationId: iterationNumber,
-    timestamp: new Date(),
     isError,
     payload: sdkMessage,
   }
