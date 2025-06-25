@@ -1,4 +1,5 @@
-import type { Event } from '@shared/types/event'
+import { isToolUseContent } from '@shared/types/claude-content'
+import type { Event, MessageEvent as MessageEventType } from '@shared/types/event'
 import { useMemo } from 'react'
 import { type MergedEvent, mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 
@@ -19,6 +20,25 @@ const PayloadRenderer = ({ payload }: { payload: unknown }) => {
   )
 }
 
+// Helper to check if an event contains tool calls
+function hasToolCall(event: Event): boolean {
+  if (event.type !== 'message') return false
+
+  const messageEvent = event as MessageEventType
+  const payload = messageEvent.payload
+
+  // Check if it's an assistant message with content
+  if (
+    payload?.type === 'assistant' &&
+    payload.message?.content &&
+    Array.isArray(payload.message.content)
+  ) {
+    return payload.message.content.some(isToolUseContent)
+  }
+
+  return false
+}
+
 const EventContent = ({ event }: { event: Event | MergedEvent }) => {
   try {
     switch (event.type) {
@@ -27,14 +47,16 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
       case 'input':
         return <InputEvent event={event} />
       case 'message':
-        // Check if it's a tool call with merged result
-        if (event.subType === 'tool_call' && 'toolResult' in event) {
+        // Check if it's a merged event with tool result
+        if ('toolResult' in event) {
           return <ToolCallEvent event={event as MergedEvent} />
         }
-        // Check if it's a standalone tool call (without result)
-        if (event.subType === 'tool_call') {
+
+        // Check if it's a tool call by examining the content
+        if (hasToolCall(event)) {
           return <ToolCallEvent event={event as MergedEvent} />
         }
+
         // For text messages and other non-tool messages
         return <MessageEvent event={event} />
       case 'result':
@@ -73,10 +95,7 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
 export function EventList({ events }: EventListProps) {
   // Memoize sorted and merged events to prevent unnecessary re-computations
   const mergedEvents = useMemo(() => {
-    const sortedEvents = [...events].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-    )
-    return mergeToolEvents(sortedEvents)
+    return mergeToolEvents(events)
   }, [events])
 
   return (

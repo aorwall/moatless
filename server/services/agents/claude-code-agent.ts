@@ -108,12 +108,26 @@ export class ClaudeCodeAgent extends BaseAgent {
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
     const options = this.options as ClaudeCodeOptions
     const sdkOptions: ClaudeCodeOptions = {
-      // Copy all SDK options directly from our options
+      allowedTools: [
+        "Agent",
+        "Edit",
+        "Grep",
+        "MultiEdit",
+        "NotebookRead",
+        "TodoRead",
+        "WebFetch",
+        "Write",
+        "WebSearch",
+        "TodoWrite",
+        "Read",
+        "NotebookEdit",
+        "LS",
+        "Glob",
+        "Bash"
+      ],
+      permissionMode: "acceptEdits",
       ...options,
-      // Override cwd with workspace directory if provided
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
-      // Don't pass abortController through options - it's handled separately
-      abortController: undefined,
     }
 
     return sdkOptions

@@ -13,13 +13,44 @@ interface WriteToolCallProps {
 }
 
 export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
+  // Validate input
+  if (!input || typeof input !== 'object') {
+    console.error('[WriteToolCall] Invalid input:', input)
+    return (
+      <div className="text-sm text-red-600 dark:text-red-400">
+        Error: Invalid input for {name} tool
+      </div>
+    )
+  }
+
+  if (!input.filePath || typeof input.filePath !== 'string') {
+    console.error('[WriteToolCall] Missing or invalid filePath:', input)
+    return (
+      <div className="text-sm text-red-600 dark:text-red-400">
+        Error: Missing file path for {name} tool
+      </div>
+    )
+  }
+
+  if (input.content === undefined || input.content === null) {
+    console.error('[WriteToolCall] Missing content:', input)
+    return (
+      <div className="text-sm text-red-600 dark:text-red-400">
+        Error: Missing content for {name} tool
+      </div>
+    )
+  }
+
+  // Ensure content is a string
+  const content = String(input.content)
+
   // Create a unified diff format showing only additions (new file)
   const diffContent = useMemo(() => {
     // Extract just the filename from the path
     const fileName = input.filePath.split('/').pop() || input.filePath
 
     // Create a unified diff format for a new file (all additions)
-    const lines = input.content.split('\n')
+    const lines = content.split('\n')
     const diff = [
       `--- /dev/null`,
       `+++ b/${fileName}`,
@@ -28,12 +59,12 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
     ].join('\n')
 
     return diff
-  }, [input.filePath, input.content])
+  }, [input.filePath, content])
 
   // Count lines for display
   const lineCount = useMemo(() => {
-    return input.content.split('\n').length
-  }, [input.content])
+    return content.split('\n').length
+  }, [content])
 
   return (
     <div className="space-y-2">
@@ -51,7 +82,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
             <span className="text-xs text-green-600 dark:text-green-400 font-mono">
               + New file:
             </span>
-            <pre className="text-xs font-mono whitespace-pre-wrap mt-1">{input.content}</pre>
+            <pre className="text-xs font-mono whitespace-pre-wrap mt-1">{content}</pre>
           </div>
         }
       />

@@ -1,4 +1,9 @@
-import type { Event } from '@shared/types/event'
+import {
+  isToolResultContent,
+  isToolUseContent,
+  type ToolUseContent,
+} from '@shared/types/claude-content'
+import type { Event, MessageEvent } from '@shared/types/event'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
@@ -20,10 +25,10 @@ interface ToolCallEventProps {
   event: MergedEvent
 }
 
-const renderToolCall = (content: Record<string, unknown>): ReactNode => {
-  const toolName = String(content.name || 'Tool')
-  const toolId = String(content.id || '')
-  const input = content.input as Record<string, unknown> | undefined
+const renderToolCall = (content: ToolUseContent): ReactNode => {
+  const toolName = content.name
+  const toolId = content.id
+  const input = content.input
 
   if (!input || typeof input !== 'object') {
     return (
@@ -50,29 +55,29 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         />
       )
     case 'Edit':
+      // Map snake_case field names from Claude SDK
+      const editInput = {
+        filePath: (input as any).file_path,
+        oldString: (input as any).old_string,
+        newString: (input as any).new_string,
+        replaceAll: (input as any).replace_all
+      }
       return (
         <EditToolCall
-          input={
-            input as {
-              filePath: string
-              oldString: string
-              newString: string
-              replaceAll?: boolean
-            }
-          }
+          input={editInput}
           name={toolName}
         />
       )
     case 'Read':
+      // Map snake_case field names from Claude SDK
+      const readInput = {
+        filePath: (input as any).file_path,
+        offset: (input as any).offset,
+        limit: (input as any).limit
+      }
       return (
         <ReadToolCall
-          input={
-            input as {
-              filePath: string
-              offset?: number
-              limit?: number
-            }
-          }
+          input={readInput}
           name={toolName}
         />
       )
@@ -118,14 +123,14 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         />
       )
     case 'Write':
+      // Map snake_case field names from Claude SDK
+      const writeInput = {
+        filePath: (input as any).file_path,
+        content: (input as any).content
+      }
       return (
         <WriteToolCall
-          input={
-            input as {
-              filePath: string
-              content: string
-            }
-          }
+          input={writeInput}
           name={toolName}
         />
       )
@@ -166,22 +171,20 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
 }
 
 const extractToolResult = (event: Event): string => {
-  const payload = event.payload as Record<string, unknown>
-  const message = payload.message as Record<string, unknown> | null
+  if (event.type !== 'message') return 'No result'
 
-  if (!(message?.content && Array.isArray(message.content))) {
-    return 'No result'
-  }
+  const messageEvent = event as MessageEvent
+  const payload = messageEvent.payload
 
-  for (const content of message.content) {
-    if (
-      content &&
-      typeof content === 'object' &&
-      'type' in content &&
-      content.type === 'toolResult' &&
-      'content' in content
-    ) {
-      return String(content.content || 'No result')
+  if (
+    payload?.type === 'user' &&
+    payload.message?.content &&
+    Array.isArray(payload.message.content)
+  ) {
+    for (const content of payload.message.content) {
+      if (isToolResultContent(content)) {
+        return content.content || 'No result'
+      }
     }
   }
 
@@ -202,6 +205,7 @@ const ToolResultPreview = ({ result }: { result: string }) => {
         <span>Tool Result</span>
         {hasMoreLines && (
           <button
+            type="button"
             onClick={() => setIsExpanded(!isExpanded)}
             className="flex items-center gap-1 hover:text-foreground transition-colors"
           >
@@ -219,6 +223,7 @@ const ToolResultPreview = ({ result }: { result: string }) => {
           {displayContent}
           {!isExpanded && hasMoreLines && (
             <button
+              type="button"
               onClick={() => setIsExpanded(true)}
               className="text-zinc-500 hover:text-zinc-300 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors cursor-pointer"
             >
@@ -232,25 +237,28 @@ const ToolResultPreview = ({ result }: { result: string }) => {
 }
 
 export function ToolCallEvent({ event }: ToolCallEventProps) {
-  const payload = event.payload as Record<string, unknown>
-  const message = payload.message as Record<string, unknown> | null
+  if (event.type !== 'message') {
+    return <div className="text-sm text-muted-foreground">Not a message event</div>
+  }
 
-  if (!message) {
-    return <div className="text-sm text-muted-foreground">No message content</div>
+  const messageEvent = event as MessageEvent
+  const payload = messageEvent.payload
+
+  if (!payload) {
+    return <div className="text-sm text-muted-foreground">No payload</div>
   }
 
   // Extract tool call content
-  let toolCallContent: Record<string, unknown> | null = null
+  let toolCallContent: ToolUseContent | null = null
 
-  if (message.content && Array.isArray(message.content)) {
-    for (const content of message.content) {
-      if (
-        content &&
-        typeof content === 'object' &&
-        'type' in content &&
-        content.type === 'toolUse'
-      ) {
-        toolCallContent = content as Record<string, unknown>
+  if (
+    payload.type === 'assistant' &&
+    payload.message?.content &&
+    Array.isArray(payload.message.content)
+  ) {
+    for (const content of payload.message.content) {
+      if (isToolUseContent(content)) {
+        toolCallContent = content
         break
       }
     }
