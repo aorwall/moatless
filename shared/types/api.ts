@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Event } from './event.js'
 import type { Task } from './task.js'
+import { WorkspaceStatus } from './workspace.js'
 
 // ============================================
 // Base Types and Enums
@@ -85,6 +86,13 @@ export const ServerLogsResponseSchema = z.object({
   lines: z.number(),
 })
 export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
+
+// Workspace Status Response
+export const WorkspaceStatusResponseSchema = z.object({
+  status: z.nativeEnum(WorkspaceStatus),
+  hasUncommittedChanges: z.boolean(),
+})
+export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 
 // ============================================
 // Query Schemas and Types

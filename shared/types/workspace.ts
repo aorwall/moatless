@@ -65,8 +65,3 @@ export interface ServerStatus {
   pid?: number
   uptimeSeconds: number
 }
-
-export interface WorkspaceStatusResponse {
-  status: WorkspaceStatus
-  hasUncommittedChanges: boolean
-}

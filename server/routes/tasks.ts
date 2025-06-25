@@ -192,6 +192,29 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
+  // Get workspace status
+  app.get(
+    '/:taskId/workspace-status',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Get workspace status from workspace service
+      const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
+      return workspaceStatus
+    },
+  )
+
   // WebSocket for real-time events
   app.get(
     '/:taskId/events/stream',
