@@ -48,14 +48,14 @@ describe('WorkspaceService', () => {
     // Mock the validateRepository method to skip validation
     vi.spyOn(environmentService as any, 'validateRepository').mockResolvedValue(undefined)
 
-    service = new WorkspaceService(storage, environmentService, eventService)
+    service = new WorkspaceService(environmentService, eventService)
   })
 
   afterEach(async () => {
     await fs.rm(tempDir, { recursive: true, force: true })
   })
 
-  describe('createWorkspace', () => {
+  describe('getOrCreateWorkspace', () => {
     it('should create a local workspace', async () => {
       // Create test environment
       const environment = await environmentService.createEnvironment({
@@ -80,7 +80,7 @@ describe('WorkspaceService', () => {
         }
       }) as any)
 
-      const workspace = await service.createWorkspace('test-task', environment.id)
+      const workspace = await service.getOrCreateWorkspace('test-task', environment.id)
 
       expect(workspace.id).toBe('test-task')
       expect(workspace.type).toBe('local')
@@ -107,7 +107,7 @@ describe('WorkspaceService', () => {
         callback(new Error('Git worktree creation failed'), null)
       }) as any)
 
-      await service.createWorkspace('test-task', environment.id)
+      await service.getOrCreateWorkspace('test-task', environment.id)
 
       // Setup should fail
       await expect(service.setupWorkspace('test-task')).rejects.toThrow()
@@ -132,8 +132,8 @@ describe('WorkspaceService', () => {
         callback(null, { stdout: 'success', stderr: '' })
       }) as any)
 
-      const workspace1 = await service.createWorkspace('test-task', environment.id)
-      const workspace2 = await service.createWorkspace('test-task', environment.id)
+      const workspace1 = await service.getOrCreateWorkspace('test-task', environment.id)
+      const workspace2 = await service.getOrCreateWorkspace('test-task', environment.id)
 
       expect(workspace1).toBe(workspace2)
     })
@@ -166,7 +166,7 @@ describe('WorkspaceService', () => {
         callback(null, { stdout: tempDir, stderr: '' })
       }) as any)
 
-      const workspace = await service.createWorkspace('test-task', environment.id)
+      const workspace = await service.getOrCreateWorkspace('test-task', environment.id)
 
       // Manually set the workspace path to our temp directory for testing
 
@@ -198,7 +198,7 @@ describe('WorkspaceService', () => {
         callback(null, { stdout: tempDir, stderr: '' })
       }) as any)
 
-      const workspace = await service.createWorkspace('test-task', environment.id)
+      const workspace = await service.getOrCreateWorkspace('test-task', environment.id)
 
       // Manually set the workspace path to our temp directory for testing
 
@@ -233,7 +233,7 @@ describe('WorkspaceService', () => {
         callback(null, { stdout: tempDir, stderr: '' })
       }) as any)
 
-      const workspace = await service.createWorkspace('test-task', environment.id)
+      const workspace = await service.getOrCreateWorkspace('test-task', environment.id)
 
       // Manually set the workspace path to our temp directory for testing
 
@@ -280,7 +280,7 @@ describe('WorkspaceService', () => {
         }
       }) as any)
 
-      const workspace = await service.createWorkspace('test-task', environment.id)
+      const workspace = await service.getOrCreateWorkspace('test-task', environment.id)
 
       expect(workspace.type).toBe('docker')
       expect(workspace.status).toBe('initializing')
@@ -309,7 +309,7 @@ describe('WorkspaceService', () => {
         callback(null, { stdout: 'success', stderr: '' })
       }) as any)
 
-      await service.createWorkspace('test-task', environment.id)
+      await service.getOrCreateWorkspace('test-task', environment.id)
       await service.cleanupWorkspace('test-task')
 
       // Verify workspace is removed from storage
@@ -351,7 +351,7 @@ describe('WorkspaceService', () => {
         }
       }) as any)
 
-      await service.createWorkspace('test-task', environment.id)
+      await service.getOrCreateWorkspace('test-task', environment.id)
       await service.cleanupWorkspace('test-task')
 
       // Verify Docker stop and rm were called

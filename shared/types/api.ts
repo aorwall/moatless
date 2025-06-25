@@ -17,7 +17,7 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>
 export const CreateTaskRequestSchema = z.object({
   agentType: z.string(),
   environmentId: z.string(),
-  message: z.string(),
+  message: z.string().optional(),
   branchName: z.string().optional(),
   start: z.boolean().optional(),
 })

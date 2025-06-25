@@ -22,7 +22,7 @@ describe('Task Routes', () => {
       } as any)
 
       // Mock workspace creation
-      vi.spyOn(app.services.workspace, 'createWorkspace').mockResolvedValueOnce({
+      vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValueOnce({
         id: 'workspace-id',
         type: 'local',
       } as any)
@@ -46,7 +46,7 @@ describe('Task Routes', () => {
       await app.services.task.waitForBackgroundTasks()
 
       // Verify workspace was created for the task
-      expect(app.services.workspace.createWorkspace).toHaveBeenCalledWith(
+      expect(app.services.workspace.getOrCreateWorkspace).toHaveBeenCalledWith(
         body.taskId,
         'test-env',
         undefined,
@@ -61,7 +61,7 @@ describe('Task Routes', () => {
       } as any)
 
       // Mock workspace creation
-      vi.spyOn(app.services.workspace, 'createWorkspace').mockResolvedValueOnce({
+      vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValueOnce({
         id: 'workspace-id',
         type: 'local',
       } as any)
@@ -78,13 +78,12 @@ describe('Task Routes', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
 
       // Wait for background tasks
       await app.services.task.waitForBackgroundTasks()
 
       // Workspace should ALWAYS be created
-      expect(app.services.workspace.createWorkspace).toHaveBeenCalled()
+      expect(app.services.workspace.getOrCreateWorkspace).toHaveBeenCalled()
     })
 
     it('should validate request body', async () => {

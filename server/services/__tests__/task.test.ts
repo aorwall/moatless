@@ -51,7 +51,7 @@ describe('TaskService', () => {
     } as any
 
     mockWorkspaceService = {
-      createWorkspace: vi.fn(),
+      getOrCreateWorkspace: vi.fn(),
       getWorkspace: vi.fn(),
       updateWorkspace: vi.fn(),
       cleanupWorkspace: vi.fn(),
@@ -79,7 +79,7 @@ describe('TaskService', () => {
         name: 'Test Environment',
       } as any)
 
-      vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce({
         id: 'task-id',
         type: 'local',
       } as any)
@@ -115,7 +115,7 @@ describe('TaskService', () => {
       await taskService.waitForBackgroundTasks()
 
       // IMPORTANT: Verify workspace was created for the task
-      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
+      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
         taskId,
         'env-123',
         undefined, // branchName
@@ -141,7 +141,7 @@ describe('TaskService', () => {
       await taskService.waitForBackgroundTasks()
 
       // Workspace should ALWAYS be created regardless of start flag or message
-      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
+      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
         taskId,
         'env-123',
         undefined,
@@ -176,7 +176,7 @@ describe('TaskService', () => {
       await taskService.waitForBackgroundTasks()
 
       // Verify workspace was created with the custom branch
-      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
+      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledWith(
         taskId,
         'env-123',
         'feature/custom-branch',
@@ -210,7 +210,7 @@ describe('TaskService', () => {
         id: 'env-123',
       } as any)
 
-      vi.mocked(mockWorkspaceService.createWorkspace).mockRejectedValueOnce(
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockRejectedValueOnce(
         new Error('Workspace setup failed'),
       )
 
@@ -490,7 +490,7 @@ describe('TaskService', () => {
       } as any)
 
       // Delay workspace creation
-      vi.mocked(mockWorkspaceService.createWorkspace).mockImplementation(
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(
         () => new Promise((resolve) => setTimeout(() => resolve({ id: 'ws-123' } as any), 50)),
       )
 
@@ -500,7 +500,7 @@ describe('TaskService', () => {
       await taskService.waitForBackgroundTasks()
 
       // Workspace creation should have been called
-      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalled()
+      expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalled()
     })
   })
 })
