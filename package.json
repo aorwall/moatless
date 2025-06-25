@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "concurrently \"pnpm:dev:*\"",
     "dev:server": "tsx watch server/index.ts",
+    "dev:server:no-watch": "tsx server/index.ts",
     "dev:client": "cd client && vite",
     "build": "pnpm build:shared && pnpm build:server && pnpm build:client",
     "build:shared": "tsc -p shared/tsconfig.json",
