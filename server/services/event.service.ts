@@ -1,15 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import type { ClaudeCodeSettings } from '@shared/types/claude.js'
 import type { FastifyInstance } from 'fastify'
 import type { Event, EventType } from '../../shared/types/index.js'
+import type { Task } from '../../shared/types/task.js'
+import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
 import type { StorageBackend } from './storage.js'
 
 export type EventHandler = (event: Event) => void | Promise<void>
 
 export class EventService extends EventEmitter {
-  constructor(private storage: StorageBackend) {
+  private claudeCodeSettings: ClaudeCodeSettings
+
+  constructor(
+    private storage: StorageBackend,
+    claudeCodeSettings?: ClaudeCodeSettings,
+  ) {
     super()
     this.setMaxListeners(100) // Increase limit for multiple subscriptions
+    this.claudeCodeSettings = claudeCodeSettings || getDefaultClaudeCodeSettings()
   }
 
   async emitEvent(event: Event): Promise<void> {
@@ -37,8 +46,25 @@ export class EventService extends EventEmitter {
     limit?: number,
     offset = 0,
     eventType?: EventType,
+    task?: Task,
   ): Promise<Event[]> {
     let events = await this.storage.getEvents(taskId)
+
+    // If task is provided and agent type is claude-code, merge with Claude events from disk
+    if (task && task.agentType === 'claude-code') {
+      try {
+        const claudeEvents = await readClaudeCodeEvents(this.claudeCodeSettings, task)
+        // Merge events, sorting by timestamp
+        events = [...events, ...claudeEvents].sort((a, b) => {
+          const timeA = new Date(a.timestamp).getTime()
+          const timeB = new Date(b.timestamp).getTime()
+          return timeA - timeB
+        })
+      } catch (error) {
+        // Log error but don't fail the request
+        console.error('Failed to read Claude Code events from disk:', error)
+      }
+    }
 
     // Filter by event type if specified
     if (eventType) {
@@ -85,12 +111,16 @@ export class EventService extends EventEmitter {
     }
   }
 
-  async getEventCount(taskId: string, eventType?: EventType): Promise<number> {
-    const events = await this.getEvents(taskId, undefined, 0, eventType)
+  async getEventCount(taskId: string, eventType?: EventType, task?: Task): Promise<number> {
+    const events = await this.getEvents(taskId, undefined, 0, eventType, task)
     return events.length
   }
 }
 
-export function createEventService(_app: FastifyInstance, storage: StorageBackend): EventService {
-  return new EventService(storage)
+export function createEventService(
+  _app: FastifyInstance,
+  storage: StorageBackend,
+  claudeCodeSettings?: ClaudeCodeSettings,
+): EventService {
+  return new EventService(storage, claudeCodeSettings)
 }

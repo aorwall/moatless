@@ -42,7 +42,7 @@ export function CreateTaskForm() {
     }
 
     createTask.mutate({
-      agentType: 'claude_code',
+      agentType: 'claude-code',
       message: '',
       environmentId: selectedEnvironmentId,
       branchName: selectedBranch === '__none__' ? undefined : selectedBranch,

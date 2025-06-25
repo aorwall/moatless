@@ -17,12 +17,19 @@ describe('Complete Workflow E2E Test', () => {
   let tempDir: string
   let createdEnvironmentId: string
   let createdTaskId: string
+  let originalClaudeConfigDir: string | undefined
 
   beforeEach(async () => {
-    app = await build()
+    // Save original CLAUDE_CONFIG_DIR
+    originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 
     // Create a temporary directory for our test git repository
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-e2e-test-'))
+
+    // Set CLAUDE_CONFIG_DIR to temp directory to avoid reading from user's actual config
+    process.env.CLAUDE_CONFIG_DIR = path.join(tempDir, '.claude-test')
+
+    app = await build()
 
     // Initialize a git repository in the temp directory
     await setupTempGitRepo(tempDir)
@@ -60,6 +67,13 @@ describe('Complete Workflow E2E Test', () => {
       } catch (_e) {
         // Directory might already be deleted
       }
+    }
+
+    // Restore original CLAUDE_CONFIG_DIR
+    if (originalClaudeConfigDir !== undefined) {
+      process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir
+    } else {
+      delete process.env.CLAUDE_CONFIG_DIR
     }
 
     await app.close()

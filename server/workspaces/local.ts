@@ -518,7 +518,7 @@ export class LocalWorkspace extends BaseWorkspace {
     // Create agent based on type
     let agent: BaseAgent
 
-    if (agentType === 'claude-code' || agentType === 'claude_code') {
+    if (agentType === 'claude-code') {
       // TODO: Get claude options from storage/config
       const options = {} // Placeholder for claude options
 

@@ -23,6 +23,11 @@ export type {
 
 export type ConfigScope = 'local' | 'user' | 'project'
 
+// Claude Code Settings
+export interface ClaudeCodeSettings {
+  claudeConfigPath: string
+}
+
 // Re-export from claude-code
 export type { ClaudeCodeOptions }
 

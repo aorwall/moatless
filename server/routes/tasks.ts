@@ -138,6 +138,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         limit,
         offset,
         type as EventType | undefined,
+        task,
       )
 
       const response: EventListResponse = {
@@ -252,7 +253,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       // If lastEventId is provided, find the offset
       if (lastEventId) {
-        const allEvents = await eventService.getEvents(taskId)
+        const allEvents = await eventService.getEvents(taskId, undefined, 0, undefined, task)
         for (let i = 0; i < allEvents.length; i++) {
           if (allEvents[i].eventId === lastEventId) {
             offset = i + 1
@@ -262,7 +263,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       }
 
       // Send existing events from offset
-      const existingEvents = await eventService.getEvents(taskId, 1000, offset)
+      const existingEvents = await eventService.getEvents(taskId, 1000, offset, undefined, task)
       for (const event of existingEvents) {
         reply.raw.write(JSON.stringify(event) + '\n')
       }
