@@ -335,7 +335,7 @@ function SettingsPage() {
                               <div className="flex-1">
                                 <div className="font-medium flex items-center gap-2">
                                   {tool.name}
-                                  {tool.permission_required && (
+                                  {tool.permissionRequired && (
                                     <span title="Requires permission">🔒</span>
                                   )}
                                 </div>
@@ -359,7 +359,7 @@ function SettingsPage() {
                               <div className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`${tool.name}-disallowed`}
-                                  checked={formData.disallowed_tools?.includes(tool.name)}
+                                  checked={formData.disallowedTools?.includes(tool.name)}
                                   onCheckedChange={() => handleToolToggle(tool.name, 'disallowed')}
                                 />
                                 <Label

@@ -105,11 +105,11 @@ export function createMockMessageEvent(
 
 export function createMockToolEvent(toolName: string, input: any): Event {
   return createMockEvent({
-    type: 'tool_use',
+    type: 'toolUse',
     payload: {
-      tool_name: toolName,
+      toolName: toolName,
       input,
-      tool_use_id: `tool-${Date.now()}`,
+      toolUseId: `tool-${Date.now()}`,
     },
   })
 }

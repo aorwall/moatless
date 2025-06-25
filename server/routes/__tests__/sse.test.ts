@@ -1,24 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTestApp } from '../../../test-utils/test-app.js'
+import { EventType } from '@shared/types/event.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../../services/event.service.js'
 import type { TaskService } from '../../services/task.service.js'
-import type { WorkspaceService } from '../../services/workspace.service.js'
+import { build } from '../../test/helper.js'
+
+// import type { WorkspaceService } from '../../services/workspace.service.js'
 
 describe('SSE Routes', () => {
   let app: any
   let taskService: TaskService
   let eventService: EventService
-  let workspaceService: WorkspaceService
+  // let workspaceService: WorkspaceService
 
   beforeEach(async () => {
-    const testApp = await createTestApp({
-      healthcheck: false,
-      logger: false,
-    })
-    app = testApp.app
+    app = await build()
     taskService = app.services.task
     eventService = app.services.event
-    workspaceService = app.services.workspace
+    // workspaceService = app.services.workspace
   })
 
   afterEach(async () => {
@@ -63,8 +61,11 @@ describe('SSE Routes', () => {
 
       // Add some events
       await eventService.emitEvent({
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId,
+        eventId: 'event-2',
+        timestamp: new Date(),
+        isError: false,
         payload: { content: 'Event 1' },
       })
 

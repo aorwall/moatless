@@ -69,7 +69,7 @@ export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>
 // Stop Agent Response
 export const StopAgentResponseSchema = z.object({
   status: z.string(),
-  task_id: z.string(),
+  taskId: z.string(),
 })
 export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
 
@@ -182,5 +182,5 @@ export interface AgentTriggerRequest extends CreateTaskRequest {
 
 // @deprecated Use SimpleTaskResponse instead
 export interface AgentTriggerResponse extends SimpleTaskResponse {
-  stream_url?: string
+  streamUrl?: string
 }

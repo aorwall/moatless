@@ -316,8 +316,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       }
 
       return {
-        active_connections: sseManager.getConnectionCount(taskId),
-        task_active: task.status === 'active',
+        activeConnections: sseManager.getConnectionCount(taskId),
+        taskActive: task.status === 'active',
       }
     },
   )
