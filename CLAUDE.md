@@ -41,32 +41,79 @@ pnpm dlx shadcn@latest add [component]
 
 ### Project Structure
 ```
-src/
-├── features/          # Feature-based modules
-│   └── tasks/         # Tasks feature
-│       ├── components/   # Task-related components
-│       ├── hooks/        # Task-specific hooks
-│       ├── api/          # Task API endpoints
-│       └── index.ts      # Feature exports
-├── lib/               # Shared utilities and components
-│   ├── api/           # Core API utilities
-│   │   ├── client.ts     # Base HTTP client
-│   │   ├── query-client.ts # React Query setup
-│   │   ├── query-keys.ts   # Query key factory
-│   │   ├── sse.ts        # Server-sent events
-│   │   └── websocket.ts  # WebSocket client
-│   ├── components/    # Shared components
-│   │   └── ui/          # Generic UI components
-│   ├── layout/        # Layout components
-│   ├── styles/        # Global styles
-│   └── utils/         # Utility functions
-├── routes/            # Page components & routing
-├── types/             # TypeScript type definitions (only git-diff.ts remains)
-└── main.tsx          # Application entry point
+├── client/                    # React frontend application
+│   └── src/
+│       ├── features/          # Feature-based modules
+│       │   ├── claude-code/   # Claude Code integration
+│       │   │   ├── api/         # Claude Code API
+│       │   │   ├── hooks/       # Claude Code hooks
+│       │   │   └── index.ts     # Feature exports
+│       │   ├── environments/  # Environment management
+│       │   │   ├── api/         # Environment API endpoints
+│       │   │   ├── components/  # Environment components
+│       │   │   ├── hooks/       # Environment hooks
+│       │   │   └── index.ts     # Feature exports
+│       │   ├── navigation/    # Navigation components
+│       │   │   └── components/  # Sidebar, breadcrumbs, etc.
+│       │   ├── preview/       # Preview functionality
+│       │   │   ├── api/         # Preview API
+│       │   │   ├── components/  # Preview UI components
+│       │   │   ├── hooks/       # Preview hooks
+│       │   │   ├── stores/      # Preview state management
+│       │   │   ├── types/       # Preview types
+│       │   │   ├── utils/       # Preview utilities
+│       │   │   └── index.ts     # Feature exports
+│       │   ├── settings/      # Settings management
+│       │   │   ├── components/  # Settings components
+│       │   │   └── hooks/       # Settings hooks
+│       │   └── tasks/         # Tasks feature
+│       │       ├── api/         # Task API endpoints
+│       │       ├── components/  # Task-related components
+│       │       ├── hooks/       # Task-specific hooks
+│       │       ├── stores/      # Task state management
+│       │       ├── utils/       # Task utilities
+│       │       └── index.ts     # Feature exports
+│       ├── lib/               # Shared utilities and components
+│       │   ├── api/           # Core API utilities
+│       │   │   ├── client.ts    # Base HTTP client
+│       │   │   ├── query-client.ts # React Query setup
+│       │   │   └── query-keys.ts   # Query key factory
+│       │   ├── components/    # Shared components
+│       │   │   ├── ui/          # Generic UI components
+│       │   │   ├── error-boundary.tsx # Error handling
+│       │   │   └── theme-provider.tsx # Theme management
+│       │   ├── hooks/         # Shared hooks
+│       │   ├── layout/        # Layout components
+│       │   ├── styles/        # Global styles
+│       │   └── utils/         # Utility functions
+│       ├── routes/            # Page components & routing
+│       │   ├── environments/  # Environment routes
+│       │   ├── tasks/         # Task routes
+│       │   └── settings/      # Settings route
+│       ├── test-utils/        # Testing utilities
+│       ├── types/             # TypeScript type definitions
+│       │   └── git-diff.ts    # Git diff types (only remaining)
+│       └── main.tsx          # Application entry point
+├── server/                    # Node.js backend application
+│   ├── routes/                # API route handlers
+│   ├── services/              # Business logic services
+│   │   └── agents/            # AI agent implementations
+│   ├── plugins/               # Fastify plugins
+│   ├── utils/                 # Server utilities
+│   └── app.ts                # Server entry point
+├── shared/                    # Shared code between client and server
+│   ├── types/                 # Shared TypeScript types
+│   ├── constants/             # Shared constants
+│   ├── schemas/               # Validation schemas
+│   └── utils/                 # Shared utilities
+├── data/                      # Persistent data storage
+│   ├── environments/          # Environment configurations
+│   ├── events/                # Task events
+│   ├── tasks/                 # Task metadata
+│   └── workspaces/            # Workspace data
+└── docs/                      # Documentation
 ```
 
-### Type System Migration Status
-The codebase has migrated from local `@/types` to shared types at `@shared/types`. All API types, event types, task types, and environment types now use the shared type definitions. The only remaining local type file is `types/git-diff.ts` for git-specific functionality.
 
 ### Technology Stack
 - **Framework**: React 19 with TypeScript
@@ -97,9 +144,33 @@ const createTask = useCreateTask({
 #### Query Key Management
 Query keys are centralized in `src/lib/api/query-keys.ts`:
 ```typescript
+// Task queries
 queryKeys.tasks() // All task queries
-queryKeys.taskDetail(id) // Specific task
-queryKeys.taskMessages(id, filters) // Task messages
+queryKeys.task(taskId) // Specific task (invalidates all task data)
+queryKeys.tasksList(filters) // Task list with filters
+queryKeys.taskMessages(taskId, filters) // Task messages
+queryKeys.taskEvents(taskId, filters) // Task events
+queryKeys.taskGitDiff(taskId) // Git diff for task
+queryKeys.taskFileSearch(taskId, query) // File search in task
+queryKeys.taskWorkspaceStatus(taskId) // Workspace status
+queryKeys.taskServerStatus(taskId) // Server status
+queryKeys.taskServerLogs(taskId) // Server logs
+
+// Environment queries
+queryKeys.environments() // All environment queries
+queryKeys.environmentsList() // Environment list
+queryKeys.environmentDetail(envId) // Specific environment
+queryKeys.environmentFileSearch(envId, query) // File search in environment
+queryKeys.environmentBranches(envId) // Git branches for environment
+
+// Agent queries
+queryKeys.agents() // All agent queries
+queryKeys.agentsList() // Agent list
+
+// Claude Code queries
+queryKeys.claudeCode.all() // All Claude Code queries
+queryKeys.claudeCode.settings() // Claude Code settings
+queryKeys.claudeCode.tools() // Claude Code tools
 ```
 
 ### Development Patterns
@@ -453,13 +524,3 @@ it('displays task data through component hierarchy', () => {
 ### Comprehensive Testing Guide
 For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).
 
-## Migration Notes
-
-### Shared Types Usage
-The project uses shared type definitions from `@shared/types/` for all API-related types including:
-- Task types (`TaskMetadata`, `Task`, `TaskIteration`)
-- Event types (`Event`, `EventPayload`)
-- Environment types
-- Workspace types
-
-**Important**: There is currently a known issue with property naming conventions between the TypeScript types (camelCase) and runtime data. See migration-inconsistencies-todo.md for details on pending fixes.
