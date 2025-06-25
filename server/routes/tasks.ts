@@ -16,6 +16,7 @@ import {
   type WebSocketConnectionEvent,
 } from '../../shared/types/api.js'
 import type { EventType } from '../../shared/types/event.js'
+import { sseManager } from '../utils/sse-manager.js'
 
 // Schema for URL params
 const TaskIdParamsSchema = z.object({
@@ -215,7 +216,113 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
-  // WebSocket for real-time events
+  // SSE endpoint for real-time events
+  app.get(
+    '/:taskId/stream',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        querystring: z.object({
+          lastEventId: z.string().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { taskId } = request.params as any
+      const { lastEventId } = request.query as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Set SSE headers
+      reply.raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no', // Disable Nginx buffering
+      })
+
+      // Register connection with manager
+      const connectionId = sseManager.connect(taskId, request, reply, lastEventId)
+
+      let offset = 0
+
+      // If lastEventId is provided, find the offset
+      if (lastEventId) {
+        const allEvents = await eventService.getEvents(taskId)
+        for (let i = 0; i < allEvents.length; i++) {
+          if (allEvents[i].eventId === lastEventId) {
+            offset = i + 1
+            break
+          }
+        }
+      }
+
+      // Send existing events from offset
+      const existingEvents = await eventService.getEvents(taskId, 1000, offset)
+      for (const event of existingEvents) {
+        reply.raw.write(JSON.stringify(event) + '\n')
+      }
+
+      // Subscribe to new events
+      const unsubscribe = eventService.subscribe(taskId, (event) => {
+        try {
+          reply.raw.write(JSON.stringify(event) + '\n')
+        } catch (error) {
+          request.log.error('Failed to send event over SSE', error)
+        }
+      })
+
+      // Handle client disconnect
+      request.raw.on('close', () => {
+        unsubscribe()
+        sseManager.disconnect(taskId, connectionId)
+        reply.raw.end()
+      })
+
+      // Keep connection alive with periodic pings
+      const pingInterval = setInterval(() => {
+        try {
+          reply.raw.write(':\n') // SSE comment for keep-alive
+        } catch (error) {
+          clearInterval(pingInterval)
+        }
+      }, 30000)
+
+      request.raw.on('close', () => {
+        clearInterval(pingInterval)
+      })
+    },
+  )
+
+  // Get SSE stream status
+  app.get(
+    '/:taskId/stream/status',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      return {
+        active_connections: sseManager.getConnectionCount(taskId),
+        task_active: task.status === 'active',
+      }
+    },
+  )
+
+  // WebSocket for real-time events (keep for backward compatibility)
   app.get(
     '/:taskId/events/stream',
     {

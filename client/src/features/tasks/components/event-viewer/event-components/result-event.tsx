@@ -10,18 +10,18 @@ interface ResultEventProps {
 interface ResultPayload {
   type: string
   subtype: string
-  is_error: boolean
-  duration_ms: number
-  duration_api_ms: number
-  num_turns: number
+  isError: boolean
+  durationMs: number
+  durationApiMs: number
+  numTurns: number
   result: string
-  session_id: string
-  total_cost_usd: number
+  sessionId: string
+  totalCostUsd: number
   usage?: {
-    input_tokens?: number
-    cache_creation_input_tokens?: number
-    cache_read_input_tokens?: number
-    output_tokens?: number
+    inputTokens?: number
+    cacheCreationInputTokens?: number
+    cacheReadInputTokens?: number
+    outputTokens?: number
   }
 }
 
@@ -45,30 +45,30 @@ export function ResultEvent({ event }: ResultEventProps) {
     <EventHeader event={event}>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          {payload.is_error ? (
+          {payload.isError ? (
             <AlertCircle className="h-4 w-4 text-destructive" />
           ) : (
             <CheckCircle className="h-4 w-4 text-green-500" />
           )}
           <span className="text-sm font-medium text-foreground">
-            {payload.is_error ? 'Failed' : 'Completed'}
+            {payload.isError ? 'Failed' : 'Completed'}
           </span>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            <span>Duration: {formatDuration(payload.duration_ms || 0)}</span>
+            <span>Duration: {formatDuration(payload.durationMs || 0)}</span>
           </div>
           <div className="flex items-center gap-1">
-            <span>API Time: {formatDuration(payload.duration_api_ms || 0)}</span>
+            <span>API Time: {formatDuration(payload.durationApiMs || 0)}</span>
           </div>
           <div className="flex items-center gap-1">
-            <span>Turns: {payload.num_turns || 0}</span>
+            <span>Turns: {payload.numTurns || 0}</span>
           </div>
           <div className="flex items-center gap-1">
             <Coins className="h-3 w-3" />
-            <span>Cost: ${(payload.total_cost_usd || 0).toFixed(4)}</span>
+            <span>Cost: ${(payload.totalCostUsd || 0).toFixed(4)}</span>
           </div>
         </div>
       </div>

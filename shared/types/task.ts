@@ -10,6 +10,7 @@ export interface TaskIteration {
   durationMs?: number
   gitDiff?: string
   merged?: boolean
+  agentSessionId?: string
 }
 
 export interface Task {

@@ -20,6 +20,7 @@ export interface AgentRunOptions {
 export abstract class BaseAgent {
   protected stopRequested = false
   protected iterationNumber?: number
+  protected sessionId?: string
 
   constructor(
     protected taskId: string,
@@ -28,6 +29,10 @@ export abstract class BaseAgent {
 
   abstract run(message: string, options?: AgentRunOptions): AsyncGenerator<Event>
   abstract stop(): Promise<void>
+
+  getSessionId(): string | undefined {
+    return this.sessionId
+  }
 
   protected createEvent(
     type: string,

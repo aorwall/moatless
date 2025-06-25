@@ -244,6 +244,16 @@ describe('Complete Workflow E2E Test', () => {
     expect(finalTask.iterations.length).toBeGreaterThanOrEqual(1)
     expect(finalTask.numTurns).toBeGreaterThanOrEqual(1)
 
+    // Verify that the first iteration has an agentSessionId
+    if (finalTask.iterations.length > 0) {
+      const firstIteration = finalTask.iterations[0]
+      expect(firstIteration.agentSessionId).toBeDefined()
+      expect(firstIteration.agentSessionId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      ) // UUID format
+      console.log('Agent session ID:', firstIteration.agentSessionId)
+    }
+
     // Step 10: Get all events for final verification
     const allEventsResponse = await app.inject({
       method: 'GET',

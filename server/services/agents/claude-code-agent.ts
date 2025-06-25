@@ -38,6 +38,15 @@ export class ClaudeCodeAgent extends BaseAgent {
           break
         }
 
+        // Check if this is the first system message with init subtype
+        if (
+          sdkMessage.type === 'system' &&
+          sdkMessage.subtype === 'init' &&
+          sdkMessage.session_id
+        ) {
+          this.sessionId = sdkMessage.session_id
+        }
+
         messages.push(sdkMessage)
         const event = this.createEvent('message', sdkMessage)
 

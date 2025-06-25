@@ -39,11 +39,11 @@ const formatTimestamp = (timestamp: string) => {
 
 // Map of known usage field names to friendly labels
 const usageFieldLabels: Record<string, string> = {
-  input_tokens: 'Input',
-  output_tokens: 'Output',
-  cache_creation_input_tokens: 'Cache Creation',
-  cache_read_input_tokens: 'Cache Read',
-  total_tokens: 'Total',
+  inputTokens: 'Input',
+  outputTokens: 'Output',
+  cacheCreationInputTokens: 'Cache Creation',
+  cacheReadInputTokens: 'Cache Read',
+  totalTokens: 'Total',
 }
 
 // Extract numeric usage fields from payload

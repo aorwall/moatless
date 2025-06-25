@@ -42,8 +42,8 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     setStreamingError(null)
 
     // Update last event ID for stream continuation
-    if (newEvent.event_id) {
-      setLastEventId(newEvent.event_id)
+    if (newEvent.eventId) {
+      setLastEventId(newEvent.eventId)
     }
   }, [])
 

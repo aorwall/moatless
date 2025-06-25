@@ -48,13 +48,13 @@ function SettingsPage() {
   const [showBypassWarning, setShowBypassWarning] = useState(false)
   const [formData, setFormData] = useState<UpdateClaudeCodeSettingsRequest>({
     model: null,
-    max_turns: null,
-    max_thinking_tokens: 8000,
-    system_prompt: null,
-    append_system_prompt: null,
-    allowed_tools: [],
-    disallowed_tools: [],
-    permission_mode: null,
+    maxTurns: null,
+    maxThinkingTokens: 8000,
+    systemPrompt: null,
+    appendSystemPrompt: null,
+    allowedTools: [],
+    disallowedTools: [],
+    permissionMode: null,
   })
 
   // Update form data when settings are loaded
@@ -62,13 +62,13 @@ function SettingsPage() {
     if (settings) {
       setFormData({
         model: settings.model,
-        max_turns: settings.max_turns,
-        max_thinking_tokens: settings.max_thinking_tokens,
-        system_prompt: settings.system_prompt,
-        append_system_prompt: settings.append_system_prompt,
-        allowed_tools: settings.allowed_tools,
-        disallowed_tools: settings.disallowed_tools,
-        permission_mode: settings.permission_mode,
+        maxTurns: settings.maxTurns,
+        maxThinkingTokens: settings.maxThinkingTokens,
+        systemPrompt: settings.systemPrompt,
+        appendSystemPrompt: settings.appendSystemPrompt,
+        allowedTools: settings.allowedTools,
+        disallowedTools: settings.disallowedTools,
+        permissionMode: settings.permissionMode,
       })
     }
   }, [settings])
@@ -76,7 +76,7 @@ function SettingsPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (formData.permission_mode === 'bypassPermissions' && !showBypassWarning) {
+    if (formData.permissionMode === 'bypassPermissions' && !showBypassWarning) {
       setShowBypassWarning(true)
       return
     }
@@ -99,13 +99,13 @@ function SettingsPage() {
         // Reset form to defaults
         setFormData({
           model: null,
-          max_turns: null,
-          max_thinking_tokens: 8000,
-          system_prompt: null,
-          append_system_prompt: null,
-          allowed_tools: [],
-          disallowed_tools: [],
-          permission_mode: null,
+          maxTurns: null,
+          maxThinkingTokens: 8000,
+          systemPrompt: null,
+          appendSystemPrompt: null,
+          allowedTools: [],
+          disallowedTools: [],
+          permissionMode: null,
         })
         toast.success('Settings reset to defaults')
       },
@@ -118,8 +118,8 @@ function SettingsPage() {
   }
 
   const handleToolToggle = (toolName: string, listType: 'allowed' | 'disallowed') => {
-    const otherList = listType === 'allowed' ? 'disallowed_tools' : 'allowed_tools'
-    const currentList = listType === 'allowed' ? 'allowed_tools' : 'disallowed_tools'
+    const otherList = listType === 'allowed' ? 'disallowedTools' : 'allowedTools'
+    const currentList = listType === 'allowed' ? 'allowedTools' : 'disallowedTools'
 
     setFormData((prev) => {
       // Remove from other list if present
@@ -202,11 +202,11 @@ function SettingsPage() {
                         min="1"
                         max="100"
                         placeholder="Default: unlimited"
-                        value={formData.max_turns || ''}
+                        value={formData.maxTurns || ''}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            max_turns: e.target.value ? parseInt(e.target.value) : null,
+                            maxTurns: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
                       />
@@ -219,11 +219,11 @@ function SettingsPage() {
                         type="number"
                         min="0"
                         max="100000"
-                        value={formData.max_thinking_tokens}
+                        value={formData.maxThinkingTokens}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            max_thinking_tokens: parseInt(e.target.value) || 8000,
+                            maxThinkingTokens: parseInt(e.target.value) || 8000,
                           })
                         }
                       />
@@ -247,11 +247,11 @@ function SettingsPage() {
                       id="system_prompt"
                       placeholder="Override the default system prompt"
                       rows={4}
-                      value={formData.system_prompt || ''}
+                      value={formData.systemPrompt || ''}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          system_prompt: e.target.value || null,
+                          systemPrompt: e.target.value || null,
                         })
                       }
                     />
@@ -263,11 +263,11 @@ function SettingsPage() {
                       id="append_system_prompt"
                       placeholder="Additional instructions to append to the system prompt"
                       rows={4}
-                      value={formData.append_system_prompt || ''}
+                      value={formData.appendSystemPrompt || ''}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          append_system_prompt: e.target.value || null,
+                          appendSystemPrompt: e.target.value || null,
                         })
                       }
                     />
@@ -287,11 +287,11 @@ function SettingsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="permission_mode">Mode</Label>
                     <Select
-                      value={formData.permission_mode || 'default'}
+                      value={formData.permissionMode || 'default'}
                       onValueChange={(value) =>
                         setFormData({
                           ...formData,
-                          permission_mode: value === 'default' ? null : (value as PermissionMode),
+                          permissionMode: value === 'default' ? null : (value as PermissionMode),
                         })
                       }
                     >
@@ -305,7 +305,7 @@ function SettingsPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-sm text-muted-foreground">
-                      {formData.permission_mode === 'bypassPermissions' && (
+                      {formData.permissionMode === 'bypassPermissions' && (
                         <span className="text-amber-600">
                           Warning: This mode allows Claude Code to perform any action without asking
                           for permission.
@@ -346,7 +346,7 @@ function SettingsPage() {
                               <div className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`${tool.name}-allowed`}
-                                  checked={formData.allowed_tools?.includes(tool.name)}
+                                  checked={formData.allowedTools?.includes(tool.name)}
                                   onCheckedChange={() => handleToolToggle(tool.name, 'allowed')}
                                 />
                                 <Label

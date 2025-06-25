@@ -24,7 +24,7 @@ export interface GitDiffFile {
 
 export interface GitDiffResponse {
   files: Array<GitDiffFile>
-  commit_hash?: string
+  commitHash?: string
   branch?: string
   diff?: string
 }

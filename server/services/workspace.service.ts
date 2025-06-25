@@ -10,7 +10,6 @@ import { logger } from '../utils/logger.js'
 import type { BaseWorkspace } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
 import { LocalWorkspace } from '../workspaces/local.js'
-import type { BaseAgent } from './agents/base-agent.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
 import type { TaskStorageService } from './task-storage.service.js'
@@ -197,9 +196,10 @@ export class WorkspaceService {
     agentType: string,
     message: string,
     iterationNumber: number,
-  ): Promise<BaseAgent> {
+  ): Promise<string | undefined> {
     const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.triggerAgent(agentType, message, iterationNumber)
+    const agent = await workspace.triggerAgent(agentType, message, iterationNumber)
+    return agent.getSessionId()
   }
 
   async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {

@@ -9,10 +9,10 @@ interface WorkspaceEventProps {
 
 export function WorkspaceEvent({ event }: WorkspaceEventProps) {
   const payload = event.payload as {
-    environment_id?: string
+    environmentId?: string
     path?: string
     branch?: string
-    working_directory?: string
+    workingDirectory?: string
   }
 
   return (
@@ -41,7 +41,7 @@ export function WorkspaceEvent({ event }: WorkspaceEventProps) {
             <p>
               Working directory:{' '}
               <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                {payload.working_directory}
+                {payload.workingDirectory}
               </code>
             </p>
           )}

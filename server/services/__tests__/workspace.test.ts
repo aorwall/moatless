@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EnvironmentService } from '../environment.service.js'
 import { EventService } from '../event.service.js'
 import { FileStorage } from '../storage.js'
+import { TaskStorageService } from '../task-storage.service.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 // Mock child_process
@@ -35,6 +36,7 @@ describe('WorkspaceService', () => {
   let storage: FileStorage
   let eventService: EventService
   let environmentService: EnvironmentService
+  let taskStorageService: TaskStorageService
   let tempDir: string
 
   beforeEach(async () => {
@@ -44,11 +46,12 @@ describe('WorkspaceService', () => {
     storage = new FileStorage(tempDir)
     eventService = new EventService(storage)
     environmentService = new EnvironmentService(storage)
+    taskStorageService = new TaskStorageService(storage)
 
     // Mock the validateRepository method to skip validation
     vi.spyOn(environmentService as any, 'validateRepository').mockResolvedValue(undefined)
 
-    service = new WorkspaceService(environmentService, eventService)
+    service = new WorkspaceService(environmentService, eventService, taskStorageService)
   })
 
   afterEach(async () => {

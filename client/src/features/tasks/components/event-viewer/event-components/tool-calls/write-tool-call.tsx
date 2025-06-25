@@ -6,7 +6,7 @@ import { DiffView } from './shared/diff-view'
 
 interface WriteToolCallProps {
   input: {
-    file_path: string
+    filePath: string
     content: string
   }
   name: string
@@ -16,7 +16,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
   // Create a unified diff format showing only additions (new file)
   const diffContent = useMemo(() => {
     // Extract just the filename from the path
-    const fileName = input.file_path.split('/').pop() || input.file_path
+    const fileName = input.filePath.split('/').pop() || input.filePath
 
     // Create a unified diff format for a new file (all additions)
     const lines = input.content.split('\n')
@@ -28,7 +28,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
     ].join('\n')
 
     return diff
-  }, [input.file_path, input.content])
+  }, [input.filePath, input.content])
 
   // Count lines for display
   const lineCount = useMemo(() => {
@@ -40,7 +40,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
       <div className="flex items-center gap-2">
         <FilePlus className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
         <span className="font-medium text-foreground">{name}</span>
-        <span className="text-xs text-muted-foreground">- {input.file_path}</span>
+        <span className="text-xs text-muted-foreground">- {input.filePath}</span>
         <span className="text-xs text-muted-foreground">({lineCount} lines)</span>
       </div>
 

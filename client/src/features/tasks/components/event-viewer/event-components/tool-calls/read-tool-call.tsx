@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 interface ReadToolCallProps {
   input: {
-    file_path: string
+    filePath: string
     offset?: number
     limit?: number
   }
@@ -28,7 +28,7 @@ export function ReadToolCall({ input, name }: ReadToolCallProps): ReactNode {
       <div className="bg-zinc-900 dark:bg-zinc-950 rounded-lg p-3 font-mono text-sm">
         <div className="flex items-start gap-2">
           <span className="text-green-400 select-none">$</span>
-          <code className="text-zinc-100 break-all whitespace-pre-wrap">cat {input.file_path}</code>
+          <code className="text-zinc-100 break-all whitespace-pre-wrap">cat {input.filePath}</code>
         </div>
       </div>
     </div>

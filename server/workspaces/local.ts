@@ -490,17 +490,103 @@ export class LocalWorkspace extends BaseWorkspace {
       throw new Error(`Unknown agent type: ${agentType}`)
     }
 
-    // Start the agent in the background
+    // Start the agent and wait for the first system message
     this.runningAgent = agent
-    this.runAgentAsync(agent, message, iterationNumber).catch((error) => {
-      this.logger.error('Error in background agent execution', error as Error, { agentType })
+
+    // Create a promise that resolves when we receive the first system message
+    const sessionIdPromise = new Promise<string | undefined>((resolve) => {
+      let sessionIdFound = false
+
+      const runAsync = async () => {
+        try {
+          // Add the initial user message to the event stream
+          await this.eventService.emitEvent({
+            eventId: randomUUID(),
+            type: EventType.INPUT,
+            taskId: this.taskId,
+            iterationId: iterationNumber,
+            timestamp: new Date(),
+            isError: false,
+            payload: { message },
+          })
+
+          const runOptions = {
+            workspaceDir: this.workspacePath,
+            iterationNumber,
+          }
+
+          for await (const event of agent.run(message, runOptions)) {
+            this.logger.info('Agent event received', { event })
+            // Save event to event stream
+            await this.eventService.emitEvent(event)
+
+            // Check if this is a system init message and we haven't found the session ID yet
+            if (
+              !sessionIdFound &&
+              event.type === 'message' &&
+              event.payload?.type === 'system' &&
+              event.payload?.subtype === 'init'
+            ) {
+              sessionIdFound = true
+              // Resolve with the session ID
+              resolve(agent.getSessionId())
+            }
+
+            // Check if this is the final result message
+            const msgType = event.payload?.type
+            if (msgType === 'result' || event.type === EventType.RESULT) {
+              break
+            }
+          }
+
+          // If we reach here without finding a system message, resolve with undefined
+          if (!sessionIdFound) {
+            resolve(undefined)
+          }
+        } catch (error) {
+          this.logger.error('Agent execution failed', error as Error, { iterationNumber })
+          // Create error event
+          await this.eventService.emitEvent({
+            eventId: randomUUID(),
+            type: EventType.ERROR,
+            taskId: this.taskId,
+            iterationId: iterationNumber,
+            timestamp: new Date(),
+            isError: true,
+            payload: {
+              error: error instanceof Error ? error.message : String(error),
+              message: `Agent error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          })
+
+          if (!sessionIdFound) {
+            resolve(undefined)
+          }
+        } finally {
+          this.runningAgent = undefined
+          this.logger.debug('Agent execution completed, cleared running agent reference')
+        }
+      }
+
+      // Start the async execution
+      runAsync().catch((error) => {
+        this.logger.error('Error in agent execution wrapper', error as Error, { agentType })
+        if (!sessionIdFound) {
+          resolve(undefined)
+        }
+      })
     })
+
+    // Wait for the session ID
+    await sessionIdPromise
 
     this.logger.info('Agent started successfully', {
       agentType,
       workspacePath: this.workspacePath,
       iterationNumber,
+      sessionId: agent.getSessionId(),
     })
+
     return agent
   }
 
@@ -700,61 +786,6 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   // Private helper methods
-  private async runAgentAsync(
-    agent: BaseAgent,
-    message: string,
-    iterationNumber: number,
-  ): Promise<void> {
-    try {
-      // Add the initial user message to the event stream
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.INPUT,
-        taskId: this.taskId,
-        iterationId: iterationNumber,
-        timestamp: new Date(),
-        isError: false,
-        payload: { message },
-      })
-
-      // Run the agent with workspace directory
-      const runOptions = {
-        workspaceDir: this.workspacePath,
-        iterationNumber,
-      }
-
-      for await (const event of agent.run(message, runOptions)) {
-        this.logger.info('Agent event received', { event })
-        // Save event to event stream
-        await this.eventService.emitEvent(event)
-
-        // Check if this is the final result message
-        const msgType = event.payload?.type
-        if (msgType === 'result' || event.type === EventType.RESULT) {
-          break
-        }
-      }
-    } catch (error) {
-      this.logger.error('Agent execution failed', error as Error, { iterationNumber })
-      // Create error event
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.ERROR,
-        taskId: this.taskId,
-        iterationId: iterationNumber,
-        timestamp: new Date(),
-        isError: true,
-        payload: {
-          error: error instanceof Error ? error.message : String(error),
-          message: `Agent error: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      })
-    } finally {
-      this.runningAgent = undefined
-      this.logger.debug('Agent execution completed, cleared running agent reference')
-    }
-  }
-
   private getWorktreeDir(): string {
     // Ensure we have a LocalRepository
     if (this.environment.repository.type !== 'local') {

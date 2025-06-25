@@ -54,10 +54,10 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         <EditToolCall
           input={
             input as {
-              file_path: string
-              old_string: string
-              new_string: string
-              replace_all?: boolean
+              filePath: string
+              oldString: string
+              newString: string
+              replaceAll?: boolean
             }
           }
           name={toolName}
@@ -68,7 +68,7 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         <ReadToolCall
           input={
             input as {
-              file_path: string
+              filePath: string
               offset?: number
               limit?: number
             }
@@ -84,7 +84,7 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
               todos: Array<{
                 id: string
                 content: string
-                status: 'pending' | 'in_progress' | 'completed'
+                status: 'pending' | 'inProgress' | 'completed'
                 priority: 'high' | 'medium' | 'low'
               }>
             }
@@ -122,7 +122,7 @@ const renderToolCall = (content: Record<string, unknown>): ReactNode => {
         <WriteToolCall
           input={
             input as {
-              file_path: string
+              filePath: string
               content: string
             }
           }
@@ -178,7 +178,7 @@ const extractToolResult = (event: Event): string => {
       content &&
       typeof content === 'object' &&
       'type' in content &&
-      content.type === 'tool_result' &&
+      content.type === 'toolResult' &&
       'content' in content
     ) {
       return String(content.content || 'No result')
@@ -248,7 +248,7 @@ export function ToolCallEvent({ event }: ToolCallEventProps) {
         content &&
         typeof content === 'object' &&
         'type' in content &&
-        content.type === 'tool_use'
+        content.type === 'toolUse'
       ) {
         toolCallContent = content as Record<string, unknown>
         break

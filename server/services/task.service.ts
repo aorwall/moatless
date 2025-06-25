@@ -173,8 +173,23 @@ export class TaskService {
       await workspace.setup(iterationNumber)
     }
 
-    // Trigger the agent
-    await workspace.triggerAgent(metadata.agentType, message, iterationNumber)
+    // Trigger the agent and get session ID
+    const agentSessionId = await this.workspaceService.triggerAgent(
+      taskId,
+      metadata.agentType,
+      message,
+      iterationNumber,
+    )
+
+    // Update the current iteration with the agent session ID
+    if (agentSessionId && metadata.iterations.length > 0) {
+      metadata.iterations[metadata.iterations.length - 1].agentSessionId = agentSessionId
+      await this.saveMetadata(taskId, metadata)
+      taskLogger.debug('Updated iteration with agent session ID', {
+        agentSessionId,
+        iterationNumber,
+      })
+    }
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {

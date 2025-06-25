@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 interface Todo {
   id: string
   content: string
-  status: 'pending' | 'in_progress' | 'completed'
+  status: 'pending' | 'inProgress' | 'completed'
   priority: 'high' | 'medium' | 'low'
 }
 
@@ -20,7 +20,7 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
     switch (status) {
       case 'completed':
         return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-      case 'in_progress':
+      case 'inProgress':
         return <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
       default:
         return <Circle className="h-3.5 w-3.5 text-muted-foreground" />

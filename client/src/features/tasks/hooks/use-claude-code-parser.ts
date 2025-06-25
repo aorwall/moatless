@@ -1,4 +1,4 @@
-import type { Event } from '@shared/types/event.ts'
+import type { Event } from '@shared/types/event'
 import { useMemo } from 'react'
 
 export interface ParsedMessage {
@@ -22,15 +22,15 @@ export interface ToolCall {
 }
 
 export interface ToolResult {
-  tool_use_id: string
+  toolUseId: string
   content: string | Record<string, unknown>
-  is_error?: boolean
+  isError?: boolean
 }
 
 export interface ParsedEvent {
-  event_id: string
+  eventId: string
   timestamp: string
-  is_error: boolean
+  isError: boolean
   type: 'message' | 'start' | 'stop' | 'error' | 'input' | 'result' | 'environment' | 'other'
   data: ParsedMessage | Record<string, unknown>
 }
@@ -83,12 +83,12 @@ const parseToolUse = (item: Record<string, unknown>): ToolCall => ({
 const parseToolResult = (item: Record<string, unknown>): ToolResult => {
   const content = item.content
   return {
-    tool_use_id: (item.tool_use_id as string) || '',
+    toolUseId: (item.toolUseId as string) || '',
     content:
       typeof content === 'string' || (content && typeof content === 'object')
         ? (content as string | Record<string, unknown>)
         : 'No content',
-    is_error: item.is_error as boolean,
+    isError: item.isError as boolean,
   }
 }
 
@@ -122,9 +122,9 @@ const parseClaudeMessage = (payload: Record<string, unknown>): ParsedMessage | n
 }
 
 const createBaseEvent = (event: Event) => ({
-  event_id: event.event_id,
-  timestamp: event.timestamp,
-  is_error: event.isError,
+  eventId: event.eventId,
+  timestamp: event.timestamp.toISOString(),
+  isError: event.isError,
 })
 
 const parseMessageEvent = (event: Event): ParsedEvent | null => {
