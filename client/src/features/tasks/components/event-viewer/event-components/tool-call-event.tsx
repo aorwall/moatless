@@ -182,10 +182,12 @@ const extractToolResult = (event: Event): string => {
 const ToolResultPreview = ({ result }: { result: string }) => {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  const lines = result.split('\n')
+  // Ensure result is a string before calling split
+  const resultText = typeof result === 'string' ? result : String(result || '')
+  const lines = resultText.split('\n')
   const hasMoreLines = lines.length > 3
   const previewLines = lines.slice(0, 3).join('\n')
-  const displayContent = isExpanded ? result : previewLines
+  const displayContent = isExpanded ? resultText : previewLines
 
   return (
     <div className="mt-3 space-y-2">

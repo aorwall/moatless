@@ -1,4 +1,4 @@
-import type { ClaudeCodeSDKMessage } from '@shared/types/claude.js'
+import type { ClaudeCodeSDKMessage, SDKResultMessage } from '@shared/types/claude.js'
 
 export enum EventType {
   INPUT = 'input',
@@ -68,4 +68,15 @@ export interface ServerEvent extends BaseEvent {
   payload: EventPayload
 }
 
-export type SpecificEvent = InputEvent | MessageEvent | ErrorEvent | WorkspaceEvent | ServerEvent
+export interface ResultEvent extends BaseEvent {
+  type: EventType.RESULT
+  payload: SDKResultMessage
+}
+
+export type SpecificEvent =
+  | InputEvent
+  | MessageEvent
+  | ErrorEvent
+  | WorkspaceEvent
+  | ServerEvent
+  | ResultEvent

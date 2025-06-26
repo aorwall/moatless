@@ -1,4 +1,4 @@
-import type { CreateTaskRequest, SimpleTaskResponse } from '@shared/types/api'
+import type { AgentStatusResponse, CreateTaskRequest, SimpleTaskResponse } from '@shared/types/api'
 import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task } from '@shared/types/task'
@@ -84,6 +84,10 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
       })
+      // Invalidate agent status since sending a message triggers agent execution
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.taskAgentStatus(variables.taskId),
+      })
       // Force refetch the task data immediately
       await queryClient.refetchQueries({
         queryKey: queryKeys.task(variables.taskId),
@@ -109,6 +113,10 @@ export function useStopAgent(
       // Also invalidate the tasks list to update the status
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks(),
+      })
+      // Invalidate agent status since stopping agent changes status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskAgentStatus(taskId),
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -175,6 +183,26 @@ export function useTaskWorkspaceStatus(
   })
 }
 
+export function useTaskAgentStatus(
+  taskId: string,
+  options?: Omit<UseQueryOptions<AgentStatusResponse>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskAgentStatus(taskId),
+    queryFn: () => tasksApi.getTaskAgentStatus(taskId),
+    enabled: !!taskId,
+    refetchInterval: (query) => {
+      // Poll more frequently when agent is running or preparing
+      const data = query.state.data
+      if (data?.status === 'running' || data?.status === 'preparing') {
+        return 1000 // 1 second
+      }
+      return 10000 // 10 seconds for idle/error states
+    },
+    ...options,
+  })
+}
+
 // Server management hooks
 export function useServerStatus(
   taskId: string,
@@ -201,14 +229,18 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
 
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.startServer(taskId),
-    onSuccess: (data, taskId, context) => {
+    onSuccess: async (data, taskId, context) => {
       // Invalidate server status to refresh with new state
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
       })
       // Also invalidate task data as server state might affect task metadata
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
+      })
+      // Force refetch the server status immediately
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
       })
       options?.onSuccess?.(data, taskId, context)
     },

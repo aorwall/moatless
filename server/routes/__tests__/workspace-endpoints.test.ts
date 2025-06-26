@@ -1,9 +1,8 @@
+import type { Task } from '@shared/types/task.js'
+import { WorkspaceStatus } from '@shared/types/workspace.js'
+import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
-import type { FastifyInstance } from 'fastify'
-import type { Task } from '@shared/types/task.js'
-import type { Environment } from '@shared/types/environment.js'
-import { WorkspaceStatus } from '@shared/types/workspace.js'
 
 // Mock modules
 vi.mock('../../services/agents/claude-code-agent.js', () => {
@@ -63,12 +62,12 @@ describe('Workspace Endpoints', () => {
     vi.spyOn(app.services.workspace, 'readFile').mockResolvedValue('console.log("test");')
     vi.spyOn(app.services.workspace, 'writeFile').mockResolvedValue(undefined)
     vi.spyOn(app.services.workspace, 'searchFiles').mockResolvedValue({
-      results: [
-        { path: 'file1.ts', matches: [{ line: 1, content: 'console.log("test");' }] },
-      ],
+      results: [{ path: 'file1.ts', matches: [{ line: 1, content: 'console.log("test");' }] }],
       totalMatches: 1,
     })
-    vi.spyOn(app.services.workspace, 'getGitDiff').mockResolvedValue('diff --git a/file1.ts b/file1.ts')
+    vi.spyOn(app.services.workspace, 'getGitDiff').mockResolvedValue(
+      'diff --git a/file1.ts b/file1.ts',
+    )
     vi.spyOn(app.services.workspace, 'runCommand').mockResolvedValue({
       command: 'echo test',
       output: 'test',
@@ -112,7 +111,7 @@ describe('Workspace Endpoints', () => {
     it('should return 404 for non-existent task', async () => {
       // Mock task service to return null for non-existent task
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
-      
+
       const response = await app.inject({
         method: 'GET',
         url: '/api/v1/tasks/non-existent/workspace-status',
@@ -193,9 +192,7 @@ describe('Workspace Endpoints', () => {
     })
 
     it('should handle file not found', async () => {
-      vi.mocked(app.services.workspace.readFile).mockRejectedValueOnce(
-        new Error('File not found')
-      )
+      vi.mocked(app.services.workspace.readFile).mockRejectedValueOnce(new Error('File not found'))
 
       const response = await app.inject({
         method: 'GET',
@@ -222,7 +219,7 @@ describe('Workspace Endpoints', () => {
       expect(app.services.workspace.writeFile).toHaveBeenCalledWith(
         taskId,
         'src/new.ts',
-        'export const test = 123;'
+        'export const test = 123;',
       )
     })
   })
@@ -241,9 +238,7 @@ describe('Workspace Endpoints', () => {
       expect(response.statusCode).toBe(200)
       const result = JSON.parse(response.payload)
       expect(result).toEqual({
-        results: [
-          { path: 'file1.ts', matches: [{ line: 1, content: 'console.log("test");' }] },
-        ],
+        results: [{ path: 'file1.ts', matches: [{ line: 1, content: 'console.log("test");' }] }],
         totalMatches: 1,
       })
     })

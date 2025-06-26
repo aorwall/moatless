@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import { type AgentService, createAgentService } from './agent.service.js'
 import { createEnvironmentService, type EnvironmentService } from './environment.service.js'
 import { createEventService, type EventService } from './event.service.js'
+import {
+  createPreviewEnvironmentService,
+  type PreviewEnvironmentService,
+} from './preview-environment.service.js'
 import { createStorageService, type StorageBackend } from './storage.js'
 import { createTaskService, type TaskService } from './task.service.js'
 import { createWorkspaceService, type WorkspaceService } from './workspace.service.js'
@@ -10,6 +15,8 @@ export interface Services {
   event: EventService
   environment: EnvironmentService
   workspace: WorkspaceService
+  previewEnvironment: PreviewEnvironmentService
+  agent: AgentService
   task: TaskService
 }
 
@@ -19,13 +26,21 @@ export async function setupServices(app: FastifyInstance): Promise<Services> {
   const event = createEventService(app, storage)
   const environment = createEnvironmentService(app, storage)
   const workspace = createWorkspaceService(app, environment, event, storage)
-  const task = createTaskService(app, storage, event, workspace)
+  const previewEnvironment = createPreviewEnvironmentService(app, storage, workspace)
+
+  // Set preview environment service on workspace service
+  workspace.setPreviewEnvironmentService(previewEnvironment)
+
+  const agent = createAgentService(app, storage, event, workspace)
+  const task = createTaskService(app, storage, event, workspace, agent)
 
   return {
     storage,
     event,
     environment,
     workspace,
+    previewEnvironment,
+    agent,
     task,
   }
 }
@@ -37,11 +52,13 @@ declare module 'fastify' {
   }
 }
 
+// Export all services and types
+export * from './agent.service.js'
 export * from './agents/base-agent.js'
 export { ClaudeCodeAgent } from './agents/claude-code-agent.js'
 export * from './environment.service.js'
 export * from './event.service.js'
-// Export all services and types
+export * from './preview-environment.service.js'
 export * from './storage.js'
 export * from './task.service.js'
 export * from './workspace.service.js'

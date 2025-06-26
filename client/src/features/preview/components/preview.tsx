@@ -7,7 +7,7 @@ import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
 import { PreviewToolbar } from './preview-toolbar'
 
-export function Preview({ config, onElementSelected, className }: PreviewProps) {
+export function Preview({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const {
@@ -59,14 +59,25 @@ export function Preview({ config, onElementSelected, className }: PreviewProps) 
       <PreviewToolbar onReload={reloadPreview} />
 
       <div className="relative flex-1 overflow-hidden">
-        {!isConnected && (
+        {serverStatus && !serverStatus.running && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+            <div className="text-center space-y-2">
+              <p className="text-muted-foreground">The preview server is not running</p>
+              <p className="text-sm text-muted-foreground">
+                Start the server from the Server tab to see the preview
+              </p>
+            </div>
+          </div>
+        )}
+
+        {serverStatus?.running && !isConnected && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
             <div className="text-center space-y-2">
               <p className="text-muted-foreground">
                 Cannot connect to preview server at {config.url}
               </p>
               <p className="text-sm text-muted-foreground">
-                Make sure your development server is running
+                The server is running but connection failed
               </p>
             </div>
           </div>
@@ -80,7 +91,7 @@ export function Preview({ config, onElementSelected, className }: PreviewProps) 
           </div>
         )}
 
-        {isConnected && (
+        {serverStatus?.running && isConnected && (
           <>
             <iframe
               ref={iframeRef}

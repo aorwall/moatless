@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions } from '@shared/types/claude.js'
-import { EventType, type Event } from '@shared/types/event.js'
-import { BaseAgent, type AgentRunOptions } from './base-agent.js'
+import { type Event, EventType, type ResultEvent } from '@shared/types/event.js'
+import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController?: AbortController
@@ -34,13 +34,19 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (sdkMessage.type === 'result') {
-          yield this.createEvent(sdkMessage, EventType.RESULT, sdkMessage.is_error)
+          yield this.createEvent(sdkMessage, EventType.RESULT, sdkMessage.is_error) as ResultEvent
         } else {
           yield this.createEvent(sdkMessage, EventType.MESSAGE)
         }
       }
-
     } catch (error) {
+      // Check if it's a process exit error during normal operation
+      if (error instanceof Error && error.message.includes('Claude Code process exited')) {
+        // If we've already stopped, this is expected
+        if (this.stopRequested) {
+          return
+        }
+      }
       throw error
     } finally {
       await this.cleanup()
@@ -84,6 +90,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       permissionMode: 'acceptEdits',
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
+    }
+
+    if (runOptions.resume) {
+      sdkOptions.resume = runOptions.resume
     }
 
     return sdkOptions

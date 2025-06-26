@@ -1,33 +1,27 @@
-import type { BaseAgent } from '@server/services/agents/base-agent.js'
+import path from 'node:path'
 import { isGitRepository } from '@server/utils/index.js'
 import {
-  CriticalError,
   EnvironmentNotFoundError,
   TaskNotFoundError,
   WorkspaceError,
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'fs'
-import path from 'node:path'
-import type {
-  CommandResult,
-  LocalRepository,
-  ServerStatus,
-  TaskIteration,
-} from '../../shared/types/index.js'
+import type { CommandResult, LocalRepository, ServerStatus } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
-import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
 import { LocalWorkspace } from '../workspaces/local.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
+import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
   private backgroundTasks: Map<string, Set<Promise<any>>> = new Map()
+  private previewEnvironmentService?: PreviewEnvironmentService
 
   constructor(
     private environmentService: EnvironmentService,
@@ -250,7 +244,6 @@ export class WorkspaceService {
           existingWorkspacePath,
         )
       }
-    
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
         environmentType: environment.repository.type,
@@ -265,26 +258,120 @@ export class WorkspaceService {
     return this.activeWorkspaces.get(taskId) || null
   }
 
+  // Workspace capability methods
+  async canListFiles(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Files can be listed if workspace exists and is at least setting up
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
+  }
+
+  async canReadWriteFiles(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Files can be read/written if workspace is setting up, idle, or running
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
+  }
+
+  async canExecuteCommands(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Commands can only be executed when workspace is idle
+      return status === WorkspaceStatus.IDLE
+    } catch {
+      return false
+    }
+  }
+
+  async canManageServer(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Server can be managed when workspace is idle or running
+      return status === WorkspaceStatus.IDLE || status === WorkspaceStatus.RUNNING
+    } catch {
+      return false
+    }
+  }
+
+  async canAccessGit(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Git operations available when workspace exists and is at least setting up
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
+  }
+
   async listFiles(
     taskId: string,
     relativePath: string = '.',
     recursive: boolean = false,
   ): Promise<string[]> {
+    // Task validation is now handled in canListFiles, but we still check capability
+    if (!(await this.canListFiles(taskId))) {
+      throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.listFiles(relativePath, recursive)
   }
 
   async readFile(taskId: string, filePath: string): Promise<string> {
+    if (!(await this.canReadWriteFiles(taskId))) {
+      throw new WorkspaceError('Cannot read file: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.readFile(filePath)
   }
 
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
+    if (!(await this.canReadWriteFiles(taskId))) {
+      throw new WorkspaceError('Cannot write file: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.writeFile(filePath, content)
   }
 
   async getGitDiff(taskId: string): Promise<any> {
+    if (!(await this.canAccessGit(taskId))) {
+      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.getGitDiff()
   }
@@ -348,11 +435,20 @@ export class WorkspaceService {
   }
 
   async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {
+    if (!(await this.canExecuteCommands(taskId))) {
+      throw new WorkspaceError('Cannot execute command: workspace not in idle state', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.runCommand(command, timeout)
   }
 
   async getWorkspaceStatus(taskId: string): Promise<any> {
+    // Validate task exists first
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
     const workspace = await this.getOrCreateWorkspace(taskId)
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
@@ -364,26 +460,31 @@ export class WorkspaceService {
   }
 
   async startServer(taskId: string): Promise<any> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.startServer) {
-      throw new WorkspaceError(`Server not supported for this workspace type`, taskId)
+    if (!(await this.canManageServer(taskId))) {
+      throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
     }
 
-    return workspace.startServer()
+    if (!this.previewEnvironmentService) {
+      throw new WorkspaceError('Preview environment service not initialized', taskId)
+    }
+
+    return this.previewEnvironmentService.startServer(taskId)
   }
 
   async stopServer(taskId: string): Promise<boolean> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.stopServer) {
-      return false
+    if (!(await this.canManageServer(taskId))) {
+      throw new WorkspaceError('Cannot stop server: workspace not ready', taskId)
     }
 
-    return workspace.stopServer()
+    if (!this.previewEnvironmentService) {
+      throw new WorkspaceError('Preview environment service not initialized', taskId)
+    }
+
+    return this.previewEnvironmentService.stopServer(taskId)
   }
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.getServerStatus) {
+    if (!this.previewEnvironmentService) {
       return {
         running: false,
         configured: false,
@@ -391,135 +492,7 @@ export class WorkspaceService {
       }
     }
 
-    return workspace.getServerStatus()
-  }
-
-  async runAgent(taskId: string, message: string, iteration: TaskIteration, agentType: string = 'claude-code'): Promise<void> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-
-    // Validate workspace state
-    const status = workspace.getStatus()
-    if (status === WorkspaceStatus.SETTING_UP) {
-      throw new CriticalError('Workspace is still setting up', taskId, iteration)
-    }
-    if (status === WorkspaceStatus.RUNNING) {
-      throw new CriticalError('Agent is already running', taskId, iteration)
-    }
-
-    // Create agent
-    const agent = await this.createAgent(agentType, taskId)
-    
-    // Execute agent in background
-    const backgroundTask = this.executeAgent(agent, message, taskId, iteration, workspace)
-      .catch((error) => {
-        logger.error('Background agent execution failed', error as Error, { taskId })
-      })
-    
-    // Track the background task
-    this.trackBackgroundTask(taskId, backgroundTask)
-    
-    // Don't await - let it run in background
-    logger.info('Agent execution started in background', { taskId, iterationNumber: iteration.iterationNumber })
-  }
-
-  private async createAgent(agentType: string, taskId: string): Promise<BaseAgent> {
-    if (agentType === 'claude-code') {
-      // TODO: Get claude options from storage/config
-      const options = {} // Placeholder for claude options
-      return new ClaudeCodeAgent(taskId, options)
-    } else {
-      throw new Error(`Unknown agent type: ${agentType}`)
-    }
-  }
-
-  private async executeAgent(
-    agent: BaseAgent,
-    message: string,
-    taskId: string,
-    iteration: TaskIteration,
-    workspace: BaseWorkspace,
-  ): Promise<void> {
-    try {
-      const runOptions = {
-        workspaceDir: workspace.getWorkspacePath(),
-        iterationNumber: iteration.iterationNumber,
-      }
-
-      // Process agent events
-      for await (const event of agent.run(message, runOptions)) {
-        // Capture session ID if it's not already set
-        if (
-          !iteration.agentSessionId &&
-          agent.getSessionId()
-        ) {
-          iteration.agentSessionId = agent.getSessionId()
-
-          // Update the session ID in the task's iteration
-          const task = await this.storage.getTask(taskId)
-          if (task) {
-            const iterationIndex = task.iterations.findIndex(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (iterationIndex >= 0) {
-              task.iterations[iterationIndex].agentSessionId = iteration.agentSessionId
-              await this.storage.saveTask(task)
-            }
-          }
-        } else if (event.payload?.type === 'result') {
-          iteration.costUsd = event.payload.total_cost_usd ?? 0
-          iteration.result = event.payload.result ?? 'No result found in Claude Code SDK result message'
-
-          // Update iteration status to completed after successful execution
-          iteration.status = 'completed'
-          iteration.endTime = new Date()
-          iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
-
-          // Find and update the iteration in the task's iterations array
-          const task = await this.storage.getTask(taskId)
-          if (task) {
-            const iterationIndex = task.iterations.findIndex(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (iterationIndex >= 0) {
-              await this.storage.saveTask(task)
-            }
-          }
-        }
-
-        // Only emit agent events
-        await this.eventService.emitEvent(event)
-      }
-
-    } catch (error) {
-      // Save error to iteration
-      iteration.status = 'failed'
-      iteration.error = {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date(),
-      }
-
-      // Find and update the iteration in the task's iterations array
-      const task = await this.storage.getTask(taskId)
-      if (task) {
-        const iterationIndex = task.iterations.findIndex(
-          (it) => it.iterationNumber === iteration.iterationNumber,
-        )
-        if (iterationIndex >= 0) {
-          task.iterations[iterationIndex].status = iteration.status
-          task.iterations[iterationIndex].error = iteration.error
-          await this.storage.saveTask(task)
-        }
-      }
-
-      // Re-throw critical errors
-      if (error instanceof CriticalError) {
-        throw error
-      }
-
-      // Log non-critical errors
-      logger.error('Agent execution error', error as Error)
-    }
+    return this.previewEnvironmentService.getServerStatus(taskId)
   }
 
   // Background task tracking methods
@@ -544,17 +517,27 @@ export class WorkspaceService {
   }
 
   async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
+    if (!(await this.canListFiles(taskId))) {
+      throw new WorkspaceError('Cannot search files: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.searchFiles(request)
   }
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.getServerLogs) {
-      return 'Server logs not available for this workspace type'
+    if (!(await this.canManageServer(taskId))) {
+      return 'Server logs not available: workspace not ready'
     }
 
-    return workspace.getServerLogs(lines)
+    if (!this.previewEnvironmentService) {
+      return 'Preview environment service not initialized'
+    }
+
+    return this.previewEnvironmentService.getServerLogs(taskId, lines)
+  }
+
+  setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {
+    this.previewEnvironmentService = previewEnvironmentService
   }
 }
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EnvironmentNotFoundError, TaskNotFoundError } from '../../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task } from '../../../shared/types/task.js'
+import type { AgentService } from '../agent.service.js'
 import type { EnvironmentService } from '../environment.service.js'
 import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.service.js'
@@ -11,6 +12,7 @@ describe('TaskService', () => {
   let mockStorage: StorageBackend
   let mockEnvironmentService: EnvironmentService
   let mockWorkspaceService: WorkspaceService
+  let mockAgentService: AgentService
 
   beforeEach(() => {
     // Create mock services
@@ -38,12 +40,19 @@ describe('TaskService', () => {
       updateWorkspace: vi.fn(),
       cleanupWorkspace: vi.fn(),
       createWorkspace: vi.fn(),
-      runAgent: vi.fn(),
       trackBackgroundTask: vi.fn(),
       setupWorkspace: vi.fn(),
     } as any
 
-    taskService = new TaskService(mockStorage, mockWorkspaceService)
+    mockAgentService = {
+      executeAgent: vi.fn(),
+      getAgentStatus: vi.fn(),
+      stopAgent: vi.fn(),
+      isAgentRunning: vi.fn(),
+      getAgentSessionId: vi.fn(),
+    } as any
+
+    taskService = new TaskService(mockStorage, mockWorkspaceService, mockAgentService)
   })
 
   describe('createTask', () => {
@@ -66,7 +75,7 @@ describe('TaskService', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
       } as any)
-      vi.mocked(mockWorkspaceService.runAgent).mockResolvedValueOnce(undefined)
+      vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Mock getTask to return the saved task for background processing
       vi.mocked(mockStorage.getTask).mockImplementation((id) => {
@@ -297,7 +306,7 @@ describe('TaskService', () => {
       }
 
       vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
-      vi.mocked(mockWorkspaceService.runAgent).mockResolvedValueOnce(undefined)
+      vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
@@ -319,8 +328,8 @@ describe('TaskService', () => {
 
       // Note: Events are now emitted by WorkspaceService.runAgent, not TaskService
 
-      // Verify workspace interaction
-      expect(mockWorkspaceService.runAgent).toHaveBeenCalledWith(
+      // Verify agent interaction
+      expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
         'task-123',
         'Hello, task!',
         expect.objectContaining({
@@ -329,6 +338,8 @@ describe('TaskService', () => {
           messageCount: 1,
           initialMessage: 'Hello, task!',
         }),
+        'claude-code',
+        undefined,
       )
     })
 
@@ -346,12 +357,12 @@ describe('TaskService', () => {
       }
 
       vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
-      vi.mocked(mockWorkspaceService.runAgent).mockResolvedValueOnce(undefined)
+      vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
-      // Verify workspace was started with the right parameters
-      expect(mockWorkspaceService.runAgent).toHaveBeenCalledWith(
+      // Verify agent was started with the right parameters
+      expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
         'task-123',
         'Hello, task!',
         expect.objectContaining({
@@ -360,6 +371,8 @@ describe('TaskService', () => {
           messageCount: 1,
           initialMessage: 'Hello, task!',
         }),
+        'claude-code',
+        undefined,
       )
     })
 
@@ -456,7 +469,7 @@ describe('TaskService', () => {
             ),
           ),
       )
-      vi.mocked(mockWorkspaceService.runAgent).mockResolvedValueOnce(undefined)
+      vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Mock getTask for background processing
       vi.mocked(mockStorage.getTask).mockImplementation((id) => {

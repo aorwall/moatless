@@ -83,7 +83,7 @@ describe('WorkspaceService Status Management', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    
+
     mockEnvironmentService = {
       getEnvironment: vi.fn().mockResolvedValue(mockEnvironment),
     } as any
@@ -122,12 +122,12 @@ describe('WorkspaceService Status Management', () => {
       // Use a unique task ID for this test
       const uniqueTaskId = 'test-task-existing'
       vi.mocked(mockStorage.getTask).mockResolvedValue({ ...mockTask, taskId: uniqueTaskId })
-      
+
       const workspace1 = await workspaceService.getOrCreateWorkspace(uniqueTaskId)
-      
+
       // Clear mock call count after first workspace creation
       vi.mocked(mockEnvironmentService.getEnvironment).mockClear()
-      
+
       const workspace2 = await workspaceService.getOrCreateWorkspace(uniqueTaskId)
 
       expect(workspace1).toBe(workspace2)
@@ -156,7 +156,7 @@ describe('WorkspaceService Status Management', () => {
     it('should allow operations on workspace regardless of status', async () => {
       const taskId = 'test-task-status'
       vi.mocked(mockStorage.getTask).mockResolvedValue({ ...mockTask, taskId })
-      
+
       const mockWorkspace = {
         id: taskId,
         type: 'local',
@@ -176,10 +176,7 @@ describe('WorkspaceService Status Management', () => {
       ;(workspaceService as any).activeWorkspaces.set(taskId, mockWorkspace)
 
       // These operations should work even with NOT_SETUP status
-      await expect(workspaceService.listFiles(taskId)).resolves.toEqual([
-        'file1.txt',
-        'file2.txt',
-      ])
+      await expect(workspaceService.listFiles(taskId)).resolves.toEqual(['file1.txt', 'file2.txt'])
       await expect(workspaceService.readFile(taskId, 'file1.txt')).resolves.toBe('content')
       await expect(
         workspaceService.writeFile(taskId, 'file1.txt', 'new content'),

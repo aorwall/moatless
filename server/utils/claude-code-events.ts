@@ -1,9 +1,9 @@
-import type { SDKMessage } from '@anthropic-ai/claude-code'
-import type { ClaudeCodeSettings } from '@shared/types/claude.js'
-import { type Event, EventType } from '@shared/types/event.js'
-import type { Task } from '@shared/types/task.js'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import type { SDKMessage } from '@anthropic-ai/claude-code'
+import type { ClaudeCodeSettings } from '@shared/types/claude.js'
+import { type Event, EventType, type ResultEvent } from '@shared/types/event.js'
+import type { Task } from '@shared/types/task.js'
 import { logger } from './logger.js'
 
 /**
@@ -17,10 +17,22 @@ export function sdkMessageToEvent(
   // Check if this is an error message
   const isError = 'error' in sdkMessage && sdkMessage.error !== undefined
 
+  if (sdkMessage.type === 'result') {
+    return {
+      eventId: crypto.randomUUID(),
+      agentType: 'claude-code',
+      type: EventType.RESULT,
+      taskId,
+      iterationId: iterationNumber,
+      isError,
+      payload: sdkMessage,
+    } as ResultEvent
+  }
+
   return {
     eventId: crypto.randomUUID(),
     agentType: 'claude-code',
-    type: sdkMessage.type === 'result' ? EventType.RESULT : EventType.MESSAGE,
+    type: EventType.MESSAGE,
     taskId,
     iterationId: iterationNumber,
     isError,

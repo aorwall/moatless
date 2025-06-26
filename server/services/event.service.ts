@@ -1,7 +1,7 @@
-import type { ClaudeCodeSettings } from '@shared/types/claude.js'
-import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import type { ClaudeCodeSettings } from '@shared/types/claude.js'
+import type { FastifyInstance } from 'fastify'
 import type { Event, EventType } from '../../shared/types/index.js'
 import type { Task } from '../../shared/types/task.js'
 import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
@@ -113,7 +113,6 @@ export class EventService extends EventEmitter {
       this.off('event', wrappedHandler)
     }
   }
-
 
   async getEventCount(taskId: string, eventType?: EventType, task?: Task): Promise<number> {
     const events = await this.getEvents(taskId, undefined, 0, eventType, task)

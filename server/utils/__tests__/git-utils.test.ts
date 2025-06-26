@@ -27,7 +27,10 @@ describe('git-utils', () => {
       mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, { stdout: 'M\tsrc/file1.js\nA\tsrc/file2.js\nD\tsrc/file3.js\n', stderr: '' })
+          callback(null, {
+            stdout: 'M\tsrc/file1.js\nA\tsrc/file2.js\nD\tsrc/file3.js\n',
+            stderr: '',
+          })
         }
       }) as any)
 
@@ -35,7 +38,10 @@ describe('git-utils', () => {
       mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, { stdout: '10\t5\tsrc/file1.js\n20\t0\tsrc/file2.js\n0\t15\tsrc/file3.js\n', stderr: '' })
+          callback(null, {
+            stdout: '10\t5\tsrc/file1.js\n20\t0\tsrc/file2.js\n0\t15\tsrc/file3.js\n',
+            stderr: '',
+          })
         }
       }) as any)
 
@@ -136,12 +142,15 @@ describe('git-utils', () => {
           // Git status format: XY filename
           // X = index status, Y = working tree status
           // ' M' = modified in working tree, not staged
-          // 'M ' = modified and staged  
+          // 'M ' = modified and staged
           // 'A ' = added to index
           // '??' = untracked
-          const output = [' M src/modified.js', '?? src/untracked.js', 'A  src/staged.js', 'M  src/staged-modified.js'].join(
-            '\n',
-          )
+          const output = [
+            ' M src/modified.js',
+            '?? src/untracked.js',
+            'A  src/staged.js',
+            'M  src/staged-modified.js',
+          ].join('\n')
           callback(null, { stdout: output, stderr: '' })
         }
       }) as any)

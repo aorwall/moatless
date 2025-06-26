@@ -192,8 +192,9 @@ function TaskDetail() {
                     <ErrorBoundary componentName="Preview">
                       <Preview
                         config={{
-                          url: serverStatus.url,
+                          url: serverStatus.url || '',
                         }}
+                        serverStatus={serverStatus}
                         onElementSelected={(element) => {
                           if (element) {
                             console.log('Selected element:', element.selector)

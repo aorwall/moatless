@@ -73,7 +73,7 @@ export async function setupApp(app: FastifyInstance) {
         reply.code(404).send({ error: 'Not Found' })
         return
       }
-      
+
       return reply.sendFile('index.html')
     })
   }

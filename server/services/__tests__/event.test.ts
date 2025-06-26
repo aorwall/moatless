@@ -91,7 +91,6 @@ describe('EventService', () => {
         ]),
       )
     })
-
   })
 
   describe('getEvents', () => {

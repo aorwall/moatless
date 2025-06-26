@@ -157,7 +157,7 @@ describe('WorkspaceService', () => {
     it.skip('should handle workspace setup failures', async () => {
       // Skip this test - the LocalWorkspace setup doesn't validate path existence
       // Path validation happens in createWorkspaceRepository which is called by WorkspaceService
-      
+
       // Mock fs.access to simulate workspace doesn't exist the first time it's called
       vi.mocked(fs.access).mockRejectedValueOnce(new Error('File not found'))
 
@@ -283,7 +283,7 @@ describe('WorkspaceService', () => {
         }
         return Promise.resolve(null)
       })
-      
+
       vi.mocked(environmentService.getEnvironment).mockResolvedValueOnce({
         ...mockEnvironment,
         repository: {

@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { TaskNotFoundError, WorkspaceError } from '../../shared/constants/errors.js'
+import { TaskNotFoundError } from '../../shared/constants/errors.js'
 import {
+  AgentStatusResponseSchema,
   CreateTaskRequestSchema,
   DeleteTaskResponseSchema,
   type EventListResponse,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
   SimpleTaskResponseSchema,
+  StopAgentResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
   UpdateTaskRequestSchema,
@@ -200,15 +202,52 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     async (request, _reply) => {
       const { taskId } = request.params as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Get workspace status from workspace service
+      // Task validation now handled in workspace service
       const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
       return workspaceStatus
+    },
+  )
+
+  // Get agent status for task
+  app.get(
+    '/:taskId/agent-status',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        response: {
+          200: AgentStatusResponseSchema,
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Get agent status from AgentService
+      return await app.services.agent.getAgentStatus(taskId)
+    },
+  )
+
+  // Stop agent
+  app.post(
+    '/:taskId/stop',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        response: {
+          200: StopAgentResponseSchema,
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Stop agent through AgentService
+      const stopped = await app.services.agent.stopAgent(taskId)
+
+      return {
+        status: stopped ? 'stopped' : 'not_running',
+        taskId,
+      }
     },
   )
 
@@ -228,19 +267,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const { taskId } = request.params as any
       const { path = '/', recursive = false } = request.query as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status === 'not_setup') {
-        throw new WorkspaceError('Workspace not created', taskId)
-      }
-
-      // List files
+      // Task validation and capability check now handled in workspace service
       const files = await app.services.workspace.listFiles(taskId, path, recursive)
       return { files, totalCount: files.length }
     },
@@ -261,19 +288,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const { taskId } = request.params as any
       const filePath = (request.params as any)['*']
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status === 'not_setup') {
-        throw new WorkspaceError('Workspace not created', taskId)
-      }
-
-      // Read file
+      // Task validation and capability check now handled in workspace service
       const content = await app.services.workspace.readFile(taskId, filePath)
       return { content, encoding: 'utf-8' }
     },
@@ -298,19 +313,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const filePath = (request.params as any)['*']
       const { content } = request.body as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status === 'not_setup') {
-        throw new WorkspaceError('Workspace not created', taskId)
-      }
-
-      // Write file
+      // Task validation and capability check now handled in workspace service
       await app.services.workspace.writeFile(taskId, filePath, content)
       return { success: true }
     },
@@ -331,19 +334,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const { taskId } = request.params as any
       const { query } = request.body as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status === 'not_setup') {
-        throw new WorkspaceError('Workspace not created', taskId)
-      }
-
-      // Search files
+      // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.searchFiles(taskId, {
         query,
       })
@@ -362,19 +353,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     async (request, _reply) => {
       const { taskId } = request.params as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status === 'not_setup') {
-        throw new WorkspaceError('Workspace not created', taskId)
-      }
-
-      // Get git diff
+      // Task validation and capability check now handled in workspace service
       const diff = await app.services.workspace.getGitDiff(taskId)
       return {
         diff,
@@ -401,19 +380,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const { taskId } = request.params as any
       const { command, timeout } = request.body as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state - only allow in IDLE state
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status !== 'idle') {
-        throw new WorkspaceError(`Cannot execute command: workspace is ${status.status}`, taskId)
-      }
-
-      // Execute command
+      // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.runCommand(taskId, command, timeout)
       return result
     },
@@ -425,37 +392,14 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     {
       schema: {
         params: TaskIdParamsSchema,
-        body: z.object({
-          command: z.string().optional(),
-          port: z.number().optional(),
-          env: z.record(z.string()).optional(),
-        }),
       },
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { port } = request.body as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Check workspace state - allow in IDLE or RUNNING
-      const status = await app.services.workspace.getWorkspaceStatus(taskId)
-      if (status.status !== 'idle' && status.status !== 'running') {
-        throw new WorkspaceError(`Cannot start server: workspace is ${status.status}`, taskId)
-      }
-
-      // Start server
+      // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.startServer(taskId)
-      return {
-        running: true,
-        port: result.port || port || 3000,
-        pid: result.pid,
-        startedAt: new Date().toISOString(),
-      }
+      return result
     },
   )
 
@@ -470,13 +414,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     async (request, _reply) => {
       const { taskId } = request.params as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Stop server
+      // Task validation and capability check now handled in workspace service
       const stopped = await app.services.workspace.stopServer(taskId)
       return {
         stopped,
@@ -495,6 +433,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
+      // Task validation and capability check now handled in workspace service
       return await app.services.workspace.getServerStatus(taskId)
     },
   )
@@ -515,13 +454,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const { taskId } = request.params as any
       const { lines } = request.query as any
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Get server logs
+      // Task validation and capability check now handled in workspace service
       const logs = await app.services.workspace.getServerLogs(taskId, lines)
       return {
         logs,

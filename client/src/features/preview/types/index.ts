@@ -38,6 +38,11 @@ export interface PreviewConfig {
 
 export interface PreviewProps {
   config: PreviewConfig
+  serverStatus?: {
+    running: boolean
+    configured: boolean
+    url?: string
+  }
   onElementSelected?: (element: ElementInfo | null) => void
   className?: string
 }

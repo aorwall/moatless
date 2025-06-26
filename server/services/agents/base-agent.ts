@@ -1,5 +1,5 @@
-import { ClaudeCodeSDKMessage } from '@shared/types/claude.js'
-import { EventType, type Event } from '@shared/types/event.js'
+import type { ClaudeCodeSDKMessage } from '@shared/types/claude.js'
+import type { Event, EventType } from '@shared/types/event.js'
 
 export interface AgentOptions {
   model?: string
@@ -16,6 +16,7 @@ export interface AgentRunOptions {
   timeout?: number
   onProgress?: (event: Event) => void
   iterationNumber?: number
+  resume?: string
 }
 
 export abstract class BaseAgent {

@@ -23,6 +23,7 @@ The Moatless system provides an AI-powered development environment where agents 
 **Task Routes** (`/api/v1/tasks/*`)
 - Task CRUD operations
 - Message sending to trigger agents
+- Agent status monitoring (`GET /:taskId/agent-status`)
 - Workspace operations (files, git, commands, server)
 - Event streaming via SSE
 
@@ -33,31 +34,49 @@ The Moatless system provides an AI-powered development environment where agents 
 ### 2. Service Layer
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Service Layer                          │
-├──────────────┬────────────────┬────────────────────────────┤
-│ TaskService  │ WorkspaceService│    EventService           │
-│              │                 │    (Agent events only)     │
-└──────────────┴────────────────┴────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      Service Layer                              │
+├──────────────┬────────────────┬────────────────┬───────────────┤
+│ TaskService  │ WorkspaceService│  AgentService  │ EventService  │
+│              │                 │                │ (Agent events │
+│              │                 │                │ only)         │
+├──────────────┴────────────────┼────────────────┴───────────────┤
+│      PreviewEnvironmentService │                                │
+│    (Server lifecycle mgmt)     │                                │
+└────────────────────────────────┴────────────────────────────────┘
                         │
                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   StorageBackend                            │
-│              (Direct file system access)                    │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                   StorageBackend                                │
+│              (Direct file system access)                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **TaskService**
 - Manages task metadata and iterations
 - Delegates workspace operations to WorkspaceService
-- Handles message sending and agent coordination
+- Handles message sending via AgentService
 - Uses StorageBackend directly (no wrapper)
 
 **WorkspaceService**
 - Single source of truth for workspace operations
 - Manages workspace lifecycle and state
-- Provides unified `runAgent` method
+- Provides file, git, and command operations
+- Delegates server operations to PreviewEnvironmentService
 - Tracks background operations in state
+
+**AgentService**
+- Manages agent process lifecycle
+- Handles agent execution and monitoring
+- Coordinates between workspace and task contexts
+- Provides unified agent execution interface
+
+**PreviewEnvironmentService**
+- Manages preview environment server lifecycle
+- Persists server state to disk
+- Handles process recovery on startup
+- Ensures one server per task
+- Provides server health monitoring
 
 **EventService**
 - Handles only agent-generated events
@@ -70,18 +89,15 @@ The Moatless system provides an AI-powered development environment where agents 
 ┌─────────────────────────────────────────────────────────────┐
 │                    Workspace States                         │
 ├─────────────────────────────────────────────────────────────┤
-│  REPOSITORY_MISSING → SETTING_UP → IDLE ⟷ RUNNING          │
-│                            ↓                                │
-│                          ERROR                              │
+│  NOT_SETUP → SETTING_UP → IDLE ⟷ RUNNING                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **State Model**
-- **REPOSITORY_MISSING**: Workspace repository/worktree doesn't exist
+- **NOT_SETUP**: Workspace repository/worktree doesn't exist
 - **SETTING_UP**: Creating worktree or running setup scripts
 - **IDLE**: Ready for operations
 - **RUNNING**: Agent currently executing
-- **ERROR**: Unrecoverable failure
 
 States are derived at runtime based on:
 - Directory existence
@@ -100,23 +116,31 @@ TaskService.sendMessage()
     ├─→ Update task metadata
     │
     ▼
-WorkspaceService.runAgent()
+AgentService.executeAgent()
     │
-    ├─→ Check workspace state
-    ├─→ Create agent instance
-    ├─→ Execute agent
+    ├─→ Validate workspace state (via WorkspaceService)
+    ├─→ Create agent instance with workspace context
+    ├─→ Monitor agent execution
     │
     ▼
 Agent.run() [Async Generator]
     │
-    ├─→ Emit events
+    ├─→ Emit events (handled by AgentService)
     ├─→ Capture session ID
     └─→ Handle completion/errors
 ```
 
+**AgentService Responsibilities**
+- **Process Management**: Create, monitor, and cleanup agent processes
+- **State Coordination**: Ensure workspace is ready before agent execution
+- **Context Injection**: Provide workspace and task context to agents
+- **Error Handling**: Capture and handle agent failures gracefully
+- **Event Routing**: Route agent events to EventService for streaming
+- **Status Reporting**: Provide real-time agent execution status via API
+
 **Simplified Flow**
-- Only 3 layers: Route → Service → Agent
-- Single `runAgent` method replaces multiple duplicate methods
+- Clear separation: TaskService → AgentService → Agent
+- AgentService coordinates with WorkspaceService for state validation
 - Direct async iteration over agent events
 - Session ID captured from first system event
 
@@ -169,32 +193,213 @@ data/
 - Consistent read/write patterns
 - JSON-based persistence
 
-### 7. Workspace Operations
+### 7. Agent Service Architecture
 
-All workspace operations go through WorkspaceService and respect state requirements:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     AgentService                            │
+├─────────────────────────────────────────────────────────────┤
+│  Agent Process Management                                   │
+│  ├─→ createAgent(taskId, environment, message)            │
+│  ├─→ executeAgent(agent, workspaceContext)                │
+│  ├─→ monitorExecution(agent)                              │
+│  └─→ cleanupAgent(agent)                                  │
+│                                                             │
+│  State Coordination                                         │
+│  ├─→ validateWorkspaceReady(workspaceService)             │
+│  ├─→ ensureEnvironmentSetup(environment)                  │
+│  └─→ handleWorkspaceStateTransitions()                    │
+│                                                             │
+│  Event Management                                           │
+│  ├─→ captureAgentEvents(eventStream)                      │
+│  ├─→ routeToEventService(events)                          │
+│  └─→ handleSessionTracking(sessionId)                     │
+└─────────────────────────────────────────────────────────────┘
+```
 
-**File Operations**
-- Available: SETTING_UP (if directory exists), IDLE, RUNNING
-- Methods: listFiles, readFile, writeFile, searchFiles
+**AgentService Integration Points**
 
-**Git Operations**
-- Available: SETTING_UP (if directory exists), IDLE, RUNNING  
-- Methods: getGitDiff
+**With TaskService:**
+- Receives agent execution requests with task context
+- Updates task iterations with agent results
+- Handles task-specific agent configuration
 
-**Command Execution**
-- Available: IDLE only
-- Methods: runCommand
+**With WorkspaceService:**
+- Validates workspace state before agent execution
+- Coordinates workspace setup if needed
+- Provides workspace context to agents
+- Monitors workspace changes during execution
 
-**Server Management**
-- Start: IDLE, RUNNING
-- Stop/Status/Logs: IDLE, RUNNING
-- Methods: startServer, stopServer, getServerStatus, getServerLogs
+**With EventService:**
+- Routes all agent events for streaming
+- Maintains event ordering and session tracking
+- Handles event persistence
 
-**Agent Execution**
-- Available: IDLE only
-- Methods: runAgent
+**Agent Lifecycle Management**
+1. **Creation**: Agent instance with environment and task context
+2. **Validation**: Ensure workspace is in IDLE state
+3. **Execution**: Run agent with proper monitoring
+4. **Event Handling**: Capture and route all agent events
+5. **Completion**: Handle success/failure and cleanup
+6. **Error Recovery**: Manage agent failures and workspace recovery
 
-### 8. Event System
+**Agent Status API Integration**
+The AgentService exposes agent status through the task API:
+
+```
+GET /api/v1/tasks/:taskId/agent-status
+Response: {
+  status: 'idle' | 'running' | 'preparing' | 'error',
+  sessionId: string | null,
+  startedAt: string | null,
+  currentIteration: number | null,
+  workspaceStatus: WorkspaceStatus,
+  canExecute: boolean
+}
+
+POST /api/v1/tasks/:taskId/stop
+Response: {
+  status: 'stopped' | 'not_running',
+  taskId: string
+}
+```
+
+**Status Values:**
+- **idle**: Agent available, workspace ready
+- **running**: Agent currently executing
+- **preparing**: Workspace setting up
+- **error**: System in error state
+
+**Benefits of AgentService**
+- **Centralized Agent Logic**: Single point for all agent-related operations
+- **State Safety**: Prevents agent execution in invalid workspace states
+- **Event Consistency**: Ensures all agent events are properly captured
+- **Error Isolation**: Agent failures don't affect other system components
+- **Resource Management**: Proper cleanup of agent processes and resources
+- **Real-time Status**: Provides accurate agent execution status for UI
+
+### 8. Workspace Operations & Capabilities
+
+All workspace operations go through WorkspaceService and use capability checks for validation:
+
+**Capability-Based Operations**
+
+The WorkspaceService provides boolean capability methods that handle both task validation and workspace state checking:
+
+```typescript
+// Capability check methods
+async canListFiles(taskId: string): Promise<boolean>
+async canReadWriteFiles(taskId: string): Promise<boolean> 
+async canExecuteCommands(taskId: string): Promise<boolean>
+async canManageServer(taskId: string): Promise<boolean>
+async canAccessGit(taskId: string): Promise<boolean>
+```
+
+**Operation Capabilities Matrix:**
+
+| Operation | NOT_SETUP | SETTING_UP | IDLE | RUNNING | Methods |
+|-----------|-----------|------------|------|---------|---------|
+| **List Files** (`canListFiles`) | ❌ | ✅ | ✅ | ✅ | `listFiles`, `searchFiles` |
+| **Read/Write Files** (`canReadWriteFiles`) | ❌ | ✅ | ✅ | ✅ | `readFile`, `writeFile` |
+| **Execute Commands** (`canExecuteCommands`) | ❌ | ❌ | ✅ | ❌ | `runCommand` |
+| **Manage Server** (`canManageServer`) | ❌ | ❌ | ✅ | ✅ | `startServer`, `stopServer`, `getServerStatus`, `getServerLogs` |
+| **Access Git** (`canAccessGit`) | ❌ | ✅ | ✅ | ✅ | `getGitDiff` |
+| **Agent Execution** | ❌ | ❌ | ✅ | ❌ | Coordinated through AgentService |
+
+**State Definitions:**
+- **NOT_SETUP**: Workspace repository/worktree doesn't exist
+- **SETTING_UP**: Creating worktree or running setup scripts  
+- **IDLE**: Ready for operations, no agent running
+- **RUNNING**: Agent currently executing
+
+**Operation Rules:**
+- **File Operations**: Available once workspace directory exists (SETTING_UP+)
+- **Git Operations**: Available once workspace directory exists (SETTING_UP+)
+- **Command Execution**: Only when workspace is ready and no agent running (IDLE only)
+- **Server Management**: Available when workspace is operational (IDLE, RUNNING)
+- **Agent Execution**: Only when workspace is ready and available (IDLE only)
+
+**Centralized Task Validation**
+
+All workspace operations now perform task validation within the WorkspaceService:
+- Task existence checked in capability methods
+- Throws `TaskNotFoundError` if task doesn't exist
+- API routes simplified - no duplicate task validation
+- Single source of truth for workspace access control
+
+### 9. Preview Environment Service Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│               PreviewEnvironmentService                     │
+├─────────────────────────────────────────────────────────────┤
+│  Server Lifecycle Management                                │
+│  ├─→ startServer(taskId)                                  │
+│  ├─→ stopServer(taskId)                                   │
+│  ├─→ getServerStatus(taskId)                              │
+│  └─→ getServerLogs(taskId, lines)                         │
+│                                                             │
+│  Process Recovery & Validation                              │
+│  ├─→ loadAndValidateExistingPreviewEnvironments()         │
+│  ├─→ validateProcess(pid, command)                        │
+│  ├─→ pingServer(port, timeout)                            │
+│  └─→ killOrphanedProcess(pid, force)                      │
+│                                                             │
+│  State Persistence                                          │
+│  ├─→ savePreviewEnvironmentMetadata(taskId, metadata)     │
+│  ├─→ loadPreviewEnvironmentMetadata(taskId)               │
+│  └─→ deletePreviewEnvironmentMetadata(taskId)             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**PreviewEnvironmentService Integration Points**
+
+**With WorkspaceService:**
+- WorkspaceService delegates all server operations to PreviewEnvironmentService
+- PreviewEnvironmentService accesses workspace configuration via WorkspaceService
+- Maintains clear separation of concerns
+
+**With StorageBackend:**
+- Persists server metadata to `data/preview-environments/{taskId}.json`
+- Validates task existence before operations
+- Ensures data consistency
+
+**Preview Environment Metadata Structure**
+```typescript
+interface PreviewEnvironmentMetadata {
+  taskId: string
+  pid: number
+  port: number
+  startTime: Date
+  command: string
+  workspacePath: string
+  logFile: string
+  portPlaceholder?: string
+  processStartTime?: number
+}
+```
+
+**Server Lifecycle Management**
+1. **Start**: Create ServerHandler, start process, persist metadata
+2. **Status**: Check handler or recover from metadata, validate process, ping server
+3. **Stop**: Stop handler, kill process, clean metadata
+4. **Recovery**: Load metadata on startup, validate processes, restore handlers
+
+**Process Validation Strategy**
+- Check if PID exists using platform-specific commands
+- Verify process command matches expected command
+- Ping server port to ensure responsiveness
+- Clean up orphaned processes and metadata
+
+**Benefits of PreviewEnvironmentService**
+- **Persistence**: Server state survives application restarts
+- **Single Server**: Enforces one server per task/workspace
+- **Process Safety**: Validates PIDs before operations
+- **Recovery**: Automatically recovers running servers on startup
+- **Health Monitoring**: Ping validation ensures server responsiveness
+- **Clean Architecture**: Follows AgentService pattern
+
+### 10. Event System
 
 ```
 Agent Events Only
@@ -219,7 +424,7 @@ SSE Stream → Client
 - Task operation events
 - System status events
 
-### 9. Key Design Principles
+### 11. Key Design Principles
 
 1. **State-Driven Operations**
    - All operations check workspace state first
@@ -227,8 +432,10 @@ SSE Stream → Client
    - Clear rules for operation availability
 
 2. **Single Responsibility**
-   - TaskService: Task metadata only
-   - WorkspaceService: All workspace operations
+   - TaskService: Task metadata and coordination
+   - WorkspaceService: Workspace operations and state
+   - AgentService: Agent process management
+   - PreviewEnvironmentService: Preview environment server lifecycle management
    - EventService: Agent events only
 
 3. **Direct Communication**
@@ -255,21 +462,69 @@ SSE Stream → Client
 5. **Debuggability**: Clear flow, comprehensive error handling
 6. **Flexibility**: Easy to add new workspace operations
 
-## Implementation Priority
+## Current Implementation Status
 
-1. **High Priority**
-   - Remove TaskStorageService wrapper
-   - Consolidate agent execution methods
-   - Implement workspace state model
-   - Add missing API endpoints
+### ✅ **Fully Implemented**
 
-2. **Medium Priority**
-   - Standardize error handling
-   - Remove WebSocket support
-   - Track background tasks in state
+1. **AgentService Architecture**
+   - ✅ Centralized agent process lifecycle management
+   - ✅ Real-time agent status tracking with session management
+   - ✅ Proper separation from WorkspaceService
+   - ✅ Event routing and error handling
 
-3. **Low Priority**
-   - Remove non-agent events
-   - Optimize storage patterns
+2. **PreviewEnvironmentService Architecture**
+   - ✅ Centralized preview environment server lifecycle management
+   - ✅ Persistent server state storage to disk
+   - ✅ Process recovery on service startup
+   - ✅ Process validation and health monitoring
+   - ✅ One server per task guarantee
 
-This architecture provides a clean, maintainable system that properly handles the complexity of AI-powered development environments while keeping the codebase simple and understandable.
+3. **API Layer Complete**
+   - ✅ Agent status endpoint (`GET /:taskId/agent-status`)
+   - ✅ Agent stop endpoint (`POST /:taskId/stop`)
+   - ✅ All task and environment routes functional
+   - ✅ SSE event streaming for real-time updates
+   - ✅ Simplified API routes with centralized validation
+
+4. **Service Layer Refactoring**
+   - ✅ TaskService delegates agent operations to AgentService
+   - ✅ WorkspaceService delegates server operations to PreviewEnvironmentService
+   - ✅ Direct StorageBackend access (no wrapper services)
+   - ✅ Proper dependency injection
+   - ✅ Capability-based workspace operations
+
+5. **Core Functionality**
+   - ✅ Agent execution with session tracking
+   - ✅ Preview server persistence and recovery
+   - ✅ Workspace state management with capability checks
+   - ✅ Background task tracking
+   - ✅ Error isolation and handling
+   - ✅ Centralized task validation in WorkspaceService
+
+### 🔄 **Areas for Future Enhancement**
+
+1. **State Model Improvements**
+   - Runtime state derivation optimization
+   - Enhanced workspace state transitions
+   - Better error state handling
+
+2. **Event System Optimization**
+   - Remove non-agent events (currently mixed)
+   - Optimize event storage patterns
+   - Enhanced SSE connection management
+
+3. **Performance & Monitoring**
+   - Agent execution metrics
+   - Workspace operation performance tracking
+   - Better resource cleanup strategies
+
+### 🎯 **Architecture Benefits Realized**
+
+- **Simplicity**: Clean 3-layer architecture implemented
+- **Maintainability**: Clear service boundaries and responsibilities
+- **Reliability**: Proper state management prevents race conditions
+- **Performance**: Direct storage access with minimal overhead
+- **Debuggability**: Clear execution flow and comprehensive error handling
+- **Scalability**: Easy to extend with new workspace operations and agent types
+
+This architecture successfully provides a clean, maintainable system that properly handles the complexity of AI-powered development environments while keeping the codebase simple and understandable.
