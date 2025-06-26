@@ -399,12 +399,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.startServer(taskId)
-      return {
-        running: true,
-        port: result.port || 3000,
-        pid: result.pid,
-        startedAt: new Date().toISOString(),
-      }
+      return result
     },
   )
 

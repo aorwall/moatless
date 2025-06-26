@@ -229,14 +229,18 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
 
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.startServer(taskId),
-    onSuccess: (data, taskId, context) => {
+    onSuccess: async (data, taskId, context) => {
       // Invalidate server status to refresh with new state
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
       })
       // Also invalidate task data as server state might affect task metadata
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
+      })
+      // Force refetch the server status immediately
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
       })
       options?.onSuccess?.(data, taskId, context)
     },

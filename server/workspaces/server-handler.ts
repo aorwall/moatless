@@ -259,7 +259,7 @@ export class ServerHandler {
         return {
           running: true,
           configured,
-          url: `localhost:${this.port}`,
+          url: `http://localhost:${this.port}`,
           pid: this.pid,
           uptimeSeconds: uptime,
         }
@@ -280,7 +280,7 @@ export class ServerHandler {
         return {
           running: true,
           configured,
-          url: `localhost:${this.port}`,
+          url: `http://localhost:${this.port}`,
           pid: this.pid,
           uptimeSeconds: uptime,
         }
@@ -299,7 +299,7 @@ export class ServerHandler {
     return {
       running: true,
       configured,
-      url: `localhost:${this.port}`,
+      url: `http://localhost:${this.port}`,
       pid: this.pid,
       uptimeSeconds: uptime,
     }

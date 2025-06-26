@@ -20,7 +20,6 @@ import {
 } from '../utils/git-utils.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
-import { ServerHandler } from './server-handler.js'
 
 const execAsync = promisify(exec)
 
@@ -35,7 +34,6 @@ export class LocalWorkspace extends BaseWorkspace {
   private _createdAt = new Date()
   private _error?: string
   private logger = createTaskLogger(this.taskId)
-  private _server?: ServerHandler
 
   get worktreePath(): string {
     return this.workspacePath
@@ -163,11 +161,6 @@ export class LocalWorkspace extends BaseWorkspace {
       // Run setup commands if specified
       await this.runSetupCommands()
 
-      // Initialize and start server if configured
-      if (this.environment.codeExecution.serverCommand) {
-        await this.initializeServer()
-      }
-
       this.setupComplete = true
 
       const totalSetupTime = Date.now() - startTime
@@ -261,18 +254,6 @@ export class LocalWorkspace extends BaseWorkspace {
         this.logger.error('Error stopping agent', error as Error)
       }
       this._runningAgent = undefined
-    }
-
-    // Stop the server if running
-    if (this._server) {
-      this.logger.debug('Stopping server')
-      try {
-        await this._server.stop()
-        this.logger.debug('Server stopped successfully')
-      } catch (error) {
-        this.logger.error('Error stopping server', error as Error)
-      }
-      this._server = undefined
     }
 
     // Reset setup state
@@ -516,91 +497,21 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  // Server methods
+  // Server methods - deprecated, now handled by PreviewEnvironmentService
   async startServer(): Promise<any> {
-    if (!this.environment.codeExecution.serverCommand) {
-      throw new Error('No server command configured for this environment')
-    }
-
-    if (this._server) {
-      // Check if already running
-      const serverStatus = this._server.getStatus()
-      if (serverStatus.running) {
-        return {
-          running: serverStatus.running,
-          port: serverStatus.url ? parseInt(serverStatus.url.split(':')[1]) : undefined,
-          pid: serverStatus.pid,
-          uptime_seconds: serverStatus.uptimeSeconds,
-        }
-      }
-    }
-
-    // Initialize server if needed
-    if (!this._server) {
-      this.logger.debug('Creating new ServerHandler for manual server start:', {
-        serverCommand: this.environment.codeExecution.serverCommand,
-        portPlaceholder: this.environment.codeExecution.serverPortPlaceholder,
-      })
-
-      this._server = new ServerHandler(
-        this.workspacePath,
-        this.environment.codeExecution.serverCommand,
-        this.environment.codeExecution.serverPortPlaceholder,
-      )
-    }
-
-    // Start the server
-    try {
-      const startResult = await this._server.start()
-      return startResult
-    } catch (error) {
-      this.logger.error('Failed to start server', error as Error)
-      this._server = undefined
-      throw error
-    }
+    throw new Error('Server operations are now handled by PreviewEnvironmentService')
   }
 
   async stopServer(): Promise<boolean> {
-    if (!this._server) {
-      this.logger.warn('No server to stop')
-      return false
-    }
-
-    try {
-      const success = await this._server.stop()
-      if (success) {
-        this._server = undefined
-      }
-      return success
-    } catch (error) {
-      this.logger.error('Error stopping server', error as Error)
-      return false
-    }
+    throw new Error('Server operations are now handled by PreviewEnvironmentService')
   }
 
   async getServerStatus(): Promise<ServerStatus> {
-    const configured = Boolean(this.environment.codeExecution.serverCommand)
-
-    if (!this._server) {
-      this.logger.debug('No server configured or initialized')
-      return {
-        running: false,
-        configured,
-        uptimeSeconds: 0,
-      }
-    }
-
-    const status = this._server.getStatus(configured)
-    this.logger.debug('Server status:', { status })
-    return status
+    throw new Error('Server operations are now handled by PreviewEnvironmentService')
   }
 
-  async getServerLogs(lines = 100): Promise<string> {
-    if (!this._server) {
-      return 'No server configured or initialized'
-    }
-
-    return await this._server.getLogs(lines)
+  async getServerLogs(_lines = 100): Promise<string> {
+    throw new Error('Server operations are now handled by PreviewEnvironmentService')
   }
 
   toWorkspaceInfo(): Workspace {
@@ -662,39 +573,6 @@ export class LocalWorkspace extends BaseWorkspace {
     } catch (error) {
       this.logger.error('Failed to remove worktree', error as Error, { repoPath, workspacePath })
       throw error
-    }
-  }
-
-  private async initializeServer(): Promise<void> {
-    if (!this.environment.codeExecution.serverCommand) {
-      return
-    }
-
-    this.logger.debug(`Initializing server for task ${this.taskId}:`, {
-      serverCommand: this.environment.codeExecution.serverCommand,
-      portPlaceholder: this.environment.codeExecution.serverPortPlaceholder,
-      workspaceDirectory: this.workspacePath,
-    })
-
-    this._server = new ServerHandler(
-      this.workspacePath,
-      this.environment.codeExecution.serverCommand,
-      this.environment.codeExecution.serverPortPlaceholder,
-    )
-
-    try {
-      // Start the server (logs will be saved to temp directory)
-      const startResult = await this._server.start()
-
-      this.logger.info(`Server started successfully for task ${this.taskId}`, {
-        port: startResult.port,
-        pid: startResult.pid,
-        logFile: startResult.log_file,
-      })
-    } catch (error) {
-      this.logger.error('Failed to start server', error as Error)
-      // Don't fail setup if server fails to start
-      this._server = undefined
     }
   }
 

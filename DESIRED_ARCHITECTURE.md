@@ -34,20 +34,22 @@ The Moatless system provides an AI-powered development environment where agents 
 ### 2. Service Layer
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Service Layer                          │
-├──────────────┬────────────────┬────────────────┬───────────┤
-│ TaskService  │ WorkspaceService│  AgentService  │EventService│
-│              │                 │                │ (Agent    │
-│              │                 │                │ events    │
-│              │                 │                │ only)     │
-└──────────────┴────────────────┴────────────────┴───────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      Service Layer                              │
+├──────────────┬────────────────┬────────────────┬───────────────┤
+│ TaskService  │ WorkspaceService│  AgentService  │ EventService  │
+│              │                 │                │ (Agent events │
+│              │                 │                │ only)         │
+├──────────────┴────────────────┼────────────────┴───────────────┤
+│      PreviewEnvironmentService │                                │
+│    (Server lifecycle mgmt)     │                                │
+└────────────────────────────────┴────────────────────────────────┘
                         │
                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   StorageBackend                            │
-│              (Direct file system access)                    │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                   StorageBackend                                │
+│              (Direct file system access)                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **TaskService**
@@ -59,7 +61,8 @@ The Moatless system provides an AI-powered development environment where agents 
 **WorkspaceService**
 - Single source of truth for workspace operations
 - Manages workspace lifecycle and state
-- Provides file, git, command, and server operations
+- Provides file, git, and command operations
+- Delegates server operations to PreviewEnvironmentService
 - Tracks background operations in state
 
 **AgentService**
@@ -67,6 +70,13 @@ The Moatless system provides an AI-powered development environment where agents 
 - Handles agent execution and monitoring
 - Coordinates between workspace and task contexts
 - Provides unified agent execution interface
+
+**PreviewEnvironmentService**
+- Manages preview environment server lifecycle
+- Persists server state to disk
+- Handles process recovery on startup
+- Ensures one server per task
+- Provides server health monitoring
 
 **EventService**
 - Handles only agent-generated events
@@ -317,7 +327,79 @@ All workspace operations now perform task validation within the WorkspaceService
 - API routes simplified - no duplicate task validation
 - Single source of truth for workspace access control
 
-### 9. Event System
+### 9. Preview Environment Service Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│               PreviewEnvironmentService                     │
+├─────────────────────────────────────────────────────────────┤
+│  Server Lifecycle Management                                │
+│  ├─→ startServer(taskId)                                  │
+│  ├─→ stopServer(taskId)                                   │
+│  ├─→ getServerStatus(taskId)                              │
+│  └─→ getServerLogs(taskId, lines)                         │
+│                                                             │
+│  Process Recovery & Validation                              │
+│  ├─→ loadAndValidateExistingPreviewEnvironments()         │
+│  ├─→ validateProcess(pid, command)                        │
+│  ├─→ pingServer(port, timeout)                            │
+│  └─→ killOrphanedProcess(pid, force)                      │
+│                                                             │
+│  State Persistence                                          │
+│  ├─→ savePreviewEnvironmentMetadata(taskId, metadata)     │
+│  ├─→ loadPreviewEnvironmentMetadata(taskId)               │
+│  └─→ deletePreviewEnvironmentMetadata(taskId)             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**PreviewEnvironmentService Integration Points**
+
+**With WorkspaceService:**
+- WorkspaceService delegates all server operations to PreviewEnvironmentService
+- PreviewEnvironmentService accesses workspace configuration via WorkspaceService
+- Maintains clear separation of concerns
+
+**With StorageBackend:**
+- Persists server metadata to `data/preview-environments/{taskId}.json`
+- Validates task existence before operations
+- Ensures data consistency
+
+**Preview Environment Metadata Structure**
+```typescript
+interface PreviewEnvironmentMetadata {
+  taskId: string
+  pid: number
+  port: number
+  startTime: Date
+  command: string
+  workspacePath: string
+  logFile: string
+  portPlaceholder?: string
+  processStartTime?: number
+}
+```
+
+**Server Lifecycle Management**
+1. **Start**: Create ServerHandler, start process, persist metadata
+2. **Status**: Check handler or recover from metadata, validate process, ping server
+3. **Stop**: Stop handler, kill process, clean metadata
+4. **Recovery**: Load metadata on startup, validate processes, restore handlers
+
+**Process Validation Strategy**
+- Check if PID exists using platform-specific commands
+- Verify process command matches expected command
+- Ping server port to ensure responsiveness
+- Clean up orphaned processes and metadata
+
+**Benefits of PreviewEnvironmentService**
+- **Persistence**: Server state survives application restarts
+- **Single Server**: Enforces one server per task/workspace
+- **Process Safety**: Validates PIDs before operations
+- **Recovery**: Automatically recovers running servers on startup
+- **Health Monitoring**: Ping validation ensures server responsiveness
+- **Clean Architecture**: Follows AgentService pattern
+
+### 10. Event System
 
 ```
 Agent Events Only
@@ -342,7 +424,7 @@ SSE Stream → Client
 - Task operation events
 - System status events
 
-### 10. Key Design Principles
+### 11. Key Design Principles
 
 1. **State-Driven Operations**
    - All operations check workspace state first
@@ -353,6 +435,7 @@ SSE Stream → Client
    - TaskService: Task metadata and coordination
    - WorkspaceService: Workspace operations and state
    - AgentService: Agent process management
+   - PreviewEnvironmentService: Preview environment server lifecycle management
    - EventService: Agent events only
 
 3. **Direct Communication**
@@ -389,22 +472,30 @@ SSE Stream → Client
    - ✅ Proper separation from WorkspaceService
    - ✅ Event routing and error handling
 
-2. **API Layer Complete**
+2. **PreviewEnvironmentService Architecture**
+   - ✅ Centralized preview environment server lifecycle management
+   - ✅ Persistent server state storage to disk
+   - ✅ Process recovery on service startup
+   - ✅ Process validation and health monitoring
+   - ✅ One server per task guarantee
+
+3. **API Layer Complete**
    - ✅ Agent status endpoint (`GET /:taskId/agent-status`)
    - ✅ Agent stop endpoint (`POST /:taskId/stop`)
    - ✅ All task and environment routes functional
    - ✅ SSE event streaming for real-time updates
    - ✅ Simplified API routes with centralized validation
 
-3. **Service Layer Refactoring**
+4. **Service Layer Refactoring**
    - ✅ TaskService delegates agent operations to AgentService
-   - ✅ WorkspaceService handles workspace operations only
+   - ✅ WorkspaceService delegates server operations to PreviewEnvironmentService
    - ✅ Direct StorageBackend access (no wrapper services)
    - ✅ Proper dependency injection
    - ✅ Capability-based workspace operations
 
-4. **Core Functionality**
+5. **Core Functionality**
    - ✅ Agent execution with session tracking
+   - ✅ Preview server persistence and recovery
    - ✅ Workspace state management with capability checks
    - ✅ Background task tracking
    - ✅ Error isolation and handling

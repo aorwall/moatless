@@ -15,11 +15,13 @@ import { DockerWorkspace } from '../workspaces/docker.js'
 import { LocalWorkspace } from '../workspaces/local.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
+import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
   private backgroundTasks: Map<string, Set<Promise<any>>> = new Map()
+  private previewEnvironmentService?: PreviewEnvironmentService
 
   constructor(
     private environmentService: EnvironmentService,
@@ -461,36 +463,28 @@ export class WorkspaceService {
     if (!(await this.canManageServer(taskId))) {
       throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
     }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.startServer) {
-      throw new WorkspaceError(`Server not supported for this workspace type`, taskId)
+
+    if (!this.previewEnvironmentService) {
+      throw new WorkspaceError('Preview environment service not initialized', taskId)
     }
 
-    return workspace.startServer()
+    return this.previewEnvironmentService.startServer(taskId)
   }
 
   async stopServer(taskId: string): Promise<boolean> {
     if (!(await this.canManageServer(taskId))) {
       throw new WorkspaceError('Cannot stop server: workspace not ready', taskId)
     }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.stopServer) {
-      return false
+
+    if (!this.previewEnvironmentService) {
+      throw new WorkspaceError('Preview environment service not initialized', taskId)
     }
 
-    return workspace.stopServer()
+    return this.previewEnvironmentService.stopServer(taskId)
   }
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
-    if (!(await this.canManageServer(taskId))) {
-      return {
-        running: false,
-        configured: false,
-        uptimeSeconds: 0,
-      }
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.getServerStatus) {
+    if (!this.previewEnvironmentService) {
       return {
         running: false,
         configured: false,
@@ -498,7 +492,7 @@ export class WorkspaceService {
       }
     }
 
-    return workspace.getServerStatus()
+    return this.previewEnvironmentService.getServerStatus(taskId)
   }
 
   // Background task tracking methods
@@ -534,12 +528,16 @@ export class WorkspaceService {
     if (!(await this.canManageServer(taskId))) {
       return 'Server logs not available: workspace not ready'
     }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    if (!workspace.getServerLogs) {
-      return 'Server logs not available for this workspace type'
+
+    if (!this.previewEnvironmentService) {
+      return 'Preview environment service not initialized'
     }
 
-    return workspace.getServerLogs(lines)
+    return this.previewEnvironmentService.getServerLogs(taskId, lines)
+  }
+
+  setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {
+    this.previewEnvironmentService = previewEnvironmentService
   }
 }
 

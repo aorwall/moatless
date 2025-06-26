@@ -390,7 +390,7 @@ describe('Complete Workflow E2E Test', () => {
     expect(firstIteration.result.length).toBeGreaterThan(0)
     // The result should contain something meaningful from Claude
     expect(firstIteration.result).not.toBe('No result found in Claude Code SDK result message')
-    
+
     expect(firstIteration.costUsd).toBeGreaterThan(0)
     expect(firstIteration.durationMs).toBeGreaterThan(0)
     expect(firstIteration.endTime).toBeTruthy()
