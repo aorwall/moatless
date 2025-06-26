@@ -268,30 +268,54 @@ Response: {
 - **Resource Management**: Proper cleanup of agent processes and resources
 - **Real-time Status**: Provides accurate agent execution status for UI
 
-### 8. Workspace Operations
+### 8. Workspace Operations & Capabilities
 
-All workspace operations go through WorkspaceService and respect state requirements:
+All workspace operations go through WorkspaceService and use capability checks for validation:
 
-**File Operations**
-- Available: SETTING_UP (if directory exists), IDLE, RUNNING
-- Methods: listFiles, readFile, writeFile, searchFiles
+**Capability-Based Operations**
 
-**Git Operations**
-- Available: SETTING_UP (if directory exists), IDLE, RUNNING  
-- Methods: getGitDiff
+The WorkspaceService provides boolean capability methods that handle both task validation and workspace state checking:
 
-**Command Execution**
-- Available: IDLE only
-- Methods: runCommand
+```typescript
+// Capability check methods
+async canListFiles(taskId: string): Promise<boolean>
+async canReadWriteFiles(taskId: string): Promise<boolean> 
+async canExecuteCommands(taskId: string): Promise<boolean>
+async canManageServer(taskId: string): Promise<boolean>
+async canAccessGit(taskId: string): Promise<boolean>
+```
 
-**Server Management**
-- Start: IDLE, RUNNING
-- Stop/Status/Logs: IDLE, RUNNING
-- Methods: startServer, stopServer, getServerStatus, getServerLogs
+**Operation Capabilities Matrix:**
 
-**Agent Execution**
-- Available: IDLE only
-- Coordinated through AgentService
+| Operation | NOT_SETUP | SETTING_UP | IDLE | RUNNING | Methods |
+|-----------|-----------|------------|------|---------|---------|
+| **List Files** (`canListFiles`) | ❌ | ✅ | ✅ | ✅ | `listFiles`, `searchFiles` |
+| **Read/Write Files** (`canReadWriteFiles`) | ❌ | ✅ | ✅ | ✅ | `readFile`, `writeFile` |
+| **Execute Commands** (`canExecuteCommands`) | ❌ | ❌ | ✅ | ❌ | `runCommand` |
+| **Manage Server** (`canManageServer`) | ❌ | ❌ | ✅ | ✅ | `startServer`, `stopServer`, `getServerStatus`, `getServerLogs` |
+| **Access Git** (`canAccessGit`) | ❌ | ✅ | ✅ | ✅ | `getGitDiff` |
+| **Agent Execution** | ❌ | ❌ | ✅ | ❌ | Coordinated through AgentService |
+
+**State Definitions:**
+- **NOT_SETUP**: Workspace repository/worktree doesn't exist
+- **SETTING_UP**: Creating worktree or running setup scripts  
+- **IDLE**: Ready for operations, no agent running
+- **RUNNING**: Agent currently executing
+
+**Operation Rules:**
+- **File Operations**: Available once workspace directory exists (SETTING_UP+)
+- **Git Operations**: Available once workspace directory exists (SETTING_UP+)
+- **Command Execution**: Only when workspace is ready and no agent running (IDLE only)
+- **Server Management**: Available when workspace is operational (IDLE, RUNNING)
+- **Agent Execution**: Only when workspace is ready and available (IDLE only)
+
+**Centralized Task Validation**
+
+All workspace operations now perform task validation within the WorkspaceService:
+- Task existence checked in capability methods
+- Throws `TaskNotFoundError` if task doesn't exist
+- API routes simplified - no duplicate task validation
+- Single source of truth for workspace access control
 
 ### 9. Event System
 
@@ -370,18 +394,21 @@ SSE Stream → Client
    - ✅ Agent stop endpoint (`POST /:taskId/stop`)
    - ✅ All task and environment routes functional
    - ✅ SSE event streaming for real-time updates
+   - ✅ Simplified API routes with centralized validation
 
 3. **Service Layer Refactoring**
    - ✅ TaskService delegates agent operations to AgentService
    - ✅ WorkspaceService handles workspace operations only
    - ✅ Direct StorageBackend access (no wrapper services)
    - ✅ Proper dependency injection
+   - ✅ Capability-based workspace operations
 
 4. **Core Functionality**
    - ✅ Agent execution with session tracking
-   - ✅ Workspace state management
+   - ✅ Workspace state management with capability checks
    - ✅ Background task tracking
    - ✅ Error isolation and handling
+   - ✅ Centralized task validation in WorkspaceService
 
 ### 🔄 **Areas for Future Enhancement**
 

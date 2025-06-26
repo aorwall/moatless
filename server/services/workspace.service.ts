@@ -12,6 +12,7 @@ import type {
   LocalRepository,
   ServerStatus,
 } from '../../shared/types/index.js'
+import { WorkspaceStatus } from '../../shared/types/workspace.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
@@ -259,26 +260,120 @@ export class WorkspaceService {
     return this.activeWorkspaces.get(taskId) || null
   }
 
+  // Workspace capability methods
+  async canListFiles(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Files can be listed if workspace exists and is at least setting up
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
+  }
+
+  async canReadWriteFiles(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Files can be read/written if workspace is setting up, idle, or running
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
+  }
+
+  async canExecuteCommands(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Commands can only be executed when workspace is idle
+      return status === WorkspaceStatus.IDLE
+    } catch {
+      return false
+    }
+  }
+
+  async canManageServer(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Server can be managed when workspace is idle or running
+      return status === WorkspaceStatus.IDLE || status === WorkspaceStatus.RUNNING
+    } catch {
+      return false
+    }
+  }
+
+  async canAccessGit(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Git operations available when workspace exists and is at least setting up
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
+  }
+
   async listFiles(
     taskId: string,
     relativePath: string = '.',
     recursive: boolean = false,
   ): Promise<string[]> {
+    // Task validation is now handled in canListFiles, but we still check capability
+    if (!(await this.canListFiles(taskId))) {
+      throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.listFiles(relativePath, recursive)
   }
 
   async readFile(taskId: string, filePath: string): Promise<string> {
+    if (!(await this.canReadWriteFiles(taskId))) {
+      throw new WorkspaceError('Cannot read file: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.readFile(filePath)
   }
 
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
+    if (!(await this.canReadWriteFiles(taskId))) {
+      throw new WorkspaceError('Cannot write file: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     await workspace.writeFile(filePath, content)
   }
 
   async getGitDiff(taskId: string): Promise<any> {
+    if (!(await this.canAccessGit(taskId))) {
+      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.getGitDiff()
   }
@@ -342,11 +437,20 @@ export class WorkspaceService {
   }
 
   async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {
+    if (!(await this.canExecuteCommands(taskId))) {
+      throw new WorkspaceError('Cannot execute command: workspace not in idle state', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.runCommand(command, timeout)
   }
 
   async getWorkspaceStatus(taskId: string): Promise<any> {
+    // Validate task exists first
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
     const workspace = await this.getOrCreateWorkspace(taskId)
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
@@ -358,6 +462,9 @@ export class WorkspaceService {
   }
 
   async startServer(taskId: string): Promise<any> {
+    if (!(await this.canManageServer(taskId))) {
+      throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.startServer) {
       throw new WorkspaceError(`Server not supported for this workspace type`, taskId)
@@ -367,6 +474,9 @@ export class WorkspaceService {
   }
 
   async stopServer(taskId: string): Promise<boolean> {
+    if (!(await this.canManageServer(taskId))) {
+      throw new WorkspaceError('Cannot stop server: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.stopServer) {
       return false
@@ -376,6 +486,13 @@ export class WorkspaceService {
   }
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
+    if (!(await this.canManageServer(taskId))) {
+      return {
+        running: false,
+        configured: false,
+        uptimeSeconds: 0,
+      }
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.getServerStatus) {
       return {
@@ -411,11 +528,17 @@ export class WorkspaceService {
   }
 
   async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
+    if (!(await this.canListFiles(taskId))) {
+      throw new WorkspaceError('Cannot search files: workspace not ready', taskId)
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.searchFiles(request)
   }
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
+    if (!(await this.canManageServer(taskId))) {
+      return 'Server logs not available: workspace not ready'
+    }
     const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.getServerLogs) {
       return 'Server logs not available for this workspace type'
