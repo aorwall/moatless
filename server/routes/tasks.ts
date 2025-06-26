@@ -2,12 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { TaskNotFoundError, WorkspaceError } from '../../shared/constants/errors.js'
 import {
+  AgentStatusResponseSchema,
   CreateTaskRequestSchema,
   DeleteTaskResponseSchema,
   type EventListResponse,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
   SimpleTaskResponseSchema,
+  StopAgentResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
   UpdateTaskRequestSchema,
@@ -209,6 +211,49 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Get workspace status from workspace service
       const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
       return workspaceStatus
+    },
+  )
+
+  // Get agent status for task
+  app.get(
+    '/:taskId/agent-status',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        response: {
+          200: AgentStatusResponseSchema,
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Get agent status from AgentService
+      return await app.services.agent.getAgentStatus(taskId)
+    },
+  )
+
+  // Stop agent
+  app.post(
+    '/:taskId/stop',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        response: {
+          200: StopAgentResponseSchema,
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Stop agent through AgentService
+      const stopped = await app.services.agent.stopAgent(taskId)
+      
+      return {
+        status: stopped ? 'stopped' : 'not_running',
+        taskId,
+      }
     },
   )
 

@@ -235,9 +235,7 @@ export async function getGitStatus(repoPath: string): Promise<{
       timeout: 5000,
     })
 
-    const lines = stdout
-      .split('\n')
-      .filter((line) => line.length > 0)
+    const lines = stdout.split('\n').filter((line) => line.length > 0)
     const modified: string[] = []
     const untracked: string[] = []
     const staged: string[] = []

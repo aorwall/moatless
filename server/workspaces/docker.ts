@@ -52,18 +52,6 @@ export class DockerWorkspace extends BaseWorkspace {
     this.setupInProgress = true
     try {
       // Emit setup started event
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.WORKSPACE,
-        subType: 'setup_started',
-        taskId: this.taskId,
-        iterationId: iterationNumber,
-        timestamp: new Date(),
-        isError: false,
-        payload: {
-          environmentId: this.environment.id,
-        },
-      })
 
       this.image = this.environment.codeExecution.image || 'node:18-alpine'
       const workdir = '/workspace'
@@ -106,37 +94,12 @@ export class DockerWorkspace extends BaseWorkspace {
         }
       }
 
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: EventType.WORKSPACE,
-        subType: 'container_created',
-        taskId: this.taskId,
-        iterationId: iterationNumber,
-        timestamp: new Date(),
-        isError: false,
-        payload: {
-          containerId: this.containerId,
-          image: this.image,
-        },
-      })
-
       // Run setup commands if specified
       if (this.environment.codeExecution.setupCommands) {
         const commands = this.environment.codeExecution.setupCommands.split('\n')
         for (const command of commands) {
           const trimmedCommand = command.trim()
           if (!trimmedCommand) continue
-
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            type: EventType.WORKSPACE,
-            subType: 'command_running',
-            taskId: this.taskId,
-            iterationId: iterationNumber,
-            timestamp: new Date(),
-            isError: false,
-            payload: { command: trimmedCommand },
-          })
 
           try {
             const result = await this.runCommand(trimmedCommand)

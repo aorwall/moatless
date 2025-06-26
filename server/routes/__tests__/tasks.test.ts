@@ -16,7 +16,7 @@ describe('Task Routes', () => {
   describe('POST /api/tasks', () => {
     it('should create a new task with workspace', async () => {
       const mockTaskId = 'mock-task-id'
-      
+
       // Mock task creation
       vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
 
@@ -45,7 +45,7 @@ describe('Task Routes', () => {
 
     it('should always create workspace even without initial message', async () => {
       const mockTaskId = 'mock-task-id-2'
-      
+
       // Mock task creation to verify it's called with start: false
       vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
 
@@ -61,7 +61,7 @@ describe('Task Routes', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      
+
       // Verify the task was created with start: false
       expect(app.services.task.createTask).toHaveBeenCalledWith({
         agentType: 'claude-code',
@@ -89,10 +89,10 @@ describe('Task Routes', () => {
     it('should return 400 if environment does not exist', async () => {
       // Import the error class
       const { EnvironmentNotFoundError } = await import('../../../shared/constants/errors.js')
-      
+
       // Mock task creation to throw environment not found error
       vi.spyOn(app.services.task, 'createTask').mockRejectedValueOnce(
-        new EnvironmentNotFoundError('non-existent')
+        new EnvironmentNotFoundError('non-existent'),
       )
 
       const response = await app.inject({

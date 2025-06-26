@@ -26,10 +26,10 @@ describe('SSE Routes', () => {
   describe('GET /api/tasks/:taskId/stream', () => {
     it.skip('should stream events as NDJSON', async () => {
       const taskId = 'test-task-id'
-      
+
       // Mock the task service to avoid creating real workspace
       vi.spyOn(taskService, 'createTask').mockResolvedValueOnce(taskId)
-      
+
       // Create task through mock
       await taskService.createTask({
         agentType: 'test',
@@ -41,7 +41,7 @@ describe('SSE Routes', () => {
         taskId,
         status: 'active',
       } as any)
-      
+
       // Skip this test as SSE endpoints don't close connections
       // and inject() waits for response to complete
       expect(true).toBe(true)
@@ -58,10 +58,10 @@ describe('SSE Routes', () => {
 
     it.skip('should support lastEventId for reconnection', async () => {
       const taskId = 'test-task-id-2'
-      
+
       // Mock the task service to avoid creating real workspace
       vi.spyOn(taskService, 'createTask').mockResolvedValueOnce(taskId)
-      
+
       // Create task through mock
       await taskService.createTask({
         agentType: 'test',
@@ -73,7 +73,7 @@ describe('SSE Routes', () => {
         taskId,
         status: 'active',
       } as any)
-      
+
       // Add some events
       await eventService.emitEvent({
         type: EventType.MESSAGE,
@@ -101,10 +101,10 @@ describe('SSE Routes', () => {
   describe('GET /api/tasks/:taskId/stream/status', () => {
     it('should return stream status', async () => {
       const taskId = 'test-task-id-3'
-      
+
       // Mock the task service to avoid creating real workspace
       vi.spyOn(taskService, 'createTask').mockResolvedValueOnce(taskId)
-      
+
       // Create task through mock
       await taskService.createTask({
         agentType: 'test',
@@ -116,7 +116,7 @@ describe('SSE Routes', () => {
         taskId,
         status: 'active',
       } as any)
-      
+
       const response = await app.inject({
         method: 'GET',
         url: `/api/v1/tasks/${taskId}/stream/status`,

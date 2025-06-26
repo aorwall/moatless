@@ -1,4 +1,4 @@
-import type { WorkspaceStatus } from '@shared/types/workspace'
+import type { AgentStatusResponse } from '@shared/types/api'
 import { useParams } from '@tanstack/react-router'
 import { AlertCircle, GitMerge, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
@@ -9,6 +9,7 @@ import {
   useStopAgent,
   useStopServer,
   useTask,
+  useTaskAgentStatus,
   useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store'
@@ -28,22 +29,22 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant}>{status}</Badge>
 }
 
-const getWorkspaceStatusDisplay = (status?: WorkspaceStatus) => {
-  if (!status) {
-    return { text: 'workspace: unknown', isLoading: false }
+const getAgentStatusDisplay = (agentStatus?: AgentStatusResponse['status']) => {
+  if (!agentStatus) {
+    return { text: 'agent: unknown', isLoading: false }
   }
 
-  switch (status) {
-    case 'not_setup':
-      return { text: 'workspace: not set up', isLoading: false }
-    case 'setting_up':
-      return { text: 'workspace: setting up', isLoading: true }
+  switch (agentStatus) {
     case 'idle':
-      return { text: 'workspace: idle', isLoading: false }
+      return { text: 'agent: idle', isLoading: false }
+    case 'preparing':
+      return { text: 'agent: preparing', isLoading: true }
     case 'running':
-      return { text: 'workspace: running', isLoading: true }
+      return { text: 'agent: running', isLoading: true }
+    case 'error':
+      return { text: 'agent: error', isLoading: false }
     default:
-      return { text: 'workspace: unknown', isLoading: false }
+      return { text: 'agent: unknown', isLoading: false }
   }
 }
 
@@ -57,6 +58,11 @@ export function TaskHeader() {
     isLoading: isLoadingWorkspace,
     error: workspaceError,
   } = useTaskWorkspaceStatus(taskId)
+  const {
+    data: agentStatus,
+    isLoading: isLoadingAgent,
+    error: agentError,
+  } = useTaskAgentStatus(taskId)
   const streamingError = useTaskStreamingError(taskId)
 
   const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {
@@ -147,7 +153,7 @@ export function TaskHeader() {
     return null
   }
 
-  const workspaceDisplay = getWorkspaceStatusDisplay(workspaceStatus?.status)
+  const agentDisplay = getAgentStatusDisplay(agentStatus?.status)
 
   return (
     <header className="border-b">
@@ -165,26 +171,26 @@ export function TaskHeader() {
               <StatusBadge status={metadata.status} />
               <Badge variant="outline">{metadata.numTurns} turns</Badge>
               <Badge variant="outline">${metadata.totalCostUsd.toFixed(4)}</Badge>
-              {workspaceError ? (
+              {agentError ? (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge variant="destructive" className="flex items-center gap-1">
                         <AlertCircle className="h-3 w-3" />
-                        workspace: error
+                        agent: error
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{getErrorMessage(workspaceError)}</p>
+                      <p>{getErrorMessage(agentError)}</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               ) : (
                 <Badge variant="outline" className="flex items-center gap-1">
-                  {(isLoadingWorkspace || workspaceDisplay.isLoading) && (
+                  {(isLoadingAgent || agentDisplay.isLoading) && (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   )}
-                  {workspaceDisplay.text}
+                  {agentDisplay.text}
                 </Badge>
               )}
             </div>
@@ -246,13 +252,13 @@ export function TaskHeader() {
                 {startServer.isPending ? 'Starting Server...' : 'Start Server'}
               </Button>
             ))}
-          {metadata.status === 'active' && (
+          {agentStatus?.status === 'running' && (
             <Button variant="outline" size="sm" onClick={handleStop} disabled={stopAgent.isPending}>
               <StopCircle className="mr-2 h-4 w-4" />
-              {stopAgent.isPending ? 'Stopping...' : 'Stop'}
+              {stopAgent.isPending ? 'Stopping...' : 'Stop Agent'}
             </Button>
           )}
-          {metadata.status !== 'active' && (
+          {agentStatus?.status !== 'running' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -263,7 +269,9 @@ export function TaskHeader() {
                     disabled={
                       mergeTask.isPending ||
                       isLoadingWorkspace ||
-                      workspaceStatus?.hasUncommittedChanges
+                      isLoadingAgent ||
+                      workspaceStatus?.hasUncommittedChanges ||
+                      agentStatus?.status === 'running'
                     }
                   >
                     <GitMerge className="mr-2 h-4 w-4" />
@@ -273,8 +281,10 @@ export function TaskHeader() {
                 <TooltipContent>
                   {workspaceStatus?.hasUncommittedChanges ? (
                     <p>Cannot merge: workspace has uncommitted changes</p>
-                  ) : isLoadingWorkspace ? (
-                    <p>Checking workspace status...</p>
+                  ) : agentStatus?.status === 'running' ? (
+                    <p>Cannot merge: agent is running</p>
+                  ) : isLoadingWorkspace || isLoadingAgent ? (
+                    <p>Checking status...</p>
                   ) : (
                     <p>Merge workspace changes to the main branch</p>
                   )}

@@ -127,9 +127,12 @@ export class FileStorage implements StorageBackend {
   }
 }
 
+function getDefaultDataDir(): string {
+  return path.join(os.homedir(), '.moatless')
+}
+
 export async function createStorageService(_app: FastifyInstance): Promise<StorageBackend> {
-  const defaultDataDir = path.join(os.homedir(), '.moatless')
-  const dataDir = process.env.DATA_DIR || defaultDataDir
+  const dataDir = process.env.DATA_DIR || getDefaultDataDir()
 
   // Ensure the data directory exists
   await fs.mkdir(dataDir, { recursive: true })

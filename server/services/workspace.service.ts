@@ -1,8 +1,6 @@
 import path from 'node:path'
-import type { BaseAgent } from '@server/services/agents/base-agent.js'
 import { isGitRepository } from '@server/utils/index.js'
 import {
-  CriticalError,
   EnvironmentNotFoundError,
   TaskNotFoundError,
   WorkspaceError,
@@ -13,10 +11,7 @@ import type {
   CommandResult,
   LocalRepository,
   ServerStatus,
-  TaskIteration,
 } from '../../shared/types/index.js'
-import { WorkspaceStatus } from '../../shared/types/workspace.js'
-import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
@@ -393,142 +388,6 @@ export class WorkspaceService {
     return workspace.getServerStatus()
   }
 
-  async runAgent(
-    taskId: string,
-    message: string,
-    iteration: TaskIteration,
-    agentType: string = 'claude-code',
-    resumeSessionId?: string,
-  ): Promise<void> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-
-    // Validate workspace state
-    const status = workspace.getStatus()
-    if (status === WorkspaceStatus.SETTING_UP) {
-      throw new CriticalError('Workspace is still setting up', taskId, iteration)
-    }
-    if (status === WorkspaceStatus.RUNNING) {
-      throw new CriticalError('Agent is already running', taskId, iteration)
-    }
-
-    // Create agent
-    const agent = await this.createAgent(agentType, taskId)
-
-    // Execute agent in background
-    const backgroundTask = this.executeAgent(agent, message, taskId, iteration, workspace, resumeSessionId).catch(
-      (error) => {
-        logger.error('Background agent execution failed', error as Error, { taskId })
-      },
-    )
-
-    // Track the background task
-    this.trackBackgroundTask(taskId, backgroundTask)
-
-    // Don't await - let it run in background
-    logger.info('Agent execution started in background', {
-      taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-  }
-
-  private async createAgent(agentType: string, taskId: string): Promise<BaseAgent> {
-    if (agentType === 'claude-code') {
-      // TODO: Get claude options from storage/config
-      const options = {} // Placeholder for claude options
-      return new ClaudeCodeAgent(taskId, options)
-    } else {
-      throw new Error(`Unknown agent type: ${agentType}`)
-    }
-  }
-
-  private async executeAgent(
-    agent: BaseAgent,
-    message: string,
-    taskId: string,
-    iteration: TaskIteration,
-    workspace: BaseWorkspace,
-    resumeSessionId?: string,
-  ): Promise<void> {
-    try {
-      const runOptions = {
-        workspaceDir: workspace.getWorkspacePath(),
-        iterationNumber: iteration.iterationNumber,
-        resume: resumeSessionId,
-      }
-
-      // Process agent events
-      for await (const event of agent.run(message, runOptions)) {
-        // Capture session ID if it's not already set
-        if (!iteration.agentSessionId && agent.getSessionId()) {
-          iteration.agentSessionId = agent.getSessionId()
-
-          // Update the session ID in the task's iteration
-          const task = await this.storage.getTask(taskId)
-          if (task) {
-            const iterationIndex = task.iterations.findIndex(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (iterationIndex >= 0) {
-              task.iterations[iterationIndex].agentSessionId = iteration.agentSessionId
-              await this.storage.saveTask(task)
-            }
-          }
-        } else if (event.payload?.type === 'result') {
-          iteration.costUsd = event.payload.total_cost_usd ?? 0
-          iteration.result =
-            event.payload.result ?? 'No result found in Claude Code SDK result message'
-
-          // Update iteration status to completed after successful execution
-          iteration.status = 'completed'
-          iteration.endTime = new Date()
-          iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
-
-          // Find and update the iteration in the task's iterations array
-          const task = await this.storage.getTask(taskId)
-          if (task) {
-            const iterationIndex = task.iterations.findIndex(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (iterationIndex >= 0) {
-              await this.storage.saveTask(task)
-            }
-          }
-        }
-
-        // Only emit agent events
-        await this.eventService.emitEvent(event)
-      }
-    } catch (error) {
-      // Save error to iteration
-      iteration.status = 'failed'
-      iteration.error = {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date(),
-      }
-
-      // Find and update the iteration in the task's iterations array
-      const task = await this.storage.getTask(taskId)
-      if (task) {
-        const iterationIndex = task.iterations.findIndex(
-          (it) => it.iterationNumber === iteration.iterationNumber,
-        )
-        if (iterationIndex >= 0) {
-          task.iterations[iterationIndex].status = iteration.status
-          task.iterations[iterationIndex].error = iteration.error
-          await this.storage.saveTask(task)
-        }
-      }
-
-      // Re-throw critical errors
-      if (error instanceof CriticalError) {
-        throw error
-      }
-
-      // Log non-critical errors
-      logger.error('Agent execution error', error as Error)
-    }
-  }
 
   // Background task tracking methods
   public trackBackgroundTask(taskId: string, task: Promise<any>): void {

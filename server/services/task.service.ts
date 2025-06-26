@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { CriticalError, TaskNotFoundError } from '../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
 import { createTaskLogger, logger } from '../utils/logger.js'
+import type { AgentService } from './agent.service.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -11,6 +12,7 @@ export class TaskService {
   constructor(
     private storage: StorageBackend,
     private workspaceService: WorkspaceService,
+    private agentService: AgentService,
   ) {}
 
   async createTask(params: CreateTaskRequest): Promise<string> {
@@ -136,7 +138,15 @@ export class TaskService {
     iteration.task = metadata
     iteration.taskId = taskId
 
-    await this.workspaceService.runAgent(taskId, message, iteration, 'claude-code', resumeSessionId)
+    // Execute agent through AgentService in background
+    const backgroundTask = this.agentService.executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId).catch(
+      (error) => {
+        logger.error('Background agent execution failed', error as Error, { taskId })
+      },
+    )
+
+    // Track the background task in WorkspaceService for status reporting
+    this.workspaceService.trackBackgroundTask(taskId, backgroundTask)
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
@@ -257,6 +267,7 @@ export function createTaskService(
   storage: StorageBackend,
   _eventService: EventService,
   workspaceService: WorkspaceService,
+  agentService: AgentService,
 ): TaskService {
-  return new TaskService(storage, workspaceService)
+  return new TaskService(storage, workspaceService, agentService)
 }

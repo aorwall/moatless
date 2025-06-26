@@ -1,4 +1,4 @@
-import type { CreateTaskRequest, SimpleTaskResponse } from '@shared/types/api'
+import type { AgentStatusResponse, CreateTaskRequest, SimpleTaskResponse } from '@shared/types/api'
 import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task } from '@shared/types/task'
@@ -84,6 +84,10 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
       })
+      // Invalidate agent status since sending a message triggers agent execution
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.taskAgentStatus(variables.taskId),
+      })
       // Force refetch the task data immediately
       await queryClient.refetchQueries({
         queryKey: queryKeys.task(variables.taskId),
@@ -109,6 +113,10 @@ export function useStopAgent(
       // Also invalidate the tasks list to update the status
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks(),
+      })
+      // Invalidate agent status since stopping agent changes status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskAgentStatus(taskId),
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -170,6 +178,26 @@ export function useTaskWorkspaceStatus(
         return 1000 // 1 second
       }
       return 30000 // 30 seconds for idle/not_setup states
+    },
+    ...options,
+  })
+}
+
+export function useTaskAgentStatus(
+  taskId: string,
+  options?: Omit<UseQueryOptions<AgentStatusResponse>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskAgentStatus(taskId),
+    queryFn: () => tasksApi.getTaskAgentStatus(taskId),
+    enabled: !!taskId,
+    refetchInterval: (query) => {
+      // Poll more frequently when agent is running or preparing
+      const data = query.state.data
+      if (data?.status === 'running' || data?.status === 'preparing') {
+        return 1000 // 1 second
+      }
+      return 10000 // 10 seconds for idle/error states
     },
     ...options,
   })

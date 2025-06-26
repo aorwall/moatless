@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions } from '@shared/types/claude.js'
-import { type Event, EventType } from '@shared/types/event.js'
+import { type Event, EventType, type ResultEvent } from '@shared/types/event.js'
 import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
@@ -34,7 +34,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (sdkMessage.type === 'result') {
-          yield this.createEvent(sdkMessage, EventType.RESULT, sdkMessage.is_error)
+          yield this.createEvent(sdkMessage, EventType.RESULT, sdkMessage.is_error) as ResultEvent
         } else {
           yield this.createEvent(sdkMessage, EventType.MESSAGE)
         }

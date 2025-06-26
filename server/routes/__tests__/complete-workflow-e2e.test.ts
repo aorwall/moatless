@@ -303,7 +303,7 @@ describe('Complete Workflow E2E Test', () => {
     // Step 7: Verify workspace status
     const workspaceStatusResponse = await app.inject({
       method: 'GET',
-      url: `/api/v1/workspaces/${createdTaskId}/status`,
+      url: `/api/v1/tasks/${createdTaskId}/workspace-status`,
     })
 
     if (workspaceStatusResponse.statusCode === 200) {
@@ -315,10 +315,42 @@ describe('Complete Workflow E2E Test', () => {
       )
     }
 
+    // Step 7.1: Verify agent status endpoint
+    const agentStatusResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/tasks/${createdTaskId}/agent-status`,
+    })
+
+    expect(agentStatusResponse.statusCode).toBe(200)
+    const agentStatus = JSON.parse(agentStatusResponse.body)
+    
+    // Verify required fields exist
+    expect(agentStatus).toHaveProperty('status')
+    expect(agentStatus).toHaveProperty('sessionId')
+    expect(agentStatus).toHaveProperty('startedAt')
+    expect(agentStatus).toHaveProperty('currentIteration')
+    expect(agentStatus).toHaveProperty('workspaceStatus')
+    expect(agentStatus).toHaveProperty('canExecute')
+
+    // Verify status is one of expected values
+    expect(['idle', 'running', 'preparing', 'error']).toContain(agentStatus.status)
+    
+    // Verify boolean field
+    expect(typeof agentStatus.canExecute).toBe('boolean')
+
+    // If agent has run, verify session information
+    if (agentStatus.status === 'running' && agentStatus.sessionId) {
+      expect(agentStatus.sessionId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      ) // UUID format
+      expect(agentStatus.startedAt).toBeTruthy()
+      expect(typeof agentStatus.currentIteration).toBe('number')
+    }
+
     // Step 8: Verify git diff (if there are changes)
     const gitDiffResponse = await app.inject({
       method: 'GET',
-      url: `/api/v1/workspaces/${createdTaskId}/git-diff`,
+      url: `/api/v1/tasks/${createdTaskId}/git-diff`,
     })
 
     if (gitDiffResponse.statusCode === 200) {

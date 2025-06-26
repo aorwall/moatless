@@ -13,10 +13,10 @@ vi.mock('pino', () => {
     child: vi.fn(),
     level: 'info',
   }
-  
+
   // Setup child to return self
   mockPinoInstance.child.mockReturnValue(mockPinoInstance)
-  
+
   return {
     default: vi.fn(() => mockPinoInstance),
     destination: vi.fn(),
