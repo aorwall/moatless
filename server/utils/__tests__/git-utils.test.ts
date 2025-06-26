@@ -27,7 +27,7 @@ describe('git-utils', () => {
       mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, 'M\tsrc/file1.js\nA\tsrc/file2.js\nD\tsrc/file3.js\n', '')
+          callback(null, { stdout: 'M\tsrc/file1.js\nA\tsrc/file2.js\nD\tsrc/file3.js\n', stderr: '' })
         }
       }) as any)
 
@@ -35,7 +35,7 @@ describe('git-utils', () => {
       mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, '10\t5\tsrc/file1.js\n20\t0\tsrc/file2.js\n0\t15\tsrc/file3.js\n', '')
+          callback(null, { stdout: '10\t5\tsrc/file1.js\n20\t0\tsrc/file2.js\n0\t15\tsrc/file3.js\n', stderr: '' })
         }
       }) as any)
 
@@ -69,7 +69,7 @@ describe('git-utils', () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, '', '')
+          callback(null, { stdout: '', stderr: '' })
         }
       }) as any)
 
@@ -87,7 +87,7 @@ describe('git-utils', () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, 'main\n', '')
+          callback(null, { stdout: 'main\n', stderr: '' })
         }
       }) as any)
 
@@ -112,7 +112,7 @@ describe('git-utils', () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, '', '')
+          callback(null, { stdout: '', stderr: '' })
         }
       }) as any)
 
@@ -132,10 +132,17 @@ describe('git-utils', () => {
         const callback = cb || opts
         if (typeof callback === 'function') {
           // Ensure proper git status format: 2 status chars + space + filename
-          const output = [' M src/modified.js', '?? src/untracked.js', 'A  src/staged.js'].join(
+          // First char is index status, second is working tree status
+          // Git status format: XY filename
+          // X = index status, Y = working tree status
+          // ' M' = modified in working tree, not staged
+          // 'M ' = modified and staged  
+          // 'A ' = added to index
+          // '??' = untracked
+          const output = [' M src/modified.js', '?? src/untracked.js', 'A  src/staged.js', 'M  src/staged-modified.js'].join(
             '\n',
           )
-          callback(null, output, '')
+          callback(null, { stdout: output, stderr: '' })
         }
       }) as any)
 
@@ -145,13 +152,14 @@ describe('git-utils', () => {
       expect(status.modified).toContain('src/modified.js')
       expect(status.untracked).toContain('src/untracked.js')
       expect(status.staged).toContain('src/staged.js')
+      expect(status.staged).toContain('src/staged-modified.js')
     })
 
     it('should indicate clean repository', async () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, '', '')
+          callback(null, { stdout: '', stderr: '' })
         }
       }) as any)
 
@@ -169,7 +177,7 @@ describe('git-utils', () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, '  main\n* feature-branch\n  develop\n', '')
+          callback(null, { stdout: '  main\n* feature-branch\n  develop\n', stderr: '' })
         }
       }) as any)
 
@@ -184,7 +192,7 @@ describe('git-utils', () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, 'abc1234\n', '')
+          callback(null, { stdout: 'abc1234\n', stderr: '' })
         }
       }) as any)
 
@@ -202,7 +210,7 @@ describe('git-utils', () => {
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, 'abc1234567890abcdef1234567890abcdef12345\n', '')
+          callback(null, { stdout: 'abc1234567890abcdef1234567890abcdef12345\n', stderr: '' })
         }
       }) as any)
 

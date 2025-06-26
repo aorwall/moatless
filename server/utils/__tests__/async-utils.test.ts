@@ -38,8 +38,8 @@ describe('Async Utils', () => {
 
       const promise = retry(fn, { maxAttempts: 3, baseDelay: 100 })
 
-      // Advance timer to trigger retry
-      await vi.advanceTimersByTimeAsync(100)
+      // Wait for first attempt to fail
+      await vi.runAllTimersAsync()
 
       const result = await promise
 
@@ -52,8 +52,8 @@ describe('Async Utils', () => {
 
       const promise = retry(fn, { maxAttempts: 2, baseDelay: 100 })
 
-      // Advance through retries
-      await vi.advanceTimersByTimeAsync(200)
+      // Run all timers to complete retries
+      await vi.runAllTimersAsync()
 
       await expect(promise).rejects.toThrow(RetryError)
       expect(fn).toHaveBeenCalledTimes(2)
@@ -72,16 +72,12 @@ describe('Async Utils', () => {
         exponentialBackoff: true,
       })
 
-      // First retry after 100ms
-      await vi.advanceTimersByTimeAsync(100)
-      expect(fn).toHaveBeenCalledTimes(2)
-
-      // Second retry after 200ms (exponential)
-      await vi.advanceTimersByTimeAsync(200)
-      expect(fn).toHaveBeenCalledTimes(3)
+      // Run all timers to complete retries
+      await vi.runAllTimersAsync()
 
       const result = await promise
       expect(result).toBe('success')
+      expect(fn).toHaveBeenCalledTimes(3)
     })
 
     it('should call onRetry callback', async () => {
@@ -95,7 +91,7 @@ describe('Async Utils', () => {
         onRetry,
       })
 
-      await vi.advanceTimersByTimeAsync(100)
+      await vi.runAllTimersAsync()
       await promise
 
       expect(onRetry).toHaveBeenCalledWith(1, expect.any(Error))
@@ -213,12 +209,17 @@ describe('Async Utils', () => {
       const executor = vi.fn().mockImplementation(async (x) => {
         activeCount++
         maxActive = Math.max(maxActive, activeCount)
-        await new Promise((resolve) => setTimeout(resolve, 10))
+        await sleep(10)
         activeCount--
         return x * 2
       })
 
-      const results = await concurrent(items, executor, 2)
+      const promise = concurrent(items, executor, 2)
+
+      // Run all timers to complete execution
+      await vi.runAllTimersAsync()
+
+      const results = await promise
 
       expect(results).toEqual([2, 4, 6, 8, 10])
       expect(maxActive).toBeLessThanOrEqual(2)

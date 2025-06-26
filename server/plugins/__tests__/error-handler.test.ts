@@ -75,8 +75,9 @@ describe('errorHandler', () => {
     expect(mockReply.send).toHaveBeenCalledWith({
       error: {
         code: 'INTERNAL_SERVER_ERROR',
-        message: 'An unexpected error occurred',
+        message: 'Internal server error',
       },
+      requestId: undefined,
     })
   })
 
@@ -88,8 +89,9 @@ describe('errorHandler', () => {
     expect(mockReply.send).toHaveBeenCalledWith({
       error: {
         code: 'INTERNAL_SERVER_ERROR',
-        message: 'An unexpected error occurred',
+        message: 'Internal server error',
       },
+      requestId: undefined,
     })
     // Should not include the actual error message
     expect(mockReply.send).not.toHaveBeenCalledWith(

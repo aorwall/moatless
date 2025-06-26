@@ -118,15 +118,12 @@ export function useStopAgent(
 
 export function useTaskEvents(
   taskId: string,
-  params?: {
-    limit?: number
-    offset?: number
-  },
+  type?: string,
   options?: Omit<UseQueryOptions<Array<Event>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskEvents(taskId, params),
-    queryFn: () => tasksApi.getTaskEvents(taskId, params),
+    queryKey: queryKeys.taskEvents(taskId, { type }),
+    queryFn: () => tasksApi.getTaskEvents(taskId, type),
     enabled: !!taskId,
     ...options,
   })

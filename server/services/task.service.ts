@@ -1,20 +1,18 @@
-import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { TaskNotFoundError, ValidationError } from '../../shared/constants/errors.js'
-import { EventType } from '../../shared/types/event.js'
+import { randomUUID } from 'node:crypto'
+import {
+  CriticalError,
+  TaskNotFoundError,
+} from '../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
-import {createTaskLogger, logger} from '../utils/logger.js'
+import { createTaskLogger, logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
-import type { TaskStorageService } from './task-storage.service.js'
+import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
-import {BaseAgent} from "@server/services/agents/base-agent.js";
 
 export class TaskService {
-  private backgroundTasks = new Set<Promise<void>>()
-
   constructor(
-    private taskStorageService: TaskStorageService,
-    private eventService: EventService,
+    private storage: StorageBackend,
     private workspaceService: WorkspaceService,
   ) {}
 
@@ -40,11 +38,23 @@ export class TaskService {
       iterations: [],
     }
 
-    const workspace = await this.workspaceService.createWorkspace(task.taskId, params.environmentId)
-    task.workspacePath = workspace.getWorkspacePath()
+    try {
+      const workspace = await this.workspaceService.createWorkspace(
+        task.taskId,
+        params.environmentId,
+        params.branchName,
+      )
+      task.workspacePath = workspace.getWorkspacePath()
+    } catch (error) {
+      logger.error('Failed to create workspace', error as Error, {
+        taskId: task.taskId,
+        environmentId: params.environmentId,
+      })
+      throw error
+    }
 
     try {
-      await this.saveMetadata(task.taskId, task)
+      await this.storage.saveTask(task)
 
       logger.info('Task metadata created successfully', {
         taskId: task.taskId,
@@ -65,28 +75,24 @@ export class TaskService {
       params.start ?? true,
     )
 
-    this.backgroundTasks.add(setupTask)
-
-    setupTask.finally(() => {
-      this.backgroundTasks.delete(setupTask)
-      logger.debug('Background workspace setup task completed')
-    })
+    // Track background task in WorkspaceService
+    this.workspaceService.trackBackgroundTask(task.taskId, setupTask)
 
     logger.info('Task creation completed successfully', { taskId: task.taskId })
     return task.taskId
   }
 
   async getTask(taskId: string): Promise<Task | null> {
-    return this.taskStorageService.getTask(taskId)
+    return this.storage.getTask(taskId)
   }
 
   async listTasks(limit = 50, offset = 0): Promise<Task[]> {
-    const taskKeys = await this.taskStorageService.listTasks()
+    const taskKeys = await this.storage.list('tasks/')
     const tasks: Task[] = []
 
     for (const key of taskKeys) {
       const taskId = key.replace('tasks/', '')
-      const task = await this.taskStorageService.getTask(taskId)
+      const task = await this.storage.getTask(taskId)
       if (task) tasks.push(task)
     }
 
@@ -120,30 +126,14 @@ export class TaskService {
     metadata.lastMessageAt = now
     metadata.numTurns += 1
 
-    await this.saveMetadata(taskId, metadata)
+    await this.storage.saveTask(metadata)
 
-    // Get or create workspace
-    const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+    // Pass the full iteration object with task reference
+    iteration.task = metadata
+    iteration.taskId = taskId
 
-    // Check workspace status and setup if needed
-    const taskLogger = createTaskLogger(taskId)
-    const status = workspace.getStatus()
+    await this.workspaceService.runAgent(taskId, message, iteration)
 
-    taskLogger.debug('Workspace status check', { status })
-
-    if (status === 'running') {
-      taskLogger.warn('Attempted to send message to running task', { status })
-      throw new ValidationError(`Task ${taskId} is already running`, { taskId })
-    } else if (status === 'setting_up') {
-      // Wait for setup to complete
-      taskLogger.info('Waiting for workspace setup to complete')
-      // TODO: Implement wait logic
-    }
-
-    // Start workspace (will run setup if needed and trigger agent)
-    const agent: BaseAgent = await this.workspaceService.startWorkspace(taskId, metadata.agentType, message, iterationNumber)
-    iteration.agentSessionId = agent.getSessionId()
-    await this.saveMetadata(taskId, metadata)
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
@@ -153,7 +143,7 @@ export class TaskService {
     }
 
     const updatedMetadata = { ...metadata, ...updates }
-    await this.saveMetadata(taskId, updatedMetadata)
+    await this.storage.saveTask(updatedMetadata)
   }
 
   async deleteTask(taskId: string): Promise<void> {
@@ -166,22 +156,8 @@ export class TaskService {
     await this.workspaceService.cleanupWorkspace(taskId)
 
     // Delete task data
-    await this.taskStorageService.deleteTask(taskId)
-    await this.taskStorageService.deleteTaskEvents(taskId)
-
-    // Emit deletion event
-    await this.eventService.emitEvent({
-      eventId: randomUUID(),
-      type: EventType.STOP,
-      taskId,
-      timestamp: new Date(),
-      isError: false,
-      payload: { reason: 'deleted' },
-    })
-  }
-
-  private async saveMetadata(_taskId: string, metadata: Task): Promise<void> {
-    await this.taskStorageService.saveTask(metadata)
+    await this.storage.delete(`tasks/${taskId}`)
+    await this.storage.delete(`events/${taskId}`)
   }
 
   private async setupWorkspaceAsync(
@@ -215,6 +191,20 @@ export class TaskService {
 
       if (start && message) {
         taskLogger.info('Starting initial message processing')
+
+        // Wait for workspace to be ready (max 30 seconds)
+        const maxWaitTime = 30000
+        const checkInterval = 500
+        const startWait = Date.now()
+
+        while (Date.now() - startWait < maxWaitTime) {
+          const workspace = await this.workspaceService.getWorkspace(taskId)
+          if (workspace && workspace.getStatus() === 'idle') {
+            break
+          }
+          await new Promise((resolve) => setTimeout(resolve, checkInterval))
+        }
+
         await this.sendMessage(taskId, message)
       }
 
@@ -229,20 +219,41 @@ export class TaskService {
         phase: 'workspace_setup',
       })
 
-      throw error
-    }
-  }
+      // Create a failed iteration to capture the setup error
+      const iteration: TaskIteration = {
+        iterationNumber: 1,
+        startTime: new Date(startTime),
+        endTime: new Date(),
+        status: 'failed',
+        messageCount: 0,
+        costUsd: 0,
+        initialMessage: message,
+        durationMs: setupDuration,
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          timestamp: new Date(),
+        },
+      }
 
-  async waitForBackgroundTasks(): Promise<void> {
-    await Promise.all(Array.from(this.backgroundTasks))
+      // Update task metadata with the failed iteration
+      metadata.iterations.push(iteration)
+      metadata.status = 'error'
+      await this.storage.saveTask(metadata)
+
+      // Re-throw if this is a critical error
+      if (error instanceof CriticalError) {
+        throw error
+      }
+    }
   }
 }
 
 export function createTaskService(
   _app: FastifyInstance,
-  taskStorageService: TaskStorageService,
-  eventService: EventService,
+  storage: StorageBackend,
+  _eventService: EventService,
   workspaceService: WorkspaceService,
 ): TaskService {
-  return new TaskService(taskStorageService, eventService, workspaceService)
+  return new TaskService(storage, workspaceService)
 }

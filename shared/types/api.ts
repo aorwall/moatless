@@ -146,8 +146,9 @@ export interface TaskListResponse extends PaginatedResponse<Task> {
   tasks: Task[]
 }
 
-export interface EventListResponse extends PaginatedResponse<Event> {
+export interface EventListResponse {
   events: Event[]
+  items: Event[]
 }
 
 // ============================================
@@ -158,17 +159,6 @@ export interface ApiError {
   code: string
   message: string
   details?: any
-}
-
-// ============================================
-// WebSocket Types
-// ============================================
-
-export interface WebSocketConnectionEvent {
-  type: 'connection'
-  status: 'connected'
-  taskId: string
-  timestamp: string
 }
 
 // ============================================

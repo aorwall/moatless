@@ -43,7 +43,7 @@ class Logger {
           }
         : undefined
 
-    this.logger = pino.default({
+    this.logger = pino({
       level,
       name: options.service || 'moatless',
       base: {
@@ -62,7 +62,7 @@ class Logger {
         ],
         censor: '[REDACTED]',
       },
-      timestamp: pino.stdTimeFunctions.isoTime,
+      timestamp: () => `,"time":"${new Date().toISOString()}"`,
       transport,
     })
 
@@ -272,7 +272,7 @@ class Logger {
         })
       }
 
-      this.logger = pino.default(
+      this.logger = pino(
         {
           level: this.logger.level,
         },
@@ -309,6 +309,6 @@ export function createTaskLogger(taskId: string): Logger {
 export function createConsoleLogger(context?: LogContext): Logger {
   return new Logger({
     console: true,
-    level: 'debug',
+    level: 'info',
   }).child(context || {})
 }

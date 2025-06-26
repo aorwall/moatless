@@ -7,7 +7,7 @@ export const queryKeys = {
   task: (taskId: string) => [...queryKeys.tasks(), taskId] as const,
   taskMessages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
     [...queryKeys.task(taskId), 'messages', filters] as const,
-  taskEvents: (taskId: string, filters?: { limit?: number; offset?: number }) =>
+  taskEvents: (taskId: string, filters?: { type?: string }) =>
     [...queryKeys.task(taskId), 'events', filters] as const,
   taskGitDiff: (taskId: string) => [...queryKeys.task(taskId), 'git-diff'] as const,
   taskFileSearch: (taskId: string, query: string) =>

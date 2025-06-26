@@ -15,17 +15,10 @@ describe('Task Routes', () => {
 
   describe('POST /api/tasks', () => {
     it('should create a new task with workspace', async () => {
-      // Mock environment exists
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce({
-        id: 'test-env',
-        name: 'Test Environment',
-      } as any)
-
-      // Mock workspace creation
-      vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValueOnce({
-        id: 'workspace-id',
-        type: 'local',
-      } as any)
+      const mockTaskId = 'mock-task-id'
+      
+      // Mock task creation
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
 
       const response = await app.inject({
         method: 'POST',
@@ -39,32 +32,22 @@ describe('Task Routes', () => {
 
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
-      expect(body.taskId).toBeDefined()
+      expect(body.taskId).toBe(mockTaskId)
       expect(body.status).toBe('active')
 
-      // Wait for background tasks to complete
-      await app.services.task.waitForBackgroundTasks()
-
-      // Verify workspace was created for the task
-      expect(app.services.workspace.getOrCreateWorkspace).toHaveBeenCalledWith(
-        body.taskId,
-        'test-env',
-        undefined,
-      )
+      // Verify task was created with correct params
+      expect(app.services.task.createTask).toHaveBeenCalledWith({
+        agentType: 'claude-code',
+        environmentId: 'test-env',
+        message: 'Hello world',
+      })
     })
 
     it('should always create workspace even without initial message', async () => {
-      // Mock environment exists
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce({
-        id: 'test-env',
-        name: 'Test Environment',
-      } as any)
-
-      // Mock workspace creation
-      vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValueOnce({
-        id: 'workspace-id',
-        type: 'local',
-      } as any)
+      const mockTaskId = 'mock-task-id-2'
+      
+      // Mock task creation to verify it's called with start: false
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
 
       const response = await app.inject({
         method: 'POST',
@@ -78,12 +61,14 @@ describe('Task Routes', () => {
       })
 
       expect(response.statusCode).toBe(200)
-
-      // Wait for background tasks
-      await app.services.task.waitForBackgroundTasks()
-
-      // Workspace should ALWAYS be created
-      expect(app.services.workspace.getOrCreateWorkspace).toHaveBeenCalled()
+      
+      // Verify the task was created with start: false
+      expect(app.services.task.createTask).toHaveBeenCalledWith({
+        agentType: 'claude-code',
+        environmentId: 'test-env',
+        message: 'Test message',
+        start: false,
+      })
     })
 
     it('should validate request body', async () => {
@@ -102,8 +87,13 @@ describe('Task Routes', () => {
     })
 
     it('should return 400 if environment does not exist', async () => {
-      // Mock environment not found
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(null)
+      // Import the error class
+      const { EnvironmentNotFoundError } = await import('../../../shared/constants/errors.js')
+      
+      // Mock task creation to throw environment not found error
+      vi.spyOn(app.services.task, 'createTask').mockRejectedValueOnce(
+        new EnvironmentNotFoundError('non-existent')
+      )
 
       const response = await app.inject({
         method: 'POST',
@@ -115,9 +105,9 @@ describe('Task Routes', () => {
         },
       })
 
-      expect(response.statusCode).toBe(400)
+      expect(response.statusCode).toBe(404)
       const body = JSON.parse(response.body)
-      expect(body.error.code).toBe('VALIDATION_ERROR')
+      expect(body.error.code).toBe('ENVIRONMENT_NOT_FOUND')
     })
   })
 
@@ -193,7 +183,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks?limit=10&offset=0',
+        url: '/api/v1/tasks?limit=10&offset=0',
       })
 
       expect(response.statusCode).toBe(200)
@@ -223,7 +213,7 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks?status=active',
+        url: '/api/v1/tasks?status=active',
       })
 
       expect(response.statusCode).toBe(200)
@@ -301,7 +291,7 @@ describe('Task Routes', () => {
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
       expect(body.events).toHaveLength(2)
-      expect(body.pagination.hasMore).toBe(false)
+      expect(body.items).toHaveLength(2)
     })
 
     it('should return 404 if task does not exist', async () => {

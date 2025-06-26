@@ -236,17 +236,15 @@ export async function getGitStatus(repoPath: string): Promise<{
     })
 
     const lines = stdout
-      .trim()
       .split('\n')
-      .filter((line) => line.trim())
+      .filter((line) => line.length > 0)
     const modified: string[] = []
     const untracked: string[] = []
     const staged: string[] = []
 
     for (const line of lines) {
       const status = line.substring(0, 2)
-      const filename = line.substring(3)
-
+      const filename = line.substring(2).trim()
       if (status[0] !== ' ' && status[0] !== '?') {
         staged.push(filename)
       }

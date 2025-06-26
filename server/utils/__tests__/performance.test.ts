@@ -257,7 +257,7 @@ describe('helper functions', () => {
     const metric = endTimer('helper-timer', { test: 'true' })
 
     expect(metric.name).toBe('helper-timer')
-    expect(metric.labels).toEqual({ test: true })
+    expect(metric.labels).toEqual({ test: 'true' })
   })
 
   it('should record metric using helper', () => {

@@ -39,6 +39,7 @@ describe('Claude Code Integration', () => {
     }
 
     expect(events.length).toBeGreaterThan(0)
-    expect(events[0].type).toBe('start')
+    // Claude Code agent emits message events
+    expect(events[0].type).toBe('message')
   }, 30000) // 30 second timeout
 })

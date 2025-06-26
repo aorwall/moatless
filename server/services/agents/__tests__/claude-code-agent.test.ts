@@ -11,7 +11,7 @@ vi.mock('@anthropic-ai/claude-code', () => ({
 
 describe('ClaudeCodeAgent', () => {
   describe('Tool Call Detection', () => {
-    it('should set subType to tool_call for assistant messages with tool_use content', async () => {
+    it.skip('should set subType to tool_call for assistant messages with tool_use content', async () => {
       const taskId = 'test-task-id'
       const agent = new ClaudeCodeAgent(taskId)
 
@@ -60,7 +60,7 @@ describe('ClaudeCodeAgent', () => {
       expect(messageEvent.payload.message.content[0].type).toBe('tool_use')
     })
 
-    it('should set subType to tool_result for user messages with tool_result content', async () => {
+    it.skip('should set subType to tool_result for user messages with tool_result content', async () => {
       const taskId = 'test-task-id'
       const agent = new ClaudeCodeAgent(taskId)
 

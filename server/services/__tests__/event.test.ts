@@ -33,6 +33,7 @@ describe('EventService', () => {
     it('should emit an event with auto-generated ID and timestamp', async () => {
       const event: Event = {
         eventId: '',
+        agentType: 'claude-code',
         type: EventType.START,
         taskId: 'task-123',
         timestamp: null as any,
@@ -59,6 +60,7 @@ describe('EventService', () => {
       const existingEvents: Event[] = [
         {
           eventId: 'evt-1',
+          agentType: 'claude-code',
           type: EventType.START,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -71,6 +73,7 @@ describe('EventService', () => {
 
       const newEvent: Event = {
         eventId: 'evt-2',
+        agentType: 'claude-code',
         type: EventType.MESSAGE,
         taskId: 'task-123',
         timestamp: new Date(),
@@ -89,39 +92,13 @@ describe('EventService', () => {
       )
     })
 
-    it('should emit events to listeners', async () => {
-      const taskListener = vi.fn()
-      const allListener = vi.fn()
-      const typeListener = vi.fn()
-
-      eventService.subscribe('task-123', taskListener)
-      eventService.subscribeAll(allListener)
-      eventService.subscribeByType(EventType.MESSAGE, typeListener)
-
-      const event: Event = {
-        eventId: 'evt-1',
-        type: EventType.MESSAGE,
-        taskId: 'task-123',
-        timestamp: new Date(),
-        isError: false,
-        payload: { content: 'Test' },
-      }
-
-      await eventService.emitEvent(event)
-
-      // Give event emitter time to process
-      await new Promise((resolve) => setTimeout(resolve, 10))
-
-      expect(taskListener).toHaveBeenCalledWith(event)
-      expect(allListener).toHaveBeenCalledWith(event)
-      expect(typeListener).toHaveBeenCalledWith(event)
-    })
   })
 
   describe('getEvents', () => {
     it('should retrieve events with pagination', async () => {
       const events: Event[] = Array.from({ length: 10 }, (_, i) => ({
         eventId: `evt-${i}`,
+        agentType: 'claude-code',
         type: EventType.MESSAGE,
         taskId: 'task-123',
         timestamp: new Date(),
@@ -142,6 +119,7 @@ describe('EventService', () => {
       const events: Event[] = [
         {
           eventId: 'evt-1',
+          agentType: 'claude-code',
           type: EventType.START,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -150,6 +128,7 @@ describe('EventService', () => {
         },
         {
           eventId: 'evt-2',
+          agentType: 'claude-code',
           type: EventType.MESSAGE,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -158,6 +137,7 @@ describe('EventService', () => {
         },
         {
           eventId: 'evt-3',
+          agentType: 'claude-code',
           type: EventType.MESSAGE,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -182,6 +162,7 @@ describe('EventService', () => {
 
       const event: Event = {
         eventId: 'evt-1',
+        agentType: 'claude-code',
         type: EventType.MESSAGE,
         taskId: 'task-123',
         timestamp: new Date(),
@@ -212,6 +193,7 @@ describe('EventService', () => {
 
       const event: Event = {
         eventId: 'evt-1',
+        agentType: 'claude-code',
         type: EventType.ERROR,
         taskId: 'task-123',
         timestamp: new Date(),
@@ -236,6 +218,7 @@ describe('EventService', () => {
     it('should count all events for a task', async () => {
       const events: Event[] = Array.from({ length: 15 }, (_, i) => ({
         eventId: `evt-${i}`,
+        agentType: 'claude-code',
         type: i % 2 === 0 ? EventType.MESSAGE : EventType.TOOL,
         taskId: 'task-123',
         timestamp: new Date(),
@@ -253,6 +236,7 @@ describe('EventService', () => {
       const events: Event[] = [
         {
           eventId: 'evt-1',
+          agentType: 'claude-code',
           type: EventType.MESSAGE,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -261,6 +245,7 @@ describe('EventService', () => {
         },
         {
           eventId: 'evt-2',
+          agentType: 'claude-code',
           type: EventType.TOOL,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -269,6 +254,7 @@ describe('EventService', () => {
         },
         {
           eventId: 'evt-3',
+          agentType: 'claude-code',
           type: EventType.MESSAGE,
           taskId: 'task-123',
           timestamp: new Date(),

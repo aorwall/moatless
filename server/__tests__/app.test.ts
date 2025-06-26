@@ -34,7 +34,7 @@ describe('App Setup', () => {
     it('should respond to API endpoint', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/api',
+        url: '/api/v1',
       })
 
       expect(response.statusCode).toBe(200)
@@ -43,8 +43,8 @@ describe('App Setup', () => {
       expect(body).toHaveProperty('message', 'Moatless API')
       expect(body).toHaveProperty('version', '1.0.0')
       expect(body).toHaveProperty('endpoints')
-      expect(body.endpoints).toHaveProperty('tasks', '/api/tasks')
-      expect(body.endpoints).toHaveProperty('environments', '/api/environments')
+      expect(body.endpoints).toHaveProperty('tasks', '/api/v1/tasks')
+      expect(body.endpoints).toHaveProperty('environments', '/api/v1/environments')
     })
   })
 
@@ -84,13 +84,6 @@ describe('App Setup', () => {
       expect(response.statusCode).toBe(204)
       expect(response.headers).toHaveProperty('access-control-allow-origin')
       expect(response.headers).toHaveProperty('access-control-allow-credentials', 'true')
-    })
-  })
-
-  describe('WebSocket support', () => {
-    it('should have WebSocket support enabled', () => {
-      // Check if websocket plugin is registered
-      expect(app.websocketServer).toBeDefined()
     })
   })
 })

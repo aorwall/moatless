@@ -18,7 +18,7 @@ describe('API Error Handling', () => {
     it('should return 400 for invalid request body', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         payload: {
           // Missing required fields
           agentType: 'invalid-agent-type',
@@ -35,7 +35,7 @@ describe('API Error Handling', () => {
     it('should return 400 for invalid query parameters', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks?limit=invalid&offset=-1',
+        url: '/api/v1/tasks?limit=invalid&offset=-1',
       })
 
       expect(response.statusCode).toBe(400)
@@ -46,7 +46,7 @@ describe('API Error Handling', () => {
     it('should return 404 for invalid path parameters', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/invalid-uuid-format/events',
+        url: '/api/v1/tasks/invalid-uuid-format/events',
       })
 
       expect(response.statusCode).toBe(404) // Fastify returns 404 for unmatched routes
@@ -62,7 +62,7 @@ describe('API Error Handling', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
       })
 
       expect(response.statusCode).toBe(418)
@@ -78,7 +78,7 @@ describe('API Error Handling', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
       })
 
       expect(response.statusCode).toBe(500)
@@ -92,7 +92,7 @@ describe('API Error Handling', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
       })
 
       expect(response.statusCode).toBe(500)
@@ -109,7 +109,7 @@ describe('API Error Handling', () => {
         promises.push(
           app.inject({
             method: 'GET',
-            url: '/api/tasks',
+            url: '/api/v1/tasks',
             headers: {
               'x-forwarded-for': '127.0.0.1', // Simulate same client
             },
@@ -130,7 +130,7 @@ describe('API Error Handling', () => {
     it('should return 404 for non-existent endpoints', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/api/non-existent-endpoint',
+        url: '/api/v1/non-existent-endpoint',
       })
 
       expect(response.statusCode).toBe(404)
@@ -143,7 +143,7 @@ describe('API Error Handling', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/non-existent',
+        url: '/api/v1/tasks/non-existent',
       })
 
       expect(response.statusCode).toBe(404)
@@ -158,7 +158,7 @@ describe('API Error Handling', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks/test-123',
+        url: '/api/v1/tasks/test-123',
       })
 
       expect(response.headers['x-request-id']).toBeDefined()
@@ -171,7 +171,7 @@ describe('API Error Handling', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         headers: {
           'X-Request-ID': customRequestId,
         },
@@ -188,9 +188,13 @@ describe('API Error Handling', () => {
         name: 'Test Environment',
       } as any)
 
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce({
+        taskId: 'test-task-id',
+      } as any)
+
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         headers: {
           'content-type': 'application/json',
         },
@@ -207,7 +211,7 @@ describe('API Error Handling', () => {
     it('should reject invalid content types for POST requests', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: '/api/tasks',
+        url: '/api/v1/tasks',
         headers: {
           'content-type': 'text/plain',
         },
@@ -222,7 +226,7 @@ describe('API Error Handling', () => {
     it('should return 405 for unsupported methods', async () => {
       const response = await app.inject({
         method: 'PUT',
-        url: '/api/tasks', // PUT not supported on this endpoint
+        url: '/api/v1/tasks', // PUT not supported on this endpoint
         payload: {},
       })
 

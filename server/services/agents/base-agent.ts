@@ -1,4 +1,5 @@
-import type { Event } from '@shared/types/event.js'
+import { ClaudeCodeSDKMessage } from '@shared/types/claude.js'
+import { EventType, type Event } from '@shared/types/event.js'
 
 export interface AgentOptions {
   model?: string
@@ -29,21 +30,21 @@ export abstract class BaseAgent {
 
   abstract run(message: string, options?: AgentRunOptions): AsyncGenerator<Event>
   abstract stop(): Promise<void>
+  abstract getAgentType(): string
 
   getSessionId(): string | undefined {
     return this.sessionId
   }
 
   protected createEvent(
-    type: string,
-    payload: any,
+    payload: ClaudeCodeSDKMessage,
+    type: EventType,
     isError: boolean = false,
-    subType?: string,
   ): Event {
     return {
       eventId: crypto.randomUUID(),
-      type: type as any,
-      subType,
+      agentType: this.getAgentType(),
+      type,
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),

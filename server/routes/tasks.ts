@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { TaskNotFoundError } from '../../shared/constants/errors.js'
+import { TaskNotFoundError, WorkspaceError } from '../../shared/constants/errors.js'
 import {
   CreateTaskRequestSchema,
   DeleteTaskResponseSchema,
-  EventListQuerySchema,
   type EventListResponse,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
@@ -13,7 +12,6 @@ import {
   type TaskListResponse,
   UpdateTaskRequestSchema,
   UpdateTaskResponseSchema,
-  type WebSocketConnectionEvent,
 } from '../../shared/types/api.js'
 import type { EventType } from '../../shared/types/event.js'
 import { sseManager } from '../utils/sse-manager.js'
@@ -114,18 +112,20 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
-  // Get task events with pagination
+  // Get task events without pagination
   app.get(
     '/:taskId/events',
     {
       schema: {
         params: TaskIdParamsSchema,
-        querystring: EventListQuerySchema,
+        querystring: z.object({
+          type: z.string().optional(),
+        }),
       },
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { limit, offset, type } = request.query as any
+      const { type } = request.query as any
 
       // Verify task exists
       const task = await taskService.getTask(taskId)
@@ -135,8 +135,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       const events = await eventService.getEvents(
         taskId,
-        limit,
-        offset,
+        undefined, // no limit
+        0, // offset 0
         type as EventType | undefined,
         task,
       )
@@ -144,11 +144,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const response: EventListResponse = {
         events,
         items: events,
-        pagination: {
-          limit,
-          offset,
-          hasMore: events.length === limit,
-        },
       }
       return response
     },
@@ -214,6 +209,329 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Get workspace status from workspace service
       const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
       return workspaceStatus
+    },
+  )
+
+  // List files in workspace
+  app.get(
+    '/:taskId/files',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        querystring: z.object({
+          path: z.string().optional(),
+          recursive: z.coerce.boolean().optional(),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { path = '/', recursive = false } = request.query as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status === 'not_setup') {
+        throw new WorkspaceError('Workspace not created', taskId)
+      }
+
+      // List files
+      const files = await app.services.workspace.listFiles(taskId, path, recursive)
+      return { files, totalCount: files.length }
+    },
+  )
+
+  // Read file content
+  app.get(
+    '/:taskId/files/*',
+    {
+      schema: {
+        params: z.object({
+          taskId: z.string(),
+          '*': z.string(),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const filePath = (request.params as any)['*']
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status === 'not_setup') {
+        throw new WorkspaceError('Workspace not created', taskId)
+      }
+
+      // Read file
+      const content = await app.services.workspace.readFile(taskId, filePath)
+      return { content, encoding: 'utf-8' }
+    },
+  )
+
+  // Write file content
+  app.put(
+    '/:taskId/files/*',
+    {
+      schema: {
+        params: z.object({
+          taskId: z.string(),
+          '*': z.string(),
+        }),
+        body: z.object({
+          content: z.string(),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const filePath = (request.params as any)['*']
+      const { content } = request.body as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status === 'not_setup') {
+        throw new WorkspaceError('Workspace not created', taskId)
+      }
+
+      // Write file
+      await app.services.workspace.writeFile(taskId, filePath, content)
+      return { success: true }
+    },
+  )
+
+  // Search files by content
+  app.post(
+    '/:taskId/search-files',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        body: z.object({
+          pattern: z.string(),
+          path: z.string().optional(),
+          includeHidden: z.boolean().optional(),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { pattern, path, includeHidden } = request.body as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status === 'not_setup') {
+        throw new WorkspaceError('Workspace not created', taskId)
+      }
+
+      // Search files
+      const result = await app.services.workspace.searchFiles(taskId, {
+        pattern,
+        path,
+        includeHidden,
+      })
+      return result
+    },
+  )
+
+  // Get git diff for workspace
+  app.get(
+    '/:taskId/git-diff',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status === 'not_setup') {
+        throw new WorkspaceError('Workspace not created', taskId)
+      }
+
+      // Get git diff
+      const diff = await app.services.workspace.getGitDiff(taskId)
+      return {
+        diff,
+        files: [], // TODO: Parse diff to extract file list
+        hasChanges: diff.length > 0,
+      }
+    },
+  )
+
+  // Execute command in workspace
+  app.post(
+    '/:taskId/execute',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        body: z.object({
+          command: z.string(),
+          timeout: z.number().optional(),
+          env: z.record(z.string()).optional(),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { command, timeout } = request.body as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state - only allow in IDLE state
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status !== 'idle') {
+        throw new WorkspaceError(`Cannot execute command: workspace is ${status.status}`, taskId)
+      }
+
+      // Execute command
+      const result = await app.services.workspace.runCommand(taskId, command, timeout)
+      return result
+    },
+  )
+
+  // Start development server
+  app.post(
+    '/:taskId/server/start',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        body: z.object({
+          command: z.string().optional(),
+          port: z.number().optional(),
+          env: z.record(z.string()).optional(),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { port } = request.body as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Check workspace state - allow in IDLE or RUNNING
+      const status = await app.services.workspace.getWorkspaceStatus(taskId)
+      if (status.status !== 'idle' && status.status !== 'running') {
+        throw new WorkspaceError(`Cannot start server: workspace is ${status.status}`, taskId)
+      }
+
+      // Start server
+      const result = await app.services.workspace.startServer(taskId)
+      return {
+        running: true,
+        port: result.port || port || 3000,
+        pid: result.pid,
+        startedAt: new Date().toISOString(),
+      }
+    },
+  )
+
+  // Stop development server
+  app.post(
+    '/:taskId/server/stop',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Stop server
+      const stopped = await app.services.workspace.stopServer(taskId)
+      return {
+        stopped,
+        runtime: 0, // TODO: Calculate actual runtime
+      }
+    },
+  )
+
+  // Get server status
+  app.get(
+    '/:taskId/server/status',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      return await app.services.workspace.getServerStatus(taskId)
+    },
+  )
+
+  // Get server logs
+  app.get(
+    '/:taskId/server/logs',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        querystring: z.object({
+          lines: z.coerce.number().optional().default(100),
+          follow: z.coerce.boolean().optional().default(false),
+        }),
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const { lines } = request.query as any
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Get server logs
+      const logs = await app.services.workspace.getServerLogs(taskId, lines)
+      return {
+        logs,
+        lines: logs.split('\n').length,
+        truncated: false, // TODO: Implement truncation logic
+      }
     },
   )
 
@@ -319,62 +637,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       return {
         activeConnections: sseManager.getConnectionCount(taskId),
         taskActive: task.status === 'active',
-      }
-    },
-  )
-
-  // WebSocket for real-time events (keep for backward compatibility)
-  app.get(
-    '/:taskId/events/stream',
-    {
-      websocket: true,
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (socket, request) => {
-      const { taskId } = request.params as any
-
-      try {
-        // Verify task exists before setting up subscription
-        const task = await taskService.getTask(taskId)
-
-        if (!task) {
-          socket.close(1008, 'Task not found')
-          return
-        }
-
-        const unsubscribe = eventService.subscribe(taskId, (event) => {
-          try {
-            if (socket.readyState === 1) {
-              // OPEN
-              socket.send(JSON.stringify(event))
-            }
-          } catch (error) {
-            request.log.error('Failed to send event over websocket', error)
-          }
-        })
-
-        // Send initial connection event
-        const connectionEvent: WebSocketConnectionEvent = {
-          type: 'connection',
-          status: 'connected',
-          taskId,
-          timestamp: new Date().toISOString(),
-        }
-        socket.send(JSON.stringify(connectionEvent))
-
-        socket.on('close', () => {
-          unsubscribe()
-        })
-
-        socket.on('error', (error) => {
-          request.log.error('WebSocket error', error)
-          unsubscribe()
-        })
-      } catch (error) {
-        request.log.error('Error verifying task for WebSocket', error)
-        socket.close(1011, 'Internal server error')
       }
     },
   )

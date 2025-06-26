@@ -1,7 +1,7 @@
-import { query, type SDKMessage } from '@anthropic-ai/claude-code'
+import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions } from '@shared/types/claude.js'
-import type { Event } from '@shared/types/event.js'
-import { type AgentRunOptions, BaseAgent } from './base-agent.js'
+import { EventType, type Event } from '@shared/types/event.js'
+import { BaseAgent, type AgentRunOptions } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController?: AbortController
@@ -16,16 +16,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.iterationNumber = runOptions.iterationNumber
 
     try {
-      yield this.createEvent('start', {
-        message,
-        agentType: 'claude-code',
-        options: this.options,
-      })
-
       const sdkOptions = this.buildSDKOptions(runOptions)
-      const messages: SDKMessage[] = []
-      let lastEvent: Event | null = null
-      let hasError = false
 
       // Use the SDK query function
       for await (const sdkMessage of query({
@@ -34,62 +25,23 @@ export class ClaudeCodeAgent extends BaseAgent {
         options: sdkOptions,
       })) {
         if (this.stopRequested) {
-          yield this.createEvent('stop', { reason: 'user_requested' })
+          // TODO: Handle abort properly
           break
         }
 
-        // Check if this is the first system message with init subtype
-        if (
-          sdkMessage.type === 'system' &&
-          sdkMessage.subtype === 'init' &&
-          sdkMessage.session_id
-        ) {
+        if (!this.sessionId && sdkMessage.session_id) {
           this.sessionId = sdkMessage.session_id
         }
 
-        messages.push(sdkMessage)
-
-        // Detect if this is a tool call or tool result message
-        let subType: string | undefined
-        if (sdkMessage.type === 'assistant' && sdkMessage.message?.content) {
-          const content = sdkMessage.message.content
-          if (Array.isArray(content) && content.some((item) => item.type === 'tool_use')) {
-            subType = 'tool_call'
-          }
-        } else if (sdkMessage.type === 'user' && sdkMessage.message?.content) {
-          const content = sdkMessage.message.content
-          if (Array.isArray(content) && content.some((item) => item.type === 'tool_result')) {
-            subType = 'tool_result'
-          }
+        if (sdkMessage.type === 'result') {
+          yield this.createEvent(sdkMessage, EventType.RESULT, sdkMessage.is_error)
+        } else {
+          yield this.createEvent(sdkMessage, EventType.MESSAGE)
         }
-
-        const event = this.createEvent('message', sdkMessage, false, subType)
-
-        if (event.isError) {
-          hasError = true
-        }
-
-        lastEvent = event
-        yield event
       }
 
-      // Generate completion event
-      if (!hasError && !this.stopRequested) {
-        yield this.createEvent('completion', {
-          successful: true,
-          messageCount: messages.length,
-          lastEvent: lastEvent?.payload,
-        })
-      }
     } catch (error) {
-      yield this.createEvent(
-        'error',
-        {
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        },
-        true,
-      )
+      throw error
     } finally {
       await this.cleanup()
     }
@@ -105,27 +57,31 @@ export class ClaudeCodeAgent extends BaseAgent {
     await this.cleanup()
   }
 
+  getAgentType(): string {
+    return 'claude-code'
+  }
+
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
     const options = this.options as ClaudeCodeOptions
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools: [
-        "Agent",
-        "Edit",
-        "Grep",
-        "MultiEdit",
-        "NotebookRead",
-        "TodoRead",
-        "WebFetch",
-        "Write",
-        "WebSearch",
-        "TodoWrite",
-        "Read",
-        "NotebookEdit",
-        "LS",
-        "Glob",
-        "Bash"
+        'Agent',
+        'Edit',
+        'Grep',
+        'MultiEdit',
+        'NotebookRead',
+        'TodoRead',
+        'WebFetch',
+        'Write',
+        'WebSearch',
+        'TodoWrite',
+        'Read',
+        'NotebookEdit',
+        'LS',
+        'Glob',
+        'Bash',
       ],
-      permissionMode: "acceptEdits",
+      permissionMode: 'acceptEdits',
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
     }

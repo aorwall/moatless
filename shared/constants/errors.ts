@@ -51,13 +51,24 @@ export class EnvironmentNotFoundError extends MoatlessError {
 }
 
 export class WorkspaceError extends MoatlessError {
-  constructor(message: string, taskId: string) {
-    super(message, ERROR_CODES.WORKSPACE_ERROR, 500, { taskId })
+  constructor(message: string, taskId: string, statusCode = 400) {
+    super(message, ERROR_CODES.WORKSPACE_ERROR, statusCode, { taskId })
   }
 }
 
 export class ValidationError extends MoatlessError {
   constructor(message: string, errors: any) {
     super(message, ERROR_CODES.VALIDATION_ERROR, 400, { errors })
+  }
+}
+
+export class CriticalError extends MoatlessError {
+  constructor(
+    message: string,
+    public readonly taskId: string,
+    public readonly iteration?: any,
+  ) {
+    super(message, ERROR_CODES.AGENT_EXECUTION_ERROR, 500, { taskId, iteration })
+    this.name = 'CriticalError'
   }
 }

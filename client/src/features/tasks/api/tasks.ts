@@ -62,16 +62,10 @@ export const tasksApi = {
     return await apiClient.post<StopAgentResponse>(`/api/v1/tasks/${taskId}/stop`)
   },
 
-  async getTaskEvents(
-    taskId: string,
-    params?: {
-      limit?: number
-      offset?: number
-    },
-  ): Promise<Array<Event>> {
+  async getTaskEvents(taskId: string, type?: string): Promise<Array<Event>> {
     const response = await apiClient.get<EventListResponse>(
       `/api/v1/tasks/${taskId}/events`,
-      params,
+      type ? { type } : undefined,
     )
     return response.events
   },

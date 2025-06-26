@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import staticPlugin from '@fastify/static'
-import websocket from '@fastify/websocket'
 import type { FastifyInstance } from 'fastify'
 import { errorHandler } from './plugins/error-handler.js'
 import { setupValidation } from './plugins/validation.js'
@@ -37,9 +36,6 @@ export async function setupApp(app: FastifyInstance) {
     },
     credentials: true,
   })
-
-  // WebSocket support
-  await app.register(websocket)
 
   // Validation
   await setupValidation(app)

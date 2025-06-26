@@ -75,6 +75,9 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
       await environmentService.updateEnvironment(environmentId, updates)
 
       const updatedEnvironment = await environmentService.getEnvironment(environmentId)
+      if (!updatedEnvironment) {
+        throw new EnvironmentNotFoundError(environmentId)
+      }
       return updatedEnvironment
     },
   )

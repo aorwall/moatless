@@ -3,22 +3,22 @@ import { createRequestLogger, createTaskLogger, Logger } from '../logger.js'
 
 // Mock pino
 vi.mock('pino', () => {
-  const mockLogger = {
+  const mockPinoInstance = {
     trace: vi.fn(),
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     fatal: vi.fn(),
-    child: vi.fn().mockReturnThis(),
+    child: vi.fn(),
     level: 'info',
   }
-
+  
+  // Setup child to return self
+  mockPinoInstance.child.mockReturnValue(mockPinoInstance)
+  
   return {
-    default: vi.fn(() => mockLogger),
-    stdTimeFunctions: {
-      isoTime: () => () => new Date().toISOString(),
-    },
+    default: vi.fn(() => mockPinoInstance),
     destination: vi.fn(),
     multistream: vi.fn(),
     transport: vi.fn(),
@@ -31,8 +31,10 @@ describe('Logger', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    logger = new Logger({ service: 'test' })
-    mockPinoLogger = vi.mocked((logger as any).logger)
+    // Create logger without console logging to test pino integration
+    logger = new Logger({ service: 'test', console: false })
+    // Get the mock instance from the logger
+    mockPinoLogger = (logger as any).logger
   })
 
   describe('logging methods', () => {

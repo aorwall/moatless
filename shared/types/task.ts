@@ -2,7 +2,7 @@ export interface TaskIteration {
   iterationNumber: number
   startTime: Date
   endTime?: Date
-  status: 'active' | 'completed' | 'error'
+  status: 'active' | 'completed' | 'error' | 'failed'
   messageCount: number
   costUsd: number
   initialMessage?: string
@@ -11,6 +11,14 @@ export interface TaskIteration {
   gitDiff?: string
   merged?: boolean
   agentSessionId?: string
+  error?: {
+    message: string
+    stack?: string
+    timestamp: Date
+  }
+  // Runtime properties (not persisted)
+  task?: Task
+  taskId?: string
 }
 
 export interface Task {

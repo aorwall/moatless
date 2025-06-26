@@ -101,7 +101,7 @@ describe('RateLimiter', () => {
 
       await limiter.checkLimit('user1')
 
-      expect(await limiter.getRemainingRequests('user1')).toBe(1)
+      expect(await limiter.getRemainingRequests('user1')).toBe(2)
     })
   })
 

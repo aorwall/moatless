@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto'
-import { EventEmitter } from 'node:events'
 import type { ClaudeCodeSettings } from '@shared/types/claude.js'
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '../../shared/types/index.js'
 import type { Task } from '../../shared/types/task.js'
 import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
@@ -11,13 +11,14 @@ export type EventHandler = (event: Event) => void | Promise<void>
 
 export class EventService extends EventEmitter {
   private claudeCodeSettings: ClaudeCodeSettings
+  private eventCache: Map<string, Event[]> = new Map()
 
   constructor(
     private storage: StorageBackend,
     claudeCodeSettings?: ClaudeCodeSettings,
   ) {
     super()
-    this.setMaxListeners(100) // Increase limit for multiple subscriptions
+    this.setMaxListeners(100)
     this.claudeCodeSettings = claudeCodeSettings || getDefaultClaudeCodeSettings()
   }
 
@@ -30,15 +31,23 @@ export class EventService extends EventEmitter {
       event.timestamp = new Date()
     }
 
-    // Store event to file (similar to file_stream.py)
-    const existingEvents = await this.storage.getEvents(event.taskId)
-    existingEvents.push(event)
-    await this.storage.saveEvents(event.taskId, existingEvents)
+    // Get cached events for this task or initialize
+    if (!this.eventCache.has(event.taskId)) {
+      const existingEvents = await this.storage.getEvents(event.taskId)
+      this.eventCache.set(event.taskId, existingEvents)
+    }
+
+    // Append to cache
+    const cachedEvents = this.eventCache.get(event.taskId)!
+    cachedEvents.push(event)
+
+    // Only save to disk if agent type is not claude-code
+    if (event.agentType !== 'claude-code') {
+      await this.storage.saveEvents(event.taskId, cachedEvents)
+    }
 
     // Emit for real-time subscribers
     super.emit(`task:${event.taskId}`, event)
-    super.emit('event', event)
-    super.emit(`type:${event.type}`, event)
   }
 
   async getEvents(
@@ -50,16 +59,26 @@ export class EventService extends EventEmitter {
   ): Promise<Event[]> {
     let events: Event[] = []
 
-    // If task is provided and agent type is claude-code, merge with Claude events from disk
-    if (task && task.agentType === 'claude-code') {
-      try {
-        events = await readClaudeCodeEvents(this.claudeCodeSettings, task)
-      } catch (error) {
-        // Log error but don't fail the request
-        console.error('Failed to read Claude Code events from disk:', error)
-      }
+    // Check cache first
+    if (this.eventCache.has(taskId)) {
+      events = this.eventCache.get(taskId)!
     } else {
-      events = await this.storage.getEvents(taskId)
+      // If task is provided and agent type is claude-code, read from Claude events disk (default behavior)
+      if (task && task.agentType === 'claude-code' && !process.env.SKIP_CLAUDE_DISK_EVENTS) {
+        try {
+          events = await readClaudeCodeEvents(this.claudeCodeSettings, task)
+        } catch (error) {
+          // Log error but don't fail the request
+          console.error(`Failed to read Claude Code events from disk for task ${taskId}:`, error)
+          throw error
+        }
+      } else {
+        // Otherwise read from our storage
+        events = await this.storage.getEvents(taskId)
+      }
+      // Cache the loaded events
+      // TODO: Only if running?
+      this.eventCache.set(taskId, events)
     }
 
     // Filter by event type if specified
@@ -95,21 +114,18 @@ export class EventService extends EventEmitter {
     }
   }
 
-  subscribeByType(eventType: EventType, handler: EventHandler): () => void {
-    const wrappedHandler = (event: Event) => {
-      Promise.resolve(handler(event)).catch(console.error)
-    }
-
-    this.on(`type:${eventType}`, wrappedHandler)
-
-    return () => {
-      this.off(`type:${eventType}`, wrappedHandler)
-    }
-  }
 
   async getEventCount(taskId: string, eventType?: EventType, task?: Task): Promise<number> {
     const events = await this.getEvents(taskId, undefined, 0, eventType, task)
     return events.length
+  }
+
+  clearCache(taskId?: string): void {
+    if (taskId) {
+      this.eventCache.delete(taskId)
+    } else {
+      this.eventCache.clear()
+    }
   }
 }
 

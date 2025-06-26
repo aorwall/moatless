@@ -1,32 +1,45 @@
+import type { BaseAgent } from '@server/services/agents/base-agent.js'
+import { isGitRepository } from '@server/utils/index.js'
 import {
+  CriticalError,
   EnvironmentNotFoundError,
   TaskNotFoundError,
   WorkspaceError,
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
-import type {CommandResult, LocalRepository, ServerStatus} from '../../shared/types/index.js'
+import { promises as fs } from 'fs'
+import path from 'node:path'
+import type {
+  CommandResult,
+  LocalRepository,
+  ServerStatus,
+  TaskIteration,
+} from '../../shared/types/index.js'
+import { WorkspaceStatus } from '../../shared/types/workspace.js'
+import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
-import type { BaseWorkspace } from '../workspaces/base.js'
+import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
 import { LocalWorkspace } from '../workspaces/local.js'
 import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
-import type { TaskStorageService } from './task-storage.service.js'
-import path from "node:path";
-import {isGitRepository} from "@server/utils/index.js";
-import {promises as fs} from "fs";
-import {BaseAgent} from "@server/services/agents/base-agent.js";
+import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
+  private backgroundTasks: Map<string, Set<Promise<any>>> = new Map()
 
   constructor(
     private environmentService: EnvironmentService,
     private eventService: EventService,
-    private taskStorageService: TaskStorageService,
+    private storage: StorageBackend,
   ) {}
 
-  async createWorkspace(taskId: string, environmentId: string, branchName?: string): Promise<BaseWorkspace> {
+  async createWorkspace(
+    taskId: string,
+    environmentId: string,
+    branchName?: string,
+  ): Promise<BaseWorkspace> {
     const environment = await this.environmentService.getEnvironment(environmentId)
     if (!environment) {
       logger.error('Environment not found', undefined, { environmentId })
@@ -36,7 +49,11 @@ export class WorkspaceService {
     // Create workspace path for local repositories
     let workspacePath: string | undefined
     if (environment.repository.type === 'local') {
-      workspacePath = await this.createWorkspaceRepository(environment.repository, taskId, branchName)
+      workspacePath = await this.createWorkspaceRepository(
+        environment.repository,
+        taskId,
+        branchName,
+      )
     }
 
     let workspace: BaseWorkspace
@@ -44,12 +61,12 @@ export class WorkspaceService {
       workspace = new DockerWorkspace(taskId, environment, this.eventService)
     } else {
       workspace = new LocalWorkspace(
-          taskId,
-          environment,
-          this.eventService,
-          undefined, // originalBranch
-          branchName,
-          workspacePath
+        taskId,
+        environment,
+        this.eventService,
+        undefined, // originalBranch
+        branchName,
+        workspacePath,
       )
     }
 
@@ -58,7 +75,11 @@ export class WorkspaceService {
     return workspace
   }
 
-  private async createWorkspaceRepository(repo: LocalRepository, taskId: string, branchName?: string): Promise<string> {
+  private async createWorkspaceRepository(
+    repo: LocalRepository,
+    taskId: string,
+    branchName?: string,
+  ): Promise<string> {
     if (!(await this.pathExists(repo.path))) {
       throw new Error(`Repository path does not exist: ${repo.path}`)
     }
@@ -71,7 +92,7 @@ export class WorkspaceService {
     // Create workspace path for git worktrees
     const worktreeDir = this.getWorktreeDir(repo)
     const workspacePath = path.join(worktreeDir, this.getWorktreeFolderName(repo, taskId))
-    
+
     logger.info('Using git worktree setup', { workspacePath, taskId })
 
     // Verify repo is a git repository before creating worktree
@@ -99,8 +120,12 @@ export class WorkspaceService {
     return `${repoLastDirName}-${this.getBranchName(taskId)}`
   }
 
-
-  private async createGitWorktree(repoPath: string, workspacePath: string, taskId: string, branchName?: string): Promise<void> {
+  private async createGitWorktree(
+    repoPath: string,
+    workspacePath: string,
+    taskId: string,
+    branchName?: string,
+  ): Promise<void> {
     logger.debug('Creating git worktree', { repoPath, workspacePath, taskId, branchName })
 
     const { exec } = await import('node:child_process')
@@ -131,7 +156,11 @@ export class WorkspaceService {
         branchName: branchName || this.getBranchName(taskId),
       })
     } catch (error) {
-      logger.error('Failed to create git worktree', error as Error, { repoPath, workspacePath, taskId })
+      logger.error('Failed to create git worktree', error as Error, {
+        repoPath,
+        workspacePath,
+        taskId,
+      })
       throw error
     }
   }
@@ -175,13 +204,13 @@ export class WorkspaceService {
     }
 
     // Get task to retrieve environment ID and workspace path
-    const taskData = await this.taskStorageService.getTaskWithEnvironmentId(taskId)
-    if (!taskData) {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
       workspaceLogger.error('Task not found', undefined, { taskId })
       throw new TaskNotFoundError(taskId)
     }
 
-    const { task, environmentId } = taskData
+    const environmentId = task.environmentId
     const existingWorkspacePath = task.workspacePath
 
     workspaceLogger.debug('Retrieved task data', {
@@ -203,52 +232,27 @@ export class WorkspaceService {
         environment.repository.type === 'local' ? environment.repository.useGitWorktrees : false,
     })
 
-    // Create workspace using the dedicated createWorkspace method
-    const startTime = Date.now()
-    let workspace: BaseWorkspace
-
     try {
-      // If we have an existing workspace path, we need to create the workspace differently
-      if (existingWorkspacePath) {
-        // Create workspace instance directly with existing path
-        if (environment.codeExecution.type === 'docker') {
-          workspaceLogger.debug('Creating Docker workspace with existing path')
-          workspace = new DockerWorkspace(taskId, environment, this.eventService)
-        } else {
-          workspaceLogger.debug('Creating Local workspace with existing path', { branchName, existingWorkspacePath })
-          workspace = new LocalWorkspace(
-            taskId,
-            environment,
-            this.eventService,
-            undefined,
-            branchName,
-            existingWorkspacePath,
-          )
-        }
-        this.activeWorkspaces.set(taskId, workspace)
+      if (environment.codeExecution.type === 'docker') {
+        workspaceLogger.debug('Creating Docker workspace with existing path')
+        return new DockerWorkspace(taskId, environment, this.eventService)
       } else {
-        // Create new workspace (will handle path creation)
-        workspaceLogger.debug('Creating new workspace', { branchName })
-        workspace = await this.createWorkspace(taskId, environmentId, branchName)
+        workspaceLogger.debug('Creating Local workspace with existing path', {
+          branchName,
+          existingWorkspacePath,
+        })
+        return new LocalWorkspace(
+          taskId,
+          environment,
+          this.eventService,
+          undefined,
+          branchName,
+          existingWorkspacePath,
+        )
       }
-
-      const creationTime = Date.now() - startTime
-      workspaceLogger.debug('Workspace instance created successfully', {
-        workspaceType: workspace.type,
-        creationTimeMs: creationTime,
-      })
-
-      workspaceLogger.info('Workspace creation completed successfully', {
-        workspaceType: workspace.type,
-        totalTimeMs: Date.now() - startTime,
-        status: workspace.getStatus(),
-      })
-
-      return workspace
+    
     } catch (error) {
-      const failureTime = Date.now() - startTime
       workspaceLogger.error('Workspace creation failed', error as Error, {
-        timeToFailureMs: failureTime,
         environmentType: environment.repository.type,
         codeExecutionType: environment.codeExecution.type,
       })
@@ -332,36 +336,15 @@ export class WorkspaceService {
     // Save the workspace path to the task after successful setup
     const workspacePath = workspace.getWorkspacePath()
     if (workspacePath) {
-      const task = await this.taskStorageService.getTask(taskId)
+      const task = await this.storage.getTask(taskId)
       if (task && !task.workspacePath) {
         task.workspacePath = workspacePath
-        await this.taskStorageService.saveTask(task)
+        await this.storage.saveTask(task)
         logger.debug('Saved workspace path to task', { taskId, workspacePath })
       }
     } else {
       logger.warn('Workspace path not available after setup', { taskId })
     }
-  }
-
-  async triggerAgent(
-    taskId: string,
-    agentType: string,
-    message: string,
-    iterationNumber: number,
-  ): Promise<string | undefined> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    const agent = await workspace.triggerAgent(agentType, message, iterationNumber)
-    return agent.getSessionId()
-  }
-
-  async startWorkspace(
-    taskId: string,
-    agentType: string,
-    message: string,
-    iterationNumber: number,
-  ): Promise<BaseAgent> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return await workspace.start(agentType, message, iterationNumber)
   }
 
   async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {
@@ -371,9 +354,12 @@ export class WorkspaceService {
 
   async getWorkspaceStatus(taskId: string): Promise<any> {
     const workspace = await this.getOrCreateWorkspace(taskId)
+    const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
+
     return {
       status: workspace.getStatus(),
       hasUncommittedChanges: await workspace.hasUncommittedChanges(),
+      backgroundTaskCount,
     }
   }
 
@@ -408,6 +394,160 @@ export class WorkspaceService {
     return workspace.getServerStatus()
   }
 
+  async runAgent(taskId: string, message: string, iteration: TaskIteration, agentType: string = 'claude-code'): Promise<void> {
+    const workspace = await this.getOrCreateWorkspace(taskId)
+
+    // Validate workspace state
+    const status = workspace.getStatus()
+    if (status === WorkspaceStatus.SETTING_UP) {
+      throw new CriticalError('Workspace is still setting up', taskId, iteration)
+    }
+    if (status === WorkspaceStatus.RUNNING) {
+      throw new CriticalError('Agent is already running', taskId, iteration)
+    }
+
+    // Create agent
+    const agent = await this.createAgent(agentType, taskId)
+    
+    // Execute agent in background
+    const backgroundTask = this.executeAgent(agent, message, taskId, iteration, workspace)
+      .catch((error) => {
+        logger.error('Background agent execution failed', error as Error, { taskId })
+      })
+    
+    // Track the background task
+    this.trackBackgroundTask(taskId, backgroundTask)
+    
+    // Don't await - let it run in background
+    logger.info('Agent execution started in background', { taskId, iterationNumber: iteration.iterationNumber })
+  }
+
+  private async createAgent(agentType: string, taskId: string): Promise<BaseAgent> {
+    if (agentType === 'claude-code') {
+      // TODO: Get claude options from storage/config
+      const options = {} // Placeholder for claude options
+      return new ClaudeCodeAgent(taskId, options)
+    } else {
+      throw new Error(`Unknown agent type: ${agentType}`)
+    }
+  }
+
+  private async executeAgent(
+    agent: BaseAgent,
+    message: string,
+    taskId: string,
+    iteration: TaskIteration,
+    workspace: BaseWorkspace,
+  ): Promise<void> {
+    try {
+      const runOptions = {
+        workspaceDir: workspace.getWorkspacePath(),
+        iterationNumber: iteration.iterationNumber,
+      }
+
+      // Process agent events
+      for await (const event of agent.run(message, runOptions)) {
+        // Capture session ID if it's not already set
+        if (
+          !iteration.agentSessionId &&
+          agent.getSessionId()
+        ) {
+          iteration.agentSessionId = agent.getSessionId()
+
+          // Update the session ID in the task's iteration
+          const task = await this.storage.getTask(taskId)
+          if (task) {
+            const iterationIndex = task.iterations.findIndex(
+              (it) => it.iterationNumber === iteration.iterationNumber,
+            )
+            if (iterationIndex >= 0) {
+              task.iterations[iterationIndex].agentSessionId = iteration.agentSessionId
+              await this.storage.saveTask(task)
+            }
+          }
+        } else if (event.payload?.type === 'result') {
+          iteration.costUsd = event.payload.total_cost_usd ?? 0
+          iteration.result = event.payload.result ?? 'No result found in Claude Code SDK result message'
+
+          // Update iteration status to completed after successful execution
+          iteration.status = 'completed'
+          iteration.endTime = new Date()
+          iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
+
+          // Find and update the iteration in the task's iterations array
+          const task = await this.storage.getTask(taskId)
+          if (task) {
+            const iterationIndex = task.iterations.findIndex(
+              (it) => it.iterationNumber === iteration.iterationNumber,
+            )
+            if (iterationIndex >= 0) {
+              await this.storage.saveTask(task)
+            }
+          }
+        }
+
+        // Only emit agent events
+        await this.eventService.emitEvent(event)
+      }
+
+    } catch (error) {
+      // Save error to iteration
+      iteration.status = 'failed'
+      iteration.error = {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date(),
+      }
+
+      // Find and update the iteration in the task's iterations array
+      const task = await this.storage.getTask(taskId)
+      if (task) {
+        const iterationIndex = task.iterations.findIndex(
+          (it) => it.iterationNumber === iteration.iterationNumber,
+        )
+        if (iterationIndex >= 0) {
+          task.iterations[iterationIndex].status = iteration.status
+          task.iterations[iterationIndex].error = iteration.error
+          await this.storage.saveTask(task)
+        }
+      }
+
+      // Re-throw critical errors
+      if (error instanceof CriticalError) {
+        throw error
+      }
+
+      // Log non-critical errors
+      logger.error('Agent execution error', error as Error)
+    }
+  }
+
+  // Background task tracking methods
+  public trackBackgroundTask(taskId: string, task: Promise<any>): void {
+    if (!this.backgroundTasks.has(taskId)) {
+      this.backgroundTasks.set(taskId, new Set())
+    }
+    const taskSet = this.backgroundTasks.get(taskId)!
+    taskSet.add(task)
+
+    // Clean up when task completes
+    task.finally(() => {
+      taskSet.delete(task)
+      if (taskSet.size === 0) {
+        this.backgroundTasks.delete(taskId)
+      }
+    })
+  }
+
+  public getBackgroundTaskCount(taskId: string): number {
+    return this.backgroundTasks.get(taskId)?.size || 0
+  }
+
+  async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    return workspace.searchFiles(request)
+  }
+
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
     const workspace = await this.getOrCreateWorkspace(taskId)
     if (!workspace.getServerLogs) {
@@ -422,7 +562,7 @@ export function createWorkspaceService(
   _app: FastifyInstance,
   environmentService: EnvironmentService,
   eventService: EventService,
-  taskStorageService: TaskStorageService,
+  storage: StorageBackend,
 ): WorkspaceService {
-  return new WorkspaceService(environmentService, eventService, taskStorageService)
+  return new WorkspaceService(environmentService, eventService, storage)
 }

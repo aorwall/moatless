@@ -1,9 +1,9 @@
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeSettings } from '@shared/types/claude.js'
-import { type Event, EventType, type MessageEvent } from '@shared/types/event.js'
+import { type Event, EventType } from '@shared/types/event.js'
 import type { Task } from '@shared/types/task.js'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { logger } from './logger.js'
 
 /**
@@ -13,14 +13,14 @@ export function sdkMessageToEvent(
   sdkMessage: SDKMessage,
   taskId: string,
   iterationNumber?: number,
-): MessageEvent {
+): Event {
   // Check if this is an error message
   const isError = 'error' in sdkMessage && sdkMessage.error !== undefined
 
   return {
     eventId: crypto.randomUUID(),
-    type: EventType.MESSAGE,
-    agentSessionId: sdkMessage.session_id,
+    agentType: 'claude-code',
+    type: sdkMessage.type === 'result' ? EventType.RESULT : EventType.MESSAGE,
     taskId,
     iterationId: iterationNumber,
     isError,
@@ -61,16 +61,7 @@ export function getClaudeEventsFilePath(settings: ClaudeCodeSettings, task: Task
 
   const projectId = generateProjectId(task.workspacePath)
   const sessionId = lastIteration.agentSessionId
-  const filePath = path.join(settings.claudeConfigPath, 'projects', projectId, `${sessionId}.jsonl`)
-
-  logger.info('Generated Claude Code events file path', {
-    taskId: task.taskId,
-    projectId,
-    sessionId,
-    filePath,
-  })
-
-  return filePath
+  return path.join(settings.claudeConfigPath, 'projects', projectId, `${sessionId}.jsonl`)
 }
 
 /**
@@ -113,7 +104,7 @@ export async function readClaudeCodeEvents(
       }
     }
 
-    logger.info('Successfully read Claude Code events', {
+    logger.debug('Successfully read Claude Code events', {
       taskId: task.taskId,
       filePath,
       totalLines: lines.length,

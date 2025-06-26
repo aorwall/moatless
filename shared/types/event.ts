@@ -15,6 +15,7 @@ export enum EventType {
 
 export interface BaseEvent {
   eventId: string
+  agentType: string
   type: EventType
   subType?: string
   taskId: string
@@ -59,36 +60,12 @@ export interface ErrorEvent extends BaseEvent {
 
 export interface WorkspaceEvent extends BaseEvent {
   type: EventType.WORKSPACE
-  subType:
-    | 'setup_started'
-    | 'setup_completed'
-    | 'setup_failed'
-    | 'worktree_created'
-    | 'directory_created'
-    | 'command_running'
-    | 'command_completed'
-    | 'command_failed'
-  payload: {
-    workspaceId?: string
-    error?: string
-  }
+  payload: EventPayload
 }
 
 export interface ServerEvent extends BaseEvent {
   type: EventType.SERVER
-  subType:
-    | 'server_starting'
-    | 'server_started'
-    | 'server_stopping'
-    | 'server_stopped'
-    | 'server_failed'
-    | 'server_start_failed'
-  payload: {
-    port?: number
-    url?: string
-    pid?: number
-    error?: string
-  }
+  payload: EventPayload
 }
 
 export type SpecificEvent = InputEvent | MessageEvent | ErrorEvent | WorkspaceEvent | ServerEvent

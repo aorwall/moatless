@@ -1,6 +1,5 @@
 import type { Environment } from '@shared/types/environment.js'
 import type { CommandResult, Workspace, WorkspaceStatus } from '@shared/types/workspace.js'
-import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 
 export interface FileSearchRequest {
@@ -64,20 +63,6 @@ export abstract class BaseWorkspace {
    * Run a command in the workspace
    */
   abstract runCommand(command: string, timeout?: number): Promise<CommandResult>
-
-  /**
-   * Trigger an agent within this workspace
-   */
-  abstract triggerAgent(
-    agentType: string,
-    message: string,
-    iterationNumber: number,
-  ): Promise<BaseAgent>
-
-  /**
-   * Start the workspace by running setup and triggering agent
-   */
-  abstract start(agentType: string, message: string, iterationNumber: number): Promise<BaseAgent>
 
   /**
    * Check if an agent is currently running in this workspace
