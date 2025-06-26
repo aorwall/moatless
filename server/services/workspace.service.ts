@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { BaseAgent } from '@server/services/agents/base-agent.js'
 import { isGitRepository } from '@server/utils/index.js'
 import {
@@ -8,7 +9,6 @@ import {
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'fs'
-import path from 'node:path'
 import type {
   CommandResult,
   LocalRepository,
@@ -250,7 +250,6 @@ export class WorkspaceService {
           existingWorkspacePath,
         )
       }
-    
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
         environmentType: environment.repository.type,
@@ -394,7 +393,13 @@ export class WorkspaceService {
     return workspace.getServerStatus()
   }
 
-  async runAgent(taskId: string, message: string, iteration: TaskIteration, agentType: string = 'claude-code'): Promise<void> {
+  async runAgent(
+    taskId: string,
+    message: string,
+    iteration: TaskIteration,
+    agentType: string = 'claude-code',
+    resumeSessionId?: string,
+  ): Promise<void> {
     const workspace = await this.getOrCreateWorkspace(taskId)
 
     // Validate workspace state
@@ -408,18 +413,22 @@ export class WorkspaceService {
 
     // Create agent
     const agent = await this.createAgent(agentType, taskId)
-    
+
     // Execute agent in background
-    const backgroundTask = this.executeAgent(agent, message, taskId, iteration, workspace)
-      .catch((error) => {
+    const backgroundTask = this.executeAgent(agent, message, taskId, iteration, workspace, resumeSessionId).catch(
+      (error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
-      })
-    
+      },
+    )
+
     // Track the background task
     this.trackBackgroundTask(taskId, backgroundTask)
-    
+
     // Don't await - let it run in background
-    logger.info('Agent execution started in background', { taskId, iterationNumber: iteration.iterationNumber })
+    logger.info('Agent execution started in background', {
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
   }
 
   private async createAgent(agentType: string, taskId: string): Promise<BaseAgent> {
@@ -438,20 +447,19 @@ export class WorkspaceService {
     taskId: string,
     iteration: TaskIteration,
     workspace: BaseWorkspace,
+    resumeSessionId?: string,
   ): Promise<void> {
     try {
       const runOptions = {
         workspaceDir: workspace.getWorkspacePath(),
         iterationNumber: iteration.iterationNumber,
+        resume: resumeSessionId,
       }
 
       // Process agent events
       for await (const event of agent.run(message, runOptions)) {
         // Capture session ID if it's not already set
-        if (
-          !iteration.agentSessionId &&
-          agent.getSessionId()
-        ) {
+        if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()
 
           // Update the session ID in the task's iteration
@@ -467,7 +475,8 @@ export class WorkspaceService {
           }
         } else if (event.payload?.type === 'result') {
           iteration.costUsd = event.payload.total_cost_usd ?? 0
-          iteration.result = event.payload.result ?? 'No result found in Claude Code SDK result message'
+          iteration.result =
+            event.payload.result ?? 'No result found in Claude Code SDK result message'
 
           // Update iteration status to completed after successful execution
           iteration.status = 'completed'
@@ -489,7 +498,6 @@ export class WorkspaceService {
         // Only emit agent events
         await this.eventService.emitEvent(event)
       }
-
     } catch (error) {
       // Save error to iteration
       iteration.status = 'failed'

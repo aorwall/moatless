@@ -1,9 +1,6 @@
-import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
-import {
-  CriticalError,
-  TaskNotFoundError,
-} from '../../shared/constants/errors.js'
+import type { FastifyInstance } from 'fastify'
+import { CriticalError, TaskNotFoundError } from '../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
 import { createTaskLogger, logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
@@ -113,6 +110,13 @@ export class TaskService {
     const now = new Date()
     const iterationNumber = metadata.iterations.length + 1
 
+    // Find the previous iteration's session ID for resume
+    let resumeSessionId: string | undefined
+    if (metadata.iterations.length > 0) {
+      const previousIteration = metadata.iterations[metadata.iterations.length - 1]
+      resumeSessionId = previousIteration.agentSessionId
+    }
+
     const iteration: TaskIteration = {
       iterationNumber,
       startTime: now,
@@ -132,8 +136,7 @@ export class TaskService {
     iteration.task = metadata
     iteration.taskId = taskId
 
-    await this.workspaceService.runAgent(taskId, message, iteration)
-
+    await this.workspaceService.runAgent(taskId, message, iteration, 'claude-code', resumeSessionId)
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {

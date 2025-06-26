@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions } from '@shared/types/claude.js'
-import { EventType, type Event } from '@shared/types/event.js'
-import { BaseAgent, type AgentRunOptions } from './base-agent.js'
+import { type Event, EventType } from '@shared/types/event.js'
+import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController?: AbortController
@@ -39,7 +39,6 @@ export class ClaudeCodeAgent extends BaseAgent {
           yield this.createEvent(sdkMessage, EventType.MESSAGE)
         }
       }
-
     } catch (error) {
       throw error
     } finally {
@@ -84,6 +83,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       permissionMode: 'acceptEdits',
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
+    }
+
+    if (runOptions.resume) {
+      sdkOptions.resume = runOptions.resume
     }
 
     return sdkOptions
