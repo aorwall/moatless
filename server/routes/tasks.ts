@@ -243,7 +243,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       // Stop agent through AgentService
       const stopped = await app.services.agent.stopAgent(taskId)
-      
+
       return {
         status: stopped ? 'stopped' : 'not_running',
         taskId,

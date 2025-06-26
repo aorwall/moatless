@@ -7,11 +7,7 @@ import {
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'fs'
-import type {
-  CommandResult,
-  LocalRepository,
-  ServerStatus,
-} from '../../shared/types/index.js'
+import type { CommandResult, LocalRepository, ServerStatus } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
@@ -504,7 +500,6 @@ export class WorkspaceService {
 
     return workspace.getServerStatus()
   }
-
 
   // Background task tracking methods
   public trackBackgroundTask(taskId: string, task: Promise<any>): void {

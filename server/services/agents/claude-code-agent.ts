@@ -40,6 +40,13 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
       }
     } catch (error) {
+      // Check if it's a process exit error during normal operation
+      if (error instanceof Error && error.message.includes('Claude Code process exited')) {
+        // If we've already stopped, this is expected
+        if (this.stopRequested) {
+          return
+        }
+      }
       throw error
     } finally {
       await this.cleanup()

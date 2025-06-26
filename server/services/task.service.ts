@@ -139,11 +139,11 @@ export class TaskService {
     iteration.taskId = taskId
 
     // Execute agent through AgentService in background
-    const backgroundTask = this.agentService.executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId).catch(
-      (error) => {
+    const backgroundTask = this.agentService
+      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId)
+      .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
-      },
-    )
+      })
 
     // Track the background task in WorkspaceService for status reporting
     this.workspaceService.trackBackgroundTask(taskId, backgroundTask)

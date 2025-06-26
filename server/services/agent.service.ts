@@ -1,11 +1,7 @@
 import type { BaseAgent } from '@server/services/agents/base-agent.js'
-import {
-  CriticalError,
-  TaskNotFoundError,
-  WorkspaceError,
-} from '@shared/constants/errors.js'
+import { CriticalError, TaskNotFoundError } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
-import {EventType, TaskIteration} from '../../shared/types/index.js'
+import { EventType, type TaskIteration } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
 import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
@@ -44,10 +40,10 @@ export class AgentService {
 
     // Get workspace status
     const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
-    
+
     // Check if agent is actively running
     const runningAgent = this.runningAgents.get(taskId)
-    
+
     let agentStatus: AgentStatus['status'] = 'idle'
     let sessionId: string | null = null
     let startedAt: string | null = null
@@ -126,7 +122,14 @@ export class AgentService {
 
     try {
       // Execute agent in background
-      await this.processAgentExecution(agent, message, taskId, iteration, workspace, resumeSessionId)
+      await this.processAgentExecution(
+        agent,
+        message,
+        taskId,
+        iteration,
+        workspace,
+        resumeSessionId,
+      )
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
@@ -169,6 +172,20 @@ export class AgentService {
   }
 
   /**
+   * Stop all running agents (useful for shutdown)
+   */
+  async stopAllAgents(): Promise<void> {
+    const runningTaskIds = Array.from(this.runningAgents.keys())
+    logger.info('Stopping all running agents', { count: runningTaskIds.length })
+
+    const stopPromises = runningTaskIds.map((taskId) => this.stopAgent(taskId))
+    await Promise.allSettled(stopPromises)
+
+    // Clear the map
+    this.runningAgents.clear()
+  }
+
+  /**
    * Get the session ID for the latest agent execution
    */
   async getAgentSessionId(taskId: string): Promise<string | null> {
@@ -176,7 +193,7 @@ export class AgentService {
     if (!task || !task.iterations || task.iterations.length === 0) {
       return null
     }
-    
+
     const latestIteration = task.iterations[task.iterations.length - 1]
     return latestIteration.agentSessionId || null
   }
@@ -259,7 +276,9 @@ export class AgentService {
               (it) => it.iterationNumber === iteration.iterationNumber,
             )
             if (iterationIndex >= 0) {
-              task.iterations[iterationIndex] = { ...iteration }
+              // Remove runtime properties to avoid circular references
+              const { task: _, taskId: __, ...iterationData } = iteration
+              task.iterations[iterationIndex] = iterationData
               await this.storage.saveTask(task)
             }
           }
@@ -293,7 +312,9 @@ export class AgentService {
           (it) => it.iterationNumber === iteration.iterationNumber,
         )
         if (iterationIndex >= 0) {
-          task.iterations[iterationIndex] = { ...iteration }
+          // Remove runtime properties to avoid circular references
+          const { task: _, taskId: __, ...iterationData } = iteration
+          task.iterations[iterationIndex] = iterationData
           await this.storage.saveTask(task)
         }
       }

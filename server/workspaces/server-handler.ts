@@ -134,7 +134,6 @@ export class ServerHandler {
 
         // Give server minimum time to start
         if (elapsed < 2) {
-          continue
         }
       }
 
