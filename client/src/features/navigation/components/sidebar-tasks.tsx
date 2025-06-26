@@ -1,6 +1,6 @@
+import type { TaskStatus } from '@shared/types/api'
 import { Link } from '@tanstack/react-router'
-import { Loader2 } from 'lucide-react'
-
+import { CheckCircle, CircleDot, Loader2 } from 'lucide-react'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import {
@@ -11,6 +11,62 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/lib/components/ui/sidebar'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/lib/components/ui/tooltip'
+
+const getStatusConfig = (status: TaskStatus) => {
+  switch (status) {
+    case 'active':
+      return {
+        icon: <Loader2 className="h-3 w-3 animate-spin text-blue-600 dark:text-blue-400" />,
+        tooltip: 'In Progress',
+      }
+    case 'completed':
+      return {
+        icon: <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />,
+        tooltip: 'Completed',
+      }
+    case 'error':
+      return {
+        icon: <CircleDot className="h-3 w-3 text-red-600 dark:text-red-400" />,
+        tooltip: 'Error',
+      }
+    case 'closed':
+      return {
+        icon: <CircleDot className="h-3 w-3 text-gray-600 dark:text-gray-400" />,
+        tooltip: 'Closed',
+      }
+    default:
+      return {
+        icon: <CircleDot className="h-3 w-3 text-gray-600 dark:text-gray-400" />,
+        tooltip: 'Unknown',
+      }
+  }
+}
+
+function getRelativeTime(date: Date | string): string {
+  const now = new Date()
+  const then = new Date(date)
+  const seconds = Math.floor((now.getTime() - then.getTime()) / 1000)
+
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 4) return `${weeks}w ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo ago`
+  const years = Math.floor(days / 365)
+  return `${years}y ago`
+}
 
 export function SidebarTasks() {
   // Fetch all tasks
@@ -26,15 +82,15 @@ export function SidebarTasks() {
     },
   )
 
-  // Sort all tasks by last_message_at, with running tasks first
+  // Sort all tasks by last_message_at, with active tasks first
   const sortedTasks =
     tasks
       ?.sort((a, b) => {
-        // First sort by is_running
-        if (a.isRunning && !b.isRunning) {
+        // First sort by active status
+        if (a.status === 'active' && b.status !== 'active') {
           return -1
         }
-        if (!a.isRunning && b.isRunning) {
+        if (a.status !== 'active' && b.status === 'active') {
           return 1
         }
         // Then by last_message_at
@@ -68,41 +124,50 @@ export function SidebarTasks() {
   }
 
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Tasks</SidebarGroupLabel>
-      <SidebarGroupContent>
-        {sortedTasks.length > 0 ? (
-          <SidebarMenu>
-            {sortedTasks.map((task) => (
-              <SidebarMenuItem key={task.taskId}>
-                <SidebarMenuButton asChild>
-                  <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
-                    <div className="flex flex-col items-start gap-1 overflow-hidden w-full">
-                      <div className="flex items-center gap-2 w-full">
-                        <span className="truncate text-sm flex-1">
-                          {task.title || task.agentType}
-                        </span>
-                        {task.isRunning && (
-                          <Loader2 className="h-3 w-3 animate-spin text-blue-500 flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground w-full">
-                        <span className="truncate">{task.environmentName}</span>
-                        <span className="text-muted-foreground/60">•</span>
-                        <span className="flex-shrink-0">
-                          {new Date(task.lastMessageAt || task.createdAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        ) : (
-          <div className="px-3 py-2 text-sm text-muted-foreground">No tasks found</div>
-        )}
-      </SidebarGroupContent>
-    </SidebarGroup>
+    <TooltipProvider>
+      <SidebarGroup>
+        <SidebarGroupLabel>Tasks</SidebarGroupLabel>
+        <SidebarGroupContent>
+          {sortedTasks.length > 0 ? (
+            <SidebarMenu>
+              {sortedTasks.map((task) => {
+                const statusConfig = getStatusConfig(task.status)
+                return (
+                  <SidebarMenuItem key={task.taskId}>
+                    <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
+                      <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
+                        <div className="flex w-full items-center gap-2 min-w-0">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center">{statusConfig.icon}</div>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="text-xs">
+                              {statusConfig.tooltip}
+                            </TooltipContent>
+                          </Tooltip>
+                          <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+                            <span className="font-medium text-sm truncate leading-tight">
+                              {task.agentType}
+                            </span>
+                            <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
+                              <span className="truncate">{task.environmentId}</span>
+                              <span className="shrink-0">
+                                {getRelativeTime(task.lastMessageAt || task.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          ) : (
+            <div className="px-3 py-2 text-sm text-muted-foreground">No tasks found</div>
+          )}
+        </SidebarGroupContent>
+      </SidebarGroup>
+    </TooltipProvider>
   )
 }
