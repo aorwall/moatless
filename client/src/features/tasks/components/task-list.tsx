@@ -16,7 +16,7 @@ export function TaskList({ activeTasks, archivedTasks, loading }: TaskListProps)
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="tasks" className="space-x-2">
           <FileText className="h-4 w-4" />
-          <span>Active Tasks</span>
+          <span>Open Tasks</span>
         </TabsTrigger>
         <TabsTrigger value="archive" className="space-x-2">
           <Archive className="h-4 w-4" />
@@ -28,7 +28,7 @@ export function TaskList({ activeTasks, archivedTasks, loading }: TaskListProps)
         {loading ? (
           <div className="text-center py-8 text-muted-foreground">Loading tasks...</div>
         ) : activeTasks.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">No active tasks</div>
+          <div className="text-center py-8 text-muted-foreground">No open tasks</div>
         ) : (
           activeTasks.map((task) => <TaskCard key={task.taskId} task={task} />)
         )}

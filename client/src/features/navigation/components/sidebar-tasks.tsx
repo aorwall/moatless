@@ -24,7 +24,7 @@ const getStatusConfig = (status: TaskStatus) => {
     case 'active':
       return {
         icon: <Loader2 className="h-3 w-3 animate-spin text-blue-600 dark:text-blue-400" />,
-        tooltip: 'In Progress',
+        tooltip: 'Open',
       }
     case 'completed':
       return {

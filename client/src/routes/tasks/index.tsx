@@ -32,7 +32,7 @@ function TasksIndex() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold">All Tasks</h1>
           <p className="text-muted-foreground mt-2">
-            View and manage all your active and archived tasks
+            View and manage all your open and archived tasks
           </p>
         </div>
         {error ? (

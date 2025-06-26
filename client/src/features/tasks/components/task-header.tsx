@@ -26,7 +26,8 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 function StatusBadge({ status }: { status: string }) {
   const variant = status === 'active' ? 'default' : status === 'error' ? 'destructive' : 'secondary'
-  return <Badge variant={variant}>{status}</Badge>
+  const displayStatus = status === 'active' ? 'open' : status
+  return <Badge variant={variant}>{displayStatus}</Badge>
 }
 
 const getAgentStatusDisplay = (agentStatus?: AgentStatusResponse['status']) => {
