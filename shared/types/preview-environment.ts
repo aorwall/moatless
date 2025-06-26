@@ -14,7 +14,6 @@ export interface PreviewEnvironmentMetadata {
   processStartTime?: number
 }
 
-
 /**
  * Options for preview environment server operations
  */

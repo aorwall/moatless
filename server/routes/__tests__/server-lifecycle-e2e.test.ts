@@ -323,7 +323,7 @@ process.on('SIGTERM', () => {
     const restartResult = JSON.parse(restartServerResponse.body)
     expect(restartResult.running).toBe(true)
     expect(restartResult.url).toMatch(/^http:\/\/localhost:\d+$/)
-    
+
     const restartPort = parseInt(restartResult.url.split(':').pop()!)
     expect(restartPort).toBeGreaterThan(0) // Might be different port
 

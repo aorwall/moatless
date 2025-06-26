@@ -374,28 +374,28 @@ export class PreviewEnvironmentService {
    */
   private extractPortFromUrl(url?: string): number | null {
     if (!url) return null
-    
+
     try {
       // Handle both formats: "http://localhost:port" and "localhost:port"
       const parts = url.split(':')
-      
+
       if (parts.length >= 2) {
         // If URL starts with http://, port is at index 2
         // If URL is just localhost:port, port is at index 1
         const portString = url.startsWith('http://') ? parts[2] : parts[parts.length - 1]
         const port = parseInt(portString, 10)
-        
+
         // Validate port range
         if (isNaN(port) || port < 0 || port > 65535) {
           return null
         }
-        
+
         return port
       }
     } catch (error) {
       logger.debug('Error extracting port from URL', { url, error })
     }
-    
+
     return null
   }
 
