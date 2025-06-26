@@ -1,3 +1,7 @@
+import { exec } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { promisify } from 'node:util'
 import type { Environment, LocalRepository } from '@shared/types/environment.js'
 import {
   type CommandResult,
@@ -5,10 +9,6 @@ import {
   type Workspace,
   WorkspaceStatus,
 } from '@shared/types/workspace.js'
-import { exec } from 'node:child_process'
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
-import { promisify } from 'node:util'
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { searchFilesInDirectory } from '../utils/file-search.js'
@@ -20,6 +20,7 @@ import {
 } from '../utils/git-utils.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
+import { ServerHandler } from './server-handler.js'
 
 const execAsync = promisify(exec)
 
@@ -34,6 +35,7 @@ export class LocalWorkspace extends BaseWorkspace {
   private _createdAt = new Date()
   private _error?: string
   private logger = createTaskLogger(this.taskId)
+  private _server?: ServerHandler
 
   get worktreePath(): string {
     return this.workspacePath
@@ -161,6 +163,11 @@ export class LocalWorkspace extends BaseWorkspace {
       // Run setup commands if specified
       await this.runSetupCommands()
 
+      // Initialize and start server if configured
+      if (this.environment.codeExecution.serverCommand) {
+        await this.initializeServer()
+      }
+
       this.setupComplete = true
 
       const totalSetupTime = Date.now() - startTime
@@ -256,7 +263,17 @@ export class LocalWorkspace extends BaseWorkspace {
       this._runningAgent = undefined
     }
 
-    // TODO: Stop the server if running
+    // Stop the server if running
+    if (this._server) {
+      this.logger.debug('Stopping server')
+      try {
+        await this._server.stop()
+        this.logger.debug('Server stopped successfully')
+      } catch (error) {
+        this.logger.error('Error stopping server', error as Error)
+      }
+      this._server = undefined
+    }
 
     // Reset setup state
     this.setupComplete = false
@@ -302,15 +319,7 @@ export class LocalWorkspace extends BaseWorkspace {
       throw new Error(`Workspace path does not exist: ${this.workspacePath}`)
     }
 
-    const searchPath = request.path || this.workspacePath
-    const query = request.pattern || ''
-    const searchResult = await searchFilesInDirectory(
-      searchPath,
-      query,
-      100, // maxResults
-      undefined, // filePattern
-    )
-    return searchResult
+    return await searchFilesInDirectory(this.workspacePath, request)
   }
 
   async getGitDiff(): Promise<string> {
@@ -507,25 +516,91 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  // Server methods (TODO: implement these)
+  // Server methods
   async startServer(): Promise<any> {
-    throw new Error('Server not yet implemented')
-  }
+    if (!this.environment.codeExecution.serverCommand) {
+      throw new Error('No server command configured for this environment')
+    }
 
-  async stopServer(): Promise<boolean> {
-    return false
-  }
+    if (this._server) {
+      // Check if already running
+      const serverStatus = this._server.getStatus()
+      if (serverStatus.running) {
+        return {
+          running: serverStatus.running,
+          port: serverStatus.url ? parseInt(serverStatus.url.split(':')[1]) : undefined,
+          pid: serverStatus.pid,
+          uptime_seconds: serverStatus.uptimeSeconds,
+        }
+      }
+    }
 
-  async getServerStatus(): Promise<ServerStatus> {
-    return {
-      running: false,
-      configured: false,
-      uptimeSeconds: 0,
+    // Initialize server if needed
+    if (!this._server) {
+      this.logger.debug('Creating new ServerHandler for manual server start:', {
+        serverCommand: this.environment.codeExecution.serverCommand,
+        portPlaceholder: this.environment.codeExecution.serverPortPlaceholder,
+      })
+
+      this._server = new ServerHandler(
+        this.workspacePath,
+        this.environment.codeExecution.serverCommand,
+        this.environment.codeExecution.serverPortPlaceholder,
+      )
+    }
+
+    // Start the server
+    try {
+      const startResult = await this._server.start()
+      return startResult
+    } catch (error) {
+      this.logger.error('Failed to start server', error as Error)
+      this._server = undefined
+      throw error
     }
   }
 
-  async getServerLogs(_lines = 100): Promise<string> {
-    return 'No server configured or initialized'
+  async stopServer(): Promise<boolean> {
+    if (!this._server) {
+      this.logger.warn('No server to stop')
+      return false
+    }
+
+    try {
+      const success = await this._server.stop()
+      if (success) {
+        this._server = undefined
+      }
+      return success
+    } catch (error) {
+      this.logger.error('Error stopping server', error as Error)
+      return false
+    }
+  }
+
+  async getServerStatus(): Promise<ServerStatus> {
+    const configured = Boolean(this.environment.codeExecution.serverCommand)
+
+    if (!this._server) {
+      this.logger.debug('No server configured or initialized')
+      return {
+        running: false,
+        configured,
+        uptimeSeconds: 0,
+      }
+    }
+
+    const status = this._server.getStatus(configured)
+    this.logger.debug('Server status:', { status })
+    return status
+  }
+
+  async getServerLogs(lines = 100): Promise<string> {
+    if (!this._server) {
+      return 'No server configured or initialized'
+    }
+
+    return await this._server.getLogs(lines)
   }
 
   toWorkspaceInfo(): Workspace {
@@ -587,6 +662,39 @@ export class LocalWorkspace extends BaseWorkspace {
     } catch (error) {
       this.logger.error('Failed to remove worktree', error as Error, { repoPath, workspacePath })
       throw error
+    }
+  }
+
+  private async initializeServer(): Promise<void> {
+    if (!this.environment.codeExecution.serverCommand) {
+      return
+    }
+
+    this.logger.debug(`Initializing server for task ${this.taskId}:`, {
+      serverCommand: this.environment.codeExecution.serverCommand,
+      portPlaceholder: this.environment.codeExecution.serverPortPlaceholder,
+      workspaceDirectory: this.workspacePath,
+    })
+
+    this._server = new ServerHandler(
+      this.workspacePath,
+      this.environment.codeExecution.serverCommand,
+      this.environment.codeExecution.serverPortPlaceholder,
+    )
+
+    try {
+      // Start the server (logs will be saved to temp directory)
+      const startResult = await this._server.start()
+
+      this.logger.info(`Server started successfully for task ${this.taskId}`, {
+        port: startResult.port,
+        pid: startResult.pid,
+        logFile: startResult.log_file,
+      })
+    } catch (error) {
+      this.logger.error('Failed to start server', error as Error)
+      // Don't fail setup if server fails to start
+      this._server = undefined
     }
   }
 

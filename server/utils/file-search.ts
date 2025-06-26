@@ -1,294 +1,131 @@
 import { promises as fs } from 'fs'
-import { glob } from 'glob'
-import path from 'path'
-import type { FileSearchResponse } from '../../shared/types/index.js'
+import ignore from 'ignore'
+import * as path from 'path'
 
-const DEFAULT_IGNORE_PATTERNS = [
-  '**/node_modules/**',
-  '**/.git/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/.next/**',
-  '**/coverage/**',
-  '**/*.min.js',
-  '**/*.map',
-  '**/package-lock.json',
-  '**/yarn.lock',
-  '**/pnpm-lock.yaml',
-]
+export interface FileSearchRequest {
+  query: string
+  limit?: number
+}
 
+export interface FileSearchResult {
+  path: string
+  absolutePath: string
+  score: number
+}
+
+export interface FileSearchResponse {
+  results: FileSearchResult[]
+  totalFound: number
+  query: string
+}
+
+/**
+ * Load gitignore patterns from repository
+ */
+async function loadGitignorePatterns(dirPath: string): Promise<ReturnType<typeof ignore>> {
+  const ig = ignore()
+
+  // Always ignore .git directory
+  ig.add('.git/')
+
+  // Load .gitignore file
+  const gitignorePath = path.join(dirPath, '.gitignore')
+  try {
+    const gitignoreContent = await fs.readFile(gitignorePath, 'utf8')
+    ig.add(gitignoreContent)
+  } catch (error) {
+    // .gitignore doesn't exist, which is fine
+  }
+
+  return ig
+}
+
+/**
+ * Search for files in a directory based on a query matching file names and paths
+ */
 export async function searchFilesInDirectory(
-  dirPath: string,
-  query: string,
-  maxResults: number = 100,
-  filePattern?: string,
-): Promise<FileSearchResponse> {
-  try {
-    // Get all files matching the pattern
-    const pattern = filePattern || '**/*'
-    const files = await glob(pattern, {
-      cwd: dirPath,
-      ignore: DEFAULT_IGNORE_PATTERNS,
-      nodir: true,
-      absolute: false,
-      maxDepth: 10,
-    })
-
-    // Filter files by query
-    const matchingFiles: string[] = []
-    const queryLower = query.toLowerCase()
-
-    for (const file of files) {
-      // Check if filename contains query
-      if (file.toLowerCase().includes(queryLower)) {
-        matchingFiles.push(file)
-        if (matchingFiles.length >= maxResults) {
-          break
-        }
-        continue
-      }
-
-      // Check file content if it's a text file
-      if (isTextFile(file) && matchingFiles.length < maxResults) {
-        try {
-          const content = await fs.readFile(path.join(dirPath, file), 'utf8')
-          if (content.toLowerCase().includes(queryLower)) {
-            matchingFiles.push(file)
-          }
-        } catch {
-          // Skip files that can't be read
-        }
-      }
-
-      if (matchingFiles.length >= maxResults) {
-        break
-      }
-    }
-
-    return {
-      files: matchingFiles,
-      totalCount: matchingFiles.length,
-      truncated: matchingFiles.length >= maxResults,
-    }
-  } catch (error) {
-    return {
-      files: [],
-      totalCount: 0,
-      truncated: false,
-    }
-  }
-}
-
-export function isTextFile(filePath: string): boolean {
-  const textExtensions = [
-    '.js',
-    '.jsx',
-    '.ts',
-    '.tsx',
-    '.json',
-    '.md',
-    '.txt',
-    '.py',
-    '.java',
-    '.c',
-    '.cpp',
-    '.h',
-    '.hpp',
-    '.cs',
-    '.go',
-    '.rs',
-    '.php',
-    '.rb',
-    '.swift',
-    '.kt',
-    '.scala',
-    '.html',
-    '.css',
-    '.scss',
-    '.sass',
-    '.less',
-    '.xml',
-    '.yaml',
-    '.yml',
-    '.toml',
-    '.ini',
-    '.conf',
-    '.sh',
-    '.bash',
-    '.zsh',
-    '.fish',
-    '.ps1',
-    '.bat',
-    '.dockerfile',
-    '.makefile',
-  ]
-
-  const ext = path.extname(filePath).toLowerCase()
-  const basename = path.basename(filePath).toLowerCase()
-
-  // Check extension first
-  if (ext && textExtensions.includes(ext)) {
-    return true
-  }
-
-  // Check special filenames without extensions
-  const specialFiles = ['makefile', 'dockerfile', 'jenkinsfile', 'rakefile', 'gulpfile']
-  if (specialFiles.includes(basename)) {
-    return true
-  }
-
-  // Check dot files that are commonly text
-  const textDotFiles = [
-    '.gitignore',
-    '.env',
-    '.eslintrc',
-    '.prettierrc',
-    '.babelrc',
-    '.editorconfig',
-  ]
-  return textDotFiles.includes(basename)
-}
-
-export async function getFileStats(filePath: string): Promise<{
-  size: number
-  modified: Date
-  isDirectory: boolean
-}> {
-  const stats = await fs.stat(filePath)
-  return {
-    size: stats.size,
-    modified: stats.mtime,
-    isDirectory: stats.isDirectory(),
-  }
-}
-
-export async function readFileContent(
-  filePath: string,
-  encoding: BufferEncoding = 'utf8',
-): Promise<string> {
-  return await fs.readFile(filePath, encoding)
-}
-
-export async function listDirectory(
-  dirPath: string,
-  options: {
-    recursive?: boolean
-    includeHidden?: boolean
-    fileOnly?: boolean
-  } = {},
-): Promise<string[]> {
-  const { recursive = false, includeHidden = false, fileOnly = false } = options
-
-  const pattern = recursive ? '**/*' : '*'
-  const ignore = includeHidden ? [] : ['**/.*', '.*']
-
-  return await glob(pattern, {
-    cwd: dirPath,
-    ignore: [...DEFAULT_IGNORE_PATTERNS, ...ignore],
-    nodir: fileOnly,
-    absolute: false,
-  })
-}
-
-export async function searchFileContents(
   directory: string,
-  query: string,
-  filePattern?: string,
-  limit: number = 50,
-): Promise<{
-  files: Array<{
-    path: string
-    matches: Array<{
-      line: number
-      content: string
-      column: number
-    }>
-  }>
-  totalMatches: number
-}> {
-  try {
-    // Get list of files to search
-    const pattern = filePattern || '**/*'
-    const files = await glob(pattern, {
-      cwd: directory,
-      nodir: true,
-      ignore: [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/*.min.js',
-        '**/*.map',
-        '**/*.log',
-        '**/coverage/**',
-        '**/*.png',
-        '**/*.jpg',
-        '**/*.gif',
-        '**/*.pdf',
-        '**/*.zip',
-      ],
-      absolute: false,
-      maxDepth: 10,
-    })
+  request: FileSearchRequest,
+): Promise<FileSearchResponse> {
+  const limit = request.limit || 100
+  const queryLower = request.query.toLowerCase()
+  const results: Array<[string, number]> = []
 
-    const results: Array<{
-      path: string
-      matches: Array<{
-        line: number
-        content: string
-        column: number
-      }>
-    }> = []
+  // Load gitignore patterns
+  const gitignorePatterns = await loadGitignorePatterns(directory)
 
-    let totalMatches = 0
-    const regex = new RegExp(query, 'gi')
+  // Recursively search through directory
+  async function searchDir(currentPath: string, relativePath: string = '') {
+    try {
+      const entries = await fs.readdir(currentPath, { withFileTypes: true })
 
-    for (const file of files.slice(0, limit * 2)) {
-      // Search more files than limit
-      try {
-        const fullPath = path.join(directory, file)
-        const content = await fs.readFile(fullPath, 'utf-8')
-        const lines = content.split('\n')
+      for (const entry of entries) {
+        const entryPath = path.join(currentPath, entry.name)
+        const entryRelativePath = path.join(relativePath, entry.name)
 
-        const matches: Array<{
-          line: number
-          content: string
-          column: number
-        }> = []
+        // Skip if matches gitignore patterns
+        if (gitignorePatterns.ignores(entryRelativePath)) {
+          continue
+        }
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i]
-          let match
-          regex.lastIndex = 0 // Reset regex state
+        if (entry.isDirectory()) {
+          // Skip directories matching gitignore (with trailing slash)
+          if (gitignorePatterns.ignores(entryRelativePath + '/')) {
+            continue
+          }
+          // Recursively search subdirectory
+          await searchDir(entryPath, entryRelativePath)
+        } else if (entry.isFile()) {
+          // Check if query appears in the file path
+          const relativePathLower = entryRelativePath.toLowerCase()
+          if (relativePathLower.includes(queryLower)) {
+            let score = 0.0
 
-          while ((match = regex.exec(line)) !== null) {
-            matches.push({
-              line: i + 1,
-              content: line.trim(),
-              column: match.index + 1,
-            })
-            totalMatches++
+            // Calculate relevance score
+            if (queryLower === entry.name.toLowerCase()) {
+              // Exact filename match
+              score = 10.0
+            } else if (entry.name.toLowerCase().includes(queryLower)) {
+              // Match in filename
+              score = 5.0
+            } else {
+              // Match in directory path
+              score = 1.0
+            }
+
+            // Bonus points for fewer path components (shorter paths)
+            const pathDepth = entryRelativePath.split(path.sep).length
+            score += (10 - Math.min(pathDepth, 10)) * 0.1
+
+            results.push([entryRelativePath, score])
           }
         }
-
-        if (matches.length > 0) {
-          results.push({
-            path: file,
-            matches: matches.slice(0, 10), // Limit matches per file
-          })
-        }
-
-        if (results.length >= limit) break
-      } catch (error) {}
+      }
+    } catch (error) {
+      // Skip directories we can't read
     }
+  }
 
-    return {
-      files: results,
-      totalMatches,
+  await searchDir(directory)
+
+  // Sort by score (descending) and then by path (ascending)
+  results.sort((a, b) => {
+    if (a[1] !== b[1]) {
+      return b[1] - a[1] // Higher score first
     }
-  } catch (error) {
-    throw new Error(
-      `Content search failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    return a[0].localeCompare(b[0]) // Alphabetical order
+  })
+
+  // Take top results
+  const topResults = results.slice(0, limit).map(([filePath, score]) => ({
+    path: filePath,
+    absolutePath: path.join(directory, filePath),
+    score,
+  }))
+
+  return {
+    results: topResults,
+    totalFound: results.length,
+    query: request.query,
   }
 }

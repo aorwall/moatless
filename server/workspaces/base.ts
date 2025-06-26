@@ -3,15 +3,20 @@ import type { CommandResult, Workspace, WorkspaceStatus } from '@shared/types/wo
 import type { EventService } from '../services/event.service.js'
 
 export interface FileSearchRequest {
-  pattern?: string
-  path?: string
-  recursive?: boolean
-  includeHidden?: boolean
+  query: string
+  limit?: number
+}
+
+export interface FileSearchResult {
+  path: string
+  absolutePath: string
+  score: number
 }
 
 export interface FileSearchResponse {
-  files: string[]
-  totalCount: number
+  results: FileSearchResult[]
+  totalFound: number
+  query: string
 }
 
 export abstract class BaseWorkspace {

@@ -316,22 +316,20 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
-  // Search files by content
+  // Search files by filename/path
   app.post(
     '/:taskId/search-files',
     {
       schema: {
         params: TaskIdParamsSchema,
         body: z.object({
-          pattern: z.string(),
-          path: z.string().optional(),
-          includeHidden: z.boolean().optional(),
+          query: z.string(),
         }),
       },
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { pattern, path, includeHidden } = request.body as any
+      const { query } = request.body as any
 
       // Verify task exists
       const task = await taskService.getTask(taskId)
@@ -347,9 +345,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       // Search files
       const result = await app.services.workspace.searchFiles(taskId, {
-        pattern,
-        path,
-        includeHidden,
+        query,
       })
       return result
     },
