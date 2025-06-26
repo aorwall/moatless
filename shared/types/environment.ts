@@ -38,14 +38,19 @@ export interface EnvironmentResponse {
 export interface FileSearchRequest {
   environmentId: string
   query: string
-  filePattern?: string
-  maxResults?: number
+  limit?: number
+}
+
+export interface FileSearchResult {
+  path: string
+  absolutePath: string
+  score: number
 }
 
 export interface FileSearchResponse {
-  files: string[]
-  totalCount: number
-  truncated: boolean
+  results: FileSearchResult[]
+  totalFound: number
+  query: string
 }
 
 export interface EnvironmentList {

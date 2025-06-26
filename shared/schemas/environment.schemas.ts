@@ -70,8 +70,7 @@ export const EnvironmentIdParamsSchema = z.object({
 
 export const FileSearchSchema = z.object({
   query: z.string().min(1),
-  filePattern: z.string().optional(),
-  maxResults: z.number().min(1).max(1000).default(100),
+  limit: z.number().min(1).max(1000).optional(),
 })
 
 // Type exports

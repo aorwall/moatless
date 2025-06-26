@@ -13,6 +13,7 @@ import type {
   FileSearchResponse,
   SetupScriptResponse,
 } from '../../shared/types/environment.js'
+import { searchFilesInDirectory } from '../utils/file-search.js'
 
 export async function registerEnvironmentRoutes(app: FastifyInstance) {
   const { environment: environmentService } = app.services
@@ -134,8 +135,7 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
-      // TODO: Use searchRequest when implementing file search
-      // const searchRequest = request.body as z.infer<typeof FileSearchSchema>
+      const searchRequest = request.body as z.infer<typeof FileSearchSchema>
 
       // Verify environment exists
       const environment = await environmentService.getEnvironment(environmentId)
@@ -143,12 +143,18 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
         throw new EnvironmentNotFoundError(environmentId)
       }
 
-      // TODO: Implement file search when workspace service is complete
-      return {
-        files: [],
-        totalCount: 0,
-        truncated: false,
-      } as FileSearchResponse
+      // Only support local repositories for now
+      if (environment.repository.type !== 'local') {
+        throw new Error('File search is only supported for local repositories')
+      }
+
+      // Search files in the repository path
+      const result = await searchFilesInDirectory(environment.repository.path, {
+        query: searchRequest.query,
+        limit: searchRequest.limit,
+      })
+
+      return result as FileSearchResponse
     },
   )
 
