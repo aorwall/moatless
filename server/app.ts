@@ -64,4 +64,17 @@ export async function setupApp(app: FastifyInstance) {
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0',
   }))
+
+  // SPA fallback route - serve index.html for non-API routes in production
+  if (process.env.NODE_ENV === 'production') {
+    app.get('*', async (request, reply) => {
+      // Skip API routes
+      if (request.url.startsWith('/api') || request.url.startsWith('/health')) {
+        reply.code(404).send({ error: 'Not Found' })
+        return
+      }
+      
+      return reply.sendFile('index.html')
+    })
+  }
 }
