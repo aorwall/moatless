@@ -386,6 +386,11 @@ describe('Complete Workflow E2E Test', () => {
 
     // Verify iteration has results
     expect(firstIteration.result).toBeTruthy()
+    expect(typeof firstIteration.result).toBe('string')
+    expect(firstIteration.result.length).toBeGreaterThan(0)
+    // The result should contain something meaningful from Claude
+    expect(firstIteration.result).not.toBe('No result found in Claude Code SDK result message')
+    
     expect(firstIteration.costUsd).toBeGreaterThan(0)
     expect(firstIteration.durationMs).toBeGreaterThan(0)
     expect(firstIteration.endTime).toBeTruthy()
@@ -395,6 +400,7 @@ describe('Complete Workflow E2E Test', () => {
       costUsd: firstIteration.costUsd,
       durationMs: firstIteration.durationMs,
       resultLength: firstIteration.result?.length,
+      resultPreview: firstIteration.result?.substring(0, 100) + '...',
     })
 
     // Step 10: Get all events for final verification

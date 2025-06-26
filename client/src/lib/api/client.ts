@@ -81,21 +81,21 @@ export const apiClient = {
   post<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
+      body: JSON.stringify(data ?? {}),
     })
   },
 
   put<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
+      body: JSON.stringify(data ?? {}),
     })
   },
 
   patch<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PATCH',
-      body: data ? JSON.stringify(data) : undefined,
+      body: JSON.stringify(data ?? {}),
     })
   },
 
