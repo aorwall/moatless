@@ -1,6 +1,7 @@
 import type { TaskStatus } from '@shared/types/api'
 import { Link } from '@tanstack/react-router'
 import { CheckCircle, CircleDot, Loader2 } from 'lucide-react'
+import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import {
@@ -72,8 +73,8 @@ export function SidebarTasks() {
   // Fetch all tasks
   const {
     data: tasks,
-    isLoading,
-    error,
+    isLoading: isLoadingTasks,
+    error: tasksError,
   } = useTasksList(
     {},
     {
@@ -81,6 +82,9 @@ export function SidebarTasks() {
       refetchIntervalInBackground: true,
     },
   )
+
+  // Fetch environments to map IDs to names
+  const { data: environments } = useEnvironmentsList()
 
   // Sort all tasks by last_message_at, with active tasks first
   const sortedTasks =
@@ -101,7 +105,17 @@ export function SidebarTasks() {
       })
       .slice(0, 20) || []
 
-  if (isLoading) {
+  // Create a map of environment IDs to names
+  const environmentMap =
+    environments?.reduce(
+      (acc, env) => {
+        acc[env.id] = env.name
+        return acc
+      },
+      {} as Record<string, string>,
+    ) || {}
+
+  if (isLoadingTasks) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Tasks</SidebarGroupLabel>
@@ -112,7 +126,7 @@ export function SidebarTasks() {
     )
   }
 
-  if (error) {
+  if (tasksError) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Tasks</SidebarGroupLabel>
@@ -132,6 +146,11 @@ export function SidebarTasks() {
             <SidebarMenu>
               {sortedTasks.map((task) => {
                 const statusConfig = getStatusConfig(task.status)
+                // Use the initial message from the first iteration as the title
+                const taskTitle =
+                  task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
+                const environmentName = environmentMap[task.environmentId] || task.environmentId
+
                 return (
                   <SidebarMenuItem key={task.taskId}>
                     <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
@@ -147,10 +166,10 @@ export function SidebarTasks() {
                           </Tooltip>
                           <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                             <span className="font-medium text-sm truncate leading-tight">
-                              {task.agentType}
+                              {taskTitle}
                             </span>
                             <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-                              <span className="truncate">{task.environmentId}</span>
+                              <span className="truncate">{environmentName}</span>
                               <span className="shrink-0">
                                 {getRelativeTime(task.lastMessageAt || task.createdAt)}
                               </span>
