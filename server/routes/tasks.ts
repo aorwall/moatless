@@ -392,22 +392,16 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     {
       schema: {
         params: TaskIdParamsSchema,
-        body: z.object({
-          command: z.string().optional(),
-          port: z.number().optional(),
-          env: z.record(z.string()).optional(),
-        }),
       },
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { port } = request.body as any
 
       // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.startServer(taskId)
       return {
         running: true,
-        port: result.port || port || 3000,
+        port: result.port || 3000,
         pid: result.pid,
         startedAt: new Date().toISOString(),
       }

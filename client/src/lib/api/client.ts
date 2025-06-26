@@ -48,12 +48,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
   }
 
+  // Only set Content-Type when there's a body
+  const headers: HeadersInit = { ...fetchOptions.headers }
+  if (fetchOptions.body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+  }
+
   const response = await fetch(url, {
     ...fetchOptions,
-    headers: {
-      'Content-Type': 'application/json',
-      ...fetchOptions.headers,
-    },
+    headers,
   })
 
   if (!response.ok) {
@@ -81,21 +84,21 @@ export const apiClient = {
   post<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'POST',
-      body: JSON.stringify(data ?? {}),
+      body: data !== undefined ? JSON.stringify(data) : undefined,
     })
   },
 
   put<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PUT',
-      body: JSON.stringify(data ?? {}),
+      body: data !== undefined ? JSON.stringify(data) : undefined,
     })
   },
 
   patch<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PATCH',
-      body: JSON.stringify(data ?? {}),
+      body: data !== undefined ? JSON.stringify(data) : undefined,
     })
   },
 

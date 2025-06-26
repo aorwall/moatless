@@ -144,9 +144,12 @@ export class ServerHandler {
       // Try one more time to detect from logs
       if (!portInUse) {
         const actualPort = await this.detectPortFromLogs()
-        if (actualPort) {
+        if (actualPort && actualPort !== this.port) {
           this.logger.info(`Final detection: server running on port ${actualPort}`)
           this.port = actualPort
+          // Check if this detected port is actually in use
+          const actualPortInUse = await this.checkPortInUse(actualPort)
+          this.logger.info(`Detected port ${actualPort} in use: ${actualPortInUse}`)
         }
       }
 
@@ -360,12 +363,28 @@ export class ServerHandler {
   }
 
   private checkPortInUseSync(port: number): boolean {
+    // Since we need a synchronous check, we'll use the child_process execSync
     try {
-      const client = new net.Socket()
-      client.connect(port, '127.0.0.1')
-      client.destroy()
-      return true
+      const { execSync } = require('node:child_process')
+      if (process.platform === 'win32') {
+        // Windows: Use netstat to check if port is in use
+        try {
+          execSync(`netstat -an | findstr :${port}`, { stdio: 'ignore' })
+          return true
+        } catch {
+          return false
+        }
+      } else {
+        // Unix/Linux/Mac: Use lsof to check if port is in use
+        try {
+          execSync(`lsof -i :${port}`, { stdio: 'ignore' })
+          return true
+        } catch {
+          return false
+        }
+      }
     } catch {
+      // If commands fail, fall back to assuming port is not in use
       return false
     }
   }
