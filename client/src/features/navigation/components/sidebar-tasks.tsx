@@ -1,9 +1,8 @@
-import type { TaskStatus } from '@shared/types/api'
 import { Link } from '@tanstack/react-router'
-import { CheckCircle, CircleDot, Loader2 } from 'lucide-react'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
+import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -18,36 +17,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
-
-const getStatusConfig = (status: TaskStatus) => {
-  switch (status) {
-    case 'active':
-      return {
-        icon: <Loader2 className="h-3 w-3 animate-spin text-blue-600 dark:text-blue-400" />,
-        tooltip: 'Open',
-      }
-    case 'completed':
-      return {
-        icon: <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />,
-        tooltip: 'Completed',
-      }
-    case 'error':
-      return {
-        icon: <CircleDot className="h-3 w-3 text-red-600 dark:text-red-400" />,
-        tooltip: 'Error',
-      }
-    case 'closed':
-      return {
-        icon: <CircleDot className="h-3 w-3 text-gray-600 dark:text-gray-400" />,
-        tooltip: 'Closed',
-      }
-    default:
-      return {
-        icon: <CircleDot className="h-3 w-3 text-gray-600 dark:text-gray-400" />,
-        tooltip: 'Unknown',
-      }
-  }
-}
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()
@@ -86,15 +55,18 @@ export function SidebarTasks() {
   // Fetch environments to map IDs to names
   const { data: environments } = useEnvironmentsList()
 
-  // Sort all tasks by last_message_at, with active tasks first
+  // Sort all tasks by last_message_at, with open/running tasks first
   const sortedTasks =
     tasks
       ?.sort((a, b) => {
-        // First sort by active status
-        if (a.status === 'active' && b.status !== 'active') {
+        // First sort by active status (open/running tasks come first)
+        const aActive = a.status === 'open' || a.status === 'running'
+        const bActive = b.status === 'open' || b.status === 'running'
+        
+        if (aActive && !bActive) {
           return -1
         }
-        if (a.status !== 'active' && b.status === 'active') {
+        if (!aActive && bActive) {
           return 1
         }
         // Then by last_message_at
@@ -145,7 +117,7 @@ export function SidebarTasks() {
           {sortedTasks.length > 0 ? (
             <SidebarMenu>
               {sortedTasks.map((task) => {
-                const statusConfig = getStatusConfig(task.status)
+                const statusConfig = getTaskStatusConfig(task.status)
                 // Use the initial message from the first iteration as the title
                 const taskTitle =
                   task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
@@ -158,7 +130,9 @@ export function SidebarTasks() {
                         <div className="flex w-full items-center gap-2 min-w-0">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <div className="flex items-center">{statusConfig.icon}</div>
+                              <div className={`flex items-center ${statusConfig.color}`}>
+                                {statusConfig.icon}
+                              </div>
                             </TooltipTrigger>
                             <TooltipContent side="right" className="text-xs">
                               {statusConfig.tooltip}

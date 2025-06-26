@@ -83,7 +83,40 @@ The Moatless system provides an AI-powered development environment where agents 
 - Provides SSE streaming (no WebSocket)
 - Reads Claude Code events from disk when needed
 
-### 3. Workspace Architecture
+### 3. Task Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Task Lifecycle States                    │
+├─────────────────────────────────────────────────────────────┤
+│  OPEN → RUNNING → {OPEN|ERROR} → MERGED                    │
+│                      ↓                                      │
+│                    CLOSED                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Task State Model**
+- **OPEN**: Task created and ready for agent execution (default state)
+- **RUNNING**: Agent actively executing an iteration (set when agent starts)
+- **ERROR**: Last iteration failed or workspace setup failed
+- **MERGED**: Task changes have been merged to the repository
+- **CLOSED**: Task has been closed (workspace torn down)
+
+**State Transitions**
+- Task creation → **OPEN**
+- Agent starts → **RUNNING**
+- Agent completes successfully → **OPEN**
+- Agent fails → **ERROR**
+- Merge operation → **MERGED**
+- Close task → **CLOSED** (unless already **MERGED**)
+
+**State Management**
+- TaskManager (Python) sets initial state and handles completion events
+- AgentService (TypeScript) manages running state during execution
+- Both services coordinate to ensure consistent state
+- When task is in RUNNING state, always check AgentService to verify agent is still running
+
+### 4. Workspace Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -104,7 +137,7 @@ States are derived at runtime based on:
 - Setup script status
 - Agent execution status
 
-### 4. Agent Execution Flow
+### 5. Agent Execution Flow
 
 ```
 Client Request
@@ -144,7 +177,7 @@ Agent.run() [Async Generator]
 - Direct async iteration over agent events
 - Session ID captured from first system event
 
-### 5. Error Handling Strategy
+### 6. Error Handling Strategy
 
 ```
 ┌─────────────────────────────────────────┐
@@ -171,7 +204,7 @@ Agent.run() [Async Generator]
 - Non-blocking setup warnings
 - Optional feature failures
 
-### 6. Storage Architecture
+### 7. Storage Architecture
 
 ```
 data/
@@ -193,7 +226,7 @@ data/
 - Consistent read/write patterns
 - JSON-based persistence
 
-### 7. Agent Service Architecture
+### 8. Agent Service Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -278,7 +311,7 @@ Response: {
 - **Resource Management**: Proper cleanup of agent processes and resources
 - **Real-time Status**: Provides accurate agent execution status for UI
 
-### 8. Workspace Operations & Capabilities
+### 9. Workspace Operations & Capabilities
 
 All workspace operations go through WorkspaceService and use capability checks for validation:
 
@@ -327,7 +360,7 @@ All workspace operations now perform task validation within the WorkspaceService
 - API routes simplified - no duplicate task validation
 - Single source of truth for workspace access control
 
-### 9. Preview Environment Service Architecture
+### 10. Preview Environment Service Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -399,7 +432,7 @@ interface PreviewEnvironmentMetadata {
 - **Health Monitoring**: Ping validation ensures server responsiveness
 - **Clean Architecture**: Follows AgentService pattern
 
-### 10. Event System
+### 11. Event System
 
 ```
 Agent Events Only
@@ -424,7 +457,7 @@ SSE Stream → Client
 - Task operation events
 - System status events
 
-### 11. Key Design Principles
+### 12. Key Design Principles
 
 1. **State-Driven Operations**
    - All operations check workspace state first
@@ -452,79 +485,3 @@ SSE Stream → Client
    - Workspace setup runs in background
    - State model handles async correctly
    - No race conditions with proper checks
-
-## Benefits of This Architecture
-
-1. **Simplicity**: Reduced from 5+ layers to 3 clear layers
-2. **Maintainability**: Clear separation of concerns
-3. **Reliability**: Proper state management prevents race conditions
-4. **Performance**: Direct storage access, minimal overhead
-5. **Debuggability**: Clear flow, comprehensive error handling
-6. **Flexibility**: Easy to add new workspace operations
-
-## Current Implementation Status
-
-### ✅ **Fully Implemented**
-
-1. **AgentService Architecture**
-   - ✅ Centralized agent process lifecycle management
-   - ✅ Real-time agent status tracking with session management
-   - ✅ Proper separation from WorkspaceService
-   - ✅ Event routing and error handling
-
-2. **PreviewEnvironmentService Architecture**
-   - ✅ Centralized preview environment server lifecycle management
-   - ✅ Persistent server state storage to disk
-   - ✅ Process recovery on service startup
-   - ✅ Process validation and health monitoring
-   - ✅ One server per task guarantee
-
-3. **API Layer Complete**
-   - ✅ Agent status endpoint (`GET /:taskId/agent-status`)
-   - ✅ Agent stop endpoint (`POST /:taskId/stop`)
-   - ✅ All task and environment routes functional
-   - ✅ SSE event streaming for real-time updates
-   - ✅ Simplified API routes with centralized validation
-
-4. **Service Layer Refactoring**
-   - ✅ TaskService delegates agent operations to AgentService
-   - ✅ WorkspaceService delegates server operations to PreviewEnvironmentService
-   - ✅ Direct StorageBackend access (no wrapper services)
-   - ✅ Proper dependency injection
-   - ✅ Capability-based workspace operations
-
-5. **Core Functionality**
-   - ✅ Agent execution with session tracking
-   - ✅ Preview server persistence and recovery
-   - ✅ Workspace state management with capability checks
-   - ✅ Background task tracking
-   - ✅ Error isolation and handling
-   - ✅ Centralized task validation in WorkspaceService
-
-### 🔄 **Areas for Future Enhancement**
-
-1. **State Model Improvements**
-   - Runtime state derivation optimization
-   - Enhanced workspace state transitions
-   - Better error state handling
-
-2. **Event System Optimization**
-   - Remove non-agent events (currently mixed)
-   - Optimize event storage patterns
-   - Enhanced SSE connection management
-
-3. **Performance & Monitoring**
-   - Agent execution metrics
-   - Workspace operation performance tracking
-   - Better resource cleanup strategies
-
-### 🎯 **Architecture Benefits Realized**
-
-- **Simplicity**: Clean 3-layer architecture implemented
-- **Maintainability**: Clear service boundaries and responsibilities
-- **Reliability**: Proper state management prevents race conditions
-- **Performance**: Direct storage access with minimal overhead
-- **Debuggability**: Clear execution flow and comprehensive error handling
-- **Scalability**: Easy to extend with new workspace operations and agent types
-
-This architecture successfully provides a clean, maintainable system that properly handles the complexity of AI-powered development environments while keeping the codebase simple and understandable.

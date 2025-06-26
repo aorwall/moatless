@@ -27,7 +27,7 @@ export interface Task {
   lastMessageAt: Date
   agentType: string
   environmentId: string
-  status: 'active' | 'completed' | 'error' | 'closed'
+  status: 'open' | 'running' | 'error' | 'merged' | 'closed'
   numTurns: number
   totalCostUsd: number
   iterations: TaskIteration[]

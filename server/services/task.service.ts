@@ -31,7 +31,7 @@ export class TaskService {
       lastMessageAt: now,
       agentType: params.agentType,
       environmentId: params.environmentId,
-      status: 'active',
+      status: 'open',
       numTurns: 0,
       totalCostUsd: 0.0,
       iterations: [],
@@ -131,6 +131,7 @@ export class TaskService {
     metadata.iterations.push(iteration)
     metadata.lastMessageAt = now
     metadata.numTurns += 1
+    metadata.status = 'running'
 
     await this.storage.saveTask(metadata)
 

@@ -22,17 +22,13 @@ function TasksIndex() {
     },
   )
 
-  const activeTasks = tasks?.filter((task) => task.status === 'active') || []
-
-  const finishedTasks = tasks?.filter((task) => task.status !== 'active') || []
-
   return (
     <div className="container mx-auto px-6 py-8">
       <div className="mx-auto max-w-4xl">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">All Tasks</h1>
           <p className="text-muted-foreground mt-2">
-            View and manage all your open and archived tasks
+            View and manage all your active and finished tasks
           </p>
         </div>
         {error ? (
@@ -40,7 +36,7 @@ function TasksIndex() {
         ) : isLoading ? (
           <TaskListSkeleton />
         ) : (
-          <TaskList activeTasks={activeTasks} archivedTasks={finishedTasks} loading={false} />
+          <TaskList tasks={tasks || []} loading={false} />
         )}
       </div>
     </div>

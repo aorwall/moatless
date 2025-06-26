@@ -1,7 +1,10 @@
 import type { Event } from '@shared/types/event'
+import { EventType } from '@shared/types/event'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
-import { useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import { useTask } from '@/features/tasks/hooks/use-tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskStreamingResult {
   streamEvents: Array<Event>
@@ -19,22 +22,19 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
   const [lastEventId, setLastEventId] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
-  // Get task metadata and workspace status
+  // Get task metadata
   const { data: metadata } = useTask(taskId)
-  const { data: workspaceStatus } = useTaskWorkspaceStatus(taskId)
 
-  // Determine if we should stream based on workspace status only
+  // Determine if we should stream based on task status
   const shouldStream = useMemo(() => {
     // Don't stream if we don't have basic task data yet
     if (!metadata) return false
 
-    // Only stream if workspace is actively running or setting up
-    const workspaceActive =
-      workspaceStatus?.status === 'running' || workspaceStatus?.status === 'setting_up'
-
-    return workspaceActive
-  }, [metadata, workspaceStatus])
+    // Stream when task is in running state
+    return metadata.status === 'running'
+  }, [metadata])
 
   // Memoize SSE callbacks to prevent reconnections
   const handleSSEEvent = useCallback((newEvent: Event) => {
@@ -45,7 +45,15 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     if (newEvent.eventId) {
       setLastEventId(newEvent.eventId)
     }
-  }, [])
+
+    // Refetch task data when we receive a RESULT event
+    if (newEvent.type === EventType.RESULT) {
+      // Refetch task metadata to update status
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
+      // Also refetch agent status
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskAgentStatus(taskId) })
+    }
+  }, [queryClient, taskId])
 
   const handleSSEError = useCallback((error: Error) => {
     console.error('SSE error:', error)

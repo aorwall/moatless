@@ -39,7 +39,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const taskId = await taskService.createTask(request.body as any)
-      return { taskId, status: 'active' }
+      return { taskId, status: 'open' }
     },
   )
 
@@ -565,7 +565,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       return {
         activeConnections: sseManager.getConnectionCount(taskId),
-        taskActive: task.status === 'active',
+        taskActive: task.status === 'open' || task.status === 'running',
       }
     },
   )

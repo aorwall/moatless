@@ -33,7 +33,7 @@ function Dashboard() {
         ) : isLoading ? (
           <TaskListSkeleton />
         ) : (
-          <TaskList activeTasks={tasks || []} archivedTasks={[]} loading={false} />
+          <TaskList tasks={tasks || []} loading={false} />
         )}
       </div>
     </div>

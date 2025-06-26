@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
-import { useSendMessage, useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
@@ -18,7 +18,6 @@ import { ChatInput } from '../chat-input'
 export function ChatView() {
   const params = useParams({ from: '/tasks/$taskId' })
   const { data: metadata } = useTask(params.taskId)
-  const { data: workspaceStatus } = useTaskWorkspaceStatus(params.taskId)
   const { events, isStreaming } = useTaskEventsWithStreaming(params.taskId)
   const setSelectedIteration = useTaskUIStore((state) => state.setSelectedIteration)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -81,8 +80,8 @@ export function ChatView() {
   }, []) // Only on mount
 
   useEffect(() => {
-    // Only scroll to bottom when task is running/workspace is active AND user is already at bottom
-    if (bottomRef.current && isAtBottom && workspaceStatus?.status === 'running') {
+    // Only scroll to bottom when task is running AND user is already at bottom
+    if (bottomRef.current && isAtBottom && metadata?.status === 'running') {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   })
@@ -132,7 +131,7 @@ export function ChatView() {
   // Calculate running duration for active iteration
   const getRunningDuration = (iteration: TaskIteration, index: number): number => {
     const isLastIteration = index === (metadata.iterations?.length || 0) - 1
-    const isRunning = isLastIteration && workspaceStatus?.status === 'running'
+    const isRunning = isLastIteration && metadata.status === 'running'
 
     if (!isRunning) {
       return iteration.durationMs || 0
@@ -143,8 +142,7 @@ export function ChatView() {
     return currentTime - startTime
   }
 
-  const isWorkspaceRunning =
-    workspaceStatus?.status === 'running' || workspaceStatus?.status === 'setting_up'
+  const isTaskRunning = metadata.status === 'running'
 
   // Handle sending message to task
   const handleSendMessage = (taskId: string, message: string) => {
@@ -205,8 +203,8 @@ export function ChatView() {
               )
             })}
 
-            {/* Show running state when workspace is running or task is running */}
-            {isWorkspaceRunning && metadata.iterations && metadata.iterations.length > 0 && (
+            {/* Show running state when task is running */}
+            {isTaskRunning && metadata.iterations && metadata.iterations.length > 0 && (
               <div className="flex items-center justify-center py-4 space-x-2">
                 <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
                 <span className="text-sm text-gray-600 dark:text-gray-400">Processing...</span>

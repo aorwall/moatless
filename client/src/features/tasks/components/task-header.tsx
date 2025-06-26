@@ -25,8 +25,27 @@ import {
 import { getErrorMessage } from '@/lib/utils/error'
 
 function StatusBadge({ status }: { status: string }) {
-  const variant = status === 'active' ? 'default' : status === 'error' ? 'destructive' : 'secondary'
-  const displayStatus = status === 'active' ? 'open' : status
+  let variant: 'default' | 'destructive' | 'secondary' | 'outline' = 'secondary'
+  let displayStatus = status
+  
+  switch (status) {
+    case 'open':
+      variant = 'default'
+      break
+    case 'running':
+      variant = 'outline'
+      break
+    case 'error':
+      variant = 'destructive'
+      break
+    case 'merged':
+      variant = 'secondary'
+      break
+    case 'closed':
+      variant = 'secondary'
+      break
+  }
+  
   return <Badge variant={variant}>{displayStatus}</Badge>
 }
 
@@ -253,13 +272,13 @@ export function TaskHeader() {
                 {startServer.isPending ? 'Starting Server...' : 'Start Server'}
               </Button>
             ))}
-          {agentStatus?.status === 'running' && (
+          {metadata.status === 'running' && (
             <Button variant="outline" size="sm" onClick={handleStop} disabled={stopAgent.isPending}>
               <StopCircle className="mr-2 h-4 w-4" />
               {stopAgent.isPending ? 'Stopping...' : 'Stop Agent'}
             </Button>
           )}
-          {agentStatus?.status !== 'running' && (
+          {metadata.status !== 'running' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -270,9 +289,8 @@ export function TaskHeader() {
                     disabled={
                       mergeTask.isPending ||
                       isLoadingWorkspace ||
-                      isLoadingAgent ||
                       workspaceStatus?.hasUncommittedChanges ||
-                      agentStatus?.status === 'running'
+                      metadata.status === 'running'
                     }
                   >
                     <GitMerge className="mr-2 h-4 w-4" />
@@ -282,9 +300,9 @@ export function TaskHeader() {
                 <TooltipContent>
                   {workspaceStatus?.hasUncommittedChanges ? (
                     <p>Cannot merge: workspace has uncommitted changes</p>
-                  ) : agentStatus?.status === 'running' ? (
+                  ) : metadata.status === 'running' ? (
                     <p>Cannot merge: agent is running</p>
-                  ) : isLoadingWorkspace || isLoadingAgent ? (
+                  ) : isLoadingWorkspace ? (
                     <p>Checking status...</p>
                   ) : (
                     <p>Merge workspace changes to the main branch</p>

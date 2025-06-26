@@ -1,6 +1,7 @@
 import type { Task } from '@shared/types/task'
 import { Link } from '@tanstack/react-router'
 import { Calendar, Clock, DollarSign, MessageSquare, Server } from 'lucide-react'
+import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Card, CardContent } from '@/lib/components/ui/card'
 
@@ -11,6 +12,7 @@ interface TaskCardProps {
 export function TaskCard({ task }: TaskCardProps) {
   const createdDate = new Date(task.createdAt)
   const lastMessageDate = new Date(task.lastMessageAt)
+  const statusConfig = getTaskStatusConfig(task.status)
 
   return (
     <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
@@ -25,9 +27,18 @@ export function TaskCard({ task }: TaskCardProps) {
             <div className="flex items-start justify-between space-x-4">
               <h3 className="text-lg font-semibold leading-none tracking-tight">{`Task ${task.taskId.slice(0, 8)}`}</h3>
               <div className="flex items-center space-x-2">
-                {task.status === 'active' && <Badge variant="default">Open</Badge>}
-                {task.status === 'completed' && <Badge variant="secondary">Completed</Badge>}
-                {task.status === 'error' && <Badge variant="destructive">Error</Badge>}
+                <div className={`flex items-center ${statusConfig.color}`}>
+                  {statusConfig.icon}
+                </div>
+                <Badge 
+                  variant={
+                    task.status === 'error' ? 'destructive' : 
+                    task.status === 'open' || task.status === 'running' ? 'default' : 
+                    'secondary'
+                  }
+                >
+                  {statusConfig.tooltip}
+                </Badge>
               </div>
             </div>
 

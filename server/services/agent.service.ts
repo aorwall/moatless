@@ -68,6 +68,11 @@ export class AgentService {
         const latestIteration = task.iterations[task.iterations.length - 1]
         sessionId = latestIteration.agentSessionId || null
       }
+      
+      // Check task status to determine agent status
+      if (task.status === 'error') {
+        agentStatus = 'error'
+      }
     }
 
     return {
@@ -121,6 +126,13 @@ export class AgentService {
     this.runningAgents.set(taskId, agent)
 
     try {
+      // Update task status to running
+      const task = await this.storage.getTask(taskId)
+      if (task) {
+        task.status = 'running'
+        await this.storage.saveTask(task)
+      }
+      
       // Execute agent in background
       await this.processAgentExecution(
         agent,
@@ -133,6 +145,13 @@ export class AgentService {
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
+      
+      // Update task status back to open if not error
+      const task = await this.storage.getTask(taskId)
+      if (task && task.status === 'running') {
+        task.status = 'open'
+        await this.storage.saveTask(task)
+      }
     }
   }
 
@@ -168,6 +187,14 @@ export class AgentService {
    * Check if an agent is running for a task
    */
   isAgentRunning(taskId: string): boolean {
+    return this.runningAgents.has(taskId)
+  }
+
+  /**
+   * Get the current running status of a task.
+   * This is used by other services to check if agent is still running.
+   */
+  async getTaskRunningStatus(taskId: string): Promise<boolean> {
     return this.runningAgents.has(taskId)
   }
 
@@ -279,6 +306,8 @@ export class AgentService {
               // Remove runtime properties to avoid circular references
               const { task: _, taskId: __, ...iterationData } = iteration
               task.iterations[iterationIndex] = iterationData
+              // Update task status to open after successful completion
+              task.status = 'open'
               await this.storage.saveTask(task)
             }
           }
@@ -315,6 +344,8 @@ export class AgentService {
           // Remove runtime properties to avoid circular references
           const { task: _, taskId: __, ...iterationData } = iteration
           task.iterations[iterationIndex] = iterationData
+          // Update task status to error after failure
+          task.status = 'error'
           await this.storage.saveTask(task)
         }
       }
