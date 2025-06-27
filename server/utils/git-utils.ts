@@ -125,8 +125,13 @@ export async function getGitDiffString(
     // Get the current branch if base branch not specified
     const base = baseBranch || 'main'
 
-    // Use git diff without dots to show ALL changes between base and current state
-    // This includes both committed and uncommitted changes, which is what we want for worktrees
+    // For worktrees, we need to show ALL changes made on this branch since creation.
+    // Using 'git diff base' (without dots) shows the complete difference between
+    // the base branch and the current working directory state, which includes:
+    // 1. All commits made on the current branch
+    // 2. All staged changes
+    // 3. All unstaged changes
+    // This is exactly what we want for reviewing all work done in a worktree.
     const { stdout } = await execAsync(`git diff ${base}`, {
       cwd: repoPath,
       timeout: 30000,

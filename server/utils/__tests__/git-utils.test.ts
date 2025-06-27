@@ -348,6 +348,54 @@ index 0000000..abc123
         expect.any(Function),
       )
     })
+
+    it('should show all changes in worktree including committed and uncommitted', async () => {
+      // This tests that git diff base shows both committed changes and working directory changes
+      const worktreePath = '/workspace/task-branch'
+      const mockDiff = `diff --git a/src/api.js b/src/api.js
+index abc123..def456 100644
+--- a/src/api.js
++++ b/src/api.js
+@@ -10,6 +10,10 @@ export const api = {
+   async updateUser(id, data) {
+     return fetch('/users/' + id, { method: 'PUT', body: data })
+   },
++  
++  async deleteUser(id) {
++    return fetch('/users/' + id, { method: 'DELETE' })
++  },
+ }
+diff --git a/src/component.js b/src/component.js
+index 123abc..456def 100644
+--- a/src/component.js
++++ b/src/component.js
+@@ -1,5 +1,5 @@
+ export function Button({ label, onClick }) {
+-  return <button onClick={onClick}>{label}</button>
++  return <button className="btn" onClick={onClick}>{label}</button>
+ }
+`
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          // git diff base shows ALL changes: committed + staged + unstaged
+          expect(_cmd).toBe('git diff main')
+          callback(null, { stdout: mockDiff, stderr: '' })
+        }
+      }) as any)
+
+      const [diff, baseBranch] = await getGitDiffString(worktreePath, 'main')
+
+      expect(diff).toBe(mockDiff)
+      expect(baseBranch).toBe('main')
+      // Verify the diff includes both files (representing committed and uncommitted changes)
+      expect(diff).toContain('src/api.js')
+      expect(diff).toContain('src/component.js')
+      expect(diff).toContain('deleteUser')
+      expect(diff).toContain('className="btn"')
+    })
   })
 
   describe('git worktree integration', () => {
