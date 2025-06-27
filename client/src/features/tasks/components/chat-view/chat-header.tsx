@@ -151,7 +151,7 @@ export function ChatHeader() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {metadata.status !== 'running' && metadata.status !== 'closed' && (
+          {metadata.status !== 'running' && metadata.status !== 'closed' && metadata.status !== 'merged' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
