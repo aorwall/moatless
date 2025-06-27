@@ -37,7 +37,7 @@ describe('Workspace Endpoints', () => {
     taskId,
     environmentId: 'test-env',
     agentType: 'claude-code',
-    status: 'open',
+    status: 'running',
     createdAt: new Date(),
     lastMessageAt: new Date(),
     numTurns: 0,

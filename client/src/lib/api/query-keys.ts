@@ -16,6 +16,10 @@ export const queryKeys = {
   taskAgentStatus: (taskId: string) => [...queryKeys.task(taskId), 'agent-status'] as const,
   taskServerStatus: (taskId: string) => [...queryKeys.task(taskId), 'server-status'] as const,
   taskServerLogs: (taskId: string) => [...queryKeys.task(taskId), 'server-logs'] as const,
+  taskFileList: (taskId: string, path?: string, recursive?: boolean) =>
+    [...queryKeys.task(taskId), 'files', { path, recursive }] as const,
+  taskFileContent: (taskId: string, filePath: string) =>
+    [...queryKeys.task(taskId), 'file', filePath] as const,
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,
   environments: () => [...queryKeys.all, 'environments'] as const,

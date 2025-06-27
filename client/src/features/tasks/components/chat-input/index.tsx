@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useStopAgent, useTask } from '@/features/tasks/hooks/use-tasks'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
 import { ChatForm } from './chat-form'
 import { EnvironmentSelector } from './environment-selector'
@@ -39,6 +41,15 @@ export function ChatInput({
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>()
+  const [runningDuration, setRunningDuration] = useState<string>('')
+
+  // Get task data to access iteration start time
+  const { data: task } = useTask(taskId || '', {
+    enabled: !!taskId && taskStatus === 'running',
+  })
+
+  // Stop agent mutation
+  const stopAgent = useStopAgent()
 
   // Environment data (only needed for homepage)
   const { data: environments, isLoading: environmentsLoading } = useEnvironmentsList({
@@ -47,8 +58,35 @@ export function ChatInput({
 
   const isTaskContext = !!taskId
   const isPending = isLoading
+  const isRunning = taskStatus === 'running'
+
+  // Update running duration every second
+  useEffect(() => {
+    if (!isRunning || !task?.iterations?.length) {
+      setRunningDuration('')
+      return
+    }
+
+    const lastIteration = task.iterations[task.iterations.length - 1]
+    const startTime = new Date(lastIteration.startTime)
+
+    const updateDuration = () => {
+      setRunningDuration(formatRunningDuration(startTime))
+    }
+
+    updateDuration() // Initial update
+    const interval = setInterval(updateDuration, 1000)
+
+    return () => clearInterval(interval)
+  }, [isRunning, task?.iterations])
 
   const handleSendMessage = () => {
+    // If running, stop the agent instead of sending message
+    if (isRunning && taskId) {
+      stopAgent.mutate(taskId)
+      return
+    }
+
     if (!message.trim()) {
       return
     }
@@ -69,7 +107,7 @@ export function ChatInput({
   const getButtonText = () => {
     if (isTaskContext) {
       if (taskStatus === 'running') {
-        return 'Task Running...'
+        return runningDuration || 'Running'
       }
       if (taskStatus === 'completed' || taskStatus === 'failed') {
         return 'Task Completed'
@@ -99,11 +137,11 @@ export function ChatInput({
   const isTextareaDisabled = false
 
   // But disable sending based on conditions
+  // Allow clicking when running (to stop), but disable for other states
   const isSendDisabled =
     isPending ||
-    !message.trim() ||
-    (isTaskContext &&
-      (taskStatus === 'running' || taskStatus === 'completed' || taskStatus === 'failed')) ||
+    (!isRunning && !message.trim()) ||
+    (isTaskContext && (taskStatus === 'completed' || taskStatus === 'failed')) ||
     !(isTaskContext || selectedEnvironmentId)
 
   return (

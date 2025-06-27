@@ -130,6 +130,12 @@ export function ChatHeader() {
                       <span className="text-red-600 dark:text-red-400">has conflicts</span>
                     </>
                   )}
+                  {workspaceStatus.gitStatus.hasUncommittedChanges && (
+                    <>
+                      <span>•</span>
+                      <span className="text-yellow-600 dark:text-yellow-400">uncommitted changes</span>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
@@ -151,7 +157,7 @@ export function ChatHeader() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {metadata.status !== 'running' && metadata.status !== 'closed' && (
+          {metadata.status !== 'running' && metadata.status !== 'closed' && metadata.status !== 'merged' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>

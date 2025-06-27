@@ -130,7 +130,6 @@ function extractToolResult(event: Event): string | null {
   return null
 }
 
-
 export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
   const isMerged = 'toolResult' in event
 

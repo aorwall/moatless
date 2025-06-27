@@ -282,10 +282,12 @@ export class LocalWorkspace extends BaseWorkspace {
           this.logger.debug('Manual cleanup completed')
         }
       } else {
-        this.logger.debug('Removing workspace directory')
-        // Just remove the directory
-        await fs.rm(this.workspacePath, { recursive: true, force: true })
-        this.logger.debug('Workspace directory removed successfully')
+        // For non-worktree setups, we should NOT remove the workspace directory
+        // as it's the actual repository path
+        this.logger.debug('Skipping directory removal for non-worktree workspace', {
+          workspacePath: this.workspacePath,
+          useGitWorktrees: repo.useGitWorktrees,
+        })
       }
     } else {
       this.logger.debug('No workspace path to clean up')

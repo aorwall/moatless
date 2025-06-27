@@ -6,7 +6,7 @@ import {
   WorkspaceError,
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
-import { promises as fs } from 'fs'
+import { promises as fs } from 'node:fs'
 import type { CommandResult, LocalRepository, ServerStatus } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
 import { logger } from '../utils/logger.js'
@@ -75,7 +75,11 @@ export class WorkspaceService {
     branchName?: string,
   ): Promise<string> {
     if (!(await this.pathExists(repo.path))) {
-      throw new Error(`Repository path does not exist: ${repo.path}`)
+      throw new WorkspaceError(
+        `Repository path does not exist: ${repo.path}`,
+        taskId,
+        400
+      )
     }
 
     // If worktrees are disabled, use repository path directly
@@ -91,7 +95,11 @@ export class WorkspaceService {
 
     // Verify repo is a git repository before creating worktree
     if (!(await isGitRepository(repo.path))) {
-      throw new Error('Repository path is not a git repository')
+      throw new WorkspaceError(
+        `Repository path ${repo.path} is not a git repository`,
+        taskId,
+        400
+      )
     }
 
     // Create worktree if it doesn't exist
