@@ -2,7 +2,10 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react({
+    jsxRuntime: 'classic',
+    jsxImportSource: 'react'
+  })],
   test: {
     globals: true,
     environment: 'jsdom',
@@ -16,4 +19,15 @@ export default defineConfig({
       '@shared': new URL('./shared', import.meta.url).pathname,
     },
   },
+  define: {
+    // Define React globally for React 19
+    'global.React': 'React',
+    'globalThis.React': 'React',
+    'window.React': 'React',
+  },
+  esbuild: {
+    jsx: 'transform',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+  }
 })

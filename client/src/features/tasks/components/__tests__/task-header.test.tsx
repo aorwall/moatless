@@ -1,24 +1,26 @@
-import type { ServerStatus, Task, WorkspaceStatusResponse } from '@shared/types/task'
-import { WorkspaceStatus } from '@shared/types/task'
+import {
+    createMockServerStatus,
+    createMockTask,
+    createMockWorkspaceStatus,
+} from '@/test-utils/factories'
+import { renderWithRouter } from '@/test-utils/render'
+import type { WorkspaceStatusResponse } from '@shared/types/api'
+import type { Task } from '@shared/types/task'
+import type { ServerStatus } from '@shared/types/workspace'
+import { WorkspaceStatus } from '@shared/types/workspace'
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  createMockServerStatus,
-  createMockTask,
-  createMockWorkspaceStatus,
-} from '@/test-utils/factories'
-import { renderWithRouter } from '@/test-utils/render'
 
 import {
-  useServerStatus,
-  useStartServer,
-  useStopAgent,
-  useStopServer,
-  useTask,
-  useTaskWorkspaceStatus,
+    useServerStatus,
+    useStartServer,
+    useStopAgent,
+    useStopServer,
+    useTask,
+    useTaskWorkspaceStatus,
 } from '../../hooks/use-tasks'
 import { useTaskStreamingError } from '../../stores/task-event-store'
 import { TaskHeader } from '../task-header'

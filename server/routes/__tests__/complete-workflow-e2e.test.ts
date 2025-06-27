@@ -1,14 +1,14 @@
+import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-  CreateEnvironmentRequest,
-  CreateTaskRequest,
-  Environment,
-  Event,
-  Task,
+    CreateEnvironmentRequest,
+    CreateTaskRequest,
+    Environment,
+    Event,
+    Task,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
 
@@ -656,7 +656,7 @@ describe('Complete Workflow E2E Test', () => {
     })
 
     const task: Task = JSON.parse(getTaskResponse.body)
-    expect(task.status).toBe('active')
+    expect(task.status).toBe('open')
     expect(task.iterations.length).toBe(0) // No iterations yet since we didn't start
 
     // Wait for workspace to be ready before sending message

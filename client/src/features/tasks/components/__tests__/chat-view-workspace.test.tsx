@@ -1,11 +1,11 @@
-import { EventType } from '@shared/types/event'
-import { WorkspaceStatus } from '@shared/types/task'
-import { screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
 import { useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
 import { createMockEvent, createMockTaskWithIterations } from '@/test-utils/factories'
 import { renderWithRouter } from '@/test-utils/render'
+import { EventType } from '@shared/types/event'
+import { WorkspaceStatus } from '@shared/types/workspace'
+import { screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatView } from '../chat-view'
 
@@ -47,9 +47,8 @@ describe('ChatView Workspace Integration', () => {
   it('should show processing when workspace is running', () => {
     const task = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
-        is_running: false, // Task itself is not running
-        status: 'completed',
+        taskId: 'task-123',
+        status: 'closed',
       },
       1,
     )
