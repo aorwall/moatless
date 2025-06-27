@@ -1,23 +1,23 @@
+import { useNavigate, useParams } from '@tanstack/react-router'
+import { GitMerge, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import {
-    useCloseTask,
-    useMergeTask,
-    useTask,
-    useTaskWorkspaceStatus,
+  useCloseTask,
+  useMergeTask,
+  useTask,
+  useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
-import { useNavigate, useParams } from '@tanstack/react-router'
-import { GitMerge, X } from 'lucide-react'
-import { toast } from 'sonner'
 
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
@@ -56,7 +56,6 @@ export function ChatHeader() {
 
   const handleMerge = () => {
     if (metadata) {
-      
       if (!workspaceStatus?.gitStatus?.hasUnmergedCommits) {
         toast.warning('No unmerged commits to merge', {
           description: 'All commits have already been merged.',

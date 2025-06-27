@@ -51,7 +51,7 @@ export function EnvironmentForm({
   const githubRepoId = useId()
   const githubBranchId = useId()
   const githubCommitId = useId()
-  
+
   const getDefaultFormData = () => ({
     name: '',
     description: '',

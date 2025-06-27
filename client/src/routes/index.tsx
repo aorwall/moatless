@@ -12,17 +12,7 @@ export const Route = createFileRoute('/')({
 
 function Dashboard() {
   // Fetch all tasks (both active and finished)
-  const {
-    data: tasks,
-    isLoading,
-    error,
-  } = useTasksList(
-    {}, // Remove activeOnly filter to get all tasks
-    {
-      refetchInterval: 5000, // Poll every 5 seconds
-      refetchIntervalInBackground: true,
-    },
-  )
+  const { data: tasks, isLoading, error } = useTasksList()
 
   return (
     <div className="container mx-auto px-6 py-8">

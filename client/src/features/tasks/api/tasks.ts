@@ -24,11 +24,12 @@ export const tasksApi = {
 
   async listTasks(params?: {
     activeOnly?: boolean
+    status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
     limit?: number
     offset?: number
   }): Promise<Array<Task>> {
     const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
-      status: params?.activeOnly ? 'active' : undefined,
+      status: params?.status || (params?.activeOnly ? 'active' : undefined),
       limit: params?.limit,
       offset: params?.offset,
     })

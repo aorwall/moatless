@@ -81,12 +81,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { limit, offset, status } = request.query as any
-      let tasks = await taskService.listTasks(limit, offset)
-
-      // Filter by status if provided
-      if (status) {
-        tasks = tasks.filter((task) => task.status === status)
-      }
+      const tasks = await taskService.listTasks(limit, offset, status)
 
       const response: TaskListResponse = {
         tasks: tasks,

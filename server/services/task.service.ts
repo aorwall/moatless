@@ -85,14 +85,19 @@ export class TaskService {
     return this.storage.getTask(taskId)
   }
 
-  async listTasks(limit = 50, offset = 0): Promise<Task[]> {
+  async listTasks(limit = 50, offset = 0, status?: string): Promise<Task[]> {
     const taskKeys = await this.storage.list('tasks/')
     const tasks: Task[] = []
 
     for (const key of taskKeys) {
       const taskId = key.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
-      if (task) tasks.push(task)
+      if (task) {
+        // Filter by status if provided
+        if (!status || task.status === status) {
+          tasks.push(task)
+        }
+      }
     }
 
     // Sort by last message time (most recent first)

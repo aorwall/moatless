@@ -39,7 +39,7 @@ function getRelativeTime(date: Date | string): string {
 }
 
 export function SidebarTasks() {
-  // Fetch all tasks
+  // Fetch all non-closed tasks
   const {
     data: tasks,
     isLoading: isLoadingTasks,
@@ -47,7 +47,7 @@ export function SidebarTasks() {
   } = useTasksList(
     {},
     {
-      refetchInterval: 5000,
+      refetchInterval: 10000, // Changed from 5 seconds to 10 seconds
       refetchIntervalInBackground: true,
     },
   )
@@ -55,9 +55,10 @@ export function SidebarTasks() {
   // Fetch environments to map IDs to names
   const { data: environments } = useEnvironmentsList()
 
-  // Sort all tasks by last_message_at, with open/running tasks first
+  // Filter out closed tasks and sort by last_message_at, with open/running tasks first
   const sortedTasks =
     tasks
+      ?.filter((task) => task.status !== 'closed') // Filter out closed tasks
       ?.sort((a, b) => {
         // First sort by active status (open/running tasks come first)
         const aActive = a.status === 'open' || a.status === 'running'
