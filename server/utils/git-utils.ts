@@ -1,5 +1,5 @@
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
 
@@ -17,16 +17,22 @@ export interface GitDiffResponse {
   totalDeletions: number
 }
 
-export async function getGitDiffFiles(repoPath: string): Promise<GitDiffResponse> {
+export async function getGitDiffFiles(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<GitDiffResponse> {
   try {
-    // Get file status changes
-    const { stdout: statusOutput } = await execAsync('git diff --name-status', {
+    // Get the base branch (default to main)
+    const base = baseBranch || 'main'
+
+    // Get file status changes against base branch
+    const { stdout: statusOutput } = await execAsync(`git diff --name-status ${base}`, {
       cwd: repoPath,
       timeout: 10000,
     })
 
-    // Get detailed diff stats
-    const { stdout: statOutput } = await execAsync('git diff --numstat', {
+    // Get detailed diff stats against base branch
+    const { stdout: statOutput } = await execAsync(`git diff --numstat ${base}`, {
       cwd: repoPath,
       timeout: 10000,
     })
@@ -118,8 +124,9 @@ export async function getGitDiffString(
     // Get the current branch if base branch not specified
     const base = baseBranch || 'main'
 
-    // Get the diff
-    const { stdout } = await execAsync(`git diff ${base}...HEAD`, {
+    // Use git diff without dots to show ALL changes between base and current state
+    // This includes both committed and uncommitted changes, which is what we want for worktrees
+    const { stdout } = await execAsync(`git diff ${base}`, {
       cwd: repoPath,
       timeout: 30000,
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer
@@ -130,14 +137,14 @@ export async function getGitDiffString(
     // Try with master if main fails
     if (!baseBranch) {
       try {
-        const { stdout } = await execAsync('git diff master...HEAD', {
+        const { stdout } = await execAsync('git diff master', {
           cwd: repoPath,
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024,
         })
         return [stdout, 'master']
       } catch {
-        // Fall back to just git diff
+        // Fall back to showing uncommitted changes only
         const { stdout } = await execAsync('git diff', {
           cwd: repoPath,
           timeout: 30000,

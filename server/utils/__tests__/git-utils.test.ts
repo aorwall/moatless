@@ -1,4 +1,4 @@
-import * as child_process from 'child_process'
+import * as child_process from 'node:child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createBranch,
@@ -6,6 +6,7 @@ import {
   getCommitHash,
   getCurrentBranch,
   getGitDiffFiles,
+  getGitDiffString,
   getGitStatus,
 } from '../git-utils.js'
 
@@ -23,7 +24,7 @@ describe('git-utils', () => {
 
   describe('getGitDiffFiles', () => {
     it('should parse git diff output correctly', async () => {
-      // Mock git diff --name-status
+      // Mock git diff --name-status main
       mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
@@ -34,7 +35,7 @@ describe('git-utils', () => {
         }
       }) as any)
 
-      // Mock git diff --numstat
+      // Mock git diff --numstat main
       mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
@@ -231,6 +232,209 @@ describe('git-utils', () => {
         expect.any(Object),
         expect.any(Function),
       )
+    })
+  })
+
+  describe('getGitDiffString', () => {
+    it('should get diff against specified base branch', async () => {
+      const mockDiff = `diff --git a/file1.js b/file1.js
+index abc123..def456 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,3 +1,3 @@
+-old line
++new line
+`
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { stdout: mockDiff, stderr: '' })
+        }
+      }) as any)
+
+      const [diff, baseBranch] = await getGitDiffString('/test/repo', 'develop')
+
+      expect(diff).toBe(mockDiff)
+      expect(baseBranch).toBe('develop')
+      expect(mockExec).toHaveBeenCalledWith(
+        'git diff develop',
+        { cwd: '/test/repo', timeout: 30000, maxBuffer: 10485760 },
+        expect.any(Function),
+      )
+    })
+
+    it('should fallback to main branch when no base specified', async () => {
+      const mockDiff = `diff --git a/file1.js b/file1.js`
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { stdout: mockDiff, stderr: '' })
+        }
+      }) as any)
+
+      const [diff, baseBranch] = await getGitDiffString('/test/repo')
+
+      expect(diff).toBe(mockDiff)
+      expect(baseBranch).toBe('main')
+      expect(mockExec).toHaveBeenCalledWith(
+        'git diff main',
+        expect.any(Object),
+        expect.any(Function),
+      )
+    })
+
+    it('should fallback to master then uncommitted changes when main fails', async () => {
+      const mockDiff = `diff --git a/file1.js b/file1.js`
+      let callCount = 0
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callCount++
+          if (callCount === 1) {
+            // First call (main) fails
+            callback(new Error('Not found'), null, null)
+          } else if (callCount === 2) {
+            // Second call (master) fails
+            callback(new Error('Not found'), null, null)
+          } else {
+            // Third call (uncommitted changes only) succeeds
+            callback(null, { stdout: mockDiff, stderr: '' })
+          }
+        }
+      }) as any)
+
+      const [diff, baseBranch] = await getGitDiffString('/test/repo')
+
+      expect(diff).toBe(mockDiff)
+      expect(baseBranch).toBe('HEAD')
+      expect(mockExec).toHaveBeenCalledTimes(3)
+    })
+
+    it('should work correctly with git worktrees', async () => {
+      // This simulates a worktree path which would be used by workspace service
+      const worktreePath = '/test/repo/../test-repo-workspace-task123'
+      const mockDiff = `diff --git a/src/feature.js b/src/feature.js
+new file mode 100644
+index 0000000..abc123
+--- /dev/null
++++ b/src/feature.js
+@@ -0,0 +1,5 @@
++function newFeature() {
++  console.log('New feature in worktree');
++}
++
++module.exports = newFeature;
+`
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          // Verify the command is executed in the worktree path
+          expect(opts.cwd).toBe(worktreePath)
+          callback(null, { stdout: mockDiff, stderr: '' })
+        }
+      }) as any)
+
+      const [diff, baseBranch] = await getGitDiffString(worktreePath, 'main')
+
+      expect(diff).toBe(mockDiff)
+      expect(baseBranch).toBe('main')
+      expect(mockExec).toHaveBeenCalledWith(
+        'git diff main',
+        { cwd: worktreePath, timeout: 30000, maxBuffer: 10485760 },
+        expect.any(Function),
+      )
+    })
+  })
+
+  describe('git worktree integration', () => {
+    it('should get git diff files from a worktree', async () => {
+      const worktreePath = '/test/repo/../repo-workspace-123'
+
+      // Mock git diff --name-status main for worktree
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          expect(_cmd).toContain('git diff --name-status main')
+          callback(null, {
+            stdout: 'A\tsrc/new-feature.js\nM\tsrc/existing.js\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      // Mock git diff --numstat main for worktree
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          expect(_cmd).toContain('git diff --numstat main')
+          callback(null, {
+            stdout: '50\t0\tsrc/new-feature.js\n10\t5\tsrc/existing.js\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      const result = await getGitDiffFiles(worktreePath, 'main')
+
+      expect(result.files).toHaveLength(2)
+      expect(result.files[0]).toEqual({
+        status: 'A',
+        filename: 'src/new-feature.js',
+        additions: 50,
+        deletions: 0,
+      })
+      expect(result.files[1]).toEqual({
+        status: 'M',
+        filename: 'src/existing.js',
+        additions: 10,
+        deletions: 5,
+      })
+      expect(result.totalAdditions).toBe(60)
+      expect(result.totalDeletions).toBe(5)
+    })
+
+    it('should handle git status in worktree', async () => {
+      const worktreePath = '/test/repo-worktrees/feature-branch'
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          const output = ['A  src/new-file.js', ' M src/modified.js', '?? src/untracked.js'].join(
+            '\n',
+          )
+          callback(null, { stdout: output, stderr: '' })
+        }
+      }) as any)
+
+      const status = await getGitStatus(worktreePath)
+
+      expect(status.clean).toBe(false)
+      expect(status.staged).toContain('src/new-file.js')
+      expect(status.modified).toContain('src/modified.js')
+      expect(status.untracked).toContain('src/untracked.js')
+    })
+
+    it('should get current branch in worktree', async () => {
+      const worktreePath = '/workspace/repo-workspace-task-123'
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          callback(null, { stdout: 'workspace-task-123\n', stderr: '' })
+        }
+      }) as any)
+
+      const branch = await getCurrentBranch(worktreePath)
+
+      expect(branch).toBe('workspace-task-123')
     })
   })
 })
