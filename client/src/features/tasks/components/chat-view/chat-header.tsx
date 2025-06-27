@@ -178,8 +178,7 @@ export function ChatHeader() {
                     disabled={
                       mergeTask.isPending ||
                       isLoadingWorkspace ||
-                      workspaceStatus?.hasUncommittedChanges ||
-                      !workspaceStatus?.hasUnmergedCommits ||
+                      workspaceStatus?.commitsAhead == 0 ||
                       workspaceStatus?.gitStatus?.hasConflicts ||
                       metadata.status === 'running'
                     }
@@ -190,7 +189,7 @@ export function ChatHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {workspaceStatus?.hasUncommittedChanges ? (
+                  {workspaceStatus?.commitsAhead == 0 ? (
                     <p>Cannot merge: workspace has uncommitted changes</p>
                   ) : metadata.status === 'running' ? (
                     <p>Cannot merge: agent is running</p>

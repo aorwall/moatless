@@ -547,17 +547,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Get current branch
       const currentBranch = await getCurrentBranch(workspacePath)
 
-      // Check for uncommitted changes in workspace
-      const hasChanges = await hasUncommittedChanges(workspacePath)
-      if (hasChanges) {
-        reply.code(400)
-        return {
-          statusCode: 400,
-          error: 'Bad Request',
-          message: 'Cannot merge: workspace has uncommitted changes',
-        }
-      }
-
       // Extract main repo path from worktree for additional checks
       const gitPath = `${workspacePath}/.git`
       let mainRepoPath = workspacePath
