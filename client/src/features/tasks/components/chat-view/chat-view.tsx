@@ -9,12 +9,11 @@ import { toast } from 'sonner'
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
 import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
-import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
-import { MinifiedLastEventDisplay } from '../event-viewer'
+import { TaskMinifiedLastThreeEventsDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
 
 export function ChatView() {
@@ -167,6 +166,8 @@ export function ChatView() {
             {metadata.iterations?.map((iteration, index) => {
               const duration = getRunningDuration(iteration, index)
               const messageCount = getMessageCountForIteration(index, iteration.messageCount)
+              const isLastIteration = index === (metadata.iterations?.length || 0) - 1
+              const isRunningIteration = isLastIteration && metadata.status === 'running'
 
               return (
                 <div key={iteration.iterationNumber || `iteration-${index}`} className="space-y-4">
@@ -179,29 +180,31 @@ export function ChatView() {
                     </div>
                   </div>
 
-                  {/* Iteration Info */}
-                  <div className="flex justify-center py-2">
-                    <button
-                      type="button"
-                      className="cursor-pointer text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors flex items-center gap-4 bg-transparent border-none p-0"
-                      onClick={() => handleIterationClick(iteration)}
-                      onKeyDown={(e) => handleKeyDown(e, iteration)}
-                    >
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        <span>{formatDuration(duration)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <MessageSquare className="h-4 w-4" />
-                        <span>{messageCount} messages</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="h-4 w-4" />
-                        <span>{formatCost(iteration.costUsd)}</span>
-                      </div>
-                      <span className="text-xs">• Click to view events</span>
-                    </button>
-                  </div>
+                  {/* Iteration Info - Hide for running iteration */}
+                  {!isRunningIteration && (
+                    <div className="flex justify-center py-2">
+                      <button
+                        type="button"
+                        className="cursor-pointer text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors flex items-center gap-4 bg-transparent border-none p-0"
+                        onClick={() => handleIterationClick(iteration)}
+                        onKeyDown={(e) => handleKeyDown(e, iteration)}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-4 w-4" />
+                          <span>{formatDuration(duration)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <MessageSquare className="h-4 w-4" />
+                          <span>{messageCount} messages</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <DollarSign className="h-4 w-4" />
+                          <span>{formatCost(iteration.costUsd)}</span>
+                        </div>
+                        <span className="text-xs">• Click to view events</span>
+                      </button>
+                    </div>
+                  )}
 
                   {/* Result Message */}
                   {iteration.result && (
@@ -213,15 +216,10 @@ export function ChatView() {
               )
             })}
 
-            {/* Show last event when task is running */}
-            {isTaskRunning && events.length > 0 && (
+            {/* Show last three events when task is running */}
+            {isTaskRunning && (
               <div className="mb-4">
-                <MinifiedLastEventDisplay
-                  events={mergeToolEvents(events)}
-                  className="max-w-full"
-                  showTransitionIndicator={true}
-                  isRunning={true}
-                />
+                <TaskMinifiedLastThreeEventsDisplay taskId={params.taskId} className="max-w-full" />
               </div>
             )}
 
