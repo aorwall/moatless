@@ -23,6 +23,14 @@ const TaskIdParamsSchema = z.object({
   taskId: z.string(),
 })
 
+// Response schema for merge endpoint
+const MergeResponseSchema = z.object({
+  success: z.boolean(),
+  mergeCommit: z.string(),
+  sourceBranch: z.string(),
+  targetBranch: z.string(),
+})
+
 export async function registerTaskRoutes(app: FastifyInstance) {
   const { task: taskService, event: eventService } = app.services
 
@@ -460,6 +468,74 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         logs,
         lines: logs.split('\n').length,
         truncated: false, // TODO: Implement truncation logic
+      }
+    },
+  )
+
+  // Merge task changes
+  app.post(
+    '/:taskId/merge',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        body: z
+          .object({
+            targetBranch: z.string().optional(),
+            commitMessage: z.string().optional(),
+          })
+          .nullable()
+          .optional(),
+        response: {
+          200: MergeResponseSchema,
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+      const body = request.body || {}
+      const { targetBranch = 'main', commitMessage } = body as any
+
+      // Import git utils
+      const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch } = await import(
+        '../utils/git-utils.js'
+      )
+
+      // Get task to verify it exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Get workspace through workspace service
+      const workspace = await app.services.workspace.getOrCreateWorkspace(taskId)
+      if (!workspace) {
+        throw new Error(`No workspace found for task ${taskId}`)
+      }
+
+      const workspacePath = workspace.getWorkspacePath()
+
+      // Get current branch
+      const currentBranch = await getCurrentBranch(workspacePath)
+
+      // Check for uncommitted changes
+      const hasChanges = await hasUncommittedChanges(workspacePath)
+      if (hasChanges) {
+        throw new Error('Cannot merge: workspace has uncommitted changes')
+      }
+
+      // Perform the merge
+      const mergeCommit = await mergeGitBranch(
+        workspacePath,
+        currentBranch,
+        targetBranch,
+        commitMessage,
+      )
+
+      return {
+        success: true,
+        mergeCommit,
+        sourceBranch: currentBranch,
+        targetBranch,
       }
     },
   )

@@ -75,8 +75,10 @@ export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
 
 // Merge Task Response
 export const MergeTaskResponseSchema = z.object({
-  status: z.string(),
-  message: z.string(),
+  success: z.boolean(),
+  mergeCommit: z.string(),
+  sourceBranch: z.string(),
+  targetBranch: z.string(),
 })
 export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
 

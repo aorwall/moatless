@@ -1,4 +1,4 @@
-import type { AgentStatusResponse, CreateTaskRequest, SimpleTaskResponse } from '@shared/types/api'
+import type { AgentStatusResponse, CreateTaskRequest, MergeTaskResponse, SimpleTaskResponse } from '@shared/types/api'
 import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task } from '@shared/types/task'
@@ -282,26 +282,31 @@ export function useServerLogs(
 }
 
 export function useMergeTask(
-  options?: UseMutationOptions<{ status: string; message: string }, Error, string>,
+  options?: UseMutationOptions<
+    MergeTaskResponse,
+    Error,
+    { taskId: string; targetBranch?: string; commitMessage?: string }
+  >,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (taskId: string) => tasksApi.mergeTask(taskId),
-    onSuccess: (data, taskId, context) => {
+    mutationFn: ({ taskId, targetBranch, commitMessage }) =>
+      tasksApi.mergeTask(taskId, { targetBranch, commitMessage }),
+    onSuccess: (data, variables, context) => {
       // Invalidate task data to refresh
       queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
+        queryKey: queryKeys.task(variables.taskId),
       })
       // Invalidate workspace status to reflect merge
       queryClient.invalidateQueries({
-        queryKey: queryKeys.taskWorkspaceStatus(taskId),
+        queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
       })
       // Invalidate git diff to show updated state
       queryClient.invalidateQueries({
-        queryKey: queryKeys.taskGitDiff(taskId),
+        queryKey: queryKeys.taskGitDiff(variables.taskId),
       })
-      options?.onSuccess?.(data, taskId, context)
+      options?.onSuccess?.(data, variables, context)
     },
     ...options,
   })

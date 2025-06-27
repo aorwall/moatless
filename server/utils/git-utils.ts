@@ -266,3 +266,72 @@ export async function getGitStatus(repoPath: string): Promise<{
     )
   }
 }
+
+export async function mergeGitBranch(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string,
+  commitMessage?: string,
+): Promise<string> {
+  try {
+    // First, check if we're in a worktree
+    const gitPath = `${repoPath}/.git`
+    let mainRepoPath = repoPath
+
+    try {
+      const { stdout: gitFileContent } = await execAsync(`cat "${gitPath}"`, {
+        cwd: repoPath,
+        timeout: 5000,
+      })
+
+      // If .git is a file (worktree), extract main repo path
+      if (gitFileContent.startsWith('gitdir:')) {
+        const gitDir = gitFileContent.split(':')[1].trim()
+        // Extract main repo path from worktree git dir
+        // Format: /path/to/main/.git/worktrees/name -> /path/to/main
+        const pathParts = gitDir.split('/')
+        const worktreesIndex = pathParts.lastIndexOf('worktrees')
+        if (worktreesIndex > 0) {
+          mainRepoPath = pathParts.slice(0, worktreesIndex - 1).join('/')
+        }
+      }
+    } catch {
+      // .git is a directory, we're in the main repo
+    }
+
+    // Checkout target branch in the main repository
+    await execAsync(`git checkout "${targetBranch}"`, {
+      cwd: mainRepoPath,
+      timeout: 10000,
+    })
+
+    // Prepare merge command
+    const mergeMessage = commitMessage || `Merge branch '${sourceBranch}' into ${targetBranch}`
+    await execAsync(`git merge --no-ff "${sourceBranch}" -m "${mergeMessage}"`, {
+      cwd: mainRepoPath,
+      timeout: 30000,
+    })
+
+    // Get the merge commit hash
+    const { stdout: commitHash } = await execAsync('git rev-parse HEAD', {
+      cwd: mainRepoPath,
+      timeout: 5000,
+    })
+
+    return commitHash.trim()
+  } catch (error) {
+    // Try to abort merge if it failed
+    try {
+      await execAsync('git merge --abort', {
+        cwd: repoPath,
+        timeout: 5000,
+      })
+    } catch {
+      // Ignore abort errors
+    }
+
+    throw new Error(
+      `Failed to merge branch: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}

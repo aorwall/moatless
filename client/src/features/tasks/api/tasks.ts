@@ -103,7 +103,10 @@ export const tasksApi = {
     return await apiClient.get<ServerLogsResponse>(`/api/v1/tasks/${taskId}/server/logs`)
   },
 
-  async mergeTask(taskId: string): Promise<MergeTaskResponse> {
-    return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`)
+  async mergeTask(
+    taskId: string,
+    options?: { targetBranch?: string; commitMessage?: string },
+  ): Promise<MergeTaskResponse> {
+    return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`, options || {})
   },
 }
