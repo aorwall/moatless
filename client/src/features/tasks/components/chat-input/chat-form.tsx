@@ -144,10 +144,10 @@ export function ChatForm({
                     type="submit"
                     disabled={sendDisabled}
                     size="sm"
-                    className="flex items-center justify-center gap-1.5 rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-foreground/90"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-white/20 text-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-white/10 hover:border-white/30"
                   >
-                    <Square className="h-3 w-3 fill-current" />
                     <span>{buttonText}</span>
+                    <Square className="h-3 w-3" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
