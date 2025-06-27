@@ -1,6 +1,7 @@
 import * as child_process from 'node:child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  checkForConflicts,
   createBranch,
   getBranchList,
   getCommitHash,
@@ -483,6 +484,217 @@ index 123abc..456def 100644
       const branch = await getCurrentBranch(worktreePath)
 
       expect(branch).toBe('workspace-task-123')
+    })
+  })
+
+  describe('checkForConflicts', () => {
+    it('should detect conflicts when merge-tree succeeds but reports conflicts in stderr', async () => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { 
+            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n', 
+            stderr: 'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n' 
+          })
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+
+      expect(hasConflicts).toBe(true)
+      expect(mockExec).toHaveBeenCalledWith(
+        'git merge-tree --write-tree main HEAD',
+        { cwd: '/test/repo', timeout: 10000 },
+        expect.any(Function),
+      )
+    })
+
+    it('should detect conflicts when merge-tree succeeds but reports conflicts in stdout', async () => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { 
+            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/features/tasks/components/task-list.tsx\nCONFLICT (content): Merge conflict in client/src/features/tasks/components/task-list.tsx\n', 
+            stderr: '' 
+          })
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+
+      expect(hasConflicts).toBe(true)
+    })
+
+    it('should detect conflicts when merge-tree fails and reports conflicts in stdout', async () => {
+      const conflictError = new Error('Command failed') as any
+      conflictError.stdout = 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/file.tsx\nAuto-merging client/src/file.tsx\nCONFLICT (content): Merge conflict in client/src/file.tsx\n'
+      conflictError.stderr = ''
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(conflictError, null, null)
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+
+      expect(hasConflicts).toBe(true)
+    })
+
+    it('should detect conflicts when merge-tree fails and reports conflicts in stderr', async () => {
+      const conflictError = new Error('Command failed') as any
+      conflictError.stdout = ''
+      conflictError.stderr = 'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n'
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(conflictError, null, null)
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+
+      expect(hasConflicts).toBe(true)
+    })
+
+    it('should return false when no conflicts exist', async () => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { 
+            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n', 
+            stderr: 'Auto-merging src/file.js\n' 
+          })
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+
+      expect(hasConflicts).toBe(false)
+    })
+
+    it('should fallback to master when main branch fails', async () => {
+      let callCount = 0
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callCount++
+          if (callCount === 1) {
+            // First call (main) fails with non-conflict error
+            const error = new Error('Branch not found') as any
+            error.stdout = ''
+            error.stderr = 'fatal: ambiguous argument \'main\': unknown revision'
+            callback(error, null, null)
+          } else {
+            // Second call (master) succeeds with conflicts
+            const conflictError = new Error('Command failed') as any
+            conflictError.stdout = 'Auto-merging file.js\nCONFLICT (content): Merge conflict in file.js\n'
+            conflictError.stderr = ''
+            callback(conflictError, null, null)
+          }
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo')
+
+      expect(hasConflicts).toBe(true)
+      expect(mockExec).toHaveBeenCalledTimes(2)
+      expect(mockExec).toHaveBeenNthCalledWith(
+        1,
+        'git merge-tree --write-tree main HEAD',
+        { cwd: '/test/repo', timeout: 10000 },
+        expect.any(Function),
+      )
+      expect(mockExec).toHaveBeenNthCalledWith(
+        2,
+        'git merge-tree --write-tree master HEAD',
+        { cwd: '/test/repo', timeout: 10000 },
+        expect.any(Function),
+      )
+    })
+
+    it('should use specified base branch instead of defaulting to main', async () => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { stdout: 'abc123\n', stderr: '' })
+        }
+      }) as any)
+
+      await checkForConflicts('/test/repo', 'develop')
+
+      expect(mockExec).toHaveBeenCalledWith(
+        'git merge-tree --write-tree develop HEAD',
+        { cwd: '/test/repo', timeout: 10000 },
+        expect.any(Function),
+      )
+    })
+
+    it('should return false when git command fails completely', async () => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          const error = new Error('Not a git repository') as any
+          error.stdout = ''
+          error.stderr = 'fatal: not a git repository'
+          callback(error, null, null)
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/not/a/repo')
+
+      expect(hasConflicts).toBe(false)
+    })
+
+    it('should work correctly in git worktree paths', async () => {
+      const worktreePath = '/Users/albert/repos/moatless/moatless-swarm-ui-workspace-e658820a-e38e-4b3f-944d-3e29f6396aa1'
+      
+      const conflictError = new Error('Command failed') as any
+      conflictError.stdout = `f6cd8dcbca0f67e1dc2e867546fb574649338d77
+100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1	client/src/features/tasks/components/task-list.tsx
+100644 bbc3263509acec9ecc9e32dac2437ebe31154a35 2	client/src/features/tasks/components/task-list.tsx
+100644 5d8111caa5b7e914d9295b480c5a225f0feb8116 3	client/src/features/tasks/components/task-list.tsx
+
+Auto-merging client/src/features/tasks/api/tasks.ts
+Auto-merging client/src/features/tasks/components/task-list.tsx
+CONFLICT (content): Merge conflict in client/src/features/tasks/components/task-list.tsx
+Auto-merging client/src/features/tasks/hooks/use-tasks.ts`
+      conflictError.stderr = ''
+
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          callback(conflictError, null, null)
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts(worktreePath, 'main')
+
+      expect(hasConflicts).toBe(true)
+      expect(mockExec).toHaveBeenCalledWith(
+        'git merge-tree --write-tree main HEAD',
+        { cwd: worktreePath, timeout: 10000 },
+        expect.any(Function),
+      )
+    })
+
+    it('should handle edge case where conflict text appears in both stdout and stderr', async () => {
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, { 
+            stdout: 'Some output with CONFLICT in it\n', 
+            stderr: 'More output with CONFLICT in stderr\n' 
+          })
+        }
+      }) as any)
+
+      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+
+      expect(hasConflicts).toBe(true)
     })
   })
 })
