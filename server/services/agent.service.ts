@@ -68,7 +68,7 @@ export class AgentService {
         const latestIteration = task.iterations[task.iterations.length - 1]
         sessionId = latestIteration.agentSessionId || null
       }
-      
+
       // Check task status to determine agent status
       if (task.status === 'error') {
         agentStatus = 'error'
@@ -132,7 +132,7 @@ export class AgentService {
         task.status = 'running'
         await this.storage.saveTask(task)
       }
-      
+
       // Execute agent in background
       await this.processAgentExecution(
         agent,
@@ -145,7 +145,7 @@ export class AgentService {
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
-      
+
       // Update task status back to open if not error
       const task = await this.storage.getTask(taskId)
       if (task && task.status === 'running') {

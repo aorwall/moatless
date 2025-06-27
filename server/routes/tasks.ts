@@ -514,6 +514,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       for (const event of existingEvents) {
         reply.raw.write(JSON.stringify(event) + '\n')
       }
+      
+      // Flush the initial data
+      reply.raw.flushHeaders()
 
       // Subscribe to new events
       const unsubscribe = eventService.subscribe(taskId, (event) => {
@@ -524,24 +527,26 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         }
       })
 
-      // Handle client disconnect
-      request.raw.on('close', () => {
-        unsubscribe()
-        sseManager.disconnect(taskId, connectionId)
-        reply.raw.end()
-      })
-
       // Keep connection alive with periodic pings
       const pingInterval = setInterval(() => {
         try {
-          reply.raw.write(':\n') // SSE comment for keep-alive
+          // Send a ping event for NDJSON format
+          const pingEvent = {
+            type: 'ping',
+            timestamp: new Date().toISOString()
+          }
+          reply.raw.write(JSON.stringify(pingEvent) + '\n')
         } catch (error) {
           clearInterval(pingInterval)
         }
       }, 30000)
 
+      // Handle client disconnect
       request.raw.on('close', () => {
+        unsubscribe()
+        sseManager.disconnect(taskId, connectionId)
         clearInterval(pingInterval)
+        reply.raw.end()
       })
     },
   )

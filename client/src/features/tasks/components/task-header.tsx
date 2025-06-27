@@ -26,8 +26,8 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 function StatusBadge({ status }: { status: string }) {
   let variant: 'default' | 'destructive' | 'secondary' | 'outline' = 'secondary'
-  let displayStatus = status
-  
+  const displayStatus = status
+
   switch (status) {
     case 'open':
       variant = 'default'
@@ -45,7 +45,7 @@ function StatusBadge({ status }: { status: string }) {
       variant = 'secondary'
       break
   }
-  
+
   return <Badge variant={variant}>{displayStatus}</Badge>
 }
 

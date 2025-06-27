@@ -44,7 +44,7 @@ function getRelativeTime(date: Date | string): string {
 
 export function TaskList({ tasks, loading }: TaskListProps) {
   const { data: environments } = useEnvironmentsList()
-  
+
   // Create a map of environment IDs to names
   const environmentMap =
     environments?.reduce(
@@ -54,7 +54,7 @@ export function TaskList({ tasks, loading }: TaskListProps) {
       },
       {} as Record<string, string>,
     ) || {}
-  
+
   // Sort tasks by last message time, newest first
   const sortedTasks = [...tasks].sort((a, b) => {
     return (
@@ -62,15 +62,15 @@ export function TaskList({ tasks, loading }: TaskListProps) {
       new Date(a.lastMessageAt || a.createdAt).getTime()
     )
   })
-  
+
   if (loading) {
     return <div className="text-center py-8 text-muted-foreground">Loading tasks...</div>
   }
-  
+
   if (tasks.length === 0) {
     return <div className="text-center py-8 text-muted-foreground">No tasks found</div>
   }
-  
+
   return (
     <TooltipProvider>
       <div className="rounded-md border">
@@ -87,24 +87,22 @@ export function TaskList({ tasks, loading }: TaskListProps) {
             {sortedTasks.map((task) => {
               const statusConfig = getTaskStatusConfig(task.status)
               const taskTitle =
-                task.iterations?.[0]?.initialMessage?.split('\n')[0] || 
+                task.iterations?.[0]?.initialMessage?.split('\n')[0] ||
                 `Task ${task.taskId.slice(0, 8)}`
               const environmentName = environmentMap[task.environmentId] || task.environmentId
-              
+
               return (
                 <TableRow key={task.taskId} className="cursor-pointer">
                   <TableCell className="font-medium max-w-0">
-                    <Link 
-                      to="/tasks/$taskId" 
+                    <Link
+                      to="/tasks/$taskId"
                       params={{ taskId: task.taskId }}
                       className="block hover:text-primary truncate"
                     >
                       {taskTitle}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {environmentName}
-                  </TableCell>
+                  <TableCell className="text-muted-foreground">{environmentName}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {getRelativeTime(task.lastMessageAt || task.createdAt)}
                   </TableCell>
