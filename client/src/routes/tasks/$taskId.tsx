@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { FileTree, FileViewer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import { ChatView } from '@/features/tasks/components/chat-view'
 import { EventViewer } from '@/features/tasks/components/event-viewer'
@@ -26,6 +27,7 @@ function TaskDetail() {
   const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView)
   const setSelectedTaskId = useTaskUIStore((state) => state.setSelectedTaskId)
   const resetUIState = useTaskUIStore((state) => state.resetUIState)
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   // Set selected task ID and reset UI state when component unmounts or task changes
   useEffect(() => {
@@ -89,7 +91,7 @@ function TaskDetail() {
             <Tabs
               value={rightPanelView}
               onValueChange={(value) =>
-                setRightPanelView(value as 'events' | 'diff' | 'server' | 'preview')
+                setRightPanelView(value as 'events' | 'diff' | 'server' | 'preview' | 'files')
               }
               className="h-full w-full flex flex-col"
             >
@@ -126,6 +128,23 @@ function TaskDetail() {
                     <div className="truncate">
                       <div className="flex items-center gap-2">
                         <span>Diff</span>
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setRightPanelView('files')}
+                    className={cn(
+                      'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
+                      rightPanelView === 'files'
+                        ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                        : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
+                    )}
+                    data-testid="tab-file-button"
+                    data-active-tab={rightPanelView === 'files'}
+                  >
+                    <div className="truncate">
+                      <div className="flex items-center gap-2">
+                        <span>Files</span>
                       </div>
                     </div>
                   </button>
@@ -204,6 +223,27 @@ function TaskDetail() {
                   </TabsContent>
                 </>
               )}
+              <TabsContent value="files" className="flex-1 w-full overflow-hidden mt-0">
+                <ErrorBoundary componentName="File Viewer">
+                  <ResizablePanelGroup direction="horizontal" className="h-full">
+                    <ResizablePanel defaultSize={30} minSize={20}>
+                      <div className="h-full border-r">
+                        <FileTree taskId={taskId} onFileSelect={setSelectedFile} />
+                      </div>
+                    </ResizablePanel>
+                    <ResizableHandle />
+                    <ResizablePanel defaultSize={70}>
+                      {selectedFile ? (
+                        <FileViewer taskId={taskId} filePath={selectedFile} />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground">
+                          Select a file to view
+                        </div>
+                      )}
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
+                </ErrorBoundary>
+              </TabsContent>
             </Tabs>
           </div>
         </ResizablePanel>
