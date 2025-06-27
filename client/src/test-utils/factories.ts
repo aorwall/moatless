@@ -9,7 +9,8 @@ import type {
   TaskIteration,
   WorkspaceStatusResponse,
 } from '@shared/types/task'
-import { ContentType, MessageType, Role, WorkspaceStatus } from '@shared/types/task'
+import { ContentType, MessageType, Role } from '@shared/types/task'
+import { WorkspaceStatus } from '@shared/types/workspace'
 
 // Re-export environment factories
 export * from './factories/environment'
