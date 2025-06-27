@@ -23,6 +23,14 @@ const TaskIdParamsSchema = z.object({
   taskId: z.string(),
 })
 
+// Response schema for merge endpoint
+const MergeResponseSchema = z.object({
+  success: z.boolean(),
+  mergeCommit: z.string(),
+  sourceBranch: z.string(),
+  targetBranch: z.string(),
+})
+
 export async function registerTaskRoutes(app: FastifyInstance) {
   const { task: taskService, event: eventService } = app.services
 
@@ -251,6 +259,32 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
+  // Close task (teardown workspace, stop server, set status to closed)
+  app.post(
+    '/:taskId/close',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        response: {
+          200: z.object({
+            status: z.literal('closed'),
+            taskId: z.string(),
+          }),
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      await taskService.closeTask(taskId)
+
+      return {
+        status: 'closed',
+        taskId,
+      }
+    },
+  )
+
   // List files in workspace
   app.get(
     '/:taskId/files',
@@ -464,6 +498,133 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
+  // Merge task changes
+  app.post(
+    '/:taskId/merge',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        body: z
+          .object({
+            targetBranch: z.string().optional(),
+            commitMessage: z.string().optional(),
+          })
+          .nullable()
+          .optional(),
+        response: {
+          200: MergeResponseSchema,
+          400: z.object({
+            statusCode: z.literal(400),
+            error: z.string(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { taskId } = request.params as any
+      const body = request.body || {}
+      const { targetBranch = 'main', commitMessage } = body as any
+
+      // Import git utils
+      const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch, checkForConflicts } =
+        await import('../utils/git-utils.js')
+
+      // Get task to verify it exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Get workspace through workspace service
+      const workspace = await app.services.workspace.getOrCreateWorkspace(taskId)
+      if (!workspace) {
+        throw new Error(`No workspace found for task ${taskId}`)
+      }
+
+      const workspacePath = workspace.getWorkspacePath()
+
+      // Get current branch
+      const currentBranch = await getCurrentBranch(workspacePath)
+
+      // Check for uncommitted changes in workspace
+      const hasChanges = await hasUncommittedChanges(workspacePath)
+      if (hasChanges) {
+        reply.code(400)
+        return {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Cannot merge: workspace has uncommitted changes',
+        }
+      }
+
+      // Extract main repo path from worktree for additional checks
+      const gitPath = `${workspacePath}/.git`
+      let mainRepoPath = workspacePath
+
+      try {
+        const { exec } = await import('node:child_process')
+        const { promisify } = await import('node:util')
+        const execAsync = promisify(exec)
+
+        const { stdout: gitFileContent } = await execAsync(`cat "${gitPath}"`, {
+          cwd: workspacePath,
+          timeout: 5000,
+        })
+
+        // If .git is a file (worktree), extract main repo path
+        if (gitFileContent.startsWith('gitdir:')) {
+          const gitDir = gitFileContent.split(':')[1].trim()
+          // Extract main repo path from worktree git dir
+          const pathParts = gitDir.split('/')
+          const worktreesIndex = pathParts.lastIndexOf('worktrees')
+          if (worktreesIndex > 0) {
+            mainRepoPath = pathParts.slice(0, worktreesIndex - 1).join('/')
+          }
+        }
+      } catch {
+        // .git is a directory, we're in the main repo
+      }
+
+      // Check for uncommitted changes in the main repository target branch
+      const mainHasChanges = await hasUncommittedChanges(mainRepoPath)
+      if (mainHasChanges) {
+        reply.code(400)
+        return {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Cannot merge: target branch '${targetBranch}' has uncommitted changes in the main repository`,
+        }
+      }
+
+      // Check for conflicts before attempting merge
+      const hasConflicts = await checkForConflicts(workspacePath, targetBranch)
+      if (hasConflicts) {
+        reply.code(400)
+        return {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Cannot merge: conflicts detected between '${currentBranch}' and '${targetBranch}'`,
+        }
+      }
+
+      // Perform the merge
+      const mergeCommit = await mergeGitBranch(
+        workspacePath,
+        currentBranch,
+        targetBranch,
+        commitMessage,
+      )
+
+      return {
+        success: true,
+        mergeCommit,
+        sourceBranch: currentBranch,
+        targetBranch,
+      }
+    },
+  )
+
   // SSE endpoint for real-time events
   app.get(
     '/:taskId/stream',
@@ -515,6 +676,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         reply.raw.write(JSON.stringify(event) + '\n')
       }
 
+      // Flush the initial data
+      reply.raw.flushHeaders()
+
       // Subscribe to new events
       const unsubscribe = eventService.subscribe(taskId, (event) => {
         try {
@@ -524,24 +688,26 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         }
       })
 
-      // Handle client disconnect
-      request.raw.on('close', () => {
-        unsubscribe()
-        sseManager.disconnect(taskId, connectionId)
-        reply.raw.end()
-      })
-
       // Keep connection alive with periodic pings
       const pingInterval = setInterval(() => {
         try {
-          reply.raw.write(':\n') // SSE comment for keep-alive
+          // Send a ping event for NDJSON format
+          const pingEvent = {
+            type: 'ping',
+            timestamp: new Date().toISOString(),
+          }
+          reply.raw.write(JSON.stringify(pingEvent) + '\n')
         } catch (error) {
           clearInterval(pingInterval)
         }
       }, 30000)
 
+      // Handle client disconnect
       request.raw.on('close', () => {
+        unsubscribe()
+        sseManager.disconnect(taskId, connectionId)
         clearInterval(pingInterval)
+        reply.raw.end()
       })
     },
   )

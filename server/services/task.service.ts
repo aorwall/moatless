@@ -174,6 +174,33 @@ export class TaskService {
     await this.storage.delete(`events/${taskId}`)
   }
 
+  async closeTask(taskId: string): Promise<void> {
+    const task = await this.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Stop any running agent
+    await this.agentService.stopAgent(taskId)
+
+    // Stop preview server if running
+    try {
+      await this.workspaceService.stopServer(taskId)
+    } catch (error) {
+      // Log error but continue with cleanup
+      logger.warn('Failed to stop server during task close', error as Error)
+    }
+
+    // Clean up workspace (this will teardown the workspace)
+    await this.workspaceService.cleanupWorkspace(taskId)
+
+    // Update task status to closed
+    task.status = 'closed'
+    await this.storage.saveTask(task)
+
+    logger.info('Task closed successfully', { taskId })
+  }
+
   private async setupWorkspaceAsync(
     taskId: string,
     metadata: Task,

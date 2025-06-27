@@ -14,6 +14,7 @@ import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 
 import { ChatInput } from '../chat-input'
+import { ChatHeader } from './chat-header'
 
 export function ChatView() {
   const params = useParams({ from: '/tasks/$taskId' })
@@ -151,6 +152,7 @@ export function ChatView() {
 
   return (
     <div className="h-full flex flex-col">
+      <ChatHeader />
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full w-full" ref={scrollAreaRef}>
           <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">

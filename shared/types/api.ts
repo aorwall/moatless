@@ -75,8 +75,10 @@ export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
 
 // Merge Task Response
 export const MergeTaskResponseSchema = z.object({
-  status: z.string(),
-  message: z.string(),
+  success: z.boolean(),
+  mergeCommit: z.string(),
+  sourceBranch: z.string(),
+  targetBranch: z.string(),
 })
 export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
 
@@ -87,10 +89,26 @@ export const ServerLogsResponseSchema = z.object({
 })
 export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 
+// Git Status Schema
+export const GitStatusSchema = z.object({
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  hasUncommittedChanges: z.boolean(),
+  hasUnmergedCommits: z.boolean(),
+  isBehindBase: z.boolean(),
+  hasConflicts: z.boolean(),
+  commitsAhead: z.number(),
+  commitsBehind: z.number(),
+})
+export type GitStatus = z.infer<typeof GitStatusSchema>
+
 // Workspace Status Response
 export const WorkspaceStatusResponseSchema = z.object({
   status: z.nativeEnum(WorkspaceStatus),
   hasUncommittedChanges: z.boolean(),
+  hasUnmergedCommits: z.boolean(),
+  isBehindBase: z.boolean(),
+  gitStatus: GitStatusSchema.optional(),
 })
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 
