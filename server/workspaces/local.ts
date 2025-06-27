@@ -384,6 +384,60 @@ export class LocalWorkspace extends BaseWorkspace {
     return hasUncommittedChanges(this.workspacePath)
   }
 
+  async hasUnmergedCommits(): Promise<boolean> {
+    // If workspace doesn't exist or is not set up, no unmerged commits
+    if (
+      !this.workspacePath ||
+      !(await this.pathExists(this.workspacePath)) ||
+      this.getStatus() === WorkspaceStatus.NOT_SETUP
+    ) {
+      return false
+    }
+
+    // Import the function from git-utils
+    const { hasUnmergedCommits } = await import('../utils/git-utils.js')
+    return hasUnmergedCommits(this.workspacePath, this.originalBranch)
+  }
+
+  async isBehindBase(): Promise<boolean> {
+    // If workspace doesn't exist or is not set up, not behind
+    if (
+      !this.workspacePath ||
+      !(await this.pathExists(this.workspacePath)) ||
+      this.getStatus() === WorkspaceStatus.NOT_SETUP
+    ) {
+      return false
+    }
+
+    // Import the function from git-utils
+    const { isBehindBase } = await import('../utils/git-utils.js')
+    return isBehindBase(this.workspacePath, this.originalBranch)
+  }
+
+  async getGitStatus(): Promise<import('@shared/types/api.js').GitStatus> {
+    // If workspace doesn't exist or is not set up, return defaults
+    if (
+      !this.workspacePath ||
+      !(await this.pathExists(this.workspacePath)) ||
+      this.getStatus() === WorkspaceStatus.NOT_SETUP
+    ) {
+      return {
+        currentBranch: 'unknown',
+        baseBranch: 'main',
+        hasUncommittedChanges: false,
+        hasUnmergedCommits: false,
+        isBehindBase: false,
+        hasConflicts: false,
+        commitsAhead: 0,
+        commitsBehind: 0,
+      }
+    }
+
+    // Import the function from git-utils
+    const { getComprehensiveGitStatus } = await import('../utils/git-utils.js')
+    return getComprehensiveGitStatus(this.workspacePath, this.originalBranch)
+  }
+
   async mergeChanges(): Promise<string> {
     // Check if repository is local
     if (this.environment.repository.type !== 'local') {

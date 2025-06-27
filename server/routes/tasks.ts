@@ -616,7 +616,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       for (const event of existingEvents) {
         reply.raw.write(JSON.stringify(event) + '\n')
       }
-      
+
       // Flush the initial data
       reply.raw.flushHeaders()
 
@@ -635,7 +635,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
           // Send a ping event for NDJSON format
           const pingEvent = {
             type: 'ping',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           }
           reply.raw.write(JSON.stringify(pingEvent) + '\n')
         } catch (error) {

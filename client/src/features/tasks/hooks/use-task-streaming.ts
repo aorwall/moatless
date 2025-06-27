@@ -3,7 +3,7 @@ import { EventType } from '@shared/types/event'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
-import { useAgentStatus, useTask, useWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import { useTask, useTaskAgentStatus, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskStreamingResult {
@@ -26,8 +26,8 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
 
   // Get task metadata
   const { data: metadata } = useTask(taskId)
-  const { data: agentStatus } = useAgentStatus(taskId)
-  const { data: workspaceStatus } = useWorkspaceStatus(taskId)
+  const { data: agentStatus } = useTaskAgentStatus(taskId)
+  const { data: workspaceStatus } = useTaskWorkspaceStatus(taskId)
 
   // Determine if we should stream based on task status
   const shouldStream = useMemo(() => {
@@ -110,7 +110,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
         agentStatus: agentStatus?.status,
         workspaceStatus: workspaceStatus?.status,
       })
-      
+
       // Create and connect SSE client
       const client = new NDJSONSSEClient({
         taskId,

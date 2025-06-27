@@ -89,10 +89,26 @@ export const ServerLogsResponseSchema = z.object({
 })
 export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 
+// Git Status Schema
+export const GitStatusSchema = z.object({
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  hasUncommittedChanges: z.boolean(),
+  hasUnmergedCommits: z.boolean(),
+  isBehindBase: z.boolean(),
+  hasConflicts: z.boolean(),
+  commitsAhead: z.number(),
+  commitsBehind: z.number(),
+})
+export type GitStatus = z.infer<typeof GitStatusSchema>
+
 // Workspace Status Response
 export const WorkspaceStatusResponseSchema = z.object({
   status: z.nativeEnum(WorkspaceStatus),
   hasUncommittedChanges: z.boolean(),
+  hasUnmergedCommits: z.boolean(),
+  isBehindBase: z.boolean(),
+  gitStatus: GitStatusSchema.optional(),
 })
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 

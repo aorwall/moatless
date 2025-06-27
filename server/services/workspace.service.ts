@@ -452,9 +452,33 @@ export class WorkspaceService {
     const workspace = await this.getOrCreateWorkspace(taskId)
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
+    // Check if workspace has getGitStatus method (LocalWorkspace)
+    let gitStatus
+    if ('getGitStatus' in workspace && typeof workspace.getGitStatus === 'function') {
+      gitStatus = await workspace.getGitStatus()
+    }
+
+    // For backward compatibility, also get individual values
+    let hasUnmergedCommits = gitStatus?.hasUnmergedCommits ?? false
+    let isBehindBase = gitStatus?.isBehindBase ?? false
+
+    // If gitStatus is not available, fall back to individual methods
+    if (!gitStatus) {
+      if ('hasUnmergedCommits' in workspace && typeof workspace.hasUnmergedCommits === 'function') {
+        hasUnmergedCommits = await workspace.hasUnmergedCommits()
+      }
+      if ('isBehindBase' in workspace && typeof workspace.isBehindBase === 'function') {
+        isBehindBase = await workspace.isBehindBase()
+      }
+    }
+
     return {
       status: workspace.getStatus(),
-      hasUncommittedChanges: await workspace.hasUncommittedChanges(),
+      hasUncommittedChanges:
+        gitStatus?.hasUncommittedChanges ?? (await workspace.hasUncommittedChanges()),
+      hasUnmergedCommits,
+      isBehindBase,
+      gitStatus,
       backgroundTaskCount,
     }
   }

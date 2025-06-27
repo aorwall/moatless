@@ -62,6 +62,18 @@ export function ChatHeader() {
         })
         return
       }
+      if (!workspaceStatus?.hasUnmergedCommits) {
+        toast.warning('No unmerged commits to merge', {
+          description: 'All commits have already been merged.',
+        })
+        return
+      }
+      if (workspaceStatus?.gitStatus?.hasConflicts) {
+        toast.warning('Cannot merge: conflicts detected', {
+          description: 'Please resolve conflicts before merging.',
+        })
+        return
+      }
       mergeTask.mutate({ taskId: metadata.taskId })
     }
   }
@@ -100,6 +112,47 @@ export function ChatHeader() {
                 {statusConfig.icon}
                 <span>{metadata.status}</span>
               </div>
+              {workspaceStatus?.gitStatus ? (
+                <>
+                  {workspaceStatus.gitStatus.hasUnmergedCommits && (
+                    <>
+                      <span>•</span>
+                      <span className="text-blue-600 dark:text-blue-400">
+                        {workspaceStatus.gitStatus.commitsAhead} ahead
+                      </span>
+                    </>
+                  )}
+                  {workspaceStatus.gitStatus.isBehindBase && (
+                    <>
+                      <span>•</span>
+                      <span className="text-orange-600 dark:text-orange-400">
+                        {workspaceStatus.gitStatus.commitsBehind} behind
+                      </span>
+                    </>
+                  )}
+                  {workspaceStatus.gitStatus.hasConflicts && (
+                    <>
+                      <span>•</span>
+                      <span className="text-red-600 dark:text-red-400">has conflicts</span>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {workspaceStatus?.hasUnmergedCommits && (
+                    <>
+                      <span>•</span>
+                      <span className="text-blue-600 dark:text-blue-400">unmerged commits</span>
+                    </>
+                  )}
+                  {workspaceStatus?.isBehindBase && (
+                    <>
+                      <span>•</span>
+                      <span className="text-orange-600 dark:text-orange-400">behind main</span>
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -116,6 +169,8 @@ export function ChatHeader() {
                       mergeTask.isPending ||
                       isLoadingWorkspace ||
                       workspaceStatus?.hasUncommittedChanges ||
+                      !workspaceStatus?.hasUnmergedCommits ||
+                      workspaceStatus?.gitStatus?.hasConflicts ||
                       metadata.status === 'running'
                     }
                     className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
@@ -131,6 +186,10 @@ export function ChatHeader() {
                     <p>Cannot merge: agent is running</p>
                   ) : isLoadingWorkspace ? (
                     <p>Checking status...</p>
+                  ) : !workspaceStatus?.hasUnmergedCommits ? (
+                    <p>No unmerged commits to merge</p>
+                  ) : workspaceStatus?.gitStatus?.hasConflicts ? (
+                    <p>Cannot merge: conflicts detected</p>
                   ) : (
                     <p>Merge workspace changes to the main branch</p>
                   )}
