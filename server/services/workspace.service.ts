@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isGitRepository } from '@server/utils/index.js'
 import {
@@ -6,7 +7,6 @@ import {
   WorkspaceError,
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
-import { promises as fs } from 'node:fs'
 import type { CommandResult, LocalRepository, ServerStatus } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
 import { logger } from '../utils/logger.js'
@@ -75,11 +75,7 @@ export class WorkspaceService {
     branchName?: string,
   ): Promise<string> {
     if (!(await this.pathExists(repo.path))) {
-      throw new WorkspaceError(
-        `Repository path does not exist: ${repo.path}`,
-        taskId,
-        400
-      )
+      throw new WorkspaceError(`Repository path does not exist: ${repo.path}`, taskId, 400)
     }
 
     // If worktrees are disabled, use repository path directly
@@ -95,11 +91,7 @@ export class WorkspaceService {
 
     // Verify repo is a git repository before creating worktree
     if (!(await isGitRepository(repo.path))) {
-      throw new WorkspaceError(
-        `Repository path ${repo.path} is not a git repository`,
-        taskId,
-        400
-      )
+      throw new WorkspaceError(`Repository path ${repo.path} is not a git repository`, taskId, 400)
     }
 
     // Create worktree if it doesn't exist
@@ -561,11 +553,27 @@ export class WorkspaceService {
   }
 
   async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
-    if (!(await this.canListFiles(taskId))) {
+    if (!(await this.canSearchFiles(taskId))) {
       throw new WorkspaceError('Cannot search files: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.searchFiles(request)
+  }
+
+  async canSearchFiles(taskId: string): Promise<boolean> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const status = workspace.getStatus()
+      // Files can be searched if workspace exists and is at least setting up
+      return status !== WorkspaceStatus.NOT_SETUP
+    } catch {
+      return false
+    }
   }
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {

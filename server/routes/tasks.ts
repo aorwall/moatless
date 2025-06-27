@@ -292,13 +292,29 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         }),
       },
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const { taskId } = request.params as any
       const { path = '/', recursive = false } = request.query as any
 
-      // Task validation and capability check now handled in workspace service
-      const files = await app.services.workspace.listFiles(taskId, path, recursive)
-      return { files, totalCount: files.length }
+      try {
+        // Task validation and capability check now handled in workspace service
+        const files = await app.services.workspace.listFiles(taskId, path, recursive)
+        return { files, totalCount: files.length }
+      } catch (error) {
+        if (error instanceof TaskNotFoundError) {
+          return reply.status(404).send({ error: 'Task not found' })
+        }
+        if (error instanceof Error && error.message.includes('Path not found')) {
+          return reply.status(404).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Access denied')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Cannot list files')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        throw error
+      }
     },
   )
 
@@ -313,13 +329,39 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         }),
       },
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const { taskId } = request.params as any
       const filePath = (request.params as any)['*']
 
-      // Task validation and capability check now handled in workspace service
-      const content = await app.services.workspace.readFile(taskId, filePath)
-      return { content, encoding: 'utf-8' }
+      if (!filePath) {
+        return reply.status(400).send({ error: 'File path is required' })
+      }
+
+      try {
+        // Task validation and capability check now handled in workspace service
+        const content = await app.services.workspace.readFile(taskId, filePath)
+        return { content, encoding: 'utf-8' }
+      } catch (error) {
+        if (error instanceof TaskNotFoundError) {
+          return reply.status(404).send({ error: 'Task not found' })
+        }
+        if (error instanceof Error && error.message.includes('File not found')) {
+          return reply.status(404).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Access denied')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('File too large')) {
+          return reply.status(413).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Path is not a file')) {
+          return reply.status(400).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Cannot read file')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        throw error
+      }
     },
   )
 
@@ -356,18 +398,30 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         params: TaskIdParamsSchema,
         body: z.object({
           query: z.string(),
+          limit: z.number().optional(),
         }),
       },
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const { taskId } = request.params as any
-      const { query } = request.body as any
+      const { query, limit } = request.body as any
 
-      // Task validation and capability check now handled in workspace service
-      const result = await app.services.workspace.searchFiles(taskId, {
-        query,
-      })
-      return result
+      try {
+        // Task validation and capability check now handled in workspace service
+        const result = await app.services.workspace.searchFiles(taskId, {
+          query,
+          limit,
+        })
+        return result
+      } catch (error) {
+        if (error instanceof TaskNotFoundError) {
+          return reply.status(404).send({ error: 'Task not found' })
+        }
+        if (error instanceof Error && error.message.includes('Cannot search files')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        throw error
+      }
     },
   )
 

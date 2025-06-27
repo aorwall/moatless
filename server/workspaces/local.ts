@@ -484,28 +484,50 @@ export class LocalWorkspace extends BaseWorkspace {
   async listFiles(relativePath = '.', recursive = false): Promise<string[]> {
     const fullPath = path.join(this.workspacePath, relativePath)
 
+    // Security: Ensure path is within workspace
+    const resolvedPath = path.resolve(fullPath)
+    const resolvedWorkspace = path.resolve(this.workspacePath)
+    if (!resolvedPath.startsWith(resolvedWorkspace)) {
+      throw new Error('Access denied: Path outside workspace')
+    }
+
     try {
       const stats = await fs.stat(fullPath)
       if (stats.isFile()) {
         return [relativePath]
       }
 
-      const entries = await fs.readdir(fullPath, { withFileTypes: true })
       const files: string[] = []
 
-      for (const entry of entries) {
-        const entryPath = path.join(relativePath, entry.name)
+      async function walkDir(dir: string, baseDir: string, basePath: string): Promise<void> {
+        const entries = await fs.readdir(dir, { withFileTypes: true })
 
-        if (entry.isFile()) {
-          files.push(entryPath)
-        } else if (entry.isDirectory() && recursive && !entry.name.startsWith('.')) {
-          const subFiles = await this.listFiles(entryPath, recursive)
-          files.push(...subFiles)
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name)
+          const relativePath = path.join(basePath, entry.name)
+
+          // Skip hidden files and common ignore patterns
+          if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+            continue
+          }
+
+          if (entry.isDirectory()) {
+            files.push(relativePath + '/')
+            if (recursive) {
+              await walkDir(fullPath, baseDir, relativePath)
+            }
+          } else {
+            files.push(relativePath)
+          }
         }
       }
 
+      await walkDir(fullPath, this.workspacePath, relativePath === '.' ? '' : relativePath)
       return files.sort()
     } catch (error) {
+      if ((error as any).code === 'ENOENT') {
+        throw new Error(`Path not found: ${relativePath}`)
+      }
       throw new Error(
         `Failed to list files: ${error instanceof Error ? error.message : String(error)}`,
       )
@@ -524,8 +546,32 @@ export class LocalWorkspace extends BaseWorkspace {
     }
 
     try {
+      // Check file exists and is readable
+      const stats = await fs.stat(fullPath)
+      if (!stats.isFile()) {
+        throw new Error('Path is not a file')
+      }
+
+      // Read file with size limit (10MB)
+      const MAX_FILE_SIZE = 10 * 1024 * 1024
+      if (stats.size > MAX_FILE_SIZE) {
+        throw new Error('File too large to read')
+      }
+
       return await fs.readFile(fullPath, 'utf-8')
     } catch (error) {
+      if ((error as any).code === 'ENOENT') {
+        throw new Error(`File not found: ${filePath}`)
+      }
+      if (error instanceof Error && error.message.includes('Access denied')) {
+        throw error
+      }
+      if (error instanceof Error && error.message.includes('File too large')) {
+        throw error
+      }
+      if (error instanceof Error && error.message.includes('Path is not a file')) {
+        throw error
+      }
       throw new Error(
         `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
       )
