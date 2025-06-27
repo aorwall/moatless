@@ -646,12 +646,42 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         throw new TaskNotFoundError(taskId)
       }
 
-      // Set SSE headers
+      // Set SSE headers with CORS
+      const origin = request.headers.origin
+      const corsHeaders: Record<string, string> = {}
+      
+      // Add CORS headers based on the same logic as the CORS plugin
+      if (origin) {
+        // In development, allow all localhost origins
+        if (process.env.NODE_ENV !== 'production') {
+          try {
+            const url = new URL(origin)
+            if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+              corsHeaders['Access-Control-Allow-Origin'] = origin
+              corsHeaders['Access-Control-Allow-Credentials'] = 'true'
+            }
+          } catch {
+            // Invalid origin URL, skip CORS headers
+          }
+        } else {
+          // In production, use configured origin
+          const allowedOrigin = process.env.CORS_ORIGIN
+          if (allowedOrigin === 'true' || allowedOrigin === origin) {
+            corsHeaders['Access-Control-Allow-Origin'] = origin
+            corsHeaders['Access-Control-Allow-Credentials'] = 'true'
+          }
+        }
+      } else if (process.env.CORS_ORIGIN === 'true' || process.env.NODE_ENV !== 'production') {
+        // No origin header but CORS allows all origins
+        corsHeaders['Access-Control-Allow-Origin'] = '*'
+      }
+
       reply.raw.writeHead(200, {
         'Content-Type': 'application/x-ndjson',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no', // Disable Nginx buffering
+        ...corsHeaders,
       })
 
       // Register connection with manager
