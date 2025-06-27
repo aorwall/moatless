@@ -1,31 +1,53 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { toast } from 'sonner'
 
-import { CreateTask } from '@/features/tasks/components/create-task'
-import { TaskList } from '@/features/tasks/components/task-list'
-import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
-import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { ChatInput } from '@/features/tasks/components/chat-input'
+import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { getErrorMessage } from '@/lib/utils/error'
 
 export const Route = createFileRoute('/')({
   component: Dashboard,
 })
 
 function Dashboard() {
-  // Fetch all tasks (both active and finished)
-  const { data: tasks, isLoading, error } = useTasksList()
+  const navigate = useNavigate()
+
+  const createTask = useCreateTask({
+    onSuccess: (data) => {
+      navigate({ to: `/tasks/${data.taskId}` })
+    },
+    onError: (error) => {
+      toast.error('Failed to create task', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
+
+  const handleCreateTask = (message: string, environmentId: string, clearMessage: () => void) => {
+    createTask.mutate(
+      {
+        agentType: 'claude-code',
+        message,
+        environmentId,
+      },
+      {
+        onSuccess: () => {
+          clearMessage()
+        },
+      },
+    )
+  }
 
   return (
-    <div className="container mx-auto px-6 py-8">
-      <div className="mx-auto max-w-4xl space-y-8">
-        <CreateTask />
-        {error ? (
-          <ErrorAlert error={error} title="Failed to load data" />
-        ) : isLoading ? (
-          <TaskListSkeleton />
-        ) : (
-          <TaskList tasks={tasks || []} loading={false} />
-        )}
-      </div>
+    <div className="flex h-full items-center justify-center">
+      <ChatInput
+        showEnvironmentSelector={true}
+        showTitle={true}
+        title="What should we build today?"
+        onCreateTask={handleCreateTask}
+        isLoading={createTask.isPending}
+        className="w-full max-w-2xl px-6"
+      />
     </div>
   )
 }
