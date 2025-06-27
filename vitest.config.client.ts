@@ -2,7 +2,14 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      // Ensure the automatic JSX runtime is used
+      jsxRuntime: 'automatic',
+      // Include the React refresh for better HMR support
+      include: '**/*.{jsx,tsx}',
+    }),
+  ],
   test: {
     globals: true,
     environment: 'jsdom',

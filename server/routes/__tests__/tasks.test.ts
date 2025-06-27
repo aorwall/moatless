@@ -213,13 +213,13 @@ describe('Task Routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/v1/tasks?status=active',
+        url: '/api/v1/tasks?status=open',
       })
 
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
       expect(body.tasks).toHaveLength(1)
-      expect(body.tasks[0].status).toBe('active')
+      expect(body.tasks[0].status).toBe('open')
     })
   })
 
@@ -258,7 +258,7 @@ describe('Task Routes', () => {
     it('should return task events with pagination', async () => {
       const mockTask = {
         taskId: 'test-123',
-        status: 'active' as const,
+        status: 'open' as const,
       } as any
 
       const mockEvents = [
@@ -314,7 +314,7 @@ describe('Task Routes', () => {
         method: 'PATCH',
         url: '/api/v1/tasks/test-123',
         payload: {
-          status: 'completed',
+          status: 'closed',
         },
       })
 
