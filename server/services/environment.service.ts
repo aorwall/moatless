@@ -119,12 +119,7 @@ export class EnvironmentService {
 
     const localRepo = environment.repository as LocalRepository
 
-    return await searchFilesInDirectory(
-      localRepo.path,
-      request.query,
-      request.maxResults || 100,
-      request.filePattern,
-    )
+    return await searchFilesInDirectory(localRepo.path, request)
   }
 
   async validateEnvironment(envId: string): Promise<boolean> {

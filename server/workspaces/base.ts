@@ -38,6 +38,10 @@ export abstract class BaseWorkspace {
     return this.environment.id
   }
 
+  get environmentConfig(): Environment {
+    return this.environment
+  }
+
   constructor(taskId: string, environment: Environment, eventService: EventService) {
     this.taskId = taskId
     this.environment = environment

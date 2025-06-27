@@ -11,7 +11,7 @@ import type {
   Repository,
   UpdateEnvironmentRequest,
 } from '@shared/types/environment'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { z } from 'zod'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -42,6 +42,16 @@ export function EnvironmentForm({
   initialData,
   mode = 'create',
 }: EnvironmentFormProps) {
+  // Generate unique IDs for form fields
+  const nameId = useId()
+  const descriptionId = useId()
+  const repositoryTypeId = useId()
+  const localPathId = useId()
+  const gitWorktreesId = useId()
+  const githubRepoId = useId()
+  const githubBranchId = useId()
+  const githubCommitId = useId()
+  
   const getDefaultFormData = () => ({
     name: '',
     description: '',
@@ -268,9 +278,9 @@ export function EnvironmentForm({
             <h3 className="text-lg font-medium">Basic Information</h3>
 
             <FormField>
-              <FormLabel htmlFor="name">Name *</FormLabel>
+              <FormLabel htmlFor={nameId}>Name *</FormLabel>
               <Input
-                id="name"
+                id={nameId}
                 value={formData.name}
                 onChange={(e) => updateFormData('name', e.target.value)}
                 placeholder="Environment name"
@@ -279,9 +289,9 @@ export function EnvironmentForm({
             </FormField>
 
             <FormField>
-              <FormLabel htmlFor="description">Description</FormLabel>
+              <FormLabel htmlFor={descriptionId}>Description</FormLabel>
               <Textarea
-                id="description"
+                id={descriptionId}
                 value={formData.description}
                 onChange={(e) => updateFormData('description', e.target.value)}
                 placeholder="Environment description"
@@ -295,14 +305,14 @@ export function EnvironmentForm({
             <h3 className="text-lg font-medium">Repository</h3>
 
             <FormField>
-              <FormLabel htmlFor="repository-type">Repository Type</FormLabel>
+              <FormLabel htmlFor={repositoryTypeId}>Repository Type</FormLabel>
               <Select
                 value={formData.repositoryType}
                 onValueChange={(value) =>
                   updateFormData('repositoryType', value as 'local' | 'github')
                 }
               >
-                <SelectTrigger id="repository-type" aria-label="Repository type">
+                <SelectTrigger id={repositoryTypeId} aria-label="Repository type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -315,9 +325,9 @@ export function EnvironmentForm({
             {formData.repositoryType === 'local' && (
               <div className="space-y-4">
                 <FormField>
-                  <FormLabel htmlFor="local-path">Local Path *</FormLabel>
+                  <FormLabel htmlFor={localPathId}>Local Path *</FormLabel>
                   <Input
-                    id="local-path"
+                    id={localPathId}
                     value={formData.localPath}
                     onChange={(e) => updateFormData('localPath', e.target.value)}
                     placeholder="/path/to/your/project"
@@ -329,11 +339,11 @@ export function EnvironmentForm({
                 <FormField>
                   <div className="flex items-center space-x-2">
                     <Switch
-                      id="use-git-worktrees"
+                      id={gitWorktreesId}
                       checked={formData.useGitWorktrees}
                       onCheckedChange={(checked) => updateFormData('useGitWorktrees', checked)}
                     />
-                    <FormLabel htmlFor="use-git-worktrees" className="cursor-pointer">
+                    <FormLabel htmlFor={gitWorktreesId} className="cursor-pointer">
                       Use Git Worktrees
                     </FormLabel>
                   </div>
@@ -347,9 +357,9 @@ export function EnvironmentForm({
             {formData.repositoryType === 'github' && (
               <div className="space-y-4">
                 <FormField>
-                  <FormLabel htmlFor="github-repo-id">Repository ID *</FormLabel>
+                  <FormLabel htmlFor={githubRepoId}>Repository ID *</FormLabel>
                   <Input
-                    id="github-repo-id"
+                    id={githubRepoId}
                     value={formData.githubRepoId}
                     onChange={(e) => updateFormData('githubRepoId', e.target.value)}
                     placeholder="owner/repository"
@@ -360,9 +370,9 @@ export function EnvironmentForm({
 
                 <div className="grid grid-cols-2 gap-4">
                   <FormField>
-                    <FormLabel htmlFor="github-branch">Branch</FormLabel>
+                    <FormLabel htmlFor={githubBranchId}>Branch</FormLabel>
                     <Input
-                      id="github-branch"
+                      id={githubBranchId}
                       value={formData.githubBranch}
                       onChange={(e) => updateFormData('githubBranch', e.target.value)}
                       placeholder="main"
@@ -370,9 +380,9 @@ export function EnvironmentForm({
                   </FormField>
 
                   <FormField>
-                    <FormLabel htmlFor="github-commit">Commit (optional)</FormLabel>
+                    <FormLabel htmlFor={githubCommitId}>Commit (optional)</FormLabel>
                     <Input
-                      id="github-commit"
+                      id={githubCommitId}
                       value={formData.githubCommit}
                       onChange={(e) => updateFormData('githubCommit', e.target.value)}
                       placeholder="commit hash"

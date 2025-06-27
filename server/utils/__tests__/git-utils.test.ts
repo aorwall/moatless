@@ -492,9 +492,9 @@ index 123abc..456def 100644
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, { 
-            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n', 
-            stderr: 'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n' 
+          callback(null, {
+            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n',
+            stderr: 'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n',
           })
         }
       }) as any)
@@ -513,9 +513,10 @@ index 123abc..456def 100644
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, { 
-            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/features/tasks/components/task-list.tsx\nCONFLICT (content): Merge conflict in client/src/features/tasks/components/task-list.tsx\n', 
-            stderr: '' 
+          callback(null, {
+            stdout:
+              'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/features/tasks/components/task-list.tsx\nCONFLICT (content): Merge conflict in client/src/features/tasks/components/task-list.tsx\n',
+            stderr: '',
           })
         }
       }) as any)
@@ -527,7 +528,8 @@ index 123abc..456def 100644
 
     it('should detect conflicts when merge-tree fails and reports conflicts in stdout', async () => {
       const conflictError = new Error('Command failed') as any
-      conflictError.stdout = 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/file.tsx\nAuto-merging client/src/file.tsx\nCONFLICT (content): Merge conflict in client/src/file.tsx\n'
+      conflictError.stdout =
+        'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/file.tsx\nAuto-merging client/src/file.tsx\nCONFLICT (content): Merge conflict in client/src/file.tsx\n'
       conflictError.stderr = ''
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
@@ -545,7 +547,8 @@ index 123abc..456def 100644
     it('should detect conflicts when merge-tree fails and reports conflicts in stderr', async () => {
       const conflictError = new Error('Command failed') as any
       conflictError.stdout = ''
-      conflictError.stderr = 'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n'
+      conflictError.stderr =
+        'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n'
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
@@ -563,9 +566,9 @@ index 123abc..456def 100644
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, { 
-            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n', 
-            stderr: 'Auto-merging src/file.js\n' 
+          callback(null, {
+            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n',
+            stderr: 'Auto-merging src/file.js\n',
           })
         }
       }) as any)
@@ -585,12 +588,13 @@ index 123abc..456def 100644
             // First call (main) fails with non-conflict error
             const error = new Error('Branch not found') as any
             error.stdout = ''
-            error.stderr = 'fatal: ambiguous argument \'main\': unknown revision'
+            error.stderr = "fatal: ambiguous argument 'main': unknown revision"
             callback(error, null, null)
           } else {
             // Second call (master) succeeds with conflicts
             const conflictError = new Error('Command failed') as any
-            conflictError.stdout = 'Auto-merging file.js\nCONFLICT (content): Merge conflict in file.js\n'
+            conflictError.stdout =
+              'Auto-merging file.js\nCONFLICT (content): Merge conflict in file.js\n'
             conflictError.stderr = ''
             callback(conflictError, null, null)
           }
@@ -649,8 +653,9 @@ index 123abc..456def 100644
     })
 
     it('should work correctly in git worktree paths', async () => {
-      const worktreePath = '/Users/albert/repos/moatless/moatless-swarm-ui-workspace-e658820a-e38e-4b3f-944d-3e29f6396aa1'
-      
+      const worktreePath =
+        '/Users/albert/repos/moatless/moatless-swarm-ui-workspace-e658820a-e38e-4b3f-944d-3e29f6396aa1'
+
       const conflictError = new Error('Command failed') as any
       conflictError.stdout = `f6cd8dcbca0f67e1dc2e867546fb574649338d77
 100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1	client/src/features/tasks/components/task-list.tsx
@@ -685,9 +690,9 @@ Auto-merging client/src/features/tasks/hooks/use-tasks.ts`
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
         if (typeof callback === 'function') {
-          callback(null, { 
-            stdout: 'Some output with CONFLICT in it\n', 
-            stderr: 'More output with CONFLICT in stderr\n' 
+          callback(null, {
+            stdout: 'Some output with CONFLICT in it\n',
+            stderr: 'More output with CONFLICT in stderr\n',
           })
         }
       }) as any)

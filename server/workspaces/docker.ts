@@ -107,6 +107,7 @@ export class DockerWorkspace extends BaseWorkspace {
             if (result.exitCode === 0) {
               await this.eventService.emitEvent({
                 eventId: randomUUID(),
+                agentType: 'system',
                 type: EventType.WORKSPACE,
                 subType: 'command_completed',
                 taskId: this.taskId,
@@ -121,6 +122,7 @@ export class DockerWorkspace extends BaseWorkspace {
             } else {
               await this.eventService.emitEvent({
                 eventId: randomUUID(),
+                agentType: 'system',
                 type: EventType.WORKSPACE,
                 subType: 'command_failed',
                 taskId: this.taskId,
@@ -137,6 +139,7 @@ export class DockerWorkspace extends BaseWorkspace {
           } catch (error) {
             await this.eventService.emitEvent({
               eventId: randomUUID(),
+              agentType: 'system',
               type: EventType.WORKSPACE,
               subType: 'command_failed',
               taskId: this.taskId,
@@ -155,6 +158,7 @@ export class DockerWorkspace extends BaseWorkspace {
       // Emit setup completed event
       await this.eventService.emitEvent({
         eventId: randomUUID(),
+        agentType: 'system',
         type: EventType.WORKSPACE,
         subType: 'setup_completed',
         taskId: this.taskId,
@@ -170,6 +174,7 @@ export class DockerWorkspace extends BaseWorkspace {
     } catch (error) {
       await this.eventService.emitEvent({
         eventId: randomUUID(),
+        agentType: 'system',
         type: EventType.WORKSPACE,
         subType: 'setup_failed',
         taskId: this.taskId,

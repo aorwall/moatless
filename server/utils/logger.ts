@@ -1,4 +1,4 @@
-import pino from 'pino'
+import { pino } from 'pino'
 
 // Create the base pino logger with pino-pretty in development
 const pinoLogger = pino({

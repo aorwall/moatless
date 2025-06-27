@@ -638,7 +638,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Set SSE headers with CORS
       const origin = request.headers.origin
       const corsHeaders: Record<string, string> = {}
-      
+
       // Add CORS headers based on the same logic as the CORS plugin
       if (origin) {
         // In development, allow all localhost origins
