@@ -10,6 +10,7 @@ import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-even
 import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { Badge } from '@/lib/components/ui/badge'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 
@@ -207,9 +208,11 @@ export function ChatView() {
 
             {/* Show running state when task is running */}
             {isTaskRunning && metadata.iterations && metadata.iterations.length > 0 && (
-              <div className="flex items-center justify-center py-4 space-x-2">
-                <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">Processing...</span>
+              <div className="flex items-center justify-center py-4">
+                <Badge variant="outline" className="flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  running
+                </Badge>
               </div>
             )}
 
