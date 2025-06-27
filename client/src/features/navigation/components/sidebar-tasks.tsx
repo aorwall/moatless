@@ -125,33 +125,50 @@ export function SidebarTasks() {
 
                 return (
                   <SidebarMenuItem key={task.taskId}>
-                    <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
-                      <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
-                        <div className="flex w-full items-center gap-2 min-w-0">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className={`flex items-center ${statusConfig.color}`}>
-                                {statusConfig.icon}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
+                          <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
+                            <div className="flex w-full items-center gap-2 min-w-0">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className={`flex items-center ${statusConfig.color}`}>
+                                    {statusConfig.icon}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="text-xs">
+                                  {statusConfig.tooltip}
+                                </TooltipContent>
+                              </Tooltip>
+                              <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+                                <span className="font-medium text-sm truncate leading-tight">
+                                  {taskTitle}
+                                </span>
+                                <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
+                                  <span className="truncate">{environmentName}</span>
+                                  <span className="shrink-0">
+                                    {getRelativeTime(task.lastMessageAt || task.createdAt)}
+                                  </span>
+                                </div>
                               </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="text-xs">
-                              {statusConfig.tooltip}
-                            </TooltipContent>
-                          </Tooltip>
-                          <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-                            <span className="font-medium text-sm truncate leading-tight">
-                              {taskTitle}
-                            </span>
-                            <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-                              <span className="truncate">{environmentName}</span>
-                              <span className="shrink-0">
-                                {getRelativeTime(task.lastMessageAt || task.createdAt)}
-                              </span>
                             </div>
-                          </div>
+                          </Link>
+                        </SidebarMenuButton>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <div className="space-y-1">
+                          <p className="font-medium text-sm break-words">
+                            {taskTitle.length > 150
+                              ? `${taskTitle.substring(0, 150)}...`
+                              : taskTitle}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {environmentName} •{' '}
+                            {getRelativeTime(task.lastMessageAt || task.createdAt)}
+                          </p>
                         </div>
-                      </Link>
-                    </SidebarMenuButton>
+                      </TooltipContent>
+                    </Tooltip>
                   </SidebarMenuItem>
                 )
               })}
