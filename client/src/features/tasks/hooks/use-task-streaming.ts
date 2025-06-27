@@ -3,7 +3,11 @@ import { EventType } from '@shared/types/event'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
-import { useTask, useTaskAgentStatus, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import {
+  useTask,
+  useTaskAgentStatus,
+  useTaskWorkspaceStatus,
+} from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskStreamingResult {
@@ -21,7 +25,6 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const [streamEvents, setStreamEvents] = useState<Array<Event>>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
-  const [lastEventId, setLastEventId] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   // Get task metadata
@@ -58,11 +61,6 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     (newEvent: Event) => {
       setStreamEvents((prev) => [...prev, newEvent])
       setStreamingError(null)
-
-      // Update last event ID for stream continuation
-      if (newEvent.eventId) {
-        setLastEventId(newEvent.eventId)
-      }
 
       // Refetch task data when we receive a RESULT event
       if (newEvent.type === EventType.RESULT) {
@@ -105,11 +103,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   // Manage SSE connection lifecycle
   useEffect(() => {
     if (shouldStream) {
-      console.log(`[SSE] Starting streaming for task ${taskId}`, {
-        taskStatus: metadata?.status,
-        agentStatus: agentStatus?.status,
-        workspaceStatus: workspaceStatus?.status,
-      })
+      console.log(`[SSE] Starting streaming for task ${taskId}`)
 
       // Create and connect SSE client
       const client = new NDJSONSSEClient({
@@ -120,11 +114,6 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
         onDisconnect: handleSSEDisconnect,
         onTaskNotFound: handleSSETaskNotFound,
       })
-
-      // Set last event ID if available
-      if (lastEventId) {
-        client.lastEventId = lastEventId
-      }
 
       sseClientRef.current = client
       client.connect()
@@ -146,7 +135,6 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   }, [
     shouldStream,
     taskId,
-    lastEventId,
     handleSSEEvent,
     handleSSEError,
     handleSSEConnect,
@@ -160,7 +148,6 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
       setStreamEvents([])
       setIsStreaming(false)
       setStreamingError(null)
-      setLastEventId(null)
       if (sseClientRef.current) {
         sseClientRef.current.disconnect()
         sseClientRef.current = null
