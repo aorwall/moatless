@@ -23,10 +23,8 @@ export function ChatHeader() {
   )
 
   const mergeTask = useMergeTask({
-    onSuccess: (data) => {
-      toast.success('Changes merged successfully', {
-        description: data.message,
-      })
+    onSuccess: () => {
+      toast.success('Changes merged successfully')
     },
     onError: (error) => {
       console.error('Failed to merge changes:', error)
@@ -44,7 +42,7 @@ export function ChatHeader() {
         })
         return
       }
-      mergeTask.mutate(metadata.taskId)
+      mergeTask.mutate({taskId: metadata.taskId})
     }
   }
 
