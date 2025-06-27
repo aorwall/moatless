@@ -109,4 +109,10 @@ export const tasksApi = {
   ): Promise<MergeTaskResponse> {
     return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`, options || {})
   },
+
+  async closeTask(taskId: string): Promise<{ status: 'closed'; taskId: string }> {
+    return await apiClient.post<{ status: 'closed'; taskId: string }>(
+      `/api/v1/tasks/${taskId}/close`,
+    )
+  },
 }

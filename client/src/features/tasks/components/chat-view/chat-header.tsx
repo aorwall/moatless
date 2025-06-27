@@ -1,8 +1,13 @@
-import { useParams } from '@tanstack/react-router'
-import { GitMerge } from 'lucide-react'
+import { useNavigate, useParams } from '@tanstack/react-router'
+import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
-import { useMergeTask, useTask, useTaskWorkspaceStatus } from '@/features/tasks/hooks/use-tasks'
+import {
+  useCloseTask,
+  useMergeTask,
+  useTask,
+  useTaskWorkspaceStatus,
+} from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -16,6 +21,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
+  const navigate = useNavigate()
   const { data: metadata } = useTask(params.taskId)
   const { data: environments } = useEnvironmentsList()
   const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
@@ -34,6 +40,20 @@ export function ChatHeader() {
     },
   })
 
+  const closeTask = useCloseTask({
+    onSuccess: () => {
+      toast.success('Task closed successfully')
+      // Navigate back to tasks list
+      navigate({ to: '/tasks' })
+    },
+    onError: (error) => {
+      console.error('Failed to close task:', error)
+      toast.error('Failed to close task', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
+
   const handleMerge = () => {
     if (metadata) {
       if (workspaceStatus?.hasUncommittedChanges) {
@@ -42,7 +62,13 @@ export function ChatHeader() {
         })
         return
       }
-      mergeTask.mutate({taskId: metadata.taskId})
+      mergeTask.mutate({ taskId: metadata.taskId })
+    }
+  }
+
+  const handleClose = () => {
+    if (metadata) {
+      closeTask.mutate(metadata.taskId)
     }
   }
 
@@ -77,40 +103,67 @@ export function ChatHeader() {
             </div>
           </div>
         </div>
-        {metadata.status !== 'running' && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleMerge}
-                  disabled={
-                    mergeTask.isPending ||
-                    isLoadingWorkspace ||
-                    workspaceStatus?.hasUncommittedChanges ||
-                    metadata.status === 'running'
-                  }
-                  className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
-                >
-                  <GitMerge className="h-3.5 w-3.5" />
-                  <span className="sr-only">Merge changes</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {workspaceStatus?.hasUncommittedChanges ? (
-                  <p>Cannot merge: workspace has uncommitted changes</p>
-                ) : metadata.status === 'running' ? (
-                  <p>Cannot merge: agent is running</p>
-                ) : isLoadingWorkspace ? (
-                  <p>Checking status...</p>
-                ) : (
-                  <p>Merge workspace changes to the main branch</p>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+        <div className="flex items-center gap-1">
+          {metadata.status !== 'running' && metadata.status !== 'closed' && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMerge}
+                    disabled={
+                      mergeTask.isPending ||
+                      isLoadingWorkspace ||
+                      workspaceStatus?.hasUncommittedChanges ||
+                      metadata.status === 'running'
+                    }
+                    className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                  >
+                    <GitMerge className="h-3.5 w-3.5" />
+                    <span className="sr-only">Merge changes</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {workspaceStatus?.hasUncommittedChanges ? (
+                    <p>Cannot merge: workspace has uncommitted changes</p>
+                  ) : metadata.status === 'running' ? (
+                    <p>Cannot merge: agent is running</p>
+                  ) : isLoadingWorkspace ? (
+                    <p>Checking status...</p>
+                  ) : (
+                    <p>Merge workspace changes to the main branch</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {metadata.status !== 'closed' && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClose}
+                    disabled={closeTask.isPending || metadata.status === 'running'}
+                    className="h-7 px-2 cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span className="sr-only">Close task</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {metadata.status === 'running' ? (
+                    <p>Cannot close: agent is running</p>
+                  ) : (
+                    <p>Close task and teardown workspace</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       </div>
     </div>
   )

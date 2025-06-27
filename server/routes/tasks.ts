@@ -259,6 +259,32 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
+  // Close task (teardown workspace, stop server, set status to closed)
+  app.post(
+    '/:taskId/close',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+        response: {
+          200: z.object({
+            status: z.literal('closed'),
+            taskId: z.string(),
+          }),
+        },
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      await taskService.closeTask(taskId)
+
+      return {
+        status: 'closed',
+        taskId,
+      }
+    },
+  )
+
   // List files in workspace
   app.get(
     '/:taskId/files',

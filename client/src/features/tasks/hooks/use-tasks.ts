@@ -1,4 +1,9 @@
-import type { AgentStatusResponse, CreateTaskRequest, MergeTaskResponse, SimpleTaskResponse } from '@shared/types/api'
+import type {
+  AgentStatusResponse,
+  CreateTaskRequest,
+  MergeTaskResponse,
+  SimpleTaskResponse,
+} from '@shared/types/api'
 import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task } from '@shared/types/task'
@@ -307,6 +312,40 @@ export function useMergeTask(
         queryKey: queryKeys.taskGitDiff(variables.taskId),
       })
       options?.onSuccess?.(data, variables, context)
+    },
+    ...options,
+  })
+}
+
+export function useCloseTask(
+  options?: UseMutationOptions<{ status: 'closed'; taskId: string }, Error, string>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (taskId: string) => tasksApi.closeTask(taskId),
+    onSuccess: (data, taskId, context) => {
+      // Invalidate all data for this specific task
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
+      })
+      // Also invalidate the tasks list to update the status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(),
+      })
+      // Invalidate workspace status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskWorkspaceStatus(taskId),
+      })
+      // Invalidate server status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
+      })
+      // Invalidate agent status
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.taskAgentStatus(taskId),
+      })
+      options?.onSuccess?.(data, taskId, context)
     },
     ...options,
   })
