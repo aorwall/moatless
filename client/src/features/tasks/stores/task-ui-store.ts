@@ -5,12 +5,12 @@ import { subscribeWithSelector } from 'zustand/middleware'
 interface TaskUIState {
   // UI state
   selectedIteration: TaskIteration | null
-  rightPanelView: 'events' | 'diff' | 'server' | 'preview'
+  rightPanelView: 'events' | 'diff' | 'server' | 'preview' | 'files'
   selectedTaskId: string | null
 
   // Actions
   setSelectedIteration: (iteration: TaskIteration | null) => void
-  setRightPanelView: (view: 'events' | 'diff' | 'server' | 'preview') => void
+  setRightPanelView: (view: 'events' | 'diff' | 'server' | 'preview' | 'files') => void
   setSelectedTaskId: (taskId: string | null) => void
   resetUIState: () => void
 }
