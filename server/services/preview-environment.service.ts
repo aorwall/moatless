@@ -1,8 +1,7 @@
-import { exec, execSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import { TaskNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
 import type {
   PreviewEnvironmentMetadata,
@@ -15,8 +14,6 @@ import { logger } from '../utils/logger.js'
 import { ServerHandler } from '../workspaces/server-handler.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
-
-const _execAsync = promisify(exec)
 
 export class PreviewEnvironmentService {
   private runningServers: Map<string, ServerHandler> = new Map()
@@ -116,7 +113,7 @@ export class PreviewEnvironmentService {
 
     // Get workspace to access environment configuration
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-    const environment = workspace.environment
+    const environment = workspace.environmentConfig
 
     if (!environment.codeExecution.serverCommand) {
       throw new WorkspaceError('No server command configured for this environment', taskId)
@@ -236,7 +233,7 @@ export class PreviewEnvironmentService {
 
     // Get workspace to check configuration
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-    const configured = Boolean(workspace.environment.codeExecution.serverCommand)
+    const configured = Boolean(workspace.environmentConfig.codeExecution.serverCommand)
 
     // Check running servers
     const handler = this.runningServers.get(taskId)

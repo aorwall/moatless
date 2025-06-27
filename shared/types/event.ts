@@ -28,7 +28,7 @@ export interface BaseEvent {
 }
 
 export interface EventPayload {
-  [key: string]: any
+  [key: string]: unknown
 }
 
 export interface Event extends BaseEvent {

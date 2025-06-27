@@ -287,9 +287,9 @@ export class AgentService {
             hasResult: !!event.payload.result,
           })
 
-          iteration.costUsd = event.payload.total_cost_usd ?? 0
+          iteration.costUsd = (event.payload.total_cost_usd as number) ?? 0
           iteration.result =
-            event.payload.result ?? 'No result found in Claude Code SDK result message'
+            (event.payload.result as string) ?? 'No result found in Claude Code SDK result message'
 
           // Update iteration status to completed after successful execution
           iteration.status = 'completed'
