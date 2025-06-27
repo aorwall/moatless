@@ -1,9 +1,15 @@
-import { ArrowUp } from 'lucide-react'
+import { ArrowUp, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
 import { Textarea } from '@/lib/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/lib/components/ui/tooltip'
 import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete'
 
 interface ChatFormProps {
@@ -130,15 +136,36 @@ export function ChatForm({
       </div>
       <div className="flex items-center gap-1">
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="submit"
-            disabled={sendDisabled}
-            size="icon"
-            className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
-          >
-            <ArrowUp className="h-5 w-5" />
-            <span className="sr-only">{buttonText}</span>
-          </Button>
+          {buttonText.includes('m') || buttonText.includes('s') ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="submit"
+                    disabled={sendDisabled}
+                    size="sm"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-foreground/90"
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                    <span>{buttonText}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Click to stop the agent</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button
+              type="submit"
+              disabled={sendDisabled}
+              size="icon"
+              className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
+            >
+              <ArrowUp className="h-5 w-5" />
+              <span className="sr-only">{buttonText}</span>
+            </Button>
+          )}
         </div>
       </div>
     </form>

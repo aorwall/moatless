@@ -1,6 +1,7 @@
 import type { Event, MessageEvent } from '@shared/types/event'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 import { MinifiedEventItem } from './minified-event-item'
 
@@ -9,18 +10,6 @@ interface MinifiedLastThreeEventsDisplayProps {
   className?: string
   isRunning?: boolean
   runningStartTime?: Date
-}
-
-function formatRunningDuration(startTime: Date): string {
-  const now = new Date()
-  const durationMs = now.getTime() - startTime.getTime()
-  const minutes = Math.floor(durationMs / 60000)
-  const seconds = Math.floor((durationMs % 60000) / 1000)
-
-  if (minutes > 0) {
-    return `running for ${minutes}m ${seconds}s`
-  }
-  return `running for ${seconds}s`
 }
 
 function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
