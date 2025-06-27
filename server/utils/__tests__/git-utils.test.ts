@@ -47,6 +47,17 @@ describe('git-utils', () => {
         }
       }) as any)
 
+      // Mock git ls-files --others --exclude-standard (no untracked files)
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, {
+            stdout: '',
+            stderr: '',
+          })
+        }
+      }) as any)
+
       const result = await getGitDiffFiles('/test/repo')
 
       expect(result.files).toHaveLength(3)
@@ -87,6 +98,88 @@ describe('git-utils', () => {
       expect(result.totalChanges).toBe(0)
       expect(result.totalAdditions).toBe(0)
       expect(result.totalDeletions).toBe(0)
+    })
+
+    it('should include untracked files', async () => {
+      // Mock git diff --name-status main
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, {
+            stdout: 'M\tsrc/modified.js\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      // Mock git diff --numstat main
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, {
+            stdout: '10\t5\tsrc/modified.js\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      // Mock git ls-files --others --exclude-standard (untracked files)
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, {
+            stdout: 'src/untracked1.js\nsrc/untracked2.js\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      // Mock wc -l for first untracked file
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, {
+            stdout: '25\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      // Mock wc -l for second untracked file
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callback(null, {
+            stdout: '30\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      const result = await getGitDiffFiles('/test/repo')
+
+      expect(result.files).toHaveLength(3)
+      expect(result.files[0]).toEqual({
+        status: 'M',
+        filename: 'src/modified.js',
+        additions: 10,
+        deletions: 5,
+      })
+      expect(result.files[1]).toEqual({
+        status: '??',
+        filename: 'src/untracked1.js',
+        additions: 25,
+        deletions: 0,
+      })
+      expect(result.files[2]).toEqual({
+        status: '??',
+        filename: 'src/untracked2.js',
+        additions: 30,
+        deletions: 0,
+      })
+      expect(result.totalAdditions).toBe(65) // 10 + 25 + 30
+      expect(result.totalDeletions).toBe(5)
+      expect(result.totalChanges).toBe(3)
     })
   })
 
@@ -249,8 +342,13 @@ index abc123..def456 100644
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
+        const command = _cmd as string
         if (typeof callback === 'function') {
-          callback(null, { stdout: mockDiff, stderr: '' })
+          if (command.includes('git diff')) {
+            callback(null, { stdout: mockDiff, stderr: '' })
+          } else if (command.includes('git ls-files')) {
+            callback(null, { stdout: '', stderr: '' })
+          }
         }
       }) as any)
 
@@ -270,8 +368,13 @@ index abc123..def456 100644
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
+        const command = _cmd as string
         if (typeof callback === 'function') {
-          callback(null, { stdout: mockDiff, stderr: '' })
+          if (command.includes('git diff')) {
+            callback(null, { stdout: mockDiff, stderr: '' })
+          } else if (command.includes('git ls-files')) {
+            callback(null, { stdout: '', stderr: '' })
+          }
         }
       }) as any)
 
@@ -288,21 +391,23 @@ index abc123..def456 100644
 
     it('should fallback to master then uncommitted changes when main fails', async () => {
       const mockDiff = `diff --git a/file1.js b/file1.js`
-      let callCount = 0
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
+        const command = _cmd as string
         if (typeof callback === 'function') {
-          callCount++
-          if (callCount === 1) {
+          if (command === 'git diff main') {
             // First call (main) fails
             callback(new Error('Not found'), null, null)
-          } else if (callCount === 2) {
+          } else if (command === 'git diff master') {
             // Second call (master) fails
             callback(new Error('Not found'), null, null)
-          } else {
+          } else if (command === 'git diff') {
             // Third call (uncommitted changes only) succeeds
             callback(null, { stdout: mockDiff, stderr: '' })
+          } else if (command.includes('git ls-files')) {
+            // git ls-files calls
+            callback(null, { stdout: '', stderr: '' })
           }
         }
       }) as any)
@@ -311,7 +416,6 @@ index abc123..def456 100644
 
       expect(diff).toBe(mockDiff)
       expect(baseBranch).toBe('HEAD')
-      expect(mockExec).toHaveBeenCalledTimes(3)
     })
 
     it('should work correctly with git worktrees', async () => {
@@ -332,10 +436,15 @@ index 0000000..abc123
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
+        const command = _cmd as string
         if (typeof callback === 'function') {
           // Verify the command is executed in the worktree path
           expect(opts.cwd).toBe(worktreePath)
-          callback(null, { stdout: mockDiff, stderr: '' })
+          if (command.includes('git diff')) {
+            callback(null, { stdout: mockDiff, stderr: '' })
+          } else if (command.includes('git ls-files')) {
+            callback(null, { stdout: '', stderr: '' })
+          }
         }
       }) as any)
 
@@ -379,11 +488,15 @@ index 123abc..456def 100644
 
       mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
         const callback = cb || opts
+        const command = _cmd as string
         if (typeof callback === 'function') {
           expect(opts.cwd).toBe(worktreePath)
-          // git diff base shows ALL changes: committed + staged + unstaged
-          expect(_cmd).toBe('git diff main')
-          callback(null, { stdout: mockDiff, stderr: '' })
+          if (command === 'git diff main') {
+            // git diff base shows ALL changes: committed + staged + unstaged
+            callback(null, { stdout: mockDiff, stderr: '' })
+          } else if (command.includes('git ls-files')) {
+            callback(null, { stdout: '', stderr: '' })
+          }
         }
       }) as any)
 
@@ -396,6 +509,61 @@ index 123abc..456def 100644
       expect(diff).toContain('src/component.js')
       expect(diff).toContain('deleteUser')
       expect(diff).toContain('className="btn"')
+    })
+
+    it('should include untracked files in diff', async () => {
+      const mockDiff = `diff --git a/src/modified.js b/src/modified.js
+index abc123..def456 100644
+--- a/src/modified.js
++++ b/src/modified.js
+@@ -1,3 +1,3 @@
+-old content
++new content
+`
+
+      let callCount = 0
+      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          callCount++
+          if (callCount === 1) {
+            // git diff main
+            callback(null, { stdout: mockDiff, stderr: '' })
+          } else if (callCount === 2) {
+            // git ls-files --others --exclude-standard
+            callback(null, { stdout: 'src/new-file.js\nsrc/another-new.js\n', stderr: '' })
+          } else if (callCount === 3) {
+            // cat src/new-file.js
+            callback(null, {
+              stdout: 'const newCode = "hello";\nconsole.log(newCode);\n',
+              stderr: '',
+            })
+          } else if (callCount === 4) {
+            // cat src/another-new.js
+            callback(null, { stdout: 'export default {};\n', stderr: '' })
+          }
+        }
+      }) as any)
+
+      const [diff, baseBranch] = await getGitDiffString('/test/repo', 'main')
+
+      expect(baseBranch).toBe('main')
+
+      // Check that diff contains the modified file
+      expect(diff).toContain('src/modified.js')
+      expect(diff).toContain('-old content')
+      expect(diff).toContain('+new content')
+
+      // Check that diff contains untracked files
+      expect(diff).toContain('diff --git a/src/new-file.js b/src/new-file.js')
+      expect(diff).toContain('new file mode 100644')
+      expect(diff).toContain('+++ b/src/new-file.js')
+      expect(diff).toContain('+const newCode = "hello";')
+      expect(diff).toContain('+console.log(newCode);')
+
+      expect(diff).toContain('diff --git a/src/another-new.js b/src/another-new.js')
+      expect(diff).toContain('+++ b/src/another-new.js')
+      expect(diff).toContain('+export default {};')
     })
   })
 
@@ -424,6 +592,18 @@ index 123abc..456def 100644
           expect(_cmd).toContain('git diff --numstat main')
           callback(null, {
             stdout: '50\t0\tsrc/new-feature.js\n10\t5\tsrc/existing.js\n',
+            stderr: '',
+          })
+        }
+      }) as any)
+
+      // Mock git ls-files --others --exclude-standard (no untracked files)
+      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
+        const callback = cb || opts
+        if (typeof callback === 'function') {
+          expect(opts.cwd).toBe(worktreePath)
+          callback(null, {
+            stdout: '',
             stderr: '',
           })
         }

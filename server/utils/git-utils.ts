@@ -38,11 +38,24 @@ export async function getGitDiffFiles(
       timeout: 10000,
     })
 
+    // Get untracked files
+    const { stdout: untrackedOutput } = await execAsync(
+      'git ls-files --others --exclude-standard',
+      {
+        cwd: repoPath,
+        timeout: 10000,
+      },
+    )
+
     const statusLines = statusOutput
       .trim()
       .split('\n')
       .filter((line) => line.trim())
     const statLines = statOutput
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim())
+    const untrackedFiles = untrackedOutput
       .trim()
       .split('\n')
       .filter((line) => line.trim())
@@ -75,6 +88,32 @@ export async function getGitDiffFiles(
           additions: stats.additions,
           deletions: stats.deletions,
         })
+      }
+    }
+
+    // Add untracked files
+    for (const filename of untrackedFiles) {
+      if (filename) {
+        // Get line count for untracked files
+        let additions = 0
+        try {
+          const { stdout: lineCount } = await execAsync(`wc -l < "${filename}"`, {
+            cwd: repoPath,
+            timeout: 5000,
+          })
+          additions = parseInt(lineCount.trim(), 10) || 0
+        } catch {
+          // If wc fails, default to 0
+          additions = 0
+        }
+
+        files.push({
+          status: '??',
+          filename,
+          additions,
+          deletions: 0,
+        })
+        totalAdditions += additions
       }
     }
 
@@ -132,31 +171,177 @@ export async function getGitDiffString(
     // 2. All staged changes
     // 3. All unstaged changes
     // This is exactly what we want for reviewing all work done in a worktree.
-    const { stdout } = await execAsync(`git diff ${base}`, {
+    const { stdout: diffOutput } = await execAsync(`git diff ${base}`, {
       cwd: repoPath,
       timeout: 30000,
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer
     })
 
-    return [stdout, base]
+    // Get untracked files and create diffs for them
+    const { stdout: untrackedOutput } = await execAsync(
+      'git ls-files --others --exclude-standard',
+      {
+        cwd: repoPath,
+        timeout: 10000,
+      },
+    )
+
+    const untrackedFiles = untrackedOutput
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim())
+
+    let untrackedDiffs = ''
+    for (const filename of untrackedFiles) {
+      if (filename) {
+        try {
+          // Read the content of untracked file
+          const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
+            cwd: repoPath,
+            timeout: 5000,
+            maxBuffer: 1024 * 1024, // 1MB buffer per file
+          })
+
+          // Create a diff-like output for untracked files
+          untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
+          untrackedDiffs += `new file mode 100644\n`
+          untrackedDiffs += `index 0000000..0000000\n`
+          untrackedDiffs += `--- /dev/null\n`
+          untrackedDiffs += `+++ b/${filename}\n`
+
+          // Add file content with + prefix
+          const lines = fileContent.split('\n')
+          if (lines.length > 0) {
+            untrackedDiffs += `@@ -0,0 +1,${lines.length} @@\n`
+            for (const line of lines) {
+              untrackedDiffs += `+${line}\n`
+            }
+          }
+        } catch {
+          // If we can't read the file, just add a header
+          untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
+          untrackedDiffs += `new file mode 100644\n`
+          untrackedDiffs += `Binary file\n`
+        }
+      }
+    }
+
+    // Combine regular diff with untracked files diff
+    const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
+
+    return [combinedDiff, base]
   } catch (error) {
     // Try with master if main fails
     if (!baseBranch) {
       try {
-        const { stdout } = await execAsync('git diff master', {
+        const { stdout: diffOutput } = await execAsync('git diff master', {
           cwd: repoPath,
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024,
         })
-        return [stdout, 'master']
+
+        // Get untracked files for fallback too
+        const { stdout: untrackedOutput } = await execAsync(
+          'git ls-files --others --exclude-standard',
+          {
+            cwd: repoPath,
+            timeout: 10000,
+          },
+        )
+
+        const untrackedFiles = untrackedOutput
+          .trim()
+          .split('\n')
+          .filter((line) => line.trim())
+
+        let untrackedDiffs = ''
+        for (const filename of untrackedFiles) {
+          if (filename) {
+            try {
+              const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
+                cwd: repoPath,
+                timeout: 5000,
+                maxBuffer: 1024 * 1024,
+              })
+
+              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
+              untrackedDiffs += `new file mode 100644\n`
+              untrackedDiffs += `index 0000000..0000000\n`
+              untrackedDiffs += `--- /dev/null\n`
+              untrackedDiffs += `+++ b/${filename}\n`
+
+              const lines = fileContent.split('\n')
+              if (lines.length > 0) {
+                untrackedDiffs += `@@ -0,0 +1,${lines.length} @@\n`
+                for (const line of lines) {
+                  untrackedDiffs += `+${line}\n`
+                }
+              }
+            } catch {
+              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
+              untrackedDiffs += `new file mode 100644\n`
+              untrackedDiffs += `Binary file\n`
+            }
+          }
+        }
+
+        const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
+        return [combinedDiff, 'master']
       } catch {
         // Fall back to showing uncommitted changes only
-        const { stdout } = await execAsync('git diff', {
+        const { stdout: diffOutput } = await execAsync('git diff', {
           cwd: repoPath,
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024,
         })
-        return [stdout, 'HEAD']
+
+        // Still include untracked files in the fallback
+        const { stdout: untrackedOutput } = await execAsync(
+          'git ls-files --others --exclude-standard',
+          {
+            cwd: repoPath,
+            timeout: 10000,
+          },
+        )
+
+        const untrackedFiles = untrackedOutput
+          .trim()
+          .split('\n')
+          .filter((line) => line.trim())
+
+        let untrackedDiffs = ''
+        for (const filename of untrackedFiles) {
+          if (filename) {
+            try {
+              const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
+                cwd: repoPath,
+                timeout: 5000,
+                maxBuffer: 1024 * 1024,
+              })
+
+              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
+              untrackedDiffs += `new file mode 100644\n`
+              untrackedDiffs += `index 0000000..0000000\n`
+              untrackedDiffs += `--- /dev/null\n`
+              untrackedDiffs += `+++ b/${filename}\n`
+
+              const lines = fileContent.split('\n')
+              if (lines.length > 0) {
+                untrackedDiffs += `@@ -0,0 +1,${lines.length} @@\n`
+                for (const line of lines) {
+                  untrackedDiffs += `+${line}\n`
+                }
+              }
+            } catch {
+              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
+              untrackedDiffs += `new file mode 100644\n`
+              untrackedDiffs += `Binary file\n`
+            }
+          }
+        }
+
+        const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
+        return [combinedDiff, 'HEAD']
       }
     }
     throw new Error(
@@ -294,7 +479,7 @@ export async function hasUnmergedCommits(repoPath: string, baseBranch?: string):
 
     const commitCount = parseInt(stdout.trim(), 10)
     return commitCount > 0
-  } catch (error) {
+  } catch (_error) {
     // Try with master if main fails
     if (!baseBranch) {
       try {
@@ -328,7 +513,7 @@ export async function isBehindBase(repoPath: string, baseBranch?: string): Promi
 
     const commitCount = parseInt(stdout.trim(), 10)
     return commitCount > 0
-  } catch (error) {
+  } catch (_error) {
     // Try with master if main fails
     if (!baseBranch) {
       try {
@@ -363,10 +548,11 @@ export async function checkForConflicts(repoPath: string, baseBranch?: string): 
       // git merge-tree with --write-tree succeeds even with conflicts
       // Conflicts are indicated by "CONFLICT" in stderr output
       return stderr.includes('CONFLICT') || stdout.includes('CONFLICT')
-    } catch (error: any) {
+    } catch (error) {
       // If merge-tree fails, check if it's due to conflicts
       // Conflict information appears in both stdout and stderr depending on git version
-      if (error.stderr?.includes('CONFLICT') || error.stdout?.includes('CONFLICT')) {
+      const err = error as { stderr?: string; stdout?: string }
+      if (err.stderr?.includes('CONFLICT') || err.stdout?.includes('CONFLICT')) {
         return true
       }
 
@@ -379,8 +565,9 @@ export async function checkForConflicts(repoPath: string, baseBranch?: string): 
           })
 
           return stderr.includes('CONFLICT') || stdout.includes('CONFLICT')
-        } catch (error2: any) {
-          if (error2.stderr?.includes('CONFLICT') || error2.stdout?.includes('CONFLICT')) {
+        } catch (error2) {
+          const err2 = error2 as { stderr?: string; stdout?: string }
+          if (err2.stderr?.includes('CONFLICT') || err2.stdout?.includes('CONFLICT')) {
             return true
           }
         }
@@ -484,7 +671,7 @@ export async function getComprehensiveGitStatus(
       commitsAhead: commitCounts.ahead,
       commitsBehind: commitCounts.behind,
     }
-  } catch (error) {
+  } catch (_error) {
     // Return safe defaults if git operations fail
     return {
       currentBranch: 'unknown',
