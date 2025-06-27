@@ -147,8 +147,15 @@ export function ChatView() {
   const isTaskRunning = metadata.status === 'running'
 
   // Handle sending message to task
-  const handleSendMessage = (taskId: string, message: string) => {
-    sendMessage.mutate({ taskId, message })
+  const handleSendMessage = (taskId: string, message: string, clearMessage: () => void) => {
+    sendMessage.mutate(
+      { taskId, message },
+      {
+        onSuccess: () => {
+          clearMessage()
+        },
+      },
+    )
   }
 
   return (
