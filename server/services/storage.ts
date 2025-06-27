@@ -75,7 +75,15 @@ export class FileStorage implements StorageBackend {
 
   async delete(key: string): Promise<void> {
     const filePath = await this.getPath(key)
-    await fs.unlink(filePath)
+    try {
+      await fs.unlink(filePath)
+    } catch (error) {
+      // Ignore ENOENT errors (file not found) - if the file doesn't exist,
+      // the delete operation has already achieved its goal
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+    }
   }
 
   async exists(key: string): Promise<boolean> {

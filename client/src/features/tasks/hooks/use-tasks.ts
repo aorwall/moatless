@@ -306,3 +306,19 @@ export function useMergeTask(
     ...options,
   })
 }
+
+export function useDeleteTask(options?: UseMutationOptions<{ status: string }, Error, string>) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
+    onSuccess: (data, taskId, context) => {
+      // Invalidate all task queries to refresh the list
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
+      // Also invalidate the specific task
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
+      options?.onSuccess?.(data, taskId, context)
+    },
+    ...options,
+  })
+}

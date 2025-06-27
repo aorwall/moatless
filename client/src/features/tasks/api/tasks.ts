@@ -106,4 +106,8 @@ export const tasksApi = {
   async mergeTask(taskId: string): Promise<MergeTaskResponse> {
     return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`)
   },
+
+  async deleteTask(taskId: string): Promise<{ status: string }> {
+    return await apiClient.delete<{ status: string }>(`/api/v1/tasks/${taskId}`)
+  },
 }
