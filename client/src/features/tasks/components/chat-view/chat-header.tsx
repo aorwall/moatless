@@ -6,7 +6,6 @@ import {
     useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
-import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
@@ -17,7 +16,7 @@ import {
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { GitMerge, Loader2, X } from 'lucide-react'
+import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function ChatHeader() {
@@ -108,15 +107,6 @@ export function ChatHeader() {
                 {statusConfig.icon}
                 <span>{metadata.status}</span>
               </div>
-              {metadata.status === 'running' && (
-                <>
-                  <span>•</span>
-                  <Badge variant="outline" className="flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    running
-                  </Badge>
-                </>
-              )}
               {workspaceStatus?.gitStatus ? (
                 <>
                   {workspaceStatus.gitStatus.hasUnmergedCommits && (
