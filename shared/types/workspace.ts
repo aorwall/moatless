@@ -65,3 +65,15 @@ export interface ServerStatus {
   pid?: number
   uptimeSeconds: number
 }
+
+export interface WorkspaceFileSearchResult {
+  path: string
+  matches: number
+}
+
+export interface WorkspaceCapabilities {
+  canListFiles: boolean
+  canReadWriteFiles: boolean
+  canSearchFiles: boolean
+  canExecuteCode: boolean
+}

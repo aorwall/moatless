@@ -58,12 +58,16 @@ describe('Workspace Endpoints', () => {
       hasUncommittedChanges: false,
       backgroundTaskCount: 0,
     })
+    vi.spyOn(app.services.workspace, 'canListFiles').mockResolvedValue(true)
+    vi.spyOn(app.services.workspace, 'canReadWriteFiles').mockResolvedValue(true)
+    vi.spyOn(app.services.workspace, 'canSearchFiles').mockResolvedValue(true)
     vi.spyOn(app.services.workspace, 'listFiles').mockResolvedValue(['file1.ts', 'file2.ts'])
     vi.spyOn(app.services.workspace, 'readFile').mockResolvedValue('console.log("test");')
     vi.spyOn(app.services.workspace, 'writeFile').mockResolvedValue(undefined)
     vi.spyOn(app.services.workspace, 'searchFiles').mockResolvedValue({
-      results: [{ path: 'file1.ts', matches: [{ line: 1, content: 'console.log("test");' }] }],
-      totalMatches: 1,
+      results: [{ path: 'file1.ts', absolutePath: '/tmp/test-repo/file1.ts', score: 1 }],
+      totalFound: 1,
+      query: 'test',
     })
     vi.spyOn(app.services.workspace, 'getGitDiff').mockResolvedValue(
       'diff --git a/file1.ts b/file1.ts',
@@ -230,16 +234,17 @@ describe('Workspace Endpoints', () => {
         method: 'POST',
         url: `/api/v1/tasks/${taskId}/search-files`,
         payload: {
-          pattern: 'console.log',
-          path: 'src',
+          query: 'console.log',
+          limit: 50,
         },
       })
 
       expect(response.statusCode).toBe(200)
       const result = JSON.parse(response.payload)
       expect(result).toEqual({
-        results: [{ path: 'file1.ts', matches: [{ line: 1, content: 'console.log("test");' }] }],
-        totalMatches: 1,
+        results: [{ path: 'file1.ts', absolutePath: '/tmp/test-repo/file1.ts', score: 1 }],
+        totalFound: 1,
+        query: 'test',
       })
     })
   })
