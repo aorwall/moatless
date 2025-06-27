@@ -1,24 +1,24 @@
-import { useNavigate, useParams } from '@tanstack/react-router'
-import { GitMerge, Loader2, X } from 'lucide-react'
-import { toast } from 'sonner'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import {
-  useCloseTask,
-  useMergeTask,
-  useTask,
-  useTaskWorkspaceStatus,
+    useCloseTask,
+    useMergeTask,
+    useTask,
+    useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
+import { useNavigate, useParams } from '@tanstack/react-router'
+import { GitMerge, Loader2, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
@@ -57,13 +57,8 @@ export function ChatHeader() {
 
   const handleMerge = () => {
     if (metadata) {
-      if (workspaceStatus?.hasUncommittedChanges) {
-        toast.warning('Cannot merge: workspace has uncommitted changes', {
-          description: 'Please commit or discard changes before merging.',
-        })
-        return
-      }
-      if (!workspaceStatus?.hasUnmergedCommits) {
+      
+      if (!workspaceStatus?.gitStatus?.hasUnmergedCommits) {
         toast.warning('No unmerged commits to merge', {
           description: 'All commits have already been merged.',
         })
@@ -178,9 +173,10 @@ export function ChatHeader() {
                     disabled={
                       mergeTask.isPending ||
                       isLoadingWorkspace ||
-                      workspaceStatus?.commitsAhead == 0 ||
+                      !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
                       workspaceStatus?.gitStatus?.hasConflicts ||
-                      metadata.status === 'running'
+                      metadata.status === 'running' ||
+                      metadata.status === 'error'
                     }
                     className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
                   >
@@ -189,7 +185,7 @@ export function ChatHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {workspaceStatus?.commitsAhead == 0 ? (
+                  {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
                     <p>Cannot merge: workspace has uncommitted changes</p>
                   ) : metadata.status === 'running' ? (
                     <p>Cannot merge: agent is running</p>
