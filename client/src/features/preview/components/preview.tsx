@@ -1,4 +1,8 @@
+import { useParams } from '@tanstack/react-router'
+import { Loader2, Play } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
+import { useStartServer } from '@/features/tasks/hooks/use-tasks'
+import { Button } from '@/lib/components/ui/button'
 import { cn } from '@/lib/utils'
 import { usePreviewConnection } from '../hooks/use-preview-connection'
 import { usePreviewStore } from '../stores/preview-store'
@@ -9,6 +13,8 @@ import { PreviewToolbar } from './preview-toolbar'
 
 export function Preview({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const params = useParams({ from: '/tasks/$taskId' })
+  const startServer = useStartServer()
 
   const {
     currentPath,
@@ -49,6 +55,10 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     setLoaded(false)
   }, [setError, setLoaded])
 
+  const handleStartServer = useCallback(() => {
+    startServer.mutate(params.taskId)
+  }, [params.taskId, startServer])
+
   return (
     <div
       className={cn(
@@ -61,11 +71,24 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
       <div className="relative flex-1 overflow-hidden">
         {serverStatus && !serverStatus.running && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-            <div className="text-center space-y-2">
-              <p className="text-muted-foreground">The preview server is not running</p>
-              <p className="text-sm text-muted-foreground">
-                Start the server from the Server tab to see the preview
-              </p>
+            <div className="text-center space-y-4">
+              <div className="space-y-2">
+                <p className="text-muted-foreground">The preview server is not running</p>
+                <p className="text-sm text-muted-foreground">Start the server to see the preview</p>
+              </div>
+              <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
+                {startServer.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Starting Server...
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    Start Server
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         )}

@@ -1,16 +1,14 @@
 import type { AgentStatusResponse } from '@shared/types/api'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, GitMerge, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
+import { AlertCircle, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import {
-  useMergeTask,
   useServerStatus,
   useStartServer,
   useStopAgent,
   useStopServer,
   useTask,
   useTaskAgentStatus,
-  useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store'
 import { Badge } from '@/lib/components/ui/badge'
@@ -26,8 +24,8 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 function StatusBadge({ status }: { status: string }) {
   let variant: 'default' | 'destructive' | 'secondary' | 'outline' = 'secondary'
-  let displayStatus = status
-  
+  const displayStatus = status
+
   switch (status) {
     case 'open':
       variant = 'default'
@@ -45,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
       variant = 'secondary'
       break
   }
-  
+
   return <Badge variant={variant}>{displayStatus}</Badge>
 }
 
@@ -73,11 +71,6 @@ export function TaskHeader() {
   const taskId = params.taskId
 
   const { data: metadata } = useTask(taskId)
-  const {
-    data: workspaceStatus,
-    isLoading: isLoadingWorkspace,
-    error: workspaceError,
-  } = useTaskWorkspaceStatus(taskId)
   const {
     data: agentStatus,
     isLoading: isLoadingAgent,
@@ -125,20 +118,6 @@ export function TaskHeader() {
     },
   })
 
-  const mergeTask = useMergeTask({
-    onSuccess: (data) => {
-      toast.success('Changes merged successfully', {
-        description: data.message,
-      })
-    },
-    onError: (error) => {
-      console.error('Failed to merge changes:', error)
-      toast.error('Failed to merge changes', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-
   const handleStop = () => {
     if (metadata) {
       stopAgent.mutate(metadata.taskId)
@@ -154,18 +133,6 @@ export function TaskHeader() {
   const handleStopServer = () => {
     if (metadata) {
       stopServer.mutate(metadata.taskId)
-    }
-  }
-
-  const handleMerge = () => {
-    if (metadata) {
-      if (workspaceStatus?.hasUncommittedChanges) {
-        toast.warning('Cannot merge: workspace has uncommitted changes', {
-          description: 'Please commit or discard changes before merging.',
-        })
-        return
-      }
-      mergeTask.mutate(metadata.taskId)
     }
   }
 
@@ -277,39 +244,6 @@ export function TaskHeader() {
               <StopCircle className="mr-2 h-4 w-4" />
               {stopAgent.isPending ? 'Stopping...' : 'Stop Agent'}
             </Button>
-          )}
-          {metadata.status !== 'running' && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleMerge}
-                    disabled={
-                      mergeTask.isPending ||
-                      isLoadingWorkspace ||
-                      workspaceStatus?.hasUncommittedChanges ||
-                      metadata.status === 'running'
-                    }
-                  >
-                    <GitMerge className="mr-2 h-4 w-4" />
-                    {mergeTask.isPending ? 'Merging...' : 'Merge Changes'}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {workspaceStatus?.hasUncommittedChanges ? (
-                    <p>Cannot merge: workspace has uncommitted changes</p>
-                  ) : metadata.status === 'running' ? (
-                    <p>Cannot merge: agent is running</p>
-                  ) : isLoadingWorkspace ? (
-                    <p>Checking status...</p>
-                  ) : (
-                    <p>Merge workspace changes to the main branch</p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           )}
         </div>
       </div>
