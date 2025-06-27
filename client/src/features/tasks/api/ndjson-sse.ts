@@ -43,9 +43,11 @@ export class NDJSONSSEClient {
 
   async connect(): Promise<void> {
     if (this.abortController || this.isConnecting || this.taskNotFound) {
+      console.log(`[NDJSON-SSE] Connection already in progress or task not found for ${this.taskId}`)
       return
     }
 
+    console.log(`[NDJSON-SSE] Connecting to task ${this.taskId}`)
     this.isConnecting = true
     this.shouldReconnect = true
 
@@ -59,6 +61,7 @@ export class NDJSONSSEClient {
 
   private async makeRequest(): Promise<Response> {
     const url = this.buildUrl()
+    console.log(`[NDJSON-SSE] Making request to ${url}`)
     this.abortController = new AbortController()
 
     const response = await fetch(url, {
@@ -70,6 +73,8 @@ export class NDJSONSSEClient {
       },
     })
 
+    console.log(`[NDJSON-SSE] Response status: ${response.status}`)
+    
     if (!response.ok) {
       if (response.status === 404) {
         this.handleTaskNotFound()
@@ -206,7 +211,15 @@ export class NDJSONSSEClient {
 
   private parseAndEmitEvent(data: string): void {
     try {
-      const event = JSON.parse(data) as Event
+      const parsed = JSON.parse(data)
+      
+      // Handle ping events (keep-alive)
+      if (parsed.type === 'ping') {
+        // Ignore ping events, they're just for keeping connection alive
+        return
+      }
+      
+      const event = parsed as Event
 
       // Store the last event ID for reconnection
       if (event.eventId) {
