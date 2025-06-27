@@ -360,11 +360,13 @@ export async function checkForConflicts(repoPath: string, baseBranch?: string): 
         timeout: 10000,
       })
 
-      // If merge-tree returns conflicts, stderr will contain conflict information
+      // git merge-tree with --write-tree succeeds even with conflicts
+      // Conflicts are indicated by "CONFLICT" in stderr output
       return stderr.includes('CONFLICT') || stdout.includes('CONFLICT')
     } catch (error: any) {
-      // If merge-tree fails, it might be due to conflicts or the branch not existing
-      if (error.stderr && error.stderr.includes('CONFLICT')) {
+      // If merge-tree fails, check if it's due to conflicts
+      // Conflict information appears in both stdout and stderr depending on git version
+      if (error.stderr?.includes('CONFLICT') || error.stdout?.includes('CONFLICT')) {
         return true
       }
 
@@ -378,7 +380,7 @@ export async function checkForConflicts(repoPath: string, baseBranch?: string): 
 
           return stderr.includes('CONFLICT') || stdout.includes('CONFLICT')
         } catch (error2: any) {
-          if (error2.stderr && error2.stderr.includes('CONFLICT')) {
+          if (error2.stderr?.includes('CONFLICT') || error2.stdout?.includes('CONFLICT')) {
             return true
           }
         }
