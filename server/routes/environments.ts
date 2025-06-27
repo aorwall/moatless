@@ -10,10 +10,9 @@ import {
 import type {
   BranchListResponse,
   EnvironmentList,
-  FileSearchResponse,
   SetupScriptResponse,
 } from '../../shared/types/environment.js'
-import { searchFilesInDirectory } from '../utils/file-search.js'
+import { searchFilesInDirectoryNew } from '../utils/file-search.js'
 
 export async function registerEnvironmentRoutes(app: FastifyInstance) {
   const { environment: environmentService } = app.services
@@ -149,12 +148,12 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
       }
 
       // Search files in the repository path
-      const result = await searchFilesInDirectory(environment.repository.path, {
+      const result = await searchFilesInDirectoryNew(environment.repository.path, {
         query: searchRequest.query,
         limit: searchRequest.limit,
       })
 
-      return result as FileSearchResponse
+      return result
     },
   )
 

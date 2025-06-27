@@ -11,7 +11,7 @@ import {
 } from '@shared/types/workspace.js'
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
-import { searchFilesInDirectory } from '../utils/file-search.js'
+import { searchFilesInDirectoryNew } from '../utils/file-search.js'
 import {
   getCurrentBranch,
   getGitDiffString,
@@ -300,7 +300,7 @@ export class LocalWorkspace extends BaseWorkspace {
       throw new Error(`Workspace path does not exist: ${this.workspacePath}`)
     }
 
-    return await searchFilesInDirectory(this.workspacePath, request)
+    return await searchFilesInDirectoryNew(this.workspacePath, request)
   }
 
   async getGitDiff(): Promise<string> {

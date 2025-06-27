@@ -11,7 +11,7 @@ import type {
   LocalRepository,
   RemoteRepository,
 } from '../../shared/types/index.js'
-import { searchFilesInDirectory } from '../utils/file-search.js'
+import { searchFilesInDirectoryNew } from '../utils/file-search.js'
 import { validateRepositoryAccess } from '../utils/repository.js'
 import type { StorageBackend } from './storage.js'
 
@@ -119,7 +119,7 @@ export class EnvironmentService {
 
     const localRepo = environment.repository as LocalRepository
 
-    return await searchFilesInDirectory(localRepo.path, request)
+    return await searchFilesInDirectoryNew(localRepo.path, request)
   }
 
   async validateEnvironment(envId: string): Promise<boolean> {
