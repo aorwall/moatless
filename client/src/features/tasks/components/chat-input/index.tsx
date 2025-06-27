@@ -19,8 +19,8 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   taskStatus?: string
 
   // Callbacks
-  onSendMessage?: (taskId: string, message: string) => void
-  onCreateTask?: (message: string, environmentId: string) => void
+  onSendMessage?: (taskId: string, message: string, clearMessage: () => void) => void
+  onCreateTask?: (message: string, environmentId: string, clearMessage: () => void) => void
   isLoading?: boolean
 }
 
@@ -53,16 +53,16 @@ export function ChatInput({
       return
     }
 
+    const clearMessage = () => setMessage('')
+
     if (isTaskContext) {
       // Task context - send message
       if (onSendMessage && !isPending) {
-        onSendMessage(taskId, message.trim())
-        setMessage('')
+        onSendMessage(taskId, message.trim(), clearMessage)
       }
     } else if (selectedEnvironmentId && onCreateTask && !isPending) {
       // Homepage context - create task
-      onCreateTask(message.trim(), selectedEnvironmentId)
-      setMessage('')
+      onCreateTask(message.trim(), selectedEnvironmentId, clearMessage)
     }
   }
 
