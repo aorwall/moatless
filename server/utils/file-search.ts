@@ -59,25 +59,77 @@ export interface ListDirectoryOptions {
  */
 export function isTextFile(filePath: string): boolean {
   const textExtensions = [
-    '.txt', '.md', '.js', '.ts', '.jsx', '.tsx', '.json', '.xml', '.html', '.htm',
-    '.css', '.scss', '.sass', '.less', '.yaml', '.yml', '.toml', '.ini', '.conf',
-    '.py', '.rb', '.php', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.go',
-    '.rs', '.swift', '.kt', '.scala', '.sh', '.bash', '.zsh', '.fish', '.ps1',
-    '.sql', '.graphql', '.gql', '.proto', '.dockerfile', '.gitignore', '.env',
-    '.log', '.csv', '.tsv', '.svg', '.vue', '.svelte', '.astro'
+    '.txt',
+    '.md',
+    '.js',
+    '.ts',
+    '.jsx',
+    '.tsx',
+    '.json',
+    '.xml',
+    '.html',
+    '.htm',
+    '.css',
+    '.scss',
+    '.sass',
+    '.less',
+    '.yaml',
+    '.yml',
+    '.toml',
+    '.ini',
+    '.conf',
+    '.py',
+    '.rb',
+    '.php',
+    '.java',
+    '.c',
+    '.cpp',
+    '.h',
+    '.hpp',
+    '.cs',
+    '.go',
+    '.rs',
+    '.swift',
+    '.kt',
+    '.scala',
+    '.sh',
+    '.bash',
+    '.zsh',
+    '.fish',
+    '.ps1',
+    '.sql',
+    '.graphql',
+    '.gql',
+    '.proto',
+    '.dockerfile',
+    '.gitignore',
+    '.env',
+    '.log',
+    '.csv',
+    '.tsv',
+    '.svg',
+    '.vue',
+    '.svelte',
+    '.astro',
   ]
-  
+
   const specialFiles = [
-    'makefile', 'dockerfile', 'jenkinsfile', 'vagrantfile', 'gemfile', 
-    'podfile', 'rakefile', 'package-lock.json', 'yarn.lock', 'composer.lock'
+    'makefile',
+    'dockerfile',
+    'jenkinsfile',
+    'vagrantfile',
+    'gemfile',
+    'podfile',
+    'rakefile',
+    'package-lock.json',
+    'yarn.lock',
+    'composer.lock',
   ]
-  
+
   const ext = path.extname(filePath).toLowerCase()
   const filename = path.basename(filePath).toLowerCase()
-  
-  return textExtensions.includes(ext) || 
-         specialFiles.includes(filename) ||
-         filename.startsWith('.') // Hidden files are usually text
+
+  return textExtensions.includes(ext) || specialFiles.includes(filename) || filename.startsWith('.') // Hidden files are usually text
 }
 
 /**
@@ -88,40 +140,42 @@ export async function getFileStats(filePath: string): Promise<FileStats> {
   return {
     size: stats.size,
     modified: stats.mtime,
-    isDirectory: stats.isDirectory()
+    isDirectory: stats.isDirectory(),
   }
 }
 
 /**
  * Read file content with specified encoding
  */
-export async function readFileContent(filePath: string, encoding: BufferEncoding = 'utf8'): Promise<string> {
+export async function readFileContent(
+  filePath: string,
+  encoding: BufferEncoding = 'utf8',
+): Promise<string> {
   return fs.readFile(filePath, encoding)
 }
 
 /**
  * List directory contents
  */
-export async function listDirectory(dirPath: string, options: ListDirectoryOptions = {}): Promise<string[]> {
-  const {
-    recursive = false,
-    includeHidden = false,
-    fileOnly = false
-  } = options
-  
+export async function listDirectory(
+  dirPath: string,
+  options: ListDirectoryOptions = {},
+): Promise<string[]> {
+  const { recursive = false, includeHidden = false, fileOnly = false } = options
+
   const pattern = recursive ? '**/*' : '*'
   const ignorePatterns = []
-  
+
   if (!includeHidden) {
     ignorePatterns.push('**/.*', '.*')
   }
-  
+
   const globOptions = {
     cwd: dirPath,
     ignore: ['**/node_modules/**', '**/.git/**', ...ignorePatterns],
-    nodir: fileOnly
+    nodir: fileOnly,
   }
-  
+
   return glob(pattern, globOptions)
 }
 
@@ -129,34 +183,34 @@ export async function listDirectory(dirPath: string, options: ListDirectoryOptio
  * Search for content within files
  */
 export async function searchFileContents(
-  dirPath: string, 
-  query: string, 
-  filePattern?: string, 
-  limit?: number
+  dirPath: string,
+  query: string,
+  filePattern?: string,
+  limit?: number,
 ): Promise<ContentSearchResponse> {
   try {
     const pattern = filePattern || '**/*'
     const files = await glob(pattern, {
       cwd: dirPath,
       ignore: ['**/node_modules/**', '**/.git/**'],
-      nodir: true
+      nodir: true,
     })
-    
+
     const results: FileContentMatch[] = []
     let totalMatches = 0
     const queryLower = query.toLowerCase()
-    
+
     for (const file of files) {
       if (limit && results.length >= limit) break
-      
+
       if (!isTextFile(file)) continue
-      
+
       try {
         const filePath = path.join(dirPath, file)
         const content = await fs.readFile(filePath, 'utf8')
         const lines = content.split('\n')
         const matches: ContentMatch[] = []
-        
+
         lines.forEach((line, index) => {
           const lineLower = line.toLowerCase()
           const columnIndex = lineLower.indexOf(queryLower)
@@ -164,27 +218,24 @@ export async function searchFileContents(
             matches.push({
               line: index + 1,
               content: line,
-              column: columnIndex + 1
+              column: columnIndex + 1,
             })
             totalMatches++
           }
         })
-        
+
         if (matches.length > 0) {
           results.push({
             path: file,
-            matches
+            matches,
           })
         }
-      } catch (error) {
-        // Skip files that can't be read as text
-        continue
-      }
+      } catch (error) {}
     }
-    
+
     return {
       files: results,
-      totalMatches
+      totalMatches,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -220,28 +271,28 @@ export async function searchFilesInDirectory(
   directory: string,
   query: string,
   limit: number = 100,
-  filePattern?: string
+  filePattern?: string,
 ): Promise<FileSearchResponseLegacy> {
   try {
     const pattern = filePattern || '**/*'
     const files = await glob(pattern, {
       cwd: directory,
       ignore: ['**/node_modules/**', '**/.git/**'],
-      nodir: true
+      nodir: true,
     })
-    
+
     const queryLower = query.toLowerCase()
-    const matchingFiles = files.filter(file => 
-      file.toLowerCase().includes(queryLower)
-    ).slice(0, limit)
-    
+    const matchingFiles = files
+      .filter((file) => file.toLowerCase().includes(queryLower))
+      .slice(0, limit)
+
     // Also search file contents if they're text files
     const contentMatches: string[] = []
     for (const file of files) {
       if (matchingFiles.length >= limit) break
       if (matchingFiles.includes(file)) continue
       if (!isTextFile(file)) continue
-      
+
       try {
         const filePath = path.join(directory, file)
         const content = await fs.readFile(filePath, 'utf8')
@@ -252,19 +303,19 @@ export async function searchFilesInDirectory(
         // Skip files that can't be read
       }
     }
-    
+
     const allMatches = [...matchingFiles, ...contentMatches].slice(0, limit)
-    
+
     return {
       files: allMatches,
       totalCount: allMatches.length,
-      truncated: allMatches.length >= limit
+      truncated: allMatches.length >= limit,
     }
   } catch (error) {
     return {
       files: [],
       totalCount: 0,
-      truncated: false
+      truncated: false,
     }
   }
 }

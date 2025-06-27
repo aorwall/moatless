@@ -1,14 +1,14 @@
-import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-    CreateEnvironmentRequest,
-    CreateTaskRequest,
-    Environment,
-    Event,
-    Task,
+  CreateEnvironmentRequest,
+  CreateTaskRequest,
+  Environment,
+  Event,
+  Task,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
 
