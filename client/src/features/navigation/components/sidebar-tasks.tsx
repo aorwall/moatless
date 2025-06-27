@@ -62,7 +62,7 @@ export function SidebarTasks() {
         // First sort by active status (open/running tasks come first)
         const aActive = a.status === 'open' || a.status === 'running'
         const bActive = b.status === 'open' || b.status === 'running'
-        
+
         if (aActive && !bActive) {
           return -1
         }

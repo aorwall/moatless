@@ -1,7 +1,7 @@
 import type { Event } from '@shared/types/event'
 import { EventType } from '@shared/types/event'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
 import { useTask } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -37,23 +37,26 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   }, [metadata])
 
   // Memoize SSE callbacks to prevent reconnections
-  const handleSSEEvent = useCallback((newEvent: Event) => {
-    setStreamEvents((prev) => [...prev, newEvent])
-    setStreamingError(null)
+  const handleSSEEvent = useCallback(
+    (newEvent: Event) => {
+      setStreamEvents((prev) => [...prev, newEvent])
+      setStreamingError(null)
 
-    // Update last event ID for stream continuation
-    if (newEvent.eventId) {
-      setLastEventId(newEvent.eventId)
-    }
+      // Update last event ID for stream continuation
+      if (newEvent.eventId) {
+        setLastEventId(newEvent.eventId)
+      }
 
-    // Refetch task data when we receive a RESULT event
-    if (newEvent.type === EventType.RESULT) {
-      // Refetch task metadata to update status
-      queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
-      // Also refetch agent status
-      queryClient.invalidateQueries({ queryKey: queryKeys.taskAgentStatus(taskId) })
-    }
-  }, [queryClient, taskId])
+      // Refetch task data when we receive a RESULT event
+      if (newEvent.type === EventType.RESULT) {
+        // Refetch task metadata to update status
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
+        // Also refetch agent status
+        queryClient.invalidateQueries({ queryKey: queryKeys.taskAgentStatus(taskId) })
+      }
+    },
+    [queryClient, taskId],
+  )
 
   const handleSSEError = useCallback((error: Error) => {
     console.error('SSE error:', error)
