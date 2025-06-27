@@ -5,7 +5,6 @@ import { ChatView } from '@/features/tasks/components/chat-view'
 import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
-import { TaskHeader } from '@/features/tasks/components/task-header'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
@@ -72,7 +71,6 @@ function TaskDetail() {
 
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
-      <TaskHeader />
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left side - Chat View */}
         <ResizablePanel defaultSize={50} minSize={10}>
@@ -95,7 +93,7 @@ function TaskDetail() {
               }
               className="h-full w-full flex flex-col"
             >
-              <div className="px-4 py-2 border-b">
+              <div className="h-[58px] px-4 py-2 border-b flex items-center">
                 <div className="relative flex w-fit min-w-0 flex-1 items-center gap-2 overflow-x-auto">
                   <button
                     onClick={() => setRightPanelView('events')}
