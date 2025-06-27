@@ -1,4 +1,4 @@
-import { ArrowUp, Square } from 'lucide-react'
+import { ArrowUp, Circle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
@@ -144,10 +144,10 @@ export function ChatForm({
                     type="submit"
                     disabled={sendDisabled}
                     size="sm"
-                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-white/20 text-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-white/10 hover:border-white/30"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-gray-400/30 text-gray-500 transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-gray-500/10 hover:border-gray-400/40"
                   >
                     <span>{buttonText}</span>
-                    <Square className="h-3 w-3" />
+                    <Circle className="h-3 w-3 text-gray-500" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
