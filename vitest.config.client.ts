@@ -2,10 +2,14 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [react({
-    jsxRuntime: 'classic',
-    jsxImportSource: 'react'
-  })],
+  plugins: [
+    react({
+      // Ensure the automatic JSX runtime is used
+      jsxRuntime: 'automatic',
+      // Include the React refresh for better HMR support
+      include: '**/*.{jsx,tsx}',
+    }),
+  ],
   test: {
     globals: true,
     environment: 'jsdom',
@@ -18,16 +22,5 @@ export default defineConfig({
       '@': new URL('./client/src', import.meta.url).pathname,
       '@shared': new URL('./shared', import.meta.url).pathname,
     },
-  },
-  define: {
-    // Define React globally for React 19
-    'global.React': 'React',
-    'globalThis.React': 'React',
-    'window.React': 'React',
-  },
-  esbuild: {
-    jsx: 'transform',
-    jsxFactory: 'React.createElement',
-    jsxFragment: 'React.Fragment',
   }
 })

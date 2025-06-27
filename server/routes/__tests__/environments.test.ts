@@ -203,6 +203,14 @@ describe('Environment Routes', () => {
       }
 
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
+      vi.spyOn(app.services.fileSearch, 'searchFiles').mockResolvedValueOnce({
+        files: [
+          { path: '/test/file1.ts', matches: 1 },
+          { path: '/test/file2.ts', matches: 2 },
+        ],
+        totalCount: 2,
+        truncated: false,
+      })
 
       const response = await app.inject({
         method: 'POST',

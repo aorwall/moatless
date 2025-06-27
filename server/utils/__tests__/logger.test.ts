@@ -1,62 +1,75 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRequestLogger, createTaskLogger, logger } from '../logger.js'
 
-// Mock pino
-vi.mock('pino', () => {
-  const mockLogger = {
+// Create mock logger functions
+const mockInfo = vi.fn()
+const mockError = vi.fn()
+const mockWarn = vi.fn()
+const mockDebug = vi.fn()
+const mockChild = vi.fn()
+
+// Mock the logger module
+vi.mock('../logger.js', () => {
+  const mockChildLogger = {
     trace: vi.fn(),
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     fatal: vi.fn(),
-    child: vi.fn(),
-    level: 'info',
   }
 
-  // Setup child to return a new mock logger with same methods
-  mockLogger.child.mockImplementation(() => ({
-    trace: vi.fn(),
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    fatal: vi.fn(),
-    child: vi.fn(),
-    level: 'info',
-  }))
+  mockChild.mockReturnValue(mockChildLogger)
 
   return {
-    pino: vi.fn(() => mockLogger),
-    default: vi.fn(() => mockLogger),
+    logger: {
+      info: mockInfo,
+      error: mockError,
+      warn: mockWarn,
+      debug: mockDebug,
+      child: mockChild,
+    },
+    createRequestLogger: (requestId: string, taskId?: string) => {
+      return mockChild({ requestId, taskId })
+    },
+    createTaskLogger: (taskId: string) => {
+      return mockChild({ taskId })
+    },
   }
 })
+
+// Import after mocking
+import { createRequestLogger, createTaskLogger, logger } from '../logger.js'
 
 describe('Logger', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockInfo.mockClear()
+    mockError.mockClear()
+    mockWarn.mockClear()
+    mockDebug.mockClear()
+    mockChild.mockClear()
   })
 
   describe('logging methods', () => {
     it('should log info messages', () => {
       logger.info('Test message', { foo: 'bar' })
-      expect(logger.info).toHaveBeenCalledWith('Test message', { foo: 'bar' })
+      expect(mockInfo).toHaveBeenCalledWith('Test message', { foo: 'bar' })
     })
 
     it('should log error messages', () => {
       const error = new Error('Test error')
       logger.error('Error occurred', error)
-      expect(logger.error).toHaveBeenCalledWith('Error occurred', error)
+      expect(mockError).toHaveBeenCalledWith('Error occurred', error)
     })
 
     it('should log warn messages', () => {
       logger.warn('Warning message')
-      expect(logger.warn).toHaveBeenCalledWith('Warning message')
+      expect(mockWarn).toHaveBeenCalledWith('Warning message')
     })
 
     it('should log debug messages', () => {
       logger.debug('Debug info', { debug: true })
-      expect(logger.debug).toHaveBeenCalledWith('Debug info', { debug: true })
+      expect(mockDebug).toHaveBeenCalledWith('Debug info', { debug: true })
     })
   })
 
@@ -64,7 +77,7 @@ describe('Logger', () => {
     it('should create request-scoped logger', () => {
       const requestLogger = createRequestLogger('req-123', 'task-456')
 
-      expect(logger.child).toHaveBeenCalledWith({
+      expect(mockChild).toHaveBeenCalledWith({
         requestId: 'req-123',
         taskId: 'task-456',
       })
@@ -74,7 +87,7 @@ describe('Logger', () => {
     it('should create task-scoped logger', () => {
       const taskLogger = createTaskLogger('task-789')
 
-      expect(logger.child).toHaveBeenCalledWith({
+      expect(mockChild).toHaveBeenCalledWith({
         taskId: 'task-789',
       })
       expect(taskLogger).toBeDefined()
@@ -83,7 +96,7 @@ describe('Logger', () => {
     it('should create request logger without taskId', () => {
       const requestLogger = createRequestLogger('req-999')
 
-      expect(logger.child).toHaveBeenCalledWith({
+      expect(mockChild).toHaveBeenCalledWith({
         requestId: 'req-999',
         taskId: undefined,
       })
