@@ -1,7 +1,7 @@
 import { useParams } from '@tanstack/react-router'
-import { Loader2, Play } from 'lucide-react'
-import { useCallback, useEffect, useRef } from 'react'
-import { useStartServer } from '@/features/tasks/hooks/use-tasks'
+import { Loader2, Play, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useStartServer, useStopServer } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { cn } from '@/lib/utils'
 import { usePreviewConnection } from '../hooks/use-preview-connection'
@@ -15,6 +15,8 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const params = useParams({ from: '/tasks/$taskId' })
   const startServer = useStartServer()
+  const stopServer = useStopServer()
+  const [isRestarting, setIsRestarting] = useState(false)
 
   const {
     currentPath,
@@ -59,6 +61,34 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     startServer.mutate(params.taskId)
   }, [params.taskId, startServer])
 
+  const handleRestartServer = useCallback(async () => {
+    setIsRestarting(true)
+    try {
+      // First stop the server
+      await new Promise<void>((resolve, reject) => {
+        stopServer.mutate(params.taskId, {
+          onSuccess: () => resolve(),
+          onError: (error) => reject(error),
+        })
+      })
+
+      // Wait a moment for the server to fully stop
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Then start it again
+      await new Promise<void>((resolve, reject) => {
+        startServer.mutate(params.taskId, {
+          onSuccess: () => resolve(),
+          onError: (error) => reject(error),
+        })
+      })
+    } catch (error) {
+      console.error('Failed to restart server:', error)
+    } finally {
+      setIsRestarting(false)
+    }
+  }, [params.taskId, stopServer, startServer])
+
   return (
     <div
       className={cn(
@@ -95,13 +125,32 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
 
         {serverStatus?.running && !isConnected && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-            <div className="text-center space-y-2">
-              <p className="text-muted-foreground">
-                Cannot connect to preview server at {config.url}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                The server is running but connection failed
-              </p>
+            <div className="text-center space-y-4">
+              <div className="space-y-2">
+                <p className="text-muted-foreground">
+                  Cannot connect to preview server at {config.url}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  The server is running but connection failed
+                </p>
+              </div>
+              <Button
+                onClick={handleRestartServer}
+                disabled={isRestarting || stopServer.isPending || startServer.isPending}
+                size="sm"
+              >
+                {isRestarting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Restarting Server...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Restart Server
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         )}
