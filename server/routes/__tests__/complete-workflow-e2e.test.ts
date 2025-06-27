@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs'
-import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -48,7 +47,7 @@ async function simulateSSEStream(
   onError?: (error: Error) => void,
 ): Promise<() => void> {
   let isActive = true
-  let lastEventId: string | null = null
+  const lastEventId: string | null = null
   const seenEventIds = new Set<string>()
 
   // Poll for events every 100ms to simulate real-time streaming

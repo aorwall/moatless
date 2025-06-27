@@ -27,14 +27,14 @@ export function TaskCard({ task }: TaskCardProps) {
             <div className="flex items-start justify-between space-x-4">
               <h3 className="text-lg font-semibold leading-none tracking-tight">{`Task ${task.taskId.slice(0, 8)}`}</h3>
               <div className="flex items-center space-x-2">
-                <div className={`flex items-center ${statusConfig.color}`}>
-                  {statusConfig.icon}
-                </div>
-                <Badge 
+                <div className={`flex items-center ${statusConfig.color}`}>{statusConfig.icon}</div>
+                <Badge
                   variant={
-                    task.status === 'error' ? 'destructive' : 
-                    task.status === 'open' || task.status === 'running' ? 'default' : 
-                    'secondary'
+                    task.status === 'error'
+                      ? 'destructive'
+                      : task.status === 'open' || task.status === 'running'
+                        ? 'default'
+                        : 'secondary'
                   }
                 >
                   {statusConfig.tooltip}
