@@ -28,6 +28,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 export function useTasksList(
   params?: {
     activeOnly?: boolean
+    status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
     limit?: number
     offset?: number
   },

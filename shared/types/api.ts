@@ -7,7 +7,7 @@ import { WorkspaceStatus } from './workspace.js'
 // Base Types and Enums
 // ============================================
 
-export const TaskStatusSchema = z.enum(['active', 'completed', 'error', 'closed'])
+export const TaskStatusSchema = z.enum(['open', 'running', 'error', 'merged', 'closed'])
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
 
 // ============================================

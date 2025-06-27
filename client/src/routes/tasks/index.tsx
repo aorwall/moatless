@@ -10,17 +10,7 @@ export const Route = createFileRoute('/tasks/')({
 
 function TasksIndex() {
   // Fetch all tasks
-  const {
-    data: tasks,
-    isLoading,
-    error,
-  } = useTasksList(
-    {},
-    {
-      refetchInterval: 5000,
-      refetchIntervalInBackground: true,
-    },
-  )
+  const { data: tasks, isLoading, error } = useTasksList()
 
   return (
     <div className="container mx-auto px-6 py-8">
