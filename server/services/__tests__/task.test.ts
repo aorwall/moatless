@@ -83,7 +83,7 @@ describe('TaskService', () => {
           taskId: id,
           agentType: 'test-agent',
           environmentId: 'env-123',
-          status: 'active',
+          status: 'open',
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],
@@ -108,7 +108,7 @@ describe('TaskService', () => {
           taskId,
           agentType: 'test-agent',
           environmentId: 'env-123',
-          status: 'active',
+          status: 'open',
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],
@@ -242,7 +242,7 @@ describe('TaskService', () => {
         lastMessageAt: new Date(),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'active',
+        status: 'open',
         numTurns: 5,
         totalCostUsd: 0.05,
         iterations: [],
@@ -270,7 +270,7 @@ describe('TaskService', () => {
         lastMessageAt: new Date(Date.now() - i * 1000),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'active',
+        status: 'open',
         numTurns: i,
         totalCostUsd: i * 0.01,
         iterations: [],
@@ -299,7 +299,7 @@ describe('TaskService', () => {
         lastMessageAt: new Date(),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'active',
+        status: 'open',
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -318,7 +318,7 @@ describe('TaskService', () => {
           iterations: expect.arrayContaining([
             expect.objectContaining({
               iterationNumber: 1,
-              status: 'active',
+              status: 'open',
               messageCount: 1,
               initialMessage: 'Hello, task!',
             }),
@@ -334,7 +334,7 @@ describe('TaskService', () => {
         'Hello, task!',
         expect.objectContaining({
           iterationNumber: 1,
-          status: 'active',
+          status: 'open',
           messageCount: 1,
           initialMessage: 'Hello, task!',
         }),
@@ -350,7 +350,7 @@ describe('TaskService', () => {
         lastMessageAt: new Date(),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'active',
+        status: 'open',
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -367,7 +367,7 @@ describe('TaskService', () => {
         'Hello, task!',
         expect.objectContaining({
           iterationNumber: 1,
-          status: 'active',
+          status: 'open',
           messageCount: 1,
           initialMessage: 'Hello, task!',
         }),
@@ -393,7 +393,7 @@ describe('TaskService', () => {
         lastMessageAt: new Date(),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'active',
+        status: 'open',
         numTurns: 5,
         totalCostUsd: 0.05,
         iterations: [],
@@ -401,12 +401,12 @@ describe('TaskService', () => {
 
       vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
 
-      await taskService.updateTask('task-123', { status: 'completed' })
+      await taskService.updateTask('task-123', { status: 'closed' })
 
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
-          status: 'completed',
+          status: 'closed',
         }),
       )
     })
@@ -420,7 +420,7 @@ describe('TaskService', () => {
         lastMessageAt: new Date(),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'completed',
+        status: 'closed',
         numTurns: 10,
         totalCostUsd: 0.1,
         iterations: [],
@@ -477,7 +477,7 @@ describe('TaskService', () => {
           taskId: id,
           agentType: 'test-agent',
           environmentId: 'env-123',
-          status: 'active',
+          status: 'open',
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],

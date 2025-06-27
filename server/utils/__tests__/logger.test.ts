@@ -27,6 +27,7 @@ vi.mock('pino', () => {
   }))
 
   return {
+    pino: vi.fn(() => mockLogger),
     default: vi.fn(() => mockLogger),
   }
 })

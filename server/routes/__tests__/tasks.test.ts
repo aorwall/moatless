@@ -33,7 +33,7 @@ describe('Task Routes', () => {
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
       expect(body.taskId).toBe(mockTaskId)
-      expect(body.status).toBe('active')
+      expect(body.status).toBe('open')
 
       // Verify task was created with correct params
       expect(app.services.task.createTask).toHaveBeenCalledWith({
@@ -119,7 +119,7 @@ describe('Task Routes', () => {
         lastMessageAt: new Date(),
         agentType: 'claude-code',
         environmentId: 'test-env',
-        status: 'active' as const,
+        status: 'open' as const,
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -161,7 +161,7 @@ describe('Task Routes', () => {
           lastMessageAt: new Date(),
           agentType: 'claude-code',
           environmentId: 'test-env',
-          status: 'active' as const,
+          status: 'open' as const,
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],
@@ -172,7 +172,7 @@ describe('Task Routes', () => {
           lastMessageAt: new Date(),
           agentType: 'claude-code',
           environmentId: 'test-env',
-          status: 'completed' as const,
+          status: 'closed' as const,
           numTurns: 5,
           totalCostUsd: 0.1,
           iterations: [],
@@ -198,7 +198,7 @@ describe('Task Routes', () => {
       const mockTasks = [
         {
           taskId: 'task-1',
-          status: 'active' as const,
+          status: 'open' as const,
           createdAt: new Date(),
           lastMessageAt: new Date(),
           agentType: 'claude-code',

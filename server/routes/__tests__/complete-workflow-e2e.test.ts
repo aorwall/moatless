@@ -1,14 +1,14 @@
+import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-  CreateEnvironmentRequest,
-  CreateTaskRequest,
-  Environment,
-  Event,
-  Task,
+    CreateEnvironmentRequest,
+    CreateTaskRequest,
+    Environment,
+    Event,
+    Task,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
 
@@ -230,7 +230,7 @@ describe('Complete Workflow E2E Test', () => {
     expect(createTaskResponse.statusCode).toBe(200)
     const taskCreationResult = JSON.parse(createTaskResponse.body)
     createdTaskId = taskCreationResult.taskId
-    expect(taskCreationResult.status).toBe('active')
+    expect(taskCreationResult.status).toBe('open')
 
     // Wait a bit for background workspace setup and initial message processing
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -246,7 +246,7 @@ describe('Complete Workflow E2E Test', () => {
     expect(task.taskId).toBe(createdTaskId)
     expect(task.environmentId).toBe(environment.id)
     expect(task.agentType).toBe('claude-code')
-    expect(task.status).toBe('active')
+    expect(task.status).toBe('open')
 
     // Step 4: Set up SSE event streaming simulation
     // Note: In test environment, we simulate SSE by polling the events endpoint
