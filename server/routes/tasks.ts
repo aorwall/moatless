@@ -452,6 +452,23 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
+  // Restart development server
+  app.post(
+    '/:taskId/server/restart',
+    {
+      schema: {
+        params: TaskIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { taskId } = request.params as any
+
+      // Task validation and capability check now handled in workspace service
+      const result = await app.services.workspace.restartServer(taskId)
+      return result
+    },
+  )
+
   // Get server status
   app.get(
     '/:taskId/server/status',

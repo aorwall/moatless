@@ -212,6 +212,32 @@ export class PreviewEnvironmentService {
   }
 
   /**
+   * Restart a preview environment server
+   */
+  async restartServer(taskId: string): Promise<ServerStatus> {
+    const previewLogger = logger.child({ taskId, operation: 'restartServer' })
+    previewLogger.info('Restarting preview environment server')
+
+    try {
+      // First stop the server if it's running
+      const stopped = await this.stopServer(taskId)
+      previewLogger.debug(`Server stopped: ${stopped}`)
+
+      // Wait a moment for the server to fully stop
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Then start it again
+      const result = await this.startServer(taskId)
+      previewLogger.info('Preview environment server restarted successfully')
+
+      return result
+    } catch (error) {
+      previewLogger.error('Error restarting preview environment server', error as Error)
+      throw error
+    }
+  }
+
+  /**
    * Get server status for a task
    */
   async getServerStatus(taskId: string): Promise<ServerStatus> {

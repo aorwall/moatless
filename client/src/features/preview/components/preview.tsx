@@ -1,7 +1,7 @@
 import { useParams } from '@tanstack/react-router'
 import { Loader2, Play, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStartServer, useStopServer } from '@/features/tasks/hooks/use-tasks'
+import { useCallback, useEffect, useRef } from 'react'
+import { useRestartServer, useStartServer } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
@@ -17,8 +17,7 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const params = useParams({ from: '/tasks/$taskId' })
   const startServer = useStartServer()
-  const stopServer = useStopServer()
-  const [isRestarting, setIsRestarting] = useState(false)
+  const restartServer = useRestartServer()
 
   const {
     currentPath,
@@ -145,33 +144,9 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     startServer.mutate(params.taskId)
   }, [params.taskId, startServer])
 
-  const handleRestartServer = useCallback(async () => {
-    setIsRestarting(true)
-    try {
-      // First stop the server
-      await new Promise<void>((resolve, reject) => {
-        stopServer.mutate(params.taskId, {
-          onSuccess: () => resolve(),
-          onError: (error) => reject(error),
-        })
-      })
-
-      // Wait a moment for the server to fully stop
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Then start it again
-      await new Promise<void>((resolve, reject) => {
-        startServer.mutate(params.taskId, {
-          onSuccess: () => resolve(),
-          onError: (error) => reject(error),
-        })
-      })
-    } catch (error) {
-      console.error('Failed to restart server:', error)
-    } finally {
-      setIsRestarting(false)
-    }
-  }, [params.taskId, stopServer, startServer])
+  const handleRestartServer = useCallback(() => {
+    restartServer.mutate(params.taskId)
+  }, [params.taskId, restartServer])
 
   return (
     <div
@@ -224,10 +199,10 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
                   </div>
                   <Button
                     onClick={handleRestartServer}
-                    disabled={isRestarting || stopServer.isPending || startServer.isPending}
+                    disabled={restartServer.isPending}
                     size="sm"
                   >
-                    {isRestarting ? (
+                    {restartServer.isPending ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Restarting Server...

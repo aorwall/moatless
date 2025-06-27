@@ -275,6 +275,30 @@ export function useStopServer(options?: UseMutationOptions<ServerStatus, Error, 
   })
 }
 
+export function useRestartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (taskId: string) => tasksApi.restartServer(taskId),
+    onSuccess: async (data, taskId, context) => {
+      // Invalidate server status to refresh with new state
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
+      })
+      // Also invalidate task data as server state might affect task metadata
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
+      })
+      // Force refetch the server status immediately
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.taskServerStatus(taskId),
+      })
+      options?.onSuccess?.(data, taskId, context)
+    },
+    ...options,
+  })
+}
+
 export function useServerLogs(
   taskId: string,
   options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
@@ -303,19 +327,19 @@ export function useMergeTask(
     onMutate: async ({ taskId }) => {
       // Cancel any in-flight queries for this task
       await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) })
-      
+
       // Snapshot the previous task data
       const previousTask = queryClient.getQueryData<Task>(queryKeys.task(taskId))
-      
+
       // Optimistically update the task status to 'merged'
       if (previousTask) {
         const updatedTask = { ...previousTask, status: 'merged' as const }
         queryClient.setQueryData<Task>(queryKeys.task(taskId), updatedTask)
-        
+
         // Update the task in all cached lists
         updateTaskInLists(queryClient, taskId, { status: 'merged' })
       }
-      
+
       // Return context with snapshot for potential rollback
       return { previousTask }
     },
@@ -363,19 +387,19 @@ export function useCloseTask(
     onMutate: async (taskId) => {
       // Cancel any in-flight queries for this task
       await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) })
-      
+
       // Snapshot the previous task data
       const previousTask = queryClient.getQueryData<Task>(queryKeys.task(taskId))
-      
+
       // Optimistically update the task status to 'closed'
       if (previousTask) {
         const updatedTask = { ...previousTask, status: 'closed' as const }
         queryClient.setQueryData<Task>(queryKeys.task(taskId), updatedTask)
-        
+
         // Update the task in all cached lists
         updateTaskInLists(queryClient, taskId, { status: 'closed' })
       }
-      
+
       // Return context with snapshot for potential rollback
       return { previousTask }
     },

@@ -507,6 +507,18 @@ export class WorkspaceService {
     return this.previewEnvironmentService.stopServer(taskId)
   }
 
+  async restartServer(taskId: string): Promise<ServerStatus> {
+    if (!(await this.canManageServer(taskId))) {
+      throw new WorkspaceError('Cannot restart server: workspace not ready', taskId)
+    }
+
+    if (!this.previewEnvironmentService) {
+      throw new WorkspaceError('Preview environment service not initialized', taskId)
+    }
+
+    return this.previewEnvironmentService.restartServer(taskId)
+  }
+
   async getServerStatus(taskId: string): Promise<ServerStatus> {
     if (!this.previewEnvironmentService) {
       return {

@@ -96,6 +96,10 @@ export const tasksApi = {
     return await apiClient.post<ServerStatus>(`/api/v1/tasks/${taskId}/server/stop`)
   },
 
+  async restartServer(taskId: string): Promise<ServerStatus> {
+    return await apiClient.post<ServerStatus>(`/api/v1/tasks/${taskId}/server/restart`)
+  },
+
   async getServerStatus(taskId: string): Promise<ServerStatus> {
     return await apiClient.get<ServerStatus>(`/api/v1/tasks/${taskId}/server/status`)
   },
