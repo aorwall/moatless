@@ -1,7 +1,7 @@
 import { EventType } from '@shared/types/event'
 import type { TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
-import { Clock, DollarSign, Loader2, MessageSquare } from 'lucide-react'
+import { Clock, DollarSign, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,12 +9,12 @@ import { toast } from 'sonner'
 import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
 import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
+import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
-import { Badge } from '@/lib/components/ui/badge'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
-
 import { ChatInput } from '../chat-input'
+import { MinifiedLastEventDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
 
 export function ChatView() {
@@ -213,13 +213,15 @@ export function ChatView() {
               )
             })}
 
-            {/* Show running state when task is running */}
-            {isTaskRunning && metadata.iterations && metadata.iterations.length > 0 && (
-              <div className="flex items-center justify-center py-4">
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  running
-                </Badge>
+            {/* Show last event when task is running */}
+            {isTaskRunning && events.length > 0 && (
+              <div className="mb-4">
+                <MinifiedLastEventDisplay
+                  events={mergeToolEvents(events)}
+                  className="max-w-full"
+                  showTransitionIndicator={true}
+                  isRunning={true}
+                />
               </div>
             )}
 
