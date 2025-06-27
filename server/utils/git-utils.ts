@@ -348,8 +348,9 @@ export async function checkForConflicts(repoPath: string, baseBranch?: string): 
     const base = baseBranch || 'main'
 
     // Use git merge-tree to check for conflicts without modifying working tree
+    // We check if merging current branch (HEAD) into base would cause conflicts
     try {
-      const { stdout, stderr } = await execAsync(`git merge-tree --write-tree HEAD ${base}`, {
+      const { stdout, stderr } = await execAsync(`git merge-tree --write-tree ${base} HEAD`, {
         cwd: repoPath,
         timeout: 10000,
       })
@@ -365,7 +366,7 @@ export async function checkForConflicts(repoPath: string, baseBranch?: string): 
       // Try with master if main fails
       if (!baseBranch) {
         try {
-          const { stdout, stderr } = await execAsync('git merge-tree --write-tree HEAD master', {
+          const { stdout, stderr } = await execAsync('git merge-tree --write-tree master HEAD', {
             cwd: repoPath,
             timeout: 10000,
           })

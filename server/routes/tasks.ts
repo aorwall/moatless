@@ -513,18 +513,22 @@ export async function registerTaskRoutes(app: FastifyInstance) {
           .optional(),
         response: {
           200: MergeResponseSchema,
+          400: z.object({
+            statusCode: z.literal(400),
+            error: z.string(),
+            message: z.string(),
+          }),
         },
       },
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const { taskId } = request.params as any
       const body = request.body || {}
       const { targetBranch = 'main', commitMessage } = body as any
 
       // Import git utils
-      const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch } = await import(
-        '../utils/git-utils.js'
-      )
+      const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch, checkForConflicts } =
+        await import('../utils/git-utils.js')
 
       // Get task to verify it exists
       const task = await taskService.getTask(taskId)
@@ -543,10 +547,65 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Get current branch
       const currentBranch = await getCurrentBranch(workspacePath)
 
-      // Check for uncommitted changes
+      // Check for uncommitted changes in workspace
       const hasChanges = await hasUncommittedChanges(workspacePath)
       if (hasChanges) {
-        throw new Error('Cannot merge: workspace has uncommitted changes')
+        reply.code(400)
+        return {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Cannot merge: workspace has uncommitted changes',
+        }
+      }
+
+      // Extract main repo path from worktree for additional checks
+      const gitPath = `${workspacePath}/.git`
+      let mainRepoPath = workspacePath
+
+      try {
+        const { exec } = await import('node:child_process')
+        const { promisify } = await import('node:util')
+        const execAsync = promisify(exec)
+
+        const { stdout: gitFileContent } = await execAsync(`cat "${gitPath}"`, {
+          cwd: workspacePath,
+          timeout: 5000,
+        })
+
+        // If .git is a file (worktree), extract main repo path
+        if (gitFileContent.startsWith('gitdir:')) {
+          const gitDir = gitFileContent.split(':')[1].trim()
+          // Extract main repo path from worktree git dir
+          const pathParts = gitDir.split('/')
+          const worktreesIndex = pathParts.lastIndexOf('worktrees')
+          if (worktreesIndex > 0) {
+            mainRepoPath = pathParts.slice(0, worktreesIndex - 1).join('/')
+          }
+        }
+      } catch {
+        // .git is a directory, we're in the main repo
+      }
+
+      // Check for uncommitted changes in the main repository target branch
+      const mainHasChanges = await hasUncommittedChanges(mainRepoPath)
+      if (mainHasChanges) {
+        reply.code(400)
+        return {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Cannot merge: target branch '${targetBranch}' has uncommitted changes in the main repository`,
+        }
+      }
+
+      // Check for conflicts before attempting merge
+      const hasConflicts = await checkForConflicts(workspacePath, targetBranch)
+      if (hasConflicts) {
+        reply.code(400)
+        return {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Cannot merge: conflicts detected between '${currentBranch}' and '${targetBranch}'`,
+        }
       }
 
       // Perform the merge
