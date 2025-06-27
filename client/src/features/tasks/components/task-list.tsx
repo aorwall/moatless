@@ -1,7 +1,10 @@
 import type { Task } from '@shared/types/task'
 import { Link } from '@tanstack/react-router'
+import { Trash2 } from 'lucide-react'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
+import { Button } from '@/lib/components/ui/button'
 import {
   Table,
   TableBody,
@@ -44,6 +47,7 @@ function getRelativeTime(date: Date | string): string {
 
 export function TaskList({ tasks, loading }: TaskListProps) {
   const { data: environments } = useEnvironmentsList()
+  const deleteTask = useDeleteTask()
 
   // Create a map of environment IDs to names
   const environmentMap =
@@ -63,6 +67,14 @@ export function TaskList({ tasks, loading }: TaskListProps) {
     )
   })
 
+  const handleDelete = (taskId: string, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (confirm('Are you sure you want to delete this task?')) {
+      deleteTask.mutate(taskId)
+    }
+  }
+
   if (loading) {
     return <div className="text-center py-8 text-muted-foreground">Loading tasks...</div>
   }
@@ -77,10 +89,11 @@ export function TaskList({ tasks, loading }: TaskListProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[50%]">Task</TableHead>
+              <TableHead className="w-[45%]">Task</TableHead>
               <TableHead>Environment</TableHead>
               <TableHead>Last Activity</TableHead>
-              <TableHead className="text-right">Status</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -106,7 +119,7 @@ export function TaskList({ tasks, loading }: TaskListProps) {
                   <TableCell className="text-muted-foreground">
                     {getRelativeTime(task.lastMessageAt || task.createdAt)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className={`inline-flex items-center gap-2 ${statusConfig.color}`}>
@@ -124,6 +137,16 @@ export function TaskList({ tasks, loading }: TaskListProps) {
                         </p>
                       </TooltipContent>
                     </Tooltip>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => handleDelete(task.taskId, e)}
+                      disabled={deleteTask.isPending}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               )

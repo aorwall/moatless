@@ -115,4 +115,8 @@ export const tasksApi = {
       `/api/v1/tasks/${taskId}/close`,
     )
   },
+
+  async deleteTask(taskId: string): Promise<{ status: string }> {
+    return await apiClient.delete<{ status: string }>(`/api/v1/tasks/${taskId}`)
+  },
 }
