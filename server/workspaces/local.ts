@@ -1,3 +1,7 @@
+import { exec } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { promisify } from 'node:util'
 import type { Environment, LocalRepository } from '@shared/types/environment.js'
 import {
   type CommandResult,
@@ -5,10 +9,6 @@ import {
   type Workspace,
   WorkspaceStatus,
 } from '@shared/types/workspace.js'
-import { exec } from 'node:child_process'
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
-import { promisify } from 'node:util'
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { searchFilesInDirectory } from '../utils/file-search.js'
