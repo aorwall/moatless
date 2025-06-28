@@ -219,7 +219,7 @@ describe('Task Routes', () => {
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
       expect(body.tasks).toHaveLength(1)
-              expect(body.tasks[0].status).toBe('running')
+      expect(body.tasks[0].status).toBe('running')
     })
   })
 
