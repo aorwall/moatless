@@ -321,7 +321,7 @@ export class LocalWorkspace extends BaseWorkspace {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
         this.taskId,
-        404,
+        400,
       )
     }
 
@@ -333,7 +333,7 @@ export class LocalWorkspace extends BaseWorkspace {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
         this.taskId,
-        404,
+        400,
       )
     }
 
