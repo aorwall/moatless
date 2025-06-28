@@ -48,18 +48,18 @@ const start = async () => {
     // Setup graceful shutdown handlers
     const gracefulShutdown = async (signal: string) => {
       server.log.info(`Received ${signal}, starting graceful shutdown...`)
-      
+
       try {
         // Stop preview environment servers first
         if (server.services?.previewEnvironment) {
           server.log.info('Shutting down preview environment service...')
           await server.services.previewEnvironment.gracefulShutdown()
         }
-        
+
         // Close the server
         server.log.info('Closing HTTP server...')
         await server.close()
-        
+
         server.log.info('Graceful shutdown completed')
         process.exit(0)
       } catch (error) {

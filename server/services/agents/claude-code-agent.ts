@@ -16,10 +16,10 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.abortController = new AbortController()
     this.iterationNumber = runOptions.iterationNumber
 
-    const agentLogger = logger.child({ 
-      taskId: this.taskId, 
+    const agentLogger = logger.child({
+      taskId: this.taskId,
       iterationNumber: runOptions.iterationNumber,
-      component: 'ClaudeCodeAgent'
+      component: 'ClaudeCodeAgent',
     })
 
     try {
@@ -35,10 +35,10 @@ export class ClaudeCodeAgent extends BaseAgent {
         options: sdkOptions,
       })) {
         eventCount++
-        
+
         agentLogger.debug('Received SDK message', {
           eventCount,
-          sdkMessage
+          sdkMessage,
         })
 
         if (this.stopRequested) {
@@ -68,14 +68,15 @@ export class ClaudeCodeAgent extends BaseAgent {
         totalEvents: eventCount,
         hasStartedProcessing,
         stopRequested: this.stopRequested,
-        sessionId: this.sessionId
+        sessionId: this.sessionId,
       })
 
       // Log warning if we only got init message
       if (eventCount === 1 && !hasStartedProcessing) {
-        agentLogger.warn('SDK query loop exited after only init message - this may indicate an authentication or configuration issue')
+        agentLogger.warn(
+          'SDK query loop exited after only init message - this may indicate an authentication or configuration issue',
+        )
       }
-
     } catch (error) {
       // Check if it's a process exit error during normal operation
       if (error instanceof Error && error.message.includes('Claude Code process exited')) {
@@ -92,12 +93,12 @@ export class ClaudeCodeAgent extends BaseAgent {
         agentLogger.error('Unexpected Claude Code process exit', error as Error, {
           stopRequested: this.stopRequested,
           sessionId: this.sessionId,
-          exitCode
+          exitCode,
         })
       } else {
         agentLogger.error('Error in SDK query loop', error as Error, {
           stopRequested: this.stopRequested,
-          sessionId: this.sessionId
+          sessionId: this.sessionId,
         })
       }
       throw error
@@ -124,11 +125,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
     const options = this.options as ClaudeCodeOptions
     const sdkOptions: ClaudeCodeOptions = {
-      allowedTools: [
-        'WebFetch',
-        'WebSearch',
-        'Bash',
-      ],
+      allowedTools: ['WebFetch', 'WebSearch', 'Bash'],
       permissionMode: 'acceptEdits',
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
@@ -138,13 +135,13 @@ export class ClaudeCodeAgent extends BaseAgent {
       sdkOptions.resume = runOptions.resume
     }
 
-    const agentLogger = logger.child({ 
-      taskId: this.taskId, 
-      component: 'ClaudeCodeAgent'
+    const agentLogger = logger.child({
+      taskId: this.taskId,
+      component: 'ClaudeCodeAgent',
     })
 
     agentLogger.debug('Built SDK options', {
-      sdkOptions
+      sdkOptions,
     })
 
     return sdkOptions

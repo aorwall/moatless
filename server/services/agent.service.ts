@@ -263,7 +263,6 @@ export class AgentService {
 
       // Process agent events
       for await (const event of agent.run(message, runOptions)) {
-
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()

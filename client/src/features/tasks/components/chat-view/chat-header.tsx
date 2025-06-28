@@ -159,46 +159,48 @@ export function ChatHeader() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {metadata.status !== 'running' && metadata.status !== 'closed' && metadata.status !== 'merged' && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleMerge}
-                    disabled={
-                      mergeTask.isPending ||
-                      isLoadingWorkspace ||
-                      !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
-                      workspaceStatus?.gitStatus?.hasConflicts ||
-                      metadata.status === 'running' ||
-                      metadata.status === 'error'
-                    }
-                    className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
-                  >
-                    <GitMerge className="h-3.5 w-3.5" />
-                    <span className="sr-only">Merge changes</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
-                    <p>Cannot merge: workspace has uncommitted changes</p>
-                  ) : metadata.status === 'running' ? (
-                    <p>Cannot merge: agent is running</p>
-                  ) : isLoadingWorkspace ? (
-                    <p>Checking status...</p>
-                  ) : !workspaceStatus?.hasUnmergedCommits ? (
-                    <p>No unmerged commits to merge</p>
-                  ) : workspaceStatus?.gitStatus?.hasConflicts ? (
-                    <p>Cannot merge: conflicts detected</p>
-                  ) : (
-                    <p>Merge workspace changes to the main branch</p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+          {metadata.status !== 'running' &&
+            metadata.status !== 'closed' &&
+            metadata.status !== 'merged' && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleMerge}
+                      disabled={
+                        mergeTask.isPending ||
+                        isLoadingWorkspace ||
+                        !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
+                        workspaceStatus?.gitStatus?.hasConflicts ||
+                        metadata.status === 'running' ||
+                        metadata.status === 'error'
+                      }
+                      className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                    >
+                      <GitMerge className="h-3.5 w-3.5" />
+                      <span className="sr-only">Merge changes</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
+                      <p>Cannot merge: workspace has uncommitted changes</p>
+                    ) : metadata.status === 'running' ? (
+                      <p>Cannot merge: agent is running</p>
+                    ) : isLoadingWorkspace ? (
+                      <p>Checking status...</p>
+                    ) : !workspaceStatus?.hasUnmergedCommits ? (
+                      <p>No unmerged commits to merge</p>
+                    ) : workspaceStatus?.gitStatus?.hasConflicts ? (
+                      <p>Cannot merge: conflicts detected</p>
+                    ) : (
+                      <p>Merge workspace changes to the main branch</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           {metadata.status !== 'closed' && (
             <TooltipProvider>
               <Tooltip>

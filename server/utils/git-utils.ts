@@ -1,6 +1,6 @@
-import type { GitStatus } from '@shared/types/api.js'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import type { GitStatus } from '@shared/types/api.js'
 
 const execAsync = promisify(exec)
 

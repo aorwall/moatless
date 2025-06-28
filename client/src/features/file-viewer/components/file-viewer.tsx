@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import { cn } from '@/lib/utils'
 import { useFileContent } from '../api/use-file-content'
 import { getLanguageFromPath } from '../utils/file-tree-utils'
 import { FileViewerSkeleton } from './file-viewer-skeleton'
@@ -13,18 +12,18 @@ interface FileViewerProps {
 export function FileViewer({ taskId, filePath }: FileViewerProps) {
   const { data, isLoading, error } = useFileContent(taskId, filePath)
   const language = getLanguageFromPath(filePath)
-  
+
   // Memoize line processing to avoid re-computation and ensure consistency
   // This hook must be called unconditionally to satisfy React's rules of hooks
   const lines = useMemo(() => {
     if (!data?.content) return []
-    
+
     // Create a defensive copy to ensure we don't affect cached data
     const contentStr = String(data.content)
-    
+
     // Normalize line endings: CRLF -> LF, CR -> LF
     const normalized = contentStr.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    
+
     return normalized.split('\n')
   }, [data?.content])
 
@@ -56,12 +55,8 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
             <code className={`language-${language}`}>
               {lines.map((line, index) => (
                 <div key={index} className="grid grid-cols-[auto_1fr] gap-4">
-                  <span className="text-muted-foreground text-right select-none">
-                    {index + 1}
-                  </span>
-                  <span className="whitespace-pre-wrap break-words">
-                    {line || '\u00A0'}
-                  </span>
+                  <span className="text-muted-foreground text-right select-none">{index + 1}</span>
+                  <span className="whitespace-pre-wrap break-words">{line || '\u00A0'}</span>
                 </div>
               ))}
             </code>
