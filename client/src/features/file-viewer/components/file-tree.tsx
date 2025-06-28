@@ -73,9 +73,7 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
 
   return (
     <div className="file-tree h-full overflow-auto">
-      <div className="min-w-max">
-        {tree.map((node) => renderNode(node))}
-      </div>
+      <div className="min-w-max">{tree.map((node) => renderNode(node))}</div>
     </div>
   )
 }
