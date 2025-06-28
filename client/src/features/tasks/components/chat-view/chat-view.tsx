@@ -15,11 +15,16 @@ import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
 import { TaskMinifiedLastThreeEventsDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
+import { ChatViewSkeleton } from './chat-view-skeleton'
 
 export function ChatView() {
   const params = useParams({ from: '/tasks/$taskId' })
-  const { data: metadata } = useTask(params.taskId)
-  const { events, isStreaming } = useTaskEventsWithStreaming(params.taskId)
+  const { data: metadata, isLoading: isLoadingTask } = useTask(params.taskId)
+  const {
+    events,
+    isStreaming,
+    isLoading: isLoadingEvents,
+  } = useTaskEventsWithStreaming(params.taskId)
   const setSelectedIteration = useTaskUIStore((state) => state.setSelectedIteration)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -87,8 +92,31 @@ export function ChatView() {
     }
   })
 
-  if (!metadata) {
-    return null
+  // Show skeleton during initial load
+  if (isLoadingTask || !metadata) {
+    return <ChatViewSkeleton />
+  }
+
+  // Show minimal UI while events are loading for the first time
+  if (isLoadingEvents && !events.length && !metadata.iterations?.length) {
+    return (
+      <div className="h-full flex flex-col">
+        <ChatHeader />
+        <div className="flex-1 overflow-hidden p-4">
+          <div className="bg-secondary rounded-lg p-4 max-w-[48rem] mx-auto">
+            <div className="text-sm text-muted-foreground text-center">Loading task data...</div>
+          </div>
+        </div>
+        <ChatInput
+          taskId={params.taskId}
+          taskStatus={metadata?.status}
+          onSendMessage={handleSendMessage}
+          isLoading={true}
+          disabled={true}
+          className="p-4 border-t border-slate-200 dark:border-slate-700"
+        />
+      </div>
+    )
   }
 
   const formatDuration = (durationMs: number) => {

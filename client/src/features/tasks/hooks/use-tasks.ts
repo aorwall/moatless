@@ -10,6 +10,7 @@ import type { GitDiffResponse, Task } from '@shared/types/task'
 import type { ServerStatus, WorkspaceStatusResponse } from '@shared/types/workspace'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import { updateTaskInLists } from '../utils/query-helpers'
@@ -59,13 +60,74 @@ export function useCreateTask(
   options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
 ) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   return useMutation({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
-    onSuccess: (data, variables, context) => {
-      // Invalidate tasks list to refresh with new task
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
+    onMutate: async (request) => {
+      // Cancel any in-flight task queries
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks() })
+
+      // Create optimistic task
+      const tempId = `temp-${Date.now()}`
+      const optimisticTask: Task = {
+        taskId: tempId,
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: request.agentType || 'claude-code',
+        environmentId: request.environmentId,
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      // Pre-populate cache with optimistic data
+      queryClient.setQueryData<Task>(queryKeys.task(optimisticTask.taskId), optimisticTask)
+
+      return { optimisticTask }
+    },
+    onSuccess: async (data, variables, context) => {
+      // Replace optimistic data with real data
+      const fullTask: Task = {
+        taskId: data.taskId,
+        createdAt: new Date(data.createdAt || new Date()),
+        lastMessageAt: new Date(data.updatedAt || new Date()),
+        agentType: variables.agentType || 'claude-code',
+        environmentId: variables.environmentId,
+        status: data.status || 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      queryClient.setQueryData<Task>(queryKeys.task(data.taskId), fullTask)
+
+      // Remove temp task if different ID
+      if (context?.optimisticTask.taskId !== data.taskId) {
+        queryClient.removeQueries({
+          queryKey: queryKeys.task(context.optimisticTask.taskId),
+        })
+      }
+
+      // Invalidate lists only (not all task details)
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasksList(),
+      })
+
+      // Navigate only after cache is ready
+      navigate({ to: `/tasks/${data.taskId}` })
+
       options?.onSuccess?.(data, variables, context)
+    },
+    onError: (error, variables, context) => {
+      // Rollback optimistic update
+      if (context?.optimisticTask) {
+        queryClient.removeQueries({
+          queryKey: queryKeys.task(context.optimisticTask.taskId),
+        })
+      }
+      options?.onError?.(error, variables, context)
     },
     ...options,
   })

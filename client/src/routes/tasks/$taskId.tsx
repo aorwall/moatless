@@ -7,7 +7,8 @@ import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
-import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
+import { useTaskData } from '@/features/tasks/hooks/use-task-data'
+import { useServerStatus } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -21,7 +22,8 @@ export const Route = createFileRoute('/tasks/$taskId')({
 
 function TaskDetail() {
   const { taskId } = Route.useParams()
-  const { data: metadata, isLoading, error } = useTask(taskId)
+  // Use parallel data fetching for better performance
+  const { task: metadata, isLoading, error } = useTaskData(taskId)
   const { data: serverStatus } = useServerStatus(taskId)
   const rightPanelView = useRightPanelView()
   const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView)
