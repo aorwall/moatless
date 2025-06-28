@@ -113,7 +113,7 @@ export class AgentService {
       throw new CriticalError('Agent is already running', taskId, iteration)
     }
 
-    agentLogger.info('Starting agent execution', {
+    agentLogger.info('Creating agent', {
       agentType,
       workspaceStatus: status,
       hasResumeSession: !!resumeSessionId,
@@ -262,6 +262,7 @@ export class AgentService {
 
       // Process agent events
       for await (const event of agent.run(message, runOptions)) {
+
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()
@@ -314,6 +315,7 @@ export class AgentService {
         }
 
         // Emit agent events to event service
+        agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
         await this.eventService.emitEvent(event)
       }
 

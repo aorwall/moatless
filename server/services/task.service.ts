@@ -81,8 +81,11 @@ export class TaskService {
     return task.taskId
   }
 
-  async getTask(taskId: string): Promise<Task | null> {
+  async getTask(taskId: string): Promise<Task> {
     const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
 
     // If task exists and status is running, check if agent is still running
     if (task && task.status === 'running') {
@@ -127,9 +130,6 @@ export class TaskService {
 
   async sendMessage(taskId: string, message: string): Promise<void> {
     const metadata = await this.getTask(taskId)
-    if (!metadata) {
-      throw new TaskNotFoundError(taskId)
-    }
 
     // Update metadata
     const now = new Date()
@@ -175,19 +175,13 @@ export class TaskService {
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
     const metadata = await this.getTask(taskId)
-    if (!metadata) {
-      throw new TaskNotFoundError(taskId)
-    }
 
     const updatedMetadata = { ...metadata, ...updates }
     await this.storage.saveTask(updatedMetadata)
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    const task = await this.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
+    await this.getTask(taskId)
 
     // Clean up workspace
     await this.workspaceService.cleanupWorkspace(taskId)
@@ -199,9 +193,8 @@ export class TaskService {
 
   async closeTask(taskId: string): Promise<void> {
     const task = await this.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
+
+    logger.debug('Closing task', { taskId })
 
     // Stop any running agent
     await this.agentService.stopAgent(taskId)
@@ -254,8 +247,6 @@ export class TaskService {
       taskLogger.debug('Workspace setup complete event emitted')
 
       if (start && message) {
-        taskLogger.info('Starting initial message processing')
-
         // Wait for workspace to be ready (max 30 seconds)
         const maxWaitTime = 30000
         const checkInterval = 500

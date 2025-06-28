@@ -154,27 +154,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
-  // Update task
-  app.patch(
-    '/:taskId',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        body: UpdateTaskRequestSchema,
-        response: {
-          200: UpdateTaskResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as any
-      const updates = request.body as any
-
-      await taskService.updateTask(taskId, updates)
-      return { status: 'updated' }
-    },
-  )
-
   // Delete task
   app.delete(
     '/:taskId',
@@ -243,6 +222,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
+
 
       // Stop agent through AgentService
       const stopped = await app.services.agent.stopAgent(taskId)

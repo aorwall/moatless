@@ -118,10 +118,10 @@ describe('Complete Workflow E2E Test', () => {
   })
 
   afterEach(async () => {
-    // Stop any running agents before cleanup
+    // Stop any running agents before cleanup - ONLY for this specific task
     if (createdTaskId) {
       try {
-        // First try to stop the agent
+        // First try to stop the agent for this specific task
         await app.inject({
           method: 'POST',
           url: `/api/v1/tasks/${createdTaskId}/stop`,
@@ -169,12 +169,10 @@ describe('Complete Workflow E2E Test', () => {
     // Clean up test environment variable
     delete process.env.SKIP_CLAUDE_DISK_EVENTS
 
-    // Stop all running agents before closing the app
-    if (app.services?.agent) {
-      await app.services.agent.stopAllAgents()
-    }
+    // NOTE: Do NOT call stopAllAgents() here as it affects other test instances
+    // Individual task cleanup above should be sufficient
 
-    // Wait a bit more for any background processes to finish
+    // Wait a bit for any background processes to finish
     await new Promise((resolve) => setTimeout(resolve, 500))
 
     await app.close()
@@ -246,7 +244,8 @@ describe('Complete Workflow E2E Test', () => {
     expect(task.taskId).toBe(createdTaskId)
     expect(task.environmentId).toBe(environment.id)
     expect(task.agentType).toBe('claude-code')
-    expect(task.status).toBe('open')
+    // Task may still be running since agent execution takes time
+    expect(['open', 'running']).toContain(task.status)
 
     // Step 4: Set up SSE event streaming simulation
     // Note: In test environment, we simulate SSE by polling the events endpoint

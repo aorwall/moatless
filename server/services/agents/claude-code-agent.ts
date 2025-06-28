@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions } from '@shared/types/claude.js'
 import { type Event, EventType, type ResultEvent } from '@shared/types/event.js'
+import { logger } from '../../utils/logger.js'
 import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
@@ -15,8 +16,17 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.abortController = new AbortController()
     this.iterationNumber = runOptions.iterationNumber
 
+    const agentLogger = logger.child({ 
+      taskId: this.taskId, 
+      iterationNumber: runOptions.iterationNumber,
+      component: 'ClaudeCodeAgent'
+    })
+
     try {
       const sdkOptions = this.buildSDKOptions(runOptions)
+
+      let eventCount = 0
+      let hasStartedProcessing = false
 
       // Use the SDK query function
       for await (const sdkMessage of query({
@@ -24,31 +34,75 @@ export class ClaudeCodeAgent extends BaseAgent {
         abortController: this.abortController,
         options: sdkOptions,
       })) {
+        eventCount++
+        
+        agentLogger.debug('Received SDK message', {
+          eventCount,
+          sdkMessage
+        })
+
         if (this.stopRequested) {
-          // TODO: Handle abort properly
+          agentLogger.info('Stop requested, breaking from SDK query loop', { eventCount })
           break
         }
 
         if (!this.sessionId && sdkMessage.session_id) {
           this.sessionId = sdkMessage.session_id
+          agentLogger.debug('Session ID captured from SDK', { sessionId: this.sessionId })
+        }
+
+        // Mark that we've started processing beyond init
+        if (sdkMessage.type !== 'system' || hasStartedProcessing) {
+          hasStartedProcessing = true
         }
 
         if (sdkMessage.type === 'result') {
-          yield this.createEvent(sdkMessage, EventType.RESULT, sdkMessage.is_error) as ResultEvent
+          const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
+          yield this.createEvent(sdkMessage, EventType.RESULT, isError) as ResultEvent
         } else {
           yield this.createEvent(sdkMessage, EventType.MESSAGE)
         }
       }
+
+      agentLogger.info('SDK query loop completed', {
+        totalEvents: eventCount,
+        hasStartedProcessing,
+        stopRequested: this.stopRequested,
+        sessionId: this.sessionId
+      })
+
+      // Log warning if we only got init message
+      if (eventCount === 1 && !hasStartedProcessing) {
+        agentLogger.warn('SDK query loop exited after only init message - this may indicate an authentication or configuration issue')
+      }
+
     } catch (error) {
       // Check if it's a process exit error during normal operation
       if (error instanceof Error && error.message.includes('Claude Code process exited')) {
+        // Parse exit code from error message if available
+        const exitCodeMatch = error.message.match(/code (\d+)/)
+        const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : null
+
         // If we've already stopped, this is expected
         if (this.stopRequested) {
+          agentLogger.debug('Claude Code process exit after stop request - expected behavior')
           return
         }
+
+        agentLogger.error('Unexpected Claude Code process exit', error as Error, {
+          stopRequested: this.stopRequested,
+          sessionId: this.sessionId,
+          exitCode
+        })
+      } else {
+        agentLogger.error('Error in SDK query loop', error as Error, {
+          stopRequested: this.stopRequested,
+          sessionId: this.sessionId
+        })
       }
       throw error
     } finally {
+      agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
     }
   }
@@ -71,20 +125,8 @@ export class ClaudeCodeAgent extends BaseAgent {
     const options = this.options as ClaudeCodeOptions
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools: [
-        'Agent',
-        'Edit',
-        'Grep',
-        'MultiEdit',
-        'NotebookRead',
-        'TodoRead',
         'WebFetch',
-        'Write',
         'WebSearch',
-        'TodoWrite',
-        'Read',
-        'NotebookEdit',
-        'LS',
-        'Glob',
         'Bash',
       ],
       permissionMode: 'acceptEdits',
@@ -95,6 +137,15 @@ export class ClaudeCodeAgent extends BaseAgent {
     if (runOptions.resume) {
       sdkOptions.resume = runOptions.resume
     }
+
+    const agentLogger = logger.child({ 
+      taskId: this.taskId, 
+      component: 'ClaudeCodeAgent'
+    })
+
+    agentLogger.debug('Built SDK options', {
+      sdkOptions
+    })
 
     return sdkOptions
   }
