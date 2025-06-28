@@ -32,14 +32,14 @@ export function useFileViewer(taskId: string) {
       queryKey: queryKeys.taskFileList(taskId, path, recursive),
       queryFn: async () => {
         const params = new URLSearchParams()
-        if (path && path !== '/') params.append('path', path)
+        if (path) params.append('path', path)
         if (recursive) params.append('recursive', 'true')
 
         const queryString = params.toString()
         const url = `/api/v1/tasks/${taskId}/files${queryString ? `?${queryString}` : ''}`
 
         const response = await apiClient.get<FileListResponse>(url)
-        return response.data
+        return response
       },
       enabled: !!taskId,
     })
@@ -53,7 +53,7 @@ export function useFileViewer(taskId: string) {
         const response = await apiClient.get<FileContentResponse>(
           `/api/v1/tasks/${taskId}/files/${encodedPath}`,
         )
-        return response.data
+        return response
       },
       enabled: !!taskId && !!filePath,
     })
@@ -66,7 +66,7 @@ export function useFileViewer(taskId: string) {
           `/api/v1/tasks/${taskId}/search-files`,
           { query },
         )
-        return response.data
+        return response
       },
       onSuccess: (data, query) => {
         queryClient.setQueryData(queryKeys.taskFileSearch(taskId, query), data)

@@ -42,8 +42,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
         <pre
           className={cn(
             'p-4 text-sm',
-            'bg-gray-50 dark:bg-gray-900',
-            'text-gray-800 dark:text-gray-200',
+            'text-foreground',
           )}
         >
           <code className={`language-${language}`}>
