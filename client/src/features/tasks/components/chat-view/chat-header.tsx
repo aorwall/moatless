@@ -133,7 +133,9 @@ export function ChatHeader() {
                   {workspaceStatus.gitStatus.hasUncommittedChanges && (
                     <>
                       <span>•</span>
-                      <span className="text-yellow-600 dark:text-yellow-400">uncommitted changes</span>
+                      <span className="text-yellow-600 dark:text-yellow-400">
+                        uncommitted changes
+                      </span>
                     </>
                   )}
                 </>
