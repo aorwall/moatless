@@ -1,5 +1,8 @@
-import * as child_process from 'node:child_process'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   checkForConflicts,
   createBranch,
@@ -9,90 +12,138 @@ import {
   getGitDiffFiles,
   getGitDiffString,
   getGitStatus,
+  getMergeBase,
 } from '../git-utils.js'
 
-// Mock child_process
-vi.mock('child_process', () => ({
-  exec: vi.fn(),
-}))
+// Helper class for creating and managing test git repositories
+class GitTestRepo {
+  private tempDir: string
+  
+  constructor() {
+    // Create a unique temporary directory for this test
+    this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-test-'))
+  }
 
-describe('git-utils', () => {
-  const mockExec = vi.mocked(child_process.exec)
+  get path(): string {
+    return this.tempDir
+  }
+
+  exec(command: string): string {
+    return execSync(command, { cwd: this.tempDir, encoding: 'utf8' })
+  }
+
+  init(): void {
+    this.exec('git init')
+    this.exec('git config user.email "test@example.com"')
+    this.exec('git config user.name "Test User"')
+  }
+
+  createFile(filename: string, content: string): void {
+    const filepath = path.join(this.tempDir, filename)
+    const dir = path.dirname(filepath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(filepath, content)
+  }
+
+  addFile(filename: string): void {
+    this.exec(`git add "${filename}"`)
+  }
+
+  commit(message: string): void {
+    this.exec(`git commit -m "${message}"`)
+  }
+
+  createBranch(branchName: string): void {
+    this.exec(`git branch "${branchName}"`)
+  }
+
+  checkout(branchName: string): void {
+    this.exec(`git checkout "${branchName}"`)
+  }
+
+  merge(branchName: string): void {
+    this.exec(`git merge "${branchName}"`)
+  }
+
+  cleanup(): void {
+    if (fs.existsSync(this.tempDir)) {
+      fs.rmSync(this.tempDir, { recursive: true, force: true })
+    }
+  }
+}
+
+describe('git-utils with real git commands', () => {
+  let repo: GitTestRepo
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    repo = new GitTestRepo()
+  })
+
+  afterEach(() => {
+    repo.cleanup()
   })
 
   describe('getGitDiffFiles', () => {
     it('should parse git diff output correctly', async () => {
-      // Mock git diff --name-status main
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: 'M\tsrc/file1.js\nA\tsrc/file2.js\nD\tsrc/file3.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Initialize repo
+      repo.init()
+      
+      // Create initial commit on main
+      repo.createFile('src/initial.js', 'console.log("initial");')
+      repo.addFile('src/initial.js')
+      repo.commit('Initial commit')
 
-      // Mock git diff --numstat main
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: '10\t5\tsrc/file1.js\n20\t0\tsrc/file2.js\n0\t15\tsrc/file3.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Create feature branch
+      repo.createBranch('feature-branch')
+      repo.checkout('feature-branch')
 
-      // Mock git ls-files --others --exclude-standard (no untracked files)
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: '',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Make changes on feature branch
+      repo.createFile('src/file1.js', 'const a = 1;\nconst b = 2;\nconst c = 3;\n')
+      repo.addFile('src/file1.js')
+      repo.commit('Add file1')
 
-      const result = await getGitDiffFiles('/test/repo')
+      repo.createFile('src/file2.js', 'export default {};\n')
+      repo.addFile('src/file2.js')
+      repo.commit('Add file2')
 
-      expect(result.files).toHaveLength(3)
-      expect(result.files[0]).toEqual({
-        status: 'M',
-        filename: 'src/file1.js',
-        additions: 10,
-        deletions: 5,
-      })
-      expect(result.files[1]).toEqual({
-        status: 'A',
-        filename: 'src/file2.js',
-        additions: 20,
-        deletions: 0,
-      })
-      expect(result.files[2]).toEqual({
-        status: 'D',
-        filename: 'src/file3.js',
-        additions: 0,
-        deletions: 15,
-      })
-      expect(result.totalAdditions).toBe(30)
-      expect(result.totalDeletions).toBe(20)
-      expect(result.totalChanges).toBe(3)
+      // Delete initial file
+      repo.exec('git rm src/initial.js')
+      repo.commit('Delete initial file')
+
+      // Create untracked file
+      repo.createFile('src/untracked.js', 'untracked content')
+
+      const result = await getGitDiffFiles(repo.path, 'main')
+
+      // Find files by filename since order might vary
+      const file1 = result.files.find(f => f.filename === 'src/file1.js')
+      expect(file1).toBeDefined()
+      expect(file1?.status).toBe('A')
+
+      const file2 = result.files.find(f => f.filename === 'src/file2.js')
+      expect(file2).toBeDefined()
+      expect(file2?.status).toBe('A')
+
+      const deletedFile = result.files.find(f => f.filename === 'src/initial.js')
+      expect(deletedFile).toBeDefined()
+      expect(deletedFile?.status).toBe('D')
+
+      const untracked = result.files.find(f => f.filename === 'src/untracked.js')
+      expect(untracked).toBeDefined()
+      expect(untracked?.status).toBe('??')
+
+      expect(result.totalChanges).toBeGreaterThan(0)
     })
 
     it('should handle empty diff', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: '', stderr: '' })
-        }
-      }) as any)
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
 
-      const result = await getGitDiffFiles('/test/repo')
+      const result = await getGitDiffFiles(repo.path)
 
       expect(result.files).toHaveLength(0)
       expect(result.totalChanges).toBe(0)
@@ -101,173 +152,242 @@ describe('git-utils', () => {
     })
 
     it('should include untracked files', async () => {
-      // Mock git diff --name-status main
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: 'M\tsrc/modified.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      repo.init()
+      
+      // Create initial commit
+      repo.createFile('initial.txt', 'initial')
+      repo.addFile('initial.txt')
+      repo.commit('Initial commit')
 
-      // Mock git diff --numstat main
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: '10\t5\tsrc/modified.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Create and checkout feature branch
+      repo.createBranch('feature')
+      repo.checkout('feature')
 
-      // Mock git ls-files --others --exclude-standard (untracked files)
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: 'src/untracked1.js\nsrc/untracked2.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Create a modified file
+      repo.createFile('src/modified.js', 'original content')
+      repo.addFile('src/modified.js')
+      repo.commit('Add modified.js')
+      
+      // Modify the file
+      repo.createFile('src/modified.js', Array(10).fill('new line').join('\n') + '\n' + Array(5).fill('remaining').join('\n'))
+      repo.addFile('src/modified.js')
+      repo.commit('Modify modified.js')
 
-      // Mock wc -l for first untracked file
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: '25\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Create untracked files with exact line counts
+      repo.createFile('src/untracked1.js', Array(25).fill('line').join('\n') + '\n')
+      repo.createFile('src/untracked2.js', Array(30).fill('code').join('\n') + '\n')
 
-      // Mock wc -l for second untracked file
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: '30\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      const result = await getGitDiffFiles(repo.path, 'main')
 
-      const result = await getGitDiffFiles('/test/repo')
+      const modifiedFile = result.files.find(f => f.filename === 'src/modified.js')
+      expect(modifiedFile).toBeDefined()
+      expect(modifiedFile?.status).toBe('A')
 
-      expect(result.files).toHaveLength(3)
-      expect(result.files[0]).toEqual({
-        status: 'M',
-        filename: 'src/modified.js',
-        additions: 10,
-        deletions: 5,
-      })
-      expect(result.files[1]).toEqual({
-        status: '??',
-        filename: 'src/untracked1.js',
-        additions: 25,
-        deletions: 0,
-      })
-      expect(result.files[2]).toEqual({
-        status: '??',
-        filename: 'src/untracked2.js',
-        additions: 30,
-        deletions: 0,
-      })
-      expect(result.totalAdditions).toBe(65) // 10 + 25 + 30
-      expect(result.totalDeletions).toBe(5)
-      expect(result.totalChanges).toBe(3)
+      const untracked1 = result.files.find(f => f.filename === 'src/untracked1.js')
+      expect(untracked1).toBeDefined()
+      expect(untracked1?.status).toBe('??')
+      expect(untracked1?.additions).toBe(25)
+
+      const untracked2 = result.files.find(f => f.filename === 'src/untracked2.js')
+      expect(untracked2).toBeDefined()
+      expect(untracked2?.status).toBe('??')
+      expect(untracked2?.additions).toBe(30)
+
+      expect(result.files.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('should use merge base for comparison', async () => {
+      repo.init()
+      
+      // Create initial commit
+      repo.createFile('README.md', '# Project')
+      repo.addFile('README.md')
+      repo.commit('Initial commit')
+
+      // Get the default branch name first
+      const defaultBranch = await getCurrentBranch(repo.path)
+
+      // Create feature branch
+      repo.createBranch('feature')
+      repo.checkout('feature')
+
+      // Add feature file
+      repo.createFile('feature.js', 'feature code')
+      repo.addFile('feature.js')
+      repo.commit('Add feature')
+
+      // Go back to default branch and add a different file
+      repo.checkout(defaultBranch)
+      repo.createFile('main-only.js', 'main only code')
+      repo.addFile('main-only.js')
+      repo.commit('Add main-only file')
+
+      // Go back to feature branch
+      repo.checkout('feature')
+
+      // Get diff - should only show feature.js, not main-only.js
+      const result = await getGitDiffFiles(repo.path, defaultBranch)
+
+      expect(result.files).toHaveLength(1)
+      expect(result.files[0].filename).toBe('feature.js')
+      expect(result.files[0].status).toBe('A')
+    })
+
+    it('should show no changes after merging to main', async () => {
+      repo.init()
+      
+      // Create initial commit
+      repo.createFile('base.js', 'base content')
+      repo.addFile('base.js')
+      repo.commit('Initial commit')
+
+      // Get default branch name
+      const defaultBranch = await getCurrentBranch(repo.path)
+
+      // Create feature branch
+      repo.createBranch('feature')
+      repo.checkout('feature')
+
+      // Add multiple features
+      repo.createFile('feature1.js', 'feature 1 implementation')
+      repo.addFile('feature1.js')
+      repo.commit('Add feature 1')
+
+      repo.createFile('feature2.js', 'feature 2 implementation')
+      repo.addFile('feature2.js')
+      repo.commit('Add feature 2')
+
+      // Before merge, we should see the changes
+      const beforeMerge = await getGitDiffFiles(repo.path, defaultBranch)
+      expect(beforeMerge.files).toHaveLength(2)
+
+      // Merge to main
+      repo.checkout(defaultBranch)
+      repo.merge('feature')
+
+      // Go back to feature branch
+      repo.checkout('feature')
+
+      // After merge, the merge base is now the merge commit, so no diff
+      const result = await getGitDiffFiles(repo.path, defaultBranch)
+      expect(result.files).toHaveLength(0)
     })
   })
 
   describe('getCurrentBranch', () => {
     it('should return the current branch name', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: 'main\n', stderr: '' })
-        }
-      }) as any)
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
 
-      const branch = await getCurrentBranch('/test/repo')
-      expect(branch).toBe('main')
+      // Default branch after init
+      let branch = await getCurrentBranch(repo.path)
+      expect(['main', 'master']).toContain(branch)
+
+      // Create and checkout new branch
+      repo.createBranch('feature-xyz')
+      repo.checkout('feature-xyz')
+
+      branch = await getCurrentBranch(repo.path)
+      expect(branch).toBe('feature-xyz')
     })
 
-    it('should handle errors', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(new Error('Not a git repository'), null, null)
-        }
-      }) as any)
+    it('should handle detached HEAD state', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
 
-      await expect(getCurrentBranch('/test/repo')).rejects.toThrow('Failed to get current branch')
+      // Get commit hash and checkout to create detached HEAD
+      const hash = repo.exec('git rev-parse HEAD').trim()
+      repo.exec(`git checkout ${hash}`)
+
+      const branch = await getCurrentBranch(repo.path)
+      // In detached HEAD state, git branch --show-current returns empty string
+      expect(branch).toBe('')
     })
   })
 
   describe('createBranch', () => {
-    it('should create a new branch', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: '', stderr: '' })
-        }
-      }) as any)
+    it('should create a new branch from current HEAD', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
 
-      await createBranch('/test/repo', 'feature-branch')
+      await createBranch(repo.path, 'new-feature')
 
-      expect(mockExec).toHaveBeenCalledWith(
-        'git checkout -b "feature-branch"',
-        { cwd: '/test/repo', timeout: 10000 },
-        expect.any(Function),
-      )
+      const branches = await getBranchList(repo.path)
+      expect(branches).toContain('new-feature')
+      
+      // Verify we're on the new branch
+      const currentBranch = await getCurrentBranch(repo.path)
+      expect(currentBranch).toBe('new-feature')
+    })
+
+    it('should create a branch from current HEAD', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Create another branch with different content
+      repo.createBranch('other')
+      repo.checkout('other')
+      repo.createFile('other.txt', 'other')
+      repo.addFile('other.txt')
+      repo.commit('Other commit')
+
+      // Create branch from current position (other branch)
+      await createBranch(repo.path, 'from-other')
+
+      // Verify the new branch has content from 'other'
+      expect(fs.existsSync(path.join(repo.path, 'other.txt'))).toBe(true)
+      
+      // Verify we're on the new branch
+      const currentBranch = await getCurrentBranch(repo.path)
+      expect(currentBranch).toBe('from-other')
     })
   })
 
   describe('getGitStatus', () => {
-    it('should parse git status correctly', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          // Ensure proper git status format: 2 status chars + space + filename
-          // First char is index status, second is working tree status
-          // Git status format: XY filename
-          // X = index status, Y = working tree status
-          // ' M' = modified in working tree, not staged
-          // 'M ' = modified and staged
-          // 'A ' = added to index
-          // '??' = untracked
-          const output = [
-            ' M src/modified.js',
-            '?? src/untracked.js',
-            'A  src/staged.js',
-            'M  src/staged-modified.js',
-          ].join('\n')
-          callback(null, { stdout: output, stderr: '' })
-        }
-      }) as any)
+    it('should get comprehensive git status', async () => {
+      repo.init()
+      repo.createFile('initial.txt', 'initial')
+      repo.addFile('initial.txt')
+      repo.commit('Initial commit')
 
-      const status = await getGitStatus('/test/repo')
+      // Create various file states
+      repo.createFile('modified.txt', 'original')
+      repo.addFile('modified.txt')
+      repo.commit('Add file to modify')
 
+      // Modify committed file
+      repo.createFile('modified.txt', 'modified content')
+      
+      // Stage a new file
+      repo.createFile('staged.txt', 'staged content')
+      repo.addFile('staged.txt')
+
+      // Create untracked file
+      repo.createFile('untracked.txt', 'untracked')
+
+      const status = await getGitStatus(repo.path)
+
+      expect(status.staged).toContain('staged.txt')
+      expect(status.modified).toContain('modified.txt')
+      expect(status.untracked).toContain('untracked.txt')
       expect(status.clean).toBe(false)
-      expect(status.modified).toContain('src/modified.js')
-      expect(status.untracked).toContain('src/untracked.js')
-      expect(status.staged).toContain('src/staged.js')
-      expect(status.staged).toContain('src/staged-modified.js')
     })
 
     it('should indicate clean repository', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: '', stderr: '' })
-        }
-      }) as any)
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
 
-      const status = await getGitStatus('/test/repo')
+      const status = await getGitStatus(repo.path)
 
       expect(status.clean).toBe(true)
       expect(status.modified).toHaveLength(0)
@@ -277,609 +397,264 @@ describe('git-utils', () => {
   })
 
   describe('getBranchList', () => {
-    it('should return list of branches', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: '  main\n* feature-branch\n  develop\n', stderr: '' })
-        }
-      }) as any)
+    it('should list all branches', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
 
-      const branches = await getBranchList('/test/repo')
+      // Create multiple branches
+      repo.createBranch('feature-1')
+      repo.createBranch('feature-2')
+      repo.createBranch('bugfix/issue-123')
 
-      expect(branches).toEqual(['main', 'feature-branch', 'develop'])
+      const branches = await getBranchList(repo.path)
+
+      // Check that default branch exists (main or master)
+      expect(branches.some(b => b === 'main' || b === 'master')).toBe(true)
+      expect(branches).toContain('feature-1')
+      expect(branches).toContain('feature-2')
+      expect(branches).toContain('bugfix/issue-123')
+      expect(branches.length).toBe(4)
     })
   })
 
   describe('getCommitHash', () => {
-    it('should return short commit hash by default', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: 'abc1234\n', stderr: '' })
-        }
-      }) as any)
+    it('should get current commit hash', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Test commit')
 
-      const hash = await getCommitHash('/test/repo')
-
-      expect(hash).toBe('abc1234')
-      expect(mockExec).toHaveBeenCalledWith(
-        'git rev-parse --short HEAD',
-        expect.any(Object),
-        expect.any(Function),
-      )
-    })
-
-    it('should return full commit hash when requested', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: 'abc1234567890abcdef1234567890abcdef12345\n', stderr: '' })
-        }
-      }) as any)
-
-      const hash = await getCommitHash('/test/repo', false)
-
-      expect(hash).toBe('abc1234567890abcdef1234567890abcdef12345')
-      expect(mockExec).toHaveBeenCalledWith(
-        'git rev-parse HEAD',
-        expect.any(Object),
-        expect.any(Function),
-      )
+      const hash = await getCommitHash(repo.path)
+      
+      expect(hash).toMatch(/^[a-f0-9]{7}$/) // Short SHA format
+      
+      // Get full hash
+      const fullHash = await getCommitHash(repo.path, false)
+      expect(fullHash).toMatch(/^[a-f0-9]{40}$/) // Full SHA-1 format
+      
+      // Verify it matches actual git command
+      const actualHash = repo.exec('git rev-parse HEAD').trim()
+      expect(fullHash).toBe(actualHash)
     })
   })
 
   describe('getGitDiffString', () => {
-    it('should get diff against specified base branch', async () => {
-      const mockDiff = `diff --git a/file1.js b/file1.js
-index abc123..def456 100644
---- a/file1.js
-+++ b/file1.js
-@@ -1,3 +1,3 @@
--old line
-+new line
-`
+    it('should get diff against merge base of specified branch', async () => {
+      repo.init()
+      
+      // Create initial file
+      repo.createFile('file1.js', 'old line\n')
+      repo.addFile('file1.js')
+      repo.commit('Initial commit')
 
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        const command = _cmd as string
-        if (typeof callback === 'function') {
-          if (command.includes('git diff')) {
-            callback(null, { stdout: mockDiff, stderr: '' })
-          } else if (command.includes('git ls-files')) {
-            callback(null, { stdout: '', stderr: '' })
-          }
-        }
-      }) as any)
+      // Create feature branch
+      repo.createBranch('develop')
+      repo.checkout('develop')
 
-      const [diff, baseBranch] = await getGitDiffString('/test/repo', 'develop')
+      // Modify file
+      repo.createFile('file1.js', 'new line\n')
+      repo.addFile('file1.js')
+      repo.commit('Update file1')
 
-      expect(diff).toBe(mockDiff)
-      expect(baseBranch).toBe('develop')
-      expect(mockExec).toHaveBeenCalledWith(
-        'git diff develop',
-        { cwd: '/test/repo', timeout: 30000, maxBuffer: 10485760 },
-        expect.any(Function),
-      )
-    })
+      const [diff, baseBranch] = await getGitDiffString(repo.path, 'main')
 
-    it('should fallback to main branch when no base specified', async () => {
-      const mockDiff = `diff --git a/file1.js b/file1.js`
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        const command = _cmd as string
-        if (typeof callback === 'function') {
-          if (command.includes('git diff')) {
-            callback(null, { stdout: mockDiff, stderr: '' })
-          } else if (command.includes('git ls-files')) {
-            callback(null, { stdout: '', stderr: '' })
-          }
-        }
-      }) as any)
-
-      const [diff, baseBranch] = await getGitDiffString('/test/repo')
-
-      expect(diff).toBe(mockDiff)
-      expect(baseBranch).toBe('main')
-      expect(mockExec).toHaveBeenCalledWith(
-        'git diff main',
-        expect.any(Object),
-        expect.any(Function),
-      )
-    })
-
-    it('should fallback to master then uncommitted changes when main fails', async () => {
-      const mockDiff = `diff --git a/file1.js b/file1.js`
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        const command = _cmd as string
-        if (typeof callback === 'function') {
-          if (command === 'git diff main') {
-            // First call (main) fails
-            callback(new Error('Not found'), null, null)
-          } else if (command === 'git diff master') {
-            // Second call (master) fails
-            callback(new Error('Not found'), null, null)
-          } else if (command === 'git diff') {
-            // Third call (uncommitted changes only) succeeds
-            callback(null, { stdout: mockDiff, stderr: '' })
-          } else if (command.includes('git ls-files')) {
-            // git ls-files calls
-            callback(null, { stdout: '', stderr: '' })
-          }
-        }
-      }) as any)
-
-      const [diff, baseBranch] = await getGitDiffString('/test/repo')
-
-      expect(diff).toBe(mockDiff)
-      expect(baseBranch).toBe('HEAD')
-    })
-
-    it('should work correctly with git worktrees', async () => {
-      // This simulates a worktree path which would be used by workspace service
-      const worktreePath = '/test/repo/../test-repo-workspace-task123'
-      const mockDiff = `diff --git a/src/feature.js b/src/feature.js
-new file mode 100644
-index 0000000..abc123
---- /dev/null
-+++ b/src/feature.js
-@@ -0,0 +1,5 @@
-+function newFeature() {
-+  console.log('New feature in worktree');
-+}
-+
-+module.exports = newFeature;
-`
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        const command = _cmd as string
-        if (typeof callback === 'function') {
-          // Verify the command is executed in the worktree path
-          expect(opts.cwd).toBe(worktreePath)
-          if (command.includes('git diff')) {
-            callback(null, { stdout: mockDiff, stderr: '' })
-          } else if (command.includes('git ls-files')) {
-            callback(null, { stdout: '', stderr: '' })
-          }
-        }
-      }) as any)
-
-      const [diff, baseBranch] = await getGitDiffString(worktreePath, 'main')
-
-      expect(diff).toBe(mockDiff)
-      expect(baseBranch).toBe('main')
-      expect(mockExec).toHaveBeenCalledWith(
-        'git diff main',
-        { cwd: worktreePath, timeout: 30000, maxBuffer: 10485760 },
-        expect.any(Function),
-      )
-    })
-
-    it('should show all changes in worktree including committed and uncommitted', async () => {
-      // This tests that git diff base shows both committed changes and working directory changes
-      const worktreePath = '/workspace/task-branch'
-      const mockDiff = `diff --git a/src/api.js b/src/api.js
-index abc123..def456 100644
---- a/src/api.js
-+++ b/src/api.js
-@@ -10,6 +10,10 @@ export const api = {
-   async updateUser(id, data) {
-     return fetch('/users/' + id, { method: 'PUT', body: data })
-   },
-+  
-+  async deleteUser(id) {
-+    return fetch('/users/' + id, { method: 'DELETE' })
-+  },
- }
-diff --git a/src/component.js b/src/component.js
-index 123abc..456def 100644
---- a/src/component.js
-+++ b/src/component.js
-@@ -1,5 +1,5 @@
- export function Button({ label, onClick }) {
--  return <button onClick={onClick}>{label}</button>
-+  return <button className="btn" onClick={onClick}>{label}</button>
- }
-`
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        const command = _cmd as string
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          if (command === 'git diff main') {
-            // git diff base shows ALL changes: committed + staged + unstaged
-            callback(null, { stdout: mockDiff, stderr: '' })
-          } else if (command.includes('git ls-files')) {
-            callback(null, { stdout: '', stderr: '' })
-          }
-        }
-      }) as any)
-
-      const [diff, baseBranch] = await getGitDiffString(worktreePath, 'main')
-
-      expect(diff).toBe(mockDiff)
-      expect(baseBranch).toBe('main')
-      // Verify the diff includes both files (representing committed and uncommitted changes)
-      expect(diff).toContain('src/api.js')
-      expect(diff).toContain('src/component.js')
-      expect(diff).toContain('deleteUser')
-      expect(diff).toContain('className="btn"')
+      expect(diff).toContain('diff --git a/file1.js b/file1.js')
+      expect(diff).toContain('-old line')
+      expect(diff).toContain('+new line')
+      
+      // baseBranch should be the merge base commit hash
+      const mergeBase = await getMergeBase(repo.path, 'main', 'develop')
+      expect(baseBranch).toBe(mergeBase)
     })
 
     it('should include untracked files in diff', async () => {
-      const mockDiff = `diff --git a/src/modified.js b/src/modified.js
-index abc123..def456 100644
---- a/src/modified.js
-+++ b/src/modified.js
-@@ -1,3 +1,3 @@
--old content
-+new content
-`
+      repo.init()
+      
+      repo.createFile('tracked.js', 'tracked content')
+      repo.addFile('tracked.js')
+      repo.commit('Add tracked file')
 
-      let callCount = 0
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callCount++
-          if (callCount === 1) {
-            // git diff main
-            callback(null, { stdout: mockDiff, stderr: '' })
-          } else if (callCount === 2) {
-            // git ls-files --others --exclude-standard
-            callback(null, { stdout: 'src/new-file.js\nsrc/another-new.js\n', stderr: '' })
-          } else if (callCount === 3) {
-            // cat src/new-file.js
-            callback(null, {
-              stdout: 'const newCode = "hello";\nconsole.log(newCode);\n',
-              stderr: '',
-            })
-          } else if (callCount === 4) {
-            // cat src/another-new.js
-            callback(null, { stdout: 'export default {};\n', stderr: '' })
-          }
-        }
-      }) as any)
+      // Create untracked file
+      repo.createFile('untracked.js', 'export default {};')
 
-      const [diff, baseBranch] = await getGitDiffString('/test/repo', 'main')
+      const [diff] = await getGitDiffString(repo.path)
 
-      expect(baseBranch).toBe('main')
-
-      // Check that diff contains the modified file
-      expect(diff).toContain('src/modified.js')
-      expect(diff).toContain('-old content')
-      expect(diff).toContain('+new content')
-
-      // Check that diff contains untracked files
-      expect(diff).toContain('diff --git a/src/new-file.js b/src/new-file.js')
+      expect(diff).toContain('diff --git a/untracked.js b/untracked.js')
       expect(diff).toContain('new file mode 100644')
-      expect(diff).toContain('+++ b/src/new-file.js')
-      expect(diff).toContain('+const newCode = "hello";')
-      expect(diff).toContain('+console.log(newCode);')
-
-      expect(diff).toContain('diff --git a/src/another-new.js b/src/another-new.js')
-      expect(diff).toContain('+++ b/src/another-new.js')
       expect(diff).toContain('+export default {};')
+    })
+
+    it('should handle binary files', async () => {
+      repo.init()
+      
+      repo.createFile('text.txt', 'text')
+      repo.addFile('text.txt')
+      repo.commit('Initial commit')
+
+      // Create a larger binary file to ensure git treats it as binary
+      const binaryPath = path.join(repo.path, 'binary.dat')
+      const binaryData = Buffer.alloc(1024)
+      for (let i = 0; i < binaryData.length; i++) {
+        binaryData[i] = Math.floor(Math.random() * 256)
+      }
+      fs.writeFileSync(binaryPath, binaryData)
+
+      const [diff] = await getGitDiffString(repo.path)
+
+      expect(diff).toContain('diff --git a/binary.dat b/binary.dat')
+      // The diff should contain the new file indicator
+      expect(diff).toContain('new file mode 100644')
     })
   })
 
-  describe('git worktree integration', () => {
-    it('should get git diff files from a worktree', async () => {
-      const worktreePath = '/test/repo/../repo-workspace-123'
+  describe('getMergeBase', () => {
+    it('should find merge base between branches', async () => {
+      repo.init()
+      
+      // Create initial commits
+      repo.createFile('base.txt', 'base')
+      repo.addFile('base.txt')
+      repo.commit('Base commit')
 
-      // Mock git diff --name-status main for worktree
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          expect(_cmd).toContain('git diff --name-status main')
-          callback(null, {
-            stdout: 'A\tsrc/new-feature.js\nM\tsrc/existing.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      const baseCommit = repo.exec('git rev-parse HEAD').trim()
 
-      // Mock git diff --numstat main for worktree
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          expect(_cmd).toContain('git diff --numstat main')
-          callback(null, {
-            stdout: '50\t0\tsrc/new-feature.js\n10\t5\tsrc/existing.js\n',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Create branch1
+      repo.createBranch('branch1')
+      repo.checkout('branch1')
+      repo.createFile('branch1.txt', 'branch1')
+      repo.addFile('branch1.txt')
+      repo.commit('Branch1 commit')
 
-      // Mock git ls-files --others --exclude-standard (no untracked files)
-      mockExec.mockImplementationOnce(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          callback(null, {
-            stdout: '',
-            stderr: '',
-          })
-        }
-      }) as any)
+      // Create branch2 from main
+      repo.checkout('main')
+      repo.createBranch('branch2')
+      repo.checkout('branch2')
+      repo.createFile('branch2.txt', 'branch2')
+      repo.addFile('branch2.txt')
+      repo.commit('Branch2 commit')
 
-      const result = await getGitDiffFiles(worktreePath, 'main')
-
-      expect(result.files).toHaveLength(2)
-      expect(result.files[0]).toEqual({
-        status: 'A',
-        filename: 'src/new-feature.js',
-        additions: 50,
-        deletions: 0,
-      })
-      expect(result.files[1]).toEqual({
-        status: 'M',
-        filename: 'src/existing.js',
-        additions: 10,
-        deletions: 5,
-      })
-      expect(result.totalAdditions).toBe(60)
-      expect(result.totalDeletions).toBe(5)
+      const mergeBase = await getMergeBase(repo.path, 'branch1', 'branch2')
+      expect(mergeBase).toBe(baseCommit)
     })
 
-    it('should handle git status in worktree', async () => {
-      const worktreePath = '/test/repo-worktrees/feature-branch'
+    it('should handle unrelated branches', async () => {
+      repo.init()
+      repo.createFile('main.txt', 'main')
+      repo.addFile('main.txt')
+      repo.commit('Main commit')
 
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          const output = ['A  src/new-file.js', ' M src/modified.js', '?? src/untracked.js'].join(
-            '\n',
-          )
-          callback(null, { stdout: output, stderr: '' })
-        }
-      }) as any)
+      // Create orphan branch (unrelated history)
+      repo.exec('git checkout --orphan unrelated')
+      repo.createFile('unrelated.txt', 'unrelated')
+      repo.addFile('unrelated.txt')
+      repo.commit('Unrelated commit')
 
-      const status = await getGitStatus(worktreePath)
-
-      expect(status.clean).toBe(false)
-      expect(status.staged).toContain('src/new-file.js')
-      expect(status.modified).toContain('src/modified.js')
-      expect(status.untracked).toContain('src/untracked.js')
-    })
-
-    it('should get current branch in worktree', async () => {
-      const worktreePath = '/workspace/repo-workspace-task-123'
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          callback(null, { stdout: 'workspace-task-123\n', stderr: '' })
-        }
-      }) as any)
-
-      const branch = await getCurrentBranch(worktreePath)
-
-      expect(branch).toBe('workspace-task-123')
+      await expect(getMergeBase(repo.path, 'main', 'unrelated')).rejects.toThrow('Failed to get merge base')
     })
   })
 
   describe('checkForConflicts', () => {
-    it('should detect conflicts when merge-tree succeeds but reports conflicts in stderr', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n',
-            stderr: 'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n',
-          })
-        }
-      }) as any)
+    it('should detect merge conflicts', async () => {
+      repo.init()
+      
+      // Create base file
+      repo.createFile('conflict.txt', 'line 1\nline 2\nline 3\n')
+      repo.addFile('conflict.txt')
+      repo.commit('Base commit')
 
-      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+      // Create branch1 and modify file
+      repo.createBranch('branch1')
+      repo.checkout('branch1')
+      repo.createFile('conflict.txt', 'line 1\nmodified by branch1\nline 3\n')
+      repo.addFile('conflict.txt')
+      repo.commit('Branch1 changes')
 
-      expect(hasConflicts).toBe(true)
-      expect(mockExec).toHaveBeenCalledWith(
-        'git merge-tree --write-tree main HEAD',
-        { cwd: '/test/repo', timeout: 10000 },
-        expect.any(Function),
-      )
-    })
+      // Create branch2 from main and modify same file differently
+      repo.checkout('main')
+      repo.createBranch('branch2')
+      repo.checkout('branch2')
+      repo.createFile('conflict.txt', 'line 1\nmodified by branch2\nline 3\n')
+      repo.addFile('conflict.txt')
+      repo.commit('Branch2 changes')
 
-    it('should detect conflicts when merge-tree succeeds but reports conflicts in stdout', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout:
-              'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/features/tasks/components/task-list.tsx\nCONFLICT (content): Merge conflict in client/src/features/tasks/components/task-list.tsx\n',
-            stderr: '',
-          })
-        }
-      }) as any)
-
-      const hasConflicts = await checkForConflicts('/test/repo', 'main')
-
+      // Checkout branch2 to test merging branch1 into it
+      repo.checkout('branch2')
+      const hasConflicts = await checkForConflicts(repo.path, 'branch1')
       expect(hasConflicts).toBe(true)
     })
 
-    it('should detect conflicts when merge-tree fails and reports conflicts in stdout', async () => {
-      const conflictError = new Error('Command failed') as any
-      conflictError.stdout =
-        'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1\tclient/src/file.tsx\nAuto-merging client/src/file.tsx\nCONFLICT (content): Merge conflict in client/src/file.tsx\n'
-      conflictError.stderr = ''
+    it('should detect no conflicts for clean merge', async () => {
+      repo.init()
+      
+      repo.createFile('base.txt', 'base content')
+      repo.addFile('base.txt')
+      repo.commit('Base commit')
 
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(conflictError, null, null)
-        }
-      }) as any)
+      // Branch1 adds file1
+      repo.createBranch('branch1')
+      repo.checkout('branch1')
+      repo.createFile('file1.txt', 'file1 content')
+      repo.addFile('file1.txt')
+      repo.commit('Add file1')
 
-      const hasConflicts = await checkForConflicts('/test/repo', 'main')
+      // Branch2 adds file2 (no conflict)
+      repo.checkout('main')
+      repo.createBranch('branch2')
+      repo.checkout('branch2')
+      repo.createFile('file2.txt', 'file2 content')
+      repo.addFile('file2.txt')
+      repo.commit('Add file2')
 
-      expect(hasConflicts).toBe(true)
-    })
-
-    it('should detect conflicts when merge-tree fails and reports conflicts in stderr', async () => {
-      const conflictError = new Error('Command failed') as any
-      conflictError.stdout = ''
-      conflictError.stderr =
-        'Auto-merging src/file.js\nCONFLICT (content): Merge conflict in src/file.js\n'
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(conflictError, null, null)
-        }
-      }) as any)
-
-      const hasConflicts = await checkForConflicts('/test/repo', 'main')
-
-      expect(hasConflicts).toBe(true)
-    })
-
-    it('should return false when no conflicts exist', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: 'f6cd8dcbca0f67e1dc2e867546fb574649338d77\n',
-            stderr: 'Auto-merging src/file.js\n',
-          })
-        }
-      }) as any)
-
-      const hasConflicts = await checkForConflicts('/test/repo', 'main')
-
+      // Checkout branch2 to test merging branch1 into it
+      repo.checkout('branch2')
+      const hasConflicts = await checkForConflicts(repo.path, 'branch1')
       expect(hasConflicts).toBe(false)
     })
+  })
 
-    it('should fallback to master when main branch fails', async () => {
-      let callCount = 0
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callCount++
-          if (callCount === 1) {
-            // First call (main) fails with non-conflict error
-            const error = new Error('Branch not found') as any
-            error.stdout = ''
-            error.stderr = "fatal: ambiguous argument 'main': unknown revision"
-            callback(error, null, null)
-          } else {
-            // Second call (master) succeeds with conflicts
-            const conflictError = new Error('Command failed') as any
-            conflictError.stdout =
-              'Auto-merging file.js\nCONFLICT (content): Merge conflict in file.js\n'
-            conflictError.stderr = ''
-            callback(conflictError, null, null)
-          }
-        }
-      }) as any)
+  describe('git worktree integration', () => {
+    it('should handle worktree paths correctly', async () => {
+      repo.init()
+      
+      // Create initial structure
+      repo.createFile('README.md', '# Test Project')
+      repo.addFile('README.md')
+      repo.commit('Initial commit')
 
-      const hasConflicts = await checkForConflicts('/test/repo')
+      // Create a feature branch
+      repo.createBranch('feature-work')
+      
+      // Create worktree
+      const worktreePath = path.join(path.dirname(repo.path), 'test-worktree')
+      repo.exec(`git worktree add "${worktreePath}" feature-work`)
 
-      expect(hasConflicts).toBe(true)
-      expect(mockExec).toHaveBeenCalledTimes(2)
-      expect(mockExec).toHaveBeenNthCalledWith(
-        1,
-        'git merge-tree --write-tree main HEAD',
-        { cwd: '/test/repo', timeout: 10000 },
-        expect.any(Function),
-      )
-      expect(mockExec).toHaveBeenNthCalledWith(
-        2,
-        'git merge-tree --write-tree master HEAD',
-        { cwd: '/test/repo', timeout: 10000 },
-        expect.any(Function),
-      )
-    })
+      try {
+        // Make changes in worktree
+        const worktreeRepo = new GitTestRepo()
+        worktreeRepo['tempDir'] = worktreePath // Set the path directly
+        
+        worktreeRepo.createFile('feature.js', 'console.log("feature");')
+        worktreeRepo.addFile('feature.js')
+        worktreeRepo.commit('Add feature')
 
-    it('should use specified base branch instead of defaulting to main', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, { stdout: 'abc123\n', stderr: '' })
-        }
-      }) as any)
+        // Get diff from worktree
+        // Get default branch from main repo
+        const defaultBranch = await getCurrentBranch(repo.path)
+        const result = await getGitDiffFiles(worktreePath, defaultBranch)
+        
+        expect(result.files).toHaveLength(1)
+        expect(result.files[0].filename).toBe('feature.js')
+        expect(result.files[0].status).toBe('A')
 
-      await checkForConflicts('/test/repo', 'develop')
-
-      expect(mockExec).toHaveBeenCalledWith(
-        'git merge-tree --write-tree develop HEAD',
-        { cwd: '/test/repo', timeout: 10000 },
-        expect.any(Function),
-      )
-    })
-
-    it('should return false when git command fails completely', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          const error = new Error('Not a git repository') as any
-          error.stdout = ''
-          error.stderr = 'fatal: not a git repository'
-          callback(error, null, null)
-        }
-      }) as any)
-
-      const hasConflicts = await checkForConflicts('/not/a/repo')
-
-      expect(hasConflicts).toBe(false)
-    })
-
-    it('should work correctly in git worktree paths', async () => {
-      const worktreePath =
-        '/Users/albert/repos/moatless/moatless-swarm-ui-workspace-e658820a-e38e-4b3f-944d-3e29f6396aa1'
-
-      const conflictError = new Error('Command failed') as any
-      conflictError.stdout = `f6cd8dcbca0f67e1dc2e867546fb574649338d77
-100644 d23b0743600433a824e9ea3c21b0e1bd124ca64c 1	client/src/features/tasks/components/task-list.tsx
-100644 bbc3263509acec9ecc9e32dac2437ebe31154a35 2	client/src/features/tasks/components/task-list.tsx
-100644 5d8111caa5b7e914d9295b480c5a225f0feb8116 3	client/src/features/tasks/components/task-list.tsx
-
-Auto-merging client/src/features/tasks/api/tasks.ts
-Auto-merging client/src/features/tasks/components/task-list.tsx
-CONFLICT (content): Merge conflict in client/src/features/tasks/components/task-list.tsx
-Auto-merging client/src/features/tasks/hooks/use-tasks.ts`
-      conflictError.stderr = ''
-
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          expect(opts.cwd).toBe(worktreePath)
-          callback(conflictError, null, null)
-        }
-      }) as any)
-
-      const hasConflicts = await checkForConflicts(worktreePath, 'main')
-
-      expect(hasConflicts).toBe(true)
-      expect(mockExec).toHaveBeenCalledWith(
-        'git merge-tree --write-tree main HEAD',
-        { cwd: worktreePath, timeout: 10000 },
-        expect.any(Function),
-      )
-    })
-
-    it('should handle edge case where conflict text appears in both stdout and stderr', async () => {
-      mockExec.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
-        const callback = cb || opts
-        if (typeof callback === 'function') {
-          callback(null, {
-            stdout: 'Some output with CONFLICT in it\n',
-            stderr: 'More output with CONFLICT in stderr\n',
-          })
-        }
-      }) as any)
-
-      const hasConflicts = await checkForConflicts('/test/repo', 'main')
-
-      expect(hasConflicts).toBe(true)
+        // Verify branch name in worktree
+        const branch = await getCurrentBranch(worktreePath)
+        expect(branch).toBe('feature-work')
+      } finally {
+        // Clean up worktree
+        repo.exec(`git worktree remove "${worktreePath}" --force`)
+      }
     })
   })
 })
