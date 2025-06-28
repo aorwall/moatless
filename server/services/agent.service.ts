@@ -1,5 +1,6 @@
 import type { BaseAgent } from '@server/services/agents/base-agent.js'
 import { CriticalError, TaskNotFoundError } from '@shared/constants/errors.js'
+import type { SDKResultMessage } from '@shared/types/claude.js'
 import type { FastifyInstance } from 'fastify'
 import { EventType, type TaskIteration } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
@@ -283,17 +284,48 @@ export class AgentService {
         }
 
         if (event.type === EventType.RESULT) {
+          const resultPayload = event.payload as SDKResultMessage
+
           agentLogger.info('Agent execution completed', {
-            costUsd: event.payload.total_cost_usd,
-            hasResult: !!event.payload.result,
+            costUsd: resultPayload.total_cost_usd,
+            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+            isError: event.isError,
+            subtype: resultPayload.subtype,
           })
 
-          iteration.costUsd = (event.payload.total_cost_usd as number) ?? 0
-          iteration.result =
-            (event.payload.result as string) ?? 'No result found in Claude Code SDK result message'
+          iteration.costUsd = resultPayload.total_cost_usd ?? 0
 
-          // Update iteration status to completed after successful execution
-          iteration.status = 'completed'
+          // Check if the result event indicates an error
+          if (event.isError || resultPayload.is_error) {
+            // Handle error result
+            iteration.status = 'failed'
+
+            // Determine error message based on subtype
+            let errorMessage = 'Agent execution failed'
+            if (resultPayload.subtype === 'error_max_turns') {
+              errorMessage = 'Maximum number of turns exceeded'
+            } else if (resultPayload.subtype === 'error_during_execution') {
+              errorMessage = 'Error occurred during execution'
+            }
+
+            iteration.error = {
+              message: errorMessage,
+              timestamp: new Date(),
+            }
+            // Error results don't have a result property
+            iteration.result = undefined
+          } else {
+            // Handle successful result
+            iteration.status = 'completed'
+            // Type guard to ensure we're dealing with a success result
+            if (resultPayload.subtype === 'success' && 'result' in resultPayload) {
+              iteration.result =
+                resultPayload.result || 'No result found in Claude Code SDK result message'
+            } else {
+              iteration.result = 'No result found in Claude Code SDK result message'
+            }
+          }
+
           iteration.endTime = new Date()
           iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
@@ -307,8 +339,8 @@ export class AgentService {
               // Remove runtime properties to avoid circular references
               const { task: _, taskId: __, ...iterationData } = iteration
               task.iterations[iterationIndex] = iterationData
-              // Update task status to open after successful completion
-              task.status = 'open'
+              // Update task status based on iteration result
+              task.status = event.isError || resultPayload.is_error ? 'error' : 'open'
               await this.storage.saveTask(task)
             }
           }
