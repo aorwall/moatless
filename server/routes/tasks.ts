@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { TaskNotFoundError } from '../../shared/constants/errors.js'
+import { TaskNotFoundError, WorkspaceError } from '../../shared/constants/errors.js'
 import {
   AgentStatusResponseSchema,
   CreateTaskRequestSchema,
@@ -410,15 +410,28 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         params: TaskIdParamsSchema,
       },
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const { taskId } = request.params as any
 
-      // Task validation and capability check now handled in workspace service
-      const diff = await app.services.workspace.getGitDiff(taskId)
-      return {
-        diff,
-        files: [], // TODO: Parse diff to extract file list
-        hasChanges: diff.length > 0,
+      try {
+        // Task validation and capability check now handled in workspace service
+        const diff = await app.services.workspace.getGitDiff(taskId)
+        return {
+          diff,
+          files: [], // TODO: Parse diff to extract file list
+          hasChanges: diff.length > 0,
+        }
+      } catch (error) {
+        if (error instanceof TaskNotFoundError) {
+          return reply.status(404).send({ error: 'Task not found' })
+        }
+        if (error instanceof WorkspaceError) {
+          return reply.status(error.statusCode).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Cannot access git')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        throw error
       }
     },
   )

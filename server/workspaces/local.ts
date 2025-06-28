@@ -2,6 +2,7 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { WorkspaceError } from '@shared/constants/errors.js'
 import type { Environment, LocalRepository } from '@shared/types/environment.js'
 import {
   type CommandResult,
@@ -315,7 +316,11 @@ export class LocalWorkspace extends BaseWorkspace {
 
   async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
-      throw new Error(`Workspace path does not exist: ${this.workspacePath}`)
+      throw new WorkspaceError(
+        `Workspace path does not exist: ${this.workspacePath}`,
+        this.taskId,
+        404,
+      )
     }
 
     return await searchFilesInDirectoryNew(this.workspacePath, request)
@@ -323,7 +328,11 @@ export class LocalWorkspace extends BaseWorkspace {
 
   async getGitDiff(): Promise<string> {
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
-      throw new Error(`Workspace path does not exist: ${this.workspacePath}`)
+      throw new WorkspaceError(
+        `Workspace path does not exist: ${this.workspacePath}`,
+        this.taskId,
+        404,
+      )
     }
 
     const [diffString] = await getGitDiffString(this.workspacePath, this.originalBranch)
