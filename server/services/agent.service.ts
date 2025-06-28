@@ -114,6 +114,25 @@ export class AgentService {
       throw new CriticalError('Agent is already running', taskId, iteration)
     }
 
+    // Check if workspace path actually exists
+    if (!(await workspace.isWorkspacePathValid())) {
+      // Workspace metadata exists but physical path/container is missing
+      // Need to recreate the workspace
+      await this.recreateWorkspace(taskId, iteration)
+
+      // Get the workspace again after recreation
+      const recreatedWorkspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const recreatedStatus = recreatedWorkspace.getStatus()
+
+      if (recreatedStatus !== WorkspaceStatus.IDLE) {
+        throw new CriticalError(
+          'Workspace recreation failed - workspace not ready',
+          taskId,
+          iteration,
+        )
+      }
+    }
+
     agentLogger.info('Creating agent', {
       agentType,
       workspaceStatus: status,
@@ -263,7 +282,6 @@ export class AgentService {
 
       // Process agent events
       for await (const event of agent.run(message, runOptions)) {
-
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()
@@ -389,6 +407,34 @@ export class AgentService {
         throw error
       }
     }
+  }
+
+  /**
+   * Recreate workspace when physical path/container is missing
+   */
+  private async recreateWorkspace(taskId: string, iteration: TaskIteration): Promise<void> {
+    const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
+
+    agentLogger.warn('Workspace path/container missing, recreating workspace', { taskId })
+
+    // Setup workspace again
+    await this.workspaceService.setupWorkspace(taskId, iteration.iterationNumber)
+
+    // Wait for workspace to be ready
+    const maxWaitTime = 30000
+    const checkInterval = 500
+    const startWait = Date.now()
+
+    while (Date.now() - startWait < maxWaitTime) {
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (workspace && workspace.getStatus() === WorkspaceStatus.IDLE) {
+        agentLogger.info('Workspace recreated successfully', { taskId })
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, checkInterval))
+    }
+
+    throw new CriticalError('Workspace recreation timeout', taskId, iteration)
   }
 }
 

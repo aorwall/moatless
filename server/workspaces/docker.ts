@@ -444,4 +444,24 @@ export class DockerWorkspace extends BaseWorkspace {
   getWorkspacePath(): string {
     return this.containerId
   }
+
+  async isWorkspacePathValid(): Promise<boolean> {
+    if (!this.containerId) return false
+
+    try {
+      // Check if container exists and is running
+      const { stdout } = await execAsync(
+        `docker ps -a --filter "id=${this.containerId}" --format "{{.Status}}"`,
+      )
+      const status = stdout.trim()
+
+      // Container exists if we get any status back
+      if (!status) return false
+
+      // Check if container is running (status starts with "Up")
+      return status.startsWith('Up')
+    } catch {
+      return false
+    }
+  }
 }
