@@ -1,13 +1,11 @@
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CriticalError } from '../../../shared/constants/errors.js'
 import { WorkspaceStatus } from '../../../shared/types/workspace.js'
+import { LocalWorkspace } from '../../workspaces/local.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
 import type { WorkspaceService } from '../workspace.service.js'
-import { LocalWorkspace } from '../../workspaces/local.js'
 
 // Mock dependencies
 vi.mock('../../utils/logger.js', () => ({
@@ -132,7 +130,7 @@ describe('AgentService - Workspace Recreation', () => {
     vi.mocked(mockWorkspaceService.setupWorkspace).mockImplementation(async () => {
       setupWorkspaceCalled = true
     })
-    
+
     vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(async () => {
       if (setupWorkspaceCalled) {
         return recreatedWorkspace as any
@@ -159,7 +157,10 @@ describe('AgentService - Workspace Recreation', () => {
     expect(mockWorkspace.isWorkspacePathValid).toHaveBeenCalled()
 
     // Verify workspace setup was called for recreation
-    expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(taskId, iteration.iterationNumber)
+    expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(
+      taskId,
+      iteration.iterationNumber,
+    )
 
     // Verify getOrCreateWorkspace was called again after recreation
     expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledTimes(2)
@@ -180,13 +181,13 @@ describe('AgentService - Workspace Recreation', () => {
 
     // Mock recreateWorkspace to throw timeout error
     vi.spyOn(agentService as any, 'recreateWorkspace').mockRejectedValue(
-      new CriticalError('Workspace recreation timeout', taskId, iteration)
+      new CriticalError('Workspace recreation timeout', taskId, iteration),
     )
 
     // Execute agent - should fail due to workspace recreation timeout
-    await expect(
-      agentService.executeAgent(taskId, 'test message', iteration)
-    ).rejects.toThrow('Workspace recreation timeout')
+    await expect(agentService.executeAgent(taskId, 'test message', iteration)).rejects.toThrow(
+      'Workspace recreation timeout',
+    )
 
     // Verify workspace setup was attempted via recreateWorkspace
     expect((agentService as any).recreateWorkspace).toHaveBeenCalledWith(taskId, iteration)

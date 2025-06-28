@@ -9,15 +9,15 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as EnvironmentsRouteImport } from './routes/environments'
-import { Route as EnvironmentsEnvironmentIdRouteImport } from './routes/environments/$environmentId'
-import { Route as EnvironmentsIndexRouteImport } from './routes/environments/index'
-import { Route as EnvironmentsNewRouteImport } from './routes/environments/new'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as EnvironmentsRouteImport } from './routes/environments'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
+import { Route as EnvironmentsIndexRouteImport } from './routes/environments/index'
+import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
+import { Route as EnvironmentsNewRouteImport } from './routes/environments/new'
+import { Route as EnvironmentsEnvironmentIdRouteImport } from './routes/environments/$environmentId'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -59,11 +59,12 @@ const EnvironmentsNewRoute = EnvironmentsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => EnvironmentsRoute,
 } as any)
-const EnvironmentsEnvironmentIdRoute = EnvironmentsEnvironmentIdRouteImport.update({
-  id: '/$environmentId',
-  path: '/$environmentId',
-  getParentRoute: () => EnvironmentsRoute,
-} as any)
+const EnvironmentsEnvironmentIdRoute =
+  EnvironmentsEnvironmentIdRouteImport.update({
+    id: '/$environmentId',
+    path: '/$environmentId',
+    getParentRoute: () => EnvironmentsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -218,7 +219,9 @@ const EnvironmentsRouteChildren: EnvironmentsRouteChildren = {
   EnvironmentsIndexRoute: EnvironmentsIndexRoute,
 }
 
-const EnvironmentsRouteWithChildren = EnvironmentsRoute._addFileChildren(EnvironmentsRouteChildren)
+const EnvironmentsRouteWithChildren = EnvironmentsRoute._addFileChildren(
+  EnvironmentsRouteChildren,
+)
 
 interface TasksRouteChildren {
   TasksTaskIdRoute: typeof TasksTaskIdRoute
