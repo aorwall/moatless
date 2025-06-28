@@ -1,6 +1,6 @@
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { cn } from '@/lib/utils'
-import { useFileContent } from '../api/use-file-content'
+import { useFileViewer } from '../api/use-file-viewer'
 import { getLanguageFromPath } from '../utils/file-tree-utils'
 import { FileViewerSkeleton } from './file-viewer-skeleton'
 
@@ -10,7 +10,8 @@ interface FileViewerProps {
 }
 
 export function FileViewer({ taskId, filePath }: FileViewerProps) {
-  const { data, isLoading, error } = useFileContent(taskId, filePath)
+  const { useFileContent } = useFileViewer(taskId)
+  const { data, isLoading, error } = useFileContent(filePath)
 
   if (error) {
     return <ErrorAlert error={error} />
