@@ -1,16 +1,13 @@
-import type { AgentStatusResponse } from '@shared/types/api'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
+import { Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import {
   useServerStatus,
   useStartServer,
   useStopAgent,
   useStopServer,
-  useTask,
-  useTaskAgentStatus,
 } from '@/features/tasks/hooks/use-tasks'
-import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx'
@@ -47,36 +44,11 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant}>{displayStatus}</Badge>
 }
 
-const getAgentStatusDisplay = (agentStatus?: AgentStatusResponse['status']) => {
-  if (!agentStatus) {
-    return { text: 'agent: unknown', isLoading: false }
-  }
-
-  switch (agentStatus) {
-    case 'idle':
-      return { text: 'agent: idle', isLoading: false }
-    case 'preparing':
-      return { text: 'agent: preparing', isLoading: true }
-    case 'running':
-      return { text: 'agent: running', isLoading: true }
-    case 'error':
-      return { text: 'agent: error', isLoading: false }
-    default:
-      return { text: 'agent: unknown', isLoading: false }
-  }
-}
-
 export function TaskHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const taskId = params.taskId
 
-  const { data: metadata } = useTask(taskId)
-  const {
-    data: agentStatus,
-    isLoading: isLoadingAgent,
-    error: agentError,
-  } = useTaskAgentStatus(taskId)
-  const streamingError = useTaskStreamingError(taskId)
+  const { task: metadata, streamingError } = useTaskDataContext()
 
   const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {
     enabled: !!taskId,
@@ -140,8 +112,6 @@ export function TaskHeader() {
     return null
   }
 
-  const agentDisplay = getAgentStatusDisplay(agentStatus?.status)
-
   return (
     <header className="border-b">
       <div className="flex h-16 items-center justify-between px-4">
@@ -158,28 +128,6 @@ export function TaskHeader() {
               <StatusBadge status={metadata.status} />
               <Badge variant="outline">{metadata.numTurns} turns</Badge>
               <Badge variant="outline">${metadata.totalCostUsd.toFixed(4)}</Badge>
-              {agentError ? (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="destructive" className="flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        agent: error
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{getErrorMessage(agentError)}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  {(isLoadingAgent || agentDisplay.isLoading) && (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  )}
-                  {agentDisplay.text}
-                </Badge>
-              )}
             </div>
           </div>
         </div>

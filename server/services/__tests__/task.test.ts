@@ -46,7 +46,7 @@ describe('TaskService', () => {
 
     mockAgentService = {
       executeAgent: vi.fn(),
-      getAgentStatus: vi.fn(),
+      // getAgentStatus: vi.fn(), // Removed: no longer part of API
       stopAgent: vi.fn(),
       isAgentRunning: vi.fn(),
       getAgentSessionId: vi.fn(),

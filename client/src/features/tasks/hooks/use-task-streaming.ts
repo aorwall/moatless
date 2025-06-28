@@ -22,7 +22,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
   const queryClient = useQueryClient()
-  
+
   // Use refs to avoid effect re-runs
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<NodeJS.Timeout | undefined>()
@@ -103,18 +103,20 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   // Create a stable disconnect handler that manages reconnection
   const handleSSEDisconnectWithRetry = useCallback(() => {
     handleSSEDisconnect()
-    
+
     // Implement exponential backoff for reconnection
     if (reconnectAttemptsRef.current < 5 && shouldStream) {
       const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 30000)
-      console.log(`[SSE] Will reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`)
+      console.log(
+        `[SSE] Will reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`,
+      )
       reconnectAttemptsRef.current += 1
-      
+
       // Clear any existing timer
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
       }
-      
+
       // Set up reconnection
       reconnectTimerRef.current = setTimeout(() => {
         if (sseClientRef.current) {
@@ -132,7 +134,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
       console.log(`[SSE] Connection already exists for task ${taskId}, skipping`)
       return
     }
-    
+
     if (shouldStream) {
       console.log(`[SSE] Starting streaming for task ${taskId}`)
 

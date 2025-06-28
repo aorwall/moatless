@@ -47,7 +47,6 @@ async function simulateSSEStream(
   onError?: (error: Error) => void,
 ): Promise<() => void> {
   let isActive = true
-  const lastEventId: string | null = null
   const seenEventIds = new Set<string>()
 
   // Poll for events every 100ms to simulate real-time streaming
@@ -288,26 +287,10 @@ describe('Complete Workflow E2E Test', () => {
     let hasStartedProcessing = false
     let errorEvent: Event | null = null
     const toolUseEvents: Event[] = []
-    let agentWasRunning = false
+    const agentWasRunning = false
 
     while (pollAttempts < maxPollAttempts && !resultEvent && !errorEvent) {
-      // Check agent status while polling
-      const agentStatusResponse = await app.inject({
-        method: 'GET',
-        url: `/api/v1/tasks/${createdTaskId}/agent-status`,
-      })
-
-      if (agentStatusResponse.statusCode === 200) {
-        const agentStatus = JSON.parse(agentStatusResponse.body)
-        if (agentStatus.status === 'running') {
-          agentWasRunning = true
-          console.log('Agent is running:', {
-            sessionId: agentStatus.sessionId,
-            currentIteration: agentStatus.currentIteration,
-            workspaceStatus: agentStatus.workspaceStatus,
-          })
-        }
-      }
+      // Agent status check removed - no longer part of API
 
       const eventsResponse = await app.inject({
         method: 'GET',
@@ -394,42 +377,7 @@ describe('Complete Workflow E2E Test', () => {
       )
     }
 
-    // Step 7.1: Verify agent status endpoint
-    const agentStatusResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/tasks/${createdTaskId}/agent-status`,
-    })
-
-    expect(agentStatusResponse.statusCode).toBe(200)
-    const agentStatus = JSON.parse(agentStatusResponse.body)
-    console.log('Agent status:', agentStatus)
-
-    // Verify required fields exist
-    expect(agentStatus).toHaveProperty('status')
-    expect(agentStatus).toHaveProperty('sessionId')
-    expect(agentStatus).toHaveProperty('startedAt')
-    expect(agentStatus).toHaveProperty('currentIteration')
-    expect(agentStatus).toHaveProperty('workspaceStatus')
-    expect(agentStatus).toHaveProperty('canExecute')
-
-    // Verify status is one of expected values
-    expect(['idle', 'running', 'preparing', 'error']).toContain(agentStatus.status)
-
-    // Verify boolean field
-    expect(typeof agentStatus.canExecute).toBe('boolean')
-
-    // If agent has run, verify session information
-    if (agentStatus.sessionId) {
-      expect(agentStatus.sessionId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-      ) // UUID format
-      if (agentStatus.startedAt) {
-        expect(agentStatus.startedAt).toBeTruthy()
-      }
-      if (typeof agentStatus.currentIteration === 'number') {
-        expect(agentStatus.currentIteration).toBeGreaterThanOrEqual(1)
-      }
-    }
+    // Agent status endpoint removed - no longer part of API
 
     // Step 8: Verify git diff (may be empty if agent committed the file)
     const gitDiffResponse = await app.inject({
@@ -701,7 +649,7 @@ describe('Complete Workflow E2E Test', () => {
     expect(updatedTask.numTurns).toBe(1)
   }, 45000) // Longer timeout for real agent execution
 
-  it('should track agent status changes during execution', async () => {
+  it.skip('should track agent status changes during execution - REMOVED: agent status no longer part of API', async () => {
     // Create environment
     const createEnvironmentRequest: CreateEnvironmentRequest = {
       name: 'E2E Test Environment - Status Tracking',
@@ -742,31 +690,15 @@ describe('Complete Workflow E2E Test', () => {
     const taskResult = JSON.parse(createTaskResponse.body)
     createdTaskId = taskResult.taskId
 
-    // Track status changes
-    const statusHistory: Array<{ status: string; timestamp: number }> = []
+    // Track completion
     let resultFound = false
     let attempts = 0
     const maxAttempts = 40
 
     while (!resultFound && attempts < maxAttempts) {
-      // Get agent status
-      const agentStatusResponse = await app.inject({
-        method: 'GET',
-        url: `/api/v1/tasks/${createdTaskId}/agent-status`,
-      })
+      // Agent status check removed - no longer part of API
 
-      expect(agentStatusResponse.statusCode).toBe(200)
-      const agentStatus = JSON.parse(agentStatusResponse.body)
-
-      // Record status change
-      const lastStatus = statusHistory[statusHistory.length - 1]
-      if (!lastStatus || lastStatus.status !== agentStatus.status) {
-        statusHistory.push({
-          status: agentStatus.status,
-          timestamp: Date.now(),
-        })
-        console.log('Agent status changed to:', agentStatus.status)
-      }
+      // Status tracking removed - agent status no longer part of API
 
       // Check for completion
       const eventsResponse = await app.inject({
@@ -783,23 +715,9 @@ describe('Complete Workflow E2E Test', () => {
       }
     }
 
-    // Verify we saw expected status transitions
-    const statuses = statusHistory.map((h) => h.status)
-    console.log('Status history:', statuses)
+    // Status history verification removed - agent status no longer part of API
 
-    // Should see at least idle -> running transition
-    expect(statuses).toContain('running')
-
-    // After completion, status should be idle again
-    const finalStatusResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/tasks/${createdTaskId}/agent-status`,
-    })
-
-    const finalStatus = JSON.parse(finalStatusResponse.body)
-    expect(finalStatus.status).toBe('idle')
-    expect(finalStatus.sessionId).toBeTruthy()
-    expect(finalStatus.canExecute).toBe(true)
+    // Agent status endpoint removed - no longer part of API
   }, 60000) // 60 second timeout
 })
 

@@ -1,4 +1,4 @@
-import { useTaskEvents } from '@/features/tasks/contexts/task-events-context'
+import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { MinifiedLastEventDisplay } from './minified-last-event-display'
@@ -16,7 +16,7 @@ export function TaskMinifiedLastEventDisplay({
   showTransitionIndicator,
   isRunning,
 }: TaskMinifiedLastEventDisplayProps) {
-  const { events, isLoading, error, isStreaming } = useTaskEvents(taskId)
+  const { events, isLoading, error, isStreaming } = useTaskDataContext()
 
   if (error) {
     return <ErrorAlert error={error} />

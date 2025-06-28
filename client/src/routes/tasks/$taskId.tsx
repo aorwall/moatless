@@ -7,10 +7,9 @@ import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
-import { TaskEventsProvider } from '@/features/tasks/contexts/task-events-context'
+import { TaskDataProvider, useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import { useTaskData } from '@/features/tasks/hooks/use-task-data'
 import { useServerStatus } from '@/features/tasks/hooks/use-tasks'
-import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -21,24 +20,12 @@ export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
 })
 
-function TaskDetail() {
+// Inner component that uses the context
+function TaskDetailContent() {
+  const { task: metadata, rightPanelView, setRightPanelView } = useTaskDataContext()
   const { taskId } = Route.useParams()
-  // Use parallel data fetching for better performance
-  const { task: metadata, isLoading, error } = useTaskData(taskId)
   const { data: serverStatus } = useServerStatus(taskId)
-  const rightPanelView = useRightPanelView()
-  const setRightPanelView = useTaskUIStore((state) => state.setRightPanelView)
-  const setSelectedTaskId = useTaskUIStore((state) => state.setSelectedTaskId)
-  const resetUIState = useTaskUIStore((state) => state.resetUIState)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
-
-  // Set selected task ID and reset UI state when component unmounts or task changes
-  useEffect(() => {
-    setSelectedTaskId(taskId)
-    return () => {
-      resetUIState()
-    }
-  }, [taskId, setSelectedTaskId, resetUIState])
 
   // If server or preview tab is selected but server is not configured, switch to events tab
   useEffect(() => {
@@ -50,48 +37,23 @@ function TaskDetail() {
     }
   }, [rightPanelView, serverStatus?.configured, setRightPanelView])
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <ErrorAlert error={error} title="Failed to load task" className="max-w-md w-full" />
-      </div>
-    )
-  }
-
-  if (isLoading) {
-    return <TaskDetailSkeleton />
-  }
-
-  if (!metadata) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <ErrorAlert
-          error={new Error(`Task with ID ${taskId} could not be found`)}
-          title="Task not found"
-          className="max-w-md w-full"
-        />
-      </div>
-    )
-  }
-
   return (
-    <TaskEventsProvider taskId={taskId}>
-      <div className="flex flex-col h-full w-full absolute inset-0">
-        <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
-          {/* Left side - Chat View */}
-          <ResizablePanel defaultSize={50} minSize={10}>
-            <div className="h-full w-full">
-              <ErrorBoundary componentName="Chat View">
-                <ChatView />
-              </ErrorBoundary>
-            </div>
-          </ResizablePanel>
+    <div className="flex flex-col h-full w-full absolute inset-0">
+      <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
+        {/* Left side - Chat View */}
+        <ResizablePanel defaultSize={50} minSize={10}>
+          <div className="h-full w-full">
+            <ErrorBoundary componentName="Chat View">
+              <ChatView />
+            </ErrorBoundary>
+          </div>
+        </ResizablePanel>
 
-          <ResizableHandle withHandle />
+        <ResizableHandle withHandle />
 
-          {/* Right side - Tabs with Events and Diff */}
-          <ResizablePanel defaultSize={50} minSize={20}>
-            <div className="h-full flex flex-col">
+        {/* Right side - Tabs with Events and Diff */}
+        <ResizablePanel defaultSize={50} minSize={20}>
+          <div className="h-full flex flex-col">
             <Tabs
               value={rightPanelView}
               onValueChange={(value) =>
@@ -253,6 +215,41 @@ function TaskDetail() {
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
-    </TaskEventsProvider>
+  )
+}
+
+function TaskDetail() {
+  const { taskId } = Route.useParams()
+  // Use parallel data fetching for better performance
+  const { task: metadata, isLoading, error } = useTaskData(taskId)
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <ErrorAlert error={error} title="Failed to load task" className="max-w-md w-full" />
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return <TaskDetailSkeleton />
+  }
+
+  if (!metadata) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <ErrorAlert
+          error={new Error(`Task with ID ${taskId} could not be found`)}
+          title="Task not found"
+          className="max-w-md w-full"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <TaskDataProvider taskId={taskId}>
+      <TaskDetailContent />
+    </TaskDataProvider>
   )
 }

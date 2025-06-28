@@ -1,4 +1,3 @@
-import type { AgentStatusResponse } from '@shared/types/api'
 import { EventType } from '@shared/types/event'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,19 +9,6 @@ import { createWrapper } from '@/test-utils/render'
 
 import { useTaskStreaming } from '../use-task-streaming'
 
-// Helper function to create mock agent status
-function createMockAgentStatus(overrides?: Partial<AgentStatusResponse>): AgentStatusResponse {
-  return {
-    status: 'idle',
-    sessionId: null,
-    startedAt: null,
-    currentIteration: null,
-    workspaceStatus: 'idle' as any,
-    canExecute: true,
-    ...overrides,
-  }
-}
-
 // Mock the NDJSONSSEClient
 vi.mock('@/features/tasks/api/ndjson-sse', () => ({
   NDJSONSSEClient: vi.fn(),
@@ -32,7 +18,6 @@ vi.mock('@/features/tasks/api/ndjson-sse', () => ({
 vi.mock('@/features/tasks/api/tasks', () => ({
   tasksApi: {
     getTask: vi.fn(),
-    getTaskAgentStatus: vi.fn(),
     getTaskWorkspaceStatus: vi.fn(),
   },
 }))
@@ -63,9 +48,6 @@ describe('useTaskStreaming', () => {
 
     // Default API mock returns
     vi.mocked(tasksApi.getTask).mockResolvedValue(createMockTask({ status: 'open' }))
-    vi.mocked(tasksApi.getTaskAgentStatus).mockResolvedValue(
-      createMockAgentStatus({ status: 'idle' }),
-    )
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(
       createMockWorkspaceStatus({ status: 'idle' as any }),
     )
@@ -92,9 +74,6 @@ describe('useTaskStreaming', () => {
 
     it('should not stream when task is closed', async () => {
       vi.mocked(tasksApi.getTask).mockResolvedValue(createMockTask({ status: 'closed' }))
-      vi.mocked(tasksApi.getTaskAgentStatus).mockResolvedValue(
-        createMockAgentStatus({ status: 'idle' }),
-      )
 
       renderHook(() => useTaskStreaming(mockTaskId), {
         wrapper: createWrapper(),
@@ -201,12 +180,9 @@ describe('useTaskStreaming', () => {
 
       onEvent(resultEvent)
 
-      // Should invalidate task and agent status queries
+      // Should invalidate task queries
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.task(mockTaskId),
-      })
-      expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.taskAgentStatus(mockTaskId),
       })
     })
   })

@@ -6,9 +6,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
-import { useTaskEventsContext } from '@/features/tasks/contexts/task-events-context'
-import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
-import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
+import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
+import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -19,13 +18,14 @@ import { ChatViewSkeleton } from './chat-view-skeleton'
 
 export function ChatView() {
   const params = useParams({ from: '/tasks/$taskId' })
-  const { data: metadata, isLoading: isLoadingTask } = useTask(params.taskId)
   const {
+    task: metadata,
     events,
+    isLoading: isLoadingTask,
     isStreaming,
-    isLoading: isLoadingEvents,
-  } = useTaskEventsContext() // Use context instead of direct hook
-  const setSelectedIteration = useTaskUIStore((state) => state.setSelectedIteration)
+    setSelectedIteration,
+  } = useTaskDataContext()
+  const isLoadingEvents = isLoadingTask // Since events are loaded together
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(Date.now())

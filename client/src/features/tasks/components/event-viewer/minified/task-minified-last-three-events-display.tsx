@@ -1,5 +1,4 @@
-import { useTaskEvents } from '@/features/tasks/contexts/task-events-context'
-import { useTask } from '@/features/tasks/hooks/use-tasks'
+import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { MinifiedLastThreeEventsDisplay } from './minified-last-three-events-display'
@@ -13,8 +12,7 @@ export function TaskMinifiedLastThreeEventsDisplay({
   taskId,
   className,
 }: TaskMinifiedLastThreeEventsDisplayProps) {
-  const { data: task } = useTask(taskId)
-  const { events, isLoading, error, isStreaming } = useTaskEvents(taskId)
+  const { task, events, isLoading, error, isStreaming } = useTaskDataContext()
 
   if (error) {
     return <ErrorAlert error={error} />
