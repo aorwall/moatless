@@ -45,7 +45,7 @@ export function FileTreeItem({
       )}
       {node.type === 'file' && <div className="w-4" />}
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="text-sm truncate">{node.name}</span>
+      <span className="text-sm whitespace-nowrap">{node.name}</span>
     </div>
   )
 }

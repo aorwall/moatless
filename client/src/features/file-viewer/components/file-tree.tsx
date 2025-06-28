@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import { useFileViewer } from '../api/use-file-viewer'
+import { useFileList } from '../api/use-file-list'
 import type { FileTreeNode } from '../types/file-tree'
 import { buildTreeStructure } from '../utils/file-tree-utils'
 import { FileTreeItem } from './file-tree-item'
@@ -14,8 +14,7 @@ interface FileTreeProps {
 export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const { useFileList } = useFileViewer(taskId)
-  const { data, isLoading, error } = useFileList({ recursive: true })
+  const { data, isLoading, error } = useFileList({ taskId, recursive: true })
 
   const tree = useMemo(() => {
     if (!data?.files) return []
@@ -72,5 +71,11 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
     return <div className="p-4 text-sm text-muted-foreground text-center">No files found</div>
   }
 
-  return <div className="file-tree overflow-auto">{tree.map((node) => renderNode(node))}</div>
+  return (
+    <div className="file-tree h-full overflow-auto">
+      <div className="min-w-max">
+        {tree.map((node) => renderNode(node))}
+      </div>
+    </div>
+  )
 }

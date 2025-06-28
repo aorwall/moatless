@@ -1,6 +1,7 @@
+import { useMemo } from 'react'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { cn } from '@/lib/utils'
-import { useFileViewer } from '../api/use-file-viewer'
+import { useFileContent } from '../api/use-file-content'
 import { getLanguageFromPath } from '../utils/file-tree-utils'
 import { FileViewerSkeleton } from './file-viewer-skeleton'
 
@@ -10,8 +11,22 @@ interface FileViewerProps {
 }
 
 export function FileViewer({ taskId, filePath }: FileViewerProps) {
-  const { useFileContent } = useFileViewer(taskId)
-  const { data, isLoading, error } = useFileContent(filePath)
+  const { data, isLoading, error } = useFileContent(taskId, filePath)
+  const language = getLanguageFromPath(filePath)
+  
+  // Memoize line processing to avoid re-computation and ensure consistency
+  // This hook must be called unconditionally to satisfy React's rules of hooks
+  const lines = useMemo(() => {
+    if (!data?.content) return []
+    
+    // Create a defensive copy to ensure we don't affect cached data
+    const contentStr = String(data.content)
+    
+    // Normalize line endings: CRLF -> LF, CR -> LF
+    const normalized = contentStr.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    
+    return normalized.split('\n')
+  }, [data?.content])
 
   if (error) {
     return <ErrorAlert error={error} />
@@ -29,9 +44,6 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
     )
   }
 
-  const language = getLanguageFromPath(filePath)
-  const lines = data.content.split('\n')
-
   return (
     <div className="file-viewer flex flex-col h-full">
       <div className="file-header p-4 border-b flex items-center justify-between">
@@ -39,24 +51,22 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
         <span className="text-xs text-muted-foreground">{language}</span>
       </div>
       <div className="file-content flex-1 overflow-auto">
-        <pre
-          className={cn(
-            'p-4 text-sm',
-            'bg-gray-50 dark:bg-gray-900',
-            'text-gray-800 dark:text-gray-200',
-          )}
-        >
-          <code className={`language-${language}`}>
-            {lines.map((line, index) => (
-              <div key={index} className="table-row">
-                <span className="table-cell pr-4 text-muted-foreground text-right select-none">
-                  {index + 1}
-                </span>
-                <span className="table-cell">{line || '\n'}</span>
-              </div>
-            ))}
-          </code>
-        </pre>
+        <div className="p-4">
+          <pre className="text-sm text-foreground">
+            <code className={`language-${language}`}>
+              {lines.map((line, index) => (
+                <div key={index} className="grid grid-cols-[auto_1fr] gap-4">
+                  <span className="text-muted-foreground text-right select-none">
+                    {index + 1}
+                  </span>
+                  <span className="whitespace-pre-wrap break-words">
+                    {line || '\u00A0'}
+                  </span>
+                </div>
+              ))}
+            </code>
+          </pre>
+        </div>
       </div>
     </div>
   )
