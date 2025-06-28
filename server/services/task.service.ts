@@ -128,7 +128,7 @@ export class TaskService {
     return tasks.slice(offset, offset + limit)
   }
 
-  async sendMessage(taskId: string, message: string): Promise<void> {
+  async sendMessage(taskId: string, message: string, resume = true): Promise<void> {
     const metadata = await this.getTask(taskId)
 
     // Update metadata
@@ -137,7 +137,7 @@ export class TaskService {
 
     // Find the previous iteration's session ID for resume
     let resumeSessionId: string | undefined
-    if (metadata.iterations.length > 0) {
+    if (resume && metadata.iterations.length > 0) {
       const previousIteration = metadata.iterations[metadata.iterations.length - 1]
       resumeSessionId = previousIteration.agentSessionId
     }

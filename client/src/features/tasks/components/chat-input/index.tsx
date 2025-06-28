@@ -19,9 +19,15 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
 
   // Task status for conditional behavior
   taskStatus?: string
+  lastIterationHasError?: boolean
 
   // Callbacks
-  onSendMessage?: (taskId: string, message: string, clearMessage: () => void) => void
+  onSendMessage?: (
+    taskId: string,
+    message: string,
+    clearMessage: () => void,
+    resume?: boolean,
+  ) => void
   onCreateTask?: (message: string, environmentId: string, clearMessage: () => void) => void
   isLoading?: boolean
 }
@@ -30,6 +36,7 @@ export function ChatInput({
   taskId,
   placeholder,
   taskStatus,
+  lastIterationHasError = false,
   showEnvironmentSelector = false,
   showTitle = false,
   title = 'What should we build today?',
@@ -42,6 +49,7 @@ export function ChatInput({
   const [message, setMessage] = useState('')
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>()
   const [runningDuration, setRunningDuration] = useState<string>('')
+  const [resumeConversation, setResumeConversation] = useState(true)
 
   // Get task data to access iteration start time
   const { data: task } = useTask(taskId || '', {
@@ -96,7 +104,7 @@ export function ChatInput({
     if (isTaskContext) {
       // Task context - send message
       if (onSendMessage && !isPending) {
-        onSendMessage(taskId, message.trim(), clearMessage)
+        onSendMessage(taskId, message.trim(), clearMessage, resumeConversation)
       }
     } else if (selectedEnvironmentId && onCreateTask && !isPending) {
       // Homepage context - create task
@@ -153,6 +161,31 @@ export function ChatInput({
       )}
 
       <div className={showTitle ? 'max-w-2xl mx-auto space-y-4' : 'space-y-4'}>
+        {isTaskContext && lastIterationHasError && (
+          <div className="px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="flex-1">
+                <p className="text-sm text-orange-800 dark:text-orange-200 font-medium">
+                  Previous iteration failed
+                </p>
+                <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">
+                  You can choose to start fresh without context from the previous conversation.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={resumeConversation}
+                  onChange={(e) => setResumeConversation(e.target.checked)}
+                  className="rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span className="text-sm text-orange-700 dark:text-orange-300 whitespace-nowrap">
+                  Resume conversation
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
         <ChatForm
           message={message}
           onMessageChange={setMessage}
