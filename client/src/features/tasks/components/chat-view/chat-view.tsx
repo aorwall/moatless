@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
+import { useTaskEventsContext } from '@/features/tasks/contexts/task-events-context'
 import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -24,7 +24,7 @@ export function ChatView() {
     events,
     isStreaming,
     isLoading: isLoadingEvents,
-  } = useTaskEventsWithStreaming(params.taskId)
+  } = useTaskEventsContext() // Use context instead of direct hook
   const setSelectedIteration = useTaskUIStore((state) => state.setSelectedIteration)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)

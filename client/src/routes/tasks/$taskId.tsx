@@ -7,6 +7,7 @@ import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
+import { TaskEventsProvider } from '@/features/tasks/contexts/task-events-context'
 import { useTaskData } from '@/features/tasks/hooks/use-task-data'
 import { useServerStatus } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
@@ -74,22 +75,23 @@ function TaskDetail() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full absolute inset-0">
-      <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
-        {/* Left side - Chat View */}
-        <ResizablePanel defaultSize={50} minSize={10}>
-          <div className="h-full w-full">
-            <ErrorBoundary componentName="Chat View">
-              <ChatView />
-            </ErrorBoundary>
-          </div>
-        </ResizablePanel>
+    <TaskEventsProvider taskId={taskId}>
+      <div className="flex flex-col h-full w-full absolute inset-0">
+        <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
+          {/* Left side - Chat View */}
+          <ResizablePanel defaultSize={50} minSize={10}>
+            <div className="h-full w-full">
+              <ErrorBoundary componentName="Chat View">
+                <ChatView />
+              </ErrorBoundary>
+            </div>
+          </ResizablePanel>
 
-        <ResizableHandle withHandle />
+          <ResizableHandle withHandle />
 
-        {/* Right side - Tabs with Events and Diff */}
-        <ResizablePanel defaultSize={50} minSize={20}>
-          <div className="h-full flex flex-col">
+          {/* Right side - Tabs with Events and Diff */}
+          <ResizablePanel defaultSize={50} minSize={20}>
+            <div className="h-full flex flex-col">
             <Tabs
               value={rightPanelView}
               onValueChange={(value) =>
@@ -251,5 +253,6 @@ function TaskDetail() {
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+    </TaskEventsProvider>
   )
 }

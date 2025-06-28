@@ -2,7 +2,7 @@ import { useParams } from '@tanstack/react-router'
 import { FileText, Loader2 } from 'lucide-react'
 
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
+import { useTaskEventsContext } from '@/features/tasks/contexts/task-events-context'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 
@@ -15,8 +15,8 @@ export function EventViewer() {
   const params = useParams({ from: '/tasks/$taskId' })
   const taskId = params.taskId
 
-  // Use the unified hook that handles streaming automatically
-  const { events, isLoading, error, isStreaming } = useTaskEventsWithStreaming(taskId)
+  // Use the context to get events (single SSE connection shared across components)
+  const { events, isLoading, error, isStreaming } = useTaskEventsContext()
 
   // Determine if this is the first visit to auto-scroll to bottom
   const isFirstVisit = !visitedTasks.has(taskId)

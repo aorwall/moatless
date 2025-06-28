@@ -22,12 +22,13 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  
+  // Use refs to avoid effect re-runs
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<NodeJS.Timeout | undefined>()
 
   // Get task metadata (only for status updates, not for connection decision)
   const { data: metadata } = useTask(taskId)
-
-  // Track reconnect attempts
-  const [reconnectAttempts, setReconnectAttempts] = useState(0)
 
   // Determine if we should stream - connect immediately with valid task ID
   const shouldStream = useMemo(() => {
@@ -58,10 +59,13 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
       ])
 
       // Update task status if we get a status change event
-      if (newEvent.type === EventType.STATUS && metadata) {
-        queryClient.setQueryData(queryKeys.task(taskId), {
-          ...metadata,
-          status: newEvent.payload?.status || metadata.status,
+      if (newEvent.type === EventType.STATUS) {
+        queryClient.setQueryData(queryKeys.task(taskId), (oldTask) => {
+          if (!oldTask) return oldTask
+          return {
+            ...oldTask,
+            status: newEvent.payload?.status || oldTask.status,
+          }
         })
       }
     },
@@ -83,60 +87,74 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     console.log(`[SSE] Connected for task ${taskId}`)
     setIsStreaming(true)
     setStreamingError(null)
-    setReconnectAttempts(0) // Reset reconnect attempts on successful connection
+    reconnectAttemptsRef.current = 0 // Reset reconnect attempts on successful connection
   }, [taskId])
 
   const handleSSEDisconnect = useCallback(() => {
     console.log(`[SSE] Disconnected for task ${taskId}`)
     setIsStreaming(false)
-
-    // Implement exponential backoff for reconnection
-    if (reconnectAttempts < 5) {
-      const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000)
-      console.log(`[SSE] Will reconnect in ${delay}ms (attempt ${reconnectAttempts + 1})`)
-      setReconnectAttempts((prev) => prev + 1)
-    }
-  }, [taskId, reconnectAttempts])
+  }, [taskId])
 
   const handleSSETaskNotFound = useCallback(() => {
     setStreamingError('Task not found')
     setIsStreaming(false)
   }, [])
 
+  // Create a stable disconnect handler that manages reconnection
+  const handleSSEDisconnectWithRetry = useCallback(() => {
+    handleSSEDisconnect()
+    
+    // Implement exponential backoff for reconnection
+    if (reconnectAttemptsRef.current < 5 && shouldStream) {
+      const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 30000)
+      console.log(`[SSE] Will reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`)
+      reconnectAttemptsRef.current += 1
+      
+      // Clear any existing timer
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+      }
+      
+      // Set up reconnection
+      reconnectTimerRef.current = setTimeout(() => {
+        if (sseClientRef.current) {
+          console.log(`[SSE] Attempting reconnection for task ${taskId}`)
+          sseClientRef.current.connect()
+        }
+      }, delay)
+    }
+  }, [handleSSEDisconnect, shouldStream, taskId])
+
   // Manage SSE connection lifecycle
   useEffect(() => {
+    // Prevent multiple connections
+    if (sseClientRef.current) {
+      console.log(`[SSE] Connection already exists for task ${taskId}, skipping`)
+      return
+    }
+    
     if (shouldStream) {
-      // Implement reconnection with exponential backoff
-      const connectWithRetry = () => {
-        console.log(`[SSE] Starting streaming for task ${taskId}`)
+      console.log(`[SSE] Starting streaming for task ${taskId}`)
 
-        // Create and connect SSE client
-        const client = new NDJSONSSEClient({
-          taskId,
-          onEvent: handleSSEEvent,
-          onError: handleSSEError,
-          onConnect: handleSSEConnect,
-          onDisconnect: handleSSEDisconnect,
-          onTaskNotFound: handleSSETaskNotFound,
-        })
+      // Create and connect SSE client
+      const client = new NDJSONSSEClient({
+        taskId,
+        onEvent: handleSSEEvent,
+        onError: handleSSEError,
+        onConnect: handleSSEConnect,
+        onDisconnect: handleSSEDisconnectWithRetry,
+        onTaskNotFound: handleSSETaskNotFound,
+      })
 
-        sseClientRef.current = client
-        client.connect()
-      }
-
-      // Connect immediately
-      connectWithRetry()
-
-      // Set up reconnection timer if needed
-      let reconnectTimer: NodeJS.Timeout | undefined
-      if (reconnectAttempts > 0 && reconnectAttempts < 5) {
-        const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 30000)
-        reconnectTimer = setTimeout(connectWithRetry, delay)
-      }
+      sseClientRef.current = client
+      client.connect()
 
       return () => {
         console.log(`[SSE] Cleaning up streaming for task ${taskId}`)
-        if (reconnectTimer) clearTimeout(reconnectTimer)
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = undefined
+        }
         if (sseClientRef.current) {
           sseClientRef.current.disconnect()
           sseClientRef.current = null
@@ -154,20 +172,21 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   }, [
     shouldStream,
     taskId,
-    reconnectAttempts,
     handleSSEEvent,
     handleSSEError,
     handleSSEConnect,
-    handleSSEDisconnect,
+    handleSSEDisconnectWithRetry,
     handleSSETaskNotFound,
   ])
 
-  // Clean up when component unmounts or taskId changes
+  // Clean up when component unmounts
   useEffect(() => {
     return () => {
-      setStreamEvents([])
-      setIsStreaming(false)
-      setStreamingError(null)
+      console.log('[SSE] Component unmounting, cleaning up')
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = undefined
+      }
       if (sseClientRef.current) {
         sseClientRef.current.disconnect()
         sseClientRef.current = null

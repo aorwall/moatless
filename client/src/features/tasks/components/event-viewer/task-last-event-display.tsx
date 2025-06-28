@@ -1,4 +1,4 @@
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
+import { useTaskEvents } from '@/features/tasks/contexts/task-events-context'
 import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { LastEventDisplay } from './last-event-display'
@@ -14,7 +14,7 @@ export function TaskLastEventDisplay({
   className,
   showTransitionIndicator,
 }: TaskLastEventDisplayProps) {
-  const { events, isLoading, error, isStreaming } = useTaskEventsWithStreaming(taskId)
+  const { events, isLoading, error, isStreaming } = useTaskEvents(taskId)
 
   if (error) {
     return <ErrorAlert error={error} />
