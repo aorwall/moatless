@@ -120,7 +120,7 @@ export class LocalWorkspace extends BaseWorkspace {
         this.logger.warn('Workspace path does not exist, recreating git worktree', {
           workspacePath: this.workspacePath,
         })
-        
+
         // Use the taskId we already have
         await this.recreateGitWorktree(repo.path, this.workspacePath, this.taskId)
       }
@@ -191,7 +191,7 @@ export class LocalWorkspace extends BaseWorkspace {
       // Mark setup as failed
       this.setupComplete = false
       this.setupInProgress = false
-      
+
       throw error
     } finally {
       this.setupInProgress = false
@@ -230,7 +230,9 @@ export class LocalWorkspace extends BaseWorkspace {
             exitCode: result.exitCode,
             output: result.output,
           })
-          throw new Error(`Setup command failed with exit code ${result.exitCode}: ${trimmedCommand}\n${result.output}`)
+          throw new Error(
+            `Setup command failed with exit code ${result.exitCode}: ${trimmedCommand}\n${result.output}`,
+          )
         }
       } catch (error) {
         this.logger.error('Setup command execution failed', error as Error, {
@@ -726,7 +728,7 @@ export class LocalWorkspace extends BaseWorkspace {
     try {
       // Determine branch name - use existing branch if we have it, otherwise create new one
       const branchName = this.branchName || this.branch || `workspace-${taskId}`
-      
+
       // Check if branch already exists
       let branchExists = false
       try {

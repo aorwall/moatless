@@ -1,6 +1,5 @@
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventService } from '../../services/event.service.js'
@@ -100,10 +99,12 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     )
 
     // Spy on the recreateGitWorktree method
-    const recreateSpy = vi.spyOn(workspace as any, 'recreateGitWorktree').mockImplementation(async () => {
-      // Simulate creating the directory
-      await fs.mkdir(testWorkspacePath, { recursive: true })
-    })
+    const recreateSpy = vi
+      .spyOn(workspace as any, 'recreateGitWorktree')
+      .mockImplementation(async () => {
+        // Simulate creating the directory
+        await fs.mkdir(testWorkspacePath, { recursive: true })
+      })
 
     // Mock runCommand for setup commands
     vi.spyOn(workspace, 'runCommand').mockResolvedValue({
@@ -120,7 +121,10 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     expect(recreateSpy).toHaveBeenCalled()
 
     // Verify the workspace was created
-    const exists = await fs.access(testWorkspacePath).then(() => true).catch(() => false)
+    const exists = await fs
+      .access(testWorkspacePath)
+      .then(() => true)
+      .catch(() => false)
     expect(exists).toBe(true)
   })
 
