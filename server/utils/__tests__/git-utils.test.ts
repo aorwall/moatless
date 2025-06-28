@@ -454,8 +454,8 @@ describe('git-utils with real git commands', () => {
         // Get diff from worktree
         // Get default branch from main repo
         const defaultBranch = await getCurrentBranch(repo.path)
-        const result = await getGitDiffString(worktreePath, defaultBranch)
-        
+        const [diffString] = await getGitDiffString(worktreePath, defaultBranch)
+        expect(diffString).toContain('feature.js')
 
         // Verify branch name in worktree
         const branch = await getCurrentBranch(worktreePath)
