@@ -5,7 +5,6 @@ import { Preview } from '@/features/preview'
 import { ChatView } from '@/features/tasks/components/chat-view'
 import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
-import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
@@ -180,29 +179,22 @@ function TaskDetail() {
                 </ErrorBoundary>
               </TabsContent>
               {serverStatus?.configured && (
-                <>
-                  <TabsContent value="server" className="flex-1 w-full overflow-hidden mt-0">
-                    <ErrorBoundary componentName="Server Logs Viewer">
-                      <ServerLogsViewer />
-                    </ErrorBoundary>
-                  </TabsContent>
-                  <TabsContent value="preview" className="flex-1 w-full overflow-hidden mt-0">
-                    <ErrorBoundary componentName="Preview">
-                      <Preview
-                        config={{
-                          url: serverStatus.url || '',
-                        }}
-                        serverStatus={serverStatus}
-                        onElementSelected={(element) => {
-                          if (element) {
-                            console.log('Selected element:', element.selector)
-                          }
-                        }}
-                        className="h-full"
-                      />
-                    </ErrorBoundary>
-                  </TabsContent>
-                </>
+                <TabsContent value="preview" className="flex-1 w-full overflow-hidden mt-0">
+                  <ErrorBoundary componentName="Preview">
+                    <Preview
+                      config={{
+                        url: serverStatus.url || '',
+                      }}
+                      serverStatus={serverStatus}
+                      onElementSelected={(element) => {
+                        if (element) {
+                          console.log('Selected element:', element.selector)
+                        }
+                      }}
+                      className="h-full"
+                    />
+                  </ErrorBoundary>
+                </TabsContent>
               )}
               <TabsContent value="files" className="flex-1 w-full overflow-hidden mt-0">
                 <ErrorBoundary componentName="File Viewer">
