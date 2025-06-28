@@ -90,22 +90,22 @@ export class RateLimiter {
   async isLimited(identifier: string): Promise<boolean> {
     const existing = await this.store.get(identifier)
     const now = Date.now()
-    
+
     if (!existing || now > existing.resetTime) {
       return false
     }
-    
+
     return existing.count >= this.options.maxRequests
   }
 
   async getRemainingRequests(identifier: string): Promise<number> {
     const existing = await this.store.get(identifier)
     const now = Date.now()
-    
+
     if (!existing || now > existing.resetTime) {
       return this.options.maxRequests
     }
-    
+
     return Math.max(0, this.options.maxRequests - existing.count)
   }
 

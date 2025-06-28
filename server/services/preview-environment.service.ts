@@ -543,24 +543,24 @@ export class PreviewEnvironmentService {
    */
   async gracefulShutdown(): Promise<void> {
     logger.info('Starting graceful shutdown of preview environment service')
-    
+
     try {
       // Get all running servers AND check preview env directory for metadata files
       const runningTaskIds = Array.from(this.runningServers.keys())
       const metadataTaskIds = await this.getAllMetadataFiles()
-      
+
       // Combine and deduplicate task IDs from both sources
       const allTaskIds = [...new Set([...runningTaskIds, ...metadataTaskIds])]
-      
+
       logger.info('Preview environment shutdown status', {
         runningServers: runningTaskIds.length,
         metadataFiles: metadataTaskIds.length,
-        totalEnvironments: allTaskIds.length
+        totalEnvironments: allTaskIds.length,
       })
 
       if (allTaskIds.length > 0) {
         logger.info('Stopping all preview environments', { taskIds: allTaskIds })
-        
+
         const stopPromises = allTaskIds.map(async (taskId) => {
           try {
             // Try graceful stop first with 5 second timeout
@@ -578,20 +578,19 @@ export class PreviewEnvironmentService {
         })
 
         const results = await Promise.allSettled(stopPromises)
-        const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length
-        
+        const successful = results.filter((r) => r.status === 'fulfilled' && r.value.success).length
+
         logger.info('Preview environment shutdown complete', {
           attempted: allTaskIds.length,
           successful,
-          failed: allTaskIds.length - successful
+          failed: allTaskIds.length - successful,
         })
       }
-      
+
       // Clear the running servers map
       this.runningServers.clear()
-      
+
       logger.info('Preview environment service shutdown complete')
-      
     } catch (error) {
       logger.error('Error during graceful shutdown', error as Error)
       throw error
@@ -604,7 +603,7 @@ export class PreviewEnvironmentService {
   private async getAllMetadataFiles(): Promise<string[]> {
     try {
       const files = await fs.readdir(this.previewEnvironmentsPath)
-      return files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', ''))
+      return files.filter((f) => f.endsWith('.json')).map((f) => f.replace('.json', ''))
     } catch (error) {
       logger.debug('Failed to read preview environments directory', error as Error)
       return []

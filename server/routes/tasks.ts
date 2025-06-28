@@ -12,8 +12,6 @@ import {
   StopAgentResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
-  UpdateTaskRequestSchema,
-  UpdateTaskResponseSchema,
 } from '../../shared/types/api.js'
 import type { EventType } from '../../shared/types/event.js'
 import { sseManager } from '../utils/sse-manager.js'
@@ -222,7 +220,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-
 
       // Stop agent through AgentService
       const stopped = await app.services.agent.stopAgent(taskId)
@@ -653,7 +650,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
       // Check if worktree has uncommitted changes after merge
       const worktreeHasChanges = await hasUncommittedChanges(workspacePath)
-      
+
       // If no uncommitted changes on the worktree branch after merge, update task status to "merged"
       if (!worktreeHasChanges) {
         await taskService.updateTask(taskId, { status: 'merged' })
