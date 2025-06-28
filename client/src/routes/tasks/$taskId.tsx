@@ -149,42 +149,23 @@ function TaskDetail() {
                     </div>
                   </button>
                   {serverStatus?.configured && (
-                    <>
-                      <button
-                        onClick={() => setRightPanelView('server')}
-                        className={cn(
-                          'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
-                          rightPanelView === 'server'
-                            ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
-                            : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
-                        )}
-                        data-testid="tab-file-button"
-                        data-active-tab={rightPanelView === 'server'}
-                      >
-                        <div className="truncate">
-                          <div className="flex items-center gap-2">
-                            <span>Server</span>
-                          </div>
+                    <button
+                      onClick={() => setRightPanelView('preview')}
+                      className={cn(
+                        'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
+                        rightPanelView === 'preview'
+                          ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
+                      )}
+                      data-testid="tab-file-button"
+                      data-active-tab={rightPanelView === 'preview'}
+                    >
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span>Preview</span>
                         </div>
-                      </button>
-                      <button
-                        onClick={() => setRightPanelView('preview')}
-                        className={cn(
-                          'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
-                          rightPanelView === 'preview'
-                            ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
-                            : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
-                        )}
-                        data-testid="tab-file-button"
-                        data-active-tab={rightPanelView === 'preview'}
-                      >
-                        <div className="truncate">
-                          <div className="flex items-center gap-2">
-                            <span>Preview</span>
-                          </div>
-                        </div>
-                      </button>
-                    </>
+                      </div>
+                    </button>
                   )}
                 </div>
               </div>
