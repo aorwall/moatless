@@ -23,17 +23,32 @@ export async function getGitDiffFiles(
   baseBranch?: string,
 ): Promise<GitDiffResponse> {
   try {
-    // Get the base branch (default to main)
-    const base = baseBranch || 'main'
+    // Get the current branch
+    const currentBranch = await getCurrentBranch(repoPath)
 
-    // Get file status changes against base branch
-    const { stdout: statusOutput } = await execAsync(`git diff --name-status ${base}`, {
+    // Get the base branch (default to main)
+    const base = baseBranch || (await detectBaseBranch(repoPath))
+
+    let compareBase = base
+
+    // For worktrees, we want to compare against the merge base (initial commit)
+    // This ensures we see all changes made on the branch even after merging to main
+    try {
+      const mergeBase = await getMergeBase(repoPath, base, currentBranch)
+      compareBase = mergeBase
+    } catch {
+      // If we can't find merge base, fall back to comparing against the base branch
+      compareBase = base
+    }
+
+    // Get file status changes against merge base
+    const { stdout: statusOutput } = await execAsync(`git diff --name-status ${compareBase}`, {
       cwd: repoPath,
       timeout: 10000,
     })
 
-    // Get detailed diff stats against base branch
-    const { stdout: statOutput } = await execAsync(`git diff --numstat ${base}`, {
+    // Get detailed diff stats against merge base
+    const { stdout: statOutput } = await execAsync(`git diff --numstat ${compareBase}`, {
       cwd: repoPath,
       timeout: 10000,
     })
@@ -161,17 +176,30 @@ export async function getGitDiffString(
   baseBranch?: string,
 ): Promise<[string, string]> {
   try {
-    // Get the current branch if base branch not specified
-    const base = baseBranch || 'main'
+    // Get the current branch
+    const currentBranch = await getCurrentBranch(repoPath)
 
-    // For worktrees, we need to show ALL changes made on this branch since creation.
-    // Using 'git diff base' (without dots) shows the complete difference between
-    // the base branch and the current working directory state, which includes:
-    // 1. All commits made on the current branch
+    // Get the base branch (default to main)
+    const base = baseBranch || (await detectBaseBranch(repoPath))
+
+    let compareBase = base
+
+    // For worktrees, we want to compare against the merge base (initial commit)
+    // This ensures we see all changes made on the branch even after merging to main
+    try {
+      const mergeBase = await getMergeBase(repoPath, base, currentBranch)
+      compareBase = mergeBase
+    } catch {
+      // If we can't find merge base, fall back to comparing against the base branch
+      compareBase = base
+    }
+
+    // Using 'git diff compareBase' shows the complete difference between
+    // the merge base and the current working directory state, which includes:
+    // 1. All commits made on the current branch since it diverged
     // 2. All staged changes
     // 3. All unstaged changes
-    // This is exactly what we want for reviewing all work done in a worktree.
-    const { stdout: diffOutput } = await execAsync(`git diff ${base}`, {
+    const { stdout: diffOutput } = await execAsync(`git diff ${compareBase}`, {
       cwd: repoPath,
       timeout: 30000,
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer
@@ -229,12 +257,23 @@ export async function getGitDiffString(
     // Combine regular diff with untracked files diff
     const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
 
-    return [combinedDiff, base]
+    return [combinedDiff, compareBase]
   } catch (error) {
     // Try with master if main fails
     if (!baseBranch) {
       try {
-        const { stdout: diffOutput } = await execAsync('git diff master', {
+        const currentBranch = await getCurrentBranch(repoPath)
+        let compareBase = 'master'
+
+        try {
+          const mergeBase = await getMergeBase(repoPath, 'master', currentBranch)
+          compareBase = mergeBase
+        } catch {
+          // Fall back to master if merge base fails
+          compareBase = 'master'
+        }
+
+        const { stdout: diffOutput } = await execAsync(`git diff ${compareBase}`, {
           cwd: repoPath,
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024,
@@ -286,7 +325,7 @@ export async function getGitDiffString(
         }
 
         const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
-        return [combinedDiff, 'master']
+        return [combinedDiff, compareBase]
       } catch {
         // Fall back to showing uncommitted changes only
         const { stdout: diffOutput } = await execAsync('git diff', {
@@ -640,6 +679,24 @@ export async function detectBaseBranch(repoPath: string): Promise<string> {
       // Default to main if neither exists
       return 'main'
     }
+  }
+}
+
+export async function getMergeBase(
+  repoPath: string,
+  branch1: string,
+  branch2: string,
+): Promise<string> {
+  try {
+    const { stdout } = await execAsync(`git merge-base "${branch1}" "${branch2}"`, {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    return stdout.trim()
+  } catch (error) {
+    throw new Error(
+      `Failed to get merge base: ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
 }
 
