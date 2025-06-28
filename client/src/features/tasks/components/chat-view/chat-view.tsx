@@ -145,10 +145,21 @@ export function ChatView() {
 
   const isTaskRunning = metadata.status === 'running'
 
+  // Check if last iteration has an error
+  const lastIterationHasError =
+    metadata.iterations?.length > 0 &&
+    (metadata.iterations[metadata.iterations.length - 1].status === 'error' ||
+      metadata.iterations[metadata.iterations.length - 1].status === 'failed')
+
   // Handle sending message to task
-  const handleSendMessage = (taskId: string, message: string, clearMessage: () => void) => {
+  const handleSendMessage = (
+    taskId: string,
+    message: string,
+    clearMessage: () => void,
+    resume?: boolean,
+  ) => {
     sendMessage.mutate(
-      { taskId, message },
+      { taskId, message, resume },
       {
         onSuccess: () => {
           clearMessage()
@@ -282,6 +293,7 @@ export function ChatView() {
           data-testid="task-chat-input"
           taskId={params.taskId}
           taskStatus={metadata?.status}
+          lastIterationHasError={lastIterationHasError}
           onSendMessage={handleSendMessage}
           isLoading={sendMessage.isPending}
           className="p-4 border-t border-slate-200 dark:border-slate-700"
