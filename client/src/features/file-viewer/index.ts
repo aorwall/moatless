@@ -1,9 +1,7 @@
-// Components
+// API
+export { useFileViewer } from './api/use-file-viewer'
 
-export { useFileContent } from './api/use-file-content'
-// Hooks
-export { useFileList } from './api/use-file-list'
-export { useFileSearch } from './api/use-file-search'
+// Components
 export { FileTree } from './components/file-tree'
 export { FileTreeItem } from './components/file-tree-item'
 export { FileTreeSkeleton } from './components/file-tree-skeleton'
