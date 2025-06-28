@@ -314,7 +314,7 @@ describe('Task Routes', () => {
         method: 'PATCH',
         url: '/api/v1/tasks/test-123',
         payload: {
-          status: 'completed',
+          status: 'closed',
         },
       })
 

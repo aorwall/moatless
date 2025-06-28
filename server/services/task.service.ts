@@ -82,7 +82,25 @@ export class TaskService {
   }
 
   async getTask(taskId: string): Promise<Task | null> {
-    return this.storage.getTask(taskId)
+    const task = await this.storage.getTask(taskId)
+
+    // If task exists and status is running, check if agent is still running
+    if (task && task.status === 'running') {
+      const agentStatus = await this.agentService.getAgentStatus(taskId)
+
+      // If agent is not running and status is error, update task status to error
+      if (agentStatus.status === 'error') {
+        task.status = 'error'
+        await this.storage.saveTask(task)
+      }
+      // If agent is not running (idle), update task status to open
+      else if (agentStatus.status === 'idle') {
+        task.status = 'open'
+        await this.storage.saveTask(task)
+      }
+    }
+
+    return task
   }
 
   async listTasks(limit = 50, offset = 0, status?: string): Promise<Task[]> {

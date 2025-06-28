@@ -1,4 +1,4 @@
-import { WorkspaceStatus } from '@shared/types/task'
+import { WorkspaceStatus } from '@shared/types/workspace'
 import { renderHook, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

@@ -5,7 +5,6 @@ import { Preview } from '@/features/preview'
 import { ChatView } from '@/features/tasks/components/chat-view'
 import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
-import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useServerStatus, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useRightPanelView, useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
@@ -149,42 +148,23 @@ function TaskDetail() {
                     </div>
                   </button>
                   {serverStatus?.configured && (
-                    <>
-                      <button
-                        onClick={() => setRightPanelView('server')}
-                        className={cn(
-                          'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
-                          rightPanelView === 'server'
-                            ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
-                            : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
-                        )}
-                        data-testid="tab-file-button"
-                        data-active-tab={rightPanelView === 'server'}
-                      >
-                        <div className="truncate">
-                          <div className="flex items-center gap-2">
-                            <span>Server</span>
-                          </div>
+                    <button
+                      onClick={() => setRightPanelView('preview')}
+                      className={cn(
+                        'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
+                        rightPanelView === 'preview'
+                          ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
+                      )}
+                      data-testid="tab-file-button"
+                      data-active-tab={rightPanelView === 'preview'}
+                    >
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span>Preview</span>
                         </div>
-                      </button>
-                      <button
-                        onClick={() => setRightPanelView('preview')}
-                        className={cn(
-                          'font-regular group h-7 max-w-56 select-none whitespace-nowrap rounded-md px-2 text-sm font-medium transition-all cursor-pointer',
-                          rightPanelView === 'preview'
-                            ? 'bg-black/10 dark:bg-white/10 text-gray-900 dark:text-gray-100'
-                            : 'hover:bg-black/5 dark:hover:bg-white/5 bg-transparent text-gray-500 dark:text-gray-400',
-                        )}
-                        data-testid="tab-file-button"
-                        data-active-tab={rightPanelView === 'preview'}
-                      >
-                        <div className="truncate">
-                          <div className="flex items-center gap-2">
-                            <span>Preview</span>
-                          </div>
-                        </div>
-                      </button>
-                    </>
+                      </div>
+                    </button>
                   )}
                 </div>
               </div>
@@ -199,29 +179,22 @@ function TaskDetail() {
                 </ErrorBoundary>
               </TabsContent>
               {serverStatus?.configured && (
-                <>
-                  <TabsContent value="server" className="flex-1 w-full overflow-hidden mt-0">
-                    <ErrorBoundary componentName="Server Logs Viewer">
-                      <ServerLogsViewer />
-                    </ErrorBoundary>
-                  </TabsContent>
-                  <TabsContent value="preview" className="flex-1 w-full overflow-hidden mt-0">
-                    <ErrorBoundary componentName="Preview">
-                      <Preview
-                        config={{
-                          url: serverStatus.url || '',
-                        }}
-                        serverStatus={serverStatus}
-                        onElementSelected={(element) => {
-                          if (element) {
-                            console.log('Selected element:', element.selector)
-                          }
-                        }}
-                        className="h-full"
-                      />
-                    </ErrorBoundary>
-                  </TabsContent>
-                </>
+                <TabsContent value="preview" className="flex-1 w-full overflow-hidden mt-0">
+                  <ErrorBoundary componentName="Preview">
+                    <Preview
+                      config={{
+                        url: serverStatus.url || '',
+                      }}
+                      serverStatus={serverStatus}
+                      onElementSelected={(element) => {
+                        if (element) {
+                          console.log('Selected element:', element.selector)
+                        }
+                      }}
+                      className="h-full"
+                    />
+                  </ErrorBoundary>
+                </TabsContent>
               )}
               <TabsContent value="files" className="flex-1 w-full overflow-hidden mt-0">
                 <ErrorBoundary componentName="File Viewer">

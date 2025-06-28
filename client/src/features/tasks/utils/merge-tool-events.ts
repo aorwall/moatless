@@ -128,10 +128,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
         }
       } else if (!hasUserMessage(event.payload)) {
         // Message event but neither assistant nor user type
-        console.warn(
-          `[mergeToolEvents] MessageEvent ${event.eventId} has unexpected message type`,
-          event.payload,
-        )
+
         mergedEvents.push(event)
       } else {
         // User message that wasn't a tool result (already processed above)
