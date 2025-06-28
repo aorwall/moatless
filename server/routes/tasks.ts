@@ -671,6 +671,14 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         commitMessage,
       )
 
+      // Check if worktree has uncommitted changes after merge
+      const worktreeHasChanges = await hasUncommittedChanges(workspacePath)
+      
+      // If no uncommitted changes on the worktree branch after merge, update task status to "merged"
+      if (!worktreeHasChanges) {
+        await taskService.updateTask(taskId, { status: 'merged' })
+      }
+
       return {
         success: true,
         mergeCommit,
