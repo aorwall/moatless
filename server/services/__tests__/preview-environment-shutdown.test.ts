@@ -1,5 +1,5 @@
-import { promises as fs } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -130,7 +130,7 @@ process.on('SIGTERM', () => {
     // Create environments and tasks
     const env1 = await createEnvironment('Test Environment 1', 'node server1.js {PORT}')
     const env2 = await createEnvironment('Test Environment 2', 'node server2.js {PORT}')
-    
+
     const task1 = await createTask(env1.id)
     const task2 = await createTask(env2.id)
 
@@ -166,7 +166,7 @@ process.on('SIGTERM', () => {
     const previewEnvDir = path.join(process.cwd(), 'data', 'preview-environments')
     const metadataBefore = await fs.readdir(previewEnvDir).catch(() => [])
     console.log('Metadata files before shutdown:', metadataBefore)
-    
+
     expect(metadataBefore).toContain(`${task1.taskId}.json`)
     expect(metadataBefore).toContain(`${task2.taskId}.json`)
 
@@ -184,7 +184,7 @@ process.on('SIGTERM', () => {
     // Verify metadata files are cleaned up
     const metadataAfter = await fs.readdir(previewEnvDir).catch(() => [])
     console.log('Metadata files after shutdown:', metadataAfter)
-    
+
     expect(metadataAfter).not.toContain(`${task1.taskId}.json`)
     expect(metadataAfter).not.toContain(`${task2.taskId}.json`)
 
@@ -223,7 +223,10 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'stubborn-server.js'), stubbornServerCode)
 
     // Create environment and task
-    const env = await createEnvironment('Stubborn Test Environment', 'node stubborn-server.js {PORT}')
+    const env = await createEnvironment(
+      'Stubborn Test Environment',
+      'node stubborn-server.js {PORT}',
+    )
     const task = await createTask(env.id)
 
     // Wait for workspace setup
@@ -258,7 +261,7 @@ process.on('SIGTERM', () => {
     // Verify metadata file is cleaned up
     const previewEnvDir = path.join(process.cwd(), 'data', 'preview-environments')
     const metadataAfter = await fs.readdir(previewEnvDir).catch(() => [])
-    
+
     expect(metadataAfter).not.toContain(`${task.taskId}.json`)
 
     // Verify server status shows not running
@@ -294,7 +297,10 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'orphan-test-server.js'), serverCode)
 
     // Create environment and task
-    const env = await createEnvironment('Orphan Test Environment', 'node orphan-test-server.js {PORT}')
+    const env = await createEnvironment(
+      'Orphan Test Environment',
+      'node orphan-test-server.js {PORT}',
+    )
     const task = await createTask(env.id)
 
     // Wait for workspace setup
@@ -313,7 +319,7 @@ process.on('SIGTERM', () => {
     // Manually kill the process to simulate it being terminated externally
     // but leaving the metadata file behind
     await new Promise((resolve) => setTimeout(resolve, 1000))
-    
+
     try {
       process.kill(startResult.pid, 'SIGKILL')
       console.log('Manually killed process to create orphaned metadata')
@@ -328,7 +334,7 @@ process.on('SIGTERM', () => {
     const previewEnvDir = path.join(process.cwd(), 'data', 'preview-environments')
     const metadataBefore = await fs.readdir(previewEnvDir).catch(() => [])
     console.log('Metadata files before shutdown (should include orphaned):', metadataBefore)
-    
+
     expect(metadataBefore).toContain(`${task.taskId}.json`)
 
     // Call graceful shutdown (should clean up orphaned metadata)
@@ -341,7 +347,7 @@ process.on('SIGTERM', () => {
     // Verify orphaned metadata file is cleaned up
     const metadataAfter = await fs.readdir(previewEnvDir).catch(() => [])
     console.log('Metadata files after shutdown (should be cleaned):', metadataAfter)
-    
+
     expect(metadataAfter).not.toContain(`${task.taskId}.json`)
 
     console.log('Orphaned metadata cleanup test completed successfully')
@@ -373,7 +379,10 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'signal-test-server.js'), serverCode)
 
     // Create environment and task
-    const env = await createEnvironment('Signal Test Environment', 'node signal-test-server.js {PORT}')
+    const env = await createEnvironment(
+      'Signal Test Environment',
+      'node signal-test-server.js {PORT}',
+    )
     const task = await createTask(env.id)
 
     // Wait for workspace setup
@@ -394,7 +403,7 @@ process.on('SIGTERM', () => {
 
     // Test graceful shutdown triggered by the service directly
     console.log('Testing graceful shutdown integration...')
-    
+
     // Verify server is running before shutdown
     const statusBefore = await getServerStatus(task.taskId)
     expect(statusBefore.running).toBe(true)
