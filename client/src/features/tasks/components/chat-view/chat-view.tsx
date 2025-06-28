@@ -45,7 +45,7 @@ export function ChatView() {
   }, [])
 
   // Check if user is at the bottom of the scroll area
-  const checkIfAtBottom = () => {
+  const checkIfAtBottom = useCallback(() => {
     const scrollArea = scrollAreaRef.current
     if (!scrollArea) return false
 
@@ -55,7 +55,7 @@ export function ChatView() {
     const { scrollTop, scrollHeight, clientHeight } = viewport
     // Consider "at bottom" if within 50px of the bottom
     return scrollHeight - scrollTop - clientHeight < 50
-  }
+  }, [])
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
@@ -206,12 +206,52 @@ export function ChatView() {
                     </div>
                   )}
 
-                  {/* Result Message */}
-                  {iteration.result && (
+                  {/* Result Message or Error */}
+                  {(iteration.status === 'failed' || iteration.status === 'error') &&
+                  iteration.error ? (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="text-destructive mt-0.5">
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-label="Error icon"
+                          >
+                            <title>Error</title>
+                            <path
+                              d="M8 1.5C4.41 1.5 1.5 4.41 1.5 8C1.5 11.59 4.41 14.5 8 14.5C11.59 14.5 14.5 11.59 14.5 8C14.5 4.41 11.59 1.5 8 1.5ZM8 13C5.24 13 3 10.76 3 8C3 5.24 5.24 3 8 3C10.76 3 13 5.24 13 8C13 10.76 10.76 13 8 13ZM7.25 5V9H8.75V5H7.25ZM7.25 10V11.5H8.75V10H7.25Z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-destructive mb-1">
+                            Iteration Failed
+                          </div>
+                          <div className="text-sm text-gray-700 dark:text-gray-300">
+                            {iteration.error.message}
+                          </div>
+                          {iteration.error.stack && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:underline">
+                                Show stack trace
+                              </summary>
+                              <pre className="mt-1 text-xs text-gray-600 dark:text-gray-400 overflow-x-auto whitespace-pre-wrap">
+                                {iteration.error.stack}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : iteration.result ? (
                     <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               )
             })}
