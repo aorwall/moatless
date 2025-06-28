@@ -1,6 +1,6 @@
+import type { GitStatus } from '@shared/types/api.js'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { GitStatus } from '@shared/types/api.js'
 
 const execAsync = promisify(exec)
 
@@ -16,131 +16,6 @@ export interface GitDiffResponse {
   totalChanges: number
   totalAdditions: number
   totalDeletions: number
-}
-
-export async function getGitDiffFiles(
-  repoPath: string,
-  baseBranch?: string,
-): Promise<GitDiffResponse> {
-  try {
-    // Get the current branch
-    const currentBranch = await getCurrentBranch(repoPath)
-
-    // Get the base branch (default to main)
-    const base = baseBranch || (await detectBaseBranch(repoPath))
-
-    let compareBase = base
-
-    // For worktrees, we want to compare against the merge base (initial commit)
-    // This ensures we see all changes made on the branch even after merging to main
-    try {
-      const mergeBase = await getMergeBase(repoPath, base, currentBranch)
-      compareBase = mergeBase
-    } catch {
-      // If we can't find merge base, fall back to comparing against the base branch
-      compareBase = base
-    }
-
-    // Get file status changes against merge base
-    const { stdout: statusOutput } = await execAsync(`git diff --name-status ${compareBase}`, {
-      cwd: repoPath,
-      timeout: 10000,
-    })
-
-    // Get detailed diff stats against merge base
-    const { stdout: statOutput } = await execAsync(`git diff --numstat ${compareBase}`, {
-      cwd: repoPath,
-      timeout: 10000,
-    })
-
-    // Get untracked files
-    const { stdout: untrackedOutput } = await execAsync(
-      'git ls-files --others --exclude-standard',
-      {
-        cwd: repoPath,
-        timeout: 10000,
-      },
-    )
-
-    const statusLines = statusOutput
-      .trim()
-      .split('\n')
-      .filter((line) => line.trim())
-    const statLines = statOutput
-      .trim()
-      .split('\n')
-      .filter((line) => line.trim())
-    const untrackedFiles = untrackedOutput
-      .trim()
-      .split('\n')
-      .filter((line) => line.trim())
-
-    const files: GitDiffFile[] = []
-    let totalAdditions = 0
-    let totalDeletions = 0
-
-    // Parse status changes
-    const fileStats = new Map<string, { additions: number; deletions: number }>()
-    for (const statLine of statLines) {
-      const [additions, deletions, filename] = statLine.split('\t')
-      if (filename) {
-        const add = additions === '-' ? 0 : parseInt(additions, 10)
-        const del = deletions === '-' ? 0 : parseInt(deletions, 10)
-        fileStats.set(filename, { additions: add, deletions: del })
-        totalAdditions += add
-        totalDeletions += del
-      }
-    }
-
-    // Combine status and stats
-    for (const statusLine of statusLines) {
-      const [status, filename] = statusLine.split('\t')
-      if (filename) {
-        const stats = fileStats.get(filename) || { additions: 0, deletions: 0 }
-        files.push({
-          status,
-          filename,
-          additions: stats.additions,
-          deletions: stats.deletions,
-        })
-      }
-    }
-
-    // Add untracked files
-    for (const filename of untrackedFiles) {
-      if (filename) {
-        // Get line count for untracked files
-        let additions = 0
-        try {
-          const { stdout: lineCount } = await execAsync(`wc -l < "${filename}"`, {
-            cwd: repoPath,
-            timeout: 5000,
-          })
-          additions = parseInt(lineCount.trim(), 10) || 0
-        } catch {
-          // If wc fails, default to 0
-          additions = 0
-        }
-
-        files.push({
-          status: '??',
-          filename,
-          additions,
-          deletions: 0,
-        })
-        totalAdditions += additions
-      }
-    }
-
-    return {
-      files,
-      totalChanges: files.length,
-      totalAdditions,
-      totalDeletions,
-    }
-  } catch (error) {
-    throw new Error(`Git diff failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {

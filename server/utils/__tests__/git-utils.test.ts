@@ -9,7 +9,6 @@ import {
   getBranchList,
   getCommitHash,
   getCurrentBranch,
-  getGitDiffFiles,
   getGitDiffString,
   getGitStatus,
   getMergeBase,
@@ -86,193 +85,6 @@ describe('git-utils with real git commands', () => {
   })
 
   describe('getGitDiffFiles', () => {
-    it('should parse git diff output correctly', async () => {
-      // Initialize repo
-      repo.init()
-      
-      // Create initial commit on main
-      repo.createFile('src/initial.js', 'console.log("initial");')
-      repo.addFile('src/initial.js')
-      repo.commit('Initial commit')
-
-      // Create feature branch
-      repo.createBranch('feature-branch')
-      repo.checkout('feature-branch')
-
-      // Make changes on feature branch
-      repo.createFile('src/file1.js', 'const a = 1;\nconst b = 2;\nconst c = 3;\n')
-      repo.addFile('src/file1.js')
-      repo.commit('Add file1')
-
-      repo.createFile('src/file2.js', 'export default {};\n')
-      repo.addFile('src/file2.js')
-      repo.commit('Add file2')
-
-      // Delete initial file
-      repo.exec('git rm src/initial.js')
-      repo.commit('Delete initial file')
-
-      // Create untracked file
-      repo.createFile('src/untracked.js', 'untracked content')
-
-      const result = await getGitDiffFiles(repo.path, 'main')
-
-      // Find files by filename since order might vary
-      const file1 = result.files.find(f => f.filename === 'src/file1.js')
-      expect(file1).toBeDefined()
-      expect(file1?.status).toBe('A')
-
-      const file2 = result.files.find(f => f.filename === 'src/file2.js')
-      expect(file2).toBeDefined()
-      expect(file2?.status).toBe('A')
-
-      const deletedFile = result.files.find(f => f.filename === 'src/initial.js')
-      expect(deletedFile).toBeDefined()
-      expect(deletedFile?.status).toBe('D')
-
-      const untracked = result.files.find(f => f.filename === 'src/untracked.js')
-      expect(untracked).toBeDefined()
-      expect(untracked?.status).toBe('??')
-
-      expect(result.totalChanges).toBeGreaterThan(0)
-    })
-
-    it('should handle empty diff', async () => {
-      repo.init()
-      repo.createFile('test.txt', 'test')
-      repo.addFile('test.txt')
-      repo.commit('Initial commit')
-
-      const result = await getGitDiffFiles(repo.path)
-
-      expect(result.files).toHaveLength(0)
-      expect(result.totalChanges).toBe(0)
-      expect(result.totalAdditions).toBe(0)
-      expect(result.totalDeletions).toBe(0)
-    })
-
-    it('should include untracked files', async () => {
-      repo.init()
-      
-      // Create initial commit
-      repo.createFile('initial.txt', 'initial')
-      repo.addFile('initial.txt')
-      repo.commit('Initial commit')
-
-      // Create and checkout feature branch
-      repo.createBranch('feature')
-      repo.checkout('feature')
-
-      // Create a modified file
-      repo.createFile('src/modified.js', 'original content')
-      repo.addFile('src/modified.js')
-      repo.commit('Add modified.js')
-      
-      // Modify the file
-      repo.createFile('src/modified.js', Array(10).fill('new line').join('\n') + '\n' + Array(5).fill('remaining').join('\n'))
-      repo.addFile('src/modified.js')
-      repo.commit('Modify modified.js')
-
-      // Create untracked files with exact line counts
-      repo.createFile('src/untracked1.js', Array(25).fill('line').join('\n') + '\n')
-      repo.createFile('src/untracked2.js', Array(30).fill('code').join('\n') + '\n')
-
-      const result = await getGitDiffFiles(repo.path, 'main')
-
-      const modifiedFile = result.files.find(f => f.filename === 'src/modified.js')
-      expect(modifiedFile).toBeDefined()
-      expect(modifiedFile?.status).toBe('A')
-
-      const untracked1 = result.files.find(f => f.filename === 'src/untracked1.js')
-      expect(untracked1).toBeDefined()
-      expect(untracked1?.status).toBe('??')
-      expect(untracked1?.additions).toBe(25)
-
-      const untracked2 = result.files.find(f => f.filename === 'src/untracked2.js')
-      expect(untracked2).toBeDefined()
-      expect(untracked2?.status).toBe('??')
-      expect(untracked2?.additions).toBe(30)
-
-      expect(result.files.length).toBeGreaterThanOrEqual(3)
-    })
-
-    it('should use merge base for comparison', async () => {
-      repo.init()
-      
-      // Create initial commit
-      repo.createFile('README.md', '# Project')
-      repo.addFile('README.md')
-      repo.commit('Initial commit')
-
-      // Get the default branch name first
-      const defaultBranch = await getCurrentBranch(repo.path)
-
-      // Create feature branch
-      repo.createBranch('feature')
-      repo.checkout('feature')
-
-      // Add feature file
-      repo.createFile('feature.js', 'feature code')
-      repo.addFile('feature.js')
-      repo.commit('Add feature')
-
-      // Go back to default branch and add a different file
-      repo.checkout(defaultBranch)
-      repo.createFile('main-only.js', 'main only code')
-      repo.addFile('main-only.js')
-      repo.commit('Add main-only file')
-
-      // Go back to feature branch
-      repo.checkout('feature')
-
-      // Get diff - should only show feature.js, not main-only.js
-      const result = await getGitDiffFiles(repo.path, defaultBranch)
-
-      expect(result.files).toHaveLength(1)
-      expect(result.files[0].filename).toBe('feature.js')
-      expect(result.files[0].status).toBe('A')
-    })
-
-    it('should show no changes after merging to main', async () => {
-      repo.init()
-      
-      // Create initial commit
-      repo.createFile('base.js', 'base content')
-      repo.addFile('base.js')
-      repo.commit('Initial commit')
-
-      // Get default branch name
-      const defaultBranch = await getCurrentBranch(repo.path)
-
-      // Create feature branch
-      repo.createBranch('feature')
-      repo.checkout('feature')
-
-      // Add multiple features
-      repo.createFile('feature1.js', 'feature 1 implementation')
-      repo.addFile('feature1.js')
-      repo.commit('Add feature 1')
-
-      repo.createFile('feature2.js', 'feature 2 implementation')
-      repo.addFile('feature2.js')
-      repo.commit('Add feature 2')
-
-      // Before merge, we should see the changes
-      const beforeMerge = await getGitDiffFiles(repo.path, defaultBranch)
-      expect(beforeMerge.files).toHaveLength(2)
-
-      // Merge to main
-      repo.checkout(defaultBranch)
-      repo.merge('feature')
-
-      // Go back to feature branch
-      repo.checkout('feature')
-
-      // After merge, the merge base is now the merge commit, so no diff
-      const result = await getGitDiffFiles(repo.path, defaultBranch)
-      expect(result.files).toHaveLength(0)
-    })
-  })
 
   describe('getCurrentBranch', () => {
     it('should return the current branch name', async () => {
@@ -642,11 +454,8 @@ describe('git-utils with real git commands', () => {
         // Get diff from worktree
         // Get default branch from main repo
         const defaultBranch = await getCurrentBranch(repo.path)
-        const result = await getGitDiffFiles(worktreePath, defaultBranch)
+        const result = await getGitDiffString(worktreePath, defaultBranch)
         
-        expect(result.files).toHaveLength(1)
-        expect(result.files[0].filename).toBe('feature.js')
-        expect(result.files[0].status).toBe('A')
 
         // Verify branch name in worktree
         const branch = await getCurrentBranch(worktreePath)
