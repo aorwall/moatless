@@ -22,7 +22,7 @@ export function useFileList({ taskId, path = '/', recursive = false }: FileListP
       if (recursive) params.append('recursive', 'true')
 
       const queryString = params.toString()
-      const url = `/tasks/${taskId}/files${queryString ? `?${queryString}` : ''}`
+      const url = `/api/v1/tasks/${taskId}/files${queryString ? `?${queryString}` : ''}`
 
       const response = await apiClient.get<FileListResponse>(url)
       return response.data

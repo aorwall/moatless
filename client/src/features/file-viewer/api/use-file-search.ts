@@ -13,7 +13,7 @@ interface FileSearchResponse {
 export function useFileSearch(taskId: string) {
   return useMutation<FileSearchResponse, Error, string>({
     mutationFn: async (query: string) => {
-      const response = await apiClient.post<FileSearchResponse>(`/tasks/${taskId}/search-files`, {
+      const response = await apiClient.post<FileSearchResponse>(`/api/v1/tasks/${taskId}/search-files`, {
         query,
       })
       return response.data

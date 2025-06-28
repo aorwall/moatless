@@ -13,7 +13,7 @@ export function useFileContent(taskId: string, filePath: string) {
     queryFn: async () => {
       const encodedPath = encodeURIComponent(filePath)
       const response = await apiClient.get<FileContentResponse>(
-        `/tasks/${taskId}/files/${encodedPath}`,
+        `/api/v1/tasks/${taskId}/files/${encodedPath}`,
       )
       return response.data
     },
