@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import path from 'node:path'
 import { TaskNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
+import type { ScriptInjectionStrategy } from '@shared/types/environment.js'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
@@ -19,15 +20,6 @@ interface FrameworkDetection {
   type: 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown'
   version?: string
   configFiles: string[]
-}
-
-interface ScriptInjectionStrategy {
-  method: 'html-injection' | 'middleware' | 'build-plugin' | 'proxy'
-  config?: {
-    indexPath?: string
-    insertLocation?: string
-    middleware?: string
-  }
 }
 
 export class PreviewEnvironmentService {
@@ -129,8 +121,13 @@ export class PreviewEnvironmentService {
     // Get workspace to access environment configuration
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
     const environment = workspace.environmentConfig
+    const previewConfig = environment.previewConfig
 
-    if (!environment.codeExecution.serverCommand) {
+    // Use preview config's server command if available, otherwise fall back to codeExecution
+    const serverCommand =
+      previewConfig?.serverStartCommand || environment.codeExecution.serverCommand
+
+    if (!serverCommand) {
       throw new WorkspaceError('No server command configured for this environment', taskId)
     }
 
@@ -138,12 +135,13 @@ export class PreviewEnvironmentService {
     const workspacePath = workspace.getWorkspacePath()
     const handler = new ServerHandler(
       workspacePath,
-      environment.codeExecution.serverCommand,
+      serverCommand,
       environment.codeExecution.serverPortPlaceholder,
     )
 
     previewLogger.info('Starting preview environment server', {
-      command: environment.codeExecution.serverCommand,
+      command: serverCommand,
+      framework: previewConfig?.framework,
       workspacePath,
     })
 
@@ -163,7 +161,7 @@ export class PreviewEnvironmentService {
         pid: result.pid,
         port: result.port,
         startTime: new Date(),
-        command: environment.codeExecution.serverCommand,
+        command: serverCommand,
         workspacePath,
         logFile: result.log_file,
         portPlaceholder: environment.codeExecution.serverPortPlaceholder,
@@ -1140,22 +1138,41 @@ export class PreviewEnvironmentService {
     const previewLogger = logger.child({ taskId, operation: 'setupScriptInjection' })
 
     try {
-      const framework = await this.detectFramework(workspacePath)
-      const strategy = this.getScriptInjectionStrategy(framework)
+      // Get workspace to access environment configuration
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const previewConfig = workspace.environmentConfig.previewConfig
+
+      // Use stored injection strategy or detect framework
+      let strategy: ScriptInjectionStrategy
+      if (previewConfig?.injectionStrategy) {
+        strategy = previewConfig.injectionStrategy
+      } else {
+        // Fallback to detecting framework and determining strategy
+        const framework = await this.detectFramework(workspacePath)
+        strategy = this.getScriptInjectionStrategy(framework)
+      }
 
       previewLogger.info('Setting up script injection', {
-        framework: framework.type,
+        framework: previewConfig?.framework,
         strategy: strategy.method,
-        configFiles: framework.configFiles,
       })
 
       switch (strategy.method) {
         case 'html-injection':
           await this.injectIntoHtml(workspacePath, strategy.config)
           break
-        case 'middleware':
+        case 'middleware': {
+          // For middleware, we still need framework info
+          const framework = previewConfig?.framework
+            ? {
+                type: previewConfig.framework,
+                version: previewConfig.frameworkVersion,
+                configFiles: [],
+              }
+            : await this.detectFramework(workspacePath)
           await this.setupMiddleware(workspacePath, framework, strategy.config)
           break
+        }
         default:
           previewLogger.warn('Unsupported injection method, falling back to HTML injection')
           await this.injectIntoHtml(workspacePath, {})
@@ -1281,18 +1298,23 @@ export const config = {
     const previewLogger = logger.child({ taskId, operation: 'cleanupScriptInjection' })
 
     try {
-      const framework = await this.detectFramework(workspacePath)
+      // Get workspace to access environment configuration
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const previewConfig = workspace.environmentConfig.previewConfig
 
       previewLogger.info('Cleaning up script injection', {
-        framework: framework.type,
+        framework: previewConfig?.framework,
         workspacePath,
       })
 
       // Clean up HTML files
       await this.cleanupHtmlInjection(workspacePath)
 
-      // Clean up framework-specific files
-      if (framework.type === 'nextjs') {
+      // Clean up framework-specific files (only Next.js uses middleware)
+      if (
+        previewConfig?.framework === 'nextjs' ||
+        previewConfig?.injectionStrategy?.method === 'middleware'
+      ) {
         await this.cleanupNextjsMiddleware(workspacePath)
       }
     } catch (error) {

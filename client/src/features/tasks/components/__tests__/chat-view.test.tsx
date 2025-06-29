@@ -29,7 +29,9 @@ vi.mock('react-markdown', () => ({
 
 // Mock ScrollArea
 vi.mock('@/lib/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+    <div {...props}>{children}</div>
+  ),
 }))
 
 // Mock ChatInput
@@ -70,14 +72,16 @@ describe('ChatView', () => {
       data: createMockTaskWithIterations(),
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     // Default mock for useTaskWorkspaceStatus
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: null,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     // Default mock for useTaskEventsWithStreaming
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
@@ -95,7 +99,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -116,7 +121,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -135,7 +141,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -152,7 +159,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -166,7 +174,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -180,7 +189,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -192,7 +202,8 @@ describe('ChatView', () => {
         data: undefined,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       const { container } = renderWithRouter(<ChatView />)
 
@@ -203,14 +214,15 @@ describe('ChatView', () => {
   describe('Interactions', () => {
     it('handles iteration click', async () => {
       const user = userEvent.setup()
-      const iteration = createMockTaskIteration({ iteration: 1 } as any)
+      const iteration = createMockTaskIteration({ iteration: 1 })
       const task = createMockTask({ iterations: [iteration] })
 
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -223,14 +235,15 @@ describe('ChatView', () => {
     })
 
     it('handles keyboard navigation with Enter', () => {
-      const iteration = createMockTaskIteration({ iteration: 1 } as any)
+      const iteration = createMockTaskIteration({ iteration: 1 })
       const task = createMockTask({ iterations: [iteration] })
 
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -243,14 +256,15 @@ describe('ChatView', () => {
     })
 
     it('handles keyboard navigation with Space', () => {
-      const iteration = createMockTaskIteration({ iteration: 1 } as any)
+      const iteration = createMockTaskIteration({ iteration: 1 })
       const task = createMockTask({ iterations: [iteration] })
 
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -263,14 +277,15 @@ describe('ChatView', () => {
     })
 
     it('ignores other keys', () => {
-      const iteration = createMockTaskIteration({ iteration: 1 } as any)
+      const iteration = createMockTaskIteration({ iteration: 1 })
       const task = createMockTask({ iterations: [iteration] })
 
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -301,7 +316,8 @@ describe('ChatView', () => {
           data: task,
           isLoading: false,
           error: null,
-        } as any)
+          refetch: vi.fn(),
+        })
 
         const { rerender } = renderWithRouter(<ChatView />)
         expect(screen.getByText(expected)).toBeInTheDocument()
@@ -325,7 +341,8 @@ describe('ChatView', () => {
           data: task,
           isLoading: false,
           error: null,
-        } as any)
+          refetch: vi.fn(),
+        })
 
         const { rerender } = renderWithRouter(<ChatView />)
         expect(screen.getByText(expected)).toBeInTheDocument()
@@ -345,7 +362,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -362,7 +380,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -379,7 +398,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -396,7 +416,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 
@@ -412,7 +433,8 @@ describe('ChatView', () => {
         data: task,
         isLoading: false,
         error: null,
-      } as any)
+        refetch: vi.fn(),
+      })
 
       renderWithRouter(<ChatView />)
 

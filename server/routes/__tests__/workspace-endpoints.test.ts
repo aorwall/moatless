@@ -114,7 +114,7 @@ describe('Workspace Endpoints', () => {
 
     it('should return 404 for non-existent task', async () => {
       // Mock task service to return null for non-existent task
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.inject({
         method: 'GET',
@@ -150,13 +150,10 @@ describe('Workspace Endpoints', () => {
         url: `/api/v1/tasks/${taskId}/files`,
         query: {
           path: 'src',
-          recursive: true,
+          recursive: 'true',
         },
       })
 
-      if (response.statusCode !== 200) {
-        console.log('List files error:', response.payload)
-      }
       expect(response.statusCode).toBe(200)
       expect(app.services.workspace.listFiles).toHaveBeenCalledWith(taskId, 'src', true)
     })
@@ -369,7 +366,7 @@ describe('Workspace Endpoints', () => {
           method: 'GET',
           url: `/api/v1/tasks/${taskId}/server/logs`,
           query: {
-            lines: 50,
+            lines: '50',
           },
         })
 
@@ -380,7 +377,7 @@ describe('Workspace Endpoints', () => {
           lines: 1,
           truncated: false,
         })
-        expect(app.services.workspace.getServerLogs).toHaveBeenCalledWith(taskId, 50)
+        expect(app.services.workspace.getServerLogs).toHaveBeenCalledWith(taskId, '50')
       })
     })
   })

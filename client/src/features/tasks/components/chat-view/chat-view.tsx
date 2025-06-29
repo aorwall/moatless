@@ -30,15 +30,7 @@ export function ChatView() {
   const params = useParams({ from: '/tasks/$taskId' })
 
   // Use specialized hooks from tri-context pattern
-  const {
-    taskId,
-    status,
-    agentType,
-    environmentId,
-    iterations,
-    createdAt,
-    isLoading: isLoadingTask,
-  } = useTaskData()
+  const { taskId, status, iterations, isLoading: isLoadingTask } = useTaskData()
   const { events } = useEventStream()
   const { isStreaming } = useStreamingStatus()
   const { setSelectedIteration } = useSelectedIteration()

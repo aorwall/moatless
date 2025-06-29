@@ -139,7 +139,7 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 for non-existent task', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.inject({
         method: 'GET',
@@ -295,7 +295,7 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 if task does not exist', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.inject({
         method: 'GET',

@@ -23,7 +23,9 @@ vi.mock('@/features/tasks/stores/task-ui-store', () => ({
 
 // Mock additional dependencies
 vi.mock('@/lib/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+    <div {...props}>{children}</div>
+  ),
 }))
 vi.mock('../chat-input', () => ({
   ChatInput: () => <div data-testid="task-chat-input">Mock Chat Input</div>,
@@ -70,7 +72,8 @@ describe('ChatView Refetch Behavior', () => {
       data: initialTask,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     const { rerender } = renderWithRouter(<ChatView />)
 
@@ -83,7 +86,8 @@ describe('ChatView Refetch Behavior', () => {
       data: updatedTask,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     // Re-render the component
     rerender(<ChatView />)
@@ -103,7 +107,8 @@ describe('ChatView Refetch Behavior', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     const { container } = renderWithRouter(<ChatView />)
 
@@ -125,7 +130,8 @@ describe('ChatView Refetch Behavior', () => {
       data: runningTask,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     renderWithRouter(<ChatView />)
 
@@ -150,7 +156,8 @@ describe('ChatView Refetch Behavior', () => {
       data: task1,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     const { rerender } = renderWithRouter(<ChatView />)
 
@@ -163,7 +170,8 @@ describe('ChatView Refetch Behavior', () => {
       data: task2,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     rerender(<ChatView />)
 

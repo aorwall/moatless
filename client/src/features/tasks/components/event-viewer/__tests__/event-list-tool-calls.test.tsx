@@ -1,4 +1,5 @@
-import type { Event } from '@shared/types/event'
+import type { ToolUseContent } from '@shared/types/claude-content'
+import type { Event, MessageEvent } from '@shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -14,13 +15,13 @@ vi.mock('../event-components/tool-calls/ls-tool-call', () => ({
 }))
 
 vi.mock('../event-components/tool-call-event', () => ({
-  ToolCallEvent: ({ event }: { event: any }) => {
-    const payload = event.payload as any
-    const content = payload.message?.content || []
-    const toolUse = content.find((item: any) => item.type === 'tool_use')
+  ToolCallEvent: ({ event }: { event: MessageEvent }) => {
+    const payload = event.payload
+    const content = payload?.message?.content || []
+    const toolUse = content.find((item): item is ToolUseContent => item.type === 'tool_use')
 
     if (toolUse?.name === 'LS') {
-      return <LSToolCallMock input={toolUse.input} />
+      return <LSToolCallMock input={toolUse.input as { path: string }} />
     }
 
     return <div data-testid="tool-call-event">Generic Tool Call</div>

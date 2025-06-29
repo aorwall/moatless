@@ -197,13 +197,13 @@ function convertPrismToken(token: Prism.Token | string, parentType?: string): Di
   const className = parentType ? `token ${parentType}-${tokenType}` : `token ${tokenType}`
 
   if (typeof token.content === 'string') {
+    // Use a custom type that includes className
     return [
       {
-        type: 'text',
+        type: 'prism',
         value: token.content,
-        // Add the prism class as a property that can be used by renderToken
         className,
-      } as DiffTokenNode,
+      } as any,
     ]
   }
 

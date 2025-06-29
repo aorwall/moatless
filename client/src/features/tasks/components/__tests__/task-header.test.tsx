@@ -37,7 +37,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 // Mock UI components
 vi.mock('@/lib/components/ui/sidebar.tsx', () => ({
-  SidebarTrigger: () => <button>Sidebar</button>,
+  SidebarTrigger: () => <button type="button">Sidebar</button>,
 }))
 
 describe('TaskHeader', () => {
