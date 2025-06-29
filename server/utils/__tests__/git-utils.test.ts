@@ -17,7 +17,7 @@ import {
 // Helper class for creating and managing test git repositories
 class GitTestRepo {
   private tempDir: string
-  
+
   constructor() {
     // Create a unique temporary directory for this test
     this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-test-'))
@@ -85,6 +85,8 @@ describe('git-utils with real git commands', () => {
   })
 
   describe('getGitDiffFiles', () => {
+    // TODO: Add tests for getGitDiffFiles
+  })
 
   describe('getCurrentBranch', () => {
     it('should return the current branch name', async () => {
@@ -132,7 +134,7 @@ describe('git-utils with real git commands', () => {
 
       const branches = await getBranchList(repo.path)
       expect(branches).toContain('new-feature')
-      
+
       // Verify we're on the new branch
       const currentBranch = await getCurrentBranch(repo.path)
       expect(currentBranch).toBe('new-feature')
@@ -156,7 +158,7 @@ describe('git-utils with real git commands', () => {
 
       // Verify the new branch has content from 'other'
       expect(fs.existsSync(path.join(repo.path, 'other.txt'))).toBe(true)
-      
+
       // Verify we're on the new branch
       const currentBranch = await getCurrentBranch(repo.path)
       expect(currentBranch).toBe('from-other')
@@ -177,7 +179,7 @@ describe('git-utils with real git commands', () => {
 
       // Modify committed file
       repo.createFile('modified.txt', 'modified content')
-      
+
       // Stage a new file
       repo.createFile('staged.txt', 'staged content')
       repo.addFile('staged.txt')
@@ -223,7 +225,7 @@ describe('git-utils with real git commands', () => {
       const branches = await getBranchList(repo.path)
 
       // Check that default branch exists (main or master)
-      expect(branches.some(b => b === 'main' || b === 'master')).toBe(true)
+      expect(branches.some((b) => b === 'main' || b === 'master')).toBe(true)
       expect(branches).toContain('feature-1')
       expect(branches).toContain('feature-2')
       expect(branches).toContain('bugfix/issue-123')
@@ -239,13 +241,13 @@ describe('git-utils with real git commands', () => {
       repo.commit('Test commit')
 
       const hash = await getCommitHash(repo.path)
-      
+
       expect(hash).toMatch(/^[a-f0-9]{7}$/) // Short SHA format
-      
+
       // Get full hash
       const fullHash = await getCommitHash(repo.path, false)
       expect(fullHash).toMatch(/^[a-f0-9]{40}$/) // Full SHA-1 format
-      
+
       // Verify it matches actual git command
       const actualHash = repo.exec('git rev-parse HEAD').trim()
       expect(fullHash).toBe(actualHash)
@@ -255,7 +257,7 @@ describe('git-utils with real git commands', () => {
   describe('getGitDiffString', () => {
     it('should get diff against merge base of specified branch', async () => {
       repo.init()
-      
+
       // Create initial file
       repo.createFile('file1.js', 'old line\n')
       repo.addFile('file1.js')
@@ -275,7 +277,7 @@ describe('git-utils with real git commands', () => {
       expect(diff).toContain('diff --git a/file1.js b/file1.js')
       expect(diff).toContain('-old line')
       expect(diff).toContain('+new line')
-      
+
       // baseBranch should be the merge base commit hash
       const mergeBase = await getMergeBase(repo.path, 'main', 'develop')
       expect(baseBranch).toBe(mergeBase)
@@ -283,7 +285,7 @@ describe('git-utils with real git commands', () => {
 
     it('should include untracked files in diff', async () => {
       repo.init()
-      
+
       repo.createFile('tracked.js', 'tracked content')
       repo.addFile('tracked.js')
       repo.commit('Add tracked file')
@@ -300,7 +302,7 @@ describe('git-utils with real git commands', () => {
 
     it('should handle binary files', async () => {
       repo.init()
-      
+
       repo.createFile('text.txt', 'text')
       repo.addFile('text.txt')
       repo.commit('Initial commit')
@@ -324,7 +326,7 @@ describe('git-utils with real git commands', () => {
   describe('getMergeBase', () => {
     it('should find merge base between branches', async () => {
       repo.init()
-      
+
       // Create initial commits
       repo.createFile('base.txt', 'base')
       repo.addFile('base.txt')
@@ -363,14 +365,16 @@ describe('git-utils with real git commands', () => {
       repo.addFile('unrelated.txt')
       repo.commit('Unrelated commit')
 
-      await expect(getMergeBase(repo.path, 'main', 'unrelated')).rejects.toThrow('Failed to get merge base')
+      await expect(getMergeBase(repo.path, 'main', 'unrelated')).rejects.toThrow(
+        'Failed to get merge base',
+      )
     })
   })
 
   describe('checkForConflicts', () => {
     it('should detect merge conflicts', async () => {
       repo.init()
-      
+
       // Create base file
       repo.createFile('conflict.txt', 'line 1\nline 2\nline 3\n')
       repo.addFile('conflict.txt')
@@ -399,7 +403,7 @@ describe('git-utils with real git commands', () => {
 
     it('should detect no conflicts for clean merge', async () => {
       repo.init()
-      
+
       repo.createFile('base.txt', 'base content')
       repo.addFile('base.txt')
       repo.commit('Base commit')
@@ -429,7 +433,7 @@ describe('git-utils with real git commands', () => {
   describe('git worktree integration', () => {
     it('should handle worktree paths correctly', async () => {
       repo.init()
-      
+
       // Create initial structure
       repo.createFile('README.md', '# Test Project')
       repo.addFile('README.md')
@@ -437,19 +441,17 @@ describe('git-utils with real git commands', () => {
 
       // Create a feature branch
       repo.createBranch('feature-work')
-      
+
       // Create worktree
       const worktreePath = path.join(path.dirname(repo.path), 'test-worktree')
       repo.exec(`git worktree add "${worktreePath}" feature-work`)
 
       try {
-        // Make changes in worktree
-        const worktreeRepo = new GitTestRepo()
-        worktreeRepo['tempDir'] = worktreePath // Set the path directly
-        
-        worktreeRepo.createFile('feature.js', 'console.log("feature");')
-        worktreeRepo.addFile('feature.js')
-        worktreeRepo.commit('Add feature')
+        // Make changes in worktree directly using git commands
+        execSync('git add .', { cwd: worktreePath })
+        fs.writeFileSync(path.join(worktreePath, 'feature.js'), 'console.log("feature");')
+        execSync('git add feature.js', { cwd: worktreePath })
+        execSync('git commit -m "Add feature"', { cwd: worktreePath })
 
         // Get diff from worktree
         // Get default branch from main repo
