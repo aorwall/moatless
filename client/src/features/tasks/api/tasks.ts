@@ -1,17 +1,15 @@
 import type {
-  AgentStatusResponse,
   CreateTaskRequest,
   EventListResponse,
   MergeTaskResponse,
-  ServerLogsResponse,
   SimpleTaskResponse,
   StopAgentResponse,
   TaskListResponse,
+  WorkspaceStatusResponse,
 } from '@shared/types/api'
 import type { FileSearchRequest, FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
-import type { GitDiffResponse, Task, WorkspaceStatusResponse } from '@shared/types/task'
-import type { ServerStatus } from '@shared/types/workspace'
+import type { GitDiffResponse, Task } from '@shared/types/task'
 import { apiClient } from '@/lib/api/client'
 
 export const tasksApi = {
@@ -93,30 +91,6 @@ export const tasksApi = {
 
   async getTaskWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     return await apiClient.get<WorkspaceStatusResponse>(`/api/v1/tasks/${taskId}/workspace-status`)
-  },
-
-  async getTaskAgentStatus(taskId: string): Promise<AgentStatusResponse> {
-    return await apiClient.get<AgentStatusResponse>(`/api/v1/tasks/${taskId}/agent-status`)
-  },
-
-  async startServer(taskId: string): Promise<ServerStatus> {
-    return await apiClient.post<ServerStatus>(`/api/v1/tasks/${taskId}/server/start`)
-  },
-
-  async stopServer(taskId: string): Promise<ServerStatus> {
-    return await apiClient.post<ServerStatus>(`/api/v1/tasks/${taskId}/server/stop`)
-  },
-
-  async restartServer(taskId: string): Promise<ServerStatus> {
-    return await apiClient.post<ServerStatus>(`/api/v1/tasks/${taskId}/server/restart`)
-  },
-
-  async getServerStatus(taskId: string): Promise<ServerStatus> {
-    return await apiClient.get<ServerStatus>(`/api/v1/tasks/${taskId}/server/status`)
-  },
-
-  async getServerLogs(taskId: string): Promise<ServerLogsResponse> {
-    return await apiClient.get<ServerLogsResponse>(`/api/v1/tasks/${taskId}/server/logs`)
   },
 
   async mergeTask(

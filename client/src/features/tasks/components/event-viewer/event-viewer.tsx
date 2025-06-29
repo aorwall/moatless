@@ -1,8 +1,9 @@
 import { useParams } from '@tanstack/react-router'
 import { FileText, Loader2 } from 'lucide-react'
-
+import { useMemo } from 'react'
+import { useTaskData, useTaskEvents } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
-import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-events'
+import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 
@@ -13,59 +14,58 @@ const visitedTasks = new Set<string>()
 
 export function EventViewer() {
   const params = useParams({ from: '/tasks/$taskId' })
-  const taskId = params.taskId
+  const { scrollRef } = useAutoScroll()
 
-  // Use the unified hook that handles streaming automatically
-  const { events, isLoading, error, isStreaming } = useTaskEventsWithStreaming(taskId)
+  // Use the context to get events and states
+  const { events, isStreaming } = useTaskEvents()
+  const { isLoading, error } = useTaskData()
 
-  // Determine if this is the first visit to auto-scroll to bottom
-  const isFirstVisit = !visitedTasks.has(taskId)
-  if (events.length > 0 && isFirstVisit) {
-    visitedTasks.add(taskId)
-  }
-
-  // Use auto-scroll hook to manage scroll behavior
-  const { scrollRef } = useAutoScroll({
-    scrollOnMount: isFirstVisit,
-    dependencies: [events],
-  })
-
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center p-6">
-        <div className="text-center space-y-3">
-          <Loader2 className="h-8 w-8 mx-auto text-muted-foreground animate-spin" />
-          <p className="text-muted-foreground">Loading events...</p>
-        </div>
-      </div>
-    )
-  }
+  // Merge tool events within each event for cleaner display
+  const mergedEvents = useMemo(() => {
+    return mergeToolEvents(events)
+  }, [events])
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center p-6">
+      <div className="h-full flex items-center justify-center p-8">
         <ErrorAlert error={error} title="Failed to load events" className="max-w-md" />
       </div>
     )
   }
 
-  if (events.length === 0) {
+  if (isLoading && !events.length) {
     return (
-      <div className="h-full flex items-center justify-center p-6">
-        <div className="text-center space-y-3">
-          <FileText className="h-8 w-8 mx-auto text-muted-foreground" />
-          <p className="text-muted-foreground">
-            {isStreaming ? 'Waiting for events...' : 'No events to display'}
-          </p>
+      <div className="h-full flex items-center justify-center">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <p className="text-sm">Loading events...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!events.length) {
+    return (
+      <div className="h-full flex items-center justify-center p-8">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="text-muted-foreground">
+            <FileText className="mx-auto h-12 w-12 opacity-50" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-lg font-medium">No events yet</h3>
+            <p className="text-sm text-muted-foreground">
+              Events will appear here as the task progresses.
+            </p>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <ScrollArea ref={scrollRef} className="h-full w-full">
-      <div className="p-2 sm:p-3 lg:p-4 w-full">
-        <EventList events={events} />
+    <ScrollArea className="h-full w-full" ref={scrollRef}>
+      <div className="p-4">
+        <EventList events={mergedEvents} />
       </div>
     </ScrollArea>
   )

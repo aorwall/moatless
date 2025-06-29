@@ -1,16 +1,9 @@
-import type { AgentStatusResponse } from '@shared/types/api'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, Loader2, Play, Square, StopCircle, WifiOff } from 'lucide-react'
+import { Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
-import {
-  useServerStatus,
-  useStartServer,
-  useStopAgent,
-  useStopServer,
-  useTask,
-  useTaskAgentStatus,
-} from '@/features/tasks/hooks/use-tasks'
-import { useTaskStreamingError } from '@/features/tasks/stores/task-event-store'
+import { useServerStatus, useStartServer, useStopServer } from '@/features/preview'
+import { useTaskData, useTaskEvents } from '@/features/tasks/contexts/task-providers'
+import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx'
@@ -20,66 +13,41 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 
 function StatusBadge({ status }: { status: string }) {
-  let variant: 'default' | 'destructive' | 'secondary' | 'outline' = 'secondary'
-  const displayStatus = status
-
-  switch (status) {
-    case 'open':
-      variant = 'default'
-      break
-    case 'running':
-      variant = 'outline'
-      break
-    case 'error':
-      variant = 'destructive'
-      break
-    case 'merged':
-      variant = 'secondary'
-      break
-    case 'closed':
-      variant = 'secondary'
-      break
+  const statusColors = {
+    open: 'bg-blue-500/10 text-blue-700 border-blue-500/20 dark:text-blue-400',
+    running: 'bg-yellow-500/10 text-yellow-700 border-yellow-500/20 dark:text-yellow-400',
+    error: 'bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-400',
+    closed: 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:text-gray-400',
+    merged: 'bg-green-500/10 text-green-700 border-green-500/20 dark:text-green-400',
   }
 
-  return <Badge variant={variant}>{displayStatus}</Badge>
-}
-
-const getAgentStatusDisplay = (agentStatus?: AgentStatusResponse['status']) => {
-  if (!agentStatus) {
-    return { text: 'agent: unknown', isLoading: false }
-  }
-
-  switch (agentStatus) {
-    case 'idle':
-      return { text: 'agent: idle', isLoading: false }
-    case 'preparing':
-      return { text: 'agent: preparing', isLoading: true }
-    case 'running':
-      return { text: 'agent: running', isLoading: true }
-    case 'error':
-      return { text: 'agent: error', isLoading: false }
-    default:
-      return { text: 'agent: unknown', isLoading: false }
-  }
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'capitalize font-medium',
+        statusColors[status as keyof typeof statusColors] ||
+          'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:text-gray-400',
+      )}
+    >
+      {status}
+    </Badge>
+  )
 }
 
 export function TaskHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const taskId = params.taskId
 
-  const { data: metadata } = useTask(taskId)
-  const {
-    data: agentStatus,
-    isLoading: isLoadingAgent,
-    error: agentError,
-  } = useTaskAgentStatus(taskId)
-  const streamingError = useTaskStreamingError(taskId)
+  const { status, agentType, environmentId, createdAt, iterations } = useTaskData()
+  const { isStreaming } = useTaskEvents()
 
   const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {
-    enabled: !!taskId,
+    enabled: !!taskId && !taskId.startsWith('temp-'),
   })
 
   const startServer = useStartServer({
@@ -87,10 +55,7 @@ export function TaskHeader() {
       toast.success('Server started successfully')
     },
     onError: (error) => {
-      console.error('Failed to start server:', error)
-      toast.error('Failed to start server', {
-        description: getErrorMessage(error),
-      })
+      toast.error(`Failed to start server: ${getErrorMessage(error)}`)
     },
   })
 
@@ -99,10 +64,7 @@ export function TaskHeader() {
       toast.success('Server stopped successfully')
     },
     onError: (error) => {
-      console.error('Failed to stop server:', error)
-      toast.error('Failed to stop server', {
-        description: getErrorMessage(error),
-      })
+      toast.error(`Failed to stop server: ${getErrorMessage(error)}`)
     },
   })
 
@@ -111,91 +73,69 @@ export function TaskHeader() {
       toast.success('Agent stopped successfully')
     },
     onError: (error) => {
-      console.error('Failed to stop agent:', error)
-      toast.error('Failed to stop agent', {
-        description: getErrorMessage(error),
-      })
+      toast.error(`Failed to stop agent: ${getErrorMessage(error)}`)
     },
   })
 
   const handleStop = () => {
-    if (metadata) {
-      stopAgent.mutate(metadata.taskId)
+    if (status) {
+      stopAgent.mutate(taskId)
     }
   }
 
   const handleStartServer = () => {
-    if (metadata) {
-      startServer.mutate(metadata.taskId)
+    if (status) {
+      startServer.mutate(taskId)
     }
   }
 
   const handleStopServer = () => {
-    if (metadata) {
-      stopServer.mutate(metadata.taskId)
+    if (status) {
+      stopServer.mutate(taskId)
     }
   }
 
-  if (!metadata) {
+  if (!status) {
     return null
   }
 
-  const agentDisplay = getAgentStatusDisplay(agentStatus?.status)
+  // Calculate total cost from iterations
+  const totalCostUsd = iterations.reduce((sum, iteration) => sum + iteration.costUsd, 0)
 
   return (
     <header className="border-b">
       <div className="flex h-16 items-center justify-between px-4">
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-4 min-w-0 flex-1">
           <SidebarTrigger />
 
-          <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <h1 className="text-lg font-semibold">{`Task ${metadata.taskId.slice(0, 8)}`}</h1>
+          <div className="space-y-1 min-w-0 flex-1 max-w-2xl">
+            <div className="flex items-center space-x-2 min-w-0">
+              <h1 className="text-lg font-semibold truncate">{`Task ${taskId.slice(0, 8)}`}</h1>
             </div>
-            <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-              <span>{new Date(metadata.createdAt).toLocaleString()}</span>
-              <span>{metadata.agentType}</span>
-              <StatusBadge status={metadata.status} />
-              <Badge variant="outline">{metadata.numTurns} turns</Badge>
-              <Badge variant="outline">${metadata.totalCostUsd.toFixed(4)}</Badge>
-              {agentError ? (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="destructive" className="flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        agent: error
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{getErrorMessage(agentError)}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  {(isLoadingAgent || agentDisplay.isLoading) && (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  )}
-                  {agentDisplay.text}
-                </Badge>
-              )}
+            <div className="flex items-center space-x-2 text-sm text-muted-foreground overflow-hidden">
+              <span className="truncate">
+                {createdAt ? new Date(createdAt).toLocaleString() : ''}
+              </span>
+              <span className="truncate">{agentType}</span>
+              <StatusBadge status={status} />
+              <Badge variant="outline">{iterations.length} turns</Badge>
+              <Badge variant="outline">${totalCostUsd.toFixed(4)}</Badge>
             </div>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           <div className="flex items-center space-x-2">
-            {streamingError && (
+            {!isStreaming && status === 'running' && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex items-center space-x-1">
-                      <WifiOff className="h-4 w-4 text-red-500" />
-                      <span className="text-sm text-red-500">Streaming error</span>
+                      <WifiOff className="h-4 w-4 text-yellow-500" />
+                      <span className="text-sm text-yellow-500">Not streaming</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>{streamingError}</p>
+                    <p>Real-time streaming is not connected</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -239,7 +179,7 @@ export function TaskHeader() {
                 {startServer.isPending ? 'Starting Server...' : 'Start Server'}
               </Button>
             ))}
-          {metadata.status === 'running' && (
+          {status === 'running' && (
             <Button variant="outline" size="sm" onClick={handleStop} disabled={stopAgent.isPending}>
               <StopCircle className="mr-2 h-4 w-4" />
               {stopAgent.isPending ? 'Stopping...' : 'Stop Agent'}

@@ -1,6 +1,7 @@
 export * from './api.js'
 export * from './claude.js'
 export * from './claude-code.js'
+export * from './command.js'
 export * from './environment.js'
 export * from './event.js'
 export * from './preview-environment.js'

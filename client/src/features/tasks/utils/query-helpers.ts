@@ -11,22 +11,25 @@ export function updateTaskInLists(
   taskId: string,
   updates: Partial<Task>,
 ) {
-  // Get all cached task list queries
+  // Get all cached task list queries - look for any query that starts with ['tasks']
   const queryCache = queryClient.getQueryCache()
   const taskListQueries = queryCache.findAll({
-    queryKey: queryKeys.tasksList(),
+    queryKey: queryKeys.tasks.all,
     exact: false,
     type: 'active',
   })
 
   // Update the task in each cached list
   taskListQueries.forEach((query) => {
-    const data = query.state.data as Task[] | undefined
-    if (data) {
-      const updatedTasks = data.map((task) =>
-        task.taskId === taskId ? { ...task, ...updates } : task,
-      )
-      queryClient.setQueryData(query.queryKey, updatedTasks)
+    // Only process queries that contain 'list' in their key (task list queries)
+    if (query.queryKey.includes('list')) {
+      const data = query.state.data as Task[] | undefined
+      if (data) {
+        const updatedTasks = data.map((task) =>
+          task.taskId === taskId ? { ...task, ...updates } : task,
+        )
+        queryClient.setQueryData(query.queryKey, updatedTasks)
+      }
     }
   })
 }
@@ -38,16 +41,19 @@ export function updateTaskInLists(
 export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
   const queryCache = queryClient.getQueryCache()
   const taskListQueries = queryCache.findAll({
-    queryKey: queryKeys.tasksList(),
+    queryKey: queryKeys.tasks.all,
     exact: false,
     type: 'active',
   })
 
   taskListQueries.forEach((query) => {
-    const data = query.state.data as Task[] | undefined
-    if (data) {
-      const updatedTasks = data.filter((task) => task.taskId !== taskId)
-      queryClient.setQueryData(query.queryKey, updatedTasks)
+    // Only process queries that contain 'list' in their key (task list queries)
+    if (query.queryKey.includes('list')) {
+      const data = query.state.data as Task[] | undefined
+      if (data) {
+        const updatedTasks = data.filter((task) => task.taskId !== taskId)
+        queryClient.setQueryData(query.queryKey, updatedTasks)
+      }
     }
   })
 }
@@ -70,12 +76,12 @@ export function getInvalidationKeys(
     // Task status changed - invalidate lists that might be affected
     if (newStatus === 'closed') {
       // When closing, the sidebar (non-closed tasks) needs updating
-      keys.push(queryKeys.tasksList())
+      keys.push(queryKeys.tasks.list())
     } else if (newStatus === 'merged') {
       // When merging, both open and merged lists need updating
-      keys.push(queryKeys.tasksList({ status: 'open' }))
-      keys.push(queryKeys.tasksList({ status: 'merged' }))
-      keys.push(queryKeys.tasksList())
+      keys.push(queryKeys.tasks.list({ status: 'open' }))
+      keys.push(queryKeys.tasks.list({ status: 'merged' }))
+      keys.push(queryKeys.tasks.list())
     }
   }
 

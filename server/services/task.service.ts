@@ -93,15 +93,10 @@ export class TaskService {
 
     // If task exists and status is running, check if agent is still running
     if (task && task.status === 'running') {
-      const agentStatus = await this.agentService.getAgentStatus(taskId)
+      const isAgentRunning = await this.agentService.getTaskRunningStatus(taskId)
 
-      // If agent is not running and status is error, update task status to error
-      if (agentStatus.status === 'error') {
-        task.status = 'error'
-        await this.storage.saveTask(task)
-      }
-      // If agent is not running (idle), update task status to open
-      else if (agentStatus.status === 'idle') {
+      // If agent is not running, update task status to open
+      if (!isAgentRunning) {
         task.status = 'open'
         await this.storage.saveTask(task)
       }

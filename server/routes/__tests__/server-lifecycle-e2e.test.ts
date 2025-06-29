@@ -886,7 +886,7 @@ server.listen(port, () => {
     // Manually kill the process to simulate it being terminated externally
     try {
       process.kill(orphanPid, 'SIGKILL')
-    } catch (e) {
+    } catch (_e) {
       console.log('Process already terminated')
     }
 

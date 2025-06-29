@@ -18,33 +18,49 @@ interface UseTaskEventsResult {
  * - Uses React state instead of Zustand to avoid infinite render loops
  */
 export function useTaskEventsWithStreaming(taskId: string): UseTaskEventsResult {
-  // Get regular events from API
-  const { data: apiEvents, isLoading, error: apiError } = useTaskEventsAPI(taskId)
-
-  // Get streaming state using React state (not Zustand)
+  // Start SSE connection immediately
   const { streamEvents, isStreaming, streamingError } = useTaskStreaming(taskId)
 
-  // Choose which events to display - NEVER mix API and stream events
+  // Get regular events from API (will be used as initial data)
+  const {
+    data: apiEvents,
+    isLoading,
+    error: apiError,
+  } = useTaskEventsAPI(taskId, undefined, {
+    // Don't refetch if we're streaming
+    enabled: !isStreaming,
+    // Refetch periodically if not streaming to catch any missed events
+    refetchInterval: isStreaming ? false : 5000,
+  })
+
+  // Merge API and stream events intelligently
   const events = useMemo(() => {
-    // When streaming is active, use stream events (even if empty)
-    if (isStreaming) {
+    // If we have stream events, they are the source of truth
+    if (streamEvents.length > 0) {
       return streamEvents
     }
-    // When not streaming, use API events
+
+    // If streaming just started but no events yet, show API events
+    // This provides immediate data while waiting for stream events
+    if (isStreaming && apiEvents) {
+      return apiEvents
+    }
+
+    // Otherwise use API events
     return apiEvents || []
   }, [isStreaming, streamEvents, apiEvents])
 
   // Determine final error state
   const error = useMemo(() => {
-    if (isStreaming && streamingError) {
+    if (streamingError) {
       return new Error(streamingError)
     }
     return apiError || null
-  }, [isStreaming, streamingError, apiError])
+  }, [streamingError, apiError])
 
   return {
     events,
-    isLoading: isStreaming ? false : isLoading,
+    isLoading: !isStreaming && isLoading && !apiEvents, // Only show loading if no data at all
     error,
     isStreaming,
   }

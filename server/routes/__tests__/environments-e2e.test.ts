@@ -39,7 +39,7 @@ describe('Environment Routes E2E', () => {
     if (createdEnvironmentId) {
       try {
         await app.services.environment.deleteEnvironment(createdEnvironmentId)
-      } catch (e) {
+      } catch (_e) {
         // Environment might already be deleted
       }
     }

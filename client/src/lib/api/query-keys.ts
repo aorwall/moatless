@@ -1,25 +1,51 @@
 export const queryKeys = {
   all: ['swarm'] as const,
-  tasks: () => [...queryKeys.all, 'tasks'] as const,
+
+  // New hierarchical task structure
+  tasks: {
+    all: ['tasks'] as const,
+    lists: () => [...queryKeys.tasks.all, 'list'] as const,
+    list: (filters?: { activeOnly?: boolean; limit?: number; offset?: number; status?: string }) =>
+      [...queryKeys.tasks.lists(), filters] as const,
+
+    details: () => [...queryKeys.tasks.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.tasks.details(), id] as const,
+
+    // Sub-resources - automatically invalidated with parent
+    events: (id: string) => [...queryKeys.tasks.detail(id), 'events'] as const,
+    messages: (id: string, filters?: { limit?: number; offset?: number }) =>
+      [...queryKeys.tasks.detail(id), 'messages', filters] as const,
+    iterations: (id: string) => [...queryKeys.tasks.detail(id), 'iterations'] as const,
+    gitDiff: (id: string) => [...queryKeys.tasks.detail(id), 'git-diff'] as const,
+    workspaceStatus: (id: string) => [...queryKeys.tasks.detail(id), 'workspace'] as const,
+    serverStatus: (id: string) => [...queryKeys.tasks.detail(id), 'server'] as const,
+    serverLogs: (id: string) => [...queryKeys.tasks.detail(id), 'server-logs'] as const,
+    fileSearch: (id: string, query: string) =>
+      [...queryKeys.tasks.detail(id), 'file-search', query] as const,
+    fileList: (id: string, path?: string, recursive?: boolean) =>
+      [...queryKeys.tasks.detail(id), 'files', { path, recursive }] as const,
+    fileContent: (id: string, filePath: string) =>
+      [...queryKeys.tasks.detail(id), 'file', filePath] as const,
+  },
+
+  // Legacy keys for backward compatibility during migration
   tasksList: (filters?: { activeOnly?: boolean; limit?: number; offset?: number }) =>
-    [...queryKeys.tasks(), 'list', filters] as const,
-  // All data for a specific task - when invalidated, all task-related queries are refreshed
-  task: (taskId: string) => [...queryKeys.tasks(), taskId] as const,
+    queryKeys.tasks.list(filters),
+  task: (taskId: string) => queryKeys.tasks.detail(taskId),
   taskMessages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
-    [...queryKeys.task(taskId), 'messages', filters] as const,
+    queryKeys.tasks.messages(taskId, filters),
   taskEvents: (taskId: string, filters?: { type?: string }) =>
-    [...queryKeys.task(taskId), 'events', filters] as const,
-  taskGitDiff: (taskId: string) => [...queryKeys.task(taskId), 'git-diff'] as const,
-  taskFileSearch: (taskId: string, query: string) =>
-    [...queryKeys.task(taskId), 'file-search', query] as const,
-  taskWorkspaceStatus: (taskId: string) => [...queryKeys.task(taskId), 'workspace-status'] as const,
-  taskAgentStatus: (taskId: string) => [...queryKeys.task(taskId), 'agent-status'] as const,
-  taskServerStatus: (taskId: string) => [...queryKeys.task(taskId), 'server-status'] as const,
-  taskServerLogs: (taskId: string) => [...queryKeys.task(taskId), 'server-logs'] as const,
+    [...queryKeys.tasks.detail(taskId), 'events', filters] as const,
+  taskGitDiff: (taskId: string) => queryKeys.tasks.gitDiff(taskId),
+  taskFileSearch: (taskId: string, query: string) => queryKeys.tasks.fileSearch(taskId, query),
+  taskWorkspaceStatus: (taskId: string) => queryKeys.tasks.workspaceStatus(taskId),
+  taskServerStatus: (taskId: string) => queryKeys.tasks.serverStatus(taskId),
+  taskServerLogs: (taskId: string) => queryKeys.tasks.serverLogs(taskId),
   taskFileList: (taskId: string, path?: string, recursive?: boolean) =>
-    [...queryKeys.task(taskId), 'files', { path, recursive }] as const,
+    queryKeys.tasks.fileList(taskId, path, recursive),
   taskFileContent: (taskId: string, filePath: string) =>
-    [...queryKeys.task(taskId), 'file', filePath] as const,
+    queryKeys.tasks.fileContent(taskId, filePath),
+
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,
   environments: () => [...queryKeys.all, 'environments'] as const,
@@ -28,6 +54,9 @@ export const queryKeys = {
   environmentFileSearch: (envId: string, query: string) =>
     [...queryKeys.environments(), 'file-search', envId, query] as const,
   environmentBranches: (envId: string) => [...queryKeys.environments(), 'branches', envId] as const,
+  commands: () => [...queryKeys.all, 'commands'] as const,
+  commandsList: () => [...queryKeys.commands(), 'list'] as const,
+  commandDetail: (commandName: string) => [...queryKeys.commands(), 'detail', commandName] as const,
   claudeCode: {
     all: () => [...queryKeys.all, 'claude-code'] as const,
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,

@@ -1,15 +1,15 @@
 import type {
-  AgentStatusResponse,
   CreateTaskRequest,
   MergeTaskResponse,
   SimpleTaskResponse,
+  WorkspaceStatusResponse,
 } from '@shared/types/api'
 import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task } from '@shared/types/task'
-import type { ServerStatus, WorkspaceStatusResponse } from '@shared/types/workspace'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import { updateTaskInLists } from '../utils/query-helpers'
@@ -59,13 +59,38 @@ export function useCreateTask(
   options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
 ) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   return useMutation({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
-    onSuccess: (data, variables, context) => {
-      // Invalidate tasks list to refresh with new task
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
+    onSuccess: async (data, variables, context) => {
+      // Pre-populate cache with real task data so the page loads immediately
+      const fullTask: Task = {
+        taskId: data.taskId,
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: variables.agentType || 'claude-code',
+        environmentId: variables.environmentId,
+        status: (data.status as Task['status']) || 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      queryClient.setQueryData<Task>(queryKeys.task(data.taskId), fullTask)
+
+      // Invalidate task lists to show the new task
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.lists(),
+      })
+
+      // Navigate to the real task URL now that we have the ID
+      navigate({ to: `/tasks/${data.taskId}` })
+
       options?.onSuccess?.(data, variables, context)
+    },
+    onError: (error, variables, context) => {
+      options?.onError?.(error, variables, context)
     },
     ...options,
   })
@@ -95,21 +120,13 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.task(variables.taskId),
       })
-      // Also invalidate the tasks list to update metadata like last_message_at
+      // Also invalidate the tasks list to update metadata like last_message_at and status
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasksList(),
       })
       // Invalidate workspace status since sending a message may trigger workspace activity
       await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
-      })
-      // Invalidate agent status since sending a message triggers agent execution
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskAgentStatus(variables.taskId),
-      })
-      // Force refetch the task data immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.task(variables.taskId),
       })
       options?.onSuccess?.(data, variables, context)
     },
@@ -118,7 +135,7 @@ export function useSendMessage(
 }
 
 export function useStopAgent(
-  options?: UseMutationOptions<{ status: string; task_id: string }, Error, string>,
+  options?: UseMutationOptions<{ status: string; taskId: string }, Error, string>,
 ) {
   const queryClient = useQueryClient()
 
@@ -131,11 +148,7 @@ export function useStopAgent(
       })
       // Also invalidate the tasks list to update the status
       queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(),
-      })
-      // Invalidate agent status since stopping agent changes status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskAgentStatus(taskId),
+        queryKey: queryKeys.tasks.all,
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -191,135 +204,8 @@ export function useTaskWorkspaceStatus(
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId,
     refetchInterval: (query) => {
-      // Poll more frequently when workspace is in a transitional state
-      const data = query.state.data
-      if (data?.status === 'setting_up' || data?.status === 'running') {
-        return 1000 // 1 second
-      }
-      return 30000 // 30 seconds for idle/not_setup states
-    },
-    ...options,
-  })
-}
-
-export function useTaskAgentStatus(
-  taskId: string,
-  options?: Omit<UseQueryOptions<AgentStatusResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskAgentStatus(taskId),
-    queryFn: () => tasksApi.getTaskAgentStatus(taskId),
-    enabled: !!taskId,
-    refetchInterval: (query) => {
-      // Poll more frequently when agent is running or preparing
-      const data = query.state.data
-      if (data?.status === 'running' || data?.status === 'preparing') {
-        return 1000 // 1 second
-      }
-      return 10000 // 10 seconds for idle/error states
-    },
-    ...options,
-  })
-}
-
-// Server management hooks
-export function useServerStatus(
-  taskId: string,
-  options?: Omit<UseQueryOptions<ServerStatus>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskServerStatus(taskId),
-    queryFn: () => tasksApi.getServerStatus(taskId),
-    enabled: !!taskId,
-    refetchInterval: (query) => {
-      // Poll more frequently when server is running
-      const data = query.state.data
-      if (data?.running) {
-        return 5000 // 5 seconds
-      }
       return false
     },
-    ...options,
-  })
-}
-
-export function useStartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.startServer(taskId),
-    onSuccess: async (data, taskId, context) => {
-      // Invalidate server status to refresh with new state
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Also invalidate task data as server state might affect task metadata
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      // Force refetch the server status immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      options?.onSuccess?.(data, taskId, context)
-    },
-    ...options,
-  })
-}
-
-export function useStopServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.stopServer(taskId),
-    onSuccess: (data, taskId, context) => {
-      // Invalidate server status to refresh with new state
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Also invalidate task data as server state might affect task metadata
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      options?.onSuccess?.(data, taskId, context)
-    },
-    ...options,
-  })
-}
-
-export function useRestartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.restartServer(taskId),
-    onSuccess: async (data, taskId, context) => {
-      // Invalidate server status to refresh with new state
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Also invalidate task data as server state might affect task metadata
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      // Force refetch the server status immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      options?.onSuccess?.(data, taskId, context)
-    },
-    ...options,
-  })
-}
-
-export function useServerLogs(
-  taskId: string,
-  options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskServerLogs(taskId),
-    queryFn: () => tasksApi.getServerLogs(taskId),
-    enabled: !!taskId,
-    refetchInterval: 2000, // Poll every 2 seconds
     ...options,
   })
 }
@@ -363,7 +249,7 @@ export function useMergeTask(
       }
       options?.onError?.(err, variables, context)
     },
-    onSettled: (data, error, variables) => {
+    onSettled: (_data, _error, variables) => {
       // Always refetch to ensure consistency with server state
       queryClient.invalidateQueries({
         queryKey: queryKeys.task(variables.taskId),
@@ -423,27 +309,29 @@ export function useCloseTask(
       }
       options?.onError?.(err, taskId, context)
     },
-    onSettled: (data, error, taskId) => {
+    onSettled: async (_data, _error, taskId) => {
       // Always refetch to ensure consistency with server state
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
       })
       // Invalidate workspace status
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(taskId),
       })
       // Invalidate server status
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
       })
-      // Invalidate agent status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskAgentStatus(taskId),
-      })
-      // Invalidate task lists that might show this task
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
+      // Invalidate AND refetch task lists immediately
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.all,
         exact: false,
+      })
+      // Force an immediate refetch of all task lists
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.tasks.all,
+        exact: false,
+        type: 'active',
       })
     },
     onSuccess: (data, taskId, context) => {
@@ -460,7 +348,7 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
     mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
     onSuccess: (data, taskId, context) => {
       // Invalidate all task queries to refresh the list
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
       // Also invalidate the specific task
       queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
       options?.onSuccess?.(data, taskId, context)

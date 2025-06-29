@@ -1,5 +1,5 @@
 import type { BaseAgent } from '@server/services/agents/base-agent.js'
-import { CriticalError, TaskNotFoundError } from '@shared/constants/errors.js'
+import { CriticalError } from '@shared/constants/errors.js'
 import type { SDKResultMessage } from '@shared/types/claude.js'
 import type { FastifyInstance } from 'fastify'
 import { EventType, type TaskIteration } from '../../shared/types/index.js'
@@ -11,14 +11,15 @@ import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
-export interface AgentStatus {
-  status: 'idle' | 'running' | 'preparing' | 'error'
-  sessionId: string | null
-  startedAt: string | null
-  currentIteration: number | null
-  workspaceStatus: WorkspaceStatus
-  canExecute: boolean
-}
+// Removed: AgentStatus interface is no longer part of the API
+// export interface AgentStatus {
+//   status: 'idle' | 'running' | 'preparing' | 'error'
+//   sessionId: string | null
+//   startedAt: string | null
+//   currentIteration: number | null
+//   workspaceStatus: WorkspaceStatus
+//   canExecute: boolean
+// }
 
 export class AgentService {
   private runningAgents: Map<string, BaseAgent> = new Map()
@@ -29,62 +30,63 @@ export class AgentService {
     private workspaceService: WorkspaceService,
   ) {}
 
-  /**
-   * Get the current agent status for a task
-   */
-  async getAgentStatus(taskId: string): Promise<AgentStatus> {
-    // Get task to ensure it exists
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    // Get workspace status
-    const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
-
-    // Check if agent is actively running
-    const runningAgent = this.runningAgents.get(taskId)
-
-    let agentStatus: AgentStatus['status'] = 'idle'
-    let sessionId: string | null = null
-    let startedAt: string | null = null
-    let currentIteration: number | null = null
-
-    if (runningAgent) {
-      agentStatus = 'running'
-      // Get the latest iteration info from task data
-      if (task.iterations && task.iterations.length > 0) {
-        const latestIteration = task.iterations[task.iterations.length - 1]
-        currentIteration = latestIteration.iterationNumber
-        sessionId = latestIteration.agentSessionId || null
-        startedAt = latestIteration.startTime.toISOString()
-      }
-    } else if (workspaceStatus.status === WorkspaceStatus.SETTING_UP) {
-      agentStatus = 'preparing'
-    } else if (workspaceStatus.status === WorkspaceStatus.NOT_SETUP) {
-      agentStatus = 'error'
-    } else {
-      // Agent not running, but check if we have session info from last iteration
-      if (task.iterations && task.iterations.length > 0) {
-        const latestIteration = task.iterations[task.iterations.length - 1]
-        sessionId = latestIteration.agentSessionId || null
-      }
-
-      // Check task status to determine agent status
-      if (task.status === 'error') {
-        agentStatus = 'error'
-      }
-    }
-
-    return {
-      status: agentStatus,
-      sessionId,
-      startedAt,
-      currentIteration,
-      workspaceStatus: workspaceStatus.status,
-      canExecute: workspaceStatus.status === WorkspaceStatus.IDLE && !runningAgent,
-    }
-  }
+  // Removed: getAgentStatus method is no longer part of the API
+  // /**
+  //  * Get the current agent status for a task
+  //  */
+  // async getAgentStatus(taskId: string): Promise<AgentStatus> {
+  //   // Get task to ensure it exists
+  //   const task = await this.storage.getTask(taskId)
+  //   if (!task) {
+  //     throw new TaskNotFoundError(taskId)
+  //   }
+  //
+  //   // Get workspace status
+  //   const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
+  //
+  //   // Check if agent is actively running
+  //   const runningAgent = this.runningAgents.get(taskId)
+  //
+  //   let agentStatus: AgentStatus['status'] = 'idle'
+  //   let sessionId: string | null = null
+  //   let startedAt: string | null = null
+  //   let currentIteration: number | null = null
+  //
+  //   if (runningAgent) {
+  //     agentStatus = 'running'
+  //     // Get the latest iteration info from task data
+  //     if (task.iterations && task.iterations.length > 0) {
+  //       const latestIteration = task.iterations[task.iterations.length - 1]
+  //       currentIteration = latestIteration.iterationNumber
+  //       sessionId = latestIteration.agentSessionId || null
+  //       startedAt = latestIteration.startTime.toISOString()
+  //     }
+  //   } else if (workspaceStatus.status === WorkspaceStatus.SETTING_UP) {
+  //     agentStatus = 'preparing'
+  //   } else if (workspaceStatus.status === WorkspaceStatus.NOT_SETUP) {
+  //     agentStatus = 'error'
+  //   } else {
+  //     // Agent not running, but check if we have session info from last iteration
+  //     if (task.iterations && task.iterations.length > 0) {
+  //       const latestIteration = task.iterations[task.iterations.length - 1]
+  //       sessionId = latestIteration.agentSessionId || null
+  //     }
+  //
+  //     // Check task status to determine agent status
+  //     if (task.status === 'error') {
+  //       agentStatus = 'error'
+  //     }
+  //   }
+  //
+  //   return {
+  //     status: agentStatus,
+  //     sessionId,
+  //     startedAt,
+  //     currentIteration,
+  //     workspaceStatus: workspaceStatus.status,
+  //     canExecute: workspaceStatus.status === WorkspaceStatus.IDLE && !runningAgent,
+  //   }
+  // }
 
   /**
    * Execute an agent for a task

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { type AgentService, createAgentService } from './agent.service.js'
+import { type CommandService, createCommandService } from './command.service.js'
 import { createEnvironmentService, type EnvironmentService } from './environment.service.js'
 import { createEventService, type EventService } from './event.service.js'
 import {
@@ -14,6 +15,7 @@ export interface Services {
   storage: StorageBackend
   event: EventService
   environment: EnvironmentService
+  command: CommandService
   workspace: WorkspaceService
   previewEnvironment: PreviewEnvironmentService
   agent: AgentService
@@ -25,6 +27,7 @@ export async function setupServices(app: FastifyInstance): Promise<Services> {
   const storage = await createStorageService(app)
   const event = createEventService(app, storage)
   const environment = createEnvironmentService(app, storage)
+  const command = createCommandService(app, storage)
   const workspace = createWorkspaceService(app, environment, event, storage)
   const previewEnvironment = createPreviewEnvironmentService(app, storage, workspace)
 
@@ -38,6 +41,7 @@ export async function setupServices(app: FastifyInstance): Promise<Services> {
     storage,
     event,
     environment,
+    command,
     workspace,
     previewEnvironment,
     agent,
@@ -56,6 +60,7 @@ declare module 'fastify' {
 export * from './agent.service.js'
 export * from './agents/base-agent.js'
 export { ClaudeCodeAgent } from './agents/claude-code-agent.js'
+export * from './command.service.js'
 export * from './environment.service.js'
 export * from './event.service.js'
 export * from './preview-environment.service.js'

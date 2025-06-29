@@ -323,7 +323,7 @@ process.on('SIGTERM', () => {
     try {
       process.kill(startResult.pid, 'SIGKILL')
       console.log('Manually killed process to create orphaned metadata')
-    } catch (e) {
+    } catch (_e) {
       console.log('Process might already be terminated')
     }
 

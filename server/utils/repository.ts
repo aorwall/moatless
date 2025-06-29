@@ -1,6 +1,6 @@
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
 import { ValidationError } from '@shared/constants/errors.js'
-import { exec } from 'child_process'
-import { promisify } from 'util'
 import type { RemoteRepository } from '../../shared/types/index.js'
 
 const execAsync = promisify(exec)

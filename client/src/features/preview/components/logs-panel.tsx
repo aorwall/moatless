@@ -15,7 +15,7 @@ export function LogsPanel({ className }: LogsPanelProps) {
   return (
     <div className={cn('h-full border-t bg-background', className)}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <div className="border-b px-4 py-2">
+        <div className="border-b px-4 py-2 flex-shrink-0">
           <TabsList className="h-8">
             <TabsTrigger value="server" className="text-xs">
               <Server className="h-3 w-3" />
@@ -27,10 +27,10 @@ export function LogsPanel({ className }: LogsPanelProps) {
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="server" className="flex-1 m-0">
+        <TabsContent value="server" className="flex-1 m-0 overflow-hidden">
           <ServerLogsViewer />
         </TabsContent>
-        <TabsContent value="console" className="flex-1 m-0">
+        <TabsContent value="console" className="flex-1 m-0 overflow-hidden">
           <ConsoleLogs />
         </TabsContent>
       </Tabs>

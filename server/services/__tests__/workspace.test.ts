@@ -1,6 +1,6 @@
-import * as child_process from 'child_process'
-import { promises as fs } from 'fs'
-import path from 'path'
+import * as child_process from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EnvironmentService } from '../environment.service.js'
 import { EventService } from '../event.service.js'
@@ -81,7 +81,7 @@ describe('WorkspaceService', () => {
   }
 
   beforeEach(async () => {
-    tempDir = path.join(process.cwd(), 'temp-test-' + Date.now())
+    tempDir = path.join(process.cwd(), `temp-test-${Date.now()}`)
 
     // Mock storage
     storage = {

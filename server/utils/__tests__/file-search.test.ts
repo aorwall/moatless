@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs'
+import { promises as fs } from 'node:fs'
 import { glob } from 'glob'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {

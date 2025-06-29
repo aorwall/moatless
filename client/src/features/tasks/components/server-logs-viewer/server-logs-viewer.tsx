@@ -1,13 +1,14 @@
+import { useParams } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 
-import { useServerLogs } from '@/features/tasks/hooks/use-tasks'
-import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
+import { useServerLogs } from '@/features/preview'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 
 export function ServerLogsViewer() {
-  const selectedTaskId = useTaskUIStore((state) => state.selectedTaskId)
+  const params = useParams({ from: '/tasks/$taskId' })
+  const selectedTaskId = params.taskId
   const { data: response, isLoading, error } = useServerLogs(selectedTaskId || '')
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const shouldAutoScroll = useRef(true)

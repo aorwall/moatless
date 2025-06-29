@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
 } from '@/lib/components/ui/sidebar'
 
+import { SidebarCommands } from './sidebar-commands'
 import { SidebarEnvironments } from './sidebar-environments'
 import { SidebarTasks } from './sidebar-tasks'
 
@@ -24,7 +25,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
-                <span className="font-bold">Moatless Swarm</span>
+                <span className="font-bold">Moatless Vibe</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -57,6 +58,7 @@ export function AppSidebar() {
 
         <SidebarTasks />
         <SidebarEnvironments />
+        <SidebarCommands />
       </SidebarContent>
 
       <SidebarFooter>

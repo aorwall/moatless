@@ -1,8 +1,9 @@
 import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@shared/constants'
 import type { UploadFileResponse } from '@shared/types/api'
+import type { Task } from '@shared/types/task'
 import { useEffect, useState } from 'react'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
-import { useStopAgent, useTask } from '@/features/tasks/hooks/use-tasks'
+import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
 import { ChatForm } from './chat-form'
@@ -11,6 +12,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   // For task context
   taskId?: string
   placeholder?: string
+  task?: Task // Optional task data to avoid duplicate API calls
 
   // For homepage context
   showEnvironmentSelector?: boolean
@@ -46,6 +48,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
 export function ChatInput({
   taskId,
   placeholder,
+  task, // Use provided task data instead of fetching
   taskStatus,
   lastIterationHasError = false,
   showEnvironmentSelector = false,
@@ -78,11 +81,6 @@ export function ChatInput({
         : DEFAULT_CLAUDE_MODEL
     }
     return DEFAULT_CLAUDE_MODEL
-  })
-
-  // Get task data to access iteration start time
-  const { data: task } = useTask(taskId || '', {
-    enabled: !!taskId && taskStatus === 'running',
   })
 
   // Stop agent mutation

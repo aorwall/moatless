@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { TaskNotFoundError, WorkspaceError } from '../../shared/constants/errors.js'
 import {
-  AgentStatusResponseSchema,
   CreateTaskRequestSchema,
   DeleteTaskResponseSchema,
   type EventListResponse,
@@ -186,25 +185,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Task validation now handled in workspace service
       const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
       return workspaceStatus
-    },
-  )
-
-  // Get agent status for task
-  app.get(
-    '/:taskId/agent-status',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        response: {
-          200: AgentStatusResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as any
-
-      // Get agent status from AgentService
-      return await app.services.agent.getAgentStatus(taskId)
     },
   )
 
@@ -757,7 +737,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Send existing events from offset
       const existingEvents = await eventService.getEvents(taskId, 1000, offset, undefined, task)
       for (const event of existingEvents) {
-        reply.raw.write(JSON.stringify(event) + '\n')
+        reply.raw.write(`${JSON.stringify(event)}\n`)
       }
 
       // Flush the initial data
@@ -766,7 +746,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Subscribe to new events
       const unsubscribe = eventService.subscribe(taskId, (event) => {
         try {
-          reply.raw.write(JSON.stringify(event) + '\n')
+          reply.raw.write(`${JSON.stringify(event)}\n`)
         } catch (error) {
           request.log.error('Failed to send event over SSE', error)
         }
@@ -780,8 +760,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
             type: 'ping',
             timestamp: new Date().toISOString(),
           }
-          reply.raw.write(JSON.stringify(pingEvent) + '\n')
-        } catch (error) {
+          reply.raw.write(`${JSON.stringify(pingEvent)}\n`)
+        } catch (_error) {
           clearInterval(pingInterval)
         }
       }, 30000)

@@ -130,17 +130,6 @@ export const WorkspaceStatusResponseSchema = z.object({
 })
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 
-// Agent Status Response
-export const AgentStatusResponseSchema = z.object({
-  status: z.enum(['idle', 'running', 'preparing', 'error']),
-  sessionId: z.string().nullable(),
-  startedAt: z.string().nullable(),
-  currentIteration: z.number().nullable(),
-  workspaceStatus: z.nativeEnum(WorkspaceStatus),
-  canExecute: z.boolean(),
-})
-export type AgentStatusResponse = z.infer<typeof AgentStatusResponseSchema>
-
 // ============================================
 // Query Schemas and Types
 // ============================================
