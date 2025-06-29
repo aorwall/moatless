@@ -22,7 +22,7 @@ export function useTaskData(taskId: string): UseTaskDataResult {
       {
         queryKey: queryKeys.task(taskId),
         queryFn: () => tasksApi.getTask(taskId),
-        staleTime: 5 * 60 * 1000, // 5 minutes
+        staleTime: taskId.startsWith('temp-') ? 0 : 5 * 60 * 1000, // No stale time for temp tasks, 5 minutes for real tasks
         enabled: !!taskId && !taskId.startsWith('temp-'),
       },
       {
@@ -46,7 +46,7 @@ export function useTaskData(taskId: string): UseTaskDataResult {
     task: queries[0].data,
     events: queries[1].data || [],
     gitDiff: queries[2].data,
-    isLoading: queries.some((q) => q.isLoading && q.isFetching),
+    isLoading: queries.some((q) => q.isLoading || q.isFetching),
     error: queries.find((q) => q.error)?.error || null,
   }
 }

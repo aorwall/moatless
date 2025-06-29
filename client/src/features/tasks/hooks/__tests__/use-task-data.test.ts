@@ -1,8 +1,8 @@
+import { EventType } from '@shared/types/event'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { tasksApi } from '@/features/tasks/api/tasks'
-import { createMockTask, createMockTaskEvent } from '@/test-utils/mocks'
+import { createMockEvent, createMockTask } from '@/test-utils/factories'
 import { createWrapper } from '@/test-utils/render'
 
 import { useTaskData } from '../use-task-data'
@@ -23,17 +23,20 @@ describe('useTaskData', () => {
 
   it('should fetch all task data in parallel with a single call each', async () => {
     const taskId = 'test-task-123'
-    const mockTask = createMockTask({ taskId, title: 'Test Task' })
+    const mockTask = createMockTask({ taskId })
     const mockEvents = [
-      createMockTaskEvent({ taskId, type: 'message' }),
-      createMockTaskEvent({ taskId, type: 'tool_use' }),
+      createMockEvent({ taskId, type: EventType.MESSAGE }),
+      createMockEvent({ taskId, type: EventType.TOOL }),
     ]
     const mockGitDiff = {
       diff: 'diff --git a/file.ts b/file.ts\n+added line',
-      files: [{ path: 'file.ts', additions: 1, deletions: 0 }],
-      total_additions: 1,
-      total_deletions: 0,
-      total_files: 1,
+      files: [
+        {
+          oldFile: 'file.ts',
+          newFile: 'file.ts',
+          hunks: ['@@ -1,1 +1,2 @@\n-old line\n+new line\n+added line'],
+        },
+      ],
     }
 
     // Setup mock responses

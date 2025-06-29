@@ -42,6 +42,24 @@ export function ChatView() {
     },
   })
 
+  // Handle sending message to task - define early to avoid hoisting issues
+  const handleSendMessage = (
+    taskId: string,
+    message: string,
+    clearMessage: () => void,
+    resume?: boolean,
+    model?: string,
+  ) => {
+    sendMessage.mutate(
+      { taskId, message, resume, model },
+      {
+        onSuccess: () => {
+          clearMessage()
+        },
+      },
+    )
+  }
+
   // Update current time every second for running clock
   useEffect(() => {
     const interval = setInterval(() => {
@@ -113,7 +131,6 @@ export function ChatView() {
           taskStatus={metadata?.status}
           onSendMessage={handleSendMessage}
           isLoading={true}
-          disabled={true}
           className="p-4 border-t border-slate-200 dark:border-slate-700"
         />
       </div>
@@ -179,24 +196,6 @@ export function ChatView() {
     metadata.iterations?.length > 0 &&
     (metadata.iterations[metadata.iterations.length - 1].status === 'error' ||
       metadata.iterations[metadata.iterations.length - 1].status === 'failed')
-
-  // Handle sending message to task
-  const handleSendMessage = (
-    taskId: string,
-    message: string,
-    clearMessage: () => void,
-    resume?: boolean,
-    model?: string,
-  ) => {
-    sendMessage.mutate(
-      { taskId, message, resume, model },
-      {
-        onSuccess: () => {
-          clearMessage()
-        },
-      },
-    )
-  }
 
   return (
     <div className="h-full flex flex-col">

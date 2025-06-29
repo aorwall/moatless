@@ -110,7 +110,27 @@ export function useCreateTask(
         queryKey: queryKeys.tasksList(),
       })
 
-      // Navigate only after cache is ready
+      // CRITICAL FIX: Prefetch the real task data before navigation
+      // This ensures the task detail page shows fresh data immediately
+      await queryClient.prefetchQuery({
+        queryKey: queryKeys.task(data.taskId),
+        queryFn: () => tasksApi.getTask(data.taskId),
+      })
+
+      // Also prefetch events and git diff to ensure all data is ready
+      await Promise.all([
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.taskEvents(data.taskId),
+          queryFn: () => tasksApi.getTaskEvents(data.taskId),
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.taskGitDiff(data.taskId),
+          queryFn: () => tasksApi.getTaskGitDiff(data.taskId),
+          retry: false, // Git diff might not exist yet
+        }),
+      ])
+
+      // Navigate only after cache is ready and real data is prefetched
       navigate({ to: `/tasks/${data.taskId}` })
 
       options?.onSuccess?.(data, variables, context)
