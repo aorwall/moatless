@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider, createRouter } from '@tanstack/react-router'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { createSSEMock } from '@test-utils/sse-mock'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TaskDetailResponse, TaskEvent } from '@shared/types/api'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createRouter, RouterProvider } from '@tanstack/react-router'
+import { createSSEMock } from '@test-utils/sse-mock'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { routeTree } from '@/routeTree.gen'
 
 // Mock API client
@@ -70,12 +70,12 @@ vi.mock('@/features/preview', () => ({
 // Create simple mock implementations of task components for testing
 const mockTaskComponents = () => {
   const { useTaskDataContext } = vi.hoisted(() => ({
-    useTaskDataContext: vi.fn()
+    useTaskDataContext: vi.fn(),
   }))
 
   vi.mock('@/features/tasks/contexts/task-data-context', () => ({
     TaskDataProvider: ({ children }: { children: React.ReactNode }) => children,
-    useTaskDataContext: useTaskDataContext
+    useTaskDataContext: useTaskDataContext,
   }))
 
   vi.mock('@/features/tasks/hooks/use-task-data', () => ({
@@ -83,16 +83,16 @@ const mockTaskComponents = () => {
       return {
         task: { id: taskId, title: 'Test Task', status: 'running' },
         isLoading: false,
-        error: null
+        error: null,
       }
-    }
+    },
   }))
 
   vi.mock('@/features/tasks/components/task-header', () => ({
     TaskHeader: () => {
       const context = useTaskDataContext()
       return <h1>{context?.task?.title || 'Loading...'}</h1>
-    }
+    },
   }))
 
   vi.mock('@/features/tasks/components/chat-view', () => ({
@@ -109,7 +109,7 @@ const mockTaskComponents = () => {
           <button>send</button>
         </div>
       )
-    }
+    },
   }))
 
   vi.mock('@/features/tasks/components/event-viewer', () => ({
@@ -123,23 +123,23 @@ const mockTaskComponents = () => {
           ))}
         </div>
       )
-    }
+    },
   }))
 
   vi.mock('@/features/tasks/components/git-diff-viewer', () => ({
     GitDiffViewer: () => {
       const context = useTaskDataContext()
       return <div>{context?.gitDiff?.diff || 'No diff'}</div>
-    }
+    },
   }))
 
   vi.mock('@/features/tasks/components/server-logs-viewer', () => ({
-    ServerLogsViewer: () => <div>Server Logs</div>
+    ServerLogsViewer: () => <div>Server Logs</div>,
   }))
 
   vi.mock('@/features/tasks/hooks/use-tasks', () => ({
     useServerStatus: () => ({ data: { configured: false }, isLoading: false }),
-    useSendMessage: () => ({ mutate: vi.fn(), isPending: false })
+    useSendMessage: () => ({ mutate: vi.fn(), isPending: false }),
   }))
 
   return { useTaskDataContext }
@@ -245,7 +245,7 @@ describe('Task Detail Route Integration', () => {
     return render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
   }
 
@@ -471,10 +471,9 @@ describe('Task Detail Route Integration', () => {
 
       // Verify API call
       await waitFor(() => {
-        expect(apiClient.post).toHaveBeenCalledWith(
-          `/api/v1/tasks/${mockTaskId}/message`,
-          { message: 'User message' }
-        )
+        expect(apiClient.post).toHaveBeenCalledWith(`/api/v1/tasks/${mockTaskId}/message`, {
+          message: 'User message',
+        })
       })
 
       // Verify only necessary invalidations occur
@@ -655,7 +654,7 @@ describe('Task Detail Route Integration', () => {
 
       // Events should not be refetched (handled by SSE)
       const eventsCalls = apiClient.get.mock.calls.filter(
-        call => call[0] === `/api/v1/tasks/${mockTaskId}/events`
+        (call) => call[0] === `/api/v1/tasks/${mockTaskId}/events`,
       )
       expect(eventsCalls).toHaveLength(1) // Only initial load
     })
@@ -675,7 +674,7 @@ describe('Task Detail Route Integration', () => {
       render(
         <QueryClientProvider client={queryClient}>
           <RouterProvider router={router} />
-        </QueryClientProvider>
+        </QueryClientProvider>,
       )
 
       await waitFor(() => {
@@ -721,7 +720,7 @@ describe('Task Detail Route Integration', () => {
       await waitFor(() => {
         // Should only result in one API call per endpoint
         const taskCalls = apiClient.get.mock.calls.filter(
-          call => call[0] === `/api/v1/tasks/${mockTaskId}`
+          (call) => call[0] === `/api/v1/tasks/${mockTaskId}`,
         )
         expect(taskCalls).toHaveLength(1)
       })

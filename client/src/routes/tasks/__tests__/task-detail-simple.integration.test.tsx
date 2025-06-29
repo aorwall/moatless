@@ -1,11 +1,10 @@
+import type { Event, TaskDetailResponse, TaskListItem } from '@shared/types/api'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TaskDetailResponse, Event, TaskListItem } from '@shared/types/api'
-import { apiClient } from '@/lib/api/client'
 import { TaskDataProvider, useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import React from 'react'
+import { apiClient } from '@/lib/api/client'
 
 // Mock the API client
 vi.mock('@/lib/api/client', () => ({
@@ -14,7 +13,7 @@ vi.mock('@/lib/api/client', () => ({
     post: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
-  }
+  },
 }))
 
 // Mock SSE to prevent connection attempts in tests
@@ -25,13 +24,13 @@ vi.mock('@/features/tasks/api/ndjson-sse', () => ({
     isConnected: false,
     on: vi.fn(),
     off: vi.fn(),
-  }))
+  })),
 }))
 
 // Simple test component that uses the context
 function TestComponent() {
   const context = useTaskDataContext()
-  
+
   return (
     <div>
       <h1>{context.task?.title || 'Loading...'}</h1>
@@ -48,11 +47,11 @@ function TestComponent() {
 // Component to test task list refetching
 function TaskListComponent() {
   const { data: tasks = [] } = useTasksList()
-  
+
   return (
     <div>
       <div data-testid="task-count">{tasks.length}</div>
-      {tasks.map(task => (
+      {tasks.map((task) => (
         <div key={task.id} data-testid={`task-${task.id}`}>
           {task.title}
         </div>
@@ -64,7 +63,7 @@ function TaskListComponent() {
 describe('Task Data Context Integration', () => {
   let queryClient: QueryClient
   const mockTaskId = 'test-task-123'
-  
+
   const mockTask: TaskDetailResponse = {
     id: mockTaskId,
     title: 'Test Task',
@@ -82,14 +81,14 @@ describe('Task Data Context Integration', () => {
       type: 'assistant_message',
       timestamp: new Date().toISOString(),
       data: { message: 'Hello' },
-    }
+    },
   ]
 
   beforeEach(() => {
     queryClient = new QueryClient({
       defaultOptions: {
-        queries: { 
-          retry: false, 
+        queries: {
+          retry: false,
           staleTime: 0,
           gcTime: 0,
           refetchOnWindowFocus: false,
@@ -98,13 +97,13 @@ describe('Task Data Context Integration', () => {
         mutations: { retry: false },
       },
     })
-    
+
     // Override the default query options for tests
     queryClient.setQueryDefaults(['tasks'], {
       staleTime: 0,
       gcTime: 0,
     })
-    
+
     // Clear all mocks
     vi.clearAllMocks()
   })
@@ -135,7 +134,7 @@ describe('Task Data Context Integration', () => {
         <TaskDataProvider taskId={mockTaskId}>
           <TestComponent />
         </TaskDataProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     // Initially loading
@@ -156,7 +155,7 @@ describe('Task Data Context Integration', () => {
     expect(getMock).toHaveBeenCalledWith(`/api/v1/tasks/${mockTaskId}`)
     expect(getMock).toHaveBeenCalledWith(`/api/v1/tasks/${mockTaskId}/events`, undefined)
     expect(getMock).toHaveBeenCalledWith(`/api/v1/tasks/${mockTaskId}/git-diff`)
-    
+
     // Only 3 calls - workspace status is not fetched by useTaskData
     expect(getMock).toHaveBeenCalledTimes(3)
   })
@@ -170,7 +169,7 @@ describe('Task Data Context Integration', () => {
         <TaskDataProvider taskId={mockTaskId}>
           <TestComponent />
         </TaskDataProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     await waitFor(() => {
@@ -201,7 +200,7 @@ describe('Task Data Context Integration', () => {
         <TaskDataProvider taskId={mockTaskId}>
           <TestComponent />
         </TaskDataProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     await waitFor(() => {
@@ -223,7 +222,7 @@ describe('Task Data Context Integration', () => {
         <TaskDataProvider taskId={mockTaskId}>
           <TestComponent />
         </TaskDataProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     // Wait a tick for React to render
@@ -233,7 +232,7 @@ describe('Task Data Context Integration', () => {
 
     // Data should be from cache, minimal API calls
     expect(screen.getByTestId('git-diff')).toHaveTextContent('+ cached diff')
-    
+
     // With staleTime: 0, React Query might still make some calls
     // but should be significantly less than initial load
     expect(getMock.mock.calls.length).toBeLessThanOrEqual(3)
@@ -242,7 +241,7 @@ describe('Task Data Context Integration', () => {
   it('should handle query invalidation correctly', async () => {
     const getMock = vi.mocked(apiClient.get)
     let gitDiffCallCount = 0
-    
+
     getMock.mockImplementation((url: string) => {
       if (url === `/api/v1/tasks/${mockTaskId}`) {
         return Promise.resolve(mockTask)
@@ -262,7 +261,7 @@ describe('Task Data Context Integration', () => {
         <TaskDataProvider taskId={mockTaskId}>
           <TestComponent />
         </TaskDataProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     await waitFor(() => {
@@ -272,7 +271,9 @@ describe('Task Data Context Integration', () => {
     // Manually update the cache to simulate what would happen after invalidation
     await act(async () => {
       // Set the query data directly to simulate a successful refetch
-      queryClient.setQueryData(['swarm', 'tasks', mockTaskId, 'git-diff'], { diff: 'diff version 2' })
+      queryClient.setQueryData(['swarm', 'tasks', mockTaskId, 'git-diff'], {
+        diff: 'diff version 2',
+      })
     })
 
     // Should show updated diff
@@ -283,7 +284,7 @@ describe('Task Data Context Integration', () => {
 
   it('should update UI when task data changes', async () => {
     const getMock = vi.mocked(apiClient.get)
-    
+
     getMock.mockImplementation((url: string) => {
       if (url === `/api/v1/tasks/${mockTaskId}`) {
         return Promise.resolve({ ...mockTask, title: 'Task v1' })
@@ -302,7 +303,7 @@ describe('Task Data Context Integration', () => {
         <TaskDataProvider taskId={mockTaskId}>
           <TestComponent />
         </TaskDataProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     await waitFor(() => {
@@ -311,10 +312,10 @@ describe('Task Data Context Integration', () => {
 
     // Simulate what would happen when task data is updated (e.g., via SSE or refetch)
     await act(async () => {
-      queryClient.setQueryData(['swarm', 'tasks', mockTaskId], { 
-        ...mockTask, 
+      queryClient.setQueryData(['swarm', 'tasks', mockTaskId], {
+        ...mockTask,
         title: 'Task v2',
-        status: 'completed' 
+        status: 'completed',
       })
     })
 
@@ -345,7 +346,7 @@ describe('Task Data Context Integration', () => {
         updated_at: new Date().toISOString(),
         agent_id: 'agent-2',
         environment_id: 'env-1',
-      }
+      },
     ]
 
     let taskListCallCount = 0
@@ -358,10 +359,7 @@ describe('Task Data Context Integration', () => {
           return Promise.resolve({ tasks: mockTasks })
         } else {
           return Promise.resolve({
-            tasks: [
-              { ...mockTasks[0], status: 'completed' },
-              mockTasks[1]
-            ]
+            tasks: [{ ...mockTasks[0], status: 'completed' }, mockTasks[1]],
           })
         }
       }
@@ -386,7 +384,7 @@ describe('Task Data Context Integration', () => {
             <TestComponent />
           </TaskDataProvider>
         </div>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
 
     // Wait for initial load
@@ -401,15 +399,15 @@ describe('Task Data Context Integration', () => {
     // Invalidate the specific task - this should also invalidate the task list
     await act(async () => {
       // Force a refetch by invalidating with immediate refetch
-      await queryClient.invalidateQueries({ 
-        queryKey: ['swarm', 'tasks'], 
-        refetchType: 'active' 
+      await queryClient.invalidateQueries({
+        queryKey: ['swarm', 'tasks'],
+        refetchType: 'active',
       })
-      
+
       // Also manually trigger a refetch to ensure it happens
       await queryClient.refetchQueries({
         queryKey: ['swarm', 'tasks', 'list'],
-        type: 'active'
+        type: 'active',
       })
     })
 
@@ -419,9 +417,9 @@ describe('Task Data Context Integration', () => {
       const taskElement = screen.getByTestId(`task-${mockTaskId}`)
       // The mock returns status 'completed' on second call
       expect(taskElement).toBeInTheDocument()
-      
+
       // Verify API was called at least once after invalidation
-      const taskListCalls = getMock.mock.calls.filter(call => call[0] === '/api/v1/tasks')
+      const taskListCalls = getMock.mock.calls.filter((call) => call[0] === '/api/v1/tasks')
       expect(taskListCalls.length).toBeGreaterThan(0)
     })
 

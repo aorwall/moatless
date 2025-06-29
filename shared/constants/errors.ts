@@ -8,6 +8,9 @@ export const ERROR_CODES = {
   ENVIRONMENT_NOT_FOUND: 'ENVIRONMENT_NOT_FOUND',
   ENVIRONMENT_INVALID_CONFIG: 'ENVIRONMENT_INVALID_CONFIG',
 
+  // Command errors
+  COMMAND_NOT_FOUND: 'COMMAND_NOT_FOUND',
+
   // Workspace errors
   WORKSPACE_ERROR: 'WORKSPACE_ERROR',
   WORKSPACE_SETUP_FAILED: 'WORKSPACE_SETUP_FAILED',
@@ -47,6 +50,12 @@ export class TaskNotFoundError extends MoatlessError {
 export class EnvironmentNotFoundError extends MoatlessError {
   constructor(environmentId: string) {
     super(`Environment ${environmentId} not found`, ERROR_CODES.ENVIRONMENT_NOT_FOUND, 404)
+  }
+}
+
+export class CommandNotFoundError extends MoatlessError {
+  constructor(commandName: string) {
+    super(`Command ${commandName} not found`, ERROR_CODES.COMMAND_NOT_FOUND, 404)
   }
 }
 
