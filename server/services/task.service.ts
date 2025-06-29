@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { CriticalError, TaskNotFoundError } from '../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
@@ -23,6 +24,7 @@ export class TaskService {
       environmentId: params.environmentId,
       hasBranchName: !!params.branchName,
       hasMessage: !!params.message,
+      hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
       start: params.start ?? true,
     })
 
@@ -75,6 +77,7 @@ export class TaskService {
       params.message,
       params.start ?? true,
       params.model,
+      params.filePaths,
     )
 
     // Track background task in WorkspaceService
@@ -131,6 +134,8 @@ export class TaskService {
     message: string,
     resume = true,
     model?: string,
+    fileIds?: string[],
+    filePaths?: string[],
     commandName?: string,
   ): Promise<void> {
     const metadata = await this.getTask(taskId)
@@ -167,6 +172,50 @@ export class TaskService {
       commandName,
     }
 
+    // Add file attachments if provided
+    if (filePaths && filePaths.length > 0) {
+      iteration.attachments = []
+      for (const filePath of filePaths) {
+        // Extract filename from path
+        const filename = path.basename(filePath)
+        // Try to determine mime type from extension
+        const ext = path.extname(filename).toLowerCase()
+        const mimeTypes: Record<string, string> = {
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.png': 'image/png',
+          '.gif': 'image/gif',
+          '.webp': 'image/webp',
+          '.pdf': 'application/pdf',
+          '.txt': 'text/plain',
+          '.md': 'text/markdown',
+          '.json': 'application/json',
+        }
+        const mimeType = mimeTypes[ext] || 'application/octet-stream'
+
+        iteration.attachments.push({
+          filename,
+          path: filePath,
+          mimeType,
+        })
+      }
+    } else if (fileIds && fileIds.length > 0) {
+      // Backward compatibility with fileIds
+      iteration.attachments = []
+      for (const fileId of fileIds) {
+        // Get file metadata
+        const fileMetadata = await this.storage.get<any>(`uploads/${taskId}/${fileId}`)
+        if (fileMetadata) {
+          iteration.attachments.push({
+            fileId,
+            filename: fileMetadata.originalFilename,
+            path: fileMetadata.path,
+            mimeType: fileMetadata.mimeType,
+          })
+        }
+      }
+    }
+
     metadata.iterations.push(iteration)
     metadata.lastMessageAt = now
     metadata.numTurns += 1
@@ -180,7 +229,7 @@ export class TaskService {
 
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
+      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model, fileIds)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })
@@ -240,6 +289,7 @@ export class TaskService {
     message?: string,
     start?: boolean,
     model?: string,
+    filePaths?: string[],
   ): Promise<void> {
     const taskLogger = createTaskLogger(taskId)
     const startTime = Date.now()
@@ -277,7 +327,7 @@ export class TaskService {
           await new Promise((resolve) => setTimeout(resolve, checkInterval))
         }
 
-        await this.sendMessage(taskId, message, true, model)
+        await this.sendMessage(taskId, message, true, model, undefined, filePaths)
       }
 
       taskLogger.info('Workspace setup completed successfully', {

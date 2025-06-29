@@ -12,6 +12,12 @@ export interface TaskIteration {
   gitDiff?: string
   merged?: boolean
   agentSessionId?: string
+  attachments?: Array<{
+    fileId?: string // Optional for backward compatibility
+    filename: string
+    path: string // Absolute path to file
+    mimeType: string
+  }>
   error?: {
     message: string
     stack?: string

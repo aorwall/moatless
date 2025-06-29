@@ -9,16 +9,29 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+<<<<<<< HEAD
+import { Route as EnvironmentsRouteImport } from './routes/environments'
+import { Route as EnvironmentsEnvironmentIdRouteImport } from './routes/environments/$environmentId'
+import { Route as EnvironmentsIndexRouteImport } from './routes/environments/index'
+import { Route as EnvironmentsNewRouteImport } from './routes/environments/new'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsRouteImport } from './routes/settings'
+=======
+>>>>>>> main
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as EnvironmentsRouteImport } from './routes/environments'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
+<<<<<<< HEAD
+import { Route as CommandsIndexRouteImport } from './routes/commands/index'
+=======
 import { Route as EnvironmentsIndexRouteImport } from './routes/environments/index'
 import { Route as CommandsIndexRouteImport } from './routes/commands/index'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as EnvironmentsNewRouteImport } from './routes/environments/new'
 import { Route as EnvironmentsEnvironmentIdRouteImport } from './routes/environments/$environmentId'
+>>>>>>> main
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as CommandsCommandNameRouteImport } from './routes/commands/$commandName'
 

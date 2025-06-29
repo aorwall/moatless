@@ -1,8 +1,10 @@
 import { CLAUDE_MODEL_DISPLAY_NAMES, CLAUDE_MODELS, type ClaudeModel } from '@shared/constants'
+import type { UploadFileResponse } from '@shared/types/api'
 import type { Environment } from '@shared/types/environment'
-import { ArrowUp, Circle } from 'lucide-react'
+import { ArrowUp, Circle, Paperclip, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
+import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { Button } from '@/lib/components/ui/button'
 import {
   Select,
@@ -41,6 +43,8 @@ interface ChatFormProps {
   onEnvironmentChange?: (environmentId: string) => void
   environmentsLoading?: boolean
   maxHeight?: string
+  uploadedFiles?: UploadFileResponse[]
+  onFilesChange?: (files: UploadFileResponse[]) => void
 }
 
 export function ChatForm({
@@ -63,9 +67,12 @@ export function ChatForm({
   onEnvironmentChange,
   environmentsLoading = false,
   maxHeight = '200px',
+  uploadedFiles = [],
+  onFilesChange,
 }: ChatFormProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below')
 
   // File autocomplete functionality
@@ -85,6 +92,45 @@ export function ChatForm({
     value: message,
     onValueChange: onMessageChange,
   })
+
+  // File upload functionality
+  const uploadFile = useUploadFile({
+    onSuccess: (data) => {
+      if (onFilesChange) {
+        onFilesChange([...uploadedFiles, data])
+      }
+    },
+    onError: (error) => {
+      console.error('File upload failed:', error)
+      // TODO: Show error toast/notification
+    },
+  })
+
+  const handleFileUpload = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // Always upload immediately to the general uploads endpoint
+      uploadFile.mutate(file, {
+        onSuccess: (data) => {
+          if (onFilesChange) {
+            onFilesChange([...uploadedFiles, data])
+          }
+        },
+      })
+    }
+    // Reset input so same file can be selected again
+    e.target.value = ''
+  }
+
+  const removeFile = (id: string) => {
+    if (onFilesChange) {
+      onFilesChange(uploadedFiles.filter((f) => f.id !== id))
+    }
+  }
 
   // Initial resize on mount
   useEffect(() => {
@@ -182,6 +228,39 @@ export function ChatForm({
           )}
         </div>
       </div>
+      {/* Uploaded files display */}
+      {uploadedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {uploadedFiles.map((file) => {
+            const isImage = file.mimeType.startsWith('image/')
+            // Use the upload endpoint to get the image
+            const imageUrl = isImage ? `/api/v1/uploads/${file.id}/${file.filename}` : null
+
+            return (
+              <div
+                key={file.id}
+                className="flex items-center gap-1 px-2 py-1 bg-muted-foreground/10 rounded text-xs"
+              >
+                {isImage && imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt={file.filename}
+                    className="h-8 w-8 object-cover rounded"
+                  />
+                )}
+                <span className="max-w-[150px] truncate">{file.filename}</span>
+                <button
+                  type="button"
+                  onClick={() => removeFile(file.id)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         {/* Left side - Environment and Model selectors */}
         <div className="flex items-center gap-2">
@@ -218,8 +297,36 @@ export function ChatForm({
           </Select>
         </div>
 
-        {/* Right side - Send button */}
-        <div className="flex items-center">
+        {/* Right side - Upload and Send buttons */}
+        <div className="flex items-center gap-2">
+          {/* Upload button - always available */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileChange}
+            className="hidden"
+            accept="image/*,.pdf,.txt,.md,.js,.ts,.jsx,.tsx,.py,.java,.c,.cpp,.h,.hpp,.cs,.rb,.go,.rs,.swift,.kt,.m,.mm,.php,.html,.css,.scss,.json,.xml,.yaml,.yml,.toml,.ini,.conf,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd"
+          />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={handleFileUpload}
+                  disabled={uploadFile.isPending}
+                >
+                  <Paperclip className="h-4 w-4" />
+                  <span className="sr-only">Upload file</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Attach files to your message</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {isRunning ? (
             <TooltipProvider>
               <Tooltip>

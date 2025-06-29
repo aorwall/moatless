@@ -42,6 +42,7 @@
     "@anthropic-ai/claude-code": "^1.0.33",
     "@fastify/cors": "^10.0.0",
     "@fastify/helmet": "^12.0.0",
+    "@fastify/multipart": "^9.0.3",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^8.0.0",
     "@fastify/swagger": "^9.5.1",
