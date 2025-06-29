@@ -123,11 +123,11 @@ export function ChatView() {
   }, []) // Only on mount
 
   useEffect(() => {
-    // Only scroll to bottom when task is running AND user is already at bottom
-    if (bottomRef.current && isAtBottom && status === 'running') {
+    // Scroll to bottom when user is already at bottom and content changes
+    if (bottomRef.current && isAtBottom) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  })
+  }, [isAtBottom])
 
   // Get last iteration for ChatInput
   const lastIteration =
