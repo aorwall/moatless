@@ -22,6 +22,7 @@ export const CreateTaskRequestSchema = z.object({
   branchName: z.string().optional(),
   start: z.boolean().optional(),
   model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
 })
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 
@@ -30,8 +31,22 @@ export const SendMessageRequestSchema = z.object({
   message: z.string().min(1),
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
+  fileIds: z.array(z.string()).optional(), // Deprecated, use filePaths
+  filePaths: z.array(z.string()).optional(), // Absolute file paths
 })
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
+
+// General Upload (not tied to task)
+export const UploadFileResponseSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  path: z.string(), // Relative path like /uploads/{randomId}/filename.ext
+  absolutePath: z.string(), // Absolute path in workspace
+  size: z.number(),
+  mimeType: z.string(),
+  uploadedAt: z.string(),
+})
+export type UploadFileResponse = z.infer<typeof UploadFileResponseSchema>
 
 // Update Task
 export const UpdateTaskRequestSchema = z.object({

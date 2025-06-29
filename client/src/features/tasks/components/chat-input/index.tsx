@@ -1,4 +1,5 @@
 import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@shared/constants'
+import type { UploadFileResponse } from '@shared/types/api'
 import { useEffect, useState } from 'react'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { useStopAgent, useTask } from '@/features/tasks/hooks/use-tasks'
@@ -27,12 +28,14 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
     clearMessage: () => void,
     resume?: boolean,
     model?: ClaudeModel,
+    filePaths?: string[],
   ) => void
   onCreateTask?: (
     message: string,
     environmentId: string,
     clearMessage: () => void,
     model?: ClaudeModel,
+    files?: UploadFileResponse[],
   ) => void
   isLoading?: boolean
 
@@ -56,6 +59,7 @@ export function ChatInput({
   ...divProps
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
+  const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>(() => {
     // Load last selected environment from localStorage
     if (typeof window !== 'undefined' && !taskId) {
@@ -136,16 +140,34 @@ export function ChatInput({
       return
     }
 
-    const clearMessage = () => setMessage('')
+    const clearMessage = () => {
+      setMessage('')
+      setUploadedFiles([])
+    }
 
     if (isTaskContext) {
-      // Task context - send message
+      // Task context - send message with file paths
       if (onSendMessage && !isPending) {
-        onSendMessage(taskId, message.trim(), clearMessage, resumeConversation, selectedModel)
+        // Convert file paths to array of paths for sending
+        const filePaths = uploadedFiles.map((f) => f.absolutePath)
+        onSendMessage(
+          taskId,
+          message.trim(),
+          clearMessage,
+          resumeConversation,
+          selectedModel,
+          filePaths,
+        )
       }
     } else if (selectedEnvironmentId && onCreateTask && !isPending) {
-      // Homepage context - create task
-      onCreateTask(message.trim(), selectedEnvironmentId, clearMessage, selectedModel)
+      // Homepage context - create task with uploaded files
+      onCreateTask(
+        message.trim(),
+        selectedEnvironmentId,
+        clearMessage,
+        selectedModel,
+        uploadedFiles,
+      )
     }
   }
 
@@ -244,6 +266,9 @@ export function ChatInput({
           onEnvironmentChange={setSelectedEnvironmentId}
           environmentsLoading={environmentsLoading}
           maxHeight={maxHeight}
+          // File upload props
+          uploadedFiles={uploadedFiles}
+          onFilesChange={setUploadedFiles}
         />
       </div>
     </div>

@@ -1,3 +1,4 @@
+import type { UploadFileResponse } from '@shared/types/api'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 
@@ -28,13 +29,18 @@ function Dashboard() {
     environmentId: string,
     clearMessage: () => void,
     model?: string,
+    files?: UploadFileResponse[],
   ) => {
+    // Extract file paths from uploaded files
+    const filePaths = files?.map((f) => f.absolutePath) || []
+
     createTask.mutate(
       {
         agentType: 'claude-code',
         message,
         environmentId,
         model,
+        filePaths,
       },
       {
         onSuccess: () => {

@@ -102,7 +102,7 @@ export class ClaudeCodeAgent extends BaseAgent {
           sessionId: this.sessionId,
           exitCode,
         })
-        
+
         // Only throw if it's truly unexpected
         throw error
       } else {

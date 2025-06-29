@@ -96,6 +96,7 @@ export class AgentService {
     agentType: string = 'claude-code',
     resumeSessionId?: string,
     model?: string,
+    fileIds?: string[],
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
@@ -163,6 +164,7 @@ export class AgentService {
         iteration,
         workspace,
         resumeSessionId,
+        fileIds,
       )
     } finally {
       // Always clean up running agent tracking
@@ -270,6 +272,7 @@ export class AgentService {
     iteration: TaskIteration,
     workspace: BaseWorkspace,
     resumeSessionId?: string,
+    fileIds?: string[],
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
@@ -282,8 +285,31 @@ export class AgentService {
 
       agentLogger.info('Starting agent execution with options', runOptions)
 
+      // Prepare message with file references if provided
+      let finalMessage = message
+      if (iteration.attachments && iteration.attachments.length > 0) {
+        // Get the absolute paths for the uploaded files
+        const filePaths: string[] = iteration.attachments.map((attachment) => attachment.path)
+
+        // Log each attachment
+        for (const attachment of iteration.attachments) {
+          agentLogger.info('File attachment included', {
+            filename: attachment.filename,
+            path: attachment.path,
+            mimeType: attachment.mimeType,
+          })
+        }
+
+        // Append file information to message
+        finalMessage = `${message}\n\nUploaded files:\n${filePaths.join('\n')}`
+        agentLogger.info('Message with file attachments prepared', {
+          fileCount: filePaths.length,
+          messageLength: finalMessage.length,
+        })
+      }
+
       // Process agent events
-      for await (const event of agent.run(message, runOptions)) {
+      for await (const event of agent.run(finalMessage, runOptions)) {
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()

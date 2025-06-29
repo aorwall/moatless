@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
+import multipart from '@fastify/multipart'
 import staticPlugin from '@fastify/static'
 import type { FastifyInstance } from 'fastify'
 import { errorHandler } from './plugins/error-handler.js'
@@ -39,6 +40,14 @@ export async function setupApp(app: FastifyInstance) {
 
   // Validation
   await setupValidation(app)
+
+  // Multipart/file uploads support
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+      files: 10, // Maximum number of files
+    },
+  })
 
   // Error handling
   app.setErrorHandler(errorHandler)
