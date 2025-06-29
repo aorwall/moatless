@@ -53,6 +53,7 @@ function Dashboard() {
         onCreateTask={handleCreateTask}
         isLoading={createTask.isPending}
         className="w-full max-w-2xl px-6"
+        maxHeight="300px"
       />
     </div>
   )
