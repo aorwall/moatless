@@ -1,10 +1,10 @@
-import { useParams } from '@tanstack/react-router'
-import { Loader2, Play, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useRef } from 'react'
 import { useRestartServer, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
+import { useParams } from '@tanstack/react-router'
+import { Loader2, Play, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useRef } from 'react'
 import { usePreviewConnection } from '../hooks/use-preview-connection'
 import { usePreviewStore } from '../stores/preview-store'
 import type { PreviewProps } from '../types'
@@ -28,6 +28,7 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     setConfig,
     setLoaded,
     setError,
+    setDisplayPath,
   } = usePreviewStore()
 
   const { isConnected } = usePreviewConnection(config.url)
@@ -78,6 +79,12 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
           console.log('[Preview Scroll]:', payload)
           break
 
+        case 'ROUTE_CHANGE':
+          // Route changed in the preview app - update the address bar display only
+          console.log('[Preview Route]:', `Route changed to ${payload.path}`)
+          setDisplayPath(payload.path)
+          break
+
         case 'INSPECTOR_SCRIPT_LOADED':
           console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
           break
@@ -90,7 +97,7 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onElementSelected])
+  }, [onElementSelected, setDisplayPath])
 
   // Function to toggle the element selector in the iframe
   const toggleSelector = useCallback((enabled: boolean) => {

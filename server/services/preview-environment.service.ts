@@ -1,7 +1,3 @@
-import { execSync } from 'node:child_process'
-import { promises as fs } from 'node:fs'
-import * as net from 'node:net'
-import path from 'node:path'
 import { TaskNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
 import type {
   PreviewEnvironmentMetadata,
@@ -10,6 +6,10 @@ import type {
 } from '@shared/types/preview-environment.js'
 import type { ServerStatus } from '@shared/types/workspace.js'
 import type { FastifyInstance } from 'fastify'
+import { execSync } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import * as net from 'node:net'
+import path from 'node:path'
 import { logger } from '../utils/logger.js'
 import { ServerHandler } from '../workspaces/server-handler.js'
 import type { StorageBackend } from './storage.js'
@@ -798,6 +798,7 @@ export class PreviewEnvironmentService {
                   return String(a);
                 }).join(' '),
                 args,
+                stack,
                 // Note: removed payload wrapper - ConsoleLogs expects flat structure
               });
             };
@@ -811,14 +812,17 @@ export class PreviewEnvironmentService {
               level: 'error',
               message: ev.message + ' at ' + ev.filename + ':' + ev.lineno + ':' + ev.colno,
               args: [ev.message],
+              stack: ev.error?.stack,
             });
           });
           window.addEventListener('unhandledrejection', (ev) => {
+            const stack = ev.reason?.stack || (ev.reason instanceof Error ? String(ev.reason.stack) : undefined);
             sendToParent({
               type: 'console',
               level: 'error',
               message: 'Unhandled Promise Rejection: ' + String(ev.reason),
               args: [String(ev.reason)],
+              stack,
             });
           });
         }
@@ -872,6 +876,65 @@ export class PreviewEnvironmentService {
             });
           }, CONFIG.DEBOUNCE_MS);
           window.addEventListener('scroll', throttled, { passive: true });
+        }
+
+        function hookNavigation() {
+          let currentPath = window.location.pathname + window.location.search;
+          
+          // For hash-based routing, use the hash as the path
+          if (window.location.hash && window.location.hash.startsWith('#/')) {
+            currentPath = window.location.hash.substring(1); // Remove the # character
+          }
+          
+          // Send initial route
+          sendToParent({
+            type: 'ROUTE_CHANGE',
+            payload: {
+              path: currentPath,
+              timestamp: Date.now(),
+            },
+          });
+          
+          // Hook into browser navigation events
+          const checkRouteChange = () => {
+            let newPath = window.location.pathname + window.location.search;
+            
+            // For hash-based routing, use the hash as the path
+            if (window.location.hash && window.location.hash.startsWith('#/')) {
+              newPath = window.location.hash.substring(1); // Remove the # character
+            }
+            
+            if (newPath !== currentPath) {
+              currentPath = newPath;
+              sendToParent({
+                type: 'ROUTE_CHANGE',
+                payload: {
+                  path: currentPath,
+                  timestamp: Date.now(),
+                },
+              });
+            }
+          };
+          
+          // Listen for browser navigation events
+          window.addEventListener('popstate', checkRouteChange);
+          
+          // Hook into pushState and replaceState for client-side navigation
+          const originalPushState = history.pushState;
+          const originalReplaceState = history.replaceState;
+          
+          history.pushState = function(...args) {
+            originalPushState.apply(history, args);
+            setTimeout(checkRouteChange, 0); // Use setTimeout to ensure the URL has changed
+          };
+          
+          history.replaceState = function(...args) {
+            originalReplaceState.apply(history, args);
+            setTimeout(checkRouteChange, 0);
+          };
+          
+          // Also listen for hash changes (for hash-based routing)
+          window.addEventListener('hashchange', checkRouteChange);
         }
 
                  function buildOverlay() {
@@ -1007,6 +1070,9 @@ export class PreviewEnvironmentService {
           
           hookScroll();
           internalLog.log('[Preview Inspector] Scroll hooks installed');
+          
+          hookNavigation();
+          internalLog.log('[Preview Inspector] Navigation hooks installed');
           
           internalLog.log('[Preview Inspector] Sending SCRIPT_LOADED message...');
           sendToParent({ type: 'INSPECTOR_SCRIPT_LOADED', payload: { version: '2.0.0-server' } });

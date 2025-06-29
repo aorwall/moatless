@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import { useEffect, useRef, useState } from 'react'
 import { usePreviewStore } from '../stores/preview-store'
 
 interface ConsoleLog {
   id: string
   timestamp: string
-  level: 'log' | 'info' | 'warn' | 'error' | 'debug'
+  level: 'log' | 'info' | 'warn' | 'error' | 'debug' | 'route'
   message: string
   args?: unknown[]
+  stack?: string
 }
 
 interface ConsoleMessage {
@@ -15,6 +16,7 @@ interface ConsoleMessage {
   level: ConsoleLog['level']
   message: string
   args?: unknown[]
+  stack?: string
 }
 
 export function ConsoleLogs() {
@@ -27,18 +29,32 @@ export function ConsoleLogs() {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Only process messages from the preview iframe
-      if (event.data?.type === 'console' && event.data?.source === 'preview-iframe') {
-        const { level, message, args } = event.data as ConsoleMessage & { source: string }
+      if (event.data?.source === 'preview-iframe') {
+        if (event.data.type === 'console') {
+          const { level, message, args, stack } = event.data as ConsoleMessage & { source: string }
 
-        const newLog: ConsoleLog = {
-          id: `${Date.now()}-${Math.random()}`,
-          timestamp: new Date().toISOString(),
-          level,
-          message,
-          args,
+          const newLog: ConsoleLog = {
+            id: `${Date.now()}-${Math.random()}`,
+            timestamp: new Date().toISOString(),
+            level,
+            message,
+            args,
+            stack,
+          }
+
+          setLogs((prev) => [...prev, newLog])
+        } else if (event.data.type === 'ROUTE_CHANGE') {
+          const { path } = event.data.payload
+          const routeLog: ConsoleLog = {
+            id: `${Date.now()}-${Math.random()}`,
+            timestamp: new Date().toISOString(),
+            level: 'route',
+            message: `Navigated to ${path}`,
+            args: [path],
+          }
+
+          setLogs((prev) => [...prev, routeLog])
         }
-
-        setLogs((prev) => [...prev, newLog])
       }
     }
 
@@ -46,8 +62,9 @@ export function ConsoleLogs() {
     return () => window.removeEventListener('message', handleMessage)
   }, [])
 
-  // Clear logs when preview URL changes
+  // Clear logs when preview URL changes and auto-scroll on log changes
   useEffect(() => {
+    // Clear logs when URL changes
     setLogs([])
   }, [config.url])
 
@@ -58,16 +75,22 @@ export function ConsoleLogs() {
         '[data-radix-scroll-area-viewport]',
       )
       if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight
+        // Use requestAnimationFrame to ensure the DOM has updated
+        requestAnimationFrame(() => {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight
+        })
       }
     }
-  }, [logs])
+  })
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const element = e.currentTarget
-    const isAtBottom =
-      Math.abs(element.scrollHeight - element.scrollTop - element.clientHeight) < 10
-    shouldAutoScroll.current = isAtBottom
+    const scrollContainer = e.currentTarget.querySelector('[data-radix-scroll-area-viewport]')
+    if (!scrollContainer) return
+
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainer
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 50
+
+    shouldAutoScroll.current = isNearBottom
   }
 
   const getLevelColor = (level: ConsoleLog['level']) => {
@@ -80,6 +103,8 @@ export function ConsoleLogs() {
         return 'text-blue-400'
       case 'debug':
         return 'text-gray-500'
+      case 'route':
+        return 'text-green-400'
       default:
         return 'text-slate-100 dark:text-slate-200'
     }
@@ -87,8 +112,27 @@ export function ConsoleLogs() {
 
   const formatMessage = (log: ConsoleLog) => {
     const timestamp = new Date(log.timestamp).toLocaleTimeString()
+    if (log.level === 'route') {
+      return `[${timestamp}] [🧭 NAVIGATION] ${log.message}`
+    }
     const prefix = `[${timestamp}] [${log.level.toUpperCase()}]`
     return `${prefix} ${log.message}`
+  }
+
+  const formatStackTrace = (stack: string) => {
+    // Split by newlines and filter out the console call itself and other noise
+    const lines = stack.split('\n').filter((line) => {
+      const trimmed = line.trim()
+      // Filter out console call and internal preview script lines
+      return (
+        trimmed &&
+        !trimmed.includes('console.<computed>') &&
+        !trimmed.includes('Preview Inspector') &&
+        !trimmed.includes('hookConsole')
+      )
+    })
+
+    return lines.join('\n').trim()
   }
 
   if (logs.length === 0) {
@@ -103,8 +147,8 @@ export function ConsoleLogs() {
   }
 
   return (
-    <div className="h-full w-full bg-slate-950 dark:bg-black">
-      <ScrollArea ref={scrollAreaRef} className="h-full w-full" onScroll={handleScroll}>
+    <div className="h-full w-full flex flex-col bg-slate-950 dark:bg-black">
+      <ScrollArea ref={scrollAreaRef} className="flex-1 w-full" onScrollCapture={handleScroll}>
         <div className="p-4 space-y-1">
           {logs.map((log) => (
             <div
@@ -112,6 +156,11 @@ export function ConsoleLogs() {
               className="text-xs leading-relaxed font-mono whitespace-pre-wrap break-all"
             >
               <span className={getLevelColor(log.level)}>{formatMessage(log)}</span>
+              {log.stack && (
+                <div className="mt-1 pl-4 text-gray-400 dark:text-gray-500 text-xs">
+                  {formatStackTrace(log.stack)}
+                </div>
+              )}
             </div>
           ))}
         </div>

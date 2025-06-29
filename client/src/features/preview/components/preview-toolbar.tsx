@@ -1,26 +1,26 @@
-import { useParams } from '@tanstack/react-router'
 import {
-  ExternalLink,
-  Loader2,
-  MousePointer,
-  Play,
-  RefreshCw,
-  RotateCcw,
-  Server,
-  Square,
-} from 'lucide-react'
-import { type KeyboardEvent, useCallback, useState } from 'react'
-import {
-  useRestartServer,
-  useServerStatus,
-  useStartServer,
-  useStopServer,
+    useRestartServer,
+    useServerStatus,
+    useStartServer,
+    useStopServer,
 } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useParams } from '@tanstack/react-router'
+import {
+    ExternalLink,
+    Loader2,
+    MousePointer,
+    Play,
+    RefreshCw,
+    RotateCcw,
+    Server,
+    Square,
+} from 'lucide-react'
+import { type KeyboardEvent, useCallback, useEffect, useState } from 'react'
 import { usePreviewStore } from '../stores/preview-store'
 
 interface PreviewToolbarProps {
@@ -29,11 +29,16 @@ interface PreviewToolbarProps {
 
 export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const params = useParams({ from: '/tasks/$taskId' })
-  const { config, currentPath, isInspectorActive, setCurrentPath, toggleInspector } =
+  const { config, currentPath, displayPath, isInspectorActive, navigateToPath, toggleInspector } =
     usePreviewStore()
 
-  const [pathInput, setPathInput] = useState(currentPath)
+  const [pathInput, setPathInput] = useState(displayPath)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
+
+  // Sync pathInput with displayPath when it changes from route navigation
+  useEffect(() => {
+    setPathInput(displayPath)
+  }, [displayPath])
 
   // Server management hooks
   const { data: serverStatus } = useServerStatus(params.taskId)
@@ -48,10 +53,10 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
         if (!path.startsWith('/')) {
           path = `/${path}`
         }
-        setCurrentPath(path)
+        navigateToPath(path)
       }
     },
-    [pathInput, setCurrentPath],
+    [pathInput, navigateToPath],
   )
 
   const handleOpenInNewTab = useCallback(() => {
@@ -104,7 +109,6 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
 
       {/* Address Bar */}
       <div className="flex-1 flex items-center gap-2">
-        <span className="text-sm text-muted-foreground whitespace-nowrap">{config.url}</span>
         <Input
           type="text"
           value={pathInput}

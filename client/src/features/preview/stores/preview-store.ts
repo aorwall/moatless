@@ -5,7 +5,8 @@ import type { ElementInfo, PreviewConfig } from '../types'
 interface PreviewStore {
   // Configuration
   config: PreviewConfig
-  currentPath: string
+  currentPath: string // Path for iframe navigation (user-initiated changes only)
+  displayPath: string // Path shown in address bar (updated by route detection)
 
   // UI State
   isInspectorActive: boolean
@@ -18,7 +19,9 @@ interface PreviewStore {
 
   // Actions
   setConfig: (config: PreviewConfig) => void
-  setCurrentPath: (path: string) => void
+  setCurrentPath: (path: string) => void // For user navigation - updates iframe
+  setDisplayPath: (path: string) => void // For route detection - only updates display
+  navigateToPath: (path: string) => void // For user navigation - updates both
   toggleInspector: () => void
   setSelectedElement: (element: ElementInfo | null) => void
   setError: (error: string | null) => void
@@ -30,6 +33,7 @@ interface PreviewStore {
 const initialState = {
   config: { url: 'http://localhost:3000' },
   currentPath: '/',
+  displayPath: '/',
   isInspectorActive: false,
   isLoaded: false,
   selectedElement: null,
@@ -48,7 +52,21 @@ export const usePreviewStore = create<PreviewStore>()(
 
     setCurrentPath: (path) =>
       set((state) => {
-        state.currentPath = path.startsWith('/') ? path : `/${path}`
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        state.currentPath = normalizedPath
+      }),
+
+    setDisplayPath: (path) =>
+      set((state) => {
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        state.displayPath = normalizedPath
+      }),
+
+    navigateToPath: (path) =>
+      set((state) => {
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        state.currentPath = normalizedPath
+        state.displayPath = normalizedPath
       }),
 
     toggleInspector: () =>
