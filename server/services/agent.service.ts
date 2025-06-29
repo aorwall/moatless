@@ -98,7 +98,6 @@ export class AgentService {
     agentType: string = 'claude-code',
     resumeSessionId?: string,
     model?: string,
-    fileIds?: string[],
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
@@ -166,7 +165,6 @@ export class AgentService {
         iteration,
         workspace,
         resumeSessionId,
-        fileIds,
       )
     } finally {
       // Always clean up running agent tracking
@@ -274,7 +272,6 @@ export class AgentService {
     iteration: TaskIteration,
     workspace: BaseWorkspace,
     resumeSessionId?: string,
-    fileIds?: string[],
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 

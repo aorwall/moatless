@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Diff, Hunk, parseDiff } from 'react-diff-view'
+import { type ChangeData, Diff, type FileData, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 import 'prism-color-variables/variables.css'
 
@@ -20,16 +20,8 @@ interface GitDiffViewerProps {
   className?: string
 }
 
-// Define the file structure returned by parseDiff
-interface ParsedFile {
-  oldRevision: string
-  newRevision: string
-  type: 'add' | 'delete' | 'modify' | 'rename'
-  hunks: any[]
-  oldPath?: string
-  newPath?: string
-  [key: string]: any
-}
+// Use the proper FileData type from react-diff-view
+type ParsedFile = FileData
 
 interface FileDiffProps {
   file: ParsedFile
@@ -47,7 +39,7 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
     let deletions = 0
 
     hunks.forEach((hunk) => {
-      hunk.changes.forEach((change: any) => {
+      hunk.changes.forEach((change: ChangeData) => {
         if (change.type === 'insert') {
           additions++
         }
@@ -100,7 +92,7 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
             className="diff-view"
             tokens={tokens}
             optimizeSelection
-            renderToken={(token: any, defaultRender: any) => {
+            renderToken={(token: unknown, defaultRender: (token: unknown) => React.ReactNode) => {
               // Handle prism tokens with className for syntax highlighting
               if (token.type === 'prism' && token.className) {
                 return <span className={token.className}>{token.value || ''}</span>
@@ -157,7 +149,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
 
     parsedFiles.forEach((file) => {
       file.hunks.forEach((hunk) => {
-        hunk.changes.forEach((change: any) => {
+        hunk.changes.forEach((change: ChangeData) => {
           if (change.type === 'insert') {
             totalAdditions++
           }

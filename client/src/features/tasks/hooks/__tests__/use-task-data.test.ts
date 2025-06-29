@@ -84,7 +84,7 @@ describe('useTaskData', () => {
     // Setup mock to fail
     vi.mocked(tasksApi.getTask).mockRejectedValue(mockError)
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
-    vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue(undefined as any)
+    vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
 
     // Render the hook
     const { result } = renderHook(() => useTaskData(taskId), {

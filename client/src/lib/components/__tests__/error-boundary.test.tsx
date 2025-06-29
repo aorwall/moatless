@@ -47,7 +47,9 @@ describe('ErrorBoundary', () => {
     const customFallback = (error: Error, reset: () => void) => (
       <div>
         <p>Custom error: {error.message}</p>
-        <button onClick={reset}>Custom Reset</button>
+        <button type="button" onClick={reset}>
+          Custom Reset
+        </button>
       </div>
     )
 
@@ -69,6 +71,7 @@ describe('ErrorBoundary', () => {
       <div>
         <p>Error occurred</p>
         <button
+          type="button"
           onClick={() => {
             resetMock()
             reset()

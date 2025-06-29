@@ -4,24 +4,24 @@ import { vi } from 'vitest'
 // Mock for SSE connections
 export class MockSSEConnection {
   url: string
-  options: any
-  listeners: Map<string, Array<(data: any) => void>> = new Map()
+  options: unknown
+  listeners: Map<string, Array<(data: unknown) => void>> = new Map()
   connected = false
 
-  constructor(url: string, options?: any) {
+  constructor(url: string, options?: unknown) {
     this.url = url
     this.options = options
     this.connected = true
   }
 
-  addEventListener(event: string, callback: (data: any) => void) {
+  addEventListener(event: string, callback: (data: unknown) => void) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, [])
     }
     this.listeners.get(event)!.push(callback)
   }
 
-  removeEventListener(event: string, callback: (data: any) => void) {
+  removeEventListener(event: string, callback: (data: unknown) => void) {
     const listeners = this.listeners.get(event) || []
     const index = listeners.indexOf(callback)
     if (index > -1) {

@@ -8,7 +8,12 @@
   "files": {
     "ignoreUnknown": false,
     "includes": ["server/**/*", "shared/**/*", "bin/**/*", "client/src/**/*"],
-    "experimentalScannerIgnores": ["dist/", "node_modules/", "client/dist/"]
+    "experimentalScannerIgnores": [
+      "dist/",
+      "node_modules/",
+      "client/dist/",
+      "client/src/routeTree.gen.ts"
+    ]
   },
   "formatter": {
     "enabled": true,

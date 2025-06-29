@@ -45,13 +45,13 @@ describe('errorHandler', () => {
       validation: [
         {
           keyword: 'required',
-          dataPath: '.message',
+          instancePath: '.message',
           schemaPath: '#/properties/message/required',
           params: { missingProperty: 'message' },
           message: 'should have required property message',
         },
       ],
-    } as any
+    }
 
     await errorHandler(error, mockRequest, mockReply)
 

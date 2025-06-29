@@ -75,13 +75,15 @@ export function ServerLogsViewer() {
 }
 
 function ServerLogsViewerSkeleton() {
+  const skeletonWidths = [85, 92, 87, 95, 90, 88, 93, 86]
+
   return (
     <div className="h-full w-full bg-slate-950 dark:bg-black p-4 space-y-2">
-      {Array.from({ length: 8 }).map((_, i) => (
+      {skeletonWidths.map((width) => (
         <Skeleton
-          key={i}
+          key={`skeleton-width-${width}`}
           className="h-4 bg-slate-800 dark:bg-slate-900"
-          style={{ width: `${85 + Math.random() * 15}%` }}
+          style={{ width: `${width}%` }}
         />
       ))}
     </div>

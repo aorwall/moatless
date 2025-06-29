@@ -32,9 +32,10 @@ export function FileTreeItem({
   const ChevronIcon = isExpanded ? ChevronDown : ChevronRight
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        'flex items-center gap-1 px-2 py-1 hover:bg-accent cursor-pointer rounded-sm',
+        'flex items-center gap-1 px-2 py-1 hover:bg-accent cursor-pointer rounded-sm w-full text-left',
         isSelected && 'bg-accent',
       )}
       style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -46,6 +47,6 @@ export function FileTreeItem({
       {node.type === 'file' && <div className="w-4" />}
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="text-sm whitespace-nowrap">{node.name}</span>
-    </div>
+    </button>
   )
 }

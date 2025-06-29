@@ -229,7 +229,7 @@ export class TaskService {
 
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model, fileIds)
+      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })

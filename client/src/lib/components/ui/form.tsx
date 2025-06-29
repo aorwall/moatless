@@ -22,6 +22,7 @@ interface FormLabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> {}
 
 const FormLabel = React.forwardRef<HTMLLabelElement, FormLabelProps>(
   ({ className, ...props }, ref) => {
+    // biome-ignore lint/a11y/noLabelWithoutControl: This is a reusable component that receives htmlFor via props
     return (
       <label
         ref={ref}
