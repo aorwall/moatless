@@ -50,7 +50,13 @@ const start = async () => {
       server.log.info(`Received ${signal}, starting graceful shutdown...`)
 
       try {
-        // Stop preview environment servers first
+        // Stop all running agents first
+        if (server.services?.agent) {
+          server.log.info('Stopping all running agents...')
+          await server.services.agent.stopAllAgents()
+        }
+
+        // Stop preview environment servers
         if (server.services?.previewEnvironment) {
           server.log.info('Shutting down preview environment service...')
           await server.services.previewEnvironment.gracefulShutdown()
@@ -71,6 +77,19 @@ const start = async () => {
     // Handle shutdown signals
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
     process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (reason, promise) => {
+      server.log.error('Unhandled Rejection at:', promise, 'reason:', reason)
+      // Don't exit the process - allow the server to continue running
+    })
+
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+      server.log.error('Uncaught Exception:', error)
+      // For uncaught exceptions, we should exit as the process state may be corrupted
+      gracefulShutdown('UNCAUGHT_EXCEPTION')
+    })
 
     await server.listen({ port, host })
     console.log(`Server listening on http://${host}:${port}`)
