@@ -46,7 +46,6 @@ describe('TaskService', () => {
 
     mockAgentService = {
       executeAgent: vi.fn(),
-      // getAgentStatus: vi.fn(), // Removed: no longer part of API
       stopAgent: vi.fn(),
       isAgentRunning: vi.fn(),
       getAgentSessionId: vi.fn(),
@@ -81,6 +80,10 @@ describe('TaskService', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
       } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
+        getStatus: () => 'idle',
+      } as any)
       vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Mock getTask to return the saved task for background processing
@@ -108,13 +111,13 @@ describe('TaskService', () => {
       expect(taskId).toBeDefined()
       expect(taskId).toMatch(/^[0-9a-f-]+$/) // UUID pattern
 
-      // Verify task was saved
+      // Verify task was saved with 'running' status since start=true
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId,
           agentType: 'test-agent',
           environmentId: 'env-123',
-          status: 'open',
+          status: 'running',
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],
@@ -153,6 +156,7 @@ describe('TaskService', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
       } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
       const taskId = await taskService.createTask(request)
 
@@ -188,6 +192,7 @@ describe('TaskService', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
       } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
       const taskId = await taskService.createTask(request)
 
@@ -260,11 +265,10 @@ describe('TaskService', () => {
       expect(result).toEqual(task)
     })
 
-    it('should return null for non-existent task', async () => {
+    it('should throw TaskNotFoundError for non-existent task', async () => {
       vi.mocked(mockStorage.getTask).mockResolvedValueOnce(null)
 
-      const result = await taskService.getTask('non-existent')
-      expect(result).toBeNull()
+      await expect(taskService.getTask('non-existent')).rejects.toThrow(TaskNotFoundError)
     })
   })
 
@@ -320,11 +324,12 @@ describe('TaskService', () => {
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
+          status: 'running',
           numTurns: 1,
           iterations: expect.arrayContaining([
             expect.objectContaining({
               iterationNumber: 1,
-              status: 'open',
+              status: 'active',
               messageCount: 1,
               initialMessage: 'Hello, task!',
             }),
@@ -340,11 +345,12 @@ describe('TaskService', () => {
         'Hello, task!',
         expect.objectContaining({
           iterationNumber: 1,
-          status: 'open',
+          status: 'active',
           messageCount: 1,
           initialMessage: 'Hello, task!',
         }),
         'claude-code',
+        undefined,
         undefined,
       )
     })
@@ -373,11 +379,12 @@ describe('TaskService', () => {
         'Hello, task!',
         expect.objectContaining({
           iterationNumber: 1,
-          status: 'open',
+          status: 'active',
           messageCount: 1,
           initialMessage: 'Hello, task!',
         }),
         'claude-code',
+        undefined,
         undefined,
       )
     })
@@ -475,6 +482,10 @@ describe('TaskService', () => {
             ),
           ),
       )
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
+        getStatus: () => 'idle',
+      } as any)
       vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Mock getTask for background processing

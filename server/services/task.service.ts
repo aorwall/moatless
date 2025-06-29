@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
-import { CriticalError, TaskNotFoundError } from '../../shared/constants/errors.js'
+import { TaskNotFoundError } from '../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
-import { createTaskLogger, logger } from '../utils/logger.js'
+import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
@@ -11,6 +11,20 @@ import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class TaskService {
+  private static readonly WORKSPACE_READY_TIMEOUT = 30000
+  private static readonly WORKSPACE_CHECK_INTERVAL = 500
+  private static readonly FILE_MIME_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.json': 'application/json',
+  }
+
   constructor(
     private storage: StorageBackend,
     private workspaceService: WorkspaceService,
@@ -70,18 +84,51 @@ export class TaskService {
       throw error
     }
 
-    const setupTask = this.setupWorkspaceAsync(
-      task.taskId,
-      task,
-      params.branchName,
-      params.message,
-      params.start ?? true,
-      params.model,
-      params.filePaths,
-    )
+    // Determine if we should start immediately
+    const shouldStart = (params.start ?? true) && !!params.message
 
-    // Track background task in WorkspaceService
-    this.workspaceService.trackBackgroundTask(task.taskId, setupTask)
+    // Setup workspace
+    await this.workspaceService.setupWorkspace(task.taskId)
+
+    // If we should start immediately, do it synchronously
+    if (shouldStart) {
+      // Wait for workspace to be ready
+      const maxWaitTime = TaskService.WORKSPACE_READY_TIMEOUT
+      const checkInterval = TaskService.WORKSPACE_CHECK_INTERVAL
+      const startWait = Date.now()
+
+      while (Date.now() - startWait < maxWaitTime) {
+        const workspace = await this.workspaceService.getWorkspace(task.taskId)
+        if (workspace && workspace.getStatus() === 'idle') {
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, checkInterval))
+      }
+
+      // Update task status to running before sending message
+      task.status = 'running'
+      await this.storage.saveTask(task)
+
+      // Send the initial message
+      const sendMessageTask = this.sendMessage(
+        task.taskId,
+        params.message!,
+        true,
+        params.model,
+        undefined,
+        params.filePaths,
+      ).catch((error) => {
+        logger.error('Failed to send initial message', error as Error, { taskId: task.taskId })
+        // Update status back to open on error
+        task.status = 'open'
+        this.storage.saveTask(task).catch((saveError) => {
+          logger.error('Failed to update task status after error', saveError as Error)
+        })
+      })
+
+      // Track the background message sending task
+      this.workspaceService.trackBackgroundTask(task.taskId, sendMessageTask)
+    }
 
     logger.info('Task creation completed successfully', { taskId: task.taskId })
     return task.taskId
@@ -180,18 +227,7 @@ export class TaskService {
         const filename = path.basename(filePath)
         // Try to determine mime type from extension
         const ext = path.extname(filename).toLowerCase()
-        const mimeTypes: Record<string, string> = {
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.png': 'image/png',
-          '.gif': 'image/gif',
-          '.webp': 'image/webp',
-          '.pdf': 'application/pdf',
-          '.txt': 'text/plain',
-          '.md': 'text/markdown',
-          '.json': 'application/json',
-        }
-        const mimeType = mimeTypes[ext] || 'application/octet-stream'
+        const mimeType = TaskService.FILE_MIME_TYPES[ext] || 'application/octet-stream'
 
         iteration.attachments.push({
           filename,
@@ -280,94 +316,6 @@ export class TaskService {
     await this.storage.saveTask(task)
 
     logger.info('Task closed successfully', { taskId })
-  }
-
-  private async setupWorkspaceAsync(
-    taskId: string,
-    metadata: Task,
-    branchName?: string,
-    message?: string,
-    start?: boolean,
-    model?: string,
-    filePaths?: string[],
-  ): Promise<void> {
-    const taskLogger = createTaskLogger(taskId)
-    const startTime = Date.now()
-
-    taskLogger.info('Starting workspace setup', {
-      environmentId: metadata.environmentId,
-      hasBranchName: !!branchName,
-      hasMessage: !!message,
-      willStart: start ?? true,
-    })
-
-    try {
-      // Setup workspace in background
-      await this.workspaceService.setupWorkspace(taskId)
-
-      const setupDuration = Date.now() - startTime
-      taskLogger.info('Workspace created successfully', {
-        durationMs: setupDuration,
-        environmentId: metadata.environmentId,
-      })
-
-      taskLogger.debug('Workspace setup complete event emitted')
-
-      if (start && message) {
-        // Wait for workspace to be ready (max 30 seconds)
-        const maxWaitTime = 30000
-        const checkInterval = 500
-        const startWait = Date.now()
-
-        while (Date.now() - startWait < maxWaitTime) {
-          const workspace = await this.workspaceService.getWorkspace(taskId)
-          if (workspace && workspace.getStatus() === 'idle') {
-            break
-          }
-          await new Promise((resolve) => setTimeout(resolve, checkInterval))
-        }
-
-        await this.sendMessage(taskId, message, true, model, undefined, filePaths)
-      }
-
-      taskLogger.info('Workspace setup completed successfully', {
-        totalDurationMs: Date.now() - startTime,
-      })
-    } catch (error) {
-      const setupDuration = Date.now() - startTime
-      taskLogger.error('Workspace setup failed', error as Error, {
-        durationMs: setupDuration,
-        environmentId: metadata.environmentId,
-        phase: 'workspace_setup',
-      })
-
-      // Create a failed iteration to capture the setup error
-      const iteration: TaskIteration = {
-        iterationNumber: 1,
-        startTime: new Date(startTime),
-        endTime: new Date(),
-        status: 'failed',
-        messageCount: 0,
-        costUsd: 0,
-        initialMessage: message,
-        durationMs: setupDuration,
-        error: {
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-          timestamp: new Date(),
-        },
-      }
-
-      // Update task metadata with the failed iteration
-      metadata.iterations.push(iteration)
-      metadata.status = 'error'
-      await this.storage.saveTask(metadata)
-
-      // Re-throw if this is a critical error
-      if (error instanceof CriticalError) {
-        throw error
-      }
-    }
   }
 }
 

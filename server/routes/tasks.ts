@@ -45,7 +45,10 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     async (request, _reply) => {
       const { model, filePaths, ...taskData } = request.body as any
       const taskId = await taskService.createTask({ ...taskData, model, filePaths })
-      return { taskId, status: 'open' }
+
+      // Get the task to return the current status
+      const task = await taskService.getTask(taskId)
+      return { taskId, status: task?.status || 'open' }
     },
   )
 
