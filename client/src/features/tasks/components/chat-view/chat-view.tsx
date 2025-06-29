@@ -313,6 +313,7 @@ export function ChatView() {
         <ChatInput
           data-testid="task-chat-input"
           taskId={params.taskId}
+          task={metadata}
           taskStatus={metadata?.status}
           lastIterationHasError={lastIterationHasError}
           onSendMessage={handleSendMessage}

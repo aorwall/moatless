@@ -44,7 +44,7 @@ export function TaskHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const taskId = params.taskId
 
-  const { task: metadata, streamingError } = useTaskDataContext()
+  const { task: metadata, isStreaming } = useTaskDataContext()
 
   const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {
     enabled: !!taskId,
@@ -111,35 +111,35 @@ export function TaskHeader() {
   return (
     <header className="border-b">
       <div className="flex h-16 items-center justify-between px-4">
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-4 min-w-0 flex-1">
           <SidebarTrigger />
 
-          <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <h1 className="text-lg font-semibold">{`Task ${metadata.taskId.slice(0, 8)}`}</h1>
+          <div className="space-y-1 min-w-0 flex-1 max-w-2xl">
+            <div className="flex items-center space-x-2 min-w-0">
+              <h1 className="text-lg font-semibold truncate">{`Task ${metadata.taskId.slice(0, 8)}`}</h1>
             </div>
-            <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-              <span>{new Date(metadata.createdAt).toLocaleString()}</span>
-              <span>{metadata.agentType}</span>
+            <div className="flex items-center space-x-2 text-sm text-muted-foreground overflow-hidden">
+              <span className="truncate">{new Date(metadata.createdAt).toLocaleString()}</span>
+              <span className="truncate">{metadata.agentType}</span>
               <StatusBadge status={metadata.status} />
               <Badge variant="outline">{metadata.numTurns} turns</Badge>
               <Badge variant="outline">${metadata.totalCostUsd.toFixed(4)}</Badge>
             </div>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           <div className="flex items-center space-x-2">
-            {streamingError && (
+            {!isStreaming && metadata?.status === 'running' && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex items-center space-x-1">
-                      <WifiOff className="h-4 w-4 text-red-500" />
-                      <span className="text-sm text-red-500">Streaming error</span>
+                      <WifiOff className="h-4 w-4 text-yellow-500" />
+                      <span className="text-sm text-yellow-500">Not streaming</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>{streamingError}</p>
+                    <p>Real-time streaming is not connected</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

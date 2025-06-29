@@ -2,10 +2,10 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useTaskContext } from '@/features/tasks/contexts/task-data-context'
 import {
   useCloseTask,
   useMergeTask,
-  useTask,
   useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
@@ -22,7 +22,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const navigate = useNavigate()
-  const { data: metadata } = useTask(params.taskId)
+  const { task: metadata } = useTaskContext()
   const { data: environments } = useEnvironmentsList()
   const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
     params.taskId,

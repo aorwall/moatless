@@ -63,38 +63,15 @@ export function useCreateTask(
 
   return useMutation({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
-    onMutate: async (request) => {
-      // Cancel any in-flight task queries
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasks() })
-
-      // Create optimistic task
-      const tempId = `temp-${Date.now()}`
-      const optimisticTask: Task = {
-        taskId: tempId,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        agentType: request.agentType || 'claude-code',
-        environmentId: request.environmentId,
-        status: 'open',
-        numTurns: 0,
-        totalCostUsd: 0,
-        iterations: [],
-      }
-
-      // Pre-populate cache with optimistic data
-      queryClient.setQueryData<Task>(queryKeys.task(optimisticTask.taskId), optimisticTask)
-
-      return { optimisticTask }
-    },
     onSuccess: async (data, variables, context) => {
-      // Replace optimistic data with real data
+      // Pre-populate cache with real task data so the page loads immediately
       const fullTask: Task = {
         taskId: data.taskId,
-        createdAt: new Date(data.createdAt || new Date()),
-        lastMessageAt: new Date(data.updatedAt || new Date()),
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
         agentType: variables.agentType || 'claude-code',
         environmentId: variables.environmentId,
-        status: data.status || 'open',
+        status: (data.status as Task['status']) || 'open',
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -102,50 +79,17 @@ export function useCreateTask(
 
       queryClient.setQueryData<Task>(queryKeys.task(data.taskId), fullTask)
 
-      // Remove temp task if different ID
-      if (context?.optimisticTask.taskId !== data.taskId) {
-        queryClient.removeQueries({
-          queryKey: queryKeys.task(context.optimisticTask.taskId),
-        })
-      }
-
-      // Invalidate lists only (not all task details)
+      // Invalidate task lists to show the new task
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
       })
 
-      // CRITICAL FIX: Prefetch the real task data before navigation
-      // This ensures the task detail page shows fresh data immediately
-      await queryClient.prefetchQuery({
-        queryKey: queryKeys.task(data.taskId),
-        queryFn: () => tasksApi.getTask(data.taskId),
-      })
-
-      // Also prefetch events and git diff to ensure all data is ready
-      await Promise.all([
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.taskEvents(data.taskId),
-          queryFn: () => tasksApi.getTaskEvents(data.taskId),
-        }),
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.taskGitDiff(data.taskId),
-          queryFn: () => tasksApi.getTaskGitDiff(data.taskId),
-          retry: false, // Git diff might not exist yet
-        }),
-      ])
-
-      // Navigate only after cache is ready and real data is prefetched
+      // Navigate to the real task URL now that we have the ID
       navigate({ to: `/tasks/${data.taskId}` })
 
       options?.onSuccess?.(data, variables, context)
     },
     onError: (error, variables, context) => {
-      // Rollback optimistic update
-      if (context?.optimisticTask) {
-        queryClient.removeQueries({
-          queryKey: queryKeys.task(context.optimisticTask.taskId),
-        })
-      }
       options?.onError?.(error, variables, context)
     },
     ...options,
@@ -169,17 +113,13 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.task(variables.taskId),
       })
-      // Also invalidate the tasks list to update metadata like last_message_at
+      // Also invalidate the tasks list to update metadata like last_message_at and status
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasksList(),
       })
       // Invalidate workspace status since sending a message may trigger workspace activity
       await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
-      })
-      // Force refetch the task data immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.task(variables.taskId),
       })
       options?.onSuccess?.(data, variables, context)
     },
@@ -188,7 +128,7 @@ export function useSendMessage(
 }
 
 export function useStopAgent(
-  options?: UseMutationOptions<{ status: string; task_id: string }, Error, string>,
+  options?: UseMutationOptions<{ status: string; taskId: string }, Error, string>,
 ) {
   const queryClient = useQueryClient()
 
@@ -201,7 +141,7 @@ export function useStopAgent(
       })
       // Also invalidate the tasks list to update the status
       queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasks.all,
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -382,12 +322,12 @@ export function useCloseTask(
       })
       // Invalidate AND refetch task lists immediately
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasks.all,
         exact: false,
       })
       // Force an immediate refetch of all task lists
       await queryClient.refetchQueries({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasks.all,
         exact: false,
         type: 'active',
       })
@@ -406,7 +346,7 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
     mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
     onSuccess: (data, taskId, context) => {
       // Invalidate all task queries to refresh the list
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
       // Also invalidate the specific task
       queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
       options?.onSuccess?.(data, taskId, context)
