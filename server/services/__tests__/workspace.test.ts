@@ -59,7 +59,7 @@ describe('WorkspaceService', () => {
     lastMessageAt: new Date(),
     agentType: 'claude-code' as const,
     environmentId: 'test-env',
-    status: 'active' as const,
+    status: 'open' as const,
     numTurns: 0,
     totalCostUsd: 0,
     iterations: [],
@@ -76,6 +76,7 @@ describe('WorkspaceService', () => {
     codeExecution: {
       type: 'local' as const,
     },
+    variables: {},
     createdAt: new Date(),
     updatedAt: new Date(),
   }
@@ -117,8 +118,8 @@ describe('WorkspaceService', () => {
 
     // Mock the validateRepository method to skip validation
     vi.spyOn(environmentService as any, 'validateRepository').mockResolvedValue(undefined)
-    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment)
-    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment)
+    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment as any)
+    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment as any)
 
     service = new WorkspaceService(environmentService, eventService, storage)
   })
@@ -247,7 +248,7 @@ describe('WorkspaceService', () => {
           type: 'docker',
           image: 'node:18',
         },
-      })
+      } as any)
 
       const workspace = await service.getOrCreateWorkspace('test-task')
 
@@ -281,7 +282,7 @@ describe('WorkspaceService', () => {
         if (taskId === 'test-task-cleanup-docker') {
           return Promise.resolve({ ...mockTask, taskId, workspacePath: '/workspace' })
         }
-        return Promise.resolve(null)
+        return Promise.resolve(null as any)
       })
 
       vi.mocked(environmentService.getEnvironment).mockResolvedValueOnce({

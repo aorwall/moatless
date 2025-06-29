@@ -1,11 +1,11 @@
-import { exec } from 'node:child_process'
+// import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import { promisify } from 'node:util'
+// import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventService } from '../../services/event.service.js'
 import { LocalWorkspace } from '../local.js'
 
-const _execAsync = promisify(exec)
+// const _execAsync = promisify(exec)
 
 // Mock dependencies
 vi.mock('../../utils/logger.js', () => ({
@@ -91,7 +91,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     // Create workspace with non-existent path
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment,
+      mockEnvironment as any,
       mockEventService,
       undefined,
       undefined,
@@ -134,7 +134,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment,
+      mockEnvironment as any,
       mockEventService,
       undefined,
       undefined,
@@ -159,7 +159,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
   it('should validate workspace path exists before running commands', async () => {
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment,
+      mockEnvironment as any,
       mockEventService,
       undefined,
       undefined,
@@ -184,7 +184,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment,
+      mockEnvironment as any,
       mockEventService,
       undefined,
       undefined,

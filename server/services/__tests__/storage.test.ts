@@ -79,7 +79,7 @@ describe('FileStorage', () => {
         lastMessageAt: new Date(),
         agentType: 'test-agent',
         environmentId: 'env-123',
-        status: 'active',
+        status: 'open',
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -138,6 +138,7 @@ describe('FileStorage', () => {
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,
+          agentType: 'test-agent',
           payload: { message: 'Starting' },
         },
         {
@@ -146,6 +147,7 @@ describe('FileStorage', () => {
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,
+          agentType: 'test-agent',
           payload: { content: 'Hello' },
         },
       ]

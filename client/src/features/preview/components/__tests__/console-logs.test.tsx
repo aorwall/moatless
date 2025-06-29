@@ -11,7 +11,7 @@ vi.mock('@/lib/components/ui/scroll-area', () => ({
     onScroll,
   }: {
     children: React.ReactNode
-    onScroll?: (e: any) => void
+    onScroll?: (e: React.UIEvent<HTMLDivElement>) => void
   }) => (
     <div data-testid="scroll-area" onScroll={onScroll}>
       <div data-radix-scroll-area-viewport>{children}</div>

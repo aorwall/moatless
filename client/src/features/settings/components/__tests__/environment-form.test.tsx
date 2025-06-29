@@ -1,3 +1,4 @@
+import type { CodeExecution, GithubRepository, LocalRepository } from '@shared/types/environment'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockEnvironment, createMockGithubEnvironment } from '@/test-utils/factories'
@@ -198,7 +199,7 @@ describe('EnvironmentForm', () => {
       expect(screen.getByLabelText(/Name/)).toHaveValue(mockEnvironment.name)
       expect(screen.getByLabelText(/Description/)).toHaveValue(mockEnvironment.description)
       expect(screen.getByLabelText(/Local Path/)).toHaveValue(
-        (mockEnvironment.repository as any).path,
+        (mockEnvironment.repository as LocalRepository).path,
       )
     })
 
@@ -216,14 +217,14 @@ describe('EnvironmentForm', () => {
 
       expect(screen.getByLabelText(/Repository Type/)).toHaveTextContent('GitHub')
       expect(screen.getByLabelText(/Repository ID/)).toHaveValue(
-        (mockEnvironment.repository as any).repoId,
+        (mockEnvironment.repository as GithubRepository).repoId,
       )
       expect(screen.getByLabelText(/Branch/)).toHaveValue(
-        (mockEnvironment.repository as any).branch,
+        (mockEnvironment.repository as GithubRepository).branch,
       )
       expect(screen.getByLabelText(/Execution Type/)).toHaveTextContent('Docker')
       expect(screen.getByLabelText(/Docker Image/)).toHaveValue(
-        (mockEnvironment.codeExecution as any).image,
+        (mockEnvironment.codeExecution as CodeExecution).image,
       )
     })
 

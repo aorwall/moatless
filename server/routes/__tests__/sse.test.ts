@@ -81,6 +81,7 @@ describe('SSE Routes', () => {
         eventId: 'event-2',
         timestamp: new Date(),
         isError: false,
+        agentType: 'test',
         payload: { content: 'Event 1' },
       })
 

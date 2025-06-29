@@ -52,7 +52,13 @@ describe('TaskService', () => {
       getAgentSessionId: vi.fn(),
     } as any
 
-    taskService = new TaskService(mockStorage, mockWorkspaceService, mockAgentService)
+    const mockCommandService = {} as any
+    taskService = new TaskService(
+      mockStorage,
+      mockWorkspaceService,
+      mockAgentService,
+      mockCommandService,
+    )
   })
 
   describe('createTask', () => {
