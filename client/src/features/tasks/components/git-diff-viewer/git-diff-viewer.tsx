@@ -101,8 +101,8 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
             tokens={tokens}
             optimizeSelection
             renderToken={(token: any, defaultRender: any) => {
-              // Handle tokens with className for syntax highlighting
-              if (token.className) {
+              // Handle prism tokens with className for syntax highlighting
+              if (token.type === 'prism' && token.className) {
                 return <span className={token.className}>{token.value || ''}</span>
               }
               return defaultRender(token)
