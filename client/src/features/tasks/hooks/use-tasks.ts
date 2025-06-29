@@ -75,13 +75,14 @@ export function useSendMessage(
   options?: UseMutationOptions<
     SimpleTaskResponse,
     Error,
-    { taskId: string; message: string; resume?: boolean }
+    { taskId: string; message: string; resume?: boolean; model?: string }
   >,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ taskId, message, resume }) => tasksApi.sendMessage(taskId, message, resume),
+    mutationFn: ({ taskId, message, resume, model }) =>
+      tasksApi.sendMessage(taskId, message, resume, model),
     onSuccess: async (data, variables, context) => {
       // Invalidate all data for this specific task (detail, messages, events, etc.)
       await queryClient.invalidateQueries({

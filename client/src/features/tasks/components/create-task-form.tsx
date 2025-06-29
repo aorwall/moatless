@@ -1,6 +1,6 @@
+import { DEFAULT_CLAUDE_MODEL } from '@shared/constants'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-
 import { useBranches, useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { EnvironmentSelector } from '@/features/tasks/components/chat-input/environment-selector'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
@@ -46,6 +46,7 @@ export function CreateTaskForm() {
       message: '',
       environmentId: selectedEnvironmentId,
       branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
+      model: DEFAULT_CLAUDE_MODEL, // Use default model for now
     })
   }
 

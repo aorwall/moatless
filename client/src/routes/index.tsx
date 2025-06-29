@@ -23,12 +23,18 @@ function Dashboard() {
     },
   })
 
-  const handleCreateTask = (message: string, environmentId: string, clearMessage: () => void) => {
+  const handleCreateTask = (
+    message: string,
+    environmentId: string,
+    clearMessage: () => void,
+    model?: string,
+  ) => {
     createTask.mutate(
       {
         agentType: 'claude-code',
         message,
         environmentId,
+        model,
       },
       {
         onSuccess: () => {

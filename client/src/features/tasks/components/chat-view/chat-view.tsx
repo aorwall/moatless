@@ -158,9 +158,10 @@ export function ChatView() {
     message: string,
     clearMessage: () => void,
     resume?: boolean,
+    model?: string,
   ) => {
     sendMessage.mutate(
-      { taskId, message, resume },
+      { taskId, message, resume, model },
       {
         onSuccess: () => {
           clearMessage()

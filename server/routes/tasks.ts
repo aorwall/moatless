@@ -44,7 +44,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const taskId = await taskService.createTask(request.body as any)
+      const { model, ...taskData } = request.body as any
+      const taskId = await taskService.createTask({ ...taskData, model })
       return { taskId, status: 'open' }
     },
   )
@@ -108,9 +109,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { message, resume } = request.body as any
+      const { message, resume, model } = request.body as any
 
-      await taskService.sendMessage(taskId, message, resume)
+      await taskService.sendMessage(taskId, message, resume, model)
       return { status: 'sent', timestamp: new Date().toISOString() }
     },
   )
