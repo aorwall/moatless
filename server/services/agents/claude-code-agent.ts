@@ -84,9 +84,16 @@ export class ClaudeCodeAgent extends BaseAgent {
         const exitCodeMatch = error.message.match(/code (\d+)/)
         const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : null
 
-        // If we've already stopped, this is expected
-        if (this.stopRequested) {
-          agentLogger.debug('Claude Code process exit after stop request - expected behavior')
+        // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected when stopping
+        const isExpectedExitCode = exitCode === 143 || exitCode === 130
+
+        // If we've requested stop or it's an expected exit code, this is normal behavior
+        if (this.stopRequested || isExpectedExitCode) {
+          agentLogger.info('Claude Code process exited after stop request', {
+            exitCode,
+            stopRequested: this.stopRequested,
+            sessionId: this.sessionId,
+          })
           return
         }
 
@@ -95,13 +102,16 @@ export class ClaudeCodeAgent extends BaseAgent {
           sessionId: this.sessionId,
           exitCode,
         })
+        
+        // Only throw if it's truly unexpected
+        throw error
       } else {
         agentLogger.error('Error in SDK query loop', error as Error, {
           stopRequested: this.stopRequested,
           sessionId: this.sessionId,
         })
+        throw error
       }
-      throw error
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
