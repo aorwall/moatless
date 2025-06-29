@@ -30,15 +30,23 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   // Get task metadata (only for status updates, not for connection decision)
   const { data: metadata } = useTask(taskId)
 
-  // Determine if we should stream - connect immediately with valid task ID
+  // Determine if we should stream - only for active tasks
   const shouldStream = useMemo(() => {
     // Don't stream for temporary/optimistic task IDs
     if (!taskId || taskId.startsWith('temp-')) return false
 
-    // Stream immediately for any valid task ID
-    // This ensures we don't miss early events while waiting for metadata
+    // Only stream for tasks that are actively generating events
+    // - 'running': Actively executing and generating events
+    // - 'open': Waiting for execution, no events yet
+    // - 'error', 'merged', 'closed': Complete/failed, no more events expected
+    if (metadata?.status) {
+      return metadata.status === 'running'
+    }
+
+    // If we don't have metadata yet, optimistically stream
+    // This handles the case where task is just created and metadata is loading
     return true
-  }, [taskId])
+  }, [taskId, metadata?.status])
 
   // Memoize SSE callbacks to prevent reconnections
   const handleSSEEvent = useCallback(
@@ -63,17 +71,6 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
         ...old,
         newEvent,
       ])
-
-      // Update task status if we get a status change event
-      if (newEvent.type === EventType.STATUS) {
-        queryClient.setQueryData(queryKeys.task(taskId), (oldTask) => {
-          if (!oldTask) return oldTask
-          return {
-            ...oldTask,
-            status: newEvent.payload?.status || oldTask.status,
-          }
-        })
-      }
     },
     [queryClient, taskId],
   )
@@ -134,6 +131,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   }, [handleSSEDisconnect, shouldStream, taskId])
 
   // Manage SSE connection lifecycle
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Intentionally omitting callback dependencies to prevent reconnection loops
   useEffect(() => {
     // Prevent multiple connections
     if (sseClientRef.current) {
@@ -177,15 +175,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
       }
       setIsStreaming(false)
     }
-  }, [
-    shouldStream,
-    taskId,
-    handleSSEEvent,
-    handleSSEError,
-    handleSSEConnect,
-    handleSSEDisconnectWithRetry,
-    handleSSETaskNotFound,
-  ])
+  }, [shouldStream, taskId])
 
   // Clean up when component unmounts
   useEffect(() => {
