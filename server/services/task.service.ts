@@ -72,6 +72,7 @@ export class TaskService {
       params.branchName,
       params.message,
       params.start ?? true,
+      params.model,
     )
 
     // Track background task in WorkspaceService
@@ -128,7 +129,7 @@ export class TaskService {
     return tasks.slice(offset, offset + limit)
   }
 
-  async sendMessage(taskId: string, message: string, resume = true): Promise<void> {
+  async sendMessage(taskId: string, message: string, resume = true, model?: string): Promise<void> {
     const metadata = await this.getTask(taskId)
 
     // Update metadata
@@ -164,7 +165,7 @@ export class TaskService {
 
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId)
+      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })
@@ -223,6 +224,7 @@ export class TaskService {
     branchName?: string,
     message?: string,
     start?: boolean,
+    model?: string,
   ): Promise<void> {
     const taskLogger = createTaskLogger(taskId)
     const startTime = Date.now()
@@ -260,7 +262,7 @@ export class TaskService {
           await new Promise((resolve) => setTimeout(resolve, checkInterval))
         }
 
-        await this.sendMessage(taskId, message)
+        await this.sendMessage(taskId, message, true, model)
       }
 
       taskLogger.info('Workspace setup completed successfully', {

@@ -1,11 +1,10 @@
+import { type ClaudeModel, CLAUDE_MODELS, DEFAULT_CLAUDE_MODEL } from '@shared/constants'
 import { useEffect, useState } from 'react'
-
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { useStopAgent, useTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
 import { ChatForm } from './chat-form'
-import { EnvironmentSelector } from './environment-selector'
 
 interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   // For task context
@@ -27,8 +26,14 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
     message: string,
     clearMessage: () => void,
     resume?: boolean,
+    model?: ClaudeModel,
   ) => void
-  onCreateTask?: (message: string, environmentId: string, clearMessage: () => void) => void
+  onCreateTask?: (
+    message: string,
+    environmentId: string,
+    clearMessage: () => void,
+    model?: ClaudeModel,
+  ) => void
   isLoading?: boolean
 }
 
@@ -47,9 +52,25 @@ export function ChatInput({
   ...divProps
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>()
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>(() => {
+    // Load last selected environment from localStorage
+    if (typeof window !== 'undefined' && !taskId) {
+      return localStorage.getItem('lastSelectedEnvironmentId') || undefined
+    }
+    return undefined
+  })
   const [runningDuration, setRunningDuration] = useState<string>('')
   const [resumeConversation, setResumeConversation] = useState(true)
+  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(() => {
+    // Load last selected model from localStorage
+    if (typeof window !== 'undefined') {
+      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
+      return savedModel && Object.values(CLAUDE_MODELS).includes(savedModel) 
+        ? savedModel 
+        : DEFAULT_CLAUDE_MODEL
+    }
+    return DEFAULT_CLAUDE_MODEL
+  })
 
   // Get task data to access iteration start time
   const { data: task } = useTask(taskId || '', {
@@ -88,6 +109,18 @@ export function ChatInput({
     return () => clearInterval(interval)
   }, [isRunning, task?.iterations])
 
+  // Save selected environment to localStorage
+  useEffect(() => {
+    if (selectedEnvironmentId && !taskId) {
+      localStorage.setItem('lastSelectedEnvironmentId', selectedEnvironmentId)
+    }
+  }, [selectedEnvironmentId, taskId])
+
+  // Save selected model to localStorage
+  useEffect(() => {
+    localStorage.setItem('lastSelectedModel', selectedModel)
+  }, [selectedModel])
+
   const handleSendMessage = () => {
     // If running, stop the agent instead of sending message
     if (isRunning && taskId) {
@@ -104,11 +137,11 @@ export function ChatInput({
     if (isTaskContext) {
       // Task context - send message
       if (onSendMessage && !isPending) {
-        onSendMessage(taskId, message.trim(), clearMessage, resumeConversation)
+        onSendMessage(taskId, message.trim(), clearMessage, resumeConversation, selectedModel)
       }
     } else if (selectedEnvironmentId && onCreateTask && !isPending) {
       // Homepage context - create task
-      onCreateTask(message.trim(), selectedEnvironmentId, clearMessage)
+      onCreateTask(message.trim(), selectedEnvironmentId, clearMessage, selectedModel)
     }
   }
 
@@ -197,19 +230,16 @@ export function ChatInput({
           taskId={taskId}
           isTaskContext={isTaskContext}
           buttonText={getButtonText()}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+          isRunning={isRunning}
+          // Environment selector props
+          showEnvironmentSelector={showEnvironmentSelector}
+          environments={environments}
+          selectedEnvironmentId={selectedEnvironmentId}
+          onEnvironmentChange={setSelectedEnvironmentId}
+          environmentsLoading={environmentsLoading}
         />
-
-        {showEnvironmentSelector && (
-          <div className="flex flex-col sm:flex-row gap-4">
-            <EnvironmentSelector
-              environments={environments}
-              selectedEnvironmentId={selectedEnvironmentId}
-              onEnvironmentChange={setSelectedEnvironmentId}
-              disabled={isPending}
-              loading={environmentsLoading}
-            />
-          </div>
-        )}
       </div>
     </div>
   )

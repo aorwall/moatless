@@ -95,6 +95,7 @@ export class AgentService {
     iteration: TaskIteration,
     agentType: string = 'claude-code',
     resumeSessionId?: string,
+    model?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
@@ -137,10 +138,11 @@ export class AgentService {
       agentType,
       workspaceStatus: status,
       hasResumeSession: !!resumeSessionId,
+      model,
     })
 
     // Create agent
-    const agent = await this.createAgent(agentType, taskId)
+    const agent = await this.createAgent(agentType, taskId, model)
 
     // Track the running agent
     this.runningAgents.set(taskId, agent)
@@ -248,10 +250,10 @@ export class AgentService {
   /**
    * Create an agent instance
    */
-  private async createAgent(agentType: string, taskId: string): Promise<BaseAgent> {
+  private async createAgent(agentType: string, taskId: string, model?: string): Promise<BaseAgent> {
     if (agentType === 'claude-code') {
       // TODO: Get claude options from storage/config
-      const options = {} // Placeholder for claude options
+      const options = model ? { model } : {} // Pass model in options if provided
       return new ClaudeCodeAgent(taskId, options)
     } else {
       throw new Error(`Unknown agent type: ${agentType}`)

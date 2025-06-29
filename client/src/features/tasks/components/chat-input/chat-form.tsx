@@ -1,8 +1,16 @@
+import { CLAUDE_MODEL_DISPLAY_NAMES, CLAUDE_MODELS, type ClaudeModel } from '@shared/constants'
+import type { Environment } from '@shared/types/environment'
 import { ArrowUp, Circle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/lib/components/ui/select'
 import { Textarea } from '@/lib/components/ui/textarea'
 import {
   Tooltip,
@@ -23,6 +31,15 @@ interface ChatFormProps {
   taskId?: string
   isTaskContext: boolean
   buttonText: string
+  selectedModel: ClaudeModel
+  onModelChange: (model: ClaudeModel) => void
+  isRunning?: boolean
+  // Environment selector props (only shown when creating new task)
+  showEnvironmentSelector?: boolean
+  environments?: Environment[]
+  selectedEnvironmentId?: string
+  onEnvironmentChange?: (environmentId: string) => void
+  environmentsLoading?: boolean
 }
 
 export function ChatForm({
@@ -36,6 +53,14 @@ export function ChatForm({
   taskId,
   isTaskContext,
   buttonText,
+  selectedModel,
+  onModelChange,
+  isRunning = false,
+  showEnvironmentSelector = false,
+  environments,
+  selectedEnvironmentId,
+  onEnvironmentChange,
+  environmentsLoading = false,
 }: ChatFormProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -134,9 +159,45 @@ export function ChatForm({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <div className="ml-auto flex items-center gap-2">
-          {buttonText.includes('m') || buttonText.includes('s') ? (
+      <div className="flex items-center justify-between gap-2">
+        {/* Left side - Environment and Model selectors */}
+        <div className="flex items-center gap-2">
+          {showEnvironmentSelector && onEnvironmentChange && (
+            <Select
+              value={selectedEnvironmentId}
+              onValueChange={onEnvironmentChange}
+              disabled={environmentsLoading}
+            >
+              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[180px]">
+                <SelectValue placeholder="Select environment" />
+              </SelectTrigger>
+              <SelectContent>
+                {environments?.map((env) => (
+                  <SelectItem key={env.id} value={env.id} className="text-xs">
+                    {env.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={selectedModel} onValueChange={onModelChange}>
+            <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={CLAUDE_MODELS.OPUS_4} className="text-xs">
+                {CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4]}
+              </SelectItem>
+              <SelectItem value={CLAUDE_MODELS.SONNET_4} className="text-xs">
+                {CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4]}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Right side - Send button */}
+        <div className="flex items-center">
+          {isRunning ? (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
