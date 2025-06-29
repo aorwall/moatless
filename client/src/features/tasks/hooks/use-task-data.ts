@@ -50,22 +50,3 @@ export function useTaskData(taskId: string): UseTaskDataResult {
     error: queries.find((q) => q.error)?.error || null,
   }
 }
-
-/**
- * Prefetch task data for navigation.
- * Call this before navigating to a task detail page.
- */
-export async function prefetchTaskData(taskId: string, queryClient: any): Promise<void> {
-  await Promise.all([
-    queryClient.prefetchQuery({
-      queryKey: queryKeys.task(taskId),
-      queryFn: () => tasksApi.getTask(taskId),
-      staleTime: 5 * 60 * 1000,
-    }),
-    queryClient.prefetchQuery({
-      queryKey: queryKeys.taskEvents(taskId),
-      queryFn: () => tasksApi.getTaskEvents(taskId),
-      staleTime: 60 * 1000,
-    }),
-  ])
-}

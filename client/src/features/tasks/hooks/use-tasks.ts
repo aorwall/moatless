@@ -380,7 +380,7 @@ export function useMergeTask(
       }
       options?.onError?.(err, variables, context)
     },
-    onSettled: (data, error, variables) => {
+    onSettled: (_data, _error, variables) => {
       // Always refetch to ensure consistency with server state
       queryClient.invalidateQueries({
         queryKey: queryKeys.task(variables.taskId),
@@ -440,23 +440,29 @@ export function useCloseTask(
       }
       options?.onError?.(err, taskId, context)
     },
-    onSettled: (data, error, taskId) => {
+    onSettled: async (_data, _error, taskId) => {
       // Always refetch to ensure consistency with server state
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
       })
       // Invalidate workspace status
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.taskWorkspaceStatus(taskId),
       })
       // Invalidate server status
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
       })
-      // Invalidate task lists that might show this task
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
+      // Invalidate AND refetch task lists immediately
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(),
         exact: false,
+      })
+      // Force an immediate refetch of all task lists
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.tasks(),
+        exact: false,
+        type: 'active',
       })
     },
     onSuccess: (data, taskId, context) => {
