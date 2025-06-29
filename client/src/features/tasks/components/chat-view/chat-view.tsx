@@ -1,7 +1,7 @@
 import { EventType } from '@shared/types/event'
 import type { TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
-import { Clock, DollarSign, MessageSquare } from 'lucide-react'
+import { AlertCircle, Clock, DollarSign, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -10,6 +10,7 @@ import { useTaskEventsWithStreaming } from '@/features/tasks/hooks/use-task-even
 import { useSendMessage, useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { Alert, AlertDescription } from '@/lib/components/ui/alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
@@ -220,44 +221,36 @@ export function ChatView() {
                   {/* Result Message or Error */}
                   {(iteration.status === 'failed' || iteration.status === 'error') &&
                   iteration.error ? (
-                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="text-destructive mt-0.5">
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 16 16"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            aria-label="Error icon"
-                          >
-                            <title>Error</title>
-                            <path
-                              d="M8 1.5C4.41 1.5 1.5 4.41 1.5 8C1.5 11.59 4.41 14.5 8 14.5C11.59 14.5 14.5 11.59 14.5 8C14.5 4.41 11.59 1.5 8 1.5ZM8 13C5.24 13 3 10.76 3 8C3 5.24 5.24 3 8 3C10.76 3 13 5.24 13 8C13 10.76 10.76 13 8 13ZM7.25 5V9H8.75V5H7.25ZM7.25 10V11.5H8.75V10H7.25Z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-destructive mb-1">
-                            Iteration Failed
-                          </div>
-                          <div className="text-sm text-gray-700 dark:text-gray-300">
-                            {iteration.error.message}
-                          </div>
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        <div className="space-y-3">
+                          {/* Show result first if available */}
+                          {iteration.result && (
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {iteration.result}
+                              </ReactMarkdown>
+                            </div>
+                          )}
+
+                          {/* Error message */}
+                          <div>Error: {iteration.error.message}</div>
+
+                          {/* Expandable stack trace */}
                           {iteration.error.stack && (
                             <details className="mt-2">
-                              <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:underline">
+                              <summary className="text-xs cursor-pointer hover:underline">
                                 Show stack trace
                               </summary>
-                              <pre className="mt-1 text-xs text-gray-600 dark:text-gray-400 overflow-x-auto whitespace-pre-wrap">
+                              <pre className="mt-2 text-xs overflow-x-auto whitespace-pre-wrap bg-black/10 dark:bg-white/10 p-2 rounded">
                                 {iteration.error.stack}
                               </pre>
                             </details>
                           )}
                         </div>
-                      </div>
-                    </div>
+                      </AlertDescription>
+                    </Alert>
                   ) : iteration.result ? (
                     <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
