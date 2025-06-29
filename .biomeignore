@@ -1,2 +1,2 @@
 **/__tests__/**
-client/src/test-utils/mocks.ts
+client/src/routeTree.gen.ts

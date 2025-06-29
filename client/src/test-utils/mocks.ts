@@ -35,7 +35,7 @@ export class MockSSEConnection {
   }
 
   // Test helper to emit events
-  emit(event: string, data: any) {
+  emit(event: string, data: unknown) {
     const listeners = this.listeners.get(event) || []
     listeners.forEach((callback) => callback({ data }))
   }
@@ -75,8 +75,9 @@ export function mockEventSource() {
     return new MockSSEConnection(url)
   })
 
-  // @ts-ignore
-  global.EventSource = MockEventSourceConstructor
+  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
+
+  ;(global as any).EventSource = MockEventSourceConstructor
 
   return MockEventSourceConstructor
 }
@@ -84,7 +85,8 @@ export function mockEventSource() {
 // Mock fetch for API calls
 export function mockFetch() {
   const fetchMock = vi.fn()
-  global.fetch = fetchMock as any
+  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
+  ;(global as any).fetch = fetchMock
   return fetchMock
 }
 
@@ -103,20 +105,20 @@ export function createMockQueryClient() {
 export class MockWebSocket {
   url: string
   readyState: number = 1 // OPEN
-  listeners: Map<string, Array<(event: any) => void>> = new Map()
+  listeners: Map<string, Array<(event: MessageEvent | Event | CloseEvent) => void>> = new Map()
 
   constructor(url: string) {
     this.url = url
   }
 
-  addEventListener(event: string, callback: (event: any) => void) {
+  addEventListener(event: string, callback: (event: MessageEvent | Event | CloseEvent) => void) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, [])
     }
     this.listeners.get(event)!.push(callback)
   }
 
-  removeEventListener(event: string, callback: (event: any) => void) {
+  removeEventListener(event: string, callback: (event: MessageEvent | Event | CloseEvent) => void) {
     const listeners = this.listeners.get(event) || []
     const index = listeners.indexOf(callback)
     if (index > -1) {
@@ -134,9 +136,9 @@ export class MockWebSocket {
   }
 
   // Test helper to emit events
-  emit(event: string, data: any) {
+  emit(event: string, data: unknown) {
     const listeners = this.listeners.get(event) || []
-    listeners.forEach((callback) => callback(data))
+    listeners.forEach((callback) => callback(data as MessageEvent | Event | CloseEvent))
   }
 }
 
@@ -146,8 +148,9 @@ export function mockWebSocket() {
     return new MockWebSocket(url)
   })
 
-  // @ts-ignore
-  global.WebSocket = MockWebSocketConstructor
+  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
+
+  ;(global as any).WebSocket = MockWebSocketConstructor
 
   return MockWebSocketConstructor
 }
