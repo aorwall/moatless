@@ -43,7 +43,7 @@ export function TaskHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const taskId = params.taskId
 
-  const { status, agentType, environmentId, createdAt, iterations } = useTaskData()
+  const { status, agentType, createdAt, iterations } = useTaskData()
   const { isStreaming } = useTaskEvents()
 
   const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {

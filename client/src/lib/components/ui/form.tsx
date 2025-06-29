@@ -23,6 +23,7 @@ interface FormLabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> {}
 const FormLabel = React.forwardRef<HTMLLabelElement, FormLabelProps>(
   ({ className, ...props }, ref) => {
     return (
+      // biome-ignore lint/a11y/noLabelWithoutControl: This is a reusable form label component that receives htmlFor dynamically via props
       <label
         ref={ref}
         className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className || ''}`}

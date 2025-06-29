@@ -72,7 +72,7 @@ export function createMockMessageEvent(
   })
 }
 
-export function createMockToolEvent(toolName: string, input: any): Event {
+export function createMockToolEvent(toolName: string, input: unknown): Event {
   return createMockEvent({
     type: EventType.TOOL,
     payload: {
@@ -166,7 +166,7 @@ export function createMockTaskWithIterations(
     iterations.push(
       createMockTaskIteration({
         iteration: i,
-      } as any),
+      }),
     )
   }
 

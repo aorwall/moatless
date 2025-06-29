@@ -51,6 +51,9 @@ export function EnvironmentForm({
   const githubRepoId = useId()
   const githubBranchId = useId()
   const githubCommitId = useId()
+  const githubTokenId = useId()
+  const codeExecutionTypeId = useId()
+  const dockerImageId = useId()
 
   const getDefaultFormData = () => ({
     name: '',
@@ -391,9 +394,9 @@ export function EnvironmentForm({
                 </div>
 
                 <FormField>
-                  <FormLabel htmlFor="github-token">Access Token (for private repos)</FormLabel>
+                  <FormLabel htmlFor={githubTokenId}>Access Token (for private repos)</FormLabel>
                   <Input
-                    id="github-token"
+                    id={githubTokenId}
                     type="password"
                     value={formData.githubToken}
                     onChange={(e) => updateFormData('githubToken', e.target.value)}
@@ -416,7 +419,7 @@ export function EnvironmentForm({
                   updateFormData('codeExecutionType', value as 'local' | 'docker')
                 }
               >
-                <SelectTrigger id="code-execution-type" aria-label="Code execution type">
+                <SelectTrigger id={codeExecutionTypeId} aria-label="Code execution type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -446,9 +449,9 @@ export function EnvironmentForm({
             {formData.codeExecutionType === 'docker' && (
               <div className="space-y-4">
                 <FormField>
-                  <FormLabel htmlFor="docker-image">Docker Image *</FormLabel>
+                  <FormLabel htmlFor={dockerImageId}>Docker Image *</FormLabel>
                   <Input
-                    id="docker-image"
+                    id={dockerImageId}
                     value={formData.dockerImage}
                     onChange={(e) => updateFormData('dockerImage', e.target.value)}
                     placeholder="python:3.11"

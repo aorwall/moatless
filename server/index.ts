@@ -20,6 +20,7 @@ const server = fastify({
       },
     },
     serializers: {
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify serializer types are complex
       req(request: any) {
         return {
           method: request.method,
@@ -29,6 +30,7 @@ const server = fastify({
           remotePort: request.socket.remotePort,
         }
       },
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify serializer types are complex
       res(reply: any) {
         return {
           statusCode: reply.statusCode,

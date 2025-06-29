@@ -34,7 +34,7 @@ export class MoatlessError extends Error {
     message: string,
     public code: ErrorCode,
     public statusCode: number = 500,
-    public details?: any,
+    public details?: unknown,
   ) {
     super(message)
     this.name = 'MoatlessError'
@@ -66,7 +66,7 @@ export class WorkspaceError extends MoatlessError {
 }
 
 export class ValidationError extends MoatlessError {
-  constructor(message: string, errors: any) {
+  constructor(message: string, errors: unknown) {
     super(message, ERROR_CODES.VALIDATION_ERROR, 400, { errors })
   }
 }
@@ -75,7 +75,7 @@ export class CriticalError extends MoatlessError {
   constructor(
     message: string,
     public readonly taskId: string,
-    public readonly iteration?: any,
+    public readonly iteration?: unknown,
   ) {
     super(message, ERROR_CODES.AGENT_EXECUTION_ERROR, 500, { taskId, iteration })
     this.name = 'CriticalError'

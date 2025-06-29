@@ -203,7 +203,7 @@ function convertPrismToken(token: Prism.Token | string, parentType?: string): Di
         type: 'prism',
         value: token.content,
         className,
-      } as any,
+      } as { type: string; value: string; className?: string },
     ]
   }
 

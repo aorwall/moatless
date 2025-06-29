@@ -17,7 +17,7 @@ export class ApiError extends Error {
       typeof this.data === 'object' &&
       this.data !== null &&
       'error' in this.data &&
-      typeof (this.data as any).error === 'object'
+      typeof (this.data as { error: unknown }).error === 'object'
     )
   }
 

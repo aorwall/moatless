@@ -52,7 +52,7 @@ function getToolIcon(toolName: string) {
 
 function getToolSummary(toolContent: ToolUseContent): string {
   const toolName = toolContent.name
-  const input = toolContent.input as any
+  const input = toolContent.input as Record<string, unknown>
 
   if (!input || typeof input !== 'object') {
     return ''

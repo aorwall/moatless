@@ -1,4 +1,5 @@
 import { EventType } from '@shared/types/event'
+import { WorkspaceStatus } from '@shared/types/workspace'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
@@ -33,23 +34,20 @@ describe('useTaskStreaming', () => {
     vi.clearAllMocks()
 
     // Reset mock SSE client
-    vi.mocked(NDJSONSSEClient).mockImplementation(
-      (options) =>
-        ({
-          connect: mockConnect,
-          disconnect: mockDisconnect,
-          onEvent: options.onEvent,
-          onError: options.onError,
-          onConnect: options.onConnect,
-          onDisconnect: options.onDisconnect,
-          onTaskNotFound: options.onTaskNotFound,
-        }) as any,
-    )
+    vi.mocked(NDJSONSSEClient).mockImplementation((options) => ({
+      connect: mockConnect,
+      disconnect: mockDisconnect,
+      onEvent: options.onEvent,
+      onError: options.onError,
+      onConnect: options.onConnect,
+      onDisconnect: options.onDisconnect,
+      onTaskNotFound: options.onTaskNotFound,
+    }))
 
     // Default API mock returns
     vi.mocked(tasksApi.getTask).mockResolvedValue(createMockTask({ status: 'open' }))
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(
-      createMockWorkspaceStatus({ status: 'idle' as any }),
+      createMockWorkspaceStatus({ status: WorkspaceStatus.IDLE }),
     )
   })
 
