@@ -10,10 +10,10 @@ import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { EventList } from './event-list'
 
 // Track visited tasks to determine if this is the first time opening this task
-const visitedTasks = new Set<string>()
+const _visitedTasks = new Set<string>()
 
 export function EventViewer() {
-  const params = useParams({ from: '/tasks/$taskId' })
+  const _params = useParams({ from: '/tasks/$taskId' })
   const { scrollRef } = useAutoScroll()
 
   // Use the context to get events and states

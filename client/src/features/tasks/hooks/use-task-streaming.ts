@@ -54,7 +54,7 @@ export function useTaskStreaming(
     // If we don't have task data yet, optimistically stream if workspace seems ready
     // This handles the case where task is just created and metadata is loading
     return workspaceIsReady
-  }, [taskId, task?.status, workspaceStatus?.status])
+  }, [taskId, task?.status, workspaceStatus?.status, workspaceStatus])
 
   // Cleanup function
   const cleanup = useCallback(() => {

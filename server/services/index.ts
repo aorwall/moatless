@@ -35,7 +35,7 @@ export async function setupServices(app: FastifyInstance): Promise<Services> {
   workspace.setPreviewEnvironmentService(previewEnvironment)
 
   const agent = createAgentService(app, storage, event, workspace)
-  const task = createTaskService(app, storage, event, workspace, agent)
+  const task = createTaskService(app, storage, event, workspace, agent, command)
 
   return {
     storage,

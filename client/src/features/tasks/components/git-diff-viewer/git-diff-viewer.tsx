@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
+import 'prism-color-variables/variables.css'
 
 import {
   useGitDiff,

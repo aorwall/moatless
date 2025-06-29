@@ -51,11 +51,13 @@ export const tasksApi = {
     message: string,
     resume?: boolean,
     model?: string,
+    commandName?: string,
   ): Promise<SimpleTaskResponse> {
     return await apiClient.post<SimpleTaskResponse>(`/api/v1/tasks/${taskId}/messages`, {
       message,
       resume,
       model,
+      commandName,
     })
   },
 
