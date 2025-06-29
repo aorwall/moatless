@@ -9,9 +9,11 @@ import type {
   FileSearchRequest,
   FileSearchResponse,
   LocalRepository,
+  PreviewConfig,
   RemoteRepository,
 } from '../../shared/types/index.js'
 import { searchFilesInDirectoryNew } from '../utils/file-search.js'
+import { logger } from '../utils/logger.js'
 import { validateRepositoryAccess } from '../utils/repository.js'
 import type { StorageBackend } from './storage.js'
 
@@ -22,12 +24,37 @@ export class EnvironmentService {
     // Validate repository configuration
     await this.validateRepository(request.repository)
 
+    // Auto-detect framework for local repositories if not provided
+    let previewConfig = request.previewConfig
+    if (request.repository.type === 'local' && !previewConfig?.framework) {
+      try {
+        const detectedConfig = await this.detectFramework(request.repository.path)
+        previewConfig = {
+          ...previewConfig,
+          ...detectedConfig,
+          autoDetected: true,
+        }
+      } catch (error) {
+        logger.warn('Failed to auto-detect framework', { error })
+      }
+    }
+
+    // Set serverCommand from preview config if available and not already set
+    let serverCommand = request.codeExecution.serverCommand
+    if (!serverCommand && previewConfig?.serverStartCommand) {
+      serverCommand = previewConfig.serverStartCommand
+    }
+
     const environment: Environment = {
       id: randomUUID(),
       name: request.name,
       description: request.description,
       repository: request.repository,
-      codeExecution: request.codeExecution,
+      codeExecution: {
+        ...request.codeExecution,
+        serverCommand,
+      },
+      previewConfig,
       variables: request.variables || {},
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -136,6 +163,37 @@ export class EnvironmentService {
     }
   }
 
+  /**
+   * Re-detect framework for an environment and update its configuration
+   */
+  async detectAndUpdateFramework(envId: string): Promise<Environment> {
+    const environment = await this.getEnvironment(envId)
+    if (!environment) {
+      throw new EnvironmentNotFoundError(envId)
+    }
+
+    if (environment.repository.type !== 'local') {
+      throw new ValidationError('Framework detection is only supported for local repositories', {
+        repositoryType: environment.repository.type,
+      })
+    }
+
+    const localRepo = environment.repository as LocalRepository
+    const detectedConfig = await this.detectFramework(localRepo.path)
+
+    const updatedEnvironment = {
+      ...environment,
+      previewConfig: {
+        ...detectedConfig,
+        autoDetected: true,
+      },
+      updatedAt: new Date(),
+    }
+
+    await this.saveEnvironment(updatedEnvironment)
+    return updatedEnvironment
+  }
+
   async getRepositoryInfo(envId: string): Promise<{
     type: string
     accessible: boolean
@@ -234,6 +292,129 @@ export class EnvironmentService {
       default:
         return {}
     }
+  }
+
+  /**
+   * Detect the framework type and version from a local repository path
+   */
+  private async detectFramework(repoPath: string): Promise<Partial<PreviewConfig>> {
+    const packageJsonPath = path.join(repoPath, 'package.json')
+
+    try {
+      // Read package.json to detect dependencies
+      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'))
+      const deps = { ...packageJson.dependencies, ...packageJson.devDependencies }
+      const scripts = packageJson.scripts || {}
+
+      // Detect framework based on dependencies
+      if (deps.vite) {
+        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve'])
+        return {
+          framework: 'vite',
+          frameworkVersion: deps.vite,
+          serverStartCommand: serverCommand,
+          serverPort: 5173, // Vite default port
+          injectionStrategy: {
+            method: 'html-injection',
+            config: {
+              indexPath: 'index.html',
+              insertLocation: 'head',
+            },
+          },
+        }
+      }
+
+      if (deps.next) {
+        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start'])
+        return {
+          framework: 'nextjs',
+          frameworkVersion: deps.next,
+          serverStartCommand: serverCommand,
+          serverPort: 3000, // Next.js default port
+          injectionStrategy: {
+            method: 'middleware',
+            config: {
+              middleware: 'api',
+            },
+          },
+        }
+      }
+
+      if (deps['react-scripts']) {
+        const serverCommand = this.detectServerCommand(scripts, ['start', 'dev'])
+        return {
+          framework: 'cra',
+          frameworkVersion: deps['react-scripts'],
+          serverStartCommand: serverCommand,
+          serverPort: 3000, // CRA default port
+          injectionStrategy: {
+            method: 'html-injection',
+            config: {
+              indexPath: 'public/index.html',
+              insertLocation: 'head',
+            },
+          },
+        }
+      }
+
+      if (deps.webpack) {
+        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve'])
+        return {
+          framework: 'webpack',
+          frameworkVersion: deps.webpack,
+          serverStartCommand: serverCommand,
+          serverPort: 8080, // Webpack dev server default port
+          injectionStrategy: {
+            method: 'html-injection',
+            config: {},
+          },
+        }
+      }
+
+      // Unknown framework, try to detect start command
+      const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve'])
+      return {
+        framework: 'unknown',
+        serverStartCommand: serverCommand,
+        injectionStrategy: {
+          method: 'html-injection',
+          config: {},
+        },
+      }
+    } catch (error) {
+      logger.debug('Failed to detect framework', { repoPath, error })
+      return {
+        framework: 'unknown',
+        injectionStrategy: {
+          method: 'html-injection',
+          config: {},
+        },
+      }
+    }
+  }
+
+  /**
+   * Detect the server start command from package.json scripts
+   */
+  private detectServerCommand(
+    scripts: Record<string, string>,
+    preferredCommands: string[],
+  ): string | undefined {
+    // Check preferred commands in order
+    for (const cmd of preferredCommands) {
+      if (scripts[cmd]) {
+        return `npm run ${cmd}`
+      }
+    }
+
+    // Look for any script containing 'dev' or 'start'
+    for (const [scriptName, _scriptValue] of Object.entries(scripts)) {
+      if (scriptName.includes('dev') || scriptName.includes('start')) {
+        return `npm run ${scriptName}`
+      }
+    }
+
+    return undefined
   }
 }
 

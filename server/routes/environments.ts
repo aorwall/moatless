@@ -181,4 +181,33 @@ export async function registerEnvironmentRoutes(app: FastifyInstance) {
       } as BranchListResponse
     },
   )
+
+  // Detect framework for environment
+  app.post(
+    '/:environmentId/detect-framework',
+    {
+      schema: {
+        params: EnvironmentIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const { environmentId } = request.params as z.infer<typeof EnvironmentIdParamsSchema>
+
+      // Verify environment exists
+      const environment = await environmentService.getEnvironment(environmentId)
+      if (!environment) {
+        throw new EnvironmentNotFoundError(environmentId)
+      }
+
+      // Only support local repositories for framework detection
+      if (environment.repository.type !== 'local') {
+        throw new Error('Framework detection is only supported for local repositories')
+      }
+
+      // Re-detect framework and update environment
+      const updatedEnvironment = await environmentService.detectAndUpdateFramework(environmentId)
+
+      return updatedEnvironment.previewConfig
+    },
+  )
 }
