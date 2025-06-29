@@ -40,6 +40,7 @@ interface ChatFormProps {
   selectedEnvironmentId?: string
   onEnvironmentChange?: (environmentId: string) => void
   environmentsLoading?: boolean
+  maxHeight?: string
 }
 
 export function ChatForm({
@@ -61,6 +62,7 @@ export function ChatForm({
   selectedEnvironmentId,
   onEnvironmentChange,
   environmentsLoading = false,
+  maxHeight = '200px',
 }: ChatFormProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -83,6 +85,19 @@ export function ChatForm({
     value: message,
     onValueChange: onMessageChange,
   })
+
+  // Initial resize on mount
+  useEffect(() => {
+    const textarea = inputRef.current
+    if (!textarea) return
+
+    // Set initial height
+    textarea.style.height = 'auto'
+    const scrollHeight = textarea.scrollHeight
+    const maxHeightPx = parseInt(maxHeight)
+    const newHeight = Math.min(scrollHeight, maxHeightPx)
+    textarea.style.height = `${newHeight}px`
+  }, [maxHeight, inputRef.current])
 
   // Detect if dropdown should appear above or below
   useEffect(() => {
@@ -120,6 +135,14 @@ export function ChatForm({
     const cursorPosition = e.target.selectionStart || 0
     onMessageChange(value)
     handleInputChange(value, cursorPosition)
+
+    // Auto-resize textarea on input
+    const textarea = e.target
+    textarea.style.height = 'auto'
+    const scrollHeight = textarea.scrollHeight
+    const maxHeightPx = parseInt(maxHeight)
+    const newHeight = Math.min(scrollHeight, maxHeightPx)
+    textarea.style.height = `${newHeight}px`
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -143,8 +166,8 @@ export function ChatForm({
             value={message}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
-            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 max-h-[200px] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none"
-            style={{ minHeight: '40px' }}
+            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto"
+            style={{ minHeight: '40px', maxHeight }}
             disabled={textareaDisabled}
           />
           {isAutocompleteOpen && (

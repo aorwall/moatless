@@ -1,4 +1,4 @@
-import { type ClaudeModel, CLAUDE_MODELS, DEFAULT_CLAUDE_MODEL } from '@shared/constants'
+import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@shared/constants'
 import { useEffect, useState } from 'react'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { useStopAgent, useTask } from '@/features/tasks/hooks/use-tasks'
@@ -35,6 +35,9 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
     model?: ClaudeModel,
   ) => void
   isLoading?: boolean
+
+  // Textarea configuration
+  maxHeight?: string
 }
 
 export function ChatInput({
@@ -49,6 +52,7 @@ export function ChatInput({
   onCreateTask,
   isLoading = false,
   className = '',
+  maxHeight = '200px',
   ...divProps
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
@@ -65,8 +69,8 @@ export function ChatInput({
     // Load last selected model from localStorage
     if (typeof window !== 'undefined') {
       const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
-      return savedModel && Object.values(CLAUDE_MODELS).includes(savedModel) 
-        ? savedModel 
+      return savedModel && Object.values(CLAUDE_MODELS).includes(savedModel)
+        ? savedModel
         : DEFAULT_CLAUDE_MODEL
     }
     return DEFAULT_CLAUDE_MODEL
@@ -239,6 +243,7 @@ export function ChatInput({
           selectedEnvironmentId={selectedEnvironmentId}
           onEnvironmentChange={setSelectedEnvironmentId}
           environmentsLoading={environmentsLoading}
+          maxHeight={maxHeight}
         />
       </div>
     </div>

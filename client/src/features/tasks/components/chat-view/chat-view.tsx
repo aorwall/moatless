@@ -291,6 +291,7 @@ export function ChatView() {
           onSendMessage={handleSendMessage}
           isLoading={sendMessage.isPending}
           className="p-4 border-t border-slate-200 dark:border-slate-700"
+          maxHeight="150px"
         />
       </ErrorBoundary>
     </div>
