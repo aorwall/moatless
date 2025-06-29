@@ -3,9 +3,9 @@ import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 import { Layout } from '@/lib/layout'
 
-const title = 'Moatless Swarm'
-const description = 'Moatless Swarm'
-const url = 'https://swarm.moatless.ai'
+const title = 'Moatless Vibe'
+const description = 'Moatless Vibe'
+const url = 'https://moatless.ai'
 const ogImgUrl =
   'https://og.sznm.dev/api/generate?heading=Moatless+Swarm&text=Moatless+Swarm&template=color'
 

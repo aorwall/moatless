@@ -1,6 +1,6 @@
 # File Tree Viewer Implementation Guide
 
-This guide outlines how to implement a file tree viewer UI for tasks in the Moatless Swarm UI project, following the established architecture patterns.
+This guide outlines how to implement a file tree viewer UI for tasks in the Moatless Vibe UI project, following the established architecture patterns.
 
 ## Overview
 

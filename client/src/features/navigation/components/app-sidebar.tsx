@@ -24,7 +24,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
-                <span className="font-bold">Moatless Swarm</span>
+                <span className="font-bold">Moatless Vibe</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
