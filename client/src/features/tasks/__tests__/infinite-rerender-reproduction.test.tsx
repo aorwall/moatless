@@ -136,7 +136,7 @@ describe('Infinite Re-render Pattern Tests', () => {
           left: 60,
           right: panelSizes.right,
         })
-      }, [panelSizes, setPanelSizes]) // panelSizes changes -> effect runs -> setPanelSizes -> panelSizes changes
+      }, [panelSizes]) // panelSizes changes -> effect runs -> setPanelSizes -> panelSizes changes
 
       return (
         <div>
@@ -158,7 +158,7 @@ describe('Infinite Re-render Pattern Tests', () => {
         throw new Error(`INFINITE RE-RENDER DETECTED: Component rendered ${renderCount} times`)
       }
 
-      const [refs, setRefs] = React.useState<(HTMLElement | null)[]>([])
+      const [_refs, setRefs] = React.useState<(HTMLElement | null)[]>([])
 
       // This callback function changes every render because it's not properly memoized
       const setRef = React.useCallback(
@@ -175,7 +175,7 @@ describe('Infinite Re-render Pattern Tests', () => {
       React.useEffect(() => {
         // This runs every time setRef changes (which is every render)
         console.log('setRef changed')
-      }, [setRef])
+      }, [])
 
       return (
         <div>
@@ -222,7 +222,7 @@ describe('Infinite Re-render Pattern Tests', () => {
       }, [task])
 
       // FIXED: Panel sizes only update when needed
-      const [panelSizes, setPanelSizes] = React.useState({ left: 60, right: 40 })
+      const [_panelSizes, setPanelSizes] = React.useState({ left: 60, right: 40 })
 
       React.useEffect(() => {
         // FIXED: Only run once on mount

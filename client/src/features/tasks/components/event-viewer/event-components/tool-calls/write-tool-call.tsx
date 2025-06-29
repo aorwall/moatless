@@ -13,7 +13,36 @@ interface WriteToolCallProps {
 }
 
 export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
-  // Validate input
+  // Ensure content is a string or empty string for the hooks
+  const content =
+    input?.content !== undefined && input?.content !== null ? String(input.content) : ''
+  const filePath = input?.filePath || ''
+
+  // Create a unified diff format showing only additions (new file)
+  const diffContent = useMemo(() => {
+    if (!filePath || !content) return ''
+
+    // Extract just the filename from the path
+    const fileName = filePath.split('/').pop() || filePath
+
+    // Create a unified diff format for a new file (all additions)
+    const lines = content.split('\n')
+    const diff = [
+      `--- /dev/null`,
+      `+++ b/${fileName}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+ ${line}`),
+    ].join('\n')
+
+    return diff
+  }, [filePath, content])
+
+  // Count lines for display
+  const lineCount = useMemo(() => {
+    return content ? content.split('\n').length : 0
+  }, [content])
+
+  // Validate input after hooks
   if (!input || typeof input !== 'object') {
     console.error('[WriteToolCall] Invalid input:', input)
     return (
@@ -40,31 +69,6 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
       </div>
     )
   }
-
-  // Ensure content is a string
-  const content = String(input.content)
-
-  // Create a unified diff format showing only additions (new file)
-  const diffContent = useMemo(() => {
-    // Extract just the filename from the path
-    const fileName = input.filePath.split('/').pop() || input.filePath
-
-    // Create a unified diff format for a new file (all additions)
-    const lines = content.split('\n')
-    const diff = [
-      `--- /dev/null`,
-      `+++ b/${fileName}`,
-      `@@ -0,0 +1,${lines.length} @@`,
-      ...lines.map((line) => `+ ${line}`),
-    ].join('\n')
-
-    return diff
-  }, [input.filePath, content])
-
-  // Count lines for display
-  const lineCount = useMemo(() => {
-    return content.split('\n').length
-  }, [content])
 
   return (
     <div className="space-y-2">
