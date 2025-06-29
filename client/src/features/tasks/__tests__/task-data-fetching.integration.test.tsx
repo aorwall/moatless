@@ -10,13 +10,13 @@ const mockNavigate = vi.fn()
 const mockParams = { taskId: 'test-task-123' }
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
-  const actual = (await importOriginal()) as any
+  const actual = (await importOriginal()) as typeof import('@tanstack/react-router')
   return {
     ...actual,
     useNavigate: () => mockNavigate,
     useParams: () => mockParams,
-    Link: ({ children }: any) => <a>{children}</a>,
-    createFileRoute: (_path: string) => (config: any) => ({
+    Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a>,
+    createFileRoute: (_path: string) => (config: Record<string, unknown>) => ({
       ...config,
       useParams: () => mockParams,
     }),

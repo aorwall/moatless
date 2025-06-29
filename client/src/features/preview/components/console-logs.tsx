@@ -23,7 +23,7 @@ export function ConsoleLogs() {
   const [logs, setLogs] = useState<ConsoleLog[]>([])
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const shouldAutoScroll = useRef(true)
-  const config = usePreviewStore((state) => state.config)
+  const previewUrl = usePreviewStore((state) => state.config?.url)
 
   // Listen for console messages from the preview iframe
   useEffect(() => {
@@ -62,11 +62,12 @@ export function ConsoleLogs() {
     return () => window.removeEventListener('message', handleMessage)
   }, [])
 
-  // Clear logs when preview URL changes and auto-scroll on log changes
+  // Clear logs when preview URL changes
   useEffect(() => {
-    // Clear logs when URL changes
-    setLogs([])
-  }, [config.url])
+    if (previewUrl) {
+      setLogs([])
+    }
+  }, [previewUrl])
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {

@@ -26,7 +26,9 @@ vi.mock('@/features/tasks/stores/task-ui-store', () => ({
 
 // Mock additional dependencies
 vi.mock('@/lib/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+    <div {...props}>{children}</div>
+  ),
 }))
 vi.mock('../chat-input', () => ({
   ChatInput: () => <div data-testid="task-chat-input">Mock Chat Input</div>,
@@ -57,7 +59,8 @@ describe('ChatView Workspace Integration', () => {
       data: task,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     // Workspace is running
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
@@ -68,7 +71,8 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
@@ -97,7 +101,8 @@ describe('ChatView Workspace Integration', () => {
       data: task,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -107,7 +112,8 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
@@ -170,7 +176,8 @@ describe('ChatView Workspace Integration', () => {
       data: task,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -180,7 +187,8 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events,
@@ -212,7 +220,8 @@ describe('ChatView Workspace Integration', () => {
       data: task,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -222,7 +231,8 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],
@@ -258,7 +268,8 @@ describe('ChatView Workspace Integration', () => {
       data: task,
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
       data: {
@@ -268,7 +279,8 @@ describe('ChatView Workspace Integration', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+      refetch: vi.fn(),
+    })
 
     vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
       events: [],

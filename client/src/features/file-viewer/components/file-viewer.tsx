@@ -54,7 +54,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
           <pre className="text-sm text-foreground">
             <code className={`language-${language}`}>
               {lines.map((line, index) => (
-                <div key={index} className="grid grid-cols-[auto_1fr] gap-4">
+                <div key={`line-${index + 1}`} className="grid grid-cols-[auto_1fr] gap-4">
                   <span className="text-muted-foreground text-right select-none">{index + 1}</span>
                   <span className="whitespace-pre-wrap break-words">{line || '\u00A0'}</span>
                 </div>

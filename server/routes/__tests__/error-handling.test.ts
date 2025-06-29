@@ -139,7 +139,7 @@ describe('API Error Handling', () => {
     })
 
     it('should return 404 for non-existent resources', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.inject({
         method: 'GET',

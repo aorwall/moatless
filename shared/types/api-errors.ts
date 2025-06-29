@@ -6,7 +6,7 @@ export interface ApiErrorResponse {
 export interface ApiError {
   code: string
   message: string
-  details?: Record<string, any>
+  details?: Record<string, unknown>
 }
 
 export interface ValidationError extends ApiError {
@@ -52,9 +52,9 @@ export function isApiErrorResponse(error: unknown): error is ApiErrorResponse {
     typeof error === 'object' &&
     error !== null &&
     'error' in error &&
-    typeof (error as any).error === 'object' &&
-    'code' in (error as any).error &&
-    'message' in (error as any).error
+    typeof (error as ApiErrorResponse).error === 'object' &&
+    'code' in (error as ApiErrorResponse).error &&
+    'message' in (error as ApiErrorResponse).error
   )
 }
 

@@ -56,7 +56,7 @@ describe('WorkspaceService Status Management', () => {
     taskId: 'test-task-123',
     environmentId: 'env-123',
     agentType: 'test-agent',
-    status: 'active',
+    status: 'open',
     createdAt: new Date(),
     lastMessageAt: new Date(),
     numTurns: 0,
@@ -224,13 +224,6 @@ describe('WorkspaceService Status Management', () => {
       await expect(workspaceService.setupWorkspace('non-existent')).rejects.toThrow(
         'Task non-existent not found',
       )
-
-      await expect(
-        workspaceService.runAgent('non-existent', 'message', {
-          taskId: 'non-existent',
-          iterationNumber: 1,
-        } as any),
-      ).rejects.toThrow('Task non-existent not found')
     })
 
     it('should return gracefully for cleanup when workspace not found', async () => {

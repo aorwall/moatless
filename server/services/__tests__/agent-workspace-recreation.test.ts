@@ -73,7 +73,7 @@ describe('AgentService - Workspace Recreation', () => {
     // Setup mock workspace
     mockWorkspace = new LocalWorkspace(
       taskId,
-      mockEnvironment,
+      mockEnvironment as any,
       mockEventService,
       undefined,
       undefined,
@@ -116,7 +116,7 @@ describe('AgentService - Workspace Recreation', () => {
     // Mock the recreated workspace as a new LocalWorkspace instance
     const recreatedWorkspace = new LocalWorkspace(
       taskId,
-      mockEnvironment,
+      mockEnvironment as any,
       mockEventService,
       undefined,
       undefined,

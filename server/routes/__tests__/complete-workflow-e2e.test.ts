@@ -97,7 +97,7 @@ describe('Complete Workflow E2E Test', () => {
   let tempDir: string
   let createdEnvironmentId: string
   let createdTaskId: string
-  let _serverAddress: string
+  // let _serverAddress: string
 
   beforeEach(async () => {
     // Create a temporary directory for our test git repository
@@ -110,7 +110,8 @@ describe('Complete Workflow E2E Test', () => {
 
     // Start the server on a random available port for SSE testing
     await app.listen({ port: 0, host: '127.0.0.1' })
-    _serverAddress = `http://127.0.0.1:${app.server.address().port}`
+    // const serverAddress = app.server.address() as { port: number }
+    // _serverAddress = `http://127.0.0.1:${serverAddress.port}`
 
     // Initialize a git repository in the temp directory
     await setupTempGitRepo(tempDir)

@@ -56,20 +56,31 @@ const renderToolCall = (content: ToolUseContent): ReactNode => {
       )
     case 'Edit': {
       // Map snake_case field names from Claude SDK
+      const inputAsEdit = input as {
+        file_path: string
+        old_string: string
+        new_string: string
+        replace_all?: boolean
+      }
       const editInput = {
-        filePath: (input as any).file_path,
-        oldString: (input as any).old_string,
-        newString: (input as any).new_string,
-        replaceAll: (input as any).replace_all,
+        filePath: inputAsEdit.file_path,
+        oldString: inputAsEdit.old_string,
+        newString: inputAsEdit.new_string,
+        replaceAll: inputAsEdit.replace_all,
       }
       return <EditToolCall input={editInput} name={toolName} />
     }
     case 'Read': {
       // Map snake_case field names from Claude SDK
+      const inputAsRead = input as {
+        file_path: string
+        offset?: number
+        limit?: number
+      }
       const readInput = {
-        filePath: (input as any).file_path,
-        offset: (input as any).offset,
-        limit: (input as any).limit,
+        filePath: inputAsRead.file_path,
+        offset: inputAsRead.offset,
+        limit: inputAsRead.limit,
       }
       return <ReadToolCall input={readInput} name={toolName} />
     }
@@ -116,9 +127,13 @@ const renderToolCall = (content: ToolUseContent): ReactNode => {
       )
     case 'Write': {
       // Map snake_case field names from Claude SDK
+      const inputAsWrite = input as {
+        file_path: string
+        content: string
+      }
       const writeInput = {
-        filePath: (input as any).file_path,
-        content: (input as any).content,
+        filePath: inputAsWrite.file_path,
+        content: inputAsWrite.content,
       }
       return <WriteToolCall input={writeInput} name={toolName} />
     }

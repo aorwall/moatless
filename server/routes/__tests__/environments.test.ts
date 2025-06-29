@@ -203,13 +203,13 @@ describe('Environment Routes', () => {
       }
 
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce(mockEnvironment)
-      vi.spyOn(app.services.fileSearch, 'searchFiles').mockResolvedValueOnce({
-        files: [
-          { path: '/test/file1.ts', matches: 1 },
-          { path: '/test/file2.ts', matches: 2 },
+      vi.spyOn(app.services.workspace, 'searchFiles').mockResolvedValueOnce({
+        results: [
+          { path: '/test/file1.ts', absolutePath: '/test/file1.ts', score: 1 },
+          { path: '/test/file2.ts', absolutePath: '/test/file2.ts', score: 2 },
         ],
-        totalCount: 2,
-        truncated: false,
+        totalFound: 2,
+        query: 'test',
       })
 
       const response = await app.inject({
@@ -224,9 +224,9 @@ describe('Environment Routes', () => {
 
       expect(response.statusCode).toBe(200)
       const body = JSON.parse(response.body)
-      expect(body.files).toBeDefined()
-      expect(body.totalCount).toBeDefined()
-      expect(body.truncated).toBeDefined()
+      expect(body.results).toBeDefined()
+      expect(body.totalFound).toBeDefined()
+      expect(body.query).toBeDefined()
     })
 
     it('should validate search query', async () => {
