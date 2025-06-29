@@ -1,3 +1,5 @@
+import { createFileRoute } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
 import { FileTree, FileViewer } from '@/features/file-viewer'
 import { Preview, useServerStatus } from '@/features/preview'
 import { ChatView } from '@/features/tasks/components/chat-view'
@@ -11,8 +13,6 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Tabs, TabsContent } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
@@ -20,7 +20,7 @@ export const Route = createFileRoute('/tasks/$taskId')({
 
 // Inner component that uses the context
 function TaskDetailContent() {
-  const { task: metadata, rightPanelView, setRightPanelView } = useTaskDataContext()
+  const { rightPanelView, setRightPanelView } = useTaskDataContext()
   const { taskId } = Route.useParams()
   const { data: serverStatus } = useServerStatus(taskId)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)

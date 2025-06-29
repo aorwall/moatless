@@ -350,7 +350,7 @@ describe('Task Data Context Integration', () => {
     ]
 
     let taskListCallCount = 0
-    getMock.mockImplementation((url: string, params?: any) => {
+    getMock.mockImplementation((url: string, _params?: any) => {
       // Handle both with and without query params
       if (url === '/api/v1/tasks' || url.startsWith('/api/v1/tasks?')) {
         taskListCallCount++

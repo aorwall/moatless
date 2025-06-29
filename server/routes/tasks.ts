@@ -737,7 +737,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Send existing events from offset
       const existingEvents = await eventService.getEvents(taskId, 1000, offset, undefined, task)
       for (const event of existingEvents) {
-        reply.raw.write(JSON.stringify(event) + '\n')
+        reply.raw.write(`${JSON.stringify(event)}\n`)
       }
 
       // Flush the initial data
@@ -746,7 +746,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       // Subscribe to new events
       const unsubscribe = eventService.subscribe(taskId, (event) => {
         try {
-          reply.raw.write(JSON.stringify(event) + '\n')
+          reply.raw.write(`${JSON.stringify(event)}\n`)
         } catch (error) {
           request.log.error('Failed to send event over SSE', error)
         }
@@ -760,8 +760,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
             type: 'ping',
             timestamp: new Date().toISOString(),
           }
-          reply.raw.write(JSON.stringify(pingEvent) + '\n')
-        } catch (error) {
+          reply.raw.write(`${JSON.stringify(pingEvent)}\n`)
+        } catch (_error) {
           clearInterval(pingInterval)
         }
       }, 30000)

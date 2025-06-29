@@ -1,26 +1,26 @@
+import { useParams } from '@tanstack/react-router'
 import {
-    useRestartServer,
-    useServerStatus,
-    useStartServer,
-    useStopServer,
+  ExternalLink,
+  Loader2,
+  MousePointer,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Server,
+  Square,
+} from 'lucide-react'
+import { type KeyboardEvent, useCallback, useEffect, useState } from 'react'
+import {
+  useRestartServer,
+  useServerStatus,
+  useStartServer,
+  useStopServer,
 } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { useParams } from '@tanstack/react-router'
-import {
-    ExternalLink,
-    Loader2,
-    MousePointer,
-    Play,
-    RefreshCw,
-    RotateCcw,
-    Server,
-    Square,
-} from 'lucide-react'
-import { type KeyboardEvent, useCallback, useEffect, useState } from 'react'
 import { usePreviewStore } from '../stores/preview-store'
 
 interface PreviewToolbarProps {

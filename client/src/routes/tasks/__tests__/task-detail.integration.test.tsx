@@ -621,7 +621,7 @@ describe('Task Detail Route Integration', () => {
         expect(screen.getByText('Test Task')).toBeInTheDocument()
       })
 
-      const initialCallCount = apiClient.get.mock.calls.length
+      const _initialCallCount = apiClient.get.mock.calls.length
 
       // Simulate task completion via SSE
       act(() => {

@@ -1,5 +1,5 @@
-import { promises as fs } from 'fs'
-import path from 'path'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ClaudeCodeAgent } from '../agents/claude-code-agent.js'
 
@@ -7,7 +7,7 @@ describe('Claude Code Integration', () => {
   let tempDir: string
 
   beforeEach(async () => {
-    tempDir = path.join(process.cwd(), 'temp-test-' + Date.now())
+    tempDir = path.join(process.cwd(), `temp-test-${Date.now()}`)
     await fs.mkdir(tempDir, { recursive: true })
   })
 
@@ -32,7 +32,7 @@ describe('Claude Code Integration', () => {
           break
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // This test might fail if Claude CLI is not available
       console.log('Claude CLI not available, skipping integration test')
       return

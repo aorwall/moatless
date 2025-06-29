@@ -230,12 +230,7 @@ describe('Environment Management Integration', () => {
         <EnvironmentForm
           mode="create"
           onSubmit={async (data) => {
-            try {
-              await environmentsApi.createEnvironment(data)
-            } catch (e) {
-              // In real app, this would show an error toast or message
-              throw e
-            }
+            await environmentsApi.createEnvironment(data)
           }}
           onCancel={() => {}}
         />,

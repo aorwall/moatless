@@ -1,8 +1,8 @@
+import { Server, Terminal } from 'lucide-react'
+import { useState } from 'react'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer/server-logs-viewer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import { Server, Terminal } from 'lucide-react'
-import { useState } from 'react'
 import { ConsoleLogs } from './console-logs'
 
 interface LogsPanelProps {

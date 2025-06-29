@@ -16,7 +16,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
     useNavigate: () => mockNavigate,
     useParams: () => mockParams,
     Link: ({ children }: any) => <a>{children}</a>,
-    createFileRoute: (path: string) => (config: any) => ({
+    createFileRoute: (_path: string) => (config: any) => ({
       ...config,
       useParams: () => mockParams,
     }),

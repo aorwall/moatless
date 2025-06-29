@@ -1,5 +1,5 @@
-import { EventEmitter } from 'events'
-import { performance } from 'perf_hooks'
+import { EventEmitter } from 'node:events'
+import { performance } from 'node:perf_hooks'
 
 export interface PerformanceMetric {
   name: string

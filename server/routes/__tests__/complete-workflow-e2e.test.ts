@@ -97,7 +97,7 @@ describe('Complete Workflow E2E Test', () => {
   let tempDir: string
   let createdEnvironmentId: string
   let createdTaskId: string
-  let serverAddress: string
+  let _serverAddress: string
 
   beforeEach(async () => {
     // Create a temporary directory for our test git repository
@@ -110,7 +110,7 @@ describe('Complete Workflow E2E Test', () => {
 
     // Start the server on a random available port for SSE testing
     await app.listen({ port: 0, host: '127.0.0.1' })
-    serverAddress = `http://127.0.0.1:${app.server.address().port}`
+    _serverAddress = `http://127.0.0.1:${app.server.address().port}`
 
     // Initialize a git repository in the temp directory
     await setupTempGitRepo(tempDir)
@@ -392,7 +392,7 @@ describe('Complete Workflow E2E Test', () => {
       // If there's a diff, it should show the new file
       expect(gitDiff.diff).toContain('hello_world.py')
       expect(gitDiff.diff).toContain('Hello, World!')
-      console.log('Git diff shows uncommitted changes:', gitDiff.diff.substring(0, 200) + '...')
+      console.log('Git diff shows uncommitted changes:', `${gitDiff.diff.substring(0, 200)}...`)
     } else {
       // No diff means the file was likely committed by the agent
       console.log('No git diff - file may have been committed by the agent')
@@ -442,7 +442,7 @@ describe('Complete Workflow E2E Test', () => {
       costUsd: firstIteration.costUsd,
       durationMs: firstIteration.durationMs,
       resultLength: firstIteration.result?.length,
-      resultPreview: firstIteration.result?.substring(0, 100) + '...',
+      resultPreview: `${firstIteration.result?.substring(0, 100)}...`,
     })
 
     // Step 10: Get all events for final verification

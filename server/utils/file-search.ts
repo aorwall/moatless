@@ -1,7 +1,7 @@
-import { promises as fs } from 'fs'
+import { promises as fs } from 'node:fs'
+import * as path from 'node:path'
 import { glob } from 'glob'
 import ignore from 'ignore'
-import * as path from 'path'
 
 export interface FileSearchRequest {
   query: string
@@ -230,7 +230,7 @@ export async function searchFileContents(
             matches,
           })
         }
-      } catch (error) {}
+      } catch (_error) {}
     }
 
     return {
@@ -257,7 +257,7 @@ async function loadGitignorePatterns(dirPath: string): Promise<ReturnType<typeof
   try {
     const gitignoreContent = await fs.readFile(gitignorePath, 'utf8')
     ig.add(gitignoreContent)
-  } catch (error) {
+  } catch (_error) {
     // .gitignore doesn't exist, which is fine
   }
 
@@ -299,7 +299,7 @@ export async function searchFilesInDirectory(
         if (content.toLowerCase().includes(queryLower)) {
           contentMatches.push(file)
         }
-      } catch (error) {
+      } catch (_error) {
         // Skip files that can't be read
       }
     }
@@ -311,7 +311,7 @@ export async function searchFilesInDirectory(
       totalCount: allMatches.length,
       truncated: allMatches.length >= limit,
     }
-  } catch (error) {
+  } catch (_error) {
     return {
       files: [],
       totalCount: 0,
@@ -350,7 +350,7 @@ export async function searchFilesInDirectoryNew(
 
         if (entry.isDirectory()) {
           // Skip directories matching gitignore (with trailing slash)
-          if (gitignorePatterns.ignores(entryRelativePath + '/')) {
+          if (gitignorePatterns.ignores(`${entryRelativePath}/`)) {
             continue
           }
           // Recursively search subdirectory
@@ -381,7 +381,7 @@ export async function searchFilesInDirectoryNew(
           }
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // Skip directories we can't read
     }
   }

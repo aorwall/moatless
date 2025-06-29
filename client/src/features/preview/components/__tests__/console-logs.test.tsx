@@ -250,7 +250,7 @@ const MockConsoleLogs = ({
 }: {
   logs: Array<{ id: string; timestamp: string; level: string; message: string }>
 }) => {
-  const React = require('react')
+  const _React = require('react')
   const { ScrollArea } = require('@/lib/components/ui/scroll-area')
 
   const getLevelColor = (level: string) => {

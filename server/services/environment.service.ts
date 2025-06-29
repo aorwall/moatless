@@ -1,8 +1,8 @@
+import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { EnvironmentNotFoundError, ValidationError } from '@shared/constants/errors.js'
-import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
-import { promises as fs } from 'fs'
-import path from 'path'
 import type {
   CreateEnvironmentRequest,
   Environment,
@@ -230,7 +230,6 @@ export class EnvironmentService {
           // Could add git info like current branch, commit hash, etc.
         }
       }
-      case 'github':
 
       default:
         return {}

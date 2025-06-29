@@ -1,7 +1,6 @@
 import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
-import type { Environment } from '@shared/types/environment.js'
 import { EventType } from '@shared/types/event.js'
 import {
   type CommandResult,
@@ -10,7 +9,6 @@ import {
   WorkspaceStatus,
 } from '@shared/types/workspace.js'
 import type { BaseAgent } from '../services/agents/base-agent.js'
-import type { EventService } from '../services/event.service.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 
 const execAsync = promisify(exec)
@@ -42,10 +40,6 @@ export class DockerWorkspace extends BaseWorkspace {
 
   get error(): string | undefined {
     return this._error
-  }
-
-  constructor(taskId: string, environment: Environment, eventService: EventService) {
-    super(taskId, environment, eventService)
   }
 
   async setup(iterationNumber?: number): Promise<void> {
@@ -251,7 +245,7 @@ export class DockerWorkspace extends BaseWorkspace {
       // Combine stdout and stderr
       let output = stdout
       if (stderr) {
-        output += output ? '\n' + stderr : stderr
+        output += output ? `\n${stderr}` : stderr
       }
 
       return {
@@ -263,7 +257,7 @@ export class DockerWorkspace extends BaseWorkspace {
     } catch (error: any) {
       const output = error.stdout || ''
       const stderr = error.stderr || ''
-      const combinedOutput = output + (stderr ? '\n' + stderr : '')
+      const combinedOutput = output + (stderr ? `\n${stderr}` : '')
 
       return {
         command,

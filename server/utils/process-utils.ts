@@ -1,7 +1,7 @@
-import { type ChildProcess, exec, spawn } from 'child_process'
-import { randomUUID } from 'crypto'
-import { EventEmitter } from 'events'
-import { promisify } from 'util'
+import { type ChildProcess, exec, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
+import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
 

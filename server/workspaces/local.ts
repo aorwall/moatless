@@ -353,7 +353,7 @@ export class LocalWorkspace extends BaseWorkspace {
       // Combine stdout and stderr
       let output = stdout
       if (stderr) {
-        output += output ? '\n' + stderr : stderr
+        output += output ? `\n${stderr}` : stderr
       }
 
       return {
@@ -365,7 +365,7 @@ export class LocalWorkspace extends BaseWorkspace {
     } catch (error: any) {
       const output = error.stdout || ''
       const stderr = error.stderr || ''
-      const combinedOutput = output + (stderr ? '\n' + stderr : '')
+      const combinedOutput = output + (stderr ? `\n${stderr}` : '')
 
       return {
         command,
@@ -539,7 +539,7 @@ export class LocalWorkspace extends BaseWorkspace {
           }
 
           if (entry.isDirectory()) {
-            files.push(relativePath + '/')
+            files.push(`${relativePath}/`)
             if (recursive) {
               await walkDir(fullPath, baseDir, relativePath)
             }

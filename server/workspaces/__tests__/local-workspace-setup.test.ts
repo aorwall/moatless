@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventService } from '../../services/event.service.js'
 import { LocalWorkspace } from '../local.js'
 
-const execAsync = promisify(exec)
+const _execAsync = promisify(exec)
 
 // Mock dependencies
 vi.mock('../../utils/logger.js', () => ({
@@ -26,14 +26,14 @@ vi.mock('../../utils/git-utils.js', () => ({
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
-  exec: vi.fn((cmd, opts, cb) => {
+  exec: vi.fn((_cmd, _opts, cb) => {
     if (cb) cb(null, { stdout: '', stderr: '' })
   }),
 }))
 
 vi.mock('node:util', () => ({
-  promisify: vi.fn((fn) => {
-    return vi.fn(async (command: string, options?: any) => {
+  promisify: vi.fn((_fn) => {
+    return vi.fn(async (command: string, _options?: any) => {
       if (command.includes('git show-ref')) {
         throw new Error('Branch not found')
       }

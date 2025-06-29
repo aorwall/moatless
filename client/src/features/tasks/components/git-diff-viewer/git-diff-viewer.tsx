@@ -116,7 +116,7 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
   const { gitDiff: contextGitDiff, isLoading, error } = useTaskDataContext()
-  const selectedIteration = useSelectedIteration()
+  const _selectedIteration = useSelectedIteration()
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 
   const gitDiff = contextGitDiff

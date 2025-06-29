@@ -1,5 +1,5 @@
-import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { useEffect, useRef, useState } from 'react'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { usePreviewStore } from '../stores/preview-store'
 
 interface ConsoleLog {
