@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { FileTree, FileViewer } from '@/features/file-viewer'
 import { Preview, useServerStatus } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -7,18 +7,25 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Tabs, TabsContent } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import { useTaskContext } from '../contexts/task-data-context'
+import {
+  usePanelSizes,
+  usePanelView,
+  useSelectedFile,
+  useTaskData,
+} from '../contexts/task-providers'
 import { ChatView } from './chat-view'
 import { EventViewer } from './event-viewer'
 import { GitDiffViewer } from './git-diff-viewer'
 import { TaskDetailSkeleton } from './task-skeletons'
 
 export function TaskPage() {
-  const { rightPanelView, setRightPanelView, task, isLoading, error } = useTaskContext()
   const { taskId } = useParams({ from: '/tasks/$taskId' })
-  const [leftPanelSize, setLeftPanelSize] = useState(60)
-  const [rightPanelSize, setRightPanelSize] = useState(40)
-  const [selectedFile, setSelectedFile] = useState<string>('')
+
+  // Use specialized hooks that only cause re-renders when specific data changes
+  const { isLoading, error } = useTaskData() // Only re-renders on loading/error changes
+  const { rightPanelView, setRightPanelView } = usePanelView() // Only re-renders on panel view changes
+  const { panelSizes, setPanelSizes } = usePanelSizes() // Only re-renders on panel size changes
+  const { selectedFile, setSelectedFile } = useSelectedFile() // Only re-renders on file selection changes
 
   // All hooks at the top before any conditional logic
   const { data: serverStatus } = useServerStatus(taskId, {
@@ -26,17 +33,33 @@ export function TaskPage() {
   })
 
   useEffect(() => {
-    const handleStorageChange = () => {
+    // FIXED: Restore panel sizes from localStorage on mount only
+    const restorePanelSizes = () => {
       const savedLeftSize = localStorage.getItem('leftPanelSize')
       const savedRightSize = localStorage.getItem('rightPanelSize')
-      if (savedLeftSize) setLeftPanelSize(Number(savedLeftSize))
-      if (savedRightSize) setRightPanelSize(Number(savedRightSize))
+
+      if (savedLeftSize || savedRightSize) {
+        setPanelSizes({
+          left: savedLeftSize ? Number(savedLeftSize) : 60, // Default to 60 if not saved
+          right: savedRightSize ? Number(savedRightSize) : 40, // Default to 40 if not saved
+        })
+      }
     }
 
-    handleStorageChange()
+    // Handle storage changes from other tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'leftPanelSize' || e.key === 'rightPanelSize') {
+        restorePanelSizes()
+      }
+    }
+
+    // FIXED: Only restore on mount - no stale closure issues
+    restorePanelSizes()
+
+    // Listen for storage changes from other tabs
     window.addEventListener('storage', handleStorageChange)
     return () => window.removeEventListener('storage', handleStorageChange)
-  }, [])
+  }, [setPanelSizes]) // Only depend on setPanelSizes which is stable
 
   if (error) {
     return <ErrorAlert error={error} />
@@ -46,20 +69,16 @@ export function TaskPage() {
     return <TaskDetailSkeleton />
   }
 
-  if (!task) {
-    return <ErrorAlert error={new Error('Task not found')} />
-  }
-
   return (
     <div className="flex flex-col h-full w-full absolute inset-0">
       <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
         {/* Left Panel - Chat */}
         <ResizablePanel
-          defaultSize={leftPanelSize}
+          defaultSize={panelSizes.left}
           minSize={30}
           maxSize={80}
           onResize={(size) => {
-            setLeftPanelSize(size)
+            setPanelSizes({ left: size, right: panelSizes.right })
             localStorage.setItem('leftPanelSize', size.toString())
           }}
           className="flex flex-col"
@@ -73,11 +92,11 @@ export function TaskPage() {
 
         {/* Right Panel - Events/Files/Preview */}
         <ResizablePanel
-          defaultSize={rightPanelSize}
+          defaultSize={panelSizes.right}
           minSize={20}
           maxSize={70}
           onResize={(size) => {
-            setRightPanelSize(size)
+            setPanelSizes({ left: panelSizes.left, right: size })
             localStorage.setItem('rightPanelSize', size.toString())
           }}
           className="flex flex-col"

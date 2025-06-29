@@ -1,3 +1,4 @@
+import type { WorkspaceStatusResponse } from '@shared/types/api'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task, TaskIteration } from '@shared/types/task'
 import { useQueries } from '@tanstack/react-query'
@@ -9,6 +10,7 @@ interface UseTaskDataResult {
   events: Event[]
   iterations: TaskIteration[]
   gitDiff: GitDiffResponse | undefined
+  workspaceStatus: WorkspaceStatusResponse | undefined
   isLoading: boolean
   error: Error | null
 }
@@ -42,18 +44,29 @@ export function useTaskData(taskId: string): UseTaskDataResult {
         enabled: !!taskId,
         retry: false,
       },
+      {
+        queryKey: queryKeys.taskWorkspaceStatus(taskId),
+        queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
+        enabled: !!taskId,
+        refetchInterval: 10000, // 10 seconds - balanced polling frequency
+        staleTime: 2000, // Consider data stale after 2 seconds
+      },
     ],
   })
 
-  const task = queries[0].data
-  const events = queries[1].data || []
-  const gitDiff = queries[2].data
+  const [taskQuery, eventsQuery, gitDiffQuery, workspaceStatusQuery] = queries
+
+  const task = taskQuery.data as Task | undefined
+  const events = (eventsQuery.data as Event[]) || []
+  const gitDiff = gitDiffQuery.data as GitDiffResponse | undefined
+  const workspaceStatus = workspaceStatusQuery.data as WorkspaceStatusResponse | undefined
 
   return {
     task,
     events,
     iterations: task?.iterations || [], // Extract iterations from task data
     gitDiff,
+    workspaceStatus,
     isLoading: queries.some((q) => q.isLoading || q.isFetching),
     error: queries.find((q) => q.error)?.error || null,
   }
