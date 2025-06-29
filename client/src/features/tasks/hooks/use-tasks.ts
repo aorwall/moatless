@@ -107,14 +107,15 @@ export function useSendMessage(
       model?: string
       fileIds?: string[]
       filePaths?: string[]
+      commandName?: string
     }
   >,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ taskId, message, resume, model, fileIds, filePaths }) =>
-      tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths),
+    mutationFn: ({ taskId, message, resume, model, fileIds, filePaths, commandName }) =>
+      tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),
     onSuccess: async (data, variables, context) => {
       // Invalidate all data for this specific task (detail, messages, events, etc.)
       await queryClient.invalidateQueries({
@@ -203,7 +204,7 @@ export function useTaskWorkspaceStatus(
     queryKey: queryKeys.taskWorkspaceStatus(taskId),
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId,
-    refetchInterval: (query) => {
+    refetchInterval: (_query) => {
       return false
     },
     ...options,

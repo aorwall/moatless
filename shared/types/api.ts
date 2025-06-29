@@ -33,6 +33,7 @@ export const SendMessageRequestSchema = z.object({
   model: z.string().optional(),
   fileIds: z.array(z.string()).optional(), // Deprecated, use filePaths
   filePaths: z.array(z.string()).optional(), // Absolute file paths
+  commandName: z.string().optional(),
 })
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 
