@@ -1,11 +1,11 @@
+import { useParams } from '@tanstack/react-router'
+import { FileText, Loader2 } from 'lucide-react'
+import { useMemo } from 'react'
 import { useTaskData, useTaskEvents } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
-import { useParams } from '@tanstack/react-router'
-import { FileText, Loader2 } from 'lucide-react'
-import { useMemo } from 'react'
 
 import { EventList } from './event-list'
 

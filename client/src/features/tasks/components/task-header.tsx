@@ -1,3 +1,6 @@
+import { useParams } from '@tanstack/react-router'
+import { Play, Square, StopCircle, WifiOff } from 'lucide-react'
+import { toast } from 'sonner'
 import { useServerStatus, useStartServer, useStopServer } from '@/features/preview'
 import { useTaskData, useTaskEvents } from '@/features/tasks/contexts/task-providers'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
@@ -5,16 +8,13 @@ import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx'
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
-import { useParams } from '@tanstack/react-router'
-import { Play, Square, StopCircle, WifiOff } from 'lucide-react'
-import { toast } from 'sonner'
 
 function StatusBadge({ status }: { status: string }) {
   const statusColors = {
@@ -30,8 +30,8 @@ function StatusBadge({ status }: { status: string }) {
       variant="outline"
       className={cn(
         'capitalize font-medium',
-        statusColors[status as keyof typeof statusColors] || 
-        'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:text-gray-400'
+        statusColors[status as keyof typeof statusColors] ||
+          'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:text-gray-400',
       )}
     >
       {status}
@@ -113,7 +113,9 @@ export function TaskHeader() {
               <h1 className="text-lg font-semibold truncate">{`Task ${taskId.slice(0, 8)}`}</h1>
             </div>
             <div className="flex items-center space-x-2 text-sm text-muted-foreground overflow-hidden">
-              <span className="truncate">{createdAt ? new Date(createdAt).toLocaleString() : ''}</span>
+              <span className="truncate">
+                {createdAt ? new Date(createdAt).toLocaleString() : ''}
+              </span>
               <span className="truncate">{agentType}</span>
               <StatusBadge status={status} />
               <Badge variant="outline">{iterations.length} turns</Badge>

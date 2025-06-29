@@ -24,23 +24,24 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
 
 // Export all the individual providers and hooks
 export {
-    TaskDataProvider, useGitDiff, useTaskData,
-    useTaskIterations,
-    useTaskStatus,
-    useWorkspaceStatus
+  TaskDataProvider,
+  useGitDiff,
+  useTaskData,
+  useTaskIterations,
+  useTaskStatus,
+  useWorkspaceStatus,
 } from './task-data-provider'
 export {
-    TaskEventsProvider,
-    useEventStream,
-    useStreamingStatus,
-    useTaskEvents
+  TaskEventsProvider,
+  useEventStream,
+  useStreamingStatus,
+  useTaskEvents,
 } from './task-events-provider'
 export {
-    TaskUIProvider,
-    usePanelSizes,
-    usePanelView,
-    useSelectedFile,
-    useSelectedIteration,
-    useTaskUI
+  TaskUIProvider,
+  usePanelSizes,
+  usePanelView,
+  useSelectedFile,
+  useSelectedIteration,
+  useTaskUI,
 } from './task-ui-provider'
-

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 // TEMPORARY: Skip this test suite while context migration is in progress
 // This test file needs to be updated to use the new tri-context pattern

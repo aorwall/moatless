@@ -3,7 +3,7 @@
 // API
 export * from './api/tasks'
 
-// Components 
+// Components
 export { ChatView } from './components/chat-view'
 export { CreateTaskForm } from './components/create-task-form'
 export { EventViewer } from './components/event-viewer'
@@ -14,10 +14,23 @@ export { TaskPage } from './components/task-page'
 // New Tri-Context Pattern (recommended)
 export {
   TaskDataProvider,
-  TaskEventsProvider, TaskProviders, TaskUIProvider, useEventStream, useGitDiff, usePanelSizes, usePanelView, useSelectedFile, useSelectedIteration, useStreamingStatus,
+  TaskEventsProvider,
+  TaskProviders,
+  TaskUIProvider,
+  useEventStream,
+  useGitDiff,
+  usePanelSizes,
+  usePanelView,
+  useSelectedFile,
+  useSelectedIteration,
+  useStreamingStatus,
   // Specialized hooks for efficient re-renders
-  useTaskData, useTaskEvents, useTaskIterations,
-  useTaskStatus, useTaskUI, useWorkspaceStatus
+  useTaskData,
+  useTaskEvents,
+  useTaskIterations,
+  useTaskStatus,
+  useTaskUI,
+  useWorkspaceStatus,
 } from './contexts/task-providers'
 
 // Hooks
@@ -28,4 +41,3 @@ export * from './hooks/use-tasks'
 // Utils
 export * from './utils/format-duration'
 export * from './utils/query-helpers'
-

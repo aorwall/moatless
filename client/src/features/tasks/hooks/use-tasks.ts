@@ -1,5 +1,3 @@
-import { tasksApi } from '@/features/tasks/api/tasks'
-import { queryKeys } from '@/lib/api/query-keys'
 import type {
   CreateTaskRequest,
   MergeTaskResponse,
@@ -12,6 +10,8 @@ import type { GitDiffResponse, Task } from '@shared/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { tasksApi } from '@/features/tasks/api/tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import { updateTaskInLists } from '../utils/query-helpers'
 
 /**

@@ -9,6 +9,6 @@ export function TaskMinifiedLastEventDisplay() {
   }
 
   const lastEvent = events[events.length - 1]
-  
+
   return <MinifiedEventItem event={lastEvent} />
 }

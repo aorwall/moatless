@@ -4,9 +4,9 @@ import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 
 import {
-    useGitDiff,
-    useSelectedIteration,
-    useTaskData,
+  useGitDiff,
+  useSelectedIteration,
+  useTaskData,
 } from '@/features/tasks/contexts/task-providers'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'

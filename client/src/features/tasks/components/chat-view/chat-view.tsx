@@ -1,10 +1,3 @@
-import { useEventStream, useSelectedIteration, useStreamingStatus, useTaskData } from '@/features/tasks/contexts/task-providers'
-import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
-import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
-import { ErrorBoundary } from '@/lib/components/error-boundary'
-import { Alert, AlertDescription } from '@/lib/components/ui/alert'
-import { ScrollArea } from '@/lib/components/ui/scroll-area'
-import { getErrorMessage } from '@/lib/utils/error'
 import { EventType } from '@shared/types/event'
 import type { Task, TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
@@ -13,6 +6,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
+import {
+  useEventStream,
+  useSelectedIteration,
+  useStreamingStatus,
+  useTaskData,
+} from '@/features/tasks/contexts/task-providers'
+import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
+import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
+import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { Alert, AlertDescription } from '@/lib/components/ui/alert'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
 import { TaskMinifiedLastThreeEventsDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
@@ -20,14 +25,22 @@ import { ChatViewSkeleton } from './chat-view-skeleton'
 
 export function ChatView() {
   const params = useParams({ from: '/tasks/$taskId' })
-  
+
   // Use specialized hooks from tri-context pattern
-  const { taskId, status, agentType, environmentId, iterations, createdAt, isLoading: isLoadingTask } = useTaskData()
+  const {
+    taskId,
+    status,
+    agentType,
+    environmentId,
+    iterations,
+    createdAt,
+    isLoading: isLoadingTask,
+  } = useTaskData()
   const { events } = useEventStream()
   const { isStreaming } = useStreamingStatus()
   const { setSelectedIteration } = useSelectedIteration()
   const { scrollRef } = useAutoScroll()
-  
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(Date.now())
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -112,9 +125,8 @@ export function ChatView() {
   })
 
   // Get last iteration for ChatInput
-  const lastIteration = iterations && iterations.length > 0 
-    ? iterations[iterations.length - 1] 
-    : null
+  const lastIteration =
+    iterations && iterations.length > 0 ? iterations[iterations.length - 1] : null
 
   // Show skeleton during initial load
   if (isLoadingTask || !taskId) {
@@ -199,8 +211,7 @@ export function ChatView() {
 
   // Check if last iteration has an error
   const lastIterationHasError =
-    lastIteration &&
-    (lastIteration.status === 'error' || lastIteration.status === 'failed')
+    lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
 
   return (
     <div className="h-full flex flex-col">
@@ -318,7 +329,7 @@ export function ChatView() {
         <ChatInput
           data-testid="task-chat-input"
           taskId={params.taskId}
-          task={iterations ? { iterations } as Task : undefined}
+          task={iterations ? ({ iterations } as Task) : undefined}
           taskStatus={status}
           lastIterationHasError={lastIterationHasError || false}
           onSendMessage={handleSendMessage}

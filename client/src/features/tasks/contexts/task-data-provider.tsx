@@ -1,8 +1,8 @@
-import { queryKeys } from '@/lib/api/query-keys'
 import type { WorkspaceStatusResponse } from '@shared/types/api'
 import type { GitDiffResponse, TaskIteration } from '@shared/types/task'
 import { useQuery } from '@tanstack/react-query'
 import { createContext, type ReactNode, useContext, useMemo } from 'react'
+import { queryKeys } from '@/lib/api/query-keys'
 import { tasksApi } from '../api/tasks'
 
 interface TaskDataContextValue {
@@ -13,20 +13,20 @@ interface TaskDataContextValue {
   environmentId: string | undefined
   iterations: TaskIteration[]
   createdAt: Date | undefined
-  
+
   // Git diff data
   gitDiff: GitDiffResponse | undefined
-  
+
   // Workspace status (conditional polling)
   workspaceStatus: string | undefined
   workspaceReady: boolean
   workspaceHasChanges: boolean
-  
+
   // Derived flags for components (stable primitives)
   canExecute: boolean
   isRunning: boolean
   isComplete: boolean
-  
+
   // Loading & error states
   isLoading: boolean
   error: Error | null
@@ -82,7 +82,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const taskPrimitives = useMemo(() => {
     const task = taskQuery.data
     if (!task) return null
-    
+
     return {
       status: task.status,
       agentType: task.agentType,
@@ -98,7 +98,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const workspacePrimitives = useMemo(() => {
     const workspace = workspaceQuery.data
     if (!workspace) return null
-    
+
     return {
       status: workspace.status,
       isReady: workspace.status === 'idle' || workspace.status === 'running',

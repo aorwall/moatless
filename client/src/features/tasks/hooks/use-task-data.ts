@@ -1,9 +1,9 @@
-import { tasksApi } from '@/features/tasks/api/tasks'
-import { queryKeys } from '@/lib/api/query-keys'
 import type { WorkspaceStatusResponse } from '@shared/types/api'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task, TaskIteration } from '@shared/types/task'
 import { useQueries } from '@tanstack/react-query'
+import { tasksApi } from '@/features/tasks/api/tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskDataResult {
   task: Task | undefined

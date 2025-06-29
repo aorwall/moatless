@@ -1,3 +1,5 @@
+import { useParams } from '@tanstack/react-router'
+import { useEffect } from 'react'
 import { FileTree, FileViewer } from '@/features/file-viewer'
 import { Preview, useServerStatus } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -5,13 +7,11 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Tabs, TabsContent } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import { useParams } from '@tanstack/react-router'
-import { useEffect } from 'react'
 import {
-    usePanelSizes,
-    usePanelView,
-    useSelectedFile,
-    useTaskData
+  usePanelSizes,
+  usePanelView,
+  useSelectedFile,
+  useTaskData,
 } from '../contexts/task-providers'
 import { ChatView } from './chat-view'
 import { EventViewer } from './event-viewer'
@@ -20,7 +20,7 @@ import { TaskDetailSkeleton } from './task-skeletons'
 
 export function TaskPage() {
   const { taskId } = useParams({ from: '/tasks/$taskId' })
-  
+
   // Use specialized hooks that only cause re-renders when specific data changes
   const { isLoading, error } = useTaskData() // Only re-renders on loading/error changes
   const { rightPanelView, setRightPanelView } = usePanelView() // Only re-renders on panel view changes
@@ -37,7 +37,7 @@ export function TaskPage() {
     const restorePanelSizes = () => {
       const savedLeftSize = localStorage.getItem('leftPanelSize')
       const savedRightSize = localStorage.getItem('rightPanelSize')
-      
+
       if (savedLeftSize || savedRightSize) {
         setPanelSizes({
           left: savedLeftSize ? Number(savedLeftSize) : 60, // Default to 60 if not saved
@@ -55,7 +55,7 @@ export function TaskPage() {
 
     // FIXED: Only restore on mount - no stale closure issues
     restorePanelSizes()
-    
+
     // Listen for storage changes from other tabs
     window.addEventListener('storage', handleStorageChange)
     return () => window.removeEventListener('storage', handleStorageChange)

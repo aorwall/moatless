@@ -1,17 +1,17 @@
-import { queryKeys } from '@/lib/api/query-keys'
 import type { Event } from '@shared/types/event'
 import { EventType } from '@shared/types/event'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-    createContext,
-    type ReactNode,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react'
+import { queryKeys } from '@/lib/api/query-keys'
 import { NDJSONSSEClient } from '../api/ndjson-sse'
 import { tasksApi } from '../api/tasks'
 
@@ -80,14 +80,14 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
       // Refetch task data for status-affecting events
       if ((STATUS_AFFECTING_EVENTS as readonly EventType[]).includes(event.type)) {
         console.log(`[Events] Status-affecting event ${event.type}, refetching task data`)
-        
+
         // Use queueMicrotask to ensure cache update completes before invalidation
         queueMicrotask(() => {
           queryClient.invalidateQueries({
             queryKey: queryKeys.task(taskId),
             refetchType: 'active',
           })
-          
+
           queryClient.invalidateQueries({
             queryKey: queryKeys.taskWorkspaceStatus(taskId),
             refetchType: 'active',

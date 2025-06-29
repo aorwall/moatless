@@ -92,7 +92,7 @@ describe('Infinite Re-render Pattern Tests', () => {
   it('should detect infinite re-renders caused by new Date() in useMemo', async () => {
     const ProblematicComponent = () => {
       renderCount++
-      
+
       if (renderCount > 50) {
         throw new Error(`INFINITE RE-RENDER DETECTED: Component rendered ${renderCount} times`)
       }
@@ -122,7 +122,7 @@ describe('Infinite Re-render Pattern Tests', () => {
   it('should detect infinite re-renders caused by useEffect with unstable dependency', async () => {
     const ProblematicComponent = () => {
       renderCount++
-      
+
       if (renderCount > 50) {
         throw new Error(`INFINITE RE-RENDER DETECTED: Component rendered ${renderCount} times`)
       }
@@ -132,13 +132,17 @@ describe('Infinite Re-render Pattern Tests', () => {
       React.useEffect(() => {
         // This creates infinite loop because setPanelSizes changes panelSizes
         // which is in the dependency array
-        setPanelSizes({ 
-          left: 60, 
-          right: panelSizes.right 
+        setPanelSizes({
+          left: 60,
+          right: panelSizes.right,
         })
       }, [panelSizes, setPanelSizes]) // panelSizes changes -> effect runs -> setPanelSizes -> panelSizes changes
 
-      return <div>Panel sizes: {panelSizes.left}% / {panelSizes.right}%</div>
+      return (
+        <div>
+          Panel sizes: {panelSizes.left}% / {panelSizes.right}%
+        </div>
+      )
     }
 
     expect(() => {
@@ -149,21 +153,24 @@ describe('Infinite Re-render Pattern Tests', () => {
   it('should detect infinite re-renders caused by useCallback with changing dependencies', async () => {
     const ProblematicComponent = () => {
       renderCount++
-      
+
       if (renderCount > 50) {
         throw new Error(`INFINITE RE-RENDER DETECTED: Component rendered ${renderCount} times`)
       }
 
       const [refs, setRefs] = React.useState<(HTMLElement | null)[]>([])
-      
+
       // This callback function changes every render because it's not properly memoized
-      const setRef = React.useCallback((index: number) => (element: HTMLElement | null) => {
-        setRefs(prev => {
-          const newRefs = [...prev] // New array every time
-          newRefs[index] = element
-          return newRefs
-        })
-      }, []) // Empty deps but function depends on 'index' which is passed at call time
+      const setRef = React.useCallback(
+        (index: number) => (element: HTMLElement | null) => {
+          setRefs((prev) => {
+            const newRefs = [...prev] // New array every time
+            newRefs[index] = element
+            return newRefs
+          })
+        },
+        [],
+      ) // Empty deps but function depends on 'index' which is passed at call time
 
       React.useEffect(() => {
         // This runs every time setRef changes (which is every render)
@@ -191,7 +198,7 @@ describe('Infinite Re-render Pattern Tests', () => {
     // FIXED VERSION - Stable patterns that don't cause infinite loops
     const FixedComponent = () => {
       renderCount++
-      
+
       // This should not exceed normal render count
       if (renderCount > 5) {
         throw new Error(`Unexpected re-renders: ${renderCount}`)
@@ -199,7 +206,7 @@ describe('Infinite Re-render Pattern Tests', () => {
 
       // FIXED: Use stable date value
       const stableDate = React.useMemo(() => new Date('2024-01-01T00:00:00Z'), [])
-      
+
       // FIXED: Use stable arrays/objects with proper dependencies
       const task = React.useMemo(() => {
         return {
@@ -221,9 +228,9 @@ describe('Infinite Re-render Pattern Tests', () => {
         // FIXED: Only run once on mount
         const savedLeft = '65'
         if (savedLeft) {
-          setPanelSizes(current => ({ 
-            left: Number(savedLeft), 
-            right: current.right 
+          setPanelSizes((current) => ({
+            left: Number(savedLeft),
+            right: current.right,
           }))
         }
       }, []) // Empty deps - only run on mount
@@ -233,8 +240,8 @@ describe('Infinite Re-render Pattern Tests', () => {
 
     // This should render without infinite loops
     render(<FixedComponent />)
-    
+
     // Should have rendered a reasonable number of times (initial + maybe one update)
     expect(renderCount).toBeLessThan(5)
   })
-}) 
+})

@@ -1,11 +1,11 @@
-import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
-import { queryKeys } from '@/lib/api/query-keys'
 import type { WorkspaceStatusResponse } from '@shared/types/api'
 import type { Event } from '@shared/types/event'
 import { EventType } from '@shared/types/event'
 import type { Task } from '@shared/types/task'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
+import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskStreamingResult {
   streamEvents: Array<Event>
@@ -17,7 +17,11 @@ interface UseTaskStreamingResult {
  * Hook that manages streaming events using local React state instead of Zustand.
  * This avoids the infinite render issue while providing streaming functionality.
  */
-export function useTaskStreaming(taskId: string, task?: Task, workspaceStatus?: WorkspaceStatusResponse): UseTaskStreamingResult {
+export function useTaskStreaming(
+  taskId: string,
+  task?: Task,
+  workspaceStatus?: WorkspaceStatusResponse,
+): UseTaskStreamingResult {
   const sseClientRef = useRef<NDJSONSSEClient | null>(null)
   const [streamEvents, setStreamEvents] = useState<Array<Event>>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -38,11 +42,10 @@ export function useTaskStreaming(taskId: string, task?: Task, workspaceStatus?: 
     // - 'open': Waiting for execution, may start generating events soon
     // - 'error', 'merged', 'closed': Complete/failed, no more events expected
     const taskIsActive = task?.status === 'running' || task?.status === 'open'
-    
+
     // Also consider workspace status for more intelligent streaming
     // If workspace is not setup, don't stream even if task is "running"
-    const workspaceIsReady = !workspaceStatus || 
-      workspaceStatus.status !== 'not_setup'
+    const workspaceIsReady = !workspaceStatus || workspaceStatus.status !== 'not_setup'
 
     if (task?.status) {
       return taskIsActive && workspaceIsReady

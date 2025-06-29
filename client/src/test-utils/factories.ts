@@ -1,11 +1,7 @@
 import type { SimpleTaskResponse } from '@shared/types/api'
 import type { Event } from '@shared/types/event'
 import { EventType } from '@shared/types/event'
-import type {
-    GitDiffResponse,
-    Task,
-    TaskIteration,
-} from '@shared/types/task'
+import type { GitDiffResponse, Task, TaskIteration } from '@shared/types/task'
 import { WorkspaceStatus } from '@shared/types/workspace'
 
 // Re-export environment factories
@@ -87,7 +83,7 @@ export function createMockToolEvent(toolName: string, input: any): Event {
   })
 }
 
-// Status factories  
+// Status factories
 export interface MockWorkspaceStatusResponse {
   status: WorkspaceStatus
   hasUncommittedChanges: boolean

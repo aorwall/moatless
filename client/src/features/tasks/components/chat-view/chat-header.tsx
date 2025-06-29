@@ -1,34 +1,28 @@
+import { useNavigate, useParams } from '@tanstack/react-router'
+import { GitMerge, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import {
-    useCloseTask,
-    useMergeTask,
-    useTaskWorkspaceStatus,
+  useCloseTask,
+  useMergeTask,
+  useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
-import { useNavigate, useParams } from '@tanstack/react-router'
-import { GitMerge, X } from 'lucide-react'
-import { toast } from 'sonner'
 
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const navigate = useNavigate()
-  const { 
-    taskId, 
-    status, 
-    agentType, 
-    environmentId, 
-    iterations 
-  } = useTaskData()
+  const { taskId, status, agentType, environmentId, iterations } = useTaskData()
   const { data: environments } = useEnvironmentsList()
   const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
     params.taskId,
@@ -165,48 +159,46 @@ export function ChatHeader() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {status !== 'running' &&
-            status !== 'closed' &&
-            status !== 'merged' && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleMerge}
-                      disabled={
-                        mergeTask.isPending ||
-                        isLoadingWorkspace ||
-                        !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
-                        workspaceStatus?.gitStatus?.hasConflicts ||
-                        status === 'running' ||
-                        status === 'error'
-                      }
-                      className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
-                    >
-                      <GitMerge className="h-3.5 w-3.5" />
-                      <span className="sr-only">Merge changes</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
-                      <p>Cannot merge: workspace has uncommitted changes</p>
-                    ) : status === 'running' ? (
-                      <p>Cannot merge: agent is running</p>
-                    ) : isLoadingWorkspace ? (
-                      <p>Checking status...</p>
-                    ) : !workspaceStatus?.hasUnmergedCommits ? (
-                      <p>No unmerged commits to merge</p>
-                    ) : workspaceStatus?.gitStatus?.hasConflicts ? (
-                      <p>Cannot merge: conflicts detected</p>
-                    ) : (
-                      <p>Merge workspace changes to the main branch</p>
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
+          {status !== 'running' && status !== 'closed' && status !== 'merged' && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMerge}
+                    disabled={
+                      mergeTask.isPending ||
+                      isLoadingWorkspace ||
+                      !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
+                      workspaceStatus?.gitStatus?.hasConflicts ||
+                      status === 'running' ||
+                      status === 'error'
+                    }
+                    className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                  >
+                    <GitMerge className="h-3.5 w-3.5" />
+                    <span className="sr-only">Merge changes</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
+                    <p>Cannot merge: workspace has uncommitted changes</p>
+                  ) : status === 'running' ? (
+                    <p>Cannot merge: agent is running</p>
+                  ) : isLoadingWorkspace ? (
+                    <p>Checking status...</p>
+                  ) : !workspaceStatus?.hasUnmergedCommits ? (
+                    <p>No unmerged commits to merge</p>
+                  ) : workspaceStatus?.gitStatus?.hasConflicts ? (
+                    <p>Cannot merge: conflicts detected</p>
+                  ) : (
+                    <p>Merge workspace changes to the main branch</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           {status !== 'closed' && (
             <TooltipProvider>
               <Tooltip>
