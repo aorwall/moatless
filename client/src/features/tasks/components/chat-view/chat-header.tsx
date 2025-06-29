@@ -1,28 +1,34 @@
-import { useNavigate, useParams } from '@tanstack/react-router'
-import { GitMerge, X } from 'lucide-react'
-import { toast } from 'sonner'
 import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
-import { useTaskContext } from '@/features/tasks/contexts/task-data-context'
+import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import {
-  useCloseTask,
-  useMergeTask,
-  useTaskWorkspaceStatus,
+    useCloseTask,
+    useMergeTask,
+    useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
+import { useNavigate, useParams } from '@tanstack/react-router'
+import { GitMerge, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const navigate = useNavigate()
-  const { task: metadata } = useTaskContext()
+  const { 
+    taskId, 
+    status, 
+    agentType, 
+    environmentId, 
+    iterations 
+  } = useTaskData()
   const { data: environments } = useEnvironmentsList()
   const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
     params.taskId,
@@ -55,7 +61,7 @@ export function ChatHeader() {
   })
 
   const handleMerge = () => {
-    if (metadata) {
+    if (taskId && status) {
       if (!workspaceStatus?.gitStatus?.hasUnmergedCommits) {
         toast.warning('No unmerged commits to merge', {
           description: 'All commits have already been merged.',
@@ -68,29 +74,29 @@ export function ChatHeader() {
         })
         return
       }
-      mergeTask.mutate({ taskId: metadata.taskId })
+      mergeTask.mutate({ taskId })
     }
   }
 
   const handleClose = () => {
-    if (metadata) {
-      closeTask.mutate(metadata.taskId)
+    if (taskId) {
+      closeTask.mutate(taskId)
     }
   }
 
-  if (!metadata) {
+  if (!status) {
     return null
   }
 
   // Get environment name
-  const environment = environments?.find((env) => env.id === metadata.environmentId)
-  const environmentName = environment?.name || metadata.environmentId
+  const environment = environments?.find((env) => env.id === environmentId)
+  const environmentName = environment?.name || environmentId
 
   // Get task title (first line of initial message or agent type)
-  const taskTitle = metadata.iterations?.[0]?.initialMessage?.split('\n')[0] || metadata.agentType
+  const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
 
   // Get status config
-  const statusConfig = getTaskStatusConfig(metadata.status)
+  const statusConfig = getTaskStatusConfig(status)
 
   return (
     <div className="h-[58px] px-4 py-2 border-b flex items-center">
@@ -104,7 +110,7 @@ export function ChatHeader() {
               <span>•</span>
               <div className={`flex items-center gap-1 ${statusConfig.color}`}>
                 {statusConfig.icon}
-                <span>{metadata.status}</span>
+                <span>{status}</span>
               </div>
               {workspaceStatus?.gitStatus ? (
                 <>
@@ -159,9 +165,9 @@ export function ChatHeader() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {metadata.status !== 'running' &&
-            metadata.status !== 'closed' &&
-            metadata.status !== 'merged' && (
+          {status !== 'running' &&
+            status !== 'closed' &&
+            status !== 'merged' && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -174,8 +180,8 @@ export function ChatHeader() {
                         isLoadingWorkspace ||
                         !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
                         workspaceStatus?.gitStatus?.hasConflicts ||
-                        metadata.status === 'running' ||
-                        metadata.status === 'error'
+                        status === 'running' ||
+                        status === 'error'
                       }
                       className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
                     >
@@ -186,7 +192,7 @@ export function ChatHeader() {
                   <TooltipContent>
                     {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
                       <p>Cannot merge: workspace has uncommitted changes</p>
-                    ) : metadata.status === 'running' ? (
+                    ) : status === 'running' ? (
                       <p>Cannot merge: agent is running</p>
                     ) : isLoadingWorkspace ? (
                       <p>Checking status...</p>
@@ -201,7 +207,7 @@ export function ChatHeader() {
                 </Tooltip>
               </TooltipProvider>
             )}
-          {metadata.status !== 'closed' && (
+          {status !== 'closed' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -209,7 +215,7 @@ export function ChatHeader() {
                     variant="outline"
                     size="sm"
                     onClick={handleClose}
-                    disabled={closeTask.isPending || metadata.status === 'running'}
+                    disabled={closeTask.isPending || status === 'running'}
                     className="h-7 px-2 cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-colors"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -217,7 +223,7 @@ export function ChatHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {metadata.status === 'running' ? (
+                  {status === 'running' ? (
                     <p>Cannot close: agent is running</p>
                   ) : (
                     <p>Close task and teardown workspace</p>

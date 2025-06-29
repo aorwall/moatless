@@ -4,9 +4,10 @@ import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 
 import {
-  useSelectedIteration,
-  useTaskDataContext,
-} from '@/features/tasks/contexts/task-data-context'
+    useGitDiff,
+    useSelectedIteration,
+    useTaskData,
+} from '@/features/tasks/contexts/task-providers'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -115,16 +116,15 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
 }
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
-  const { gitDiff: contextGitDiff, isLoading, error } = useTaskDataContext()
+  const gitDiff = useGitDiff()
+  const { isLoading, error } = useTaskData()
   const _selectedIteration = useSelectedIteration()
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
-
-  const gitDiff = contextGitDiff
 
   const parsedFiles = useMemo<ParsedFile[]>(() => {
     if (!gitDiff?.diff) return []
     try {
-      const files = parseDiff(gitDiff.diff)
+      const files = parseDiff(gitDiff.diff) as ParsedFile[]
       // Auto-expand all files by default
       const allFileKeys = new Set(
         files.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
@@ -175,15 +175,6 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     )
   }
 
-  if (parsedFiles.length === 0 && gitDiff.total_files === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <FileIcon className="h-12 w-12 mb-2" />
-        <p>No changes to display</p>
-      </div>
-    )
-  }
-
   if (parsedFiles.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -193,18 +184,39 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     )
   }
 
+  // Calculate total stats from parsed files
+  const totalStats = useMemo(() => {
+    let totalAdditions = 0
+    let totalDeletions = 0
+
+    parsedFiles.forEach((file) => {
+      file.hunks.forEach((hunk) => {
+        hunk.changes.forEach((change: any) => {
+          if (change.type === 'insert') {
+            totalAdditions++
+          }
+          if (change.type === 'delete') {
+            totalDeletions++
+          }
+        })
+      })
+    })
+
+    return { totalAdditions, totalDeletions }
+  }, [parsedFiles])
+
   return (
     <ScrollArea className={cn('h-full overflow-auto p-4', className)}>
       {/* Summary Stats */}
-      {gitDiff && (
+      {gitDiff && parsedFiles.length > 0 && (
         <div className="mb-4 text-sm text-muted-foreground">
           Showing {parsedFiles.length} changed files with{' '}
           <span className="text-green-600 dark:text-green-400 font-medium">
-            {gitDiff.total_additions} additions
+            {totalStats.totalAdditions} additions
           </span>{' '}
           and{' '}
           <span className="text-red-600 dark:text-red-400 font-medium">
-            {gitDiff.total_deletions} deletions
+            {totalStats.totalDeletions} deletions
           </span>
         </div>
       )}

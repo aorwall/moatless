@@ -1,48 +1,14 @@
-import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
-import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
-import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import { MinifiedLastEventDisplay } from './minified-last-event-display'
+import { useTaskEvents } from '@/features/tasks/contexts/task-providers'
+import { MinifiedEventItem } from './minified-event-item'
 
-interface TaskMinifiedLastEventDisplayProps {
-  taskId: string
-  className?: string
-  showTransitionIndicator?: boolean
-  isRunning?: boolean
-}
-
-export function TaskMinifiedLastEventDisplay({
-  taskId,
-  className,
-  showTransitionIndicator,
-  isRunning,
-}: TaskMinifiedLastEventDisplayProps) {
-  const { events, isLoading, error, isStreaming } = useTaskDataContext()
-
-  if (error) {
-    return <ErrorAlert error={error} />
-  }
-
-  if (isLoading && !isStreaming) {
-    return (
-      <div className={`animate-pulse ${className}`}>
-        <div className="h-12 bg-muted rounded-md" />
-      </div>
-    )
-  }
+export function TaskMinifiedLastEventDisplay() {
+  const { events } = useTaskEvents()
 
   if (!events || events.length === 0) {
     return null
   }
 
-  // Merge tool events to show tool calls with their results
-  const mergedEvents = mergeToolEvents(events)
-
-  return (
-    <MinifiedLastEventDisplay
-      events={mergedEvents}
-      className={className}
-      showTransitionIndicator={showTransitionIndicator}
-      isRunning={isRunning}
-    />
-  )
+  const lastEvent = events[events.length - 1]
+  
+  return <MinifiedEventItem event={lastEvent} />
 }

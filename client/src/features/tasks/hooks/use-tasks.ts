@@ -1,3 +1,5 @@
+import { tasksApi } from '@/features/tasks/api/tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import type {
   CreateTaskRequest,
   MergeTaskResponse,
@@ -10,8 +12,6 @@ import type { GitDiffResponse, Task } from '@shared/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { tasksApi } from '@/features/tasks/api/tasks'
-import { queryKeys } from '@/lib/api/query-keys'
 import { updateTaskInLists } from '../utils/query-helpers'
 
 /**
@@ -197,12 +197,7 @@ export function useTaskWorkspaceStatus(
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId,
     refetchInterval: (query) => {
-      // Poll more frequently when workspace is in a transitional state
-      const data = query.state.data
-      if (data?.status === 'setting_up' || data?.status === 'running') {
-        return 1000 // 1 second
-      }
-      return 30000 // 30 seconds for idle/not_setup states
+      return false
     },
     ...options,
   })

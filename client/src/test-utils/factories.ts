@@ -1,15 +1,11 @@
 import type { SimpleTaskResponse } from '@shared/types/api'
 import type { Event } from '@shared/types/event'
-import type { GitDiffResponse } from '@shared/types/git-diff'
+import { EventType } from '@shared/types/event'
 import type {
-  AssistantMessage,
-  ClaudeMessage,
-  ServerStatus,
-  Task,
-  TaskIteration,
-  WorkspaceStatusResponse,
+    GitDiffResponse,
+    Task,
+    TaskIteration,
 } from '@shared/types/task'
-import { ContentType, MessageType, Role } from '@shared/types/task'
 import { WorkspaceStatus } from '@shared/types/workspace'
 
 // Re-export environment factories
@@ -23,7 +19,7 @@ export function createMockTask(overrides?: Partial<Task>): Task {
     lastMessageAt: new Date('2024-01-01T00:00:00Z'),
     agentType: 'test-agent',
     environmentId: 'test-env',
-    status: 'completed',
+    status: 'open',
     numTurns: 5,
     totalCostUsd: 0.0234,
     iterations: [],
@@ -50,39 +46,15 @@ export function createMockTaskIteration(
   }
 }
 
-export function createMockClaudeMessage(overrides?: Partial<ClaudeMessage>): ClaudeMessage {
-  return {
-    type: MessageType.ASSISTANT,
-    taskId: 'task-123',
-    timestamp: '2024-01-01T00:00:00Z',
-    message: {
-      type: 'message',
-      role: Role.ASSISTANT,
-      content: [
-        {
-          type: ContentType.TEXT,
-          text: 'Test message content',
-        },
-      ],
-      model: 'claude-3-sonnet',
-    },
-    ...overrides,
-  } as AssistantMessage
-}
-
 // Event factories
 export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
     eventId: 'event-123',
-    type: 'message',
+    type: EventType.MESSAGE,
+    agentType: 'test-agent',
     taskId: 'task-123',
-    iterationNumber: 1,
-    timestamp: '2024-01-01T00:00:00Z',
+    timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
-    subType: 'message',
-    contextTokens: 100,
-    numTurns: 1,
-    totalCost: 0.001,
     payload: {
       content: 'Test event content',
     },
@@ -95,7 +67,7 @@ export function createMockMessageEvent(
   role: 'user' | 'assistant' = 'user',
 ): Event {
   return createMockEvent({
-    type: 'message',
+    type: EventType.MESSAGE,
     payload: {
       role,
       content,
@@ -106,7 +78,7 @@ export function createMockMessageEvent(
 
 export function createMockToolEvent(toolName: string, input: any): Event {
   return createMockEvent({
-    type: 'toolUse',
+    type: EventType.TOOL,
     payload: {
       toolName: toolName,
       input,
@@ -115,18 +87,41 @@ export function createMockToolEvent(toolName: string, input: any): Event {
   })
 }
 
-// Status factories
+// Status factories  
+export interface MockWorkspaceStatusResponse {
+  status: WorkspaceStatus
+  hasUncommittedChanges: boolean
+  hasUnmergedCommits: boolean
+  isBehindBase: boolean
+  gitStatus?: {
+    currentBranch: string
+    baseBranch: string
+    commitsAhead: number
+    commitsBehind: number
+  }
+}
+
 export function createMockWorkspaceStatus(
-  overrides?: Partial<WorkspaceStatusResponse>,
-): WorkspaceStatusResponse {
+  overrides?: Partial<MockWorkspaceStatusResponse>,
+): MockWorkspaceStatusResponse {
   return {
     status: WorkspaceStatus.IDLE,
     hasUncommittedChanges: false,
+    hasUnmergedCommits: false,
+    isBehindBase: false,
     ...overrides,
   }
 }
 
-export function createMockServerStatus(overrides?: Partial<ServerStatus>): ServerStatus {
+export interface MockServerStatus {
+  running: boolean
+  configured: boolean
+  url: string
+  pid: number
+  uptimeSeconds: number
+}
+
+export function createMockServerStatus(overrides?: Partial<MockServerStatus>): MockServerStatus {
   return {
     running: false,
     configured: true,
@@ -191,7 +186,7 @@ export function createMockEventList(count = 5): Event[] {
     events.push(
       createMockEvent({
         eventId: `event-${i}`,
-        timestamp: new Date(Date.now() + i * 1000).toISOString(),
+        timestamp: new Date(Date.now() + i * 1000),
       }),
     )
   }
