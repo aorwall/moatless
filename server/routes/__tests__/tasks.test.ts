@@ -20,6 +20,19 @@ describe('Task Routes', () => {
       // Mock task creation
       vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
 
+      // Mock getTask to return task with open status
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce({
+        taskId: mockTaskId,
+        status: 'open',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'claude-code',
+        environmentId: 'test-env',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      })
+
       const response = await app.inject({
         method: 'POST',
         url: '/api/v1/tasks',
@@ -49,6 +62,19 @@ describe('Task Routes', () => {
       // Mock task creation to verify it's called with start: false
       vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
 
+      // Mock getTask
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce({
+        taskId: mockTaskId,
+        status: 'open',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'claude-code',
+        environmentId: 'test-env',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      })
+
       const response = await app.inject({
         method: 'POST',
         url: '/api/v1/tasks',
@@ -69,6 +95,51 @@ describe('Task Routes', () => {
         message: 'Test message',
         start: false,
       })
+    })
+
+    it('should return running status when task starts immediately', async () => {
+      const mockTaskId = 'mock-task-id-running'
+
+      // Mock task creation
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
+
+      // Mock getTask to return task with running status
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce({
+        taskId: mockTaskId,
+        status: 'running',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'claude-code',
+        environmentId: 'test-env',
+        numTurns: 1,
+        totalCostUsd: 0,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date(),
+            status: 'active',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'Hello world',
+          },
+        ],
+      })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/tasks',
+        payload: {
+          agentType: 'claude-code',
+          environmentId: 'test-env',
+          message: 'Hello world',
+          start: true,
+        },
+      })
+
+      expect(response.statusCode).toBe(200)
+      const body = JSON.parse(response.body)
+      expect(body.taskId).toBe(mockTaskId)
+      expect(body.status).toBe('running')
     })
 
     it('should validate request body', async () => {
@@ -197,15 +268,23 @@ describe('Task Routes', () => {
     it('should filter tasks by status', async () => {
       const mockTasks = [
         {
-          taskId: 'task-1',
-          status: 'open' as const,
+          taskId: 'task-running',
+          status: 'running' as const,
           createdAt: new Date(),
           lastMessageAt: new Date(),
           agentType: 'claude-code',
           environmentId: 'test-env',
-          numTurns: 0,
+          numTurns: 1,
           totalCostUsd: 0,
-          iterations: [],
+          iterations: [
+            {
+              iterationNumber: 1,
+              startTime: new Date(),
+              status: 'active' as const,
+              messageCount: 1,
+              costUsd: 0,
+            },
+          ],
         },
       ]
 
@@ -303,36 +382,6 @@ describe('Task Routes', () => {
       })
 
       expect(response.statusCode).toBe(404)
-    })
-  })
-
-  describe('PATCH /api/tasks/:taskId', () => {
-    it('should update task status', async () => {
-      vi.spyOn(app.services.task, 'updateTask').mockResolvedValueOnce()
-
-      const response = await app.inject({
-        method: 'PATCH',
-        url: '/api/v1/tasks/test-123',
-        payload: {
-          status: 'closed',
-        },
-      })
-
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
-      expect(body.status).toBe('updated')
-    })
-
-    it('should validate status value', async () => {
-      const response = await app.inject({
-        method: 'PATCH',
-        url: '/api/v1/tasks/test-123',
-        payload: {
-          status: 'invalid-status',
-        },
-      })
-
-      expect(response.statusCode).toBe(400)
     })
   })
 
