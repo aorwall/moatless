@@ -43,7 +43,13 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   // Memoize SSE callbacks to prevent reconnections
   const handleSSEEvent = useCallback(
     (newEvent: Event) => {
-      setStreamEvents((prev) => [...prev, newEvent])
+      setStreamEvents((prev) => {
+        // Check if event already exists to prevent duplicates
+        if (prev.some((e) => e.eventId === newEvent.eventId)) {
+          return prev
+        }
+        return [...prev, newEvent]
+      })
       setStreamingError(null)
 
       // Update cache based on event type

@@ -1,11 +1,20 @@
 import { pino } from 'pino'
 
-// Create the base pino logger with pino-pretty in development
+// Determine log level: debug in tests, configurable otherwise
+const getLogLevel = () => {
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+    return 'debug'
+  }
+  return process.env.LOG_LEVEL || 'info'
+}
+
+// Create the base pino logger with pino-pretty by default, JSON only when explicitly enabled
 const pinoLogger = pino({
-  level: process.env.LOG_LEVEL || 'info',
+  level: getLogLevel(),
   transport:
-    process.env.NODE_ENV === 'development'
-      ? {
+    process.env.USE_JSON_LOGGING === 'true'
+      ? undefined
+      : {
           target: 'pino-pretty',
           options: {
             colorize: true,
@@ -13,8 +22,7 @@ const pinoLogger = pino({
             ignore: 'pid,hostname',
             singleLine: false,
           },
-        }
-      : undefined,
+        },
 })
 
 // Create a wrapper to maintain backward compatibility with existing code

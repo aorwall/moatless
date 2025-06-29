@@ -100,9 +100,11 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
                   // Mark the tool result as processed
                   processedEventIds.add(toolResult.eventId)
 
-                  // Create merged event
+                  // Create merged event with unique ID
                   const mergedEvent: MergedEvent = {
                     ...event,
+                    // Create unique eventId by combining original ID with tool use ID
+                    eventId: `${event.eventId}-${toolUseId}`,
                     toolResult,
                   }
                   mergedEvents.push(mergedEvent)
@@ -128,10 +130,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
         }
       } else if (!hasUserMessage(event.payload)) {
         // Message event but neither assistant nor user type
-        console.warn(
-          `[mergeToolEvents] MessageEvent ${event.eventId} has unexpected message type`,
-          event.payload,
-        )
+
         mergedEvents.push(event)
       } else {
         // User message that wasn't a tool result (already processed above)

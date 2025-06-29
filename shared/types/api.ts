@@ -21,12 +21,15 @@ export const CreateTaskRequestSchema = z.object({
   message: z.string().optional(),
   branchName: z.string().optional(),
   start: z.boolean().optional(),
+  model: z.string().optional(),
 })
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 
 // Send Message
 export const SendMessageRequestSchema = z.object({
   message: z.string().min(1),
+  resume: z.boolean().optional().default(true),
+  model: z.string().optional(),
 })
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 

@@ -18,12 +18,18 @@ function Dashboard() {
     },
   })
 
-  const handleCreateTask = (message: string, environmentId: string, clearMessage: () => void) => {
+  const handleCreateTask = (
+    message: string,
+    environmentId: string,
+    clearMessage: () => void,
+    model?: string,
+  ) => {
     createTask.mutate(
       {
         agentType: 'claude-code',
         message,
         environmentId,
+        model,
       },
       {
         onSuccess: () => {
@@ -42,6 +48,7 @@ function Dashboard() {
         onCreateTask={handleCreateTask}
         isLoading={createTask.isPending}
         className="w-full max-w-2xl px-6"
+        maxHeight="300px"
       />
     </div>
   )

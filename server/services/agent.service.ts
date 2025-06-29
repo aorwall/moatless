@@ -1,5 +1,6 @@
 import type { BaseAgent } from '@server/services/agents/base-agent.js'
-import { CriticalError } from '@shared/constants/errors.js'
+import { CriticalError, TaskNotFoundError } from '@shared/constants/errors.js'
+import type { SDKResultMessage } from '@shared/types/claude.js'
 import type { FastifyInstance } from 'fastify'
 import { EventType, type TaskIteration } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
@@ -96,6 +97,7 @@ export class AgentService {
     iteration: TaskIteration,
     agentType: string = 'claude-code',
     resumeSessionId?: string,
+    model?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
@@ -115,14 +117,34 @@ export class AgentService {
       throw new CriticalError('Agent is already running', taskId, iteration)
     }
 
-    agentLogger.info('Starting agent execution', {
+    // Check if workspace path actually exists
+    if (!(await workspace.isWorkspacePathValid())) {
+      // Workspace metadata exists but physical path/container is missing
+      // Need to recreate the workspace
+      await this.recreateWorkspace(taskId, iteration)
+
+      // Get the workspace again after recreation
+      const recreatedWorkspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const recreatedStatus = recreatedWorkspace.getStatus()
+
+      if (recreatedStatus !== WorkspaceStatus.IDLE) {
+        throw new CriticalError(
+          'Workspace recreation failed - workspace not ready',
+          taskId,
+          iteration,
+        )
+      }
+    }
+
+    agentLogger.info('Creating agent', {
       agentType,
       workspaceStatus: status,
       hasResumeSession: !!resumeSessionId,
+      model,
     })
 
     // Create agent
-    const agent = await this.createAgent(agentType, taskId)
+    const agent = await this.createAgent(agentType, taskId, model)
 
     // Track the running agent
     this.runningAgents.set(taskId, agent)
@@ -230,10 +252,10 @@ export class AgentService {
   /**
    * Create an agent instance
    */
-  private async createAgent(agentType: string, taskId: string): Promise<BaseAgent> {
+  private async createAgent(agentType: string, taskId: string, model?: string): Promise<BaseAgent> {
     if (agentType === 'claude-code') {
       // TODO: Get claude options from storage/config
-      const options = {} // Placeholder for claude options
+      const options = model ? { model } : {} // Pass model in options if provided
       return new ClaudeCodeAgent(taskId, options)
     } else {
       throw new Error(`Unknown agent type: ${agentType}`)
@@ -284,17 +306,48 @@ export class AgentService {
         }
 
         if (event.type === EventType.RESULT) {
+          const resultPayload = event.payload as SDKResultMessage
+
           agentLogger.info('Agent execution completed', {
-            costUsd: event.payload.total_cost_usd,
-            hasResult: !!event.payload.result,
+            costUsd: resultPayload.total_cost_usd,
+            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+            isError: event.isError,
+            subtype: resultPayload.subtype,
           })
 
-          iteration.costUsd = (event.payload.total_cost_usd as number) ?? 0
-          iteration.result =
-            (event.payload.result as string) ?? 'No result found in Claude Code SDK result message'
+          iteration.costUsd = resultPayload.total_cost_usd ?? 0
 
-          // Update iteration status to completed after successful execution
-          iteration.status = 'completed'
+          // Check if the result event indicates an error
+          if (event.isError || resultPayload.is_error) {
+            // Handle error result
+            iteration.status = 'failed'
+
+            // Determine error message based on subtype
+            let errorMessage = 'Agent execution failed'
+            if (resultPayload.subtype === 'error_max_turns') {
+              errorMessage = 'Maximum number of turns exceeded'
+            } else if (resultPayload.subtype === 'error_during_execution') {
+              errorMessage = 'Error occurred during execution'
+            }
+
+            iteration.error = {
+              message: errorMessage,
+              timestamp: new Date(),
+            }
+            // Error results don't have a result property
+            iteration.result = undefined
+          } else {
+            // Handle successful result
+            iteration.status = 'completed'
+            // Type guard to ensure we're dealing with a success result
+            if (resultPayload.subtype === 'success' && 'result' in resultPayload) {
+              iteration.result =
+                resultPayload.result || 'No result found in Claude Code SDK result message'
+            } else {
+              iteration.result = 'No result found in Claude Code SDK result message'
+            }
+          }
+
           iteration.endTime = new Date()
           iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
@@ -308,14 +361,15 @@ export class AgentService {
               // Remove runtime properties to avoid circular references
               const { task: _, taskId: __, ...iterationData } = iteration
               task.iterations[iterationIndex] = iterationData
-              // Update task status to open after successful completion
-              task.status = 'open'
+              // Update task status based on iteration result
+              task.status = event.isError || resultPayload.is_error ? 'error' : 'open'
               await this.storage.saveTask(task)
             }
           }
         }
 
         // Emit agent events to event service
+        agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
         await this.eventService.emitEvent(event)
       }
 
@@ -357,6 +411,34 @@ export class AgentService {
         throw error
       }
     }
+  }
+
+  /**
+   * Recreate workspace when physical path/container is missing
+   */
+  private async recreateWorkspace(taskId: string, iteration: TaskIteration): Promise<void> {
+    const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
+
+    agentLogger.warn('Workspace path/container missing, recreating workspace', { taskId })
+
+    // Setup workspace again
+    await this.workspaceService.setupWorkspace(taskId, iteration.iterationNumber)
+
+    // Wait for workspace to be ready
+    const maxWaitTime = 30000
+    const checkInterval = 500
+    const startWait = Date.now()
+
+    while (Date.now() - startWait < maxWaitTime) {
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (workspace && workspace.getStatus() === WorkspaceStatus.IDLE) {
+        agentLogger.info('Workspace recreated successfully', { taskId })
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, checkInterval))
+    }
+
+    throw new CriticalError('Workspace recreation timeout', taskId, iteration)
   }
 }
 

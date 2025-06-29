@@ -1,7 +1,7 @@
 import { EventType } from '@shared/types/event'
 import type { TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
-import { Clock, DollarSign, MessageSquare } from 'lucide-react'
+import { AlertCircle, Clock, DollarSign, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { Alert, AlertDescription } from '@/lib/components/ui/alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
@@ -50,7 +51,7 @@ export function ChatView() {
   }, [])
 
   // Check if user is at the bottom of the scroll area
-  const checkIfAtBottom = () => {
+  const checkIfAtBottom = useCallback(() => {
     const scrollArea = scrollAreaRef.current
     if (!scrollArea) return false
 
@@ -60,7 +61,7 @@ export function ChatView() {
     const { scrollTop, scrollHeight, clientHeight } = viewport
     // Consider "at bottom" if within 50px of the bottom
     return scrollHeight - scrollTop - clientHeight < 50
-  }
+  }, [])
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
@@ -173,10 +174,22 @@ export function ChatView() {
 
   const isTaskRunning = metadata.status === 'running'
 
+  // Check if last iteration has an error
+  const lastIterationHasError =
+    metadata.iterations?.length > 0 &&
+    (metadata.iterations[metadata.iterations.length - 1].status === 'error' ||
+      metadata.iterations[metadata.iterations.length - 1].status === 'failed')
+
   // Handle sending message to task
-  const handleSendMessage = (taskId: string, message: string, clearMessage: () => void) => {
+  const handleSendMessage = (
+    taskId: string,
+    message: string,
+    clearMessage: () => void,
+    resume?: boolean,
+    model?: string,
+  ) => {
     sendMessage.mutate(
-      { taskId, message },
+      { taskId, message, resume, model },
       {
         onSuccess: () => {
           clearMessage()
@@ -234,12 +247,44 @@ export function ChatView() {
                     </div>
                   )}
 
-                  {/* Result Message */}
-                  {iteration.result && (
+                  {/* Result Message or Error */}
+                  {(iteration.status === 'failed' || iteration.status === 'error') &&
+                  iteration.error ? (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        <div className="space-y-3">
+                          {/* Show result first if available */}
+                          {iteration.result && (
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {iteration.result}
+                              </ReactMarkdown>
+                            </div>
+                          )}
+
+                          {/* Error message */}
+                          <div>Error: {iteration.error.message}</div>
+
+                          {/* Expandable stack trace */}
+                          {iteration.error.stack && (
+                            <details className="mt-2">
+                              <summary className="text-xs cursor-pointer hover:underline">
+                                Show stack trace
+                              </summary>
+                              <pre className="mt-2 text-xs overflow-x-auto whitespace-pre-wrap bg-black/10 dark:bg-white/10 p-2 rounded">
+                                {iteration.error.stack}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  ) : iteration.result ? (
                     <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               )
             })}
@@ -270,9 +315,11 @@ export function ChatView() {
           data-testid="task-chat-input"
           taskId={params.taskId}
           taskStatus={metadata?.status}
+          lastIterationHasError={lastIterationHasError}
           onSendMessage={handleSendMessage}
           isLoading={sendMessage.isPending}
           className="p-4 border-t border-slate-200 dark:border-slate-700"
+          maxHeight="150px"
         />
       </ErrorBoundary>
     </div>

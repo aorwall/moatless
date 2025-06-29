@@ -72,6 +72,7 @@ export class TaskService {
       params.branchName,
       params.message,
       params.start ?? true,
+      params.model,
     )
 
     // Track background task in WorkspaceService
@@ -81,8 +82,29 @@ export class TaskService {
     return task.taskId
   }
 
-  async getTask(taskId: string): Promise<Task | null> {
-    return this.storage.getTask(taskId)
+  async getTask(taskId: string): Promise<Task> {
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // If task exists and status is running, check if agent is still running
+    if (task && task.status === 'running') {
+      const agentStatus = await this.agentService.getAgentStatus(taskId)
+
+      // If agent is not running and status is error, update task status to error
+      if (agentStatus.status === 'error') {
+        task.status = 'error'
+        await this.storage.saveTask(task)
+      }
+      // If agent is not running (idle), update task status to open
+      else if (agentStatus.status === 'idle') {
+        task.status = 'open'
+        await this.storage.saveTask(task)
+      }
+    }
+
+    return task
   }
 
   async listTasks(limit = 50, offset = 0, status?: string): Promise<Task[]> {
@@ -107,11 +129,8 @@ export class TaskService {
     return tasks.slice(offset, offset + limit)
   }
 
-  async sendMessage(taskId: string, message: string): Promise<void> {
+  async sendMessage(taskId: string, message: string, resume = true, model?: string): Promise<void> {
     const metadata = await this.getTask(taskId)
-    if (!metadata) {
-      throw new TaskNotFoundError(taskId)
-    }
 
     // Update metadata
     const now = new Date()
@@ -119,7 +138,7 @@ export class TaskService {
 
     // Find the previous iteration's session ID for resume
     let resumeSessionId: string | undefined
-    if (metadata.iterations.length > 0) {
+    if (resume && metadata.iterations.length > 0) {
       const previousIteration = metadata.iterations[metadata.iterations.length - 1]
       resumeSessionId = previousIteration.agentSessionId
     }
@@ -146,7 +165,7 @@ export class TaskService {
 
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId)
+      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })
@@ -157,19 +176,13 @@ export class TaskService {
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
     const metadata = await this.getTask(taskId)
-    if (!metadata) {
-      throw new TaskNotFoundError(taskId)
-    }
 
     const updatedMetadata = { ...metadata, ...updates }
     await this.storage.saveTask(updatedMetadata)
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    const task = await this.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
+    await this.getTask(taskId)
 
     // Clean up workspace
     await this.workspaceService.cleanupWorkspace(taskId)
@@ -181,9 +194,8 @@ export class TaskService {
 
   async closeTask(taskId: string): Promise<void> {
     const task = await this.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
+
+    logger.debug('Closing task', { taskId })
 
     // Stop any running agent
     await this.agentService.stopAgent(taskId)
@@ -212,6 +224,7 @@ export class TaskService {
     branchName?: string,
     message?: string,
     start?: boolean,
+    model?: string,
   ): Promise<void> {
     const taskLogger = createTaskLogger(taskId)
     const startTime = Date.now()
@@ -236,8 +249,6 @@ export class TaskService {
       taskLogger.debug('Workspace setup complete event emitted')
 
       if (start && message) {
-        taskLogger.info('Starting initial message processing')
-
         // Wait for workspace to be ready (max 30 seconds)
         const maxWaitTime = 30000
         const checkInterval = 500
@@ -251,7 +262,7 @@ export class TaskService {
           await new Promise((resolve) => setTimeout(resolve, checkInterval))
         }
 
-        await this.sendMessage(taskId, message)
+        await this.sendMessage(taskId, message, true, model)
       }
 
       taskLogger.info('Workspace setup completed successfully', {

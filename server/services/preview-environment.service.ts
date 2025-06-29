@@ -537,6 +537,78 @@ export class PreviewEnvironmentService {
 
     this.runningServers.clear()
   }
+
+  /**
+   * Graceful shutdown - stops all servers and cleans up metadata files
+   */
+  async gracefulShutdown(): Promise<void> {
+    logger.info('Starting graceful shutdown of preview environment service')
+
+    try {
+      // Get all running servers AND check preview env directory for metadata files
+      const runningTaskIds = Array.from(this.runningServers.keys())
+      const metadataTaskIds = await this.getAllMetadataFiles()
+
+      // Combine and deduplicate task IDs from both sources
+      const allTaskIds = [...new Set([...runningTaskIds, ...metadataTaskIds])]
+
+      logger.info('Preview environment shutdown status', {
+        runningServers: runningTaskIds.length,
+        metadataFiles: metadataTaskIds.length,
+        totalEnvironments: allTaskIds.length,
+      })
+
+      if (allTaskIds.length > 0) {
+        logger.info('Stopping all preview environments', { taskIds: allTaskIds })
+
+        const stopPromises = allTaskIds.map(async (taskId) => {
+          try {
+            // Try graceful stop first with 5 second timeout
+            const stopped = await this.stopServer(taskId, { timeout: 5000 })
+            if (!stopped) {
+              // Force stop if graceful failed
+              logger.warn('Graceful stop failed, forcing shutdown', { taskId })
+              await this.stopServer(taskId, { timeout: 2000, forceKill: true })
+            }
+            return { taskId, success: true }
+          } catch (error) {
+            logger.error('Failed to stop server during shutdown', { taskId, error })
+            return { taskId, success: false }
+          }
+        })
+
+        const results = await Promise.allSettled(stopPromises)
+        const successful = results.filter((r) => r.status === 'fulfilled' && r.value.success).length
+
+        logger.info('Preview environment shutdown complete', {
+          attempted: allTaskIds.length,
+          successful,
+          failed: allTaskIds.length - successful,
+        })
+      }
+
+      // Clear the running servers map
+      this.runningServers.clear()
+
+      logger.info('Preview environment service shutdown complete')
+    } catch (error) {
+      logger.error('Error during graceful shutdown', error as Error)
+      throw error
+    }
+  }
+
+  /**
+   * Get all metadata files in the preview environments directory
+   */
+  private async getAllMetadataFiles(): Promise<string[]> {
+    try {
+      const files = await fs.readdir(this.previewEnvironmentsPath)
+      return files.filter((f) => f.endsWith('.json')).map((f) => f.replace('.json', ''))
+    } catch (error) {
+      logger.debug('Failed to read preview environments directory', error as Error)
+      return []
+    }
+  }
 }
 
 export function createPreviewEnvironmentService(

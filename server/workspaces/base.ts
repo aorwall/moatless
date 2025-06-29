@@ -142,4 +142,9 @@ export abstract class BaseWorkspace {
    * Get the workspace path (for local workspaces) or container ID (for docker workspaces)
    */
   abstract getWorkspacePath(): string
+
+  /**
+   * Check if the workspace physical path or container is valid and accessible
+   */
+  abstract isWorkspacePathValid(): Promise<boolean>
 }

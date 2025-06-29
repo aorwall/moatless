@@ -11,12 +11,14 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import './github-diff.css'
+import './prism-theme.css'
+import { tokenizeHunks } from './syntax-highlighter'
 
 interface GitDiffViewerProps {
   className?: string
 }
 
-// Using any for hunk types as react-diff-view doesn't provide complete type exports
+// Define the file structure returned by parseDiff
 interface ParsedFile {
   oldRevision: string
   newRevision: string
@@ -27,23 +29,100 @@ interface ParsedFile {
   [key: string]: any
 }
 
+interface FileDiffProps {
+  file: ParsedFile
+  isExpanded: boolean
+  onToggle: () => void
+}
+
+function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
+  const { oldRevision, newRevision, type, hunks, oldPath, newPath } = file
+  const filePath = newPath || oldPath || newRevision || oldRevision
+
+  // Calculate additions and deletions
+  const stats = useMemo(() => {
+    let additions = 0
+    let deletions = 0
+
+    hunks.forEach((hunk) => {
+      hunk.changes.forEach((change: any) => {
+        if (change.type === 'insert') {
+          additions++
+        }
+        if (change.type === 'delete') {
+          deletions++
+        }
+      })
+    })
+
+    return { additions, deletions }
+  }, [hunks])
+
+  // Tokenize hunks for syntax highlighting
+  const tokens = useMemo(() => {
+    return isExpanded ? tokenizeHunks(hunks, filePath) : undefined
+  }, [hunks, filePath, isExpanded])
+
+  return (
+    <div className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden">
+      {/* File Header */}
+      <button
+        type="button"
+        className="github-diff-header bg-muted/50 px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-muted/70 transition-colors w-full text-left"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-2">
+          <span className="p-0 hover:bg-muted rounded">
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </span>
+          <FileIcon className="h-4 w-4 text-muted-foreground" />
+          <span className="font-mono text-sm">{filePath}</span>
+        </div>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
+          <span className="text-red-600 dark:text-red-400">−{stats.deletions}</span>
+        </div>
+      </button>
+
+      {/* Diff Content */}
+      {isExpanded && (
+        <div className="github-diff-content">
+          <Diff
+            viewType="unified"
+            diffType={type}
+            hunks={hunks}
+            className="diff-view"
+            tokens={tokens}
+            optimizeSelection
+            renderToken={(token: any, defaultRender: any) => {
+              // Handle tokens with className for syntax highlighting
+              if (token.className) {
+                return <span className={token.className}>{token.value || ''}</span>
+              }
+              return defaultRender(token)
+            }}
+          >
+            {(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
+          </Diff>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
   const { gitDiff: contextGitDiff, isLoading, error } = useTaskDataContext()
   const selectedIteration = useSelectedIteration()
-
-  // Use iteration's git diff if available, otherwise use context's git diff
-  const gitDiff =
-    selectedIteration?.git_diff && typeof selectedIteration.git_diff === 'object'
-      ? selectedIteration.git_diff
-      : contextGitDiff
-
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 
-  // Parse the git diff using gitdiff-parser - must be called before any returns for hooks rules
-  const parsedFiles = useMemo(() => {
-    if (!gitDiff?.diff) {
-      return []
-    }
+  const gitDiff = contextGitDiff
+
+  const parsedFiles = useMemo<ParsedFile[]>(() => {
+    if (!gitDiff?.diff) return []
     try {
       const files = parseDiff(gitDiff.diff)
       // Auto-expand all files by default
@@ -114,69 +193,6 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     )
   }
 
-  const renderFile = (file: ParsedFile) => {
-    const { oldRevision, newRevision, type, hunks, oldPath, newPath } = file
-    const filePath = newPath || oldPath || newRevision || oldRevision
-    const fileKey = `${oldPath || oldRevision}-${newPath || newRevision}`
-    const isExpanded = expandedFiles.has(fileKey)
-
-    // Calculate additions and deletions
-    let additions = 0
-    let deletions = 0
-
-    hunks.forEach((hunk) => {
-      hunk.changes.forEach((change: any) => {
-        if (change.type === 'insert') {
-          additions++
-        }
-        if (change.type === 'delete') {
-          deletions++
-        }
-      })
-    })
-
-    const stats = { additions, deletions }
-
-    return (
-      <div
-        key={fileKey}
-        className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden"
-      >
-        {/* File Header */}
-        <button
-          type="button"
-          className="github-diff-header bg-muted/50 px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-muted/70 transition-colors w-full text-left"
-          onClick={() => toggleFileExpansion(fileKey)}
-        >
-          <div className="flex items-center gap-2">
-            <span className="p-0 hover:bg-muted rounded">
-              {isExpanded ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronRight className="h-4 w-4" />
-              )}
-            </span>
-            <FileIcon className="h-4 w-4 text-muted-foreground" />
-            <span className="font-mono text-sm">{filePath}</span>
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
-            <span className="text-red-600 dark:text-red-400">−{stats.deletions}</span>
-          </div>
-        </button>
-
-        {/* Diff Content */}
-        {isExpanded && (
-          <div className="github-diff-content">
-            <Diff viewType="unified" diffType={type} hunks={hunks} className="diff-view">
-              {(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
-            </Diff>
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <ScrollArea className={cn('h-full overflow-auto p-4', className)}>
       {/* Summary Stats */}
@@ -194,7 +210,17 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       )}
 
       {/* File Diffs */}
-      <div>{parsedFiles.map((file) => renderFile(file as ParsedFile))}</div>
+      {parsedFiles.map((file) => {
+        const fileKey = `${file.oldPath || file.oldRevision}-${file.newPath || file.newRevision}`
+        return (
+          <FileDiff
+            key={fileKey}
+            file={file}
+            isExpanded={expandedFiles.has(fileKey)}
+            onToggle={() => toggleFileExpansion(fileKey)}
+          />
+        )
+      })}
     </ScrollArea>
   )
 }

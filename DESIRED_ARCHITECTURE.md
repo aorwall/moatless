@@ -177,6 +177,20 @@ Agent.run() [Async Generator]
 - Direct async iteration over agent events
 - Session ID captured from first system event
 
+**Workspace Validation During Agent Execution**
+
+The AgentService performs additional validation before agent execution:
+1. **State Check**: Ensures workspace is in IDLE state
+2. **Path Validation**: For local workspaces, verifies physical path exists
+3. **Automatic Recovery**: If path is missing, triggers workspace recreation
+4. **Timeout Protection**: Limits recreation wait time to prevent hanging
+
+This ensures resilience against:
+- System restarts where worktree directories are lost
+- Manual deletion of workspace directories  
+- Git worktree cleanup operations
+- Docker container removal or crashes
+
 ### 6. Error Handling Strategy
 
 ```

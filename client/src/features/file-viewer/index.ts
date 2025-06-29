@@ -1,5 +1,8 @@
 // API
-export { useFileViewer } from './api/use-file-viewer'
+
+export { useFileContent } from './api/use-file-content'
+export { useFileList } from './api/use-file-list'
+export { useFileSearch } from './api/use-file-search'
 
 // Components
 export { FileTree } from './components/file-tree'

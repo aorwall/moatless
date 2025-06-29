@@ -47,9 +47,16 @@ export const tasksApi = {
     return await apiClient.post<SimpleTaskResponse>('/api/v1/tasks', request)
   },
 
-  async sendMessage(taskId: string, message: string): Promise<SimpleTaskResponse> {
+  async sendMessage(
+    taskId: string,
+    message: string,
+    resume?: boolean,
+    model?: string,
+  ): Promise<SimpleTaskResponse> {
     return await apiClient.post<SimpleTaskResponse>(`/api/v1/tasks/${taskId}/messages`, {
       message,
+      resume,
+      model,
     })
   },
 

@@ -1,8 +1,16 @@
+import { CLAUDE_MODEL_DISPLAY_NAMES, CLAUDE_MODELS, type ClaudeModel } from '@shared/constants'
+import type { Environment } from '@shared/types/environment'
 import { ArrowUp, Circle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/lib/components/ui/select'
 import { Textarea } from '@/lib/components/ui/textarea'
 import {
   Tooltip,
@@ -23,6 +31,16 @@ interface ChatFormProps {
   taskId?: string
   isTaskContext: boolean
   buttonText: string
+  selectedModel: ClaudeModel
+  onModelChange: (model: ClaudeModel) => void
+  isRunning?: boolean
+  // Environment selector props (only shown when creating new task)
+  showEnvironmentSelector?: boolean
+  environments?: Environment[]
+  selectedEnvironmentId?: string
+  onEnvironmentChange?: (environmentId: string) => void
+  environmentsLoading?: boolean
+  maxHeight?: string
 }
 
 export function ChatForm({
@@ -36,6 +54,15 @@ export function ChatForm({
   taskId,
   isTaskContext,
   buttonText,
+  selectedModel,
+  onModelChange,
+  isRunning = false,
+  showEnvironmentSelector = false,
+  environments,
+  selectedEnvironmentId,
+  onEnvironmentChange,
+  environmentsLoading = false,
+  maxHeight = '200px',
 }: ChatFormProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -58,6 +85,19 @@ export function ChatForm({
     value: message,
     onValueChange: onMessageChange,
   })
+
+  // Initial resize on mount
+  useEffect(() => {
+    const textarea = inputRef.current
+    if (!textarea) return
+
+    // Set initial height
+    textarea.style.height = 'auto'
+    const scrollHeight = textarea.scrollHeight
+    const maxHeightPx = parseInt(maxHeight)
+    const newHeight = Math.min(scrollHeight, maxHeightPx)
+    textarea.style.height = `${newHeight}px`
+  }, [maxHeight, inputRef.current])
 
   // Detect if dropdown should appear above or below
   useEffect(() => {
@@ -95,6 +135,14 @@ export function ChatForm({
     const cursorPosition = e.target.selectionStart || 0
     onMessageChange(value)
     handleInputChange(value, cursorPosition)
+
+    // Auto-resize textarea on input
+    const textarea = e.target
+    textarea.style.height = 'auto'
+    const scrollHeight = textarea.scrollHeight
+    const maxHeightPx = parseInt(maxHeight)
+    const newHeight = Math.min(scrollHeight, maxHeightPx)
+    textarea.style.height = `${newHeight}px`
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -118,8 +166,8 @@ export function ChatForm({
             value={message}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
-            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 max-h-[200px] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none"
-            style={{ minHeight: '40px' }}
+            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto"
+            style={{ minHeight: '40px', maxHeight }}
             disabled={textareaDisabled}
           />
           {isAutocompleteOpen && (
@@ -134,9 +182,45 @@ export function ChatForm({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <div className="ml-auto flex items-center gap-2">
-          {buttonText.includes('m') || buttonText.includes('s') ? (
+      <div className="flex items-center justify-between gap-2">
+        {/* Left side - Environment and Model selectors */}
+        <div className="flex items-center gap-2">
+          {showEnvironmentSelector && onEnvironmentChange && (
+            <Select
+              value={selectedEnvironmentId}
+              onValueChange={onEnvironmentChange}
+              disabled={environmentsLoading}
+            >
+              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[180px]">
+                <SelectValue placeholder="Select environment" />
+              </SelectTrigger>
+              <SelectContent>
+                {environments?.map((env) => (
+                  <SelectItem key={env.id} value={env.id} className="text-xs">
+                    {env.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={selectedModel} onValueChange={onModelChange}>
+            <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={CLAUDE_MODELS.OPUS_4} className="text-xs">
+                {CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4]}
+              </SelectItem>
+              <SelectItem value={CLAUDE_MODELS.SONNET_4} className="text-xs">
+                {CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4]}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Right side - Send button */}
+        <div className="flex items-center">
+          {isRunning ? (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>

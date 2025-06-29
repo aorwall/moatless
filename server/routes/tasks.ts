@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { TaskNotFoundError } from '../../shared/constants/errors.js'
+import { TaskNotFoundError, WorkspaceError } from '../../shared/constants/errors.js'
 import {
   CreateTaskRequestSchema,
   DeleteTaskResponseSchema,
@@ -11,8 +11,6 @@ import {
   StopAgentResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
-  UpdateTaskRequestSchema,
-  UpdateTaskResponseSchema,
 } from '../../shared/types/api.js'
 import type { EventType } from '../../shared/types/event.js'
 import { sseManager } from '../utils/sse-manager.js'
@@ -45,7 +43,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const taskId = await taskService.createTask(request.body as any)
+      const { model, ...taskData } = request.body as any
+      const taskId = await taskService.createTask({ ...taskData, model })
       return { taskId, status: 'open' }
     },
   )
@@ -109,9 +108,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { message } = request.body as any
+      const { message, resume, model } = request.body as any
 
-      await taskService.sendMessage(taskId, message)
+      await taskService.sendMessage(taskId, message, resume, model)
       return { status: 'sent', timestamp: new Date().toISOString() }
     },
   )
@@ -150,27 +149,6 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         items: events,
       }
       return response
-    },
-  )
-
-  // Update task
-  app.patch(
-    '/:taskId',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        body: UpdateTaskRequestSchema,
-        response: {
-          200: UpdateTaskResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as any
-      const updates = request.body as any
-
-      await taskService.updateTask(taskId, updates)
-      return { status: 'updated' }
     },
   )
 
@@ -413,15 +391,28 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         params: TaskIdParamsSchema,
       },
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const { taskId } = request.params as any
 
-      // Task validation and capability check now handled in workspace service
-      const diff = await app.services.workspace.getGitDiff(taskId)
-      return {
-        diff,
-        files: [], // TODO: Parse diff to extract file list
-        hasChanges: diff.length > 0,
+      try {
+        // Task validation and capability check now handled in workspace service
+        const diff = await app.services.workspace.getGitDiff(taskId)
+        return {
+          diff,
+          files: [], // TODO: Parse diff to extract file list
+          hasChanges: diff.length > 0,
+        }
+      } catch (error) {
+        if (error instanceof TaskNotFoundError) {
+          return reply.status(404).send({ error: 'Task not found' })
+        }
+        if (error instanceof WorkspaceError) {
+          return reply.status(error.statusCode).send({ error: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Cannot access git')) {
+          return reply.status(403).send({ error: error.message })
+        }
+        throw error
       }
     },
   )

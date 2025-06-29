@@ -8,7 +8,8 @@ for await (const message of query({
     options: {
         appendSystemPrompt: "You're task is to determine a good branch name for the users request. YOU MUST respond with ONLY a JSON object with the format  {branchName: []}",
         maxTurns: 1,
-        allowedTools: []
+        allowedTools: [],
+        model: "claude-sonnet-4"
     },
 })) {
     messages.push(message);
