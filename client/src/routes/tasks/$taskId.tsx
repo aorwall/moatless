@@ -1,19 +1,18 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
 import { FileTree, FileViewer } from '@/features/file-viewer'
-import { Preview } from '@/features/preview'
+import { Preview, useServerStatus } from '@/features/preview'
 import { ChatView } from '@/features/tasks/components/chat-view'
 import { EventViewer } from '@/features/tasks/components/event-viewer'
 import { GitDiffViewer } from '@/features/tasks/components/git-diff-viewer'
 import { TaskDetailSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskDataProvider, useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
 import { useTaskData } from '@/features/tasks/hooks/use-task-data'
-import { useServerStatus } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Tabs, TabsContent } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import { createFileRoute } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,

@@ -1,8 +1,12 @@
-import type { CreateTaskRequest, MergeTaskResponse, SimpleTaskResponse } from '@shared/types/api'
+import type {
+  CreateTaskRequest,
+  MergeTaskResponse,
+  SimpleTaskResponse,
+  WorkspaceStatusResponse,
+} from '@shared/types/api'
 import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
 import type { GitDiffResponse, Task } from '@shared/types/task'
-import type { ServerStatus, WorkspaceStatusResponse } from '@shared/types/workspace'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -260,108 +264,6 @@ export function useTaskWorkspaceStatus(
       }
       return 30000 // 30 seconds for idle/not_setup states
     },
-    ...options,
-  })
-}
-
-// Server management hooks
-export function useServerStatus(
-  taskId: string,
-  options?: Omit<UseQueryOptions<ServerStatus>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskServerStatus(taskId),
-    queryFn: () => tasksApi.getServerStatus(taskId),
-    enabled: !!taskId,
-    refetchInterval: (query) => {
-      // Poll more frequently when server is running
-      const data = query.state.data
-      if (data?.running) {
-        return 5000 // 5 seconds
-      }
-      return false
-    },
-    ...options,
-  })
-}
-
-export function useStartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.startServer(taskId),
-    onSuccess: async (data, taskId, context) => {
-      // Invalidate server status to refresh with new state
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Also invalidate task data as server state might affect task metadata
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      // Force refetch the server status immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      options?.onSuccess?.(data, taskId, context)
-    },
-    ...options,
-  })
-}
-
-export function useStopServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.stopServer(taskId),
-    onSuccess: (data, taskId, context) => {
-      // Invalidate server status to refresh with new state
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Also invalidate task data as server state might affect task metadata
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      options?.onSuccess?.(data, taskId, context)
-    },
-    ...options,
-  })
-}
-
-export function useRestartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.restartServer(taskId),
-    onSuccess: async (data, taskId, context) => {
-      // Invalidate server status to refresh with new state
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Also invalidate task data as server state might affect task metadata
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      // Force refetch the server status immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      options?.onSuccess?.(data, taskId, context)
-    },
-    ...options,
-  })
-}
-
-export function useServerLogs(
-  taskId: string,
-  options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskServerLogs(taskId),
-    queryFn: () => tasksApi.getServerLogs(taskId),
-    enabled: !!taskId,
-    refetchInterval: 2000, // Poll every 2 seconds
     ...options,
   })
 }

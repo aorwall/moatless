@@ -1,7 +1,7 @@
 import { useParams } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 
-import { useServerLogs } from '@/features/tasks/hooks/use-tasks'
+import { useServerLogs } from '@/features/preview'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Skeleton } from '@/lib/components/ui/skeleton'

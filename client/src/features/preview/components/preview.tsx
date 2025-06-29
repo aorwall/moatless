@@ -1,7 +1,7 @@
 import { useParams } from '@tanstack/react-router'
 import { Loader2, Play, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
-import { useRestartServer, useStartServer } from '@/features/tasks/hooks/use-tasks'
+import { useRestartServer, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
@@ -37,6 +37,76 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     setConfig(config)
   }, [config, setConfig])
 
+  // Handle messages from the injected script
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const { type, payload, source } = event.data || {}
+
+      // Debug: Log all messages to see what we're receiving
+      console.log('[Preview] Received message:', { type, source, payload, origin: event.origin })
+
+      if (source !== 'preview-iframe') {
+        console.log('[Preview] Ignoring message - wrong source:', source)
+        return
+      }
+
+      console.log('[Preview] Processing message:', type)
+
+      switch (type) {
+        case 'console':
+          // Enhanced console output - could be sent to logs panel
+          console.log(`[Preview ${payload.level}]:`, payload.message)
+          break
+
+        case 'ELEMENT_CLICKED':
+          // Element was clicked in inspector mode
+          if (onElementSelected) {
+            onElementSelected(payload)
+          }
+          break
+
+        case 'NETWORK_REQUEST':
+          // Network request captured - could be sent to network panel
+          console.log('[Preview Network]:', payload)
+          break
+
+        case 'SCROLL_POSITION':
+          // Scroll position changed
+          console.log('[Preview Scroll]:', payload)
+          break
+
+        case 'INSPECTOR_SCRIPT_LOADED':
+          console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
+          break
+
+        default:
+          // Unknown message type
+          break
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [onElementSelected])
+
+  // Function to toggle the element selector in the iframe
+  const toggleSelector = useCallback((enabled: boolean) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'TOGGLE_SELECTOR',
+          payload: enabled,
+        },
+        '*',
+      )
+    }
+  }, [])
+
+  // Sync selector state with inspector active state
+  useEffect(() => {
+    toggleSelector(isInspectorActive)
+  }, [isInspectorActive, toggleSelector])
+
   // Construct full URL
   const fullUrl = `${config.url}${currentPath}`
 
@@ -52,87 +122,9 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     setLoaded(true)
     setError(null)
 
-    // Inject console interceptor into iframe
-    if (iframeRef.current?.contentWindow) {
-      try {
-        const script = iframeRef.current.contentWindow.document.createElement('script')
-        script.textContent = `
-          (function() {
-            // Store original console methods
-            const originalConsole = {
-              log: console.log,
-              error: console.error,
-              warn: console.warn,
-              info: console.info,
-              debug: console.debug
-            };
-            
-            // Helper to send console messages to parent
-            function sendConsoleMessage(level, args) {
-              try {
-                window.parent.postMessage({
-                  type: 'console',
-                  source: 'preview-iframe',
-                  level: level,
-                  message: args.map(arg => {
-                    if (typeof arg === 'object') {
-                      try {
-                        return JSON.stringify(arg, null, 2);
-                      } catch (e) {
-                        return String(arg);
-                      }
-                    }
-                    return String(arg);
-                  }).join(' '),
-                  args: args
-                }, '*');
-              } catch (e) {
-                // Silently fail if postMessage fails
-              }
-            }
-            
-            // Override console methods
-            console.log = function(...args) {
-              originalConsole.log.apply(console, args);
-              sendConsoleMessage('log', args);
-            };
-            
-            console.error = function(...args) {
-              originalConsole.error.apply(console, args);
-              sendConsoleMessage('error', args);
-            };
-            
-            console.warn = function(...args) {
-              originalConsole.warn.apply(console, args);
-              sendConsoleMessage('warn', args);
-            };
-            
-            console.info = function(...args) {
-              originalConsole.info.apply(console, args);
-              sendConsoleMessage('info', args);
-            };
-            
-            console.debug = function(...args) {
-              originalConsole.debug.apply(console, args);
-              sendConsoleMessage('debug', args);
-            };
-            
-            // Also capture uncaught errors
-            window.addEventListener('error', function(event) {
-              sendConsoleMessage('error', [event.message, 'at', event.filename + ':' + event.lineno + ':' + event.colno]);
-            });
-            
-            window.addEventListener('unhandledrejection', function(event) {
-              sendConsoleMessage('error', ['Unhandled Promise Rejection:', event.reason]);
-            });
-          })();
-        `
-        iframeRef.current.contentWindow.document.head.appendChild(script)
-      } catch (e) {
-        // Silently fail if we can't inject the script (e.g., cross-origin)
-        console.warn('Could not inject console interceptor into iframe:', e)
-      }
-    }
+    // Script injection is now handled server-side to avoid cross-origin issues
+    // The preview environment service automatically injects the inspector script
+    // into the HTML files before serving them
   }, [setLoaded, setError])
 
   const handleIframeError = useCallback(() => {

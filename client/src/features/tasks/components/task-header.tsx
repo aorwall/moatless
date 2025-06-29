@@ -1,13 +1,9 @@
 import { useParams } from '@tanstack/react-router'
 import { Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
+import { useServerStatus, useStartServer, useStopServer } from '@/features/preview'
 import { useTaskDataContext } from '@/features/tasks/contexts/task-data-context'
-import {
-  useServerStatus,
-  useStartServer,
-  useStopAgent,
-  useStopServer,
-} from '@/features/tasks/hooks/use-tasks'
+import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar.tsx'

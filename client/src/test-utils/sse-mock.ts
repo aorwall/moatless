@@ -49,7 +49,7 @@ export function createSSEMock() {
     dispatchEvent(event: Event) {
       const listeners = this.listeners.get(event.type)
       if (listeners) {
-        listeners.forEach(listener => listener(event))
+        listeners.forEach((listener) => listener(event))
       }
 
       // Also dispatch to inline handlers
@@ -64,7 +64,7 @@ export function createSSEMock() {
   }
 
   const emit = (event: { type: string; data: string }) => {
-    connections.forEach(connection => {
+    connections.forEach((connection) => {
       if (connection.readyState === 1) {
         const messageEvent = new MessageEvent('message', {
           data: event.data,
@@ -73,18 +73,18 @@ export function createSSEMock() {
       }
     })
 
-    emitCallbacks.forEach(callback => callback(event))
+    emitCallbacks.forEach((callback) => callback(event))
   }
 
   const onEmit = (callback: (event: { type: string; data: string }) => void) => {
     emitCallbacks.push(callback)
     return () => {
-      emitCallbacks = emitCallbacks.filter(cb => cb !== callback)
+      emitCallbacks = emitCallbacks.filter((cb) => cb !== callback)
     }
   }
 
   const cleanup = () => {
-    connections.forEach(conn => {
+    connections.forEach((conn) => {
       conn.readyState = 2 // CLOSED
       conn.close()
     })

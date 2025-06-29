@@ -1,5 +1,5 @@
 import type { BaseAgent } from '@server/services/agents/base-agent.js'
-import { CriticalError, TaskNotFoundError } from '@shared/constants/errors.js'
+import { CriticalError } from '@shared/constants/errors.js'
 import type { SDKResultMessage } from '@shared/types/claude.js'
 import type { FastifyInstance } from 'fastify'
 import { EventType, type TaskIteration } from '../../shared/types/index.js'

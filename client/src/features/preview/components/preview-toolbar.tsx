@@ -15,7 +15,7 @@ import {
   useServerStatus,
   useStartServer,
   useStopServer,
-} from '@/features/tasks/hooks/use-tasks'
+} from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
@@ -83,7 +83,6 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const getServerStatusText = () => {
     if (!serverStatus) return 'Unknown'
     if (serverStatus.running) {
-      if (serverStatus.responsive === false) return 'Running (Not Responsive)'
       return 'Running'
     }
     return 'Stopped'
