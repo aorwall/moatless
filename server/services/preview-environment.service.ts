@@ -738,14 +738,35 @@ export class PreviewEnvironmentService {
                  const ATTR_SELECTED = 'data-inspector-selected';
          const ATTR_HOVERED = 'data-inspector-hovered';
 
-                 const sendToParent = (payload) => {
+                 // Store original console methods for internal logging
+         const originalConsole = {
+           log: console.log,
+           warn: console.warn,
+           error: console.error,
+           info: console.info,
+           debug: console.debug
+         };
+         
+         // Helper for internal logging that doesn't trigger hooks
+         const internalLog = {
+           log: (...args) => originalConsole.log(...args),
+           warn: (...args) => originalConsole.warn(...args),
+           error: (...args) => originalConsole.error(...args),
+           info: (...args) => originalConsole.info(...args),
+           debug: (...args) => originalConsole.debug(...args)
+         };
+         
+         const sendToParent = (payload) => {
            try {
              // Always ensure source is set for all messages
              const messageWithSource = { ...payload, source: 'preview-iframe' };
-             console.log('[Preview Inspector] Sending message to parent:', messageWithSource);
+             
+             // Use internal logging to prevent infinite recursion
+             internalLog.log('[Preview Inspector] Sending message to parent:', messageWithSource);
+             
              window.parent.postMessage(messageWithSource, '*');
            } catch (err) {
-             console.error('preview-inspector: could not post to parent', err);
+             internalLog.error('preview-inspector: could not post to parent', err);
            }
          };
 
@@ -759,9 +780,10 @@ export class PreviewEnvironmentService {
 
         function hookConsole() {
           ['log', 'warn', 'error', 'info', 'debug'].forEach((level) => {
-            const original = console[level];
             console[level] = (...args) => {
-              original.apply(console, args);
+              // Always call original first to show in browser console
+              originalConsole[level].apply(console, args);
+              
               const stack = level === 'error' || level === 'warn'
                 ? new Error().stack?.split('\\n').slice(2).join('\\n')
                 : undefined;
@@ -776,8 +798,7 @@ export class PreviewEnvironmentService {
                   return String(a);
                 }).join(' '),
                 args,
-                stack,
-                logged_at: new Date().toISOString(),
+                // Note: removed payload wrapper - ConsoleLogs expects flat structure
               });
             };
           });
@@ -789,7 +810,7 @@ export class PreviewEnvironmentService {
               type: 'console',
               level: 'error',
               message: ev.message + ' at ' + ev.filename + ':' + ev.lineno + ':' + ev.colno,
-              stack: ev.error?.stack,
+              args: [ev.message],
             });
           });
           window.addEventListener('unhandledrejection', (ev) => {
@@ -797,7 +818,7 @@ export class PreviewEnvironmentService {
               type: 'console',
               level: 'error',
               message: 'Unhandled Promise Rejection: ' + String(ev.reason),
-              stack: ev.reason?.stack,
+              args: [String(ev.reason)],
             });
           });
         }
@@ -945,24 +966,25 @@ export class PreviewEnvironmentService {
           });
         }
 
-        // Bootstrap everything
+                // Bootstrap everything
         (async function() {
-          console.log('[Preview Inspector] Script starting to execute...');
+          internalLog.log('[Preview Inspector] Script starting to execute...');
           
           // Wait for DOM to be ready
           await waitForDOM();
-          console.log('[Preview Inspector] DOM is ready');
+          internalLog.log('[Preview Inspector] DOM is ready');
           
           let selectorEnabled = false; // Track selector state globally
           const overlay = buildOverlay();
-          console.log('[Preview Inspector] Overlay built');
+          internalLog.log('[Preview Inspector] Overlay built');
 
           window.addEventListener('message', (ev) => {
-            console.log('[Preview Inspector] Received message from parent:', ev.data);
+            internalLog.log('[Preview Inspector] Received message from parent:', ev.data);
+            
             const { type, payload } = ev.data ?? {};
             switch (type) {
               case 'TOGGLE_SELECTOR':
-                console.log('[Preview Inspector] Toggling selector:', payload);
+                internalLog.log('[Preview Inspector] Toggling selector:', payload);
                 selectorEnabled = Boolean(payload);
                 overlay.toggle(selectorEnabled);
                 break;
@@ -972,23 +994,24 @@ export class PreviewEnvironmentService {
             }
           });
 
-          console.log('[Preview Inspector] Setting up hooks...');
+          internalLog.log('[Preview Inspector] Setting up hooks...');
+          
           hookConsole();
-          console.log('[Preview Inspector] Console hooks installed');
+          internalLog.log('[Preview Inspector] Console hooks installed');
           
           hookRuntimeErrors();
-          console.log('[Preview Inspector] Error hooks installed');
+          internalLog.log('[Preview Inspector] Error hooks installed');
           
           hookFetch();
-          console.log('[Preview Inspector] Fetch hooks installed');
+          internalLog.log('[Preview Inspector] Fetch hooks installed');
           
           hookScroll();
-          console.log('[Preview Inspector] Scroll hooks installed');
+          internalLog.log('[Preview Inspector] Scroll hooks installed');
           
-          console.log('[Preview Inspector] Sending SCRIPT_LOADED message...');
+          internalLog.log('[Preview Inspector] Sending SCRIPT_LOADED message...');
           sendToParent({ type: 'INSPECTOR_SCRIPT_LOADED', payload: { version: '2.0.0-server' } });
           
-          console.log('[Preview Inspector] Bootstrap complete!');
+          internalLog.log('[Preview Inspector] Bootstrap complete!');
           
           // Test console hooking - this should appear in the parent console
           setTimeout(() => {
@@ -997,8 +1020,9 @@ export class PreviewEnvironmentService {
             console.error('[Preview Inspector] Test error - and this too');
           }, 1000);
         })().catch(err => {
-          console.error('[Preview Inspector] Bootstrap failed:', err);
+          internalLog.error('[Preview Inspector] Bootstrap failed:', err);
         });
+      })();
     `
   }
 

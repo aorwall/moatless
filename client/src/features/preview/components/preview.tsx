@@ -53,10 +53,13 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
       console.log('[Preview] Processing message:', type)
 
       switch (type) {
-        case 'console':
+        case 'console': {
           // Enhanced console output - could be sent to logs panel
-          console.log(`[Preview ${payload.level}]:`, payload.message)
+          // Note: Console messages now use flat structure (level, message at top level)
+          const { level, message } = event.data
+          console.log(`[Preview ${level}]:`, message)
           break
+        }
 
         case 'ELEMENT_CLICKED':
           // Element was clicked in inspector mode
