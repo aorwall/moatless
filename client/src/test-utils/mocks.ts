@@ -75,9 +75,7 @@ export function mockEventSource() {
     return new MockSSEConnection(url)
   })
 
-  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
-
-  ;(global as any).EventSource = MockEventSourceConstructor
+  ;(global as Record<string, unknown>).EventSource = MockEventSourceConstructor
 
   return MockEventSourceConstructor
 }
@@ -148,9 +146,7 @@ export function mockWebSocket() {
     return new MockWebSocket(url)
   })
 
-  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
-
-  ;(global as any).WebSocket = MockWebSocketConstructor
+  ;(global as Record<string, unknown>).WebSocket = MockWebSocketConstructor
 
   return MockWebSocketConstructor
 }
@@ -194,7 +190,7 @@ export function createMockStoreHook<T>(initialState: T) {
     return () => listeners.delete(listener)
   }
 
-  const useStore = (selector?: (state: T) => any) => {
+  const useStore = (selector?: (state: T) => unknown) => {
     if (selector) {
       return selector(state)
     }
@@ -209,7 +205,7 @@ export function createMockStoreHook<T>(initialState: T) {
 }
 
 // Type helper for mocked functions
-export type Mocked<T> = T extends (...args: any[]) => any
+export type Mocked<T> = T extends (...args: unknown[]) => unknown
   ? MockedFunction<T>
   : T extends object
     ? { [K in keyof T]: Mocked<T[K]> }
