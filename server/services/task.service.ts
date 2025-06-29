@@ -4,6 +4,7 @@ import { CriticalError, TaskNotFoundError } from '../../shared/constants/errors.
 import type { CreateTaskRequest, Task, TaskIteration } from '../../shared/types/task.js'
 import { createTaskLogger, logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
+import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -13,6 +14,7 @@ export class TaskService {
     private storage: StorageBackend,
     private workspaceService: WorkspaceService,
     private agentService: AgentService,
+    private commandService: CommandService,
   ) {}
 
   async createTask(params: CreateTaskRequest): Promise<string> {
@@ -124,8 +126,25 @@ export class TaskService {
     return tasks.slice(offset, offset + limit)
   }
 
-  async sendMessage(taskId: string, message: string, resume = true, model?: string): Promise<void> {
+  async sendMessage(
+    taskId: string,
+    message: string,
+    resume = true,
+    model?: string,
+    commandName?: string,
+  ): Promise<void> {
     const metadata = await this.getTask(taskId)
+
+    // If commandName is provided, get the command prompt
+    let finalMessage = message
+    if (commandName) {
+      const command = await this.commandService.getCommand(commandName)
+      if (command) {
+        finalMessage = command.prompt
+      } else {
+        logger.warn('Command not found, using original message', { commandName })
+      }
+    }
 
     // Update metadata
     const now = new Date()
@@ -144,7 +163,8 @@ export class TaskService {
       status: 'active',
       messageCount: 1,
       costUsd: 0,
-      initialMessage: message,
+      initialMessage: finalMessage,
+      commandName,
     }
 
     metadata.iterations.push(iteration)
@@ -160,7 +180,7 @@ export class TaskService {
 
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId, model)
+      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })
@@ -307,6 +327,7 @@ export function createTaskService(
   _eventService: EventService,
   workspaceService: WorkspaceService,
   agentService: AgentService,
+  commandService: CommandService,
 ): TaskService {
-  return new TaskService(storage, workspaceService, agentService)
+  return new TaskService(storage, workspaceService, agentService, commandService)
 }

@@ -6,6 +6,7 @@ export interface TaskIteration {
   messageCount: number
   costUsd: number
   initialMessage?: string
+  commandName?: string
   result?: string
   durationMs?: number
   gitDiff?: string
