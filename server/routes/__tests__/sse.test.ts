@@ -1,4 +1,5 @@
 import { EventType } from '@shared/types/event.js'
+import type { Task } from '@shared/types/task.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventService } from '../../services/event.service.js'
 import type { TaskService } from '../../services/task.service.js'
@@ -7,7 +8,7 @@ import { build } from '../../test/helper.js'
 // import type { WorkspaceService } from '../../services/workspace.service.js'
 
 describe('SSE Routes', () => {
-  let app: any
+  let app: Awaited<ReturnType<typeof build>>
   let taskService: TaskService
   let eventService: EventService
   // let workspaceService: WorkspaceService
@@ -39,8 +40,14 @@ describe('SSE Routes', () => {
       // Mock getTask to verify task exists
       vi.spyOn(taskService, 'getTask').mockResolvedValueOnce({
         taskId,
-        status: 'active',
-      } as any)
+        status: 'running',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test',
+        environmentId: 'test-env',
+        numTurns: 0,
+        totalCostUsd: 0,
+      } as Task)
 
       // Skip this test as SSE endpoints don't close connections
       // and inject() waits for response to complete
@@ -71,8 +78,14 @@ describe('SSE Routes', () => {
       // Mock getTask to verify task exists
       vi.spyOn(taskService, 'getTask').mockResolvedValueOnce({
         taskId,
-        status: 'active',
-      } as any)
+        status: 'running',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test',
+        environmentId: 'test-env',
+        numTurns: 0,
+        totalCostUsd: 0,
+      } as Task)
 
       // Add some events
       await eventService.emitEvent({
@@ -115,8 +128,14 @@ describe('SSE Routes', () => {
       // Mock getTask to verify task exists
       vi.spyOn(taskService, 'getTask').mockResolvedValueOnce({
         taskId,
-        status: 'active',
-      } as any)
+        status: 'running',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test',
+        environmentId: 'test-env',
+        numTurns: 0,
+        totalCostUsd: 0,
+      } as Task)
 
       const response = await app.inject({
         method: 'GET',

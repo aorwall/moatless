@@ -57,7 +57,7 @@ describe('API Error Handling', () => {
 
   describe('Service Errors', () => {
     it('should handle MoatlessError correctly', async () => {
-      const error = new MoatlessError('Test error message', 'INTERNAL_SERVER_ERROR' as any, 418)
+      const error = new MoatlessError('Test error message', 'INTERNAL_SERVER_ERROR' as never, 418)
       vi.spyOn(app.services.task, 'getTask').mockRejectedValueOnce(error)
 
       const response = await app.inject({
@@ -139,7 +139,7 @@ describe('API Error Handling', () => {
     })
 
     it('should return 404 for non-existent resources', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
 
       const response = await app.inject({
         method: 'GET',

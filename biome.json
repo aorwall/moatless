@@ -7,9 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["server/**/*", "shared/**/*", "bin/**/*", "client/src/**/*"],
-    "experimentalScannerIgnores": ["dist/", "node_modules/", "client/dist/"],
-    "ignore": ["client/src/routeTree.gen.ts"]
+    "includes": ["server/**/*", "shared/**/*", "bin/**/*", "client/src/**/*"]
   },
   "formatter": {
     "enabled": true,
@@ -58,5 +56,16 @@
       "quoteStyle": "single",
       "attributePosition": "auto"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["client/src/routeTree.gen.ts"],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

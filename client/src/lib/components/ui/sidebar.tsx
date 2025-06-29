@@ -29,6 +29,12 @@ const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
 
+// Helper function to set cookies properly
+function setCookie(name: string, value: string, maxAge: number) {
+  // biome-ignore lint/suspicious/noDocumentCookie: Simple cookie utility for sidebar state
+  document.cookie = `${name}=${value}; path=/; max-age=${maxAge}`
+}
+
 type SidebarContextProps = {
   state: 'expanded' | 'collapsed'
   open: boolean
@@ -80,7 +86,7 @@ function SidebarProvider({
       }
 
       // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      setCookie(SIDEBAR_COOKIE_NAME, openState.toString(), SIDEBAR_COOKIE_MAX_AGE)
     },
     [setOpenProp, open],
   )
