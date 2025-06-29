@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
 
 import { ChatInput } from '@/features/tasks/components/chat-input'
@@ -10,12 +10,7 @@ export const Route = createFileRoute('/')({
 })
 
 function Dashboard() {
-  const navigate = useNavigate()
-
   const createTask = useCreateTask({
-    onSuccess: (data) => {
-      navigate({ to: `/tasks/${data.taskId}` })
-    },
     onError: (error) => {
       toast.error('Failed to create task', {
         description: getErrorMessage(error),

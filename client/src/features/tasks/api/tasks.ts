@@ -1,5 +1,4 @@
 import type {
-  AgentStatusResponse,
   CreateTaskRequest,
   EventListResponse,
   MergeTaskResponse,
@@ -89,10 +88,6 @@ export const tasksApi = {
 
   async getTaskWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     return await apiClient.get<WorkspaceStatusResponse>(`/api/v1/tasks/${taskId}/workspace-status`)
-  },
-
-  async getTaskAgentStatus(taskId: string): Promise<AgentStatusResponse> {
-    return await apiClient.get<AgentStatusResponse>(`/api/v1/tasks/${taskId}/agent-status`)
   },
 
   async startServer(taskId: string): Promise<ServerStatus> {

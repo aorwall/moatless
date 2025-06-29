@@ -1,11 +1,12 @@
-import { useParams } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 
-import { useTaskGitDiff } from '@/features/tasks/hooks/use-tasks'
-import { useSelectedIteration } from '@/features/tasks/stores/task-ui-store'
+import {
+  useSelectedIteration,
+  useTaskDataContext,
+} from '@/features/tasks/contexts/task-data-context'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -114,11 +115,11 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
 }
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
-  const { taskId } = useParams({ from: '/tasks/$taskId' })
+  const { gitDiff: contextGitDiff, isLoading, error } = useTaskDataContext()
   const selectedIteration = useSelectedIteration()
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 
-  const { data: gitDiff, isLoading, error } = useTaskGitDiff(taskId, selectedIteration)
+  const gitDiff = contextGitDiff
 
   const parsedFiles = useMemo<ParsedFile[]>(() => {
     if (!gitDiff?.diff) return []

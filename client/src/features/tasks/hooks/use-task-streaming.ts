@@ -3,11 +3,7 @@ import { EventType } from '@shared/types/event'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NDJSONSSEClient } from '@/features/tasks/api/ndjson-sse'
-import {
-  useTask,
-  useTaskAgentStatus,
-  useTaskWorkspaceStatus,
-} from '@/features/tasks/hooks/use-tasks'
+import { useTask } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskStreamingResult {
@@ -27,34 +23,22 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
   const [streamingError, setStreamingError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
-  // Get task metadata
+  // Use refs to avoid effect re-runs
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<NodeJS.Timeout | undefined>()
+
+  // Get task metadata (only for status updates, not for connection decision)
   const { data: metadata } = useTask(taskId)
-  const { data: agentStatus } = useTaskAgentStatus(taskId)
-  const { data: workspaceStatus } = useTaskWorkspaceStatus(taskId)
 
-  // Determine if we should stream based on task status
+  // Determine if we should stream - connect immediately with valid task ID
   const shouldStream = useMemo(() => {
-    // Don't stream if we don't have basic task data yet
-    if (!metadata) return false
+    // Don't stream for temporary/optimistic task IDs
+    if (!taskId || taskId.startsWith('temp-')) return false
 
-    // Stream when task is in running state
-    if (metadata.status === 'running') return true
-
-    // Also stream when agent is running, even if task status hasn't updated yet
-    if (agentStatus?.status === 'running') return true
-
-    // Also stream when workspace is active (executing)
-    if (workspaceStatus?.status === 'executing') return true
-
-    // Stream for open tasks that might be about to start
-    if (
-      metadata.status === 'open' &&
-      (agentStatus?.status === 'idle' || workspaceStatus?.status === 'ready')
-    )
-      return true
-
-    return false
-  }, [metadata, agentStatus, workspaceStatus])
+    // Stream immediately for any valid task ID
+    // This ensures we don't miss early events while waiting for metadata
+    return true
+  }, [taskId])
 
   // Memoize SSE callbacks to prevent reconnections
   const handleSSEEvent = useCallback(
@@ -68,12 +52,27 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
       })
       setStreamingError(null)
 
-      // Refetch task data when we receive a RESULT event
+      // Update cache based on event type
       if (newEvent.type === EventType.RESULT) {
         // Refetch task metadata to update status
         queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
-        // Also refetch agent status
-        queryClient.invalidateQueries({ queryKey: queryKeys.taskAgentStatus(taskId) })
+      }
+
+      // Also update events cache directly
+      queryClient.setQueryData(queryKeys.taskEvents(taskId), (old: Event[] = []) => [
+        ...old,
+        newEvent,
+      ])
+
+      // Update task status if we get a status change event
+      if (newEvent.type === EventType.STATUS) {
+        queryClient.setQueryData(queryKeys.task(taskId), (oldTask) => {
+          if (!oldTask) return oldTask
+          return {
+            ...oldTask,
+            status: newEvent.payload?.status || oldTask.status,
+          }
+        })
       }
     },
     [queryClient, taskId],
@@ -94,6 +93,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     console.log(`[SSE] Connected for task ${taskId}`)
     setIsStreaming(true)
     setStreamingError(null)
+    reconnectAttemptsRef.current = 0 // Reset reconnect attempts on successful connection
   }, [taskId])
 
   const handleSSEDisconnect = useCallback(() => {
@@ -106,8 +106,41 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     setIsStreaming(false)
   }, [])
 
+  // Create a stable disconnect handler that manages reconnection
+  const handleSSEDisconnectWithRetry = useCallback(() => {
+    handleSSEDisconnect()
+
+    // Implement exponential backoff for reconnection
+    if (reconnectAttemptsRef.current < 5 && shouldStream) {
+      const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 30000)
+      console.log(
+        `[SSE] Will reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`,
+      )
+      reconnectAttemptsRef.current += 1
+
+      // Clear any existing timer
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+      }
+
+      // Set up reconnection
+      reconnectTimerRef.current = setTimeout(() => {
+        if (sseClientRef.current) {
+          console.log(`[SSE] Attempting reconnection for task ${taskId}`)
+          sseClientRef.current.connect()
+        }
+      }, delay)
+    }
+  }, [handleSSEDisconnect, shouldStream, taskId])
+
   // Manage SSE connection lifecycle
   useEffect(() => {
+    // Prevent multiple connections
+    if (sseClientRef.current) {
+      console.log(`[SSE] Connection already exists for task ${taskId}, skipping`)
+      return
+    }
+
     if (shouldStream) {
       console.log(`[SSE] Starting streaming for task ${taskId}`)
 
@@ -117,7 +150,7 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
         onEvent: handleSSEEvent,
         onError: handleSSEError,
         onConnect: handleSSEConnect,
-        onDisconnect: handleSSEDisconnect,
+        onDisconnect: handleSSEDisconnectWithRetry,
         onTaskNotFound: handleSSETaskNotFound,
       })
 
@@ -126,8 +159,14 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
 
       return () => {
         console.log(`[SSE] Cleaning up streaming for task ${taskId}`)
-        client.disconnect()
-        sseClientRef.current = null
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = undefined
+        }
+        if (sseClientRef.current) {
+          sseClientRef.current.disconnect()
+          sseClientRef.current = null
+        }
       }
     } else {
       // Clean up when not streaming
@@ -144,16 +183,18 @@ export function useTaskStreaming(taskId: string): UseTaskStreamingResult {
     handleSSEEvent,
     handleSSEError,
     handleSSEConnect,
-    handleSSEDisconnect,
+    handleSSEDisconnectWithRetry,
     handleSSETaskNotFound,
   ])
 
-  // Clean up when component unmounts or taskId changes
+  // Clean up when component unmounts
   useEffect(() => {
     return () => {
-      setStreamEvents([])
-      setIsStreaming(false)
-      setStreamingError(null)
+      console.log('[SSE] Component unmounting, cleaning up')
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = undefined
+      }
       if (sseClientRef.current) {
         sseClientRef.current.disconnect()
         sseClientRef.current = null

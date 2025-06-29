@@ -11,22 +11,25 @@ export function updateTaskInLists(
   taskId: string,
   updates: Partial<Task>,
 ) {
-  // Get all cached task list queries
+  // Get all cached task list queries - look for any query that starts with ['swarm', 'tasks']
   const queryCache = queryClient.getQueryCache()
   const taskListQueries = queryCache.findAll({
-    queryKey: queryKeys.tasksList(),
+    queryKey: queryKeys.tasks(),
     exact: false,
     type: 'active',
   })
 
   // Update the task in each cached list
   taskListQueries.forEach((query) => {
-    const data = query.state.data as Task[] | undefined
-    if (data) {
-      const updatedTasks = data.map((task) =>
-        task.taskId === taskId ? { ...task, ...updates } : task,
-      )
-      queryClient.setQueryData(query.queryKey, updatedTasks)
+    // Only process queries that contain 'list' in their key (task list queries)
+    if (query.queryKey.includes('list')) {
+      const data = query.state.data as Task[] | undefined
+      if (data) {
+        const updatedTasks = data.map((task) =>
+          task.taskId === taskId ? { ...task, ...updates } : task,
+        )
+        queryClient.setQueryData(query.queryKey, updatedTasks)
+      }
     }
   })
 }
@@ -38,16 +41,19 @@ export function updateTaskInLists(
 export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
   const queryCache = queryClient.getQueryCache()
   const taskListQueries = queryCache.findAll({
-    queryKey: queryKeys.tasksList(),
+    queryKey: queryKeys.tasks(),
     exact: false,
     type: 'active',
   })
 
   taskListQueries.forEach((query) => {
-    const data = query.state.data as Task[] | undefined
-    if (data) {
-      const updatedTasks = data.filter((task) => task.taskId !== taskId)
-      queryClient.setQueryData(query.queryKey, updatedTasks)
+    // Only process queries that contain 'list' in their key (task list queries)
+    if (query.queryKey.includes('list')) {
+      const data = query.state.data as Task[] | undefined
+      if (data) {
+        const updatedTasks = data.filter((task) => task.taskId !== taskId)
+        queryClient.setQueryData(query.queryKey, updatedTasks)
+      }
     }
   })
 }
