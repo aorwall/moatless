@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
+import 'prism-color-variables/variables.css'
 
 import {
   useGitDiff,
@@ -149,6 +150,27 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     })
   }
 
+  // Calculate total stats from parsed files
+  const totalStats = useMemo(() => {
+    let totalAdditions = 0
+    let totalDeletions = 0
+
+    parsedFiles.forEach((file) => {
+      file.hunks.forEach((hunk) => {
+        hunk.changes.forEach((change: any) => {
+          if (change.type === 'insert') {
+            totalAdditions++
+          }
+          if (change.type === 'delete') {
+            totalDeletions++
+          }
+        })
+      })
+    })
+
+    return { totalAdditions, totalDeletions }
+  }, [parsedFiles])
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -183,27 +205,6 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       </div>
     )
   }
-
-  // Calculate total stats from parsed files
-  const totalStats = useMemo(() => {
-    let totalAdditions = 0
-    let totalDeletions = 0
-
-    parsedFiles.forEach((file) => {
-      file.hunks.forEach((hunk) => {
-        hunk.changes.forEach((change: any) => {
-          if (change.type === 'insert') {
-            totalAdditions++
-          }
-          if (change.type === 'delete') {
-            totalDeletions++
-          }
-        })
-      })
-    })
-
-    return { totalAdditions, totalDeletions }
-  }, [parsedFiles])
 
   return (
     <ScrollArea className={cn('h-full overflow-auto p-4', className)}>

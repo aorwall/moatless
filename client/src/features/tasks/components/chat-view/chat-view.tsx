@@ -1,21 +1,24 @@
 import { EventType } from '@shared/types/event'
 import type { Task, TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, Clock, DollarSign, MessageSquare } from 'lucide-react'
+import { AlertCircle, Clock, DollarSign, GitCommit, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
+import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import {
   useEventStream,
   useSelectedIteration,
   useStreamingStatus,
   useTaskData,
+  useWorkspaceStatus,
 } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { Alert, AlertDescription } from '@/lib/components/ui/alert'
+import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
@@ -37,6 +40,14 @@ export function ChatView() {
   const [currentTime, setCurrentTime] = useState(Date.now())
   const [isAtBottom, setIsAtBottom] = useState(true)
 
+  // Get workspace status from context
+  const { workspaceHasChanges } = useWorkspaceStatus()
+
+  // Fetch commands to check if commit command exists
+  const { data: commands } = useCommandsList({
+    enabled: !!params.taskId && status !== 'running',
+  })
+
   // Task message sending hook
   const sendMessage = useSendMessage({
     onError: (error) => {
@@ -54,9 +65,10 @@ export function ChatView() {
     clearMessage: () => void,
     resume?: boolean,
     model?: string,
+    commandName?: string,
   ) => {
     sendMessage.mutate(
-      { taskId, message, resume, model },
+      { taskId, message, resume, model, commandName },
       {
         onSuccess: () => {
           clearMessage()
@@ -302,6 +314,33 @@ export function ChatView() {
                 <TaskMinifiedLastThreeEventsDisplay taskId={params.taskId} className="max-w-full" />
               </div>
             )}
+
+            {/* Show commit button when task is not running and there are uncommitted changes */}
+            {!isTaskRunning &&
+              workspaceHasChanges &&
+              commands?.some((cmd) => cmd.name === 'commit') && (
+                <div className="flex justify-center py-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      handleSendMessage(
+                        params.taskId,
+                        'commit the relevant changes',
+                        () => {},
+                        true,
+                        undefined,
+                        'commit',
+                      )
+                    }}
+                    disabled={sendMessage.isPending}
+                    className="flex items-center gap-2"
+                  >
+                    <GitCommit className="h-4 w-4" />
+                    Commit Changes
+                  </Button>
+                </div>
+              )}
 
             <div ref={bottomRef} />
           </div>

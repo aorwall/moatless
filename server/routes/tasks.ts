@@ -108,9 +108,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
     async (request, _reply) => {
       const { taskId } = request.params as any
-      const { message, resume, model } = request.body as any
+      const { message, resume, model, commandName } = request.body as any
 
-      await taskService.sendMessage(taskId, message, resume, model)
+      await taskService.sendMessage(taskId, message, resume, model, commandName)
       return { status: 'sent', timestamp: new Date().toISOString() }
     },
   )

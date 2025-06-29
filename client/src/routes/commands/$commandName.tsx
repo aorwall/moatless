@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@shared/types/api-errors'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 
@@ -23,7 +24,7 @@ function EditCommand() {
       }
     },
     onError: (error) => {
-      toast.error(error.message || 'Failed to update command')
+      toast.error(getErrorMessage(error))
     },
   })
 

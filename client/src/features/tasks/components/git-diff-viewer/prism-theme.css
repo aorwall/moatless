@@ -1,71 +1,138 @@
-/* PrismJS Theme for Git Diff Viewer */
+/* PrismJS Theme for Git Diff Viewer using prism-color-variables */
 /* Adapted for both light and dark modes */
 
-/* Light mode colors */
+/* Light mode colors using CSS variables from prism-color-variables */
 .token.comment,
 .token.prolog,
 .token.doctype,
 .token.cdata {
-  color: #6a737d;
+  color: var(--prism-color-comment);
   font-style: italic;
 }
 
 .token.punctuation {
-  color: #24292e;
+  color: var(--prism-color-punctuation);
 }
 
 .token.namespace {
   opacity: 0.7;
 }
 
-.token.property,
-.token.tag,
-.token.boolean,
-.token.number,
-.token.constant,
-.token.symbol,
-.token.deleted {
-  color: #005cc5;
+.token.property {
+  color: var(--prism-color-property);
   font-weight: 600;
 }
 
-.token.selector,
-.token.attr-name,
-.token.string,
-.token.char,
-.token.builtin,
-.token.inserted {
-  color: #22863a;
+.token.tag {
+  color: var(--prism-color-tag);
+  font-weight: 600;
 }
 
-.token.operator,
-.token.entity,
-.token.url,
+.token.boolean {
+  color: var(--prism-color-boolean);
+  font-weight: 600;
+}
+
+.token.number {
+  color: var(--prism-color-number);
+  font-weight: 600;
+}
+
+.token.constant {
+  color: var(--prism-color-constant);
+  font-weight: 600;
+}
+
+.token.symbol {
+  color: var(--prism-color-symbol);
+  font-weight: 600;
+}
+
+.token.deleted {
+  color: var(--prism-color-deleted);
+  font-weight: 600;
+}
+
+.token.selector {
+  color: var(--prism-color-selector);
+}
+
+.token.attr-name {
+  color: var(--prism-color-attr-name);
+}
+
+.token.string {
+  color: var(--prism-color-string);
+}
+
+.token.char {
+  color: var(--prism-color-char);
+}
+
+.token.builtin {
+  color: var(--prism-color-builtin);
+}
+
+.token.inserted {
+  color: var(--prism-color-inserted);
+}
+
+.token.operator {
+  color: var(--prism-color-operator);
+}
+
+.token.entity {
+  color: var(--prism-color-entity);
+  cursor: help;
+}
+
+.token.url {
+  color: var(--prism-color-url);
+}
+
 .language-css .token.string,
 .style .token.string {
-  color: #d73a49;
+  color: var(--prism-color-string);
 }
 
-.token.atrule,
-.token.attr-value,
+.token.atrule {
+  color: var(--prism-color-atrule);
+  font-weight: 600;
+}
+
+.token.attr-value {
+  color: var(--prism-color-attr-value);
+  font-weight: 600;
+}
+
 .token.keyword {
-  color: #d73a49;
+  color: var(--prism-color-keyword);
   font-weight: 600;
 }
 
-.token.function,
+.token.function {
+  color: var(--prism-color-function);
+  font-weight: 600;
+}
+
 .token.class-name {
-  color: #6f42c1;
+  color: var(--prism-color-class-name);
   font-weight: 600;
 }
 
-.token.regex,
-.token.important,
-.token.variable {
-  color: #e36209;
+.token.regex {
+  color: var(--prism-color-regex);
 }
 
-.token.important,
+.token.important {
+  color: var(--prism-color-important);
+  font-weight: bold;
+}
+
+.token.variable {
+  color: var(--prism-color-variable);
+}
+
 .token.bold {
   font-weight: bold;
 }
@@ -74,69 +141,25 @@
   font-style: italic;
 }
 
-.token.entity {
-  cursor: help;
+/* Additional token types */
+.token.parameter,
+.token.argument {
+  color: var(--prism-color-parameter, var(--prism-color-property));
 }
 
-/* Dark mode colors */
-html.dark .token.comment,
-html.dark .token.prolog,
-html.dark .token.doctype,
-html.dark .token.cdata {
-  color: #8b949e;
-  font-style: italic;
-}
-
-html.dark .token.punctuation {
-  color: #c9d1d9;
-}
-
-html.dark .token.property,
-html.dark .token.tag,
-html.dark .token.boolean,
-html.dark .token.number,
-html.dark .token.constant,
-html.dark .token.symbol,
-html.dark .token.deleted {
-  color: #79c0ff;
+.token.decorator,
+.token.annotation {
+  color: var(--prism-color-decorator, var(--prism-color-important));
   font-weight: 600;
 }
 
-html.dark .token.selector,
-html.dark .token.attr-name,
-html.dark .token.string,
-html.dark .token.char,
-html.dark .token.builtin,
-html.dark .token.inserted {
-  color: #7ee83f;
+.token.module,
+.token.namespace-name {
+  color: var(--prism-color-namespace, var(--prism-color-class-name));
 }
 
-html.dark .token.operator,
-html.dark .token.entity,
-html.dark .token.url,
-html.dark .language-css .token.string,
-html.dark .style .token.string {
-  color: #ff7b72;
-}
-
-html.dark .token.atrule,
-html.dark .token.attr-value,
-html.dark .token.keyword {
-  color: #ff7b72;
-  font-weight: 600;
-}
-
-html.dark .token.function,
-html.dark .token.class-name {
-  color: #d2a8ff;
-  font-weight: 600;
-}
-
-html.dark .token.regex,
-html.dark .token.important,
-html.dark .token.variable {
-  color: #ffa657;
-}
+/* Dark mode - prism-color-variables should handle this automatically with CSS variables */
+/* The package sets different values for CSS variables in dark mode */
 
 /* Special styling for diff context */
 .diff-code .token {
@@ -167,58 +190,82 @@ html.dark .diff-code-delete .token {
   white-space: pre;
 }
 
-/* Additional token types for better coverage */
-.token.parameter,
-.token.argument {
-  color: #005cc5;
-}
-
-.token.decorator,
-.token.annotation {
-  color: #e36209;
-  font-weight: 600;
-}
-
-.token.module,
-.token.namespace-name {
-  color: #6f42c1;
-}
-
-/* Dark mode additional tokens */
-html.dark .token.parameter,
-html.dark .token.argument {
-  color: #79c0ff;
-}
-
-html.dark .token.decorator,
-html.dark .token.annotation {
-  color: #ffa657;
-  font-weight: 600;
-}
-
-html.dark .token.module,
-html.dark .token.namespace-name {
-  color: #d2a8ff;
-}
-
 /* Language-specific improvements */
 .language-jsx .token.tag .token.punctuation,
 .language-tsx .token.tag .token.punctuation {
-  color: #6a737d;
-}
-
-html.dark .language-jsx .token.tag .token.punctuation,
-html.dark .language-tsx .token.tag .token.punctuation {
-  color: #8b949e;
+  color: var(--prism-color-punctuation);
+  opacity: 0.7;
 }
 
 /* Better contrast for nested tokens */
 .token.function-variable.function {
-  color: #6f42c1;
+  color: var(--prism-color-function);
   font-weight: 600;
 }
 
-html.dark .token.function-variable.function {
-  color: #d2a8ff;
-  font-weight: 600;
+/* Fallback colors for any missing CSS variables */
+:root {
+  /* These are fallback values if prism-color-variables doesn't provide them */
+  --prism-color-comment: #6a737d;
+  --prism-color-punctuation: #24292e;
+  --prism-color-property: #005cc5;
+  --prism-color-tag: #22863a;
+  --prism-color-boolean: #005cc5;
+  --prism-color-number: #005cc5;
+  --prism-color-constant: #005cc5;
+  --prism-color-symbol: #005cc5;
+  --prism-color-deleted: #b31d28;
+  --prism-color-selector: #22863a;
+  --prism-color-attr-name: #22863a;
+  --prism-color-string: #032f62;
+  --prism-color-char: #032f62;
+  --prism-color-builtin: #005cc5;
+  --prism-color-inserted: #22863a;
+  --prism-color-operator: #d73a49;
+  --prism-color-entity: #6f42c1;
+  --prism-color-url: #032f62;
+  --prism-color-atrule: #d73a49;
+  --prism-color-attr-value: #032f62;
+  --prism-color-keyword: #d73a49;
+  --prism-color-function: #6f42c1;
+  --prism-color-class-name: #6f42c1;
+  --prism-color-regex: #032f62;
+  --prism-color-important: #e36209;
+  --prism-color-variable: #e36209;
+  --prism-color-parameter: #005cc5;
+  --prism-color-decorator: #e36209;
+  --prism-color-namespace: #6f42c1;
+}
+
+/* Dark mode fallback colors */
+html.dark {
+  --prism-color-comment: #8b949e;
+  --prism-color-punctuation: #c9d1d9;
+  --prism-color-property: #79c0ff;
+  --prism-color-tag: #7ee83f;
+  --prism-color-boolean: #79c0ff;
+  --prism-color-number: #79c0ff;
+  --prism-color-constant: #79c0ff;
+  --prism-color-symbol: #79c0ff;
+  --prism-color-deleted: #f85149;
+  --prism-color-selector: #7ee83f;
+  --prism-color-attr-name: #7ee83f;
+  --prism-color-string: #a5d6ff;
+  --prism-color-char: #a5d6ff;
+  --prism-color-builtin: #79c0ff;
+  --prism-color-inserted: #7ee83f;
+  --prism-color-operator: #ff7b72;
+  --prism-color-entity: #d2a8ff;
+  --prism-color-url: #a5d6ff;
+  --prism-color-atrule: #ff7b72;
+  --prism-color-attr-value: #a5d6ff;
+  --prism-color-keyword: #ff7b72;
+  --prism-color-function: #d2a8ff;
+  --prism-color-class-name: #d2a8ff;
+  --prism-color-regex: #a5d6ff;
+  --prism-color-important: #ffa657;
+  --prism-color-variable: #ffa657;
+  --prism-color-parameter: #79c0ff;
+  --prism-color-decorator: #ffa657;
+  --prism-color-namespace: #d2a8ff;
 }

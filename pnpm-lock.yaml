@@ -131,6 +131,9 @@ importers:
       pino:
         specifier: ^9.7.0
         version: 9.7.0
+      prism-color-variables:
+        specifier: ^1.0.1
+        version: 1.0.1
       prismjs:
         specifier: ^1.30.0
         version: 1.30.0
@@ -3092,6 +3095,9 @@ packages:
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
+
+  prism-color-variables@1.0.1:
+    resolution: {integrity: sha512-ooWpzManQwobU5DNxWyFeffSABAQGWVVcon8E5AGUU4fgKqwdPw14M3gbS0c1YzDtf7Tv3G6PWsvELe16YWUYg==}
 
   prismjs@1.30.0:
     resolution: {integrity: sha512-DEvV2ZF2r2/63V+tK8hQvrR2ZGn10srHbXviTlcv7Kpzw8jWiNTqbVgjO3IY8RxrrOUF8VPMQQFysYYYv0YZxw==}
@@ -6947,6 +6953,8 @@ snapshots:
       ansi-regex: 5.0.1
       ansi-styles: 5.2.0
       react-is: 17.0.2
+
+  prism-color-variables@1.0.1: {}
 
   prismjs@1.30.0: {}
 
