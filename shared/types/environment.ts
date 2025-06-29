@@ -5,7 +5,9 @@ export type {
   Environment,
   GithubRepository,
   LocalRepository,
+  PreviewConfig,
   Repository,
+  ScriptInjectionStrategy,
   UpdateEnvironmentRequest,
 } from '../schemas/environment.schemas.js'
 
