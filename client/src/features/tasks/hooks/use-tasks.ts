@@ -197,12 +197,7 @@ export function useTaskWorkspaceStatus(
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId,
     refetchInterval: (query) => {
-      // Poll more frequently when workspace is in a transitional state
-      const data = query.state.data
-      if (data?.status === 'setting_up' || data?.status === 'running') {
-        return 1000 // 1 second
-      }
-      return 30000 // 30 seconds for idle/not_setup states
+      return false
     },
     ...options,
   })

@@ -6,12 +6,13 @@ This document outlines the architecture for the task management system in the Mo
 
 ## Core Principles
 
-1. **Single Source of Truth**: One canonical data source per resource
+1. **Single Source of Truth**: React Query cache is the canonical data source for all task resources
 2. **Optimistic UI Updates**: Immediate feedback using React Query's built-in features
 3. **Real-time Synchronization**: SSE connections for live updates without complexity
 4. **React Query First**: Leverage React Query's caching without custom abstractions
-5. **Clean Architecture**: Separation of concerns without over-engineering
-6. **Provider Pattern**: All task data flows through a single context provider
+5. **Clean Separation**: Separation of concerns through focused context providers
+6. **Tri-Context Pattern**: Specialized providers for data, events, and UI state
+7. **Stable References**: Minimize re-renders through primitive extraction and stable dependencies
 
 ## High-Level Architecture
 
@@ -19,20 +20,27 @@ This document outlines the architecture for the task management system in the Mo
 graph TB
     subgraph "Browser"
         RC[Route Component]
-        TP[TaskProvider]
+        TP[TaskProviders]
         TC[Task Components]
         
         RC --> TP
         TP --> TC
         
+        subgraph "Tri-Context Pattern"
+            TDP[TaskDataProvider]
+            TEP[TaskEventsProvider] 
+            TUP[TaskUIProvider]
+            
+            TP --> TDP
+            TP --> TEP
+            TP --> TUP
+        end
+        
         subgraph "Data Layer"
-            UTD[useTaskData]
-            UTS[useTaskStreaming]
             RQ[React Query Cache]
             
-            TP --> UTD
-            TP --> UTS
-            UTD --> RQ
+            TDP --> RQ
+            TEP --> RQ
         end
         
         subgraph "UI Components"
@@ -53,18 +61,24 @@ graph TB
         SSE[SSE Endpoint]
         
         RQ -.-> API
-        UTS -.-> SSE
+        TEP -.-> SSE
     end
 ```
 
 ## Data Flow Architecture
 
-### Single Source of Truth Pattern
+### Tri-Context Pattern
 
 ```mermaid
 graph LR
     subgraph "Task Page"
-        TP[TaskProvider]
+        TP[TaskProviders<br/>Composed Provider]
+        
+        subgraph "Tri-Context Providers"
+            TDP[TaskDataProvider<br/>Metadata & Status]
+            TEP[TaskEventsProvider<br/>Real-time Events]
+            TUP[TaskUIProvider<br/>UI State]
+        end
         
         subgraph "Context Consumers"
             CV[ChatView]
@@ -74,204 +88,140 @@ graph LR
             CI[ChatInput]
         end
         
-        TP -->|useTaskContext| CV
-        TP -->|useTaskContext| EV
-        TP -->|useTaskContext| GD
-        TP -->|useTaskContext| TH
-        TP -->|useTaskContext| CI
-    end
-    
-    subgraph "Data Sources"
-        UTD[useTaskData]
-        UTS[useTaskStreaming]
+        TP --> TDP
+        TP --> TEP
+        TP --> TUP
         
-        TP --> UTD
-        TP --> UTS
+        TDP --> CV
+        TEP --> EV
+        TUP --> GD
+        TDP --> TH
+        TEP --> CI
     end
     
-    style TP fill:#f9f,stroke:#333,stroke-width:4px
+    subgraph "Single Source of Truth"
+        RQC[React Query Cache]
+        
+        TDP --> RQC
+        TEP --> RQC
+    end
+    
+    style RQC fill:#e8f5e8,stroke:#2d5a2d,stroke-width:3px
+    style TP fill:#f9f,stroke:#333,stroke-width:2px
 ```
-
-**Key Point**: No component directly calls `useTask()` or `useTaskStreaming()` - all data flows through TaskProvider.
 
 ## Architecture Components
 
-### 1. TaskProvider - Single Source of Truth
+### 1. TaskProviders - Composed Provider
 
-The `TaskProvider` is the cornerstone of the architecture, centralizing all task-related state:
+The `TaskProviders` component composes all three context providers:
 
 ```typescript
-interface TaskContextValue {
-  // Remote state (from API)
-  task?: Task
-  events: Event[]
+export function TaskProviders({ taskId, children }: TaskProvidersProps) {
+  return (
+    <TaskUIProvider>
+      <TaskDataProvider taskId={taskId}>
+        <TaskEventsProvider taskId={taskId}>
+          {children}
+        </TaskEventsProvider>
+      </TaskDataProvider>
+    </TaskUIProvider>
+  )
+}
+```
+
+This is the recommended way to set up the task context for any task-related pages.
+
+### 2. TaskDataProvider - Stable Server Data
+
+Manages task metadata, git diffs, and workspace status with minimal re-renders:
+
+```typescript
+interface TaskDataContextValue {
+  // Task metadata (rarely changes)
+  taskId: string
+  status: string | undefined
+  agentType: string | undefined
+  environmentId: string | undefined
   iterations: TaskIteration[]
-  gitDiff?: GitDiffResponse
-  workspaceStatus?: WorkspaceStatus
+  createdAt: Date | undefined
+  
+  // Git diff data
+  gitDiff: GitDiffResponse | undefined
+  
+  // Workspace status with smart polling
+  workspaceStatus: string | undefined
+  workspaceReady: boolean
+  workspaceHasChanges: boolean
+  
+  // Derived flags (stable primitives)
+  canExecute: boolean
+  isRunning: boolean
+  isComplete: boolean
   
   // Loading & error states
   isLoading: boolean
   error: Error | null
-  
-  // Real-time state
+}
+```
+
+**Key Features:**
+- **Primitive extraction** in `useMemo` for stable references
+- **Smart polling** that stops when workspace becomes stable
+- **No complex select functions** that create new objects
+- **Conditional queries** based on task state
+
+### 3. TaskEventsProvider - Real-time Events
+
+Manages event streaming and event-driven updates:
+
+```typescript
+interface TaskEventsContextValue {
+  events: Event[]  // Single source: React Query cache
   isStreaming: boolean
-  streamEvents: Event[]
+  streamingError: string | null
+  latestEventId: string | null
+  hasNewEvents: boolean
   
-  // UI state (local)
-  rightPanelView: 'events' | 'diff' | 'files' | 'preview' | 'server'
-  selectedIteration?: TaskIteration
+  // Loading states
+  isLoading: boolean
+  error: Error | null
+}
+```
+
+**Key Features:**
+- **SSE connection management** with automatic reconnection
+- **Event-driven task updates** for status-affecting events
+- **Automatic deduplication** through React Query cache
+- **Proper event sequencing** using `queueMicrotask`
+
+### 4. TaskUIProvider - Pure UI State
+
+Manages local UI state with no server dependencies:
+
+```typescript
+interface TaskUIContextValue {
+  rightPanelView: PanelView
+  selectedIteration: TaskIteration | undefined
+  panelSizes: { left: number; right: number }
+  selectedFile: string
   
   // Actions
-  setRightPanelView: (view: string) => void
+  setRightPanelView: (view: PanelView) => void
   setSelectedIteration: (iteration?: TaskIteration) => void
+  setPanelSizes: (sizes: { left: number; right: number }) => void
+  setSelectedFile: (file: string) => void
 }
 ```
 
-The provider manages:
-- **Parallel data fetching** via `useTaskData`
-- **Real-time streaming** via `useTaskStreaming`
-- **Event merging** between API and SSE sources
-- **UI state** scoped to the task instance
-- **Error and loading states** for the entire task context
-
-### 2. Parallel Data Fetching
-
-```typescript
-export function useTaskData(taskId: string) {
-  const queries = useQueries({
-    queries: [
-      {
-        queryKey: queryKeys.tasks.detail(taskId),
-        queryFn: () => tasksApi.getTask(taskId),
-        staleTime: 5 * 60 * 1000,
-      },
-      {
-        queryKey: queryKeys.tasks.events(taskId),
-        queryFn: () => tasksApi.getTaskEvents(taskId),
-        staleTime: 60 * 1000,
-      },
-      {
-        queryKey: queryKeys.tasks.gitDiff(taskId),
-        queryFn: () => tasksApi.getTaskGitDiff(taskId),
-        staleTime: 10 * 60 * 1000,
-        retry: false,
-      },
-    ],
-  })
-  
-  return {
-    task: queries[0].data,
-    events: queries[1].data || [],
-    iterations: queries[0].data?.iterations || [],
-    gitDiff: queries[2].data,
-    isLoading: queries.some(q => q.isLoading),
-    error: queries.find(q => q.error)?.error,
-  }
-}
-```
-
-This eliminates waterfall loading by fetching all task resources simultaneously.
-
-### 3. Real-time Streaming Integration
-
-```typescript
-export function useTaskStreaming(taskId: string, options: UseTaskStreamingOptions = {}) {
-  const [isConnected, setIsConnected] = useState(false)
-  
-  useEffect(() => {
-    if (!options.enabled || !taskId || taskId.startsWith('temp-')) {
-      return
-    }
-    
-    const eventSource = new EventSource(`/api/tasks/${taskId}/events`)
-    
-    eventSource.onopen = () => {
-      setIsConnected(true)
-      options.onConnect?.()
-    }
-    
-    eventSource.onmessage = (event) => {
-      const taskEvent = JSON.parse(event.data)
-      options.onEvent?.(taskEvent)
-    }
-    
-    return () => eventSource.close()
-  }, [taskId, options.enabled])
-  
-  return { isConnected }
-}
-```
-
-The TaskProvider uses this to update React Query cache in real-time:
-
-```typescript
-useTaskStreaming(taskId, {
-  enabled: !!taskId && !taskId.startsWith('temp-'),
-  onEvent: (event) => {
-    // Update events cache
-    queryClient.setQueryData(
-      queryKeys.tasks.events(taskId),
-      (old = []) => [...old, event]
-    )
-  }
-})
-```
-
-### 4. Component Pattern
-
-All components consume data through the context:
-
-```typescript
-export function ChatView() {
-  const { 
-    task, 
-    events, 
-    isLoading, 
-    error,
-    isStreaming 
-  } = useTaskContext()
-  
-  if (error) return <ErrorAlert error={error} />
-  if (isLoading) return <ChatViewSkeleton />
-  if (!task) return <EmptyState message="Task not found" />
-  
-  return (
-    <div className="flex flex-col h-full">
-      <ChatMessages messages={events} />
-      <StreamingIndicator visible={isStreaming} />
-      <ChatInput 
-        taskId={task.taskId}
-        taskStatus={task.status}
-        task={task}
-      />
-    </div>
-  )
-}
-```
-
-### 5. Route Structure
-
-Routes are minimal and focus only on provider setup:
-
-```typescript
-export const Route = createFileRoute('/tasks/$taskId')({
-  component: TaskDetail,
-})
-
-function TaskDetail() {
-  const { taskId } = Route.useParams()
-  
-  return (
-    <TaskProvider taskId={taskId}>
-      <TaskPage />
-    </TaskProvider>
-  )
-}
-```
+**Key Features:**
+- **No server dependencies** - never re-renders due to data changes
+- **Pure local state** for UI preferences
+- **Stable references** for all state and actions
 
 ## Query Key Structure
 
-The architecture uses a hierarchical query key structure where sub-resources are automatically invalidated with their parent:
+Hierarchical query keys enable automatic invalidation of sub-resources:
 
 ```typescript
 const queryKeys = {
@@ -283,7 +233,7 @@ const queryKeys = {
     details: () => [...queryKeys.tasks.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.tasks.details(), id] as const,
     
-    // Sub-resources - automatically invalidated with parent
+    // Sub-resources automatically invalidated with parent
     events: (id: string) => [...queryKeys.tasks.detail(id), 'events'] as const,
     iterations: (id: string) => [...queryKeys.tasks.detail(id), 'iterations'] as const,
     gitDiff: (id: string) => [...queryKeys.tasks.detail(id), 'git-diff'] as const,
@@ -295,48 +245,61 @@ const queryKeys = {
 
 ## Smart Cache Invalidation
 
+Event-driven invalidation ensures data consistency without page reloads:
+
 ```mermaid
 graph LR
-    subgraph "Mutations"
-        CM[createTask]
-        SM[sendMessage]
-        ST[stopAgent]
-        MT[mergeTask]
-        CT[closeTask]
+    subgraph "Status-Affecting Events"
+        RESULT[RESULT]
+        ERROR[ERROR]
+        START[START]
+        STOP[STOP]
     end
     
-    subgraph "Invalidations"
-        TL[task.lists]
-        TD[task.detail]
-        TG[task.gitDiff]
-        TW[task.workspace]
-        TS[task.server]
+    subgraph "Cache Updates"
+        UE[Update Events]
+        IT[Invalidate Task]
+        IW[Invalidate Workspace]
     end
     
-    CM -->|invalidate| TL
-    SM -->|invalidate| TD
-    SM -->|invalidate| TL
-    ST -->|invalidate| TD
-    MT -->|invalidate| TD
-    MT -->|invalidate| TG
-    MT -->|invalidate| TW
-    CT -->|invalidate| TD
-    CT -->|invalidate| TW
-    CT -->|invalidate| TS
-    CT -->|invalidate| TL
+    RESULT --> UE
+    ERROR --> UE
+    START --> UE
+    STOP --> UE
     
-    style TD fill:#f96,stroke:#333,stroke-width:2px
+    UE --> IT
+    UE --> IW
+    
+    style UE fill:#e8f5e8,stroke:#2d5a2d,stroke-width:2px
 ```
 
-### Invalidation Rules
+### Event-Driven Updates
 
-| Action | Invalidate | Why |
-|--------|------------|-----|
-| `createTask` | `task.lists()` only | New task appears in lists |
-| `sendMessage` | `task.detail(id)` + `lists` | Updates task + affects list sorting/status |
-| `stopAgent` | `task.detail(id)` | Status change affects everything |
-| `mergeTask` | `task.detail(id)` + `gitDiff` + `workspace` | Multiple resources change |
-| `closeTask` | `task.detail(id)` + `workspace` + `server` + `lists` | Comprehensive update |
+```typescript
+const STATUS_AFFECTING_EVENTS = [
+  EventType.RESULT,    // Task completed successfully
+  EventType.ERROR,     // Task failed  
+  EventType.STOP,      // Agent stopped
+  EventType.START,     // Agent started
+] as const
+
+const handleTaskEvent = useCallback((event: Event) => {
+  // 1. Update events cache immediately
+  queryClient.setQueryData(queryKeys.taskEvents(taskId), (old: Event[] = []) => {
+    const eventMap = new Map(old.map((e) => [e.eventId, e]))
+    eventMap.set(event.eventId, event)
+    return Array.from(eventMap.values()).sort(...)
+  })
+  
+  // 2. Trigger task data refetch for status changes
+  if (STATUS_AFFECTING_EVENTS.includes(event.type)) {
+    queueMicrotask(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskWorkspaceStatus(taskId) })
+    })
+  }
+}, [taskId, queryClient])
+```
 
 ## Optimistic Updates
 
@@ -363,27 +326,90 @@ sequenceDiagram
     M->>R: navigate(/tasks/real-id)
 ```
 
-The flow ensures:
-1. **Immediate navigation** with optimistic data
-2. **Seamless transition** from temp to real task
-3. **Cache consistency** through proper cleanup
-4. **List updates** to reflect the new task
+## Specialized Hooks
+
+The tri-context pattern provides specialized hooks for efficient re-renders:
+
+```typescript
+// Task metadata and status
+const { status, isRunning, canExecute } = useTaskStatus()
+
+// Real-time events
+const { events, isStreaming } = useEventStream()
+
+// UI state management
+const { rightPanelView, setRightPanelView } = usePanelView()
+const { selectedIteration, setSelectedIteration } = useSelectedIteration()
+
+// Workspace status
+const { workspaceStatus, workspaceReady } = useWorkspaceStatus()
+
+// Git diff data
+const { gitDiff } = useGitDiff()
+```
+
+## Route Structure
+
+Routes use TaskProviders directly for optimal performance:
+
+```typescript
+export const Route = createFileRoute('/tasks/$taskId')({
+  component: TaskDetail,
+})
+
+function TaskDetail() {
+  const { taskId } = Route.useParams()
+  
+  return (
+    <TaskProviders taskId={taskId}>
+      <TaskPage />
+    </TaskProviders>
+  )
+}
+```
+
+## Component Patterns
+
+Components use specialized hooks for surgical re-renders:
+
+```typescript
+export function ChatView() {
+  const { events, isLoading, error } = useEventStream()
+  const { isStreaming } = useStreamingStatus()
+  const { canExecute, status } = useTaskStatus()
+  
+  if (error) return <ErrorAlert error={error} />
+  if (isLoading) return <ChatViewSkeleton />
+  
+  return (
+    <div className="flex flex-col h-full">
+      <ChatMessages messages={events} />
+      <StreamingIndicator visible={isStreaming} />
+      <ChatInput 
+        taskId={taskId}
+        taskStatus={status}
+        canExecute={canExecute}
+      />
+    </div>
+  )
+}
+```
 
 ## Testing Strategy
 
 ### Unit Tests
 ```typescript
-describe('TaskProvider', () => {
-  it('provides merged events from API and SSE', async () => {
-    const { result } = renderHook(() => useTaskContext(), {
+describe('TaskDataProvider', () => {
+  it('provides stable primitive values', () => {
+    const { result } = renderHook(() => useTaskStatus(), {
       wrapper: ({ children }) => (
-        <TaskProvider taskId="test-123">
+        <TaskDataProvider taskId="test-123">
           {children}
-        </TaskProvider>
+        </TaskDataProvider>
       ),
     })
     
-    expect(result.current.events).toHaveLength(3) // API + SSE events merged
+    expect(result.current.isRunning).toBe(false)
   })
 })
 ```
@@ -391,147 +417,74 @@ describe('TaskProvider', () => {
 ### Integration Tests
 ```typescript
 describe('Task Page Flow', () => {
-  it('handles task creation WITH redirect and shows content', async () => {
-    // Test optimistic navigation and content display
-  })
-  
-  it('handles send message WITHOUT page reload', async () => {
-    // Test that components remain mounted during mutations
+  it('handles real-time events without page reload', async () => {
+    render(
+      <TaskProviders taskId="123">
+        <TaskPage />
+      </TaskProviders>
+    )
+    
+    // Verify SSE events update UI without unmounting components
+    await waitFor(() => {
+      expect(screen.getByText('New event')).toBeInTheDocument()
+    })
   })
 })
 ```
 
 ## Benefits
 
-1. **No Duplicate Fetches**: Single source of truth eliminates duplicate API calls
-2. **No Page Reloads**: Cache invalidation doesn't trigger unmounts
-3. **Better Performance**: Parallel fetching, smart invalidation
-4. **Easier Testing**: Provider pattern makes mocking straightforward
-5. **Type Safety**: Single context interface ensures consistency
-6. **Maintainability**: Clear data flow, no hidden dependencies
+1. **Surgical Re-renders**: Only components using changed data re-render
+2. **No Page Reloads**: Cache invalidation preserves component state
+3. **Real-time Updates**: Instant event processing with proper sequencing
+4. **Stable Performance**: Primitive extraction prevents unnecessary re-renders
+5. **Clean Separation**: Focused providers with clear responsibilities
+6. **Type Safety**: Strong TypeScript interfaces throughout
+7. **Testability**: Provider pattern enables comprehensive testing
 
-## Common Pitfalls to Avoid
+## Best Practices
 
-❌ **Don't**: Call `useTask()` in multiple components  
-✅ **Do**: Use `useTaskContext()` everywhere
+### DO: Use Specialized Hooks
+```typescript
+// Efficient - only re-renders when status changes
+const { isRunning, canExecute } = useTaskStatus()
+```
 
-❌ **Don't**: Invalidate `queryKeys.tasks.all`  
-✅ **Do**: Invalidate specific resources
+### DO: Use TaskProviders for Setup
+```typescript
+// Recommended - clean tri-context setup
+<TaskProviders taskId={taskId}>
+  <TaskPage />
+</TaskProviders>
+```
 
-❌ **Don't**: Mix UI state with server state  
-✅ **Do**: Keep UI state in TaskProvider, server state in React Query
+### DO: Extract Primitives in useMemo
+```typescript
+const primitives = useMemo(() => ({
+  status: task?.status,
+  isRunning: task?.status === 'running',
+}), [task])
+```
 
-❌ **Don't**: Navigate before cache is ready  
-✅ **Do**: Pre-populate cache, then navigate
+### DON'T: Use Complex Select Functions
+```typescript
+// Avoid - creates new objects every render
+const taskQuery = useQuery({
+  select: (task) => ({ status: task.status, isRunning: task.status === 'running' })
+})
+```
 
-❌ **Don't**: Create multiple SSE connections  
-✅ **Do**: One connection in TaskProvider
+### DO: Use queueMicrotask for Cache Sequencing
+```typescript
+queryClient.setQueryData(key, data)
+queueMicrotask(() => {
+  queryClient.invalidateQueries({ queryKey: parentKey })
+})
+```
 
-## Remaining Work
-
-### Phase 1: Complete Component Migration ✅ **COMPLETED**
-- [x] Update remaining components to use `useTaskContext()` instead of direct API calls
-- [x] ChatHeader component migrated to use `useTaskContext()`
-- [x] ChatView component migrated to use `useTaskContext()`
-- [x] TaskHeader component migrated to use `useTaskDataContext()`
-- [ ] ⚠️ **Note**: Breadcrumbs component still uses direct `useTask()` call, but this is intentional as it's used globally outside TaskProvider context
-
-**Migration Status**: All core task page components now use context pattern. Single source of truth established.
-
-### Phase 2: Fix Type Errors ⚠️ **IN PROGRESS**
-- [x] Query key structure updated with hierarchical approach  
-- [ ] Address type mismatches in mutation hooks (useMergeTask signature issues)
-- [ ] Fix remaining type errors in test files
-- [ ] Update shared type definitions for consistency
-
-**Note**: Many existing type errors are unrelated to the architecture migration and should be addressed separately.
-
-### Phase 3: Implement Real SSE Streaming 🚧 **READY**
-- [ ] Replace mock `useTaskStreaming` with actual `NDJSONSSEClient`
-- [ ] Test SSE connection lifecycle
-- [ ] Implement proper reconnection logic
-- [x] SSE event handling structure in place in TaskProvider
-
-**Note**: Infrastructure is ready, just needs actual SSE implementation instead of mock.
-
-### Phase 4: Update Tests ⚠️ **NEEDS WORK**
-- [ ] Update existing tests to work with new provider pattern
-- [ ] Mock `TaskProvider` instead of individual hooks  
-- [ ] Add integration tests for the new architecture
-- [ ] Fix test files using outdated types and interfaces
-
-**Current State**: Many test files have type errors and use outdated patterns.
-
-### Phase 5: Performance Optimizations 🚧 **READY**
-- [x] Parallel queries implemented in `useTaskData`
-- [ ] Add workspace status to parallel queries
-- [ ] Implement proper server status integration  
-- [ ] Add background refetch strategies
-
-**Current State**: Core parallel fetching is implemented, workspace status integration pending.
-
-### Phase 6: Documentation ✅ **COMPLETED**
-- [x] Architecture document updated with implementation details
-- [x] Component patterns documented
-- [x] Data flow diagrams created
-- [ ] Add JSDoc comments to key functions
-- [ ] Create migration guide for future components
-
-**Current State**: Core architecture documented, minor documentation polish needed.
-
-## Migration Progress Summary
-
-### ✅ **Successfully Completed**
-
-1. **Core Architecture Implementation**
-   - TaskProvider with single source of truth pattern
-   - Parallel data fetching via `useTaskData` hook
-   - Hierarchical query key structure 
-   - TaskPage component with all UI panels integrated
-   - Route simplified to use provider pattern
-
-2. **Component Migration**
-   - All major task page components now use `useTaskContext()`
-   - ChatView, ChatHeader, TaskHeader migrated successfully
-   - Event merging between API and SSE sources implemented
-   - UI state management centralized in TaskProvider
-
-3. **Performance Improvements**
-   - Eliminated waterfall loading with parallel queries
-   - Smart cache invalidation strategy implemented
-   - Optimistic updates for task creation
-   - No more duplicate API calls or component remounts
-
-4. **Type Safety & Developer Experience**
-   - Strongly typed context interfaces
-   - Clear error boundaries and loading states
-   - Consistent data access patterns
-
-### 🚧 **Next Priority Items**
-
-1. **Phase 3: SSE Streaming** 
-   - Replace mock `useTaskStreaming` with actual `NDJSONSSEClient`
-   - The infrastructure is ready, just needs real implementation
-
-2. **Phase 5: Workspace Status Integration**
-   - Add workspace status to parallel queries in `useTaskData`
-   - This will complete the data fetching optimization
-
-3. **Phase 4: Test Updates**
-   - Update test files to use new provider pattern
-   - Fix type mismatches in test factories and mocks
-
-### 🎯 **Key Benefits Achieved**
-
-- **No Duplicate Fetches**: Single TaskProvider eliminates redundant API calls
-- **No Page Reloads**: Smart cache invalidation preserves component state  
-- **Better Performance**: Parallel loading + optimistic updates
-- **Easier Testing**: Provider pattern simplifies mocking
-- **Type Safety**: Comprehensive interfaces prevent runtime errors
-- **Maintainability**: Clear separation of concerns and data flow
-
-## Conclusion
-
-This architecture eliminates duplicate fetches, remounts, and hook ordering issues by design. By channeling all task data through a single provider and leveraging React Query's built-in features, we achieve a robust, performant, and maintainable system that scales with the application's needs.
-
-**The migration is substantially complete** - all core functionality is working with the new architecture. The remaining work items are optimizations and polish rather than fundamental changes.
+### DON'T: Invalidate Immediately After Cache Update
+```typescript
+// Avoid - can cause race conditions
+queryClient.setQueryData(key, data)
+queryClient.invalidateQueries({ queryKey: parentKey }) // Too fast!
+```

@@ -1,3 +1,4 @@
+import type { WorkspaceStatusResponse } from '@shared/types/api'
 import type { Event } from '@shared/types/event'
 import { EventType } from '@shared/types/event'
 import type { Task } from '@shared/types/task'
@@ -16,7 +17,11 @@ interface UseTaskStreamingResult {
  * Hook that manages streaming events using local React state instead of Zustand.
  * This avoids the infinite render issue while providing streaming functionality.
  */
-export function useTaskStreaming(taskId: string, task?: Task): UseTaskStreamingResult {
+export function useTaskStreaming(
+  taskId: string,
+  task?: Task,
+  workspaceStatus?: WorkspaceStatusResponse,
+): UseTaskStreamingResult {
   const sseClientRef = useRef<NDJSONSSEClient | null>(null)
   const [streamEvents, setStreamEvents] = useState<Array<Event>>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -27,23 +32,29 @@ export function useTaskStreaming(taskId: string, task?: Task): UseTaskStreamingR
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
-  // Determine if we should stream - only for active tasks
+  // Determine if we should stream - consider both task and workspace status
   const shouldStream = useMemo(() => {
     // Don't stream for temporary/optimistic task IDs
     if (!taskId || taskId.startsWith('temp-')) return false
 
     // Only stream for tasks that are actively generating events
     // - 'running': Actively executing and generating events
-    // - 'open': Waiting for execution, no events yet
+    // - 'open': Waiting for execution, may start generating events soon
     // - 'error', 'merged', 'closed': Complete/failed, no more events expected
+    const taskIsActive = task?.status === 'running' || task?.status === 'open'
+
+    // Also consider workspace status for more intelligent streaming
+    // If workspace is not setup, don't stream even if task is "running"
+    const workspaceIsReady = !workspaceStatus || workspaceStatus.status !== 'not_setup'
+
     if (task?.status) {
-      return task.status === 'running'
+      return taskIsActive && workspaceIsReady
     }
 
-    // If we don't have task data yet, optimistically stream
+    // If we don't have task data yet, optimistically stream if workspace seems ready
     // This handles the case where task is just created and metadata is loading
-    return true
-  }, [taskId, task?.status])
+    return workspaceIsReady
+  }, [taskId, task?.status, workspaceStatus?.status])
 
   // Cleanup function
   const cleanup = useCallback(() => {
