@@ -636,7 +636,9 @@ export class PreviewEnvironmentService {
       const files = await fs.readdir(this.previewEnvironmentsPath)
       return files.filter((f) => f.endsWith('.json')).map((f) => f.replace('.json', ''))
     } catch (error) {
-      logger.debug('Failed to read preview environments directory', error as Error)
+      logger.debug('Failed to read preview environments directory', {
+        error: error instanceof Error ? error.message : String(error),
+      })
       return []
     }
   }

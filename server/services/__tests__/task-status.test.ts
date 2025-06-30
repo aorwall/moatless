@@ -60,13 +60,13 @@ describe('Task Status Management', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
         getStatus: () => 'idle',
-      } as unknown)
+      } as any)
 
       // Mock workspace setup and getWorkspace
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
         getStatus: () => 'idle',
-      } as unknown)
+      } as any)
 
       // Track saved tasks to verify status changes
       const savedTasks: Task[] = []
@@ -144,7 +144,7 @@ describe('Task Status Management', () => {
         id: 'task-id',
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
-      } as unknown)
+      } as any)
 
       // Track saved tasks
       const savedTasks: Task[] = []
@@ -238,12 +238,12 @@ describe('Task Status Management', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
         getStatus: () => 'idle',
-      } as unknown)
+      } as any)
 
       // Mock workspace being ready
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
         getStatus: () => 'idle',
-      } as unknown)
+      } as any)
 
       // Track task states
       let currentTask: Task | null = null

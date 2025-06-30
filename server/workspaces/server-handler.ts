@@ -417,7 +417,9 @@ export class ServerHandler {
         }
       }
     } catch (error) {
-      this.logger.debug('Error detecting port from logs:', error as Error)
+      this.logger.debug('Error detecting port from logs:', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     return undefined

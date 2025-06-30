@@ -1,3 +1,4 @@
+import type { Stats } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { glob } from 'glob'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -133,7 +134,7 @@ describe('File Search Utilities', () => {
         isDirectory: () => false,
       }
 
-      vi.mocked(fs.stat).mockResolvedValue(mockStats as fs.Stats)
+      vi.mocked(fs.stat).mockResolvedValue(mockStats as Stats)
 
       const result = await getFileStats('/test/file.txt')
 

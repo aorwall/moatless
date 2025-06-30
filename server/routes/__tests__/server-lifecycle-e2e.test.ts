@@ -636,7 +636,7 @@ process.on('SIGTERM', () => {
 
     // Verify server is running
     const { default: http } = await import('node:http')
-    const firstResponse = await new Promise<unknown>((resolve, reject) => {
+    const firstResponse = await new Promise<{ port: string; pid: number }>((resolve, reject) => {
       http
         .get(`http://localhost:${port}`, (res) => {
           let data = ''
@@ -676,17 +676,19 @@ process.on('SIGTERM', () => {
     expect(status.url).toBe(`http://localhost:${port}`)
 
     // Verify server is still responding
-    const secondResponse = await new Promise<unknown>((resolve, reject) => {
-      http
-        .get(`http://localhost:${port}`, (res) => {
-          let data = ''
-          res.on('data', (chunk) => {
-            data += chunk
+    const secondResponse = await new Promise<{ port: string; pid: number; uptime: number }>(
+      (resolve, reject) => {
+        http
+          .get(`http://localhost:${port}`, (res) => {
+            let data = ''
+            res.on('data', (chunk) => {
+              data += chunk
+            })
+            res.on('end', () => resolve(JSON.parse(data)))
           })
-          res.on('end', () => resolve(JSON.parse(data)))
-        })
-        .on('error', reject)
-    })
+          .on('error', reject)
+      },
+    )
 
     expect(secondResponse.port).toBe(String(port))
     expect(secondResponse.pid).toBe(pid)

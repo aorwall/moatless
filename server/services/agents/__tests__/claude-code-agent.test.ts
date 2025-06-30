@@ -54,10 +54,10 @@ describe('ClaudeCodeAgent', () => {
       }
 
       // Find the message event
-      const messageEvent = events.find((e) => e.type === 'message')
+      const messageEvent = events.find((e: any) => e.type === 'message')
       expect(messageEvent).toBeDefined()
-      expect(messageEvent.subType).toBe('tool_call')
-      expect(messageEvent.payload.message.content[0].type).toBe('tool_use')
+      expect((messageEvent as any).subType).toBe('tool_call')
+      expect((messageEvent as any).payload.message.content[0].type).toBe('tool_use')
     })
 
     it.skip('should set subType to tool_result for user messages with tool_result content', async () => {
@@ -91,10 +91,10 @@ describe('ClaudeCodeAgent', () => {
       }
 
       // Find the message event
-      const messageEvent = events.find((e) => e.type === 'message')
+      const messageEvent = events.find((e: any) => e.type === 'message')
       expect(messageEvent).toBeDefined()
-      expect(messageEvent.subType).toBe('tool_result')
-      expect(messageEvent.payload.message.content[0].type).toBe('tool_result')
+      expect((messageEvent as any).subType).toBe('tool_result')
+      expect((messageEvent as any).payload.message.content[0].type).toBe('tool_result')
     })
 
     it('should not set subType for regular text messages', async () => {
@@ -136,10 +136,10 @@ describe('ClaudeCodeAgent', () => {
       }
 
       // Find the message event
-      const messageEvent = events.find((e) => e.type === 'message')
+      const messageEvent = events.find((e: any) => e.type === 'message')
       expect(messageEvent).toBeDefined()
-      expect(messageEvent.subType).toBeUndefined()
-      expect(messageEvent.payload.message.content[0].type).toBe('text')
+      expect((messageEvent as any).subType).toBeUndefined()
+      expect((messageEvent as any).payload.message.content[0].type).toBe('text')
     })
   })
 })

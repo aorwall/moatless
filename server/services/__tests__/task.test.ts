@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EnvironmentNotFoundError, TaskNotFoundError } from '../../../shared/constants/errors.js'
-import type { Environment } from '../../../shared/types/environment.js'
 import type { CreateTaskRequest, Task } from '../../../shared/types/task.js'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
@@ -74,18 +73,18 @@ describe('TaskService', () => {
       vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
         id: 'env-123',
         name: 'Test Environment',
-      } as Partial<Environment>)
+      } as any)
 
       // Mock the new workspace methods
       vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
         id: 'task-id',
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
-      } as Partial<Environment>)
+      } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
         getStatus: () => 'idle',
-      } as Partial<Environment>)
+      } as any)
       vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Mock getTask to return the saved task for background processing
@@ -106,7 +105,7 @@ describe('TaskService', () => {
       // Mock getOrCreateWorkspace for sendMessage
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue({
         getStatus: vi.fn().mockReturnValue('ready'),
-      } as Partial<Environment>)
+      } as any)
 
       const taskId = await taskService.createTask(request)
 
@@ -150,14 +149,14 @@ describe('TaskService', () => {
       vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
         id: 'env-123',
         name: 'Test Environment',
-      } as Partial<Environment>)
+      } as any)
 
       // Mock workspace creation
       vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
         id: 'task-id',
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
-      } as Partial<Environment>)
+      } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
       const taskId = await taskService.createTask(request)
@@ -186,14 +185,14 @@ describe('TaskService', () => {
       vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
         id: 'env-123',
         name: 'Test Environment',
-      } as Partial<Environment>)
+      } as any)
 
       // Mock workspace creation
       vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
         id: 'task-id',
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
-      } as Partial<Environment>)
+      } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
       const taskId = await taskService.createTask(request)
@@ -233,7 +232,7 @@ describe('TaskService', () => {
 
       vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
         id: 'env-123',
-      } as Partial<Environment>)
+      } as any)
 
       vi.mocked(mockWorkspaceService.createWorkspace).mockRejectedValueOnce(
         new Error('Workspace setup failed'),
@@ -472,14 +471,14 @@ describe('TaskService', () => {
 
       vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
         id: 'env-123',
-      } as Partial<Environment>)
+      } as any)
 
       // Delay workspace creation
       vi.mocked(mockWorkspaceService.createWorkspace).mockImplementation(
         () =>
           new Promise((resolve) =>
             setTimeout(
-              () => resolve({ id: 'ws-123', getWorkspacePath: () => '/test/path' } as unknown),
+              () => resolve({ id: 'ws-123', getWorkspacePath: () => '/test/path' } as any),
               50,
             ),
           ),
@@ -487,7 +486,7 @@ describe('TaskService', () => {
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
         getStatus: () => 'idle',
-      } as Partial<Environment>)
+      } as any)
       vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Mock getTask for background processing

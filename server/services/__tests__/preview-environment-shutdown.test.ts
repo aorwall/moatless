@@ -496,7 +496,7 @@ process.on('SIGTERM', () => {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data)
-            expect(parsed).toMatchObject(expectedData)
+            expect(parsed).toMatchObject(expectedData as any)
             resolve()
           } catch (error) {
             reject(new Error(`Server response validation failed: ${error}`))

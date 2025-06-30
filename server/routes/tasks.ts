@@ -449,7 +449,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
         return {
           diff,
           files: [], // TODO: Parse diff to extract file list
-          hasChanges: diff.length > 0,
+          hasChanges: (diff as string).length > 0,
         }
       } catch (error) {
         if (error instanceof TaskNotFoundError) {

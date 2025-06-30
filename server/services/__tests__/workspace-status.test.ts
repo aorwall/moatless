@@ -186,8 +186,8 @@ describe('WorkspaceService Status Management', () => {
       await expect(workspaceService.getGitDiff(taskId)).resolves.toBe('diff')
 
       const status = await workspaceService.getWorkspaceStatus(taskId)
-      expect(status.status).toBe(WorkspaceStatus.NOT_SETUP)
-      expect(status.hasUncommittedChanges).toBe(false)
+      expect((status as any).status).toBe(WorkspaceStatus.NOT_SETUP)
+      expect((status as any).hasUncommittedChanges).toBe(false)
     })
   })
 

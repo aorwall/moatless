@@ -311,7 +311,9 @@ export class TaskService {
       await this.workspaceService.stopServer(taskId)
     } catch (error) {
       // Log error but continue with cleanup
-      logger.warn('Failed to stop server during task close', error as Error)
+      logger.warn('Failed to stop server during task close', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     // Clean up workspace (this will teardown the workspace)
