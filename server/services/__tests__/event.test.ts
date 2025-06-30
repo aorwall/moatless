@@ -33,7 +33,7 @@ describe('EventService', () => {
     it('should emit an event with auto-generated ID and timestamp', async () => {
       const event: Event = {
         eventId: '',
-        agentType: 'claude-code',
+        agentType: 'test-agent',
         type: EventType.START,
         taskId: 'task-123',
         timestamp: new Date(),
@@ -60,7 +60,7 @@ describe('EventService', () => {
       const existingEvents: Event[] = [
         {
           eventId: 'evt-1',
-          agentType: 'claude-code',
+          agentType: 'test-agent',
           type: EventType.START,
           taskId: 'task-123',
           timestamp: new Date(),
@@ -73,7 +73,7 @@ describe('EventService', () => {
 
       const newEvent: Event = {
         eventId: 'evt-2',
-        agentType: 'claude-code',
+        agentType: 'test-agent',
         type: EventType.MESSAGE,
         taskId: 'task-123',
         timestamp: new Date(),
