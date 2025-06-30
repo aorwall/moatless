@@ -2,7 +2,7 @@ import { EventType } from '@shared/types/event'
 import type { Task, TaskIteration } from '@shared/types/task'
 import { useParams } from '@tanstack/react-router'
 import { AlertCircle, Clock, DollarSign, GitCommit, MessageSquare } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
@@ -27,7 +27,7 @@ import { TaskMinifiedLastThreeEventsDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
 import { ChatViewSkeleton } from './chat-view-skeleton'
 
-export function ChatView() {
+function ChatViewComponent() {
   const params = useParams({ from: '/tasks/$taskId' })
 
   // Use specialized hooks from tri-context pattern
@@ -125,6 +125,27 @@ export function ChatView() {
   const lastIteration =
     iterations && iterations.length > 0 ? iterations[iterations.length - 1] : null
 
+  // Memoize message counts calculation for better performance
+  const messageCounts = useMemo(() => {
+    const counts = new Map<number, number>()
+
+    if (isStreaming && events.length) {
+      // Count message events with role assistant for each iteration
+      events.forEach((event) => {
+        if (
+          event.type === EventType.MESSAGE &&
+          event.payload?.role === 'assistant' &&
+          event.iterationId
+        ) {
+          const currentCount = counts.get(event.iterationId) || 0
+          counts.set(event.iterationId, currentCount + 1)
+        }
+      })
+    }
+
+    return counts
+  }, [events, isStreaming])
+
   // Show skeleton during initial load
   if (isLoadingTask || !taskId) {
     return <ChatViewSkeleton />
@@ -179,15 +200,9 @@ export function ChatView() {
       return staticCount
     }
 
-    // Count message events with role assistant for this iteration (using index + 1 as iteration number)
-    const messageEvents = events.filter(
-      (event) =>
-        event.iterationId === iterationIndex + 1 &&
-        event.type === EventType.MESSAGE &&
-        event.payload?.role === 'assistant',
-    )
-
-    return messageEvents.length || staticCount
+    const iterationId = iterationIndex + 1
+    const dynamicCount = messageCounts.get(iterationId) || 0
+    return dynamicCount || staticCount
   }
 
   // Get iteration timing info
@@ -367,3 +382,5 @@ export function ChatView() {
     </div>
   )
 }
+
+export const ChatView = React.memo(ChatViewComponent)

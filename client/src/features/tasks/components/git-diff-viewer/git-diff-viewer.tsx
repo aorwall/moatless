@@ -7,7 +7,7 @@ import 'prism-color-variables/variables.css'
 import {
   useGitDiff,
   useSelectedIteration,
-  useTaskData,
+  useTaskLoadingError,
 } from '@/features/tasks/contexts/task-providers'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
@@ -110,7 +110,8 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
   const gitDiff = useGitDiff()
-  const { isLoading, error } = useTaskData()
+  // Use specialized hook that only returns loading/error state
+  const { isLoading, error } = useTaskLoadingError()
   const _selectedIteration = useSelectedIteration()
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 

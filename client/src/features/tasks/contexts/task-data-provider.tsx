@@ -183,3 +183,14 @@ export function useGitDiff() {
   const { gitDiff } = useTaskData()
   return gitDiff
 }
+
+// Performance optimized hooks that only return specific fields
+export function useTaskLoadingError() {
+  const { isLoading, error } = useTaskData()
+  return { isLoading, error }
+}
+
+export function useTaskMetadata() {
+  const { taskId, agentType, createdAt } = useTaskData()
+  return { taskId, agentType, createdAt }
+}

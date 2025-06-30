@@ -2,7 +2,11 @@ import { useParams } from '@tanstack/react-router'
 import { Play, Square, StopCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useServerStatus, useStartServer, useStopServer } from '@/features/preview'
-import { useTaskData, useTaskEvents } from '@/features/tasks/contexts/task-providers'
+import {
+  useStreamingStatus,
+  useTaskData,
+  useTaskStatus,
+} from '@/features/tasks/contexts/task-providers'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -43,8 +47,10 @@ export function TaskHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const taskId = params.taskId
 
-  const { status, agentType, createdAt, iterations } = useTaskData()
-  const { isStreaming } = useTaskEvents()
+  // Use specialized hooks for better performance
+  const { status } = useTaskStatus()
+  const { agentType, createdAt, iterations } = useTaskData()
+  const { isStreaming } = useStreamingStatus()
 
   const { data: serverStatus, isLoading: isLoadingServerStatus } = useServerStatus(taskId, {
     enabled: !!taskId && !taskId.startsWith('temp-'),

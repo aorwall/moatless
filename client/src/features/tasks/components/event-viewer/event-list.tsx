@@ -1,13 +1,13 @@
 import { isToolUseContent } from '@shared/types/claude-content'
 import type { Event, MessageEvent as MessageEventType } from '@shared/types/event'
-import { useMemo } from 'react'
-import { type MergedEvent, mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
+import React from 'react'
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 
 import { InputEvent, MessageEvent, ResultEvent, WorkspaceEvent } from './event-components'
 import { ToolCallEvent } from './event-components/tool-call-event'
 
 interface EventListProps {
-  events: Array<Event>
+  events: Array<Event | MergedEvent>
 }
 
 const PayloadRenderer = ({ payload }: { payload: unknown }) => {
@@ -92,17 +92,15 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
   }
 }
 
-export function EventList({ events }: EventListProps) {
-  // Memoize sorted and merged events to prevent unnecessary re-computations
-  const mergedEvents = useMemo(() => {
-    return mergeToolEvents(events)
-  }, [events])
-
+function EventListComponent({ events }: EventListProps) {
+  // Events are already merged by the parent component
   return (
     <div className="space-y-2 w-full max-w-[48rem] min-w-[24rem] mx-auto">
-      {mergedEvents.map((event) => (
+      {events.map((event) => (
         <EventContent key={event.eventId} event={event} />
       ))}
     </div>
   )
 }
+
+export const EventList = React.memo(EventListComponent)
