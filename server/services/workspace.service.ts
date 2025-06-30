@@ -227,15 +227,16 @@ export class WorkspaceService {
     })
 
     try {
+      let workspace: BaseWorkspace
       if (environment.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker workspace with existing path')
-        return new DockerWorkspace(taskId, environment, this.eventService)
+        workspace = new DockerWorkspace(taskId, environment, this.eventService)
       } else {
         workspaceLogger.debug('Creating Local workspace with existing path', {
           branchName,
           existingWorkspacePath,
         })
-        return new LocalWorkspace(
+        workspace = new LocalWorkspace(
           taskId,
           environment,
           this.eventService,
@@ -244,6 +245,11 @@ export class WorkspaceService {
           existingWorkspacePath,
         )
       }
+
+      // Store the workspace in the active workspaces map
+      this.activeWorkspaces.set(taskId, workspace)
+
+      return workspace
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
         environmentType: environment.repository.type,
@@ -453,7 +459,9 @@ export class WorkspaceService {
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
     // Check if workspace has getGitStatus method (LocalWorkspace)
-    let gitStatus: { hasUnmergedCommits?: boolean; isBehindBase?: boolean } | undefined
+    let gitStatus:
+      | { hasUnmergedCommits?: boolean; isBehindBase?: boolean; hasUncommittedChanges?: boolean }
+      | undefined
     if ('getGitStatus' in workspace && typeof workspace.getGitStatus === 'function') {
       gitStatus = await workspace.getGitStatus()
     }
@@ -475,7 +483,7 @@ export class WorkspaceService {
     return {
       status: workspace.getStatus(),
       hasUncommittedChanges:
-        (gitStatus as any)?.hasUncommittedChanges ?? (await workspace.hasUncommittedChanges()),
+        gitStatus?.hasUncommittedChanges ?? (await workspace.hasUncommittedChanges()),
       hasUnmergedCommits,
       isBehindBase,
       gitStatus,

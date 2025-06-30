@@ -162,7 +162,6 @@ describe('EventViewer', () => {
 
   describe('Auto-scrolling Behavior', () => {
     let scrollElement: HTMLElement
-    // biome-ignore lint/suspicious/noExplicitAny: Mock type for testing
     let requestAnimationFrameSpy: any
 
     beforeEach(() => {

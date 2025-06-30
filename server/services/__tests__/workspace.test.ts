@@ -203,6 +203,12 @@ describe('WorkspaceService', () => {
     })
 
     it('should read and write files', async () => {
+      // Mock fs.stat to return isFile: true for the file we're reading
+      vi.mocked(fs.stat).mockResolvedValueOnce({
+        isFile: () => true,
+        isDirectory: () => false,
+      } as any)
+
       const workspace = await service.getOrCreateWorkspace('test-task')
 
       // Manually set the workspace path to our temp directory for testing
