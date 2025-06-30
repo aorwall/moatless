@@ -135,12 +135,12 @@ describe('createRateLimitMiddleware', () => {
       maxRequests: 2,
     })
 
-    const req = { ip: '127.0.0.1' }
+    const req = { ip: '127.0.0.1' } as any
     const reply = {
       header: vi.fn().mockReturnThis(),
       status: vi.fn().mockReturnThis(),
       send: vi.fn(),
-    }
+    } as any
 
     // First two requests should pass
     await middleware(req, reply)
@@ -167,12 +167,12 @@ describe('createRateLimitMiddleware', () => {
       maxRequests: 5,
     })
 
-    const req = { ip: '127.0.0.1' }
+    const req = { ip: '127.0.0.1' } as any
     const reply = {
       header: vi.fn().mockReturnThis(),
       status: vi.fn().mockReturnThis(),
       send: vi.fn(),
-    }
+    } as any
 
     await middleware(req, reply)
 
@@ -189,13 +189,13 @@ describe('createRateLimitMiddleware', () => {
       keyGenerator,
     })
 
-    const req1 = { ip: '127.0.0.1', userId: 'user1' }
-    const req2 = { ip: '127.0.0.1', userId: 'user2' }
+    const req1 = { ip: '127.0.0.1', userId: 'user1' } as any
+    const req2 = { ip: '127.0.0.1', userId: 'user2' } as any
     const reply = {
       header: vi.fn().mockReturnThis(),
       status: vi.fn().mockReturnThis(),
       send: vi.fn(),
-    }
+    } as any
 
     await middleware(req1, reply)
     await middleware(req2, reply)
@@ -213,12 +213,12 @@ describe('createRateLimitMiddleware', () => {
       onLimitReached,
     })
 
-    const req = { ip: '127.0.0.1' }
+    const req = { ip: '127.0.0.1' } as any
     const reply = {
       header: vi.fn().mockReturnThis(),
       status: vi.fn().mockReturnThis(),
       send: vi.fn(),
-    }
+    } as any
 
     await middleware(req, reply)
     await middleware(req, reply)

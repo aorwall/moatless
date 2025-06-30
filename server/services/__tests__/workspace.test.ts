@@ -111,7 +111,7 @@ describe('WorkspaceService', () => {
       delete: vi.fn().mockResolvedValue(undefined),
       saveEvents: vi.fn().mockResolvedValue(undefined),
       getEvents: vi.fn().mockResolvedValue([]),
-    } as unknown as StorageBackend
+    } as any as StorageBackend
 
     eventService = new EventService(storage)
     environmentService = new EnvironmentService(storage)
@@ -121,8 +121,8 @@ describe('WorkspaceService', () => {
       environmentService as unknown as { validateRepository: () => Promise<void> },
       'validateRepository',
     ).mockResolvedValue(undefined)
-    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment as unknown)
-    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment as unknown)
+    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment as any)
+    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment as any)
 
     service = new WorkspaceService(environmentService, eventService, storage)
   })
@@ -183,8 +183,8 @@ describe('WorkspaceService', () => {
     it('should list files in workspace', async () => {
       // Mock readdir to return test files
       vi.mocked(fs.readdir).mockResolvedValue([
-        { name: 'test1.js', isFile: () => true, isDirectory: () => false } as unknown,
-        { name: 'test2.js', isFile: () => true, isDirectory: () => false } as unknown,
+        { name: 'test1.js', isFile: () => true, isDirectory: () => false } as any,
+        { name: 'test2.js', isFile: () => true, isDirectory: () => false } as any,
       ])
 
       const workspace = await service.getOrCreateWorkspace('test-task')
@@ -257,7 +257,7 @@ describe('WorkspaceService', () => {
           type: 'docker',
           image: 'node:18',
         },
-      } as unknown)
+      } as any)
 
       const workspace = await service.getOrCreateWorkspace('test-task')
 
@@ -273,9 +273,9 @@ describe('WorkspaceService', () => {
       // Mock exec
       const execMock = vi.mocked(child_process.exec)
       execMock.mockImplementation(((_cmd: string, opts: unknown, cb?: unknown) => {
-        const callback = cb || opts
+        const callback = (cb || opts) as any
         callback(null, { stdout: 'success', stderr: '' })
-      }) as unknown)
+      }) as any)
 
       const workspace = await service.getOrCreateWorkspace('test-task-cleanup-local')
       await workspace.setup()
@@ -312,13 +312,13 @@ describe('WorkspaceService', () => {
       const containerId = 'abc123'
 
       execMock.mockImplementation(((cmd: string, opts: unknown, cb?: unknown) => {
-        const callback = cb || opts
+        const callback = (cb || opts) as any
         if (cmd.includes('docker create')) {
           callback(null, { stdout: containerId, stderr: '' })
         } else {
           callback(null, { stdout: 'success', stderr: '' })
         }
-      }) as unknown)
+      }) as any)
 
       const workspace = await service.getOrCreateWorkspace('test-task-cleanup-docker')
       await workspace.setup()

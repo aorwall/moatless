@@ -72,7 +72,30 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     // Setup mock event service
     mockEventService = {
       emitEvent: vi.fn(),
-    } as EventService
+      claudeCodeSettings: {} as any,
+      eventCache: new Map(),
+      storage: {} as any,
+      getEvents: vi.fn(),
+      getEventsByTaskId: vi.fn(),
+      getEventsByType: vi.fn(),
+      getEventsByTimestamp: vi.fn(),
+      getEventsByIterationId: vi.fn(),
+      getEventsByAgentType: vi.fn(),
+      getEventsBySubType: vi.fn(),
+      getEventsByError: vi.fn(),
+      getEventsByPayload: vi.fn(),
+      getEventsByContextTokens: vi.fn(),
+      getEventsByNumTurns: vi.fn(),
+      getEventsByTotalCost: vi.fn(),
+      getEventsByDateRange: vi.fn(),
+      getEventsByMultipleFilters: vi.fn(),
+      getEventsByTaskIdAndType: vi.fn(),
+      getEventsByTaskIdAndTimestamp: vi.fn(),
+      getEventsByTaskIdAndIterationId: vi.fn(),
+      getEventsByTaskIdAndAgentType: vi.fn(),
+      getEventsByTaskIdAndSubType: vi.fn(),
+      getEventsByTaskIdAndError: vi.fn(),
+    } as any
 
     // Clean up test directories if they exist
     try {

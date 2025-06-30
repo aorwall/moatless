@@ -11,6 +11,7 @@ import type {
   LocalRepository,
   PreviewConfig,
   RemoteRepository,
+  Repository,
 } from '../../shared/types/index.js'
 import { searchFilesInDirectoryNew } from '../utils/file-search.js'
 import { logger } from '../utils/logger.js'
@@ -228,12 +229,11 @@ export class EnvironmentService {
         await this.validateLocalRepository(repository as LocalRepository)
         break
       case 'github':
-      case 'gitlab':
         await this.validateRemoteRepository(repository as RemoteRepository)
         break
       default:
-        throw new ValidationError(`Unsupported repository type: ${repository.type}`, {
-          repositoryType: repository.type,
+        throw new ValidationError(`Unsupported repository type: ${(repository as any).type}`, {
+          repositoryType: (repository as any).type,
         })
     }
   }

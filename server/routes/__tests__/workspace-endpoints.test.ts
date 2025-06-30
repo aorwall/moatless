@@ -114,7 +114,7 @@ describe('Workspace Endpoints', () => {
 
     it('should return 404 for non-existent task', async () => {
       // Mock task service to return null for non-existent task
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.inject({
         method: 'GET',

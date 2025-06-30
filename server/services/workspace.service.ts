@@ -475,7 +475,7 @@ export class WorkspaceService {
     return {
       status: workspace.getStatus(),
       hasUncommittedChanges:
-        gitStatus?.hasUncommittedChanges ?? (await workspace.hasUncommittedChanges()),
+        (gitStatus as any)?.hasUncommittedChanges ?? (await workspace.hasUncommittedChanges()),
       hasUnmergedCommits,
       isBehindBase,
       gitStatus,

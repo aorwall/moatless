@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MoatlessError } from '../../../shared/constants/errors.js'
 import type { Environment } from '../../../shared/types/environment.js'
-import type { Task } from '../../../shared/types/task.js'
 import { build } from '../../test/helper.js'
 
 describe('API Error Handling', () => {
@@ -141,7 +140,7 @@ describe('API Error Handling', () => {
     })
 
     it('should return 404 for non-existent resources', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.inject({
         method: 'GET',
@@ -188,11 +187,9 @@ describe('API Error Handling', () => {
       vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce({
         id: 'test-env',
         name: 'Test Environment',
-      } as Partial<Environment>)
+      } as Environment)
 
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce({
-        taskId: 'test-task-id',
-      } as Partial<Task>)
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce('test-task-id')
 
       const response = await app.inject({
         method: 'POST',

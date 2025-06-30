@@ -126,7 +126,7 @@ export class ProcessManager extends EventEmitter {
         stderr: execError.stderr || '',
         exitCode: execError.code || 1,
         signal: execError.signal,
-        timedOut: execError.killed && execError.signal === 'SIGTERM',
+        timedOut: (execError.killed && execError.signal === 'SIGTERM') || false,
       }
     }
   }

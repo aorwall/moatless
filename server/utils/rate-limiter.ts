@@ -174,6 +174,6 @@ export function rateLimit<T extends (...args: unknown[]) => unknown>(
     }
 
     calls.push(now)
-    return fn(...args)
+    return fn(...args) as ReturnType<T>
   }) as T
 }

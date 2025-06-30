@@ -5,7 +5,6 @@ import { LocalWorkspace } from '../../workspaces/local.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
-import type { TaskService } from '../task.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
 
 // Mock dependencies
@@ -52,11 +51,26 @@ describe('AgentService - Workspace Recreation', () => {
       type: 'local' as const,
       setupCommands: 'pnpm install',
     },
+    variables: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
   }
 
   beforeEach(() => {
     // Setup mock storage
     mockStorage = {
+      save: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn(),
+      delete: vi.fn(),
+      exists: vi.fn(),
+      getMetadata: vi.fn(),
+      saveMetadata: vi.fn(),
+      listMetadata: vi.fn(),
+      deleteMetadata: vi.fn(),
+      search: vi.fn(),
+      bulkSave: vi.fn(),
+      bulkDelete: vi.fn(),
       getTask: vi.fn().mockResolvedValue({
         taskId,
         environmentId: 'env-123',
@@ -64,7 +78,7 @@ describe('AgentService - Workspace Recreation', () => {
         iterations: [],
       }),
       saveTask: vi.fn(),
-    } as unknown as TaskService
+    } as any
 
     // Setup mock event service
     mockEventService = {

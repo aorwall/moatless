@@ -105,10 +105,12 @@ describe('SSE Routes', () => {
         simulate: {
           end: true,
           split: false,
+          error: false,
+          close: false,
         },
       })
 
-      expect(response.statusCode).toBe(200)
+      expect((response as any).statusCode).toBe(200)
     }, 10000)
   })
 
