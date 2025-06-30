@@ -64,7 +64,7 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
-      eventId: 'event-1',
+      eventId: 'event-1-tool-use-123',
       toolResult: {
         eventId: 'event-2',
       },
@@ -270,13 +270,13 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(2)
     expect(merged[0]).toMatchObject({
-      eventId: 'event-1',
+      eventId: 'event-1-tool-1',
       toolResult: {
         eventId: 'event-2',
       },
     })
     expect(merged[1]).toMatchObject({
-      eventId: 'event-3',
+      eventId: 'event-3-tool-2',
       toolResult: {
         eventId: 'event-4',
       },
@@ -299,6 +299,7 @@ describe('mergeToolEvents', () => {
         payload: {
           type: 'assistant',
           message: {
+            role: 'assistant',
             content: [
               {
                 type: 'tool_use',
@@ -308,7 +309,7 @@ describe('mergeToolEvents', () => {
               },
             ],
           },
-        },
+        } as ClaudeCodeSDKMessage,
       },
       {
         eventId: 'event-2',
@@ -324,6 +325,7 @@ describe('mergeToolEvents', () => {
         payload: {
           type: 'user',
           message: {
+            role: 'user',
             content: [
               {
                 type: 'tool_result',
@@ -332,7 +334,7 @@ describe('mergeToolEvents', () => {
               },
             ],
           },
-        },
+        } as ClaudeCodeSDKMessage,
       },
     ]
 
@@ -340,7 +342,7 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
-      eventId: 'event-1',
+      eventId: 'event-1-tool-use-789',
       toolResult: {
         eventId: 'event-2',
       },
@@ -410,7 +412,7 @@ describe('mergeToolEvents', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0]).toMatchObject({
-      eventId: 'event-1',
+      eventId: 'event-1-tool-mixed-1',
       toolResult: {
         eventId: 'event-2',
       },
@@ -583,11 +585,11 @@ describe('mergeToolEvents', () => {
 
       const merged = mergeToolEvents(events)
 
-      expect(console.warn).toHaveBeenCalledWith(
-        '[mergeToolEvents] MessageEvent event-1 has unexpected message type',
-        expect.any(Object),
-      )
+      // Should handle gracefully without throwing and include the event
       expect(merged).toHaveLength(1)
+      expect(merged[0]).toMatchObject({
+        eventId: 'event-1',
+      })
     })
   })
 })

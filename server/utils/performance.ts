@@ -210,7 +210,8 @@ export const performanceMonitor = new PerformanceMonitor()
 export function measure(name?: string, labels?: Record<string, string>) {
   return (target: unknown, propertyKey: string, descriptor: PropertyDescriptor) => {
     const originalMethod = descriptor.value
-    const metricName = name || `${(target as any).constructor.name}.${propertyKey}`
+    const targetConstructor = target as { constructor: { name: string } }
+    const metricName = name || `${targetConstructor.constructor.name}.${propertyKey}`
 
     descriptor.value = function (...args: unknown[]) {
       if (originalMethod.constructor.name === 'AsyncFunction') {

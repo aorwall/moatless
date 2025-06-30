@@ -231,10 +231,11 @@ export class EnvironmentService {
       case 'github':
         await this.validateRemoteRepository(repository as RemoteRepository)
         break
-      default:
-        throw new ValidationError(`Unsupported repository type: ${(repository as any).type}`, {
-          repositoryType: (repository as any).type,
-        })
+      default: {
+        // This should never happen due to TypeScript's exhaustive type checking
+        const exhaustiveCheck: never = repository
+        return exhaustiveCheck
+      }
     }
   }
 

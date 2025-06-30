@@ -69,6 +69,16 @@
       "assist": {
         "enabled": false
       }
+    },
+    {
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
     }
   ]
 }

@@ -153,7 +153,7 @@ describe('WorkspaceService Status Management', () => {
   })
 
   describe('workspace status checking', () => {
-    it('should allow operations on workspace regardless of status', async () => {
+    it('should prevent operations on workspace with NOT_SETUP status', async () => {
       const taskId = 'test-task-status'
       vi.mocked(mockStorage.getTask).mockResolvedValue({ ...mockTask, taskId })
 
@@ -177,13 +177,19 @@ describe('WorkspaceService Status Management', () => {
         workspaceService as unknown as { activeWorkspaces: Map<string, unknown> }
       ).activeWorkspaces.set(taskId, mockWorkspace)
 
-      // These operations should work even with NOT_SETUP status
-      await expect(workspaceService.listFiles(taskId)).resolves.toEqual(['file1.txt', 'file2.txt'])
-      await expect(workspaceService.readFile(taskId, 'file1.txt')).resolves.toBe('content')
-      await expect(
-        workspaceService.writeFile(taskId, 'file1.txt', 'new content'),
-      ).resolves.toBeUndefined()
-      await expect(workspaceService.getGitDiff(taskId)).resolves.toBe('diff')
+      // These operations should fail with NOT_SETUP status
+      await expect(workspaceService.listFiles(taskId)).rejects.toThrow(
+        'Cannot list files: workspace not ready',
+      )
+      await expect(workspaceService.readFile(taskId, 'file1.txt')).rejects.toThrow(
+        'Cannot read file: workspace not ready',
+      )
+      await expect(workspaceService.writeFile(taskId, 'file1.txt', 'new content')).rejects.toThrow(
+        'Cannot write file: workspace not ready',
+      )
+      await expect(workspaceService.getGitDiff(taskId)).rejects.toThrow(
+        'Cannot access git: workspace not ready',
+      )
 
       const status = await workspaceService.getWorkspaceStatus(taskId)
       expect((status as any).status).toBe(WorkspaceStatus.NOT_SETUP)
