@@ -133,7 +133,7 @@ describe('File Search Utilities', () => {
         isDirectory: () => false,
       }
 
-      vi.mocked(fs.stat).mockResolvedValue(mockStats as any)
+      vi.mocked(fs.stat).mockResolvedValue(mockStats as fs.Stats)
 
       const result = await getFileStats('/test/file.txt')
 

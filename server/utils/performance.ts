@@ -208,11 +208,11 @@ export const performanceMonitor = new PerformanceMonitor()
 
 // Decorator for measuring method performance
 export function measure(name?: string, labels?: Record<string, string>) {
-  return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
+  return (target: unknown, propertyKey: string, descriptor: PropertyDescriptor) => {
     const originalMethod = descriptor.value
     const metricName = name || `${target.constructor.name}.${propertyKey}`
 
-    descriptor.value = function (...args: any[]) {
+    descriptor.value = function (...args: unknown[]) {
       if (originalMethod.constructor.name === 'AsyncFunction') {
         return performanceMonitor.measureAsync(
           metricName,

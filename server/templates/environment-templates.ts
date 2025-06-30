@@ -4,7 +4,7 @@ export interface EnvironmentTemplate {
   id: string
   name: string
   description: string
-  defaultMetadata: Partial<Environment> & { [key: string]: any }
+  defaultMetadata: Partial<Environment> & Record<string, unknown>
   requiredFiles?: string[]
   setupInstructions?: string
 }

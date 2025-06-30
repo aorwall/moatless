@@ -20,7 +20,7 @@ import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
-  private backgroundTasks: Map<string, Set<Promise<any>>> = new Map()
+  private backgroundTasks: Map<string, Set<Promise<unknown>>> = new Map()
   private previewEnvironmentService?: PreviewEnvironmentService
 
   constructor(
@@ -368,7 +368,7 @@ export class WorkspaceService {
     await workspace.writeFile(filePath, content)
   }
 
-  async getGitDiff(taskId: string): Promise<any> {
+  async getGitDiff(taskId: string): Promise<unknown> {
     if (!(await this.canAccessGit(taskId))) {
       throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
     }
@@ -442,7 +442,7 @@ export class WorkspaceService {
     return workspace.runCommand(command, timeout)
   }
 
-  async getWorkspaceStatus(taskId: string): Promise<any> {
+  async getWorkspaceStatus(taskId: string): Promise<unknown> {
     // Validate task exists first
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -483,7 +483,7 @@ export class WorkspaceService {
     }
   }
 
-  async startServer(taskId: string): Promise<any> {
+  async startServer(taskId: string): Promise<unknown> {
     if (!(await this.canManageServer(taskId))) {
       throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
     }
@@ -532,7 +532,7 @@ export class WorkspaceService {
   }
 
   // Background task tracking methods
-  public trackBackgroundTask(taskId: string, task: Promise<any>): void {
+  public trackBackgroundTask(taskId: string, task: Promise<unknown>): void {
     if (!this.backgroundTasks.has(taskId)) {
       this.backgroundTasks.set(taskId, new Set())
     }

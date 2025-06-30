@@ -113,13 +113,20 @@ export class ProcessManager extends EventEmitter {
         exitCode: 0,
         timedOut: false,
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const execError = error as {
+        stdout?: string
+        stderr?: string
+        code?: number
+        signal?: string
+        killed?: boolean
+      }
       return {
-        stdout: error.stdout || '',
-        stderr: error.stderr || '',
-        exitCode: error.code || 1,
-        signal: error.signal,
-        timedOut: error.killed && error.signal === 'SIGTERM',
+        stdout: execError.stdout || '',
+        stderr: execError.stderr || '',
+        exitCode: execError.code || 1,
+        signal: execError.signal,
+        timedOut: execError.killed && execError.signal === 'SIGTERM',
       }
     }
   }

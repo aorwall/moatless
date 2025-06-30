@@ -1,10 +1,12 @@
+import type { FastifyReply, FastifyRequest } from 'fastify'
+
 export interface RateLimitOptions {
   windowMs: number
   maxRequests: number
-  keyGenerator?: (req: any) => string
+  keyGenerator?: (req: FastifyRequest) => string
   skipSuccessfulRequests?: boolean
   skipFailedRequests?: boolean
-  onLimitReached?: (req: any) => void
+  onLimitReached?: (req: FastifyRequest) => void
 }
 
 export interface RateLimitInfo {
@@ -122,7 +124,7 @@ export class RateLimiter {
 export function createRateLimitMiddleware(options: RateLimitOptions) {
   const limiter = new RateLimiter(options)
 
-  return async (request: any, reply: any) => {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
     const key = options.keyGenerator ? options.keyGenerator(request) : request.ip || 'global'
 
     const result = await limiter.checkLimit(key)
@@ -152,7 +154,7 @@ export function createRateLimitMiddleware(options: RateLimitOptions) {
 /**
  * Rate limiter for function calls
  */
-export function rateLimit<T extends (...args: any[]) => any>(
+export function rateLimit<T extends (...args: unknown[]) => unknown>(
   fn: T,
   maxCalls: number,
   windowMs: number,

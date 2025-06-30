@@ -27,11 +27,11 @@ const pinoLogger = pino({
 
 // Create a wrapper to maintain backward compatibility with existing code
 export const logger = {
-  trace: (message: string, meta?: any) => pinoLogger.trace(meta, message),
-  debug: (message: string, meta?: any) => pinoLogger.debug(meta, message),
-  info: (message: string, meta?: any) => pinoLogger.info(meta, message),
-  warn: (message: string, meta?: any) => pinoLogger.warn(meta, message),
-  error: (message: string, error?: Error | any, meta?: any) => {
+  trace: (message: string, meta?: Record<string, unknown>) => pinoLogger.trace(meta, message),
+  debug: (message: string, meta?: Record<string, unknown>) => pinoLogger.debug(meta, message),
+  info: (message: string, meta?: Record<string, unknown>) => pinoLogger.info(meta, message),
+  warn: (message: string, meta?: Record<string, unknown>) => pinoLogger.warn(meta, message),
+  error: (message: string, error?: Error | unknown, meta?: Record<string, unknown>) => {
     if (error instanceof Error) {
       pinoLogger.error({ ...meta, err: error }, message)
     } else if (error && typeof error === 'object') {
@@ -41,7 +41,7 @@ export const logger = {
       pinoLogger.error(meta, message)
     }
   },
-  fatal: (message: string, error?: Error | any, meta?: any) => {
+  fatal: (message: string, error?: Error | unknown, meta?: Record<string, unknown>) => {
     if (error instanceof Error) {
       pinoLogger.fatal({ ...meta, err: error }, message)
     } else if (error && typeof error === 'object') {
@@ -51,14 +51,14 @@ export const logger = {
       pinoLogger.fatal(meta, message)
     }
   },
-  child: (bindings: Record<string, any>) => {
+  child: (bindings: Record<string, unknown>) => {
     const childPino = pinoLogger.child(bindings)
     return {
-      trace: (message: string, meta?: any) => childPino.trace(meta, message),
-      debug: (message: string, meta?: any) => childPino.debug(meta, message),
-      info: (message: string, meta?: any) => childPino.info(meta, message),
-      warn: (message: string, meta?: any) => childPino.warn(meta, message),
-      error: (message: string, error?: Error | any, meta?: any) => {
+      trace: (message: string, meta?: Record<string, unknown>) => childPino.trace(meta, message),
+      debug: (message: string, meta?: Record<string, unknown>) => childPino.debug(meta, message),
+      info: (message: string, meta?: Record<string, unknown>) => childPino.info(meta, message),
+      warn: (message: string, meta?: Record<string, unknown>) => childPino.warn(meta, message),
+      error: (message: string, error?: Error | unknown, meta?: Record<string, unknown>) => {
         if (error instanceof Error) {
           childPino.error({ ...meta, err: error }, message)
         } else if (error && typeof error === 'object') {
@@ -67,7 +67,7 @@ export const logger = {
           childPino.error(meta, message)
         }
       },
-      fatal: (message: string, error?: Error | any, meta?: any) => {
+      fatal: (message: string, error?: Error | unknown, meta?: Record<string, unknown>) => {
         if (error instanceof Error) {
           childPino.fatal({ ...meta, err: error }, message)
         } else if (error && typeof error === 'object') {
@@ -91,6 +91,6 @@ export function createTaskLogger(taskId: string) {
 }
 
 // Helper function to create console logger for local development
-export function createConsoleLogger(context?: Record<string, any>) {
+export function createConsoleLogger(context?: Record<string, unknown>) {
   return logger.child(context || {})
 }

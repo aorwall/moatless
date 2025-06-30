@@ -10,6 +10,12 @@ import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
+interface FileMetadata {
+  originalFilename: string
+  path: string
+  mimeType: string
+}
+
 export class TaskService {
   private static readonly WORKSPACE_READY_TIMEOUT = 30000
   private static readonly WORKSPACE_CHECK_INTERVAL = 500
@@ -240,7 +246,7 @@ export class TaskService {
       iteration.attachments = []
       for (const fileId of fileIds) {
         // Get file metadata
-        const fileMetadata = await this.storage.get<any>(`uploads/${taskId}/${fileId}`)
+        const fileMetadata = await this.storage.get<FileMetadata>(`uploads/${taskId}/${fileId}`)
         if (fileMetadata) {
           iteration.attachments.push({
             fileId,

@@ -8,8 +8,8 @@ import { fromJSON, toJSON } from '../../shared/utils/validation.js'
 
 export interface StorageBackend {
   // Generic storage methods
-  save(key: string, data: any): Promise<void>
-  get<T = any>(key: string): Promise<T | null>
+  save(key: string, data: unknown): Promise<void>
+  get<T = unknown>(key: string): Promise<T | null>
   list(prefix?: string): Promise<string[]>
   delete(key: string): Promise<void>
   exists(key: string): Promise<boolean>
@@ -30,14 +30,14 @@ export class FileStorage implements StorageBackend {
     logger.info(`Using data directory: ${basePath}`)
   }
 
-  async save(key: string, data: any): Promise<void> {
+  async save(key: string, data: unknown): Promise<void> {
     const filePath = await this.getPath(key)
     const dir = path.dirname(filePath)
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(filePath, toJSON(data))
   }
 
-  async get<T = any>(key: string): Promise<T | null> {
+  async get<T = unknown>(key: string): Promise<T | null> {
     try {
       const filePath = await this.getPath(key)
       const content = await fs.readFile(filePath, 'utf-8')

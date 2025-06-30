@@ -2,6 +2,7 @@
 import { promises as fs } from 'node:fs'
 // import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Environment } from '../../../shared/types/environment.js'
 import type { EventService } from '../../services/event.service.js'
 import { LocalWorkspace } from '../local.js'
 
@@ -33,7 +34,7 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('node:util', () => ({
   promisify: vi.fn((_fn) => {
-    return vi.fn(async (command: string, _options?: any) => {
+    return vi.fn(async (command: string, _options?: unknown) => {
       if (command.includes('git show-ref')) {
         throw new Error('Branch not found')
       }
@@ -71,7 +72,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     // Setup mock event service
     mockEventService = {
       emitEvent: vi.fn(),
-    } as any
+    } as EventService
 
     // Clean up test directories if they exist
     try {
@@ -91,7 +92,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     // Create workspace with non-existent path
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as any,
+      mockEnvironment as Environment,
       mockEventService,
       undefined,
       undefined,
@@ -100,7 +101,10 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     // Spy on the recreateGitWorktree method
     const recreateSpy = vi
-      .spyOn(workspace as any, 'recreateGitWorktree')
+      .spyOn(
+        workspace as LocalWorkspace & { recreateGitWorktree: () => Promise<void> },
+        'recreateGitWorktree',
+      )
       .mockImplementation(async () => {
         // Simulate creating the directory
         await fs.mkdir(testWorkspacePath, { recursive: true })
@@ -134,7 +138,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as any,
+      mockEnvironment as Environment,
       mockEventService,
       undefined,
       undefined,
@@ -159,7 +163,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
   it('should validate workspace path exists before running commands', async () => {
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as any,
+      mockEnvironment as Environment,
       mockEventService,
       undefined,
       undefined,
@@ -184,7 +188,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as any,
+      mockEnvironment as Environment,
       mockEventService,
       undefined,
       undefined,

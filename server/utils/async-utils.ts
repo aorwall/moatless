@@ -113,7 +113,7 @@ export async function sleep(ms: number): Promise<void> {
 /**
  * Debounce function calls
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number,
   immediate: boolean = false,
@@ -138,7 +138,7 @@ export function debounce<T extends (...args: any[]) => any>(
 /**
  * Throttle function calls
  */
-export function throttle<T extends (...args: any[]) => any>(func: T, limit: number): T {
+export function throttle<T extends (...args: unknown[]) => unknown>(func: T, limit: number): T {
   let inThrottle: boolean = false
 
   return ((...args: Parameters<T>) => {
@@ -240,12 +240,12 @@ export function makeCancelable<T>(promise: Promise<T>): {
 /**
  * Memoize async function results
  */
-export function memoizeAsync<T extends (...args: any[]) => Promise<any>>(
+export function memoizeAsync<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
   keyGenerator: (...args: Parameters<T>) => string = (...args) => JSON.stringify(args),
   ttl: number = 0,
 ): T {
-  const cache = new Map<string, { value: any; timestamp: number }>()
+  const cache = new Map<string, { value: unknown; timestamp: number }>()
 
   return ((...args: Parameters<T>) => {
     const key = keyGenerator(...args)

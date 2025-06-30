@@ -197,7 +197,7 @@ export class EnvironmentService {
   async getRepositoryInfo(envId: string): Promise<{
     type: string
     accessible: boolean
-    details: any
+    details: Record<string, unknown>
   }> {
     const environment = await this.getEnvironment(envId)
     if (!environment) {
@@ -222,7 +222,7 @@ export class EnvironmentService {
     }
   }
 
-  private async validateRepository(repository: any): Promise<void> {
+  private async validateRepository(repository: Repository): Promise<void> {
     switch (repository.type) {
       case 'local':
         await this.validateLocalRepository(repository as LocalRepository)
@@ -276,7 +276,7 @@ export class EnvironmentService {
     await validateRepositoryAccess(repo)
   }
 
-  private async getRepositoryDetails(repository: any): Promise<any> {
+  private async getRepositoryDetails(repository: Repository): Promise<Record<string, unknown>> {
     switch (repository.type) {
       case 'local': {
         const localRepo = repository as LocalRepository
