@@ -42,6 +42,53 @@ pnpm dlx shadcn@latest add [component]
 - You can run both `biome:fix` and `biome:check`
 - For comprehensive validation, run `pnpm check:turbo` which includes all checks (optimized for speed)
 
+## Commit Conventions
+
+### Commit Message Format
+This project uses conventional commit format with commitlint enforcement:
+
+```
+<type>: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+### Commit Types
+- `feat:` - New features
+- `fix:` - Bug fixes
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting, missing semicolons, etc.)
+- `refactor:` - Code refactoring without feature changes
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks, dependency updates
+
+### Scope Guidelines
+The project supports scopes that align with the architecture:
+- `frontend` - Client-side changes (React app, components, routes, styles)
+- `backend` - Server-side changes (API routes, services, utilities)
+- `shared` - Shared code between client and server (types, constants, schemas)
+- Or omit the scope entirely: `feat: description` instead of `feat(scope): description`
+
+### Examples
+```bash
+# Good commit messages
+feat: add global temporary DATA_DIR setup for all tests
+fix: resolve memory leak in task event streaming
+docs: update testing guidelines in CLAUDE.md
+test: add integration tests for environment service
+
+# With scope
+feat(frontend): add loading skeleton for task list
+feat(backend): add environment service with file search
+fix(shared): handle edge case in validation schemas
+```
+
+### Pre-commit Hooks
+- **pre-push**: Runs fast tests (`pnpm test:fast`) before pushing
+- **commit-msg**: Validates commit message format using commitlint
+
 ## Architecture
 
 ### Project Structure
