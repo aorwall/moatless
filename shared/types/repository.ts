@@ -1,32 +1,26 @@
 // Re-export types from schemas
 export type {
   CodeExecution,
-  CreateEnvironmentRequest,
-  Environment,
-  GithubRepository,
-  LocalRepository,
+  CreateRepositoryRequest,
   PreviewConfig,
   Repository,
+  RepositoryConfig,
   ScriptInjectionStrategy,
-  UpdateEnvironmentRequest,
-} from '../schemas/environment.schemas.js'
+  UpdateRepositoryRequest,
+} from '../schemas/repository.schemas.js'
 
 import type {
   CodeExecution as CodeExec,
-  GithubRepository as GithubRepo,
   Repository as Repo,
-} from '../schemas/environment.schemas.js'
+} from '../schemas/repository.schemas.js'
 
-// Additional types not in schemas
-export type RemoteRepository = GithubRepo
-
-export interface EnvironmentVariable {
+export interface RepositoryVariable {
   key: string
   value: string
   description?: string
 }
 
-export interface EnvironmentResponse {
+export interface RepositoryResponse {
   id: string
   name: string
   description?: string
@@ -38,7 +32,7 @@ export interface EnvironmentResponse {
 }
 
 export interface FileSearchRequest {
-  environmentId: string
+  repositoryId: string
   query: string
   limit?: number
 }
@@ -55,14 +49,23 @@ export interface FileSearchResponse {
   query: string
 }
 
-export interface EnvironmentList {
-  environments: EnvironmentResponse[]
+export interface RepositoryList {
+  repositories: RepositoryResponse[]
+}
+
+export interface SetupScriptCommand {
+  command: string
+  success: boolean
+  exit_code: number
+  output?: string
+  error?: string
 }
 
 export interface SetupScriptResponse {
   success: boolean
   output?: string
   error?: string
+  commands: SetupScriptCommand[]
 }
 
 export interface BranchListResponse {

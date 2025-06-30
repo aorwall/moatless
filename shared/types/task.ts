@@ -33,7 +33,7 @@ export interface Task {
   createdAt: Date
   lastMessageAt: Date
   agentType: string
-  environmentId: string
+  repositoryId: string
   status: 'open' | 'running' | 'error' | 'merged' | 'closed'
   numTurns: number
   totalCostUsd: number

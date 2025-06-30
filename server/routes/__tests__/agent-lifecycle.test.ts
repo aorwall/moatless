@@ -171,7 +171,7 @@ describe('Agent Lifecycle Test', () => {
     // Step 2: Create and start a task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: environment.id,
       message:
         'Create a file called lifecycle_test.py with a simple Python function that adds two numbers',
       start: true,
@@ -280,7 +280,7 @@ describe('Agent Lifecycle Test', () => {
     // Test 4: Create a new task to verify we can start new agents
     const createNewTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: environment.id,
       message: 'Create a simple hello.txt file',
       start: false, // Don't start it, just create
     }
@@ -345,7 +345,7 @@ describe('Agent Lifecycle Test', () => {
     // Create a task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: environment.id,
       start: false,
     }
 

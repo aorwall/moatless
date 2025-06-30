@@ -79,7 +79,7 @@ describe('FileStorage', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'open',
         numTurns: 0,
         totalCostUsd: 0,
@@ -117,7 +117,7 @@ describe('FileStorage', () => {
       const workspace: Workspace = {
         id: 'ws-123',
         type: 'local',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'ready',
         createdAt: new Date(),
         path: '/tmp/workspace',

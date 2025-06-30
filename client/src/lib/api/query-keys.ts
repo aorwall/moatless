@@ -48,12 +48,20 @@ export const queryKeys = {
 
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,
-  environments: () => [...queryKeys.all, 'environments'] as const,
-  environmentsList: () => [...queryKeys.environments(), 'list'] as const,
-  environmentDetail: (envId: string) => [...queryKeys.environments(), 'detail', envId] as const,
+  repositories: () => [...queryKeys.all, 'repositories'] as const,
+  repositoriesList: () => [...queryKeys.repositories(), 'list'] as const,
+  repositoryDetail: (repoId: string) => [...queryKeys.repositories(), 'detail', repoId] as const,
+  repositoryFileSearch: (repoId: string, query: string) =>
+    [...queryKeys.repositories(), 'file-search', repoId, query] as const,
+  repositoryBranches: (repoId: string) =>
+    [...queryKeys.repositories(), 'branches', repoId] as const,
+  // Legacy environment keys for backward compatibility
+  environments: () => queryKeys.repositories(),
+  environmentsList: () => queryKeys.repositoriesList(),
+  environmentDetail: (envId: string) => queryKeys.repositoryDetail(envId),
   environmentFileSearch: (envId: string, query: string) =>
-    [...queryKeys.environments(), 'file-search', envId, query] as const,
-  environmentBranches: (envId: string) => [...queryKeys.environments(), 'branches', envId] as const,
+    queryKeys.repositoryFileSearch(envId, query),
+  environmentBranches: (envId: string) => queryKeys.repositoryBranches(envId),
   commands: () => [...queryKeys.all, 'commands'] as const,
   commandsList: () => [...queryKeys.commands(), 'list'] as const,
   commandDetail: (commandName: string) => [...queryKeys.commands(), 'detail', commandName] as const,

@@ -199,7 +199,7 @@ describe('API Error Handling', () => {
         },
         payload: {
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           message: 'Test message',
         },
       })

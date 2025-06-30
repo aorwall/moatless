@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { registerCommandRoutes } from './commands.js'
-import { registerEnvironmentRoutes } from './environments.js'
+import { registerRepositoryRoutes } from './repositories.js'
 import { registerTaskRoutes } from './tasks.js'
 import { uploadRoutes } from './uploads.js'
 
@@ -14,7 +14,7 @@ export async function registerRoutes(app: FastifyInstance) {
     endpoints: {
       health: '/health',
       tasks: `${API_PREFIX}/tasks`,
-      environments: `${API_PREFIX}/environments`,
+      repositories: `${API_PREFIX}/repositories`,
       commands: `${API_PREFIX}/commands`,
       events: `${API_PREFIX}/events`,
     },
@@ -22,7 +22,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
   // Register API route groups with prefixes
   await app.register(registerTaskRoutes, { prefix: `${API_PREFIX}/tasks` })
-  await app.register(registerEnvironmentRoutes, { prefix: `${API_PREFIX}/environments` })
+  await app.register(registerRepositoryRoutes, { prefix: `${API_PREFIX}/repositories` })
   await app.register(uploadRoutes, { prefix: `${API_PREFIX}/uploads` })
   await app.register(registerCommandRoutes, { prefix: `${API_PREFIX}/commands` })
 

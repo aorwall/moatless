@@ -4,9 +4,9 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-  CreateEnvironmentRequest,
+  CreateRepositoryRequest,
   CreateTaskRequest,
-  Environment,
+  RepositoryConfig,
   ServerStatus,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
@@ -15,7 +15,7 @@ import { build } from '../../test/helper.js'
  * E2E Test for Server Lifecycle Management
  *
  * This test covers the complete server lifecycle workflow including:
- * - Environment creation with server configuration
+ * - Repository creation with server configuration
  * - Task creation with server setup
  * - Starting a development server
  * - Verifying server status updates
@@ -31,11 +31,11 @@ import { build } from '../../test/helper.js'
 describe('Server Lifecycle E2E Test', () => {
   let app: FastifyInstance
   let tempDir: string
-  let createdEnvironmentId: string
+  let createdRepositoryId: string
   let createdTaskId: string
 
   beforeEach(async () => {
-    // Create a temporary directory for our test environment
+    // Create a temporary directory for our test repository
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'server-lifecycle-test-'))
 
     // Initialize a git repository in the temp directory
@@ -71,15 +71,15 @@ describe('Server Lifecycle E2E Test', () => {
       }
     }
 
-    // Cleanup environment if it exists
-    if (createdEnvironmentId) {
+    // Cleanup repository if it exists
+    if (createdRepositoryId) {
       try {
         await app.inject({
           method: 'DELETE',
-          url: `/api/v1/environments/${createdEnvironmentId}`,
+          url: `/api/v1/repositories/${createdRepositoryId}`,
         })
       } catch (_e) {
-        // Environment might already be deleted
+        // Repository might already be deleted
       }
     }
 
@@ -95,7 +95,7 @@ describe('Server Lifecycle E2E Test', () => {
     await app.close()
   })
 
-  it('should manage server lifecycle: create environment, start server, verify status, connect, and stop', async () => {
+  it('should manage server lifecycle: create repository, start server, verify status, connect, and stop', async () => {
     // Step 1: Create a minimal HTTP server file
     const serverCode = `
 const http = require('http');
@@ -122,10 +122,10 @@ process.on('SIGTERM', () => {
 
     await fs.writeFile(path.join(tempDir, 'server.js'), serverCode)
 
-    // Step 2: Create environment with server configuration
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
-      name: 'Server Lifecycle Test Environment',
-      description: 'Test environment for server lifecycle management',
+    // Step 2: Create repository with server configuration
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'Server Lifecycle Test Repository',
+      description: 'Test repository for server lifecycle management',
       repository: {
         type: 'local',
         path: tempDir,
@@ -133,36 +133,36 @@ process.on('SIGTERM', () => {
       },
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Environment ready for server"',
+        setupCommands: 'echo "Repository ready for server"',
         serverCommand: 'node server.js {PORT}',
         serverPortPlaceholder: '{PORT}',
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    if (createEnvResponse.statusCode !== 200) {
-      console.error('Environment creation failed:', createEnvResponse.body)
+    if (createRepoResponse.statusCode !== 200) {
+      console.error('Repository creation failed:', createRepoResponse.body)
     }
-    expect(createEnvResponse.statusCode).toBe(200)
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    expect(createRepoResponse.statusCode).toBe(200)
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
-    expect(environment).toMatchObject({
-      name: createEnvironmentRequest.name,
-      description: createEnvironmentRequest.description,
-      repository: createEnvironmentRequest.repository,
-      codeExecution: createEnvironmentRequest.codeExecution,
+    expect(repository).toMatchObject({
+      name: createRepositoryRequest.name,
+      description: createRepositoryRequest.description,
+      repository: createRepositoryRequest.repository,
+      codeExecution: createRepositoryRequest.codeExecution,
     })
 
     // Step 3: Create task (without starting agent)
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: repository.id,
       start: false, // Don't start agent
     }
 
@@ -345,9 +345,9 @@ process.exit(1);
 
     await fs.writeFile(path.join(tempDir, 'bad-server.js'), badServerCode)
 
-    // Create environment with failing server
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
-      name: 'Failing Server Test Environment',
+    // Create repository with failing server
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'Failing Server Test Repository',
       repository: {
         type: 'local',
         path: tempDir,
@@ -360,19 +360,19 @@ process.exit(1);
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
     // Create task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: repository.id,
       start: false,
     }
 
@@ -440,8 +440,8 @@ process.on('SIGTERM', () => {
 
     await fs.writeFile(path.join(tempDir, 'tracking-server.js'), serverCode)
 
-    // Create environment
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
+    // Create repository
+    const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Server Tracking Test',
       repository: {
         type: 'local',
@@ -455,16 +455,16 @@ process.on('SIGTERM', () => {
       },
     }
 
-    const environment: Environment = JSON.parse(
+    const repository: RepositoryConfig = JSON.parse(
       (
         await app.inject({
           method: 'POST',
-          url: '/api/v1/environments',
-          payload: createEnvironmentRequest,
+          url: '/api/v1/repositories',
+          payload: createRepositoryRequest,
         })
       ).body,
     )
-    createdEnvironmentId = environment.id
+    createdRepositoryId = repository.id
 
     // Create task
     const taskResult = JSON.parse(
@@ -474,7 +474,7 @@ process.on('SIGTERM', () => {
           url: '/api/v1/tasks',
           payload: {
             agentType: 'claude-code',
-            environmentId: environment.id,
+            repositoryId: repository.id,
             start: false,
           },
         })
@@ -576,8 +576,8 @@ process.on('SIGTERM', () => {
 
     await fs.writeFile(path.join(tempDir, 'persistent-server.js'), serverCode)
 
-    // Create environment
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
+    // Create repository
+    const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Server Persistence Test',
       repository: {
         type: 'local',
@@ -591,16 +591,16 @@ process.on('SIGTERM', () => {
       },
     }
 
-    const environment: Environment = JSON.parse(
+    const repository: RepositoryConfig = JSON.parse(
       (
         await app.inject({
           method: 'POST',
-          url: '/api/v1/environments',
-          payload: createEnvironmentRequest,
+          url: '/api/v1/repositories',
+          payload: createRepositoryRequest,
         })
       ).body,
     )
-    createdEnvironmentId = environment.id
+    createdRepositoryId = repository.id
 
     // Create task
     const taskResult = JSON.parse(
@@ -610,7 +610,7 @@ process.on('SIGTERM', () => {
           url: '/api/v1/tasks',
           payload: {
             agentType: 'claude-code',
-            environmentId: environment.id,
+            repositoryId: repository.id,
             start: false,
           },
         })
@@ -728,12 +728,12 @@ process.on('SIGTERM', () => {
 
     await fs.writeFile(path.join(tempDir, 'singleton-server.js'), serverCode)
 
-    // Create environment
-    const environment: Environment = JSON.parse(
+    // Create repository
+    const repository: RepositoryConfig = JSON.parse(
       (
         await app.inject({
           method: 'POST',
-          url: '/api/v1/environments',
+          url: '/api/v1/repositories',
           payload: {
             name: 'Singleton Server Test',
             repository: {
@@ -750,7 +750,7 @@ process.on('SIGTERM', () => {
         })
       ).body,
     )
-    createdEnvironmentId = environment.id
+    createdRepositoryId = repository.id
 
     // Create task
     const task = JSON.parse(
@@ -760,7 +760,7 @@ process.on('SIGTERM', () => {
           url: '/api/v1/tasks',
           payload: {
             agentType: 'claude-code',
-            environmentId: environment.id,
+            repositoryId: repository.id,
             start: false,
           },
         })
@@ -828,12 +828,12 @@ server.listen(port, () => {
 
     await fs.writeFile(path.join(tempDir, 'orphan-server.js'), serverCode)
 
-    // Create environment and task
-    const environment: Environment = JSON.parse(
+    // Create repository and task
+    const repository: RepositoryConfig = JSON.parse(
       (
         await app.inject({
           method: 'POST',
-          url: '/api/v1/environments',
+          url: '/api/v1/repositories',
           payload: {
             name: 'Orphan Process Test',
             repository: {
@@ -850,7 +850,7 @@ server.listen(port, () => {
         })
       ).body,
     )
-    createdEnvironmentId = environment.id
+    createdRepositoryId = repository.id
 
     const task = JSON.parse(
       (
@@ -859,7 +859,7 @@ server.listen(port, () => {
           url: '/api/v1/tasks',
           payload: {
             agentType: 'claude-code',
-            environmentId: environment.id,
+            repositoryId: repository.id,
             start: false,
           },
         })

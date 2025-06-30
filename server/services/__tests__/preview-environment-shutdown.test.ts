@@ -456,10 +456,10 @@ process.on('SIGTERM', () => {
     return environment
   }
 
-  async function createTask(environmentId: string): Promise<{ taskId: string }> {
+  async function createTask(repositoryId: string): Promise<{ taskId: string }> {
     const request: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId,
+      repositoryId,
       start: false, // Don't start agent
     }
 

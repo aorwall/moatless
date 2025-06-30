@@ -73,7 +73,7 @@ describe('AgentService - Workspace Recreation', () => {
       bulkDelete: vi.fn(),
       getTask: vi.fn().mockResolvedValue({
         taskId,
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'running',
         iterations: [],
       }),

@@ -54,7 +54,7 @@ describe('WorkspaceService Status Management', () => {
 
   const mockTask: Task = {
     taskId: 'test-task-123',
-    environmentId: 'env-123',
+    repositoryId: 'env-123',
     agentType: 'test-agent',
     status: 'open',
     createdAt: new Date(),

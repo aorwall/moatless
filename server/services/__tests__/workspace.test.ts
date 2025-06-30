@@ -58,7 +58,7 @@ describe('WorkspaceService', () => {
     createdAt: new Date(),
     lastMessageAt: new Date(),
     agentType: 'claude-code' as const,
-    environmentId: 'test-env',
+    repositoryId: 'test-env',
     status: 'open' as const,
     numTurns: 0,
     totalCostUsd: 0,
@@ -139,7 +139,7 @@ describe('WorkspaceService', () => {
       expect(retrievedWorkspace.id).toBe('test-task')
       expect(retrievedWorkspace.type).toBe('local')
       expect(retrievedWorkspace.getStatus()).toBe('idle') // Status when workspace path exists
-      expect(retrievedWorkspace.environmentId).toBe(mockEnvironment.id)
+      expect(retrievedWorkspace.repositoryId).toBe(mockEnvironment.id)
       expect(retrievedWorkspace.getWorkspacePath()).toBe('/test/repo')
     })
 

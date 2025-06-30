@@ -11,14 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as EnvironmentsRouteImport } from './routes/environments'
+import { Route as RepositoriesRouteImport } from './routes/repositories'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
-import { Route as EnvironmentsIndexRouteImport } from './routes/environments/index'
+import { Route as RepositoriesIndexRouteImport } from './routes/repositories/index'
 import { Route as CommandsIndexRouteImport } from './routes/commands/index'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
-import { Route as EnvironmentsNewRouteImport } from './routes/environments/new'
-import { Route as EnvironmentsEnvironmentIdRouteImport } from './routes/environments/$environmentId'
+import { Route as RepositoriesNewRouteImport } from './routes/repositories/new'
+import { Route as RepositoriesRepositoryIdRouteImport } from './routes/repositories/$repositoryId'
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as CommandsCommandNameRouteImport } from './routes/commands/$commandName'
 
@@ -32,9 +32,9 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EnvironmentsRoute = EnvironmentsRouteImport.update({
-  id: '/environments',
-  path: '/environments',
+const RepositoriesRoute = RepositoriesRouteImport.update({
+  id: '/repositories',
+  path: '/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -47,10 +47,10 @@ const TasksIndexRoute = TasksIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TasksRoute,
 } as any)
-const EnvironmentsIndexRoute = EnvironmentsIndexRouteImport.update({
+const RepositoriesIndexRoute = RepositoriesIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => EnvironmentsRoute,
+  getParentRoute: () => RepositoriesRoute,
 } as any)
 const CommandsIndexRoute = CommandsIndexRouteImport.update({
   id: '/commands/',
@@ -62,16 +62,16 @@ const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
   path: '/$taskId',
   getParentRoute: () => TasksRoute,
 } as any)
-const EnvironmentsNewRoute = EnvironmentsNewRouteImport.update({
+const RepositoriesNewRoute = RepositoriesNewRouteImport.update({
   id: '/new',
   path: '/new',
-  getParentRoute: () => EnvironmentsRoute,
+  getParentRoute: () => RepositoriesRoute,
 } as any)
-const EnvironmentsEnvironmentIdRoute =
-  EnvironmentsEnvironmentIdRouteImport.update({
-    id: '/$environmentId',
-    path: '/$environmentId',
-    getParentRoute: () => EnvironmentsRoute,
+const RepositoriesRepositoryIdRoute =
+  RepositoriesRepositoryIdRouteImport.update({
+    id: '/$repositoryId',
+    path: '/$repositoryId',
+    getParentRoute: () => RepositoriesRoute,
   } as any)
 const CommandsNewRoute = CommandsNewRouteImport.update({
   id: '/commands/new',
@@ -86,16 +86,16 @@ const CommandsCommandNameRoute = CommandsCommandNameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/environments': typeof EnvironmentsRouteWithChildren
+  '/repositories': typeof RepositoriesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
-  '/environments/$environmentId': typeof EnvironmentsEnvironmentIdRoute
-  '/environments/new': typeof EnvironmentsNewRoute
+  '/repositories/$repositoryId': typeof RepositoriesRepositoryIdRoute
+  '/repositories/new': typeof RepositoriesNewRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands': typeof CommandsIndexRoute
-  '/environments/': typeof EnvironmentsIndexRoute
+  '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
 }
 export interface FileRoutesByTo {
@@ -103,42 +103,42 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
-  '/environments/$environmentId': typeof EnvironmentsEnvironmentIdRoute
-  '/environments/new': typeof EnvironmentsNewRoute
+  '/repositories/$repositoryId': typeof RepositoriesRepositoryIdRoute
+  '/repositories/new': typeof RepositoriesNewRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands': typeof CommandsIndexRoute
-  '/environments': typeof EnvironmentsIndexRoute
+  '/repositories': typeof RepositoriesIndexRoute
   '/tasks': typeof TasksIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/environments': typeof EnvironmentsRouteWithChildren
+  '/repositories': typeof RepositoriesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
-  '/environments/$environmentId': typeof EnvironmentsEnvironmentIdRoute
-  '/environments/new': typeof EnvironmentsNewRoute
+  '/repositories/$repositoryId': typeof RepositoriesRepositoryIdRoute
+  '/repositories/new': typeof RepositoriesNewRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands/': typeof CommandsIndexRoute
-  '/environments/': typeof EnvironmentsIndexRoute
+  '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/environments'
+    | '/repositories'
     | '/settings'
     | '/tasks'
     | '/commands/$commandName'
     | '/commands/new'
-    | '/environments/$environmentId'
-    | '/environments/new'
+    | '/repositories/$repositoryId'
+    | '/repositories/new'
     | '/tasks/$taskId'
     | '/commands'
-    | '/environments/'
+    | '/repositories/'
     | '/tasks/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -146,31 +146,31 @@ export interface FileRouteTypes {
     | '/settings'
     | '/commands/$commandName'
     | '/commands/new'
-    | '/environments/$environmentId'
-    | '/environments/new'
+    | '/repositories/$repositoryId'
+    | '/repositories/new'
     | '/tasks/$taskId'
     | '/commands'
-    | '/environments'
+    | '/repositories'
     | '/tasks'
   id:
     | '__root__'
     | '/'
-    | '/environments'
+    | '/repositories'
     | '/settings'
     | '/tasks'
     | '/commands/$commandName'
     | '/commands/new'
-    | '/environments/$environmentId'
-    | '/environments/new'
+    | '/repositories/$repositoryId'
+    | '/repositories/new'
     | '/tasks/$taskId'
     | '/commands/'
-    | '/environments/'
+    | '/repositories/'
     | '/tasks/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  EnvironmentsRoute: typeof EnvironmentsRouteWithChildren
+  RepositoriesRoute: typeof RepositoriesRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
   CommandsCommandNameRoute: typeof CommandsCommandNameRoute
@@ -194,11 +194,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/environments': {
-      id: '/environments'
-      path: '/environments'
-      fullPath: '/environments'
-      preLoaderRoute: typeof EnvironmentsRouteImport
+    '/repositories': {
+      id: '/repositories'
+      path: '/repositories'
+      fullPath: '/repositories'
+      preLoaderRoute: typeof RepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -215,12 +215,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/environments/': {
-      id: '/environments/'
+    '/repositories/': {
+      id: '/repositories/'
       path: '/'
-      fullPath: '/environments/'
-      preLoaderRoute: typeof EnvironmentsIndexRouteImport
-      parentRoute: typeof EnvironmentsRoute
+      fullPath: '/repositories/'
+      preLoaderRoute: typeof RepositoriesIndexRouteImport
+      parentRoute: typeof RepositoriesRoute
     }
     '/commands/': {
       id: '/commands/'
@@ -236,19 +236,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksTaskIdRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/environments/new': {
-      id: '/environments/new'
+    '/repositories/new': {
+      id: '/repositories/new'
       path: '/new'
-      fullPath: '/environments/new'
-      preLoaderRoute: typeof EnvironmentsNewRouteImport
-      parentRoute: typeof EnvironmentsRoute
+      fullPath: '/repositories/new'
+      preLoaderRoute: typeof RepositoriesNewRouteImport
+      parentRoute: typeof RepositoriesRoute
     }
-    '/environments/$environmentId': {
-      id: '/environments/$environmentId'
-      path: '/$environmentId'
-      fullPath: '/environments/$environmentId'
-      preLoaderRoute: typeof EnvironmentsEnvironmentIdRouteImport
-      parentRoute: typeof EnvironmentsRoute
+    '/repositories/$repositoryId': {
+      id: '/repositories/$repositoryId'
+      path: '/$repositoryId'
+      fullPath: '/repositories/$repositoryId'
+      preLoaderRoute: typeof RepositoriesRepositoryIdRouteImport
+      parentRoute: typeof RepositoriesRoute
     }
     '/commands/new': {
       id: '/commands/new'
@@ -267,20 +267,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface EnvironmentsRouteChildren {
-  EnvironmentsEnvironmentIdRoute: typeof EnvironmentsEnvironmentIdRoute
-  EnvironmentsNewRoute: typeof EnvironmentsNewRoute
-  EnvironmentsIndexRoute: typeof EnvironmentsIndexRoute
+interface RepositoriesRouteChildren {
+  RepositoriesRepositoryIdRoute: typeof RepositoriesRepositoryIdRoute
+  RepositoriesNewRoute: typeof RepositoriesNewRoute
+  RepositoriesIndexRoute: typeof RepositoriesIndexRoute
 }
 
-const EnvironmentsRouteChildren: EnvironmentsRouteChildren = {
-  EnvironmentsEnvironmentIdRoute: EnvironmentsEnvironmentIdRoute,
-  EnvironmentsNewRoute: EnvironmentsNewRoute,
-  EnvironmentsIndexRoute: EnvironmentsIndexRoute,
+const RepositoriesRouteChildren: RepositoriesRouteChildren = {
+  RepositoriesRepositoryIdRoute: RepositoriesRepositoryIdRoute,
+  RepositoriesNewRoute: RepositoriesNewRoute,
+  RepositoriesIndexRoute: RepositoriesIndexRoute,
 }
 
-const EnvironmentsRouteWithChildren = EnvironmentsRoute._addFileChildren(
-  EnvironmentsRouteChildren,
+const RepositoriesRouteWithChildren = RepositoriesRoute._addFileChildren(
+  RepositoriesRouteChildren,
 )
 
 interface TasksRouteChildren {
@@ -297,7 +297,7 @@ const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  EnvironmentsRoute: EnvironmentsRouteWithChildren,
+  RepositoriesRoute: RepositoriesRouteWithChildren,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
   CommandsCommandNameRoute: CommandsCommandNameRoute,

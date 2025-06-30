@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isGitRepository } from '@server/utils/index.js'
 import {
-  EnvironmentNotFoundError,
+  RepositoryNotFoundError,
   TaskNotFoundError,
   WorkspaceError,
 } from '@shared/constants/errors.js'
@@ -13,9 +13,9 @@ import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
 import { LocalWorkspace } from '../workspaces/local.js'
-import type { EnvironmentService } from './environment.service.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
+import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
@@ -24,39 +24,39 @@ export class WorkspaceService {
   private previewEnvironmentService?: PreviewEnvironmentService
 
   constructor(
-    private environmentService: EnvironmentService,
+    private repositoryService: RepositoryService,
     private eventService: EventService,
     private storage: StorageBackend,
   ) {}
 
   async createWorkspace(
     taskId: string,
-    environmentId: string,
+    repositoryId: string,
     branchName?: string,
   ): Promise<BaseWorkspace> {
-    const environment = await this.environmentService.getEnvironment(environmentId)
-    if (!environment) {
-      logger.error('Environment not found', undefined, { environmentId })
-      throw new EnvironmentNotFoundError(environmentId)
+    const repository = await this.repositoryService.getRepositoryById(repositoryId)
+    if (!repository) {
+      logger.error('Repository not found', undefined, { repositoryId })
+      throw new RepositoryNotFoundError(repositoryId)
     }
 
     // Create workspace path for local repositories
     let workspacePath: string | undefined
-    if (environment.repository.type === 'local') {
+    if (repository.repository.type === 'local') {
       workspacePath = await this.createWorkspaceRepository(
-        environment.repository,
+        repository.repository,
         taskId,
         branchName,
       )
     }
 
     let workspace: BaseWorkspace
-    if (environment.codeExecution.type === 'docker') {
-      workspace = new DockerWorkspace(taskId, environment, this.eventService)
+    if (repository.codeExecution.type === 'docker') {
+      workspace = new DockerWorkspace(taskId, repository, this.eventService)
     } else {
       workspace = new LocalWorkspace(
         taskId,
-        environment,
+        repository,
         this.eventService,
         undefined, // originalBranch
         branchName,
@@ -204,33 +204,33 @@ export class WorkspaceService {
       throw new TaskNotFoundError(taskId)
     }
 
-    const environmentId = task.environmentId
+    const repositoryId = task.repositoryId
     const existingWorkspacePath = task.workspacePath
 
     workspaceLogger.debug('Retrieved task data', {
-      environmentId,
+      repositoryId,
       hasExistingWorkspacePath: !!existingWorkspacePath,
     })
 
-    // Get environment
-    const environment = await this.environmentService.getEnvironment(environmentId)
-    if (!environment) {
-      workspaceLogger.error('Environment not found', undefined, { environmentId })
-      throw new EnvironmentNotFoundError(environmentId)
+    // Get repository
+    const repository = await this.repositoryService.getRepositoryById(repositoryId)
+    if (!repository) {
+      workspaceLogger.error('Repository not found', undefined, { repositoryId })
+      throw new RepositoryNotFoundError(repositoryId)
     }
 
-    workspaceLogger.debug('Environment loaded successfully', {
-      environmentType: environment.repository.type,
-      codeExecutionType: environment.codeExecution.type,
+    workspaceLogger.debug('Repository loaded successfully', {
+      environmentType: repository.repository.type,
+      codeExecutionType: repository.codeExecution.type,
       useGitWorktrees:
-        environment.repository.type === 'local' ? environment.repository.useGitWorktrees : false,
+        repository.repository.type === 'local' ? repository.repository.useGitWorktrees : false,
     })
 
     try {
       let workspace: BaseWorkspace
-      if (environment.codeExecution.type === 'docker') {
+      if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker workspace with existing path')
-        workspace = new DockerWorkspace(taskId, environment, this.eventService)
+        workspace = new DockerWorkspace(taskId, repository, this.eventService)
       } else {
         workspaceLogger.debug('Creating Local workspace with existing path', {
           branchName,
@@ -238,7 +238,7 @@ export class WorkspaceService {
         })
         workspace = new LocalWorkspace(
           taskId,
-          environment,
+          repository,
           this.eventService,
           undefined,
           branchName,
@@ -252,8 +252,8 @@ export class WorkspaceService {
       return workspace
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
-        environmentType: environment.repository.type,
-        codeExecutionType: environment.codeExecution.type,
+        environmentType: repository.repository.type,
+        codeExecutionType: repository.codeExecution.type,
       })
       throw error
     }
@@ -603,9 +603,9 @@ export class WorkspaceService {
 
 export function createWorkspaceService(
   _app: FastifyInstance,
-  environmentService: EnvironmentService,
+  repositoryService: RepositoryService,
   eventService: EventService,
   storage: StorageBackend,
 ): WorkspaceService {
-  return new WorkspaceService(environmentService, eventService, storage)
+  return new WorkspaceService(repositoryService, eventService, storage)
 }

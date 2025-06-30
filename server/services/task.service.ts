@@ -41,7 +41,7 @@ export class TaskService {
   async createTask(params: CreateTaskRequest): Promise<string> {
     logger.info('Starting task creation', {
       agentType: params.agentType,
-      environmentId: params.environmentId,
+      repositoryId: params.repositoryId,
       hasBranchName: !!params.branchName,
       hasMessage: !!params.message,
       hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
@@ -54,7 +54,7 @@ export class TaskService {
       createdAt: now,
       lastMessageAt: now,
       agentType: params.agentType,
-      environmentId: params.environmentId,
+      repositoryId: params.repositoryId,
       status: 'open',
       numTurns: 0,
       totalCostUsd: 0.0,
@@ -64,14 +64,14 @@ export class TaskService {
     try {
       const workspace = await this.workspaceService.createWorkspace(
         task.taskId,
-        params.environmentId,
+        params.repositoryId,
         params.branchName,
       )
       task.workspacePath = workspace.getWorkspacePath()
     } catch (error) {
       logger.error('Failed to create workspace', error as Error, {
         taskId: task.taskId,
-        environmentId: params.environmentId,
+        repositoryId: params.repositoryId,
       })
       throw error
     }
@@ -82,7 +82,7 @@ export class TaskService {
       logger.info('Task metadata created successfully', {
         taskId: task.taskId,
         agentType: params.agentType,
-        environmentId: params.environmentId,
+        repositoryId: params.repositoryId,
         workspacePath: task.workspacePath,
       })
     } catch (error) {

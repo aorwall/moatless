@@ -82,7 +82,7 @@ export class LocalWorkspace extends BaseWorkspace {
     }
 
     this.logger.debug('LocalWorkspace constructor', {
-      environmentId: environment.id,
+      repositoryId: environment.id,
       environmentType: environment.repository.type,
       codeExecutionType: environment.codeExecution.type,
       hasOriginalBranch: !!originalBranch,
@@ -96,7 +96,7 @@ export class LocalWorkspace extends BaseWorkspace {
     const startTime = Date.now()
 
     this.logger.info('Starting LocalWorkspace setup', {
-      environmentId: this.environment.id,
+      repositoryId: this.environment.id,
       workspacePath: this.workspacePath,
     })
 
@@ -653,7 +653,7 @@ export class LocalWorkspace extends BaseWorkspace {
     return {
       id: this.taskId,
       type: 'local' as const,
-      environmentId: this.environment.id,
+      repositoryId: this.environment.id,
       status: this.status,
       createdAt: this.createdAt,
       path: this.workspacePath,

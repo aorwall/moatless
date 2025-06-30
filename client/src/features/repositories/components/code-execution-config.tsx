@@ -2,7 +2,7 @@ import type {
   CodeExecution,
   SetupScriptCommand,
   SetupScriptResponse,
-} from '@shared/types/environment'
+} from '@shared/types/repository'
 import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
@@ -34,13 +34,13 @@ import {
 } from '@/lib/components/ui/sheet'
 import { Textarea } from '@/lib/components/ui/textarea'
 
-import { useRunSetupScript } from '../hooks/use-environments'
+import { useRunSetupScript } from '../hooks/use-repositories'
 
 interface CodeExecutionConfigProps {
   codeExecution: CodeExecution
   onUpdate: (codeExecution: CodeExecution) => void
   isSubmitting?: boolean
-  environmentId?: string
+  repositoryId?: string
 }
 
 interface ServerCommandExamplesProps {
@@ -274,7 +274,7 @@ export function CodeExecutionConfig({
   codeExecution,
   onUpdate,
   isSubmitting,
-  environmentId,
+  repositoryId,
 }: CodeExecutionConfigProps) {
   const executionTypeId = useId()
   const imageId = useId()
@@ -327,9 +327,9 @@ export function CodeExecutionConfig({
     // First save the configuration
     onUpdate(buildCodeExecution())
 
-    // Then run the setup script if environment ID is available
-    if (environmentId) {
-      runSetupScript.mutate(environmentId)
+    // Then run the setup script if repository ID is available
+    if (repositoryId) {
+      runSetupScript.mutate(repositoryId)
     }
   }
 
@@ -370,7 +370,7 @@ export function CodeExecutionConfig({
       <Card>
         <CardHeader>
           <CardTitle>Code Execution Settings</CardTitle>
-          <CardDescription>Configure how code will be executed in this environment</CardDescription>
+          <CardDescription>Configure how code will be executed in this repository</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -420,7 +420,7 @@ export function CodeExecutionConfig({
                   rows={4}
                 />
                 <p className="text-sm text-muted-foreground mt-1">
-                  Commands to run when setting up the environment (one per line)
+                  Commands to run when setting up the repository (one per line)
                 </p>
               </div>
 
@@ -469,7 +469,7 @@ export function CodeExecutionConfig({
               <Button type="submit" disabled={isSubmitting || !!serverCommandError}>
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
               </Button>
-              {environmentId && (
+              {repositoryId && (
                 <Button
                   type="button"
                   variant="outline"

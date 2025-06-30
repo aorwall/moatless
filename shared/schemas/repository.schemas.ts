@@ -1,26 +1,12 @@
 import { z } from 'zod'
 
-// Repository schemas
-export const LocalRepositorySchema = z.object({
+// Repository schemas - using only LocalRepository fields as requested
+export const RepositorySchema = z.object({
   type: z.literal('local'),
   path: z.string(),
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
 })
-
-export const GithubRepositorySchema = z.object({
-  type: z.literal('github'),
-  url: z.string().optional(),
-  repoId: z.string(),
-  branch: z.string(),
-  commit: z.string().optional(),
-  token: z.string().optional(),
-})
-
-export const RepositorySchema = z.discriminatedUnion('type', [
-  LocalRepositorySchema,
-  GithubRepositorySchema,
-])
 
 // Script injection strategy schema
 export const ScriptInjectionStrategySchema = z.object({
@@ -28,7 +14,7 @@ export const ScriptInjectionStrategySchema = z.object({
   config: z.record(z.any()).optional(),
 })
 
-// Preview environment configuration
+// Preview repository configuration
 export const PreviewConfigSchema = z.object({
   framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
   frameworkVersion: z.string().optional(),
@@ -51,8 +37,8 @@ export const CodeExecutionSchema = z.object({
   ports: z.record(z.number()).optional(),
 })
 
-// Environment schemas
-export const EnvironmentSchema = z.object({
+// Repository schemas
+export const RepositoryConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
@@ -64,7 +50,7 @@ export const EnvironmentSchema = z.object({
   updatedAt: z.date(),
 })
 
-export const CreateEnvironmentSchema = z.object({
+export const CreateRepositorySchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   repository: RepositorySchema,
@@ -73,7 +59,7 @@ export const CreateEnvironmentSchema = z.object({
   variables: z.record(z.string()).optional(),
 })
 
-export const UpdateEnvironmentSchema = z.object({
+export const UpdateRepositorySchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   repository: RepositorySchema.optional(),
@@ -83,8 +69,8 @@ export const UpdateEnvironmentSchema = z.object({
 })
 
 // Other schemas
-export const EnvironmentIdParamsSchema = z.object({
-  environmentId: z.string(),
+export const RepositoryIdParamsSchema = z.object({
+  repositoryId: z.string(),
 })
 
 export const FileSearchSchema = z.object({
@@ -93,12 +79,10 @@ export const FileSearchSchema = z.object({
 })
 
 // Type exports
-export type Environment = z.infer<typeof EnvironmentSchema>
+export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type Repository = z.infer<typeof RepositorySchema>
-export type LocalRepository = z.infer<typeof LocalRepositorySchema>
-export type GithubRepository = z.infer<typeof GithubRepositorySchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
 export type ScriptInjectionStrategy = z.infer<typeof ScriptInjectionStrategySchema>
-export type CreateEnvironmentRequest = z.infer<typeof CreateEnvironmentSchema>
-export type UpdateEnvironmentRequest = z.infer<typeof UpdateEnvironmentSchema>
+export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
+export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>

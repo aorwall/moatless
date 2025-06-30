@@ -1,30 +1,30 @@
-import type { UpdateEnvironmentRequest } from '@shared/types/environment'
+import type { UpdateRepositoryRequest } from '@shared/types/repository'
 import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { EnvironmentForm, useEnvironment, useUpdateEnvironment } from '@/features/environments'
-import { CodeExecutionConfig } from '@/features/environments/components/code-execution-config'
+import { RepositoryForm, useRepository, useUpdateRepository } from '@/features/repositories'
+import { CodeExecutionConfig } from '@/features/repositories/components/code-execution-config'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { getErrorMessage } from '@/lib/utils/error'
 
-export const Route = createFileRoute('/environments/$environmentId')({
-  component: EnvironmentEdit,
+export const Route = createFileRoute('/repositories/$repositoryId')({
+  component: RepositoryEdit,
 })
 
-function EnvironmentEdit() {
-  const { environmentId } = Route.useParams()
+function RepositoryEdit() {
+  const { repositoryId } = Route.useParams()
 
-  const { data: environment, isLoading, error } = useEnvironment(environmentId)
-  const updateEnvironment = useUpdateEnvironment()
+  const { data: repository, isLoading, error } = useRepository(repositoryId)
+  const updateRepository = useUpdateRepository()
 
-  const handleSubmit = (data: UpdateEnvironmentRequest) => {
-    updateEnvironment.mutate(
-      { envId: environmentId, request: data },
+  const handleSubmit = (data: UpdateRepositoryRequest) => {
+    updateRepository.mutate(
+      { repoId: repositoryId, request: data },
       {
         onSuccess: () => {
-          toast.success('Environment updated successfully')
+          toast.success('Repository updated successfully')
         },
         onError: (error) => {
-          toast.error('Failed to update environment', {
+          toast.error('Failed to update repository', {
             description: getErrorMessage(error),
           })
         },
@@ -32,13 +32,13 @@ function EnvironmentEdit() {
     )
   }
 
-  const handleCodeExecutionUpdate = (codeExecution: UpdateEnvironmentRequest['codeExecution']) => {
+  const handleCodeExecutionUpdate = (codeExecution: UpdateRepositoryRequest['codeExecution']) => {
     if (!codeExecution) {
       return
     }
 
-    updateEnvironment.mutate(
-      { envId: environmentId, request: { codeExecution: codeExecution } },
+    updateRepository.mutate(
+      { repoId: repositoryId, request: { codeExecution: codeExecution } },
       {
         onSuccess: () => {
           toast.success('Code execution settings updated successfully')
@@ -63,11 +63,11 @@ function EnvironmentEdit() {
     )
   }
 
-  if (error || !environment) {
+  if (error || !repository) {
     return (
       <div className="container mx-auto py-6">
         <div className="max-w-2xl mx-auto text-center">
-          <p className="text-destructive">{error ? error.message : 'Environment not found'}</p>
+          <p className="text-destructive">{error ? error.message : 'Repository not found'}</p>
         </div>
       </div>
     )
@@ -76,16 +76,16 @@ function EnvironmentEdit() {
   return (
     <div className="container mx-auto py-6">
       <div className="max-w-2xl mx-auto space-y-6">
-        <EnvironmentForm
-          environment={environment}
+        <RepositoryForm
+          repository={repository}
           onSubmit={handleSubmit}
-          isSubmitting={updateEnvironment.isPending}
+          isSubmitting={updateRepository.isPending}
         />
         <CodeExecutionConfig
-          codeExecution={environment.codeExecution}
+          codeExecution={repository.codeExecution}
           onUpdate={handleCodeExecutionUpdate}
-          isSubmitting={updateEnvironment.isPending}
-          environmentId={environmentId}
+          isSubmitting={updateRepository.isPending}
+          repositoryId={repositoryId}
         />
       </div>
     </div>

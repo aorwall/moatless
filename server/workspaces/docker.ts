@@ -433,7 +433,7 @@ export class DockerWorkspace extends BaseWorkspace {
     return {
       id: this.taskId,
       type: 'docker' as const,
-      environmentId: this.environment.id,
+      repositoryId: this.environment.id,
       status: this.status,
       createdAt: this.createdAt,
       containerId: this.containerId,

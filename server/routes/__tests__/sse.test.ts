@@ -37,7 +37,7 @@ describe('SSE Routes', () => {
       // Create task through mock
       await taskService.createTask({
         agentType: 'test',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
       })
 
       // Mock getTask to verify task exists
@@ -47,7 +47,7 @@ describe('SSE Routes', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         numTurns: 0,
         totalCostUsd: 0,
       } as Task)

@@ -28,7 +28,7 @@ describe('Task Routes', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -39,7 +39,7 @@ describe('Task Routes', () => {
         url: '/api/v1/tasks',
         payload: {
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           message: 'Hello world',
         },
       })
@@ -52,7 +52,7 @@ describe('Task Routes', () => {
       // Verify task was created with correct params
       expect(app.services.task.createTask).toHaveBeenCalledWith({
         agentType: 'claude-code',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         message: 'Hello world',
       })
     })
@@ -70,7 +70,7 @@ describe('Task Routes', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
@@ -81,7 +81,7 @@ describe('Task Routes', () => {
         url: '/api/v1/tasks',
         payload: {
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           message: 'Test message', // Required field
           start: false,
         },
@@ -92,7 +92,7 @@ describe('Task Routes', () => {
       // Verify the task was created with start: false
       expect(app.services.task.createTask).toHaveBeenCalledWith({
         agentType: 'claude-code',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         message: 'Test message',
         start: false,
       })
@@ -111,7 +111,7 @@ describe('Task Routes', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         numTurns: 1,
         totalCostUsd: 0,
         iterations: [
@@ -131,7 +131,7 @@ describe('Task Routes', () => {
         url: '/api/v1/tasks',
         payload: {
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           message: 'Hello world',
           start: true,
         },
@@ -172,7 +172,7 @@ describe('Task Routes', () => {
         url: '/api/v1/tasks',
         payload: {
           agentType: 'claude-code',
-          environmentId: 'non-existent',
+          repositoryId: 'non-existent',
           message: 'Hello world',
         },
       })
@@ -190,7 +190,7 @@ describe('Task Routes', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
-        environmentId: 'test-env',
+        repositoryId: 'test-env',
         status: 'open' as const,
         numTurns: 0,
         totalCostUsd: 0,
@@ -232,7 +232,7 @@ describe('Task Routes', () => {
           createdAt: new Date(),
           lastMessageAt: new Date(),
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           status: 'open' as const,
           numTurns: 0,
           totalCostUsd: 0,
@@ -243,7 +243,7 @@ describe('Task Routes', () => {
           createdAt: new Date(),
           lastMessageAt: new Date(),
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           status: 'closed' as const,
           numTurns: 5,
           totalCostUsd: 0.1,
@@ -274,7 +274,7 @@ describe('Task Routes', () => {
           createdAt: new Date(),
           lastMessageAt: new Date(),
           agentType: 'claude-code',
-          environmentId: 'test-env',
+          repositoryId: 'test-env',
           numTurns: 1,
           totalCostUsd: 0,
           iterations: [

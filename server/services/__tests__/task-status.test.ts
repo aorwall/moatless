@@ -86,7 +86,7 @@ describe('Task Status Management', () => {
       // Create task with start=true and message
       const taskId = await taskService.createTask({
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         message: 'Test message',
         start: true,
       })
@@ -155,7 +155,7 @@ describe('Task Status Management', () => {
       // Create task with start=false
       const taskId = await taskService.createTask({
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         message: 'Test message',
         start: false,
       })
@@ -181,7 +181,7 @@ describe('Task Status Management', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'running',
         numTurns: 1,
         totalCostUsd: 0,
@@ -209,7 +209,7 @@ describe('Task Status Management', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'running',
         numTurns: 1,
         totalCostUsd: 0,
@@ -265,7 +265,7 @@ describe('Task Status Management', () => {
       // Create task with start=true
       const taskId = await taskService.createTask({
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         message: 'Test message',
         start: true,
       })

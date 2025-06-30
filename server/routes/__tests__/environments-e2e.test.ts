@@ -24,7 +24,7 @@ describe('Environment Routes E2E', () => {
         // First delete any tasks associated with this environment
         const tasks = await app.services.task.listTasks()
         for (const task of tasks) {
-          if (task.environmentId === env.id) {
+          if (task.repositoryId === env.id) {
             await app.services.task.deleteTask(task.taskId)
           }
         }

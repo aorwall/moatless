@@ -4,7 +4,11 @@ export const ERROR_CODES = {
   TASK_ALREADY_EXISTS: 'TASK_ALREADY_EXISTS',
   TASK_INVALID_STATE: 'TASK_INVALID_STATE',
 
-  // Environment errors
+  // Repository errors
+  REPOSITORY_NOT_FOUND: 'REPOSITORY_NOT_FOUND',
+  REPOSITORY_INVALID_CONFIG: 'REPOSITORY_INVALID_CONFIG',
+
+  // Environment errors (legacy)
   ENVIRONMENT_NOT_FOUND: 'ENVIRONMENT_NOT_FOUND',
   ENVIRONMENT_INVALID_CONFIG: 'ENVIRONMENT_INVALID_CONFIG',
 
@@ -44,6 +48,12 @@ export class MoatlessError extends Error {
 export class TaskNotFoundError extends MoatlessError {
   constructor(taskId: string) {
     super(`Task ${taskId} not found`, ERROR_CODES.TASK_NOT_FOUND, 404)
+  }
+}
+
+export class RepositoryNotFoundError extends MoatlessError {
+  constructor(repositoryId?: string) {
+    super(`Repository ${repositoryId || ''} not found`, ERROR_CODES.REPOSITORY_NOT_FOUND, 404)
   }
 }
 

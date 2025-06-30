@@ -65,7 +65,7 @@ describe('TaskService', () => {
     it('should create a new task successfully', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         message: 'Test task',
         start: true,
       }
@@ -92,7 +92,7 @@ describe('TaskService', () => {
         return Promise.resolve({
           taskId: id,
           agentType: 'test-agent',
-          environmentId: 'env-123',
+          repositoryId: 'env-123',
           status: 'open',
           numTurns: 0,
           totalCostUsd: 0,
@@ -117,7 +117,7 @@ describe('TaskService', () => {
         expect.objectContaining({
           taskId,
           agentType: 'test-agent',
-          environmentId: 'env-123',
+          repositoryId: 'env-123',
           status: 'running',
           numTurns: 0,
           totalCostUsd: 0,
@@ -141,7 +141,7 @@ describe('TaskService', () => {
     it('should always create workspace even without initial message', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         // No message provided
         start: false,
       }
@@ -177,7 +177,7 @@ describe('TaskService', () => {
     it('should create workspace with custom branch name', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         branchName: 'feature/custom-branch',
         start: false,
       }
@@ -210,7 +210,7 @@ describe('TaskService', () => {
     it('should throw EnvironmentNotFoundError if environment does not exist', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
-        environmentId: 'non-existent',
+        repositoryId: 'non-existent',
         message: 'Test task',
       }
 
@@ -225,7 +225,7 @@ describe('TaskService', () => {
     it('should handle workspace setup errors gracefully', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         message: 'Test task',
         start: true,
       }
@@ -253,7 +253,7 @@ describe('TaskService', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'open',
         numTurns: 5,
         totalCostUsd: 0.05,
@@ -280,7 +280,7 @@ describe('TaskService', () => {
         createdAt: new Date(Date.now() - i * 1000),
         lastMessageAt: new Date(Date.now() - i * 1000),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'open',
         numTurns: i,
         totalCostUsd: i * 0.01,
@@ -309,7 +309,7 @@ describe('TaskService', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'open',
         numTurns: 0,
         totalCostUsd: 0,
@@ -362,7 +362,7 @@ describe('TaskService', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'open',
         numTurns: 0,
         totalCostUsd: 0,
@@ -406,7 +406,7 @@ describe('TaskService', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'open',
         numTurns: 5,
         totalCostUsd: 0.05,
@@ -433,7 +433,7 @@ describe('TaskService', () => {
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         status: 'closed',
         numTurns: 10,
         totalCostUsd: 0.1,
@@ -465,7 +465,7 @@ describe('TaskService', () => {
     it('should wait for all background tasks to complete', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
-        environmentId: 'env-123',
+        repositoryId: 'env-123',
         message: 'Test task',
       }
 
@@ -494,7 +494,7 @@ describe('TaskService', () => {
         return Promise.resolve({
           taskId: id,
           agentType: 'test-agent',
-          environmentId: 'env-123',
+          repositoryId: 'env-123',
           status: 'open',
           numTurns: 0,
           totalCostUsd: 0,

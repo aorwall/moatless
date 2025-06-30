@@ -8,7 +8,7 @@ export enum WorkspaceStatus {
 export interface BaseWorkspace {
   id: string
   type: 'local' | 'docker'
-  environmentId: string
+  repositoryId: string
   status: 'initializing' | 'ready' | 'error' | 'cleaning'
   createdAt: Date
   error?: string

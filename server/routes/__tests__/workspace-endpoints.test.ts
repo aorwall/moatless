@@ -35,7 +35,7 @@ describe('Workspace Endpoints', () => {
 
   const mockTask: Task = {
     taskId,
-    environmentId: 'test-env',
+    repositoryId: 'test-env',
     agentType: 'claude-code',
     status: 'running',
     createdAt: new Date(),

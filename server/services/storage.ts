@@ -4,6 +4,7 @@ import path from 'node:path'
 import { logger } from '@server/utils/index.js'
 import type { FastifyInstance } from 'fastify'
 import type { Environment, Event, Task, Workspace } from '../../shared/types/index.js'
+import type { RepositoryConfig } from '../../shared/types/repository.js'
 import { fromJSON, toJSON } from '../../shared/utils/validation.js'
 
 export interface StorageBackend {
@@ -19,6 +20,8 @@ export interface StorageBackend {
   getTask(taskId: string): Promise<Task | null>
   saveEnvironment(env: Environment): Promise<void>
   getEnvironment(envId: string): Promise<Environment | null>
+  saveRepository(repo: RepositoryConfig): Promise<void>
+  getRepository(repoId: string): Promise<RepositoryConfig | null>
   saveWorkspace(workspace: Workspace): Promise<void>
   getWorkspace(taskId: string): Promise<Workspace | null>
   saveEvents(taskId: string, events: Event[]): Promise<void>
@@ -111,6 +114,14 @@ export class FileStorage implements StorageBackend {
 
   async getEnvironment(envId: string): Promise<Environment | null> {
     return this.get<Environment>(`environments/${envId}`)
+  }
+
+  async saveRepository(repo: RepositoryConfig): Promise<void> {
+    await this.save(`repositories/${repo.id}`, repo)
+  }
+
+  async getRepository(repoId: string): Promise<RepositoryConfig | null> {
+    return this.get<RepositoryConfig>(`repositories/${repoId}`)
   }
 
   async saveWorkspace(workspace: Workspace): Promise<void> {

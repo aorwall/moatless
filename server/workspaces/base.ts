@@ -34,7 +34,7 @@ export abstract class BaseWorkspace {
   abstract get createdAt(): Date
   abstract get error(): string | undefined
 
-  get environmentId(): string {
+  get repositoryId(): string {
     return this.environment.id
   }
 

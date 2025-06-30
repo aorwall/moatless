@@ -4,10 +4,10 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-  CreateEnvironmentRequest,
+  CreateRepositoryRequest,
   CreateTaskRequest,
-  Environment,
   Event,
+  RepositoryConfig,
   Task,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
@@ -16,11 +16,11 @@ import { build } from '../../test/helper.js'
  * E2E Test using Real ClaudeCodeAgent
  *
  * This test uses the actual ClaudeCodeAgent instead of mocks, providing a fully realistic
- * test environment. The ClaudeCodeAgent will run using the @anthropic-ai/claude-code SDK
- * which handles API authentication automatically through the claude CLI environment.
+ * test repository. The ClaudeCodeAgent will run using the @anthropic-ai/claude-code SDK
+ * which handles API authentication automatically through the claude CLI repository.
  *
  * The test covers the complete workflow including:
- * - Environment creation with local git repository
+ * - Repository creation with local git repository
  * - Task creation and agent execution
  * - Workspace operations and file generation
  * - Event streaming and status monitoring
@@ -37,7 +37,7 @@ import { build } from '../../test/helper.js'
  */
 
 // Helper function to simulate SSE stream connection using polling
-// Note: In test environment, we can't establish real SSE connections since
+// Note: In test repository, we can't establish real SSE connections since
 // the server isn't actually listening on a port. Instead, we'll use polling
 // to simulate real-time event streaming.
 async function simulateSSEStream(
@@ -95,7 +95,7 @@ async function simulateSSEStream(
 describe('Complete Workflow E2E Test', () => {
   let app: FastifyInstance
   let tempDir: string
-  let createdEnvironmentId: string
+  let createdRepositoryId: string
   let createdTaskId: string
   // let _serverAddress: string
 
@@ -145,15 +145,15 @@ describe('Complete Workflow E2E Test', () => {
       }
     }
 
-    // Cleanup environment if it exists
-    if (createdEnvironmentId) {
+    // Cleanup repository if it exists
+    if (createdRepositoryId) {
       try {
         await app.inject({
           method: 'DELETE',
-          url: `/api/v1/environments/${createdEnvironmentId}`,
+          url: `/api/v1/repositories/${createdRepositoryId}`,
         })
       } catch (_e) {
-        // Environment might already be deleted or not exist
+        // Repository might already be deleted or not exist
       }
     }
 
@@ -166,7 +166,7 @@ describe('Complete Workflow E2E Test', () => {
       }
     }
 
-    // Clean up test environment variable
+    // Clean up test repository variable
     delete process.env.SKIP_CLAUDE_DISK_EVENTS
 
     // NOTE: Do NOT call stopAllAgents() here as it affects other test instances
@@ -178,11 +178,11 @@ describe('Complete Workflow E2E Test', () => {
     await app.close()
   })
 
-  it('should complete the full workflow: create environment, create task, execute, and verify results', async () => {
-    // Step 1: Create environment with temporary git repository
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
-      name: 'E2E Test Environment',
-      description: 'Test environment for complete workflow validation',
+  it('should complete the full workflow: create repository, create task, execute, and verify results', async () => {
+    // Step 1: Create repository with temporary git repository
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'E2E Test Repository',
+      description: 'Test repository for complete workflow validation',
       repository: {
         type: 'local',
         path: tempDir,
@@ -190,31 +190,31 @@ describe('Complete Workflow E2E Test', () => {
       },
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Environment setup complete"',
+        setupCommands: 'echo "Repository setup complete"',
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    expect(createEnvResponse.statusCode).toBe(200)
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    expect(createRepoResponse.statusCode).toBe(200)
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
-    expect(environment).toMatchObject({
-      name: createEnvironmentRequest.name,
-      description: createEnvironmentRequest.description,
-      repository: createEnvironmentRequest.repository,
-      codeExecution: createEnvironmentRequest.codeExecution,
+    expect(repository).toMatchObject({
+      name: createRepositoryRequest.name,
+      description: createRepositoryRequest.description,
+      repository: createRepositoryRequest.repository,
+      codeExecution: createRepositoryRequest.codeExecution,
     })
 
     // Step 2: Create and start a task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: repository.id,
       message: 'Create a file called hello_world.py with the content: print("Hello, World!")',
       start: true,
     }
@@ -242,13 +242,13 @@ describe('Complete Workflow E2E Test', () => {
     expect(getTaskResponse.statusCode).toBe(200)
     const task: Task = JSON.parse(getTaskResponse.body)
     expect(task.taskId).toBe(createdTaskId)
-    expect(task.environmentId).toBe(environment.id)
+    expect(task.repositoryId).toBe(repository.id)
     expect(task.agentType).toBe('claude-code')
     // Task may still be running since agent execution takes time
     expect(['open', 'running']).toContain(task.status)
 
     // Step 4: Set up SSE event streaming simulation
-    // Note: In test environment, we simulate SSE by polling the events endpoint
+    // Note: In test repository, we simulate SSE by polling the events endpoint
     // at high frequency (100ms) to verify that events are emitted in real-time
     // during agent execution. This tests the same event emission logic that
     // powers the actual SSE endpoint.
@@ -554,9 +554,9 @@ describe('Complete Workflow E2E Test', () => {
   }, 60000) // 60 second timeout for real agent execution
 
   it('should handle task creation without immediate start', async () => {
-    // Create environment first
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
-      name: 'E2E Test Environment - No Start',
+    // Create repository first
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'E2E Test Repository - No Start',
       repository: {
         type: 'local',
         path: tempDir,
@@ -568,19 +568,19 @@ describe('Complete Workflow E2E Test', () => {
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
     // Create task without starting it and without initial message
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: repository.id,
       start: false, // Don't start immediately
     }
 
@@ -650,9 +650,9 @@ describe('Complete Workflow E2E Test', () => {
   }, 45000) // Longer timeout for real agent execution
 
   it.skip('should track agent status changes during execution - REMOVED: agent status no longer part of API', async () => {
-    // Create environment
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
-      name: 'E2E Test Environment - Status Tracking',
+    // Create repository
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'E2E Test Repository - Status Tracking',
       repository: {
         type: 'local',
         path: tempDir,
@@ -664,19 +664,19 @@ describe('Complete Workflow E2E Test', () => {
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
     // Create and start task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      environmentId: environment.id,
+      repositoryId: repository.id,
       message: 'Create a file called status_test.txt with "Testing agent status" content',
       start: true,
     }

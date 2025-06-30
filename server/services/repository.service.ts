@@ -1,33 +1,30 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { EnvironmentNotFoundError, ValidationError } from '@shared/constants/errors.js'
+import { RepositoryNotFoundError, ValidationError } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
 import type {
-  CreateEnvironmentRequest,
-  Environment,
-  FileSearchRequest,
+  CreateRepositoryRequest,
   FileSearchResponse,
-  LocalRepository,
   PreviewConfig,
-  RemoteRepository,
   Repository,
-} from '../../shared/types/index.js'
+  RepositoryConfig,
+  SetupScriptResponse,
+} from '../../shared/types/repository.js'
 import { searchFilesInDirectoryNew } from '../utils/file-search.js'
 import { logger } from '../utils/logger.js'
-import { validateRepositoryAccess } from '../utils/repository.js'
 import type { StorageBackend } from './storage.js'
 
-export class EnvironmentService {
+export class RepositoryService {
   constructor(private storage: StorageBackend) {}
 
-  async createEnvironment(request: CreateEnvironmentRequest): Promise<Environment> {
+  async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
     // Validate repository configuration
     await this.validateRepository(request.repository)
 
     // Auto-detect framework for local repositories if not provided
     let previewConfig = request.previewConfig
-    if (request.repository.type === 'local' && !previewConfig?.framework) {
+    if (!previewConfig?.framework) {
       try {
         const detectedConfig = await this.detectFramework(request.repository.path)
         previewConfig = {
@@ -46,7 +43,7 @@ export class EnvironmentService {
       serverCommand = previewConfig.serverStartCommand
     }
 
-    const environment: Environment = {
+    const repository: RepositoryConfig = {
       id: randomUUID(),
       name: request.name,
       description: request.description,
@@ -61,37 +58,40 @@ export class EnvironmentService {
       updatedAt: new Date(),
     }
 
-    await this.saveEnvironment(environment)
-    return environment
+    await this.saveRepository(repository)
+    return repository
   }
 
-  async saveEnvironment(env: Environment): Promise<void> {
-    env.updatedAt = new Date()
-    await this.storage.saveEnvironment(env)
+  async saveRepository(repo: RepositoryConfig): Promise<void> {
+    repo.updatedAt = new Date()
+    await this.storage.saveRepository(repo)
   }
 
-  async getEnvironment(envId: string): Promise<Environment | null> {
-    return await this.storage.getEnvironment(envId)
+  async getRepositoryById(repoId: string): Promise<RepositoryConfig | null> {
+    return await this.storage.getRepository(repoId)
   }
 
-  async listEnvironments(): Promise<Environment[]> {
-    const keys = await this.storage.list('environments/')
-    const environments: Environment[] = []
+  async listRepositories(): Promise<RepositoryConfig[]> {
+    const keys = await this.storage.list('repositories/')
+    const repositories: RepositoryConfig[] = []
 
     for (const key of keys) {
-      const envId = key.replace('environments/', '')
-      const env = await this.storage.getEnvironment(envId)
-      if (env) environments.push(env)
+      const repoId = key.replace('repositories/', '')
+      const repo = await this.storage.getRepository(repoId)
+      if (repo) repositories.push(repo)
     }
 
     // Sort by creation date (newest first)
-    return environments.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    return repositories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   }
 
-  async updateEnvironment(envId: string, updates: Partial<Environment>): Promise<Environment> {
-    const environment = await this.getEnvironment(envId)
-    if (!environment) {
-      throw new EnvironmentNotFoundError(envId)
+  async updateRepository(
+    repoId: string,
+    updates: Partial<RepositoryConfig>,
+  ): Promise<RepositoryConfig> {
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
     }
 
     // Validate repository if being updated
@@ -99,147 +99,122 @@ export class EnvironmentService {
       await this.validateRepository(updates.repository)
     }
 
-    const updatedEnvironment = {
-      ...environment,
+    const updatedRepository = {
+      ...repository,
       ...updates,
-      id: envId, // Ensure ID doesn't change
+      id: repoId, // Ensure ID doesn't change
       updatedAt: new Date(),
     }
 
-    await this.saveEnvironment(updatedEnvironment)
-    return updatedEnvironment
+    await this.saveRepository(updatedRepository)
+    return updatedRepository
   }
 
-  async deleteEnvironment(envId: string): Promise<void> {
-    const environment = await this.getEnvironment(envId)
-    if (!environment) {
-      throw new EnvironmentNotFoundError(envId)
+  async deleteRepository(repoId: string): Promise<void> {
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
     }
 
-    // Check if environment is in use by any tasks
+    // Check if repository is in use by any tasks
     const tasks = await this.storage.list('tasks/')
     for (const taskKey of tasks) {
       const taskId = taskKey.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
-      if (task && task.environmentId === envId) {
+      if (task && task.repositoryId === repoId) {
         throw new ValidationError(
-          `Cannot delete environment ${envId} - it is in use by task ${taskId}`,
-          { environmentId: envId, taskId },
+          `Cannot delete repository ${repoId} - it is in use by task ${taskId}`,
+          { repositoryId: repoId, taskId },
         )
       }
     }
 
-    await this.storage.delete(`environments/${envId}`)
+    await this.storage.delete(`repositories/${repoId}`)
   }
 
-  async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
-    const environment = await this.getEnvironment(request.environmentId)
-    if (!environment) {
-      throw new EnvironmentNotFoundError(request.environmentId)
+  async runSetupScript(repository: RepositoryConfig): Promise<SetupScriptResponse> {
+    if (!repository.codeExecution.setupCommands) {
+      return {
+        success: true,
+        commands: [],
+      }
     }
 
-    // Only support file search for local repositories currently
-    if (environment.repository.type !== 'local') {
-      throw new ValidationError('File search is only supported for local repositories', {
-        repositoryType: environment.repository.type,
-      })
+    const commands = repository.codeExecution.setupCommands
+      .split('\n')
+      .map((cmd: string) => cmd.trim())
+      .filter((cmd: string) => cmd.length > 0)
+
+    const results = []
+    let allSucceeded = true
+
+    for (const command of commands) {
+      try {
+        // Execute command in repository path
+        const result = await this.executeCommand(command, repository.repository.path)
+        results.push(result)
+        if (!result.success) {
+          allSucceeded = false
+        }
+      } catch (error) {
+        const errorResult = {
+          command,
+          success: false,
+          exit_code: 1,
+          error: error instanceof Error ? error.message : String(error),
+        }
+        results.push(errorResult)
+        allSucceeded = false
+      }
     }
 
-    const localRepo = environment.repository as LocalRepository
-
-    return await searchFilesInDirectoryNew(localRepo.path, request)
+    return {
+      success: allSucceeded,
+      commands: results,
+    }
   }
 
-  async validateEnvironment(envId: string): Promise<boolean> {
-    const environment = await this.getEnvironment(envId)
-    if (!environment) {
-      return false
-    }
-
+  async getBranches(repoPath: string): Promise<string[]> {
     try {
-      await this.validateRepository(environment.repository)
-      return true
+      const result = await this.executeCommand('git branch -a', repoPath)
+      if (!result.success || !result.output) {
+        return []
+      }
+
+      return result.output
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => line.replace(/^\*\s*/, '')) // Remove current branch marker
+        .map((line) => line.replace(/^remotes\/origin\//, '')) // Remove remote prefix
+        .filter((line) => !line.includes('HEAD ->')) // Remove HEAD pointer
     } catch {
-      return false
+      return []
     }
   }
 
-  /**
-   * Re-detect framework for an environment and update its configuration
-   */
-  async detectAndUpdateFramework(envId: string): Promise<Environment> {
-    const environment = await this.getEnvironment(envId)
-    if (!environment) {
-      throw new EnvironmentNotFoundError(envId)
+  async searchFiles(
+    repoId: string,
+    request: { query: string; limit?: number },
+  ): Promise<FileSearchResponse> {
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
     }
 
-    if (environment.repository.type !== 'local') {
-      throw new ValidationError('Framework detection is only supported for local repositories', {
-        repositoryType: environment.repository.type,
-      })
-    }
-
-    const localRepo = environment.repository as LocalRepository
-    const detectedConfig = await this.detectFramework(localRepo.path)
-
-    const updatedEnvironment = {
-      ...environment,
-      previewConfig: {
-        ...detectedConfig,
-        autoDetected: true,
-      },
-      updatedAt: new Date(),
-    }
-
-    await this.saveEnvironment(updatedEnvironment)
-    return updatedEnvironment
+    return await searchFilesInDirectoryNew(repository.repository.path, request)
   }
 
-  async getRepositoryInfo(envId: string): Promise<{
-    type: string
-    accessible: boolean
-    details: Record<string, unknown>
-  }> {
-    const environment = await this.getEnvironment(envId)
-    if (!environment) {
-      throw new EnvironmentNotFoundError(envId)
+  async validateRepository(repository: Repository): Promise<void> {
+    // Only support local repositories now
+    if (repository.type !== 'local') {
+      throw new ValidationError('Only local repositories are supported', { type: repository.type })
     }
 
-    const repository = environment.repository
-
-    try {
-      const details = await this.getRepositoryDetails(repository)
-      return {
-        type: repository.type,
-        accessible: true,
-        details,
-      }
-    } catch (error) {
-      return {
-        type: repository.type,
-        accessible: false,
-        details: { error: error instanceof Error ? error.message : String(error) },
-      }
-    }
+    await this.validateLocalRepository(repository)
   }
 
-  private async validateRepository(repository: Repository): Promise<void> {
-    switch (repository.type) {
-      case 'local':
-        await this.validateLocalRepository(repository as LocalRepository)
-        break
-      case 'github':
-        await this.validateRemoteRepository(repository as RemoteRepository)
-        break
-      default: {
-        // This should never happen due to TypeScript's exhaustive type checking
-        const exhaustiveCheck: never = repository
-        return exhaustiveCheck
-      }
-    }
-  }
-
-  private async validateLocalRepository(repo: LocalRepository): Promise<void> {
+  private async validateLocalRepository(repo: Repository): Promise<void> {
     try {
       const stats = await fs.stat(repo.path)
       if (!stats.isDirectory()) {
@@ -264,35 +239,56 @@ export class EnvironmentService {
     }
   }
 
-  private async validateRemoteRepository(repo: RemoteRepository): Promise<void> {
-    // Validate URL format
-    try {
-      new URL(repo.url!)
-    } catch {
-      throw new ValidationError(`Invalid repository URL: ${repo.url}`, { url: repo.url })
-    }
+  private async executeCommand(
+    command: string,
+    cwd: string,
+  ): Promise<{
+    command: string
+    success: boolean
+    exit_code: number
+    output?: string
+    error?: string
+  }> {
+    const { spawn } = await import('node:child_process')
 
-    // Additional validation could include checking if repo is accessible
-    // This would require implementing git operations or API calls
-    await validateRepositoryAccess(repo)
-  }
+    return new Promise((resolve) => {
+      const [cmd, ...args] = command.split(' ')
+      const child = spawn(cmd, args, {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+      })
 
-  private async getRepositoryDetails(repository: Repository): Promise<Record<string, unknown>> {
-    switch (repository.type) {
-      case 'local': {
-        const localRepo = repository as LocalRepository
-        const stats = await fs.stat(localRepo.path)
-        return {
-          path: localRepo.path,
-          size: stats.size,
-          modified: stats.mtime,
-          // Could add git info like current branch, commit hash, etc.
-        }
-      }
+      let stdout = ''
+      let stderr = ''
 
-      default:
-        return {}
-    }
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString()
+      })
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString()
+      })
+
+      child.on('close', (code) => {
+        resolve({
+          command,
+          success: code === 0,
+          exit_code: code || 0,
+          output: stdout.trim() || undefined,
+          error: stderr.trim() || undefined,
+        })
+      })
+
+      child.on('error', (error) => {
+        resolve({
+          command,
+          success: false,
+          exit_code: 1,
+          error: error.message,
+        })
+      })
+    })
   }
 
   /**
@@ -419,9 +415,9 @@ export class EnvironmentService {
   }
 }
 
-export function createEnvironmentService(
+export function createRepositoryService(
   _app: FastifyInstance,
   storage: StorageBackend,
-): EnvironmentService {
-  return new EnvironmentService(storage)
+): RepositoryService {
+  return new RepositoryService(storage)
 }
