@@ -1,6 +1,6 @@
 # 🚀 Task Management Performance Improvement Plan
 
-**⚠️ IMPORTANT: This document outlines a strategic plan for performance improvements. Phase 1.1 (IsolatedTimer) has been implemented in commit 0cdb481. All other optimizations HAVE NOT BEEN IMPLEMENTED YET.**
+**✅ UPDATE: Phase 1 optimizations (1.1-1.4) have been implemented. Phase 1.1 (IsolatedTimer) in commit 0cdb481, and Phases 1.2-1.4 in commits 7a0edd0 and 7cd9bc7. Phases 2 and 3 remain to be implemented.**
 
 ## Executive Summary
 
@@ -71,58 +71,73 @@ Base duration consistently high: 200-220ms
 - ✅ `/client/src/features/tasks/components/chat-view/chat-view.tsx`
 - ✅ `/client/src/features/tasks/components/event-viewer/minified/minified-last-three-events-display.tsx`
 
-#### 1.2 Add React.memo to Heavy Components
+#### ✅ 1.2 Add React.memo to Heavy Components (COMPLETED - Commit 7a0edd0)
 **Priority:** CRITICAL  
 **Effort:** 1 hour  
 **Impact:** -50% unnecessary renders
 
-**Proposed Implementation:**
-```typescript
-// Components that need to be wrapped with React.memo:
-export const TaskPage = React.memo(TaskPage)
-export const EventViewer = React.memo(EventViewer)
-export const ChatView = React.memo(ChatView)
-export const EventList = React.memo(EventList)
-```
+**What Was Implemented:**
+- Added React.memo to `TaskPage` component
+- Added React.memo to `EventViewer` component
+- Added React.memo to `ChatView` component
+- Added React.memo to `EventList` component
 
-#### 1.3 Optimize Context Subscriptions
+**Files Modified:**
+- ✅ `/client/src/features/tasks/components/task-page.tsx`
+- ✅ `/client/src/features/tasks/components/event-viewer/event-viewer.tsx`
+- ✅ `/client/src/features/tasks/components/chat-view/chat-view.tsx`
+- ✅ `/client/src/features/tasks/components/event-viewer/event-list.tsx`
+
+#### ✅ 1.3 Optimize Context Subscriptions (COMPLETED - Commits 7a0edd0 & 7cd9bc7)
 **Priority:** HIGH  
 **Effort:** 3 hours  
 **Impact:** -40% re-renders
 
-**Proposed Change:** Replace broad context usage with specialized hooks:
-```typescript
-// CURRENT STATE (BEFORE)
-const { task } = useTaskData() // ❌ Re-renders on any change
+**What Was Implemented:**
+- Created specialized hooks in task-data-provider:
+  - `useTaskLoadingError()` - Returns only `{ isLoading, error }`
+  - `useTaskMetadata()` - Returns only `{ taskId, agentType, createdAt }`
+- Updated components to use existing specialized hooks:
+  - TaskHeader → now uses `useTaskStatus()`
+  - EventViewer → now uses `useTaskLoadingError()`
+  - GitDiffViewer → now uses `useTaskLoadingError()`
 
-// PROPOSED OPTIMIZATION (AFTER)  
-const { status, isRunning } = useTaskStatusOnly() // ✅ Only status changes
-```
+**Files Modified:**
+- ✅ `/client/src/features/tasks/contexts/task-data-provider.tsx`
+- ✅ `/client/src/features/tasks/components/task-header.tsx`
+- ✅ `/client/src/features/tasks/components/event-viewer/event-viewer.tsx`
+- ✅ `/client/src/features/tasks/components/git-diff-viewer/git-diff-viewer.tsx`
 
-**Components that need updating:**
-- TaskHeader → should use `useTaskStatusOnly()`
-- EventViewer → should use `useTaskLoadingState()`
-- GitDiffViewer → should use `useTaskLoadingState()`
+#### ✅ 1.4 Memoize Event Merging (COMPLETED - Commit 7a0edd0)
+**Note:** This was originally planned as Phase 2.1 but implemented as part of critical fixes.
+**Priority:** HIGH
+**Effort:** 30 minutes
+**Impact:** -30% CPU usage
+
+**What Was Implemented:**
+- Verified event merging is properly memoized in EventViewer
+- Removed redundant merging in EventList component
+- Added memoization for message count calculation in ChatView
+- Eliminated duplicate computations
+
+**Files Modified:**
+- ✅ `/client/src/features/tasks/components/event-viewer/event-viewer.tsx`
+- ✅ `/client/src/features/tasks/components/event-viewer/event-list.tsx`
+- ✅ `/client/src/features/tasks/components/chat-view/chat-view.tsx`
 
 ### 🔴 Phase 2: Core Optimizations (3-5 days, 85% improvement)
 
-#### 2.1 Memoize Heavy Computations
+#### 2.1 Memoize Heavy Computations (PARTIALLY COMPLETED)
 **Priority:** HIGH  
 **Effort:** 4 hours  
 **Impact:** -30% CPU usage
 
+**Completed in Phase 1.4:**
+- ✅ Event merging memoization in EventViewer
+- ✅ Message count calculation memoization in ChatView
+
+**Still TO BE IMPLEMENTED:**
 ```typescript
-// Event merging
-const mergedEvents = useMemo(() => 
-  mergeToolEvents(events), [events]
-)
-
-// Message count calculation
-const messageCounts = useMemo(() => 
-  calculateMessageCounts(events, iterations), 
-  [events, iterations]
-)
-
 // Git diff tokenization
 const tokenizedDiff = useMemo(() => 
   tokenizeHunks(hunks, highlightSyntax),
@@ -130,10 +145,8 @@ const tokenizedDiff = useMemo(() =>
 )
 ```
 
-**Files to optimize:**
-- `/client/src/features/tasks/utils/merge-tool-events.ts`
+**Files still to optimize:**
 - `/client/src/features/tasks/components/git-diff-viewer/syntax-highlighter.ts`
-- `/client/src/features/tasks/components/chat-view/chat-view.tsx`
 
 #### 2.2 Implement Event List Virtualization
 **Priority:** HIGH  
