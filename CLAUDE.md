@@ -12,8 +12,13 @@ pnpm install
 # Build for production
 pnpm build
 
-# Run tests
-pnpm test
+# Run tests (tiered by speed and scope)
+pnpm test             # standard tests (excludes E2E)
+pnpm test:unit        # unit tests only (fastest)
+pnpm test:integration # integration tests only
+pnpm test:e2e         # E2E tests only (slowest)
+pnpm test:fast        # fast tests for git hooks
+pnpm test:all         # all tests including E2E
 pnpm test:ui          # with UI and coverage
 pnpm test:coverage    # with coverage report
 
@@ -24,7 +29,7 @@ pnpm type:check
 pnpm biome:check      # check for issues
 pnpm biome:fix        # auto-fix issues
 
-# Run all checks
+# Run all checks (optimized for speed)
 pnpm check:turbo
 
 # Install shadcn/ui components
@@ -35,7 +40,7 @@ pnpm dlx shadcn@latest add [component]
 - You MUST run `pnpm type:check` after code changes to catch TypeScript errors
 - You MUST run `pnpm biome:check` after code changes for linting and formatting
 - You can run both `biome:fix` and `biome:check`
-- For comprehensive validation, run `pnpm check:turbo` which includes all checks
+- For comprehensive validation, run `pnpm check:turbo` which includes all checks (optimized for speed)
 
 ## Architecture
 
@@ -444,11 +449,23 @@ src/features/tasks/
 
 ### Quick Start
 ```bash
-# Run all tests
+# Run all tests (excludes E2E by default)
 pnpm test
 
-# Run tests in watch mode
-pnpm test:watch
+# Run only unit tests (fastest)
+pnpm test:unit
+
+# Run integration tests
+pnpm test:integration
+
+# Run E2E tests (slowest)
+pnpm test:e2e
+
+# Run fast tests (for git hooks)
+pnpm test:fast
+
+# Run all tests including E2E
+pnpm test:all
 
 # Run tests with coverage
 pnpm test:coverage
@@ -456,6 +473,43 @@ pnpm test:coverage
 # Run tests with UI
 pnpm test:ui
 ```
+
+### Server Testing Strategy
+
+#### Test Performance Tiers
+The server tests are organized into performance tiers to optimize development workflow:
+
+**FAST Tests (<200ms)** - Run on every push:
+- Unit tests: `services/__tests__/*.test.ts`
+- Utility tests: `utils/__tests__/*.test.ts`
+- Plugin tests: `plugins/__tests__/*.test.ts`
+- Basic app tests: `__tests__/app.test.ts`
+
+**MODERATE Tests (200ms-2s)** - Run in CI:
+- Integration tests: `routes/__tests__/*.test.ts` (excluding E2E)
+- File/git operation tests
+
+**SLOW Tests (>2s)** - Run separately or nightly:
+- E2E tests: `**/*e2e*.test.ts`
+- Server lifecycle tests: `**/server-lifecycle*.test.ts`
+
+#### Test Commands Usage
+```bash
+# Development - Fast feedback loop
+pnpm test:unit
+
+# Pre-commit - Core functionality validation
+pnpm test:fast
+
+# CI Pipeline - Full integration testing
+pnpm test
+
+# Nightly/Release - Complete validation
+pnpm test:all
+```
+
+#### Git Hook Optimization
+The `.husky/pre-push` hook now uses `pnpm test:fast` instead of running all tests, reducing push time from **2-3 minutes to ~30 seconds** while maintaining essential test coverage.
 
 ### Testing Strategy & Guidelines
 
