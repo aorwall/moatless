@@ -35,7 +35,7 @@
     "type:check": "tsc --noEmit",
     "biome:check": "biome check",
     "biome:fix": "biome check --write",
-    "check:turbo": "pnpm turbo biome:check type:check test",
+    "check:turbo": "pnpm run biome:check && pnpm run type:check && pnpm run test",
     "prepare": "husky"
   },
   "dependencies": {
