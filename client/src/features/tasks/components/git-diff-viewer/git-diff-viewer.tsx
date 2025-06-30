@@ -4,8 +4,11 @@ import { type ChangeData, Diff, type FileData, Hunk, parseDiff } from 'react-dif
 import 'react-diff-view/style/index.css'
 import 'prism-color-variables/variables.css'
 
-import { useGitDiff, useSelectedIteration } from '@/features/tasks/contexts/task-providers'
-import { useTaskLoadingState } from '@/features/tasks/hooks/optimized-hooks'
+import {
+  useGitDiff,
+  useSelectedIteration,
+  useTaskLoadingError,
+} from '@/features/tasks/contexts/task-providers'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -107,8 +110,8 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
   const gitDiff = useGitDiff()
-  // Use optimized hook that only subscribes to loading/error state
-  const { isLoading, error } = useTaskLoadingState()
+  // Use specialized hook that only returns loading/error state
+  const { isLoading, error } = useTaskLoadingError()
   const _selectedIteration = useSelectedIteration()
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 

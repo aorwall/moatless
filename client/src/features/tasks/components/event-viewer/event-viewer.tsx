@@ -1,7 +1,6 @@
 import { FileText, Loader2 } from 'lucide-react'
 import React, { useMemo } from 'react'
-import { useTaskEvents } from '@/features/tasks/contexts/task-providers'
-import { useTaskLoadingState } from '@/features/tasks/hooks/optimized-hooks'
+import { useTaskEvents, useTaskLoadingError } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -14,8 +13,8 @@ function EventViewerComponent() {
 
   // Use the context to get events and states
   const { events } = useTaskEvents()
-  // Use optimized hook that only subscribes to loading/error state
-  const { isLoading, error } = useTaskLoadingState()
+  // Use specialized hook that only returns loading/error state
+  const { isLoading, error } = useTaskLoadingError()
 
   // Merge tool events within each event for cleaner display
   const mergedEvents = useMemo(() => {
