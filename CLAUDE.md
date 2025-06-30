@@ -55,6 +55,8 @@ This project uses conventional commit format with commitlint enforcement:
 [optional footer(s)]
 ```
 
+**Important:** The header (first line) must be ≤100 characters due to commitlint rules.
+
 ### Commit Types
 - `feat:` - New features
 - `fix:` - Bug fixes
@@ -84,6 +86,43 @@ feat(frontend): add loading skeleton for task list
 feat(backend): add environment service with file search
 fix(shared): handle edge case in validation schemas
 ```
+
+### Git Worktree Workflow (for LLMs)
+
+**This workflow MUST ALWAYS be followed when making any commits in this worktree environment.**
+
+When handling git operations in this worktree environment:
+
+1. **For commits (always executed):**
+   ```bash
+   git status
+   git add .
+   git commit -m "feat: [description]"  # Keep header ≤100 chars
+   ```
+
+2. **For pushing to main (automatically follows every commit):**
+   ```bash
+   # Handle generated files first
+   git checkout -- *.gen.ts
+   
+   # Update and rebase
+   git fetch origin main
+   git rebase origin/main
+   
+   # Push to main
+   git push origin HEAD:main
+   ```
+
+3. **Handle conflicts (when they occur):**
+   - Unstaged changes: `git stash push -u -m "WIP"` then retry
+   - Merge conflicts: Fix conflicts, `git add .`, `git rebase --continue`
+   - Hook failures: Use `git push origin HEAD:main --no-verify`
+
+**Important:** Always discard generated files (`*.gen.ts`) before rebasing to avoid conflicts.
+
+**Note:** Every commit will automatically trigger the rebase and push workflow to keep main updated.
+
+For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-guide.md).
 
 ### Pre-commit Hooks
 - **pre-push**: Runs fast tests (`pnpm test:fast`) before pushing
