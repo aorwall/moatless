@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { useGlobalEventStream, useTaskEventSubscription } from '@/features/events'
 import { queryKeys } from '@/lib/api/query-keys'
 import { NDJSONSSEClient } from '../api/ndjson-sse'
 import { tasksApi } from '../api/tasks'
@@ -42,17 +43,27 @@ const TaskEventsContext = createContext<TaskEventsContextValue | undefined>(unde
 interface TaskEventsProviderProps {
   taskId: string
   children: ReactNode
+  useGlobalStream?: boolean // Optional flag to use global stream instead of task-specific
 }
 
 /**
  * TaskEventsProvider manages real-time events and event-driven updates.
  * Implements smart event merging and status-affecting event handling.
+ * Can use either task-specific SSE stream or global event stream.
  */
-export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps) {
+export function TaskEventsProvider({
+  taskId,
+  children,
+  useGlobalStream = false,
+}: TaskEventsProviderProps) {
   const queryClient = useQueryClient()
   const sseClientRef = useRef<NDJSONSSEClient | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
+
+  // Get global stream connection status (always call the hook to satisfy React rules)
+  const globalStream = useGlobalEventStream()
+  const activeGlobalStream = useGlobalStream ? globalStream : null
 
   // Get events from React Query - this is the ONLY source of truth
   const eventsQuery = useQuery({
@@ -100,8 +111,8 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
 
   // SSE connection management
   const shouldStream = useMemo(() => {
-    return !!taskId && !taskId.startsWith('temp-')
-  }, [taskId])
+    return !!taskId && !taskId.startsWith('temp-') && !useGlobalStream
+  }, [taskId, useGlobalStream])
 
   const handleSSEEvent = useCallback(
     (event: Event) => {
@@ -131,7 +142,21 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
     setIsStreaming(false)
   }, [taskId])
 
-  // SSE connection effect
+  // Subscribe to global stream events for this task if using global stream
+  useTaskEventSubscription(
+    useGlobalStream ? taskId : undefined,
+    useGlobalStream ? handleTaskEvent : () => {},
+  )
+
+  // Update streaming status when using global stream
+  useEffect(() => {
+    if (activeGlobalStream) {
+      setIsStreaming(activeGlobalStream.isConnected)
+      setStreamingError(activeGlobalStream.connectionError?.message || null)
+    }
+  }, [activeGlobalStream])
+
+  // SSE connection effect (only used when not using global stream)
   useEffect(() => {
     if (!shouldStream) {
       return

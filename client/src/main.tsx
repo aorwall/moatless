@@ -10,6 +10,7 @@ import { routeTree } from './routeTree.gen'
 
 import '@/lib/styles/globals.css'
 
+import { GlobalEventStreamProvider } from '@/features/events'
 import { queryClient } from '@/lib/api/query-client'
 import { Page404 } from '@/lib/pages/404'
 
@@ -43,9 +44,11 @@ if (rootElement && !rootElement.innerHTML) {
   root.render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-        <ReactQueryDevtools initialIsOpen={false} />
-        <Toaster position="top-right" />
+        <GlobalEventStreamProvider>
+          <RouterProvider router={router} />
+          <ReactQueryDevtools initialIsOpen={false} />
+          <Toaster position="top-right" />
+        </GlobalEventStreamProvider>
       </QueryClientProvider>
     </StrictMode>,
   )

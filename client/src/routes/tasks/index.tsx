@@ -1,7 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { useGlobalEventStream } from '@/features/events'
 import { TaskList } from '@/features/tasks/components/task-list'
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 
 export const Route = createFileRoute('/tasks/')({
@@ -9,8 +13,28 @@ export const Route = createFileRoute('/tasks/')({
 })
 
 function TasksIndex() {
+  const queryClient = useQueryClient()
+  const { subscribeToAll } = useGlobalEventStream()
+
   // Fetch all tasks
   const { data: tasks, isLoading, error } = useTasksList()
+
+  // Subscribe to global events to invalidate the task list when relevant events occur
+  useEffect(() => {
+    return subscribeToAll((event) => {
+      // Invalidate task list on relevant events
+      if (
+        event.type === 'task:created' ||
+        event.type === 'task:updated' ||
+        event.type === 'task:statusChanged' ||
+        event.type === 'message' ||
+        event.type === 'iteration:created' ||
+        event.type === 'iteration:updated'
+      ) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
+      }
+    })
+  }, [subscribeToAll, queryClient])
 
   return (
     <div className="container mx-auto px-6 py-8">

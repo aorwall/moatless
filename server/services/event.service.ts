@@ -48,6 +48,9 @@ export class EventService extends EventEmitter {
 
     // Emit for real-time subscribers
     super.emit(`task:${event.taskId}`, event)
+
+    // Also emit to global channel
+    super.emit('global', event)
   }
 
   async getEvents(

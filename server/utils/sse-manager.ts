@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { EventType } from '../../shared/types/event.js'
 
 export interface SSEConnection {
   id: string
@@ -8,8 +9,19 @@ export interface SSEConnection {
   lastEventId?: string
 }
 
+export interface GlobalSSEConnection {
+  id: string
+  reply: FastifyReply
+  request: FastifyRequest
+  filters?: {
+    types?: EventType[]
+    activeTasksOnly?: boolean
+  }
+}
+
 export class SSEConnectionManager {
   private connections: Map<string, Set<SSEConnection>> = new Map()
+  private globalConnections: Map<string, GlobalSSEConnection> = new Map()
   private connectionCounter = 0
 
   connect(
@@ -66,6 +78,48 @@ export class SSEConnectionManager {
 
   getAllTaskIds(): string[] {
     return Array.from(this.connections.keys())
+  }
+
+  // Global connection methods
+  connectGlobal(
+    connectionId: string,
+    request: FastifyRequest,
+    reply: FastifyReply,
+    filters?: GlobalSSEConnection['filters'],
+  ): void {
+    const connection: GlobalSSEConnection = {
+      id: connectionId,
+      reply,
+      request,
+      filters,
+    }
+
+    this.globalConnections.set(connectionId, connection)
+    request.log.info(`Global SSE connection ${connectionId} established`)
+  }
+
+  disconnectGlobal(connectionId: string): void {
+    const connection = this.globalConnections.get(connectionId)
+    if (connection) {
+      this.globalConnections.delete(connectionId)
+      connection.request.log.info(`Global SSE connection ${connectionId} closed`)
+    }
+  }
+
+  getGlobalConnections(): GlobalSSEConnection[] {
+    return Array.from(this.globalConnections.values())
+  }
+
+  getGlobalConnectionCount(): number {
+    return this.globalConnections.size
+  }
+
+  getAllTaskConnectionCounts(): Record<string, number> {
+    const counts: Record<string, number> = {}
+    for (const [taskId, connections] of this.connections.entries()) {
+      counts[taskId] = connections.size
+    }
+    return counts
   }
 }
 

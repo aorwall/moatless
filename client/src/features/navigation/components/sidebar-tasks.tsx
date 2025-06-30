@@ -1,8 +1,12 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useEffect } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { useGlobalEventStream } from '@/features/events'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
+import { queryKeys } from '@/lib/api/query-keys'
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -39,6 +43,9 @@ function getRelativeTime(date: Date | string): string {
 }
 
 export function SidebarTasks() {
+  const queryClient = useQueryClient()
+  const { subscribeToAll } = useGlobalEventStream()
+
   // Fetch all non-closed tasks
   const {
     data: tasks,
@@ -47,10 +54,27 @@ export function SidebarTasks() {
   } = useTasksList(
     {},
     {
-      refetchInterval: 10000, // Changed from 5 seconds to 10 seconds
-      refetchIntervalInBackground: true,
+      // Remove polling since we're using global event stream
+      refetchInterval: false,
     },
   )
+
+  // Subscribe to global events to invalidate the task list when relevant events occur
+  useEffect(() => {
+    return subscribeToAll((event) => {
+      // Invalidate task list on relevant events
+      if (
+        event.type === 'task:created' ||
+        event.type === 'task:updated' ||
+        event.type === 'task:statusChanged' ||
+        event.type === 'message' ||
+        event.type === 'iteration:created' ||
+        event.type === 'iteration:updated'
+      ) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
+      }
+    })
+  }, [subscribeToAll, queryClient])
 
   // Fetch repositories to map IDs to names
   const { data: repositories } = useRepositoriesList()
