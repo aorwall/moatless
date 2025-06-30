@@ -1,7 +1,7 @@
 import type { PermissionMode, UpdateClaudeCodeSettingsRequest } from '@shared/types/claude-code'
 import { createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'
 import {
   useClaudeCodeSettings,
@@ -44,6 +44,13 @@ function SettingsPage() {
   const { data: toolsData } = useClaudeCodeTools()
   const updateSettings = useUpdateClaudeCodeSettings()
   const deleteSettings = useDeleteClaudeCodeSettings()
+
+  const modelId = useId()
+  const maxTurnsId = useId()
+  const maxThinkingTokensId = useId()
+  const systemPromptId = useId()
+  const appendSystemPromptId = useId()
+  const permissionModeId = useId()
 
   const [showBypassWarning, setShowBypassWarning] = useState(false)
   const [formData, setFormData] = useState<UpdateClaudeCodeSettingsRequest>({
@@ -175,9 +182,9 @@ function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="model">Model</Label>
+                    <Label htmlFor={modelId}>Model</Label>
                     <Input
-                      id="model"
+                      id={modelId}
                       type="text"
                       placeholder="e.g., claude-3-opus-20240229"
                       value={formData.model || ''}
@@ -195,9 +202,9 @@ function SettingsPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="max_turns">Max Turns</Label>
+                      <Label htmlFor={maxTurnsId}>Max Turns</Label>
                       <Input
-                        id="max_turns"
+                        id={maxTurnsId}
                         type="number"
                         min="1"
                         max="100"
@@ -213,9 +220,9 @@ function SettingsPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="max_thinking_tokens">Max Thinking Tokens</Label>
+                      <Label htmlFor={maxThinkingTokensId}>Max Thinking Tokens</Label>
                       <Input
-                        id="max_thinking_tokens"
+                        id={maxThinkingTokensId}
                         type="number"
                         min="0"
                         max="100000"
@@ -242,9 +249,9 @@ function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="system_prompt">System Prompt</Label>
+                    <Label htmlFor={systemPromptId}>System Prompt</Label>
                     <Textarea
-                      id="system_prompt"
+                      id={systemPromptId}
                       placeholder="Override the default system prompt"
                       rows={4}
                       value={formData.systemPrompt || ''}
@@ -258,9 +265,9 @@ function SettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="append_system_prompt">Append System Prompt</Label>
+                    <Label htmlFor={appendSystemPromptId}>Append System Prompt</Label>
                     <Textarea
-                      id="append_system_prompt"
+                      id={appendSystemPromptId}
                       placeholder="Additional instructions to append to the system prompt"
                       rows={4}
                       value={formData.appendSystemPrompt || ''}
@@ -285,7 +292,7 @@ function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="permission_mode">Mode</Label>
+                    <Label htmlFor={permissionModeId}>Mode</Label>
                     <Select
                       value={formData.permissionMode || 'default'}
                       onValueChange={(value) =>
@@ -295,7 +302,7 @@ function SettingsPage() {
                         })
                       }
                     >
-                      <SelectTrigger id="permission_mode">
+                      <SelectTrigger id={permissionModeId}>
                         <SelectValue placeholder="Select permission mode" />
                       </SelectTrigger>
                       <SelectContent>

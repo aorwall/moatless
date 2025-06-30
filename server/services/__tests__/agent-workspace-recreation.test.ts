@@ -5,6 +5,7 @@ import { LocalWorkspace } from '../../workspaces/local.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
+import type { TaskService } from '../task.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
 
 // Mock dependencies
@@ -63,17 +64,17 @@ describe('AgentService - Workspace Recreation', () => {
         iterations: [],
       }),
       saveTask: vi.fn(),
-    } as any
+    } as unknown as TaskService
 
     // Setup mock event service
     mockEventService = {
       emitEvent: vi.fn(),
-    } as any
+    } as unknown as EventService
 
     // Setup mock workspace
     mockWorkspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as any,
+      mockEnvironment,
       mockEventService,
       undefined,
       undefined,
@@ -91,7 +92,7 @@ describe('AgentService - Workspace Recreation', () => {
       getOrCreateWorkspace: vi.fn().mockResolvedValue(mockWorkspace),
       getWorkspace: vi.fn().mockResolvedValue(mockWorkspace),
       setupWorkspace: vi.fn().mockResolvedValue(undefined),
-    } as any
+    } as unknown as WorkspaceService
 
     agentService = new AgentService(mockStorage, mockEventService, mockWorkspaceService)
   })
@@ -116,7 +117,7 @@ describe('AgentService - Workspace Recreation', () => {
     // Mock the recreated workspace as a new LocalWorkspace instance
     const recreatedWorkspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as any,
+      mockEnvironment,
       mockEventService,
       undefined,
       undefined,
@@ -133,12 +134,12 @@ describe('AgentService - Workspace Recreation', () => {
 
     vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(async () => {
       if (setupWorkspaceCalled) {
-        return recreatedWorkspace as any
+        return recreatedWorkspace
       }
-      return mockWorkspace as any
+      return mockWorkspace
     })
 
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedWorkspace as any)
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedWorkspace)
 
     // Mock agent creation
     const mockAgent = {
@@ -148,7 +149,10 @@ describe('AgentService - Workspace Recreation', () => {
       getSessionId: vi.fn(),
       stop: vi.fn(),
     }
-    vi.spyOn(agentService as any, 'createAgent').mockResolvedValue(mockAgent)
+    vi.spyOn(
+      agentService as unknown as { createAgent: () => Promise<unknown> },
+      'createAgent',
+    ).mockResolvedValue(mockAgent)
 
     // Execute agent - should detect missing path and recreate
     await agentService.executeAgent(taskId, 'test message', iteration)
@@ -180,9 +184,10 @@ describe('AgentService - Workspace Recreation', () => {
     vi.spyOn(mockWorkspace, 'isWorkspacePathValid').mockResolvedValue(false)
 
     // Mock recreateWorkspace to throw timeout error
-    vi.spyOn(agentService as any, 'recreateWorkspace').mockRejectedValue(
-      new CriticalError('Workspace recreation timeout', taskId, iteration),
-    )
+    vi.spyOn(
+      agentService as unknown as { recreateWorkspace: () => Promise<void> },
+      'recreateWorkspace',
+    ).mockRejectedValue(new CriticalError('Workspace recreation timeout', taskId, iteration))
 
     // Execute agent - should fail due to workspace recreation timeout
     await expect(agentService.executeAgent(taskId, 'test message', iteration)).rejects.toThrow(
@@ -190,7 +195,9 @@ describe('AgentService - Workspace Recreation', () => {
     )
 
     // Verify workspace setup was attempted via recreateWorkspace
-    expect((agentService as any).recreateWorkspace).toHaveBeenCalledWith(taskId, iteration)
+    expect(
+      (agentService as unknown as { recreateWorkspace: () => Promise<void> }).recreateWorkspace,
+    ).toHaveBeenCalledWith(taskId, iteration)
   }, 10000)
 
   it('should handle workspace path that exists correctly', async () => {
@@ -214,7 +221,10 @@ describe('AgentService - Workspace Recreation', () => {
       getSessionId: vi.fn(),
       stop: vi.fn(),
     }
-    vi.spyOn(agentService as any, 'createAgent').mockResolvedValue(mockAgent)
+    vi.spyOn(
+      agentService as unknown as { createAgent: () => Promise<unknown> },
+      'createAgent',
+    ).mockResolvedValue(mockAgent)
 
     // Execute agent - should proceed without recreation
     await agentService.executeAgent(taskId, 'test message', iteration)

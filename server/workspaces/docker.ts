@@ -254,15 +254,21 @@ export class DockerWorkspace extends BaseWorkspace {
         exitCode: 0,
         durationMs: Date.now() - startTime,
       }
-    } catch (error: any) {
-      const output = error.stdout || ''
-      const stderr = error.stderr || ''
+    } catch (error: unknown) {
+      const errorObj = error as {
+        stdout?: string
+        stderr?: string
+        message?: string
+        code?: number
+      }
+      const output = errorObj.stdout || ''
+      const stderr = errorObj.stderr || ''
       const combinedOutput = output + (stderr ? `\n${stderr}` : '')
 
       return {
         command,
-        output: combinedOutput || error.message,
-        exitCode: error.code || -1,
+        output: combinedOutput || errorObj.message || 'Unknown error',
+        exitCode: errorObj.code || -1,
         durationMs: Date.now() - startTime,
       }
     }
@@ -403,7 +409,7 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   // Server methods (TODO: implement these)
-  async startServer(): Promise<any> {
+  async startServer(): Promise<never> {
     throw new Error('Server not yet implemented for Docker workspaces')
   }
 

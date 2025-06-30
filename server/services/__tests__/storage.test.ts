@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EventType } from '../../../shared/types/event.js'
 import type { Environment, Event, Task, Workspace } from '../../../shared/types/index.js'
 import { FileStorage } from '../storage.js'
 
@@ -134,7 +135,7 @@ describe('FileStorage', () => {
       const events: Event[] = [
         {
           eventId: 'evt-1',
-          type: 'start' as any,
+          type: EventType.START,
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,
@@ -143,7 +144,7 @@ describe('FileStorage', () => {
         },
         {
           eventId: 'evt-2',
-          type: 'message' as any,
+          type: EventType.MESSAGE,
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,

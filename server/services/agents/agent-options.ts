@@ -18,12 +18,12 @@ export interface ClaudeCodeOptions extends BaseAgentOptions {
 
 export interface OpenAIAgentOptions extends BaseAgentOptions {
   organization?: string
-  functions?: any[]
+  functions?: unknown[]
   functionCall?: 'auto' | 'none' | { name: string }
 }
 
 export class AgentOptionsBuilder {
-  private options: Record<string, any> = {}
+  private options: Record<string, unknown> = {}
 
   model(model: string): this {
     this.options.model = model

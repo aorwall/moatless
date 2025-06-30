@@ -485,7 +485,7 @@ process.on('SIGTERM', () => {
     return JSON.parse(response.body)
   }
 
-  async function verifyServerRunning(url: string, expectedData: any): Promise<void> {
+  async function verifyServerRunning(url: string, expectedData: unknown): Promise<void> {
     const { default: http } = await import('node:http')
     return new Promise((resolve, reject) => {
       const req = http.get(url, (res) => {

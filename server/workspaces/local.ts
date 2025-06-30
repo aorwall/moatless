@@ -362,15 +362,21 @@ export class LocalWorkspace extends BaseWorkspace {
         exitCode: 0,
         durationMs: Date.now() - startTime,
       }
-    } catch (error: any) {
-      const output = error.stdout || ''
-      const stderr = error.stderr || ''
+    } catch (error: unknown) {
+      const errorObj = error as {
+        stdout?: string
+        stderr?: string
+        message?: string
+        code?: number
+      }
+      const output = errorObj.stdout || ''
+      const stderr = errorObj.stderr || ''
       const combinedOutput = output + (stderr ? `\n${stderr}` : '')
 
       return {
         command,
-        output: combinedOutput || error.message,
-        exitCode: error.code || -1,
+        output: combinedOutput || errorObj.message || 'Unknown error',
+        exitCode: errorObj.code || -1,
         durationMs: Date.now() - startTime,
       }
     }
@@ -552,7 +558,7 @@ export class LocalWorkspace extends BaseWorkspace {
       await walkDir(fullPath, this.workspacePath, relativePath === '.' ? '' : relativePath)
       return files.sort()
     } catch (error) {
-      if ((error as any).code === 'ENOENT') {
+      if ((error as { code?: string }).code === 'ENOENT') {
         throw new Error(`Path not found: ${relativePath}`)
       }
       throw new Error(
@@ -587,7 +593,7 @@ export class LocalWorkspace extends BaseWorkspace {
 
       return await fs.readFile(fullPath, 'utf-8')
     } catch (error) {
-      if ((error as any).code === 'ENOENT') {
+      if ((error as { code?: string }).code === 'ENOENT') {
         throw new Error(`File not found: ${filePath}`)
       }
       if (error instanceof Error && error.message.includes('Access denied')) {
@@ -627,7 +633,7 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   // Server methods - deprecated, now handled by PreviewEnvironmentService
-  async startServer(): Promise<any> {
+  async startServer(): Promise<never> {
     throw new Error('Server operations are now handled by PreviewEnvironmentService')
   }
 

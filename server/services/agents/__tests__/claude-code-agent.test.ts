@@ -48,7 +48,7 @@ describe('ClaudeCodeAgent', () => {
         yield toolCallMessage
       })
 
-      const events: any[] = []
+      const events: unknown[] = []
       for await (const event of agent.run('test message')) {
         events.push(event)
       }
@@ -85,7 +85,7 @@ describe('ClaudeCodeAgent', () => {
         yield toolResultMessage
       })
 
-      const events: any[] = []
+      const events: unknown[] = []
       for await (const event of agent.run('test message')) {
         events.push(event)
       }
@@ -130,7 +130,7 @@ describe('ClaudeCodeAgent', () => {
         yield textMessage
       })
 
-      const events: any[] = []
+      const events: unknown[] = []
       for await (const event of agent.run('test message')) {
         events.push(event)
       }

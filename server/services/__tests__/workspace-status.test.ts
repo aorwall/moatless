@@ -86,12 +86,12 @@ describe('WorkspaceService Status Management', () => {
 
     mockEnvironmentService = {
       getEnvironment: vi.fn().mockResolvedValue(mockEnvironment),
-    } as any
+    } as unknown as EnvironmentService
 
     mockEventService = {
       emit: vi.fn(),
       emitEvent: vi.fn(),
-    } as any
+    } as unknown as EventService
 
     mockStorage = {
       getTask: vi.fn().mockResolvedValue(mockTask),
@@ -101,7 +101,7 @@ describe('WorkspaceService Status Management', () => {
       read: vi.fn(),
       write: vi.fn(),
       list: vi.fn(),
-    } as any
+    } as unknown as StorageBackend
 
     workspaceService = new WorkspaceService(mockEnvironmentService, mockEventService, mockStorage)
   })
@@ -166,14 +166,16 @@ describe('WorkspaceService Status Management', () => {
         writeFile: vi.fn().mockResolvedValue(undefined),
         getGitDiff: vi.fn().mockResolvedValue('diff'),
         hasUncommittedChanges: vi.fn().mockResolvedValue(false),
-      } as any
+      } as unknown
 
       // Create workspace
       await workspaceService.getOrCreateWorkspace(taskId)
 
       // Override the workspace with our mock
 
-      ;(workspaceService as any).activeWorkspaces.set(taskId, mockWorkspace)
+      ;(
+        workspaceService as unknown as { activeWorkspaces: Map<string, unknown> }
+      ).activeWorkspaces.set(taskId, mockWorkspace)
 
       // These operations should work even with NOT_SETUP status
       await expect(workspaceService.listFiles(taskId)).resolves.toEqual(['file1.txt', 'file2.txt'])

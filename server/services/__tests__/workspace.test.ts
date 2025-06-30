@@ -111,15 +111,18 @@ describe('WorkspaceService', () => {
       delete: vi.fn().mockResolvedValue(undefined),
       saveEvents: vi.fn().mockResolvedValue(undefined),
       getEvents: vi.fn().mockResolvedValue([]),
-    } as any
+    } as unknown as StorageBackend
 
     eventService = new EventService(storage)
     environmentService = new EnvironmentService(storage)
 
     // Mock the validateRepository method to skip validation
-    vi.spyOn(environmentService as any, 'validateRepository').mockResolvedValue(undefined)
-    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment as any)
-    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment as any)
+    vi.spyOn(
+      environmentService as unknown as { validateRepository: () => Promise<void> },
+      'validateRepository',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment as unknown)
+    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment as unknown)
 
     service = new WorkspaceService(environmentService, eventService, storage)
   })
@@ -148,7 +151,7 @@ describe('WorkspaceService', () => {
 
       // Clear active workspaces to simulate restart
 
-      ;(service as any).activeWorkspaces.clear()
+      ;(service as unknown as { activeWorkspaces: Map<string, unknown> }).activeWorkspaces.clear()
 
       // Second creation should use saved path
       const workspace2 = await service.getOrCreateWorkspace('test-task-persist')
@@ -180,16 +183,18 @@ describe('WorkspaceService', () => {
     it('should list files in workspace', async () => {
       // Mock readdir to return test files
       vi.mocked(fs.readdir).mockResolvedValue([
-        { name: 'test1.js', isFile: () => true, isDirectory: () => false } as any,
-        { name: 'test2.js', isFile: () => true, isDirectory: () => false } as any,
+        { name: 'test1.js', isFile: () => true, isDirectory: () => false } as unknown,
+        { name: 'test2.js', isFile: () => true, isDirectory: () => false } as unknown,
       ])
 
       const workspace = await service.getOrCreateWorkspace('test-task')
 
       // Manually set the workspace path to our temp directory for testing
 
-      ;(workspace as any).workspacePath = tempDir
-      ;(workspace as any).setupComplete = true
+      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).workspacePath =
+        tempDir
+      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).setupComplete =
+        true
 
       const files = await service.listFiles('test-task')
 
@@ -202,8 +207,10 @@ describe('WorkspaceService', () => {
 
       // Manually set the workspace path to our temp directory for testing
 
-      ;(workspace as any).workspacePath = tempDir
-      ;(workspace as any).setupComplete = true
+      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).workspacePath =
+        tempDir
+      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).setupComplete =
+        true
 
       // Write file
       const content = 'console.log("Hello, world!");'
@@ -219,8 +226,10 @@ describe('WorkspaceService', () => {
 
       // Manually set the workspace path to our temp directory for testing
 
-      ;(workspace as any).workspacePath = tempDir
-      ;(workspace as any).setupComplete = true
+      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).workspacePath =
+        tempDir
+      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).setupComplete =
+        true
 
       // Attempt path traversal
       await expect(service.readFile('test-task', '../../../etc/passwd')).rejects.toThrow(
@@ -248,14 +257,14 @@ describe('WorkspaceService', () => {
           type: 'docker',
           image: 'node:18',
         },
-      } as any)
+      } as unknown)
 
       const workspace = await service.getOrCreateWorkspace('test-task')
 
       expect(workspace.type).toBe('docker')
       expect(workspace.status).toBe('initializing')
       // Container ID will be empty until setup is called
-      expect((workspace as any).containerId).toBe('')
+      expect((workspace as unknown as { containerId: string }).containerId).toBe('')
     })
   })
 
@@ -263,10 +272,10 @@ describe('WorkspaceService', () => {
     it('should cleanup local workspace with worktree', async () => {
       // Mock exec
       const execMock = vi.mocked(child_process.exec)
-      execMock.mockImplementation(((_cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((_cmd: string, opts: unknown, cb?: unknown) => {
         const callback = cb || opts
         callback(null, { stdout: 'success', stderr: '' })
-      }) as any)
+      }) as unknown)
 
       const workspace = await service.getOrCreateWorkspace('test-task-cleanup-local')
       await workspace.setup()
@@ -282,7 +291,7 @@ describe('WorkspaceService', () => {
         if (taskId === 'test-task-cleanup-docker') {
           return Promise.resolve({ ...mockTask, taskId, workspacePath: '/workspace' })
         }
-        return Promise.resolve(null as any)
+        return Promise.resolve(null)
       })
 
       vi.mocked(environmentService.getEnvironment).mockResolvedValueOnce({
@@ -302,14 +311,14 @@ describe('WorkspaceService', () => {
       const execMock = vi.mocked(child_process.exec)
       const containerId = 'abc123'
 
-      execMock.mockImplementation(((cmd: string, opts: any, cb?: any) => {
+      execMock.mockImplementation(((cmd: string, opts: unknown, cb?: unknown) => {
         const callback = cb || opts
         if (cmd.includes('docker create')) {
           callback(null, { stdout: containerId, stderr: '' })
         } else {
           callback(null, { stdout: 'success', stderr: '' })
         }
-      }) as any)
+      }) as unknown)
 
       const workspace = await service.getOrCreateWorkspace('test-task-cleanup-docker')
       await workspace.setup()

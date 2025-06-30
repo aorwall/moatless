@@ -101,7 +101,7 @@ export abstract class BaseWorkspace {
   /**
    * Start the server if configured
    */
-  abstract startServer?(): Promise<any>
+  abstract startServer?(): Promise<never>
 
   /**
    * Stop the server if running
@@ -111,7 +111,7 @@ export abstract class BaseWorkspace {
   /**
    * Get the current server status
    */
-  abstract getServerStatus?(): any
+  abstract getServerStatus?(): unknown
 
   /**
    * Get server logs

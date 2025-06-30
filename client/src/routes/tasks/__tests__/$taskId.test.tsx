@@ -57,7 +57,7 @@ vi.mock('@/features/tasks/components/task-skeletons', () => ({
 
 // Mock error boundary component
 vi.mock('@/lib/components/ui/error-alert', () => ({
-  ErrorAlert: ({ error, title }: any) => (
+  ErrorAlert: ({ error, title }: { error: Error; title?: string }) => (
     <div data-testid="error-alert">
       <h2>{title}</h2>
       <p>{error.message}</p>
@@ -76,12 +76,16 @@ vi.mock('@/features/tasks/components/task-header', () => ({
 
 // Mock SidebarTrigger to avoid provider dependency
 vi.mock('@/lib/components/ui/sidebar.tsx', () => ({
-  SidebarTrigger: () => <button data-testid="sidebar-trigger">Toggle Sidebar</button>,
+  SidebarTrigger: () => (
+    <button type="button" data-testid="sidebar-trigger">
+      Toggle Sidebar
+    </button>
+  ),
 }))
 
 // Mock router
 vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: (_path: string) => (config: any) => ({
+  createFileRoute: (_path: string) => (config: unknown) => ({
     useParams: () => ({ taskId: 'task-123' }),
     ...config,
   }),
@@ -91,17 +95,31 @@ vi.mock('@tanstack/react-router', () => ({
 
 // Mock UI components that add complexity without business value
 vi.mock('@/lib/components/ui/resizable', () => ({
-  ResizableHandle: ({ withHandle }: any) => (
+  ResizableHandle: ({ withHandle }: { withHandle?: boolean }) => (
     <div data-testid="resizable-handle" data-with-handle={withHandle}>
       Handle
     </div>
   ),
-  ResizablePanel: ({ children, defaultSize, minSize }: any) => (
+  ResizablePanel: ({
+    children,
+    defaultSize,
+    minSize,
+  }: {
+    children: React.ReactNode
+    defaultSize?: number
+    minSize?: number
+  }) => (
     <div data-testid="resizable-panel" data-default-size={defaultSize} data-min-size={minSize}>
       {children}
     </div>
   ),
-  ResizablePanelGroup: ({ children, direction }: any) => (
+  ResizablePanelGroup: ({
+    children,
+    direction,
+  }: {
+    children: React.ReactNode
+    direction?: string
+  }) => (
     <div data-testid="resizable-panel-group" data-direction={direction}>
       {children}
     </div>
@@ -112,7 +130,17 @@ vi.mock('@/lib/components/ui/tabs', () => {
   let currentTabValue = 'events'
 
   return {
-    Tabs: ({ children, value, onValueChange, className }: any) => {
+    Tabs: ({
+      children,
+      value,
+      onValueChange,
+      className,
+    }: {
+      children: React.ReactNode
+      value?: string
+      onValueChange?: (value: string) => void
+      className?: string
+    }) => {
       currentTabValue = value || 'events'
       return (
         <div
@@ -120,18 +148,21 @@ vi.mock('@/lib/components/ui/tabs', () => {
           data-value={value}
           className={className}
           onClick={() => onValueChange?.(value === 'events' ? 'diff' : 'events')}
+          onKeyDown={() => onValueChange?.(value === 'events' ? 'diff' : 'events')}
+          role="tablist"
         >
           {children}
         </div>
       )
     },
-    TabsList: ({ children, className }: any) => (
+    TabsList: ({ children, className }: { children: React.ReactNode; className?: string }) => (
       <div data-testid="tabs-list" className={className} role="tablist">
         {children}
       </div>
     ),
-    TabsTrigger: ({ children, value }: any) => (
+    TabsTrigger: ({ children, value }: { children: React.ReactNode; value: string }) => (
       <button
+        type="button"
         data-testid={`tab-trigger-${value}`}
         role="tab"
         aria-selected={currentTabValue === value ? 'true' : 'false'}
@@ -139,7 +170,15 @@ vi.mock('@/lib/components/ui/tabs', () => {
         {children}
       </button>
     ),
-    TabsContent: ({ children, value, className }: any) => (
+    TabsContent: ({
+      children,
+      value,
+      className,
+    }: {
+      children: React.ReactNode
+      value: string
+      className?: string
+    }) => (
       <div
         data-testid={`tab-content-${value}`}
         data-value={value}
@@ -156,7 +195,7 @@ vi.mock('@/lib/components/ui/tabs', () => {
 import { Route } from '@/routes/tasks/$taskId'
 
 // Get the actual component from the route
-const TaskDetail = (Route as any).component
+const TaskDetail = Route.component
 
 describe('TaskDetail Route - Integration Tests', () => {
   const mockResetUIState = vi.fn()
@@ -184,7 +223,7 @@ describe('TaskDetail Route - Integration Tests', () => {
       data: defaultTask,
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     // Mock all other hooks used by TaskHeader
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
@@ -195,7 +234,7 @@ describe('TaskDetail Route - Integration Tests', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useServerStatus).mockReturnValue({
       data: {
@@ -206,35 +245,35 @@ describe('TaskDetail Route - Integration Tests', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskEvents).mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskGitDiff).mockReturnValue({
       data: undefined,
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     // Mock mutation hooks
     vi.mocked(useStartServer).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useStopServer).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useStopAgent).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     // Mock ChatInput dependencies
     vi.mocked(useSendMessage).mockReturnValue({
@@ -244,7 +283,7 @@ describe('TaskDetail Route - Integration Tests', () => {
       isSuccess: false,
       error: null,
       data: undefined,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useCreateTask).mockReturnValue({
       mutate: vi.fn(),
@@ -253,25 +292,25 @@ describe('TaskDetail Route - Integration Tests', () => {
       isSuccess: false,
       error: null,
       data: undefined,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useEnvironmentsList).mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useSearchFiles).mockReturnValue({
       data: { results: [], total_found: 0, query: '' },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskFileSearch).mockReturnValue({
       data: { results: [], total_found: 0, query: '' },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskUIStore).mockImplementation((selector) => {
       const state = {
@@ -281,7 +320,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         selectedIteration: null,
         setSelectedIteration: vi.fn(),
       }
-      return selector ? selector(state as any) : state
+      return selector ? selector(state as unknown) : state
     })
 
     vi.mocked(useRightPanelView).mockReturnValue('events')
@@ -298,7 +337,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: undefined,
         isLoading: true,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -311,7 +350,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: undefined,
         isLoading: false,
         error,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -325,7 +364,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: null,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -348,7 +387,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: taskWithIterations,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -379,7 +418,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: runningTask,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -414,7 +453,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: undefined,
         isLoading: true,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
       expect(screen.getByTestId('task-skeleton')).toBeInTheDocument()
@@ -426,7 +465,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: undefined,
         isLoading: false,
         error,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -462,7 +501,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: taskWithIterations,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -488,7 +527,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: specificTask,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -512,7 +551,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: emptyTask,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -564,7 +603,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: undefined,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -578,13 +617,13 @@ describe('TaskDetail Route - Integration Tests', () => {
         task_id: 'task-123',
         title: 'Minimal Task',
         // Missing many optional fields
-      } as any
+      } as Partial<Task>
 
       vi.mocked(useTask).mockReturnValue({
         data: minimalTask,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       renderWithRouter(<TaskDetail />)
 
@@ -602,7 +641,7 @@ describe('TaskDetail Route - Integration Tests', () => {
         data: taskWithManyIterations,
         isLoading: false,
         error: null,
-      } as any)
+      } as ReturnType<typeof useTask>)
 
       const startTime = performance.now()
       renderWithRouter(<TaskDetail />)
@@ -632,7 +671,7 @@ describe('TaskDetail Route - Contract Tests', () => {
       data: createMockTask({ task_id: 'task-123' }),
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     // Mock all hooks for contract tests
     vi.mocked(useTaskWorkspaceStatus).mockReturnValue({
@@ -643,7 +682,7 @@ describe('TaskDetail Route - Contract Tests', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useServerStatus).mockReturnValue({
       data: {
@@ -654,35 +693,35 @@ describe('TaskDetail Route - Contract Tests', () => {
       },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskEvents).mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskGitDiff).mockReturnValue({
       data: undefined,
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     // Mock mutation hooks
     vi.mocked(useStartServer).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useStopServer).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useStopAgent).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     // Mock ChatInput dependencies
     vi.mocked(useSendMessage).mockReturnValue({
@@ -692,7 +731,7 @@ describe('TaskDetail Route - Contract Tests', () => {
       isSuccess: false,
       error: null,
       data: undefined,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useCreateTask).mockReturnValue({
       mutate: vi.fn(),
@@ -701,25 +740,25 @@ describe('TaskDetail Route - Contract Tests', () => {
       isSuccess: false,
       error: null,
       data: undefined,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useEnvironmentsList).mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useSearchFiles).mockReturnValue({
       data: { results: [], total_found: 0, query: '' },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskFileSearch).mockReturnValue({
       data: { results: [], total_found: 0, query: '' },
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     vi.mocked(useTaskUIStore).mockImplementation((selector) => {
       const state = {
@@ -727,7 +766,7 @@ describe('TaskDetail Route - Contract Tests', () => {
         setRightPanelView: mockSetRightPanelView,
         resetUIState: mockResetUIState,
       }
-      return selector ? selector(state as any) : state
+      return selector ? selector(state as unknown) : state
     })
 
     vi.mocked(useRightPanelView).mockReturnValue('events')
@@ -756,7 +795,7 @@ describe('TaskDetail Route - Contract Tests', () => {
       data: taskData,
       isLoading: false,
       error: null,
-    } as any)
+    } as ReturnType<typeof useTaskGitDiff>)
 
     renderWithRouter(<TaskDetail />)
 

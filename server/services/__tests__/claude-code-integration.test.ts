@@ -20,7 +20,7 @@ describe('Claude Code Integration', () => {
       model: 'claude-3-haiku-20240307', // Use faster model for tests
     })
 
-    const events: any[] = []
+    const events: unknown[] = []
 
     try {
       for await (const event of agent.run('Say hello', { workspaceDir: tempDir })) {

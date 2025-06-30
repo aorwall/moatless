@@ -636,7 +636,7 @@ process.on('SIGTERM', () => {
 
     // Verify server is running
     const { default: http } = await import('node:http')
-    const firstResponse = await new Promise<any>((resolve, reject) => {
+    const firstResponse = await new Promise<unknown>((resolve, reject) => {
       http
         .get(`http://localhost:${port}`, (res) => {
           let data = ''
@@ -676,7 +676,7 @@ process.on('SIGTERM', () => {
     expect(status.url).toBe(`http://localhost:${port}`)
 
     // Verify server is still responding
-    const secondResponse = await new Promise<any>((resolve, reject) => {
+    const secondResponse = await new Promise<unknown>((resolve, reject) => {
       http
         .get(`http://localhost:${port}`, (res) => {
           let data = ''

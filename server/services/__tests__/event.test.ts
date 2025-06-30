@@ -36,7 +36,7 @@ describe('EventService', () => {
         agentType: 'claude-code',
         type: EventType.START,
         taskId: 'task-123',
-        timestamp: null as any,
+        timestamp: new Date(),
         isError: false,
         payload: { message: 'Starting task' },
       }

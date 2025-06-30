@@ -23,7 +23,7 @@ describe('Task Status Management', () => {
       exists: vi.fn(),
       read: vi.fn(),
       write: vi.fn(),
-    } as any
+    } as unknown as StorageBackend
 
     mockWorkspaceService = {
       createWorkspace: vi.fn(),
@@ -32,17 +32,17 @@ describe('Task Status Management', () => {
       trackBackgroundTask: vi.fn(),
       stopServer: vi.fn(),
       cleanupWorkspace: vi.fn(),
-    } as any
+    } as unknown as WorkspaceService
 
     mockAgentService = {
       executeAgent: vi.fn(),
       stopAgent: vi.fn(),
       getTaskRunningStatus: vi.fn(),
-    } as any
+    } as unknown as AgentService
 
     mockCommandService = {
       getCommand: vi.fn(),
-    } as any
+    } as unknown as CommandService
 
     taskService = new TaskService(
       mockStorage,
@@ -60,13 +60,13 @@ describe('Task Status Management', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
         getStatus: () => 'idle',
-      } as any)
+      } as unknown)
 
       // Mock workspace setup and getWorkspace
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
         getStatus: () => 'idle',
-      } as any)
+      } as unknown)
 
       // Track saved tasks to verify status changes
       const savedTasks: Task[] = []
@@ -144,7 +144,7 @@ describe('Task Status Management', () => {
         id: 'task-id',
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
-      } as any)
+      } as unknown)
 
       // Track saved tasks
       const savedTasks: Task[] = []
@@ -238,12 +238,12 @@ describe('Task Status Management', () => {
         type: 'local',
         getWorkspacePath: () => '/test/workspace',
         getStatus: () => 'idle',
-      } as any)
+      } as unknown)
 
       // Mock workspace being ready
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
         getStatus: () => 'idle',
-      } as any)
+      } as unknown)
 
       // Track task states
       let currentTask: Task | null = null

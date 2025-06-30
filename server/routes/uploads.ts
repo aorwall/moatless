@@ -90,7 +90,7 @@ export async function uploadRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { uploadId, filename } = request.params as any
+      const { uploadId, filename } = request.params as { uploadId: string; filename: string }
 
       try {
         const uploadDir = getUploadDir()

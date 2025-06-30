@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Task } from '../../../shared/types/task.js'
 import { build } from '../../test/helper.js'
 
 describe('Task Routes', () => {
@@ -210,7 +211,7 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 for non-existent task', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
 
       const response = await app.inject({
         method: 'GET',
@@ -335,10 +336,10 @@ describe('Task Routes', () => {
 
   describe('GET /api/tasks/:taskId/events', () => {
     it('should return task events with pagination', async () => {
-      const mockTask = {
+      const mockTask: Partial<Task> = {
         taskId: 'test-123',
         status: 'running' as const,
-      } as any
+      }
 
       const mockEvents = [
         {
@@ -357,7 +358,7 @@ describe('Task Routes', () => {
           isError: false,
           payload: { content: 'Hello' },
         },
-      ] as any
+      ]
 
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(mockTask)
       vi.spyOn(app.services.event, 'getEvents').mockResolvedValueOnce(mockEvents)
@@ -374,7 +375,7 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 if task does not exist', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
+      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null)
 
       const response = await app.inject({
         method: 'GET',

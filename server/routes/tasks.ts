@@ -20,6 +20,48 @@ const TaskIdParamsSchema = z.object({
   taskId: z.string(),
 })
 
+// Schema for query params
+const EventTypeQuerySchema = z.object({
+  type: z.string().optional(),
+})
+
+const FileQuerySchema = z.object({
+  path: z.string().optional().default('/'),
+  recursive: z.boolean().optional().default(false),
+})
+
+const FileContentSchema = z.object({
+  content: z.string(),
+})
+
+const TaskFileParamsSchema = z.object({
+  taskId: z.string(),
+  '*': z.string(),
+})
+
+const FileSearchSchema = z.object({
+  query: z.string(),
+  limit: z.number().optional(),
+})
+
+const CommandExecutionSchema = z.object({
+  command: z.string(),
+  timeout: z.number().optional(),
+})
+
+const ServerLogsQuerySchema = z.object({
+  lines: z.number().optional(),
+})
+
+const MergeTaskSchema = z.object({
+  targetBranch: z.string().optional().default('main'),
+  commitMessage: z.string().optional(),
+})
+
+const SSEQuerySchema = z.object({
+  lastEventId: z.string().optional(),
+})
+
 // Response schema for merge endpoint
 const MergeResponseSchema = z.object({
   success: z.boolean(),
@@ -43,7 +85,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { model, filePaths, ...taskData } = request.body as any
+      const { model, filePaths, ...taskData } = request.body as z.infer<
+        typeof CreateTaskRequestSchema
+      >
       const taskId = await taskService.createTask({ ...taskData, model, filePaths })
 
       // Get the task to return the current status
@@ -61,7 +105,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
       const task = await taskService.getTask(taskId)
 
       if (!task) {
@@ -81,7 +125,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { limit, offset, status } = request.query as any
+      const { limit, offset, status } = request.query as z.infer<typeof TaskListQuerySchema>
       const tasks = await taskService.listTasks(limit, offset, status)
 
       const response: TaskListResponse = {
@@ -110,8 +154,10 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
-      const { message, resume, model, fileIds, filePaths, commandName } = request.body as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { message, resume, model, fileIds, filePaths, commandName } = request.body as z.infer<
+        typeof SendMessageRequestSchema
+      >
 
       await taskService.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName)
       return { status: 'sent', timestamp: new Date().toISOString() }
@@ -130,8 +176,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
-      const { type } = request.query as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { type } = request.query as z.infer<typeof EventTypeQuerySchema>
 
       // Verify task exists
       const task = await taskService.getTask(taskId)
@@ -167,7 +213,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       await taskService.deleteTask(taskId)
       return { status: 'deleted' }
@@ -183,7 +229,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       // Task validation now handled in workspace service
       const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
@@ -203,7 +249,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       // Stop agent through AgentService
       const stopped = await app.services.agent.stopAgent(taskId)
@@ -230,7 +276,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       await taskService.closeTask(taskId)
 
@@ -254,8 +300,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { taskId } = request.params as any
-      const { path = '/', recursive = false } = request.query as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { path = '/', recursive = false } = request.query as z.infer<typeof FileQuerySchema>
 
       try {
         // Task validation and capability check now handled in workspace service
@@ -291,8 +337,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { taskId } = request.params as any
-      const filePath = (request.params as any)['*']
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { '*': filePath } = request.params as z.infer<typeof TaskFileParamsSchema>
 
       if (!filePath) {
         return reply.status(400).send({ error: 'File path is required' })
@@ -341,9 +387,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
-      const filePath = (request.params as any)['*']
-      const { content } = request.body as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { '*': filePath } = request.params as z.infer<typeof TaskFileParamsSchema>
+      const { content } = request.body as z.infer<typeof FileContentSchema>
 
       // Task validation and capability check now handled in workspace service
       await app.services.workspace.writeFile(taskId, filePath, content)
@@ -364,8 +410,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { taskId } = request.params as any
-      const { query, limit } = request.body as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { query, limit } = request.body as z.infer<typeof FileSearchSchema>
 
       try {
         // Task validation and capability check now handled in workspace service
@@ -395,7 +441,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       try {
         // Task validation and capability check now handled in workspace service
@@ -434,8 +480,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
-      const { command, timeout } = request.body as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { command, timeout } = request.body as z.infer<typeof CommandExecutionSchema>
 
       // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.runCommand(taskId, command, timeout)
@@ -452,7 +498,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.startServer(taskId)
@@ -469,7 +515,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       // Task validation and capability check now handled in workspace service
       const stopped = await app.services.workspace.stopServer(taskId)
@@ -489,7 +535,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       // Task validation and capability check now handled in workspace service
       const result = await app.services.workspace.restartServer(taskId)
@@ -506,7 +552,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
       // Task validation and capability check now handled in workspace service
       return await app.services.workspace.getServerStatus(taskId)
     },
@@ -525,8 +571,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
-      const { lines } = request.query as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { lines } = request.query as z.infer<typeof ServerLogsQuerySchema>
 
       // Task validation and capability check now handled in workspace service
       const logs = await app.services.workspace.getServerLogs(taskId, lines)
@@ -562,9 +608,9 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
       const body = request.body || {}
-      const { targetBranch = 'main', commitMessage } = body as any
+      const { targetBranch = 'main', commitMessage } = body as z.infer<typeof MergeTaskSchema>
 
       // Import git utils
       const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch, checkForConflicts } =
@@ -674,8 +720,8 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { taskId } = request.params as any
-      const { lastEventId } = request.query as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+      const { lastEventId } = request.query as z.infer<typeof SSEQuerySchema>
 
       // Verify task exists
       const task = await taskService.getTask(taskId)
@@ -788,7 +834,7 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       },
     },
     async (request, _reply) => {
-      const { taskId } = request.params as any
+      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
 
       // Verify task exists
       const task = await taskService.getTask(taskId)

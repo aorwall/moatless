@@ -7,7 +7,7 @@ export interface AgentOptions {
   maxTokens?: number
   temperature?: number
   timeout?: number
-  [key: string]: any
+  [key: string]: unknown
 }
 
 export interface AgentRunOptions {

@@ -145,7 +145,9 @@ export function throttle<T extends (...args: any[]) => any>(func: T, limit: numb
     if (!inThrottle) {
       func(...args)
       inThrottle = true
-      setTimeout(() => (inThrottle = false), limit)
+      setTimeout(() => {
+        inThrottle = false
+      }, limit)
     }
   }) as T
 }
