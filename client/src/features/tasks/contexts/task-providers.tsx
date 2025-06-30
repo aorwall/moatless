@@ -28,6 +28,8 @@ export {
   useGitDiff,
   useTaskData,
   useTaskIterations,
+  useTaskLoadingError,
+  useTaskMetadata,
   useTaskStatus,
   useWorkspaceStatus,
 } from './task-data-provider'
