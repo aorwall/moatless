@@ -19,6 +19,7 @@ import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { Alert, AlertDescription } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
+import { IsolatedTimer } from '@/lib/components/ui/isolated-timer'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
@@ -37,7 +38,6 @@ export function ChatView() {
   const { scrollRef } = useAutoScroll()
 
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [currentTime, setCurrentTime] = useState(Date.now())
   const [isAtBottom, setIsAtBottom] = useState(true)
 
   // Get workspace status from context
@@ -77,14 +77,6 @@ export function ChatView() {
       },
     )
   }
-
-  // Update current time every second for running clock
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now())
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [])
 
   // Check if user is at the bottom of the scroll area
   const checkIfAtBottom = useCallback(() => {
@@ -198,18 +190,16 @@ export function ChatView() {
     return messageEvents.length || staticCount
   }
 
-  // Calculate running duration for active iteration
-  const getRunningDuration = (iteration: TaskIteration, index: number): number => {
+  // Get iteration timing info
+  const getIterationTiming = (iteration: TaskIteration, index: number) => {
     const isLastIteration = index === (iterations?.length || 0) - 1
     const isRunning = isLastIteration && status === 'running'
 
-    if (!isRunning) {
-      return iteration.durationMs || 0
+    return {
+      isRunning,
+      duration: iteration.durationMs || 0,
+      startTime: iteration.startTime,
     }
-
-    // Calculate elapsed time since iteration started
-    const startTime = new Date(iteration.startTime).getTime()
-    return currentTime - startTime
   }
 
   const isTaskRunning = status === 'running'
@@ -225,7 +215,7 @@ export function ChatView() {
         <ScrollArea className="h-full w-full" ref={scrollRef}>
           <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">
             {iterations?.map((iteration: TaskIteration, index: number) => {
-              const duration = getRunningDuration(iteration, index)
+              const timing = getIterationTiming(iteration, index)
               const messageCount = getMessageCountForIteration(index, iteration.messageCount)
               const isLastIteration = index === (iterations?.length || 0) - 1
               const isRunningIteration = isLastIteration && status === 'running'
@@ -252,7 +242,11 @@ export function ChatView() {
                       >
                         <div className="flex items-center gap-1">
                           <Clock className="h-4 w-4" />
-                          <span>{formatDuration(duration)}</span>
+                          {timing.isRunning ? (
+                            <IsolatedTimer startTime={timing.startTime} />
+                          ) : (
+                            <span>{formatDuration(timing.duration)}</span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1">
                           <MessageSquare className="h-4 w-4" />

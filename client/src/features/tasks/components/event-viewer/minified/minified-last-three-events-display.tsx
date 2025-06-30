@@ -1,8 +1,8 @@
 import type { Event, MessageEvent } from '@shared/types/event'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
+import { useEffect, useState } from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import { IsolatedTimer } from '@/lib/components/ui/isolated-timer'
 import { MinifiedEventItem } from './minified-event-item'
 
 interface MinifiedLastThreeEventsDisplayProps {
@@ -34,28 +34,6 @@ export function MinifiedLastThreeEventsDisplay({
   runningStartTime,
 }: MinifiedLastThreeEventsDisplayProps) {
   const [displayedEvents, setDisplayedEvents] = useState<Array<Event | MergedEvent>>([])
-  const [, setCurrentTime] = useState(Date.now())
-  const animationFrameRef = useRef<number>()
-
-  // Update running time every second
-  useEffect(() => {
-    if (!isRunning || !runningStartTime) return
-
-    const updateTime = () => {
-      setCurrentTime(Date.now())
-      animationFrameRef.current = requestAnimationFrame(() => {
-        setTimeout(updateTime, 1000)
-      })
-    }
-
-    updateTime()
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-    }
-  }, [isRunning, runningStartTime])
 
   // Filter and update displayed events
   useEffect(() => {
@@ -71,9 +49,6 @@ export function MinifiedLastThreeEventsDisplay({
   if (displayedEvents.length === 0) {
     return null
   }
-
-  const runningText =
-    isRunning && runningStartTime ? formatRunningDuration(runningStartTime) : 'running'
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
@@ -96,7 +71,11 @@ export function MinifiedLastThreeEventsDisplay({
               {isLast && isRunning && (
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>{runningText}</span>
+                  {runningStartTime ? (
+                    <IsolatedTimer startTime={runningStartTime} />
+                  ) : (
+                    <span>running</span>
+                  )}
                 </div>
               )}
             </div>
