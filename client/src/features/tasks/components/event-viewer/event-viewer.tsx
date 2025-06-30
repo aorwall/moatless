@@ -1,6 +1,7 @@
 import { FileText, Loader2 } from 'lucide-react'
-import { useMemo } from 'react'
-import { useTaskData, useTaskEvents } from '@/features/tasks/contexts/task-providers'
+import React, { useMemo } from 'react'
+import { useTaskEvents } from '@/features/tasks/contexts/task-providers'
+import { useTaskLoadingState } from '@/features/tasks/hooks/optimized-hooks'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -8,12 +9,13 @@ import { ScrollArea } from '@/lib/components/ui/scroll-area'
 
 import { EventList } from './event-list'
 
-export function EventViewer() {
+function EventViewerComponent() {
   const { scrollRef } = useAutoScroll()
 
   // Use the context to get events and states
   const { events } = useTaskEvents()
-  const { isLoading, error } = useTaskData()
+  // Use optimized hook that only subscribes to loading/error state
+  const { isLoading, error } = useTaskLoadingState()
 
   // Merge tool events within each event for cleaner display
   const mergedEvents = useMemo(() => {
@@ -65,3 +67,5 @@ export function EventViewer() {
     </ScrollArea>
   )
 }
+
+export const EventViewer = React.memo(EventViewerComponent)

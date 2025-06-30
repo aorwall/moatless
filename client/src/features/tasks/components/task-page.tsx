@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { FileTree, FileViewer } from '@/features/file-viewer'
 import { Preview, useServerStatus } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -18,7 +18,7 @@ import { EventViewer } from './event-viewer'
 import { GitDiffViewer } from './git-diff-viewer'
 import { TaskDetailSkeleton } from './task-skeletons'
 
-export function TaskPage() {
+function TaskPageComponent() {
   const { taskId } = useParams({ from: '/tasks/$taskId' })
 
   // Use specialized hooks that only cause re-renders when specific data changes
@@ -228,3 +228,5 @@ export function TaskPage() {
     </div>
   )
 }
+
+export const TaskPage = React.memo(TaskPageComponent)
