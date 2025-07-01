@@ -1,22 +1,9 @@
 import type {
   CodeExecution,
   CreateRepositoryRequest,
-  Repository,
   RepositoryResponse,
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
-
-type LocalRepository = Extract<Repository, { type: 'local' }>
-
-// Repository factories
-export function createMockLocalRepository(overrides?: Partial<LocalRepository>): LocalRepository {
-  return {
-    type: 'local',
-    path: '/Users/developer/projects/test-app',
-    useGitWorktrees: false,
-    ...overrides,
-  }
-}
 
 
 // Code execution factories
@@ -50,7 +37,8 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
     id: 'env-123',
     name: 'Test Repository',
     description: 'A test repository for unit tests',
-    repository: createMockLocalRepository(),
+    path: '/Users/developer/projects/test-app',
+    useGitWorktrees: false,
     codeExecution: createMockLocalCodeExecution(),
     variables: {
       NODE_ENV: 'test',
@@ -70,7 +58,8 @@ export function createMockCreateRepositoryRequest(
   return {
     name: 'New Test Repository',
     description: 'A newly created test repository',
-    repository: createMockLocalRepository(),
+    path: '/Users/developer/projects/test-app',
+    useGitWorktrees: false,
     codeExecution: createMockLocalCodeExecution(),
     variables: {
       NODE_ENV: 'development',

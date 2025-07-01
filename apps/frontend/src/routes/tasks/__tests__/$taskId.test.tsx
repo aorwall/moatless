@@ -211,7 +211,7 @@ describe('TaskDetail Route - Integration Tests', () => {
     // Default task data for integration testing
     const defaultTask = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         title: 'Integration Test Task',
         status: 'active',
       },
@@ -377,7 +377,7 @@ describe('TaskDetail Route - Integration Tests', () => {
     it('renders all main components and displays task data', () => {
       const taskWithIterations = createMockTaskWithIterations(
         {
-          task_id: 'task-123',
+          taskId: 'task-123',
           title: 'Test Integration Task',
         },
         2,
@@ -407,7 +407,7 @@ describe('TaskDetail Route - Integration Tests', () => {
     it('integrates task status with chat input behavior', () => {
       const runningTask = createMockTaskWithIterations(
         {
-          task_id: 'task-123',
+          taskId: 'task-123',
           is_running: true,
           status: 'active',
         },
@@ -518,7 +518,7 @@ describe('TaskDetail Route - Integration Tests', () => {
   describe('Data Flow Integration', () => {
     it('passes task context through component hierarchy', () => {
       const specificTask = createMockTask({
-        task_id: 'task-456',
+        taskId: 'task-456',
         title: 'Specific Task Title',
         status: 'completed',
       })
@@ -543,7 +543,7 @@ describe('TaskDetail Route - Integration Tests', () => {
 
     it('handles empty task iterations gracefully', () => {
       const emptyTask = createMockTask({
-        task_id: 'task-123',
+        taskId: 'task-123',
         iterations: [],
       })
 
@@ -614,7 +614,7 @@ describe('TaskDetail Route - Integration Tests', () => {
     it('gracefully handles component integration failures', () => {
       // Test with minimal task data that might break some components
       const minimalTask = {
-        task_id: 'task-123',
+        taskId: 'task-123',
         title: 'Minimal Task',
         // Missing many optional fields
       } as Partial<Task>

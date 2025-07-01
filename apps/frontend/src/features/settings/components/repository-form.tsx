@@ -2,12 +2,9 @@ import { CreateRepositorySchema, UpdateRepositorySchema } from '@moatless/shared
 import type {
   CodeExecution,
   CreateRepositoryRequest,
-  Repository,
   RepositoryResponse,
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
-
-type LocalRepository = Extract<Repository, { type: 'local' }>
 
 import { useId, useState } from 'react'
 import { z } from 'zod'
@@ -76,21 +73,14 @@ export function RepositoryForm({
     variables: {} as Record<string, string>,
   })
 
-  const getRepositoryFields = (repo: Repository) => {
-    if (repo.type === 'local') {
-      return {
-        localPath: repo.path,
-        useGitWorktrees: repo.useGitWorktrees,
-        githubRepoId: '',
-        githubBranch: 'main',
-        githubCommit: '',
-        githubToken: '',
-      }
-    }
-
+  const getRepositoryFields = (repo: RepositoryResponse) => {
     return {
-      localPath: repo.path || '',
-      useGitWorktrees: repo.useGitWorktrees || false,
+      localPath: repo.path,
+      useGitWorktrees: repo.useGitWorktrees,
+      githubRepoId: '',
+      githubBranch: 'main',
+      githubCommit: '',
+      githubToken: '',
     }
   }
 
@@ -121,15 +111,14 @@ export function RepositoryForm({
       return getDefaultFormData()
     }
 
-    const repo = initialData.repository
     const exec = initialData.codeExecution
 
     return {
       name: initialData.name,
       description: initialData.description || '',
-      repositoryType: repo.type,
+      repositoryType: 'local' as 'local' | 'github',
       codeExecutionType: exec.type,
-      ...getRepositoryFields(repo),
+      ...getRepositoryFields(initialData),
       ...getExecutionFields(exec),
       variables: initialData.variables || {},
     }
@@ -145,7 +134,8 @@ export function RepositoryForm({
         const request: CreateRepositoryRequest = {
           name: formData.name,
           description: formData.description || undefined,
-          repository: createRepository(),
+          path: formData.localPath,
+          useGitWorktrees: formData.useGitWorktrees || undefined,
           codeExecution: createCodeExecution(),
           variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
@@ -154,7 +144,8 @@ export function RepositoryForm({
         const request: UpdateRepositoryRequest = {
           name: formData.name,
           description: formData.description || undefined,
-          repository: createRepository(),
+          path: formData.localPath,
+          useGitWorktrees: formData.useGitWorktrees || undefined,
           codeExecution: createCodeExecution(),
           variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
@@ -184,13 +175,6 @@ export function RepositoryForm({
     }
   }
 
-  const createRepository = (): Repository => {
-    return {
-      type: 'local',
-      path: formData.localPath,
-      useGitWorktrees: formData.useGitWorktrees || undefined,
-    } as LocalRepository
-  }
 
   const createCodeExecution = (): CodeExecution => {
     if (formData.codeExecutionType === 'local') {
@@ -222,14 +206,16 @@ export function RepositoryForm({
         ? ({
             name: formData.name,
             description: formData.description || undefined,
-            repository: createRepository(),
+            path: formData.localPath,
+            useGitWorktrees: formData.useGitWorktrees || undefined,
             codeExecution: createCodeExecution(),
             variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
           } as CreateRepositoryRequest)
         : ({
             name: formData.name,
             description: formData.description || undefined,
-            repository: createRepository(),
+            path: formData.localPath,
+            useGitWorktrees: formData.useGitWorktrees || undefined,
             codeExecution: createCodeExecution(),
             variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
           } as UpdateRepositoryRequest)

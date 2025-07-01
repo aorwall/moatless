@@ -1,9 +1,7 @@
-import type { Repository } from '@moatless/shared/types/repository'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockRepository } from '@/test-utils/factories'
 
-type LocalRepository = Extract<Repository, { type: 'local' }>
 import { render } from '@/test-utils/render'
 import { RepositoryForm } from '../repository-form'
 
@@ -63,10 +61,7 @@ describe('RepositoryForm', () => {
           expect.objectContaining({
             name: 'Test Environment',
             description: 'Test description',
-            repository: {
-              type: 'local',
-              path: '/test/path',
-            },
+            path: '/test/path',
             codeExecution: {
               type: 'local',
             },
@@ -104,11 +99,7 @@ describe('RepositoryForm', () => {
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            repository: {
-              type: 'github',
-              repoId: 'owner/repo',
-              branch: 'main',
-            },
+            path: '',
           }),
         )
       })
@@ -173,11 +164,8 @@ describe('RepositoryForm', () => {
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            repository: {
-              type: 'local',
-              path: '/test/path',
-              useGitWorktrees: true,
-            },
+            path: '/test/path',
+            useGitWorktrees: true,
           }),
         )
       })
@@ -201,7 +189,7 @@ describe('RepositoryForm', () => {
       expect(screen.getByLabelText(/Name/)).toHaveValue(mockRepository.name)
       expect(screen.getByLabelText(/Description/)).toHaveValue(mockRepository.description)
       expect(screen.getByLabelText(/Local Path/)).toHaveValue(
-        (mockRepository.repository as LocalRepository).path,
+        mockRepository.path,
       )
     })
 
@@ -232,7 +220,7 @@ describe('RepositoryForm', () => {
           expect.objectContaining({
             name: 'Updated Environment Name',
             description: mockRepository.description,
-            repository: mockRepository.repository,
+            path: mockRepository.path,
             codeExecution: mockRepository.codeExecution,
           }),
         )
