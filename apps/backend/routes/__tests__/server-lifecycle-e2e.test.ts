@@ -126,11 +126,8 @@ process.on('SIGTERM', () => {
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Server Lifecycle Test Repository',
       description: 'Test repository for server lifecycle management',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Repository ready for server"',
@@ -155,7 +152,8 @@ process.on('SIGTERM', () => {
     expect(repository).toMatchObject({
       name: createRepositoryRequest.name,
       description: createRepositoryRequest.description,
-      repository: createRepositoryRequest.repository,
+      path: createRepositoryRequest.path,
+      useGitWorktrees: createRepositoryRequest.useGitWorktrees,
       codeExecution: createRepositoryRequest.codeExecution,
     })
 
@@ -348,11 +346,8 @@ process.exit(1);
     // Create repository with failing server
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Failing Server Test Repository',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         serverCommand: 'node bad-server.js {PORT}',
@@ -443,11 +438,8 @@ process.on('SIGTERM', () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Server Tracking Test',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         serverCommand: 'node tracking-server.js {PORT}',
@@ -579,11 +571,8 @@ process.on('SIGTERM', () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Server Persistence Test',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         serverCommand: 'node persistent-server.js {PORT}',
@@ -736,11 +725,8 @@ process.on('SIGTERM', () => {
           url: '/api/v1/repositories',
           payload: {
             name: 'Singleton Server Test',
-            repository: {
-              type: 'local',
-              path: tempDir,
-              useGitWorktrees: false,
-            },
+            path: tempDir,
+            useGitWorktrees: false,
             codeExecution: {
               type: 'local',
               serverCommand: 'node singleton-server.js {PORT}',
@@ -836,11 +822,8 @@ server.listen(port, () => {
           url: '/api/v1/repositories',
           payload: {
             name: 'Orphan Process Test',
-            repository: {
-              type: 'local',
-              path: tempDir,
-              useGitWorktrees: false,
-            },
+            path: tempDir,
+            useGitWorktrees: false,
             codeExecution: {
               type: 'local',
               serverCommand: 'node orphan-server.js {PORT}',

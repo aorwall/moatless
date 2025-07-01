@@ -7,10 +7,9 @@ import {
   WorkspaceError,
 } from '@moatless/shared/constants/errors'
 import type { FastifyInstance } from 'fastify'
-import type { CommandResult, Repository, ServerStatus } from '@moatless/shared/types/index'
+import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
+import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
-
-type LocalRepository = Extract<Repository, { type: 'local' }>
 
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
@@ -45,13 +44,11 @@ export class WorkspaceService {
 
     // Create workspace path for local repositories
     let workspacePath: string | undefined
-    if (repository.repository.type === 'local') {
-      workspacePath = await this.createWorkspaceRepository(
-        repository.repository,
-        taskId,
-        branchName,
-      )
-    }
+    workspacePath = await this.createWorkspaceRepository(
+      repository,
+      taskId,
+      branchName,
+    )
 
     let workspace: BaseWorkspace
     if (repository.codeExecution.type === 'docker') {
@@ -73,7 +70,7 @@ export class WorkspaceService {
   }
 
   private async createWorkspaceRepository(
-    repo: LocalRepository,
+    repo: RepositoryConfig,
     taskId: string,
     branchName?: string,
   ): Promise<string> {
@@ -109,7 +106,7 @@ export class WorkspaceService {
     return `workspace-${taskId}`
   }
 
-  private getWorktreeFolderName(repo: LocalRepository, taskId: string): string {
+  private getWorktreeFolderName(repo: RepositoryConfig, taskId: string): string {
     // Get the last directory name from the repo path
     const repoLastDirName = path.basename(repo.path)
 
@@ -163,7 +160,7 @@ export class WorkspaceService {
   }
 
   // Private helper methods
-  private getWorktreeDir(repo: LocalRepository): string {
+  private getWorktreeDir(repo: RepositoryConfig): string {
     // If worktrees are disabled, use repository path directly
     if (!repo.useGitWorktrees) {
       return repo.path
@@ -223,10 +220,9 @@ export class WorkspaceService {
     }
 
     workspaceLogger.debug('Repository loaded successfully', {
-      repositoryType: repository.repository.type,
+      repositoryPath: repository.path,
       codeExecutionType: repository.codeExecution.type,
-      useGitWorktrees:
-        repository.repository.type === 'local' ? repository.repository.useGitWorktrees : false,
+      useGitWorktrees: repository.useGitWorktrees || false,
     })
 
     try {
@@ -255,7 +251,7 @@ export class WorkspaceService {
       return workspace
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
-        repositoryType: repository.repository.type,
+        repositoryPath: repository.path,
         codeExecutionType: repository.codeExecution.type,
       })
       throw error

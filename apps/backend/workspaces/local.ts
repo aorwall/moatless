@@ -3,9 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { WorkspaceError } from '@moatless/shared/constants/errors'
-import type { Repository, RepositoryConfig } from '@moatless/shared/types/repository'
-
-type LocalRepository = Extract<Repository, { type: 'local' }>
+import type { RepositoryConfig } from '@moatless/shared/types/repository'
 
 import {
   type CommandResult,
@@ -86,7 +84,7 @@ export class LocalWorkspace extends BaseWorkspace {
 
     this.logger.debug('LocalWorkspace constructor', {
       repositoryId: repositoryConfig.id,
-      repositoryType: repositoryConfig.repository.type,
+      repositoryPath: repositoryConfig.path,
       codeExecutionType: repositoryConfig.codeExecution.type,
       hasOriginalBranch: !!originalBranch,
       hasBranchName: !!branchName,
@@ -104,33 +102,24 @@ export class LocalWorkspace extends BaseWorkspace {
     })
 
     try {
-      // Step 1: Validate repository type
-      if (this.repositoryConfig.repository.type !== 'local') {
-        this.logger.error('Invalid repository type for LocalWorkspace', undefined, {
-          repositoryType: this.repositoryConfig.repository.type,
-        })
-        throw new Error('LocalWorkspace requires local repository')
-      }
-
-      // Step 2: Validate workspace path is set
+      // Step 1: Validate workspace path is set
       if (!this.workspacePath) {
         throw new Error('Workspace path must be provided to LocalWorkspace constructor')
       }
 
-      // Step 3: Check if workspace path exists, recreate if needed
-      const repo = this.repositoryConfig.repository as LocalRepository
-      if (repo.useGitWorktrees && !(await this.pathExists(this.workspacePath))) {
+      // Step 2: Check if workspace path exists, recreate if needed
+      if (this.repositoryConfig.useGitWorktrees && !(await this.pathExists(this.workspacePath))) {
         this.logger.warn('Workspace path does not exist, recreating git worktree', {
           workspacePath: this.workspacePath,
         })
 
         // Use the taskId we already have
-        await this.recreateGitWorktree(repo.path, this.workspacePath, this.taskId)
+        await this.recreateGitWorktree(this.repositoryConfig.path, this.workspacePath, this.taskId)
       }
 
-      // Step 4: Extract branch info from existing workspace if needed
-      if (repo.useGitWorktrees) {
-        await this.extractBranchInfoFromExistingWorkspace(repo)
+      // Step 3: Extract branch info from existing workspace if needed
+      if (this.repositoryConfig.useGitWorktrees) {
+        await this.extractBranchInfoFromExistingWorkspace(this.repositoryConfig)
       }
 
       // Step 5: Mark setup as partially complete (workspace ready)
@@ -158,7 +147,7 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  private async extractBranchInfoFromExistingWorkspace(repo: LocalRepository): Promise<void> {
+  private async extractBranchInfoFromExistingWorkspace(repo: RepositoryConfig): Promise<void> {
     // If we have an existing workspace path with git worktrees, extract the branch info
     if (repo.useGitWorktrees && (await isGitRepository(this.workspacePath))) {
       try {
@@ -283,16 +272,15 @@ export class LocalWorkspace extends BaseWorkspace {
 
     // If we created a git worktree, remove it
     if (this.workspacePath && (await this.pathExists(this.workspacePath))) {
-      const repo = this.repositoryConfig.repository as LocalRepository
-      if (repo.useGitWorktrees && (this.originalBranch || this.branch)) {
+      if (this.repositoryConfig.useGitWorktrees && (this.originalBranch || this.branch)) {
         this.logger.debug('Removing git worktree', {
-          repositoryPath: repo.path,
+          repositoryPath: this.repositoryConfig.path,
           workspacePath: this.workspacePath,
           branch: this.branch,
         })
 
         try {
-          await this.removeGitWorktree(repo.path, this.workspacePath)
+          await this.removeGitWorktree(this.repositoryConfig.path, this.workspacePath)
           this.logger.debug('Git worktree removed successfully')
         } catch (error) {
           this.logger.error(
@@ -308,7 +296,7 @@ export class LocalWorkspace extends BaseWorkspace {
         // as it's the actual repository path
         this.logger.debug('Skipping directory removal for non-worktree workspace', {
           workspacePath: this.workspacePath,
-          useGitWorktrees: repo.useGitWorktrees,
+          useGitWorktrees: this.repositoryConfig.useGitWorktrees,
         })
       }
     } else {
@@ -477,15 +465,8 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   async mergeChanges(): Promise<string> {
-    // Check if repository is local
-    if (this.repositoryConfig.repository.type !== 'local') {
-      throw new Error('Merge only supported for local repositories')
-    }
-
-    const repo = this.repositoryConfig.repository as LocalRepository
-
     // Check if worktrees are enabled
-    if (!repo.useGitWorktrees) {
+    if (!this.repositoryConfig.useGitWorktrees) {
       throw new Error('Merge only supported for git worktree workspaces')
     }
 
@@ -789,8 +770,7 @@ export class LocalWorkspace extends BaseWorkspace {
       await fs.access(this.workspacePath)
 
       // For git worktrees, also check if it's still a valid git repository
-      const repo = this.repositoryConfig.repository as LocalRepository
-      if (repo.useGitWorktrees) {
+      if (this.repositoryConfig.useGitWorktrees) {
         return await isGitRepository(this.workspacePath)
       }
 

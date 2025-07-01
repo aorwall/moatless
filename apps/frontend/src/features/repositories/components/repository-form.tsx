@@ -35,10 +35,10 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   const descriptionId = useId()
 
   const getInitialRepositoryData = useCallback((repo?: RepositoryResponse) => {
-    if (repo?.repository.type === 'local') {
+    if (repo) {
       return {
-        path: repo.repository.path,
-        useGitWorktrees: repo.repository.useGitWorktrees || false,
+        path: repo.path,
+        useGitWorktrees: repo.useGitWorktrees || false,
       }
     }
     return {
@@ -74,11 +74,8 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     const repositoryData: CreateRepositoryRequest | UpdateRepositoryRequest = {
       name: formData.name,
       description: formData.description || undefined,
-      repository: {
-        type: 'local',
-        path: formData.path,
-        useGitWorktrees: formData.useGitWorktrees,
-      },
+      path: formData.path,
+      useGitWorktrees: formData.useGitWorktrees,
       codeExecution: {
         type: 'local',
       },

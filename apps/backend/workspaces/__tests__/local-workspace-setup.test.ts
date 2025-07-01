@@ -57,15 +57,15 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     id: 'env-123',
     name: 'Test Repository',
     description: 'Test repository',
-    repository: {
-      type: 'local' as const,
-      path: '/tmp/test-repo',
-      useGitWorktrees: true,
-    },
+    path: '/tmp/test-repo',
+    useGitWorktrees: true,
     codeExecution: {
       type: 'local' as const,
       setupCommands: 'echo "test setup"',
     },
+    variables: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
   }
 
   beforeEach(async () => {

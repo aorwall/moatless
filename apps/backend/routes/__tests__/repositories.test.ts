@@ -19,7 +19,8 @@ describe('Repository Routes', () => {
         id: 'test-env-id',
         name: 'Test Repository',
         description: 'A test repository',
-        repository: { type: 'local' as const, path: '/test/path' },
+        path: '/test/path',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
@@ -34,10 +35,8 @@ describe('Repository Routes', () => {
         payload: {
           name: 'Test Repository',
           description: 'A test repository',
-          repository: {
-            type: 'local',
-            path: '/test/path',
-          },
+          path: '/test/path',
+          useGitWorktrees: false,
           codeExecution: {
             type: 'local',
           },
@@ -70,7 +69,8 @@ describe('Repository Routes', () => {
         {
           id: 'repo-1',
           name: 'Repository 1',
-          repository: { type: 'local' as const, path: '/path1' },
+          path: '/path1',
+          useGitWorktrees: false,
           codeExecution: { type: 'local' as const },
           variables: {},
           createdAt: new Date(),
@@ -79,7 +79,8 @@ describe('Repository Routes', () => {
         {
           id: 'repo-2',
           name: 'Repository 2',
-          repository: { type: 'local' as const, path: '/path2' },
+          path: '/path2',
+          useGitWorktrees: false,
           codeExecution: { type: 'local' as const },
           variables: {},
           createdAt: new Date(),
@@ -105,7 +106,8 @@ describe('Repository Routes', () => {
       const mockRepository = {
         id: 'env-123',
         name: 'Test Repository',
-        repository: { type: 'local' as const, path: '/test/path' },
+        path: '/test/path',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
@@ -145,7 +147,8 @@ describe('Repository Routes', () => {
         id: 'env-123',
         name: 'Updated Name',
         description: 'Updated description',
-        repository: { type: 'local' as const, path: '/test/path' },
+        path: '/test/path',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
@@ -195,7 +198,8 @@ describe('Repository Routes', () => {
       const mockRepository = {
         id: 'env-123',
         name: 'Test Repository',
-        repository: { type: 'local' as const, path: '/test/path' },
+        path: '/test/path',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
@@ -246,7 +250,8 @@ describe('Repository Routes', () => {
       const mockRepository = {
         id: 'env-123',
         name: 'Test Repository',
-        repository: { type: 'local' as const, path: '/test/path' },
+        path: '/test/path',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const, setupCommands: 'echo "test"' },
         variables: {},
         createdAt: new Date(),
@@ -280,7 +285,8 @@ describe('Repository Routes', () => {
       const mockRepository = {
         id: 'repo-123',
         name: 'Test Repository',
-        repository: { type: 'local' as const, path: '/test/repo' },
+        path: '/test/repo',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),

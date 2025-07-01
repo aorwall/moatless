@@ -42,11 +42,8 @@ describe('AgentService - Workspace Recreation', () => {
     id: 'env-123',
     name: 'Test Environment',
     description: 'Test environment',
-    repository: {
-      type: 'local' as const,
-      path: '/tmp/test-repo',
-      useGitWorktrees: true,
-    },
+    path: '/tmp/test-repo',
+    useGitWorktrees: true,
     codeExecution: {
       type: 'local' as const,
       setupCommands: 'pnpm install',

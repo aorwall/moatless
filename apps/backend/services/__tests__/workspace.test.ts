@@ -69,10 +69,7 @@ describe('WorkspaceService', () => {
   const mockRepository = {
     id: 'test-env',
     name: 'Test Repository',
-    repository: {
-      type: 'local' as const,
-      path: '/test/repo',
-    },
+    path: '/test/repo',
     codeExecution: {
       type: 'local' as const,
     },
@@ -253,10 +250,7 @@ describe('WorkspaceService', () => {
       // Update mock environment for Docker
       vi.mocked(repositoryService.getRepositoryById).mockResolvedValueOnce({
         ...mockRepository,
-        repository: {
-          type: 'local',
-          path: '/test/docker-repo',
-        },
+        path: '/test/docker-repo',
         codeExecution: {
           type: 'docker',
           image: 'node:18',
@@ -300,10 +294,7 @@ describe('WorkspaceService', () => {
 
       vi.mocked(repositoryService.getRepositoryById).mockResolvedValueOnce({
         ...mockRepository,
-        repository: {
-          type: 'local',
-          path: '/test/docker-repo',
-        },
+        path: '/test/docker-repo',
         codeExecution: {
           type: 'docker',
         },

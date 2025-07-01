@@ -98,7 +98,8 @@ describe('FileStorage', () => {
       const repo = {
         id: 'repo-123',
         name: 'Test Repository',
-        repository: { type: 'local' as const, path: '/test/path' },
+        path: '/test/path',
+        useGitWorktrees: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),

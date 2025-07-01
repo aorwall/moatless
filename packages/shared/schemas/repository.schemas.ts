@@ -1,13 +1,5 @@
 import { z } from 'zod'
 
-// Repository schemas - using only LocalRepository fields as requested
-export const RepositorySchema = z.object({
-  type: z.literal('local'),
-  path: z.string(),
-  useGitWorktrees: z.boolean().optional(),
-  originalBranch: z.string().optional(),
-})
-
 // Script injection strategy schema
 export const ScriptInjectionStrategySchema = z.object({
   method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
@@ -37,12 +29,16 @@ export const CodeExecutionSchema = z.object({
   ports: z.record(z.number()).optional(),
 })
 
-// Repository schemas
+// Repository schemas - merged repository fields directly into RepositoryConfig
 export const RepositoryConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  repository: RepositorySchema,
+  // Repository fields moved here
+  path: z.string(),
+  useGitWorktrees: z.boolean().optional(),
+  originalBranch: z.string().optional(),
+  // Original fields
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
   variables: z.record(z.string()),
@@ -53,7 +49,11 @@ export const RepositoryConfigSchema = z.object({
 export const CreateRepositorySchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  repository: RepositorySchema,
+  // Repository fields
+  path: z.string(),
+  useGitWorktrees: z.boolean().optional(),
+  originalBranch: z.string().optional(),
+  // Original fields
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
   variables: z.record(z.string()).optional(),
@@ -62,7 +62,11 @@ export const CreateRepositorySchema = z.object({
 export const UpdateRepositorySchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
-  repository: RepositorySchema.optional(),
+  // Repository fields
+  path: z.string().optional(),
+  useGitWorktrees: z.boolean().optional(),
+  originalBranch: z.string().optional(),
+  // Original fields
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
   variables: z.record(z.string()).optional(),
@@ -80,7 +84,6 @@ export const FileSearchSchema = z.object({
 
 // Type exports
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
-export type Repository = z.infer<typeof RepositorySchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
 export type ScriptInjectionStrategy = z.infer<typeof ScriptInjectionStrategySchema>

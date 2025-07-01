@@ -68,11 +68,8 @@ describe('WorkspaceService Status Management', () => {
     id: 'env-123',
     name: 'Test Repository',
     description: 'Test repository',
-    repository: {
-      type: 'local',
-      path: '/test/repo',
-      useGitWorktrees: true,
-    },
+    path: '/test/repo',
+    useGitWorktrees: true,
     codeExecution: {
       type: 'local',
     },

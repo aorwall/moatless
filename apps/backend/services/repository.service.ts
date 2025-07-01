@@ -7,7 +7,6 @@ import type {
   CreateRepositoryRequest,
   FileSearchResponse,
   PreviewConfig,
-  Repository,
   RepositoryConfig,
   SetupScriptResponse,
 } from '@moatless/shared/types/repository'
@@ -20,13 +19,13 @@ export class RepositoryService {
 
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
     // Validate repository configuration
-    await this.validateRepository(request.repository)
+    await this.validateRepository(request)
 
     // Auto-detect framework for local repositories if not provided
     let previewConfig = request.previewConfig
     if (!previewConfig?.framework) {
       try {
-        const detectedConfig = await this.detectFramework(request.repository.path)
+        const detectedConfig = await this.detectFramework(request.path)
         previewConfig = {
           ...previewConfig,
           ...detectedConfig,
@@ -47,7 +46,9 @@ export class RepositoryService {
       id: randomUUID(),
       name: request.name,
       description: request.description,
-      repository: request.repository,
+      path: request.path,
+      useGitWorktrees: request.useGitWorktrees,
+      originalBranch: request.originalBranch,
       codeExecution: {
         ...request.codeExecution,
         serverCommand,
@@ -94,9 +95,9 @@ export class RepositoryService {
       throw new RepositoryNotFoundError(repoId)
     }
 
-    // Validate repository if being updated
-    if (updates.repository) {
-      await this.validateRepository(updates.repository)
+    // Validate repository if path is being updated
+    if (updates.path) {
+      await this.validateRepository(updates as CreateRepositoryRequest)
     }
 
     const updatedRepository = {
@@ -151,7 +152,7 @@ export class RepositoryService {
     for (const command of commands) {
       try {
         // Execute command in repository path
-        const result = await this.executeCommand(command, repository.repository.path)
+        const result = await this.executeCommand(command, repository.path)
         results.push(result)
         if (!result.success) {
           allSucceeded = false
@@ -202,19 +203,15 @@ export class RepositoryService {
       throw new RepositoryNotFoundError(repoId)
     }
 
-    return await searchFilesInDirectoryNew(repository.repository.path, request)
+    return await searchFilesInDirectoryNew(repository.path, request)
   }
 
-  async validateRepository(repository: Repository): Promise<void> {
-    // Only support local repositories now
-    if (repository.type !== 'local') {
-      throw new ValidationError('Only local repositories are supported', { type: repository.type })
-    }
-
+  async validateRepository(repository: CreateRepositoryRequest | RepositoryConfig): Promise<void> {
+    // Validate path exists
     await this.validateLocalRepository(repository)
   }
 
-  private async validateLocalRepository(repo: Repository): Promise<void> {
+  private async validateLocalRepository(repo: { path: string }): Promise<void> {
     try {
       const stats = await fs.stat(repo.path)
       if (!stats.isDirectory()) {

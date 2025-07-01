@@ -77,12 +77,9 @@ export class DockerWorkspace extends BaseWorkspace {
       // Start container
       await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
 
-      // For local repositories, we need to copy the files into the container
-      if (this.repositoryConfig.repository.type === 'local') {
-        // Copy repository files to container
-        const copyCommand = `docker cp "${this.repositoryConfig.repository.path}/." "${this.containerId}:/workspace/"`
-        await execAsync(copyCommand, { timeout: 60000 })
-      }
+      // Copy repository files to container
+      const copyCommand = `docker cp "${this.repositoryConfig.path}/." "${this.containerId}:/workspace/"`
+      await execAsync(copyCommand, { timeout: 60000 })
 
       // Run setup commands if specified
       if (this.repositoryConfig.codeExecution.setupCommands) {

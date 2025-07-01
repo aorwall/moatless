@@ -183,11 +183,8 @@ describe('Complete Workflow E2E Test', () => {
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'E2E Test Repository',
       description: 'Test repository for complete workflow validation',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Repository setup complete"',
@@ -207,7 +204,8 @@ describe('Complete Workflow E2E Test', () => {
     expect(repository).toMatchObject({
       name: createRepositoryRequest.name,
       description: createRepositoryRequest.description,
-      repository: createRepositoryRequest.repository,
+      path: createRepositoryRequest.path,
+      useGitWorktrees: createRepositoryRequest.useGitWorktrees,
       codeExecution: createRepositoryRequest.codeExecution,
     })
 
@@ -557,11 +555,8 @@ describe('Complete Workflow E2E Test', () => {
     // Create repository first
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'E2E Test Repository - No Start',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Setup complete"',
@@ -653,11 +648,8 @@ describe('Complete Workflow E2E Test', () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'E2E Test Repository - Status Tracking',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Setup complete"',

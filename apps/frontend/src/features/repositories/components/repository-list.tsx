@@ -92,14 +92,14 @@ export function RepositoryList({ repositories, isLoading }: RepositoryListProps)
                       {repo.name}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{repo.repository.type}</TableCell>
+                  <TableCell className="text-muted-foreground">local</TableCell>
                   <TableCell className="text-muted-foreground max-w-0">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="truncate block">{repo.repository.path}</span>
+                        <span className="truncate block">{repo.path}</span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="text-xs">{repo.repository.path}</p>
+                        <p className="text-xs">{repo.path}</p>
                       </TooltipContent>
                     </Tooltip>
                   </TableCell>

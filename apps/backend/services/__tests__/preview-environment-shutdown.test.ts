@@ -431,11 +431,8 @@ process.on('SIGTERM', () => {
     const request: CreateRepositoryRequest = {
       name,
       description: `Test repository for shutdown testing`,
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Environment ready"',

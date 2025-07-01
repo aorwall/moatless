@@ -147,11 +147,8 @@ describe('Agent Lifecycle Test', () => {
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Agent Lifecycle Test Repository',
       description: 'Test repository for agent lifecycle verification',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Repository ready for agent lifecycle test"',
@@ -323,11 +320,8 @@ describe('Agent Lifecycle Test', () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Multiple Agent Cycles Test',
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
       },

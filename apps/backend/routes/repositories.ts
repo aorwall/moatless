@@ -130,9 +130,7 @@ export async function registerRepositoryRoutes(app: FastifyInstance) {
         throw new RepositoryNotFoundError()
       }
 
-      if (repository.repository.type !== 'local') {
-        throw new Error('File search is only supported for local repositories')
-      }
+      // File search is only supported for repositories with a path
 
       const results = await repositoryService.searchFiles(params.repositoryId, body)
       return results
@@ -155,11 +153,7 @@ export async function registerRepositoryRoutes(app: FastifyInstance) {
         throw new RepositoryNotFoundError()
       }
 
-      if (repository.repository.type !== 'local') {
-        throw new Error('Branch listing is only supported for local repositories')
-      }
-
-      const branches = await repositoryService.getBranches(repository.repository.path)
+      const branches = await repositoryService.getBranches(repository.path)
       return { branches }
     },
   )

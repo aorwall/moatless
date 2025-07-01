@@ -105,11 +105,8 @@ describe('Repository Routes E2E', () => {
       const createRequest: CreateRepositoryRequest = {
         name: 'E2E Test Local Repository',
         description: 'Test repository for E2E testing',
-        repository: {
-          type: 'local',
-          path: tempDir,
-          useGitWorktrees: false,
-        },
+        path: tempDir,
+        useGitWorktrees: false,
         codeExecution: {
           type: 'local',
           setupCommands: 'echo "Setting up test repository"',
@@ -134,7 +131,8 @@ describe('Repository Routes E2E', () => {
       expect(createdRepo).toMatchObject({
         name: createRequest.name,
         description: createRequest.description,
-        repository: createRequest.repository,
+        path: createRequest.path,
+        useGitWorktrees: createRequest.useGitWorktrees,
         codeExecution: createRequest.codeExecution,
         variables: createRequest.variables,
       })
@@ -178,8 +176,9 @@ describe('Repository Routes E2E', () => {
       const updatedRepo: RepositoryConfig = JSON.parse(updateResponse.body)
       expect(updatedRepo.name).toBe(updateRequest.name)
       expect(updatedRepo.description).toBe(updateRequest.description)
-      // Repository and codeExecution should remain unchanged
-      expect(updatedRepo.repository).toEqual(createdRepo.repository)
+      // Path, useGitWorktrees and codeExecution should remain unchanged
+      expect(updatedRepo.path).toEqual(createdRepo.path)
+      expect(updatedRepo.useGitWorktrees).toEqual(createdRepo.useGitWorktrees)
       expect(updatedRepo.codeExecution).toEqual(createdRepo.codeExecution)
 
       // 5. Delete the repository
@@ -210,11 +209,8 @@ describe('Repository Routes E2E', () => {
       const createRequest: CreateRepositoryRequest = {
         name: 'E2E Test Docker Repository',
         description: 'Docker-based test repository',
-        repository: {
-          type: 'local',
-          path: tempDir,
-          useGitWorktrees: false,
-        },
+        path: tempDir,
+        useGitWorktrees: false,
         codeExecution: {
           type: 'docker',
           image: 'node:18-alpine',
@@ -245,7 +241,6 @@ describe('Repository Routes E2E', () => {
       createdRepositoryId = createdRepo.id
 
       // Validate Docker-specific fields
-      expect(createdRepo.repository.type).toBe('local')
       expect(createdRepo.codeExecution.type).toBe('docker')
 
       // Test file search endpoint
@@ -347,10 +342,7 @@ describe('Repository Routes E2E', () => {
       // Create a test repository first
       const createRequest: CreateRepositoryRequest = {
         name: 'E2E Test Search Validation',
-        repository: {
-          type: 'local',
-          path: tempDir,
-        },
+        path: tempDir,
         codeExecution: {
           type: 'local',
         },
@@ -435,10 +427,7 @@ describe('Repository Routes E2E', () => {
       // Create repository first
       const createRequest: CreateRepositoryRequest = {
         name: 'E2E Test Setup Script',
-        repository: {
-          type: 'local',
-          path: tempDir,
-        },
+        path: tempDir,
         codeExecution: {
           type: 'local',
           setupCommands: 'echo "Test setup"',
@@ -543,10 +532,8 @@ describe('Repositories E2E - Additional Tests', () => {
     const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Test Repository',
       description: 'A test repository for E2E testing',
-      repository: {
-        type: 'local',
-        path: tempDir,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
       },

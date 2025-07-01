@@ -3,15 +3,13 @@ export type {
   CodeExecution,
   CreateRepositoryRequest,
   PreviewConfig,
-  Repository,
   RepositoryConfig,
   ScriptInjectionStrategy,
   UpdateRepositoryRequest,
 } from '../schemas/repository.schemas.js'
 
 import type {
-  CodeExecution as CodeExec,
-  Repository as Repo,
+  RepositoryConfig as Repo,
 } from '../schemas/repository.schemas.js'
 
 export interface RepositoryVariable {
@@ -20,15 +18,8 @@ export interface RepositoryVariable {
   description?: string
 }
 
-export interface RepositoryResponse {
-  id: string
-  name: string
-  description?: string
-  repository: Repo
-  codeExecution: CodeExec
-  variables: Record<string, string>
-  createdAt: Date
-  updatedAt: Date
+export interface RepositoryResponse extends Repo {
+  // All fields are now inherited from RepositoryConfig (Repo)
 }
 
 export interface FileSearchRequest {

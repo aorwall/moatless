@@ -32,13 +32,8 @@ export function RepositoryList({
     }
   }
 
-  const getRepositoryBadge = (repo: RepositoryResponse) => {
-    const { repository } = repo
-    if (repository.type === 'local') {
-      return <Badge variant="outline">Local</Badge>
-    } else {
-      return <Badge variant="outline">GitHub</Badge>
-    }
+  const getRepositoryBadge = (_repo: RepositoryResponse) => {
+    return <Badge variant="outline">Local</Badge>
   }
 
   const getExecutionBadge = (repo: RepositoryResponse) => {
@@ -51,8 +46,7 @@ export function RepositoryList({
   }
 
   const getRepositoryInfo = (repo: RepositoryResponse) => {
-    const { repository } = repo
-    return repository.path
+    return repo.path
   }
 
   const getExecutionInfo = (repo: RepositoryResponse) => {
