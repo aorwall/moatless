@@ -5,10 +5,22 @@ import type { EventListResponse } from '@moatless/shared/types/api'
 import type { Event, EventType } from '@moatless/shared/types/event'
 import { sseManager } from '../utils/sse-manager.js'
 
+// Custom boolean schema that properly handles string "false"
+const stringToBoolean = z
+  .union([
+    z.boolean(),
+    z.string().transform((val) => {
+      if (val === 'true') return true
+      if (val === 'false') return false
+      // For any other string, use standard coercion
+      return Boolean(val)
+    }),
+  ]);
+
 // Schema for global stream query params
 const GlobalStreamQuerySchema = z.object({
   types: z.array(z.string()).optional(),
-  activeTasksOnly: z.boolean().optional().default(true),
+  activeTasksOnly: stringToBoolean.optional().default(true),
   lastEventId: z.string().optional(),
 })
 
