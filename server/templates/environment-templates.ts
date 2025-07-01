@@ -3,7 +3,7 @@ interface Environment {
   language?: string
   framework?: string
   testFramework?: string
-  [key: string]: any
+  [key: string]: string | undefined
 }
 
 export interface EnvironmentTemplate {
