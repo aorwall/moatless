@@ -1,7 +1,7 @@
 import { CLAUDE_MODEL_DISPLAY_NAMES, CLAUDE_MODELS, type ClaudeModel } from '@moatless/shared/constants'
 import type { UploadFileResponse } from '@moatless/shared/types/api'
 import type { RepositoryResponse } from '@moatless/shared/types/repository'
-import { ArrowUp, Circle, Paperclip, X } from 'lucide-react'
+import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
@@ -36,6 +36,7 @@ interface ChatFormProps {
   selectedModel: ClaudeModel
   onModelChange: (model: ClaudeModel) => void
   isRunning?: boolean
+  isLoading?: boolean
   // Repository selector props (only shown when creating new task)
   showRepositorySelector?: boolean
   repositories?: RepositoryResponse[]
@@ -61,6 +62,7 @@ export function ChatForm({
   selectedModel,
   onModelChange,
   isRunning = false,
+  isLoading = false,
   showRepositorySelector = false,
   repositories,
   selectedRepositoryId,
@@ -353,7 +355,11 @@ export function ChatForm({
               size="icon"
               className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
             >
-              <ArrowUp className="h-5 w-5" />
+              {isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <ArrowUp className="h-5 w-5" />
+              )}
               <span className="sr-only">{buttonText}</span>
             </Button>
           )}

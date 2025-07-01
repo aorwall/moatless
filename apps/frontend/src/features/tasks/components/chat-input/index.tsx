@@ -251,6 +251,7 @@ export function ChatInput({
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           isRunning={isRunning}
+          isLoading={isPending}
           // Repository selector props
           showRepositorySelector={showRepositorySelector}
           repositories={repositories}
