@@ -11,7 +11,8 @@ export default defineConfig({
     tailwindcss(),
     TanStackRouterVite({
       routesDirectory: './src/routes',
-      generatedRouteTree: './src/routeTree.gen.ts'
+      generatedRouteTree: './src/routeTree.gen.ts',
+      routeFileIgnorePattern: '\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$'
     })
   ],
   server: {

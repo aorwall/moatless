@@ -39,6 +39,9 @@ test.describe('E2E Test Infrastructure Validation', () => {
   })
 
   test('should validate API request helpers work', async ({ page }) => {
+    // Navigate to page first to establish context
+    await page.goto('/')
+    
     // Test our API utility functions without needing a real server
     const apiTest = await page.evaluate(() => {
       // Simulate API request structure validation
@@ -64,13 +67,13 @@ test.describe('E2E Test Infrastructure Validation', () => {
       }
       
       // Validate our request structure
-      const isValidRepository = (
+      const isValidRepository = !!(
         mockRepository.name &&
         mockRepository.repository &&
         mockRepository.codeExecution
       )
       
-      const isValidTask = (
+      const isValidTask = !!(
         mockTask.agentType &&
         mockTask.repositoryId &&
         mockTask.message !== undefined

@@ -42,7 +42,7 @@ test.describe('Complete Event Flow E2E', () => {
   let sseMonitorGlobal: SSEEventMonitor
   let sseMonitorTaskA: SSEEventMonitor
 
-  const baseURL = 'http://127.0.0.1:3001'
+  const baseURL = 'http://127.0.0.1:3002'
 
   test.beforeEach(async ({ page }) => {
     // Create temporary directories for two different test repositories

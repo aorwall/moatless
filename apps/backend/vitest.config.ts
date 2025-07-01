@@ -33,7 +33,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@server': path.resolve(__dirname, '.'),
-      '@moatless/shared': path.resolve(__dirname, '../shared'),
+      '@moatless/shared': path.resolve(__dirname, '../../packages/shared'),
     },
   },
 })

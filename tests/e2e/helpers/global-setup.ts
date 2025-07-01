@@ -4,6 +4,11 @@ import path from 'node:path'
 import type { FullConfig } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 
+// Store server process info globally for teardown
+declare global {
+  var __E2E_SERVER_PID__: number | undefined
+}
+
 let serverProcess: ChildProcess | null = null
 let tempDir: string
 
@@ -41,7 +46,7 @@ async function globalSetup(config: FullConfig) {
   serverProcess = spawn('node', ['apps/backend/dist/index.js'], {
     env: {
       ...process.env,
-      PORT: '3001',
+      PORT: '3002',
       NODE_ENV: 'production', // Use production mode to enable static file serving
       SKIP_CLAUDE_DISK_EVENTS: 'true',
       USE_CONSOLE_LOGGING: 'true',
@@ -91,7 +96,13 @@ async function globalSetup(config: FullConfig) {
     })
   })
 
-  console.log('E2E setup complete. Server running on port 3001')
+  // Store the server PID for cleanup
+  if (serverProcess?.pid) {
+    globalThis.__E2E_SERVER_PID__ = serverProcess.pid
+    console.log('E2E setup complete. Server running on port 3002 with PID:', serverProcess.pid)
+  } else {
+    console.log('E2E setup complete. Server running on port 3002')
+  }
   
   // Give the server a moment to fully initialize
   await new Promise(resolve => setTimeout(resolve, 2000))

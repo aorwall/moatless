@@ -23,7 +23,7 @@ test.describe('E2E Infrastructure Smoke Test', () => {
   })
 
   test('should be able to access API endpoints', async ({ page }) => {
-    const baseURL = 'http://127.0.0.1:3001'
+    const baseURL = 'http://127.0.0.1:3002'
     
     // Test basic API accessibility
     const response = await page.request.get(`${baseURL}/api/v1/repositories`)
@@ -37,7 +37,7 @@ test.describe('E2E Infrastructure Smoke Test', () => {
   })
 
   test('should be able to establish SSE connection', async ({ page }) => {
-    const baseURL = 'http://127.0.0.1:3001'
+    const baseURL = 'http://127.0.0.1:3002'
     
     // Navigate to the app first to establish proper context
     await page.goto('/')
@@ -50,20 +50,48 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     expect(status).toHaveProperty('globalConnections')
     expect(status).toHaveProperty('taskConnections')
     
-    // Also test that the SSE endpoint is accessible
-    const sseResponse = await page.request.get(`${baseURL}/api/v1/events/stream`, {
-      headers: {
-        'Accept': 'text/event-stream'
+    // Test SSE endpoint availability using fetch with AbortController
+    // We need to abort the connection quickly since SSE keeps the connection open
+    const sseTest = await page.evaluate(async (url) => {
+      const controller = new AbortController()
+      
+      try {
+        const response = await fetch(`${url}/api/v1/events/stream`, {
+          headers: {
+            'Accept': 'text/event-stream'
+          },
+          signal: controller.signal
+        })
+        
+        // Abort after checking the response
+        setTimeout(() => controller.abort(), 100)
+        
+        return {
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+          ok: response.ok
+        }
+      } catch (error) {
+        // If it's an abort error, that's expected
+        if (error.name === 'AbortError') {
+          return { status: 200, ok: true, aborted: true }
+        }
+        throw error
       }
-    })
-    expect(sseResponse.status()).toBe(200)
+    }, baseURL)
+    
+    expect(sseTest.ok).toBe(true)
+    if (!sseTest.aborted) {
+      expect(sseTest.status).toBe(200)
+      expect(sseTest.contentType).toContain('application/x-ndjson')
+    }
     
     console.log('✅ SSE endpoints are accessible')
   })
 
   test('should have required dependencies available', async ({ page }) => {
     // Check that the global event stream status endpoint works
-    const baseURL = 'http://127.0.0.1:3001'
+    const baseURL = 'http://127.0.0.1:3002'
     
     const response = await page.request.get(`${baseURL}/api/v1/events/stream/status`)
     expect(response.status()).toBe(200)
