@@ -60,7 +60,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
     <div
       ref={containerRef}
       className={cn(
-        'prose prose-sm dark:prose-invert max-w-none p-6',
+        'prose prose-sm dark:prose-invert max-w-full p-6 min-w-0',
         'prose-p:my-2',
         'prose-pre:bg-gray-100 prose-pre:dark:bg-gray-800',
         'prose-pre:text-gray-800 prose-pre:dark:text-gray-200',
@@ -74,6 +74,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
         'prose-ul:my-2 prose-ol:my-2',
         'prose-li:my-0',
         'prose-headings:scroll-mt-20',
+        'prose-table:overflow-x-auto prose-table:block prose-table:whitespace-nowrap',
         className,
       )}
     >
@@ -88,7 +89,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
 
             if (isMermaid) {
               return (
-                <div className="my-4 flex justify-center">
+                <div className="my-4 flex justify-center overflow-x-auto max-w-full">
                   <pre className={className} {...props}>
                     {children}
                   </pre>
@@ -120,6 +121,21 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
               </code>
             )
           },
+          table: ({ children, ...props }) => (
+            <div className="overflow-x-auto max-w-full">
+              <table className="min-w-full" {...props}>
+                {children}
+              </table>
+            </div>
+          ),
+          img: ({ alt, src, ...props }) => (
+            <img
+              alt={alt}
+              src={src}
+              className="max-w-full h-auto"
+              {...props}
+            />
+          ),
         }}
       >
         {content}

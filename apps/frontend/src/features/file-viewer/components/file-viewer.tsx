@@ -55,17 +55,17 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
   }
 
   return (
-    <div className="file-viewer flex flex-col h-full">
-      <div className="file-header p-4 border-b flex items-center justify-between">
-        <h3 className="text-sm font-medium truncate">{filePath}</h3>
-        <div className="flex items-center gap-2">
+    <div className="file-viewer flex flex-col h-full min-w-0">
+      <div className="file-header p-4 border-b flex items-center justify-between min-w-0">
+        <h3 className="text-sm font-medium truncate flex-1 min-w-0">{filePath}</h3>
+        <div className="flex items-center gap-2 flex-shrink-0">
           {supportsPreview && (
             <PreviewModeToggle mode={previewMode} onModeChange={setPreviewMode} />
           )}
           <span className="text-xs text-muted-foreground">{language}</span>
         </div>
       </div>
-      <div className="file-content flex-1 overflow-auto">
+      <div className="file-content flex-1 overflow-auto min-w-0">
         {supportsPreview && previewMode === 'preview' ? (
           <MarkdownPreview content={content} />
         ) : (
@@ -79,12 +79,14 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
               padding: '1rem',
               background: 'transparent',
               fontSize: '0.875rem',
+              maxWidth: '100%',
             }}
             codeTagProps={{
               style: {
                 fontFamily: 'ui-monospace, monospace',
               },
             }}
+            wrapLongLines={false}
           >
             {content}
           </SyntaxHighlighter>
