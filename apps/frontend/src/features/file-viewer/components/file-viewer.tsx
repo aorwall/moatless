@@ -65,31 +65,34 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
           <span className="text-xs text-muted-foreground">{language}</span>
         </div>
       </div>
-      <div className="file-content flex-1 overflow-auto min-w-0">
+      <div className="file-content flex-1 overflow-auto min-w-0 max-w-full">
         {supportsPreview && previewMode === 'preview' ? (
           <MarkdownPreview content={content} />
         ) : (
-          <SyntaxHighlighter
-            language={language}
-            style={syntaxTheme}
-            showLineNumbers
-            lineNumberStyle={{ minWidth: '3em', paddingRight: '1em', userSelect: 'none' }}
-            customStyle={{
-              margin: 0,
-              padding: '1rem',
-              background: 'transparent',
-              fontSize: '0.875rem',
-              maxWidth: '100%',
-            }}
-            codeTagProps={{
-              style: {
-                fontFamily: 'ui-monospace, monospace',
-              },
-            }}
-            wrapLongLines={false}
-          >
-            {content}
-          </SyntaxHighlighter>
+          <div className="w-full max-w-full overflow-x-auto">
+            <SyntaxHighlighter
+              language={language}
+              style={syntaxTheme}
+              showLineNumbers
+              lineNumberStyle={{ minWidth: '3em', paddingRight: '1em', userSelect: 'none' }}
+              customStyle={{
+                margin: 0,
+                padding: '1rem',
+                background: 'transparent',
+                fontSize: '0.875rem',
+                width: 'max-content',
+                minWidth: '100%',
+              }}
+              codeTagProps={{
+                style: {
+                  fontFamily: 'ui-monospace, monospace',
+                },
+              }}
+              wrapLongLines={false}
+            >
+              {content}
+            </SyntaxHighlighter>
+          </div>
         )}
       </div>
     </div>
