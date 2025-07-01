@@ -42,7 +42,6 @@ describe('Create Task Flow - Data Sync Integration', () => {
       status: 'running',
       agentType: 'claude-code',
       repositoryId: 'repo-1',
-      environmentId: 'env-1',
       numTurns: 1,
       totalCostUsd: 0.05,
       createdAt: new Date(),
