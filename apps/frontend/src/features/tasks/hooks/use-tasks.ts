@@ -70,7 +70,7 @@ export function useCreateTask(
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: variables.agentType || 'claude-code',
-        environmentId: variables.environmentId,
+        repositoryId: variables.repositoryId,
         status: (data.status as Task['status']) || 'open',
         numTurns: 0,
         totalCostUsd: 0,
@@ -220,7 +220,11 @@ export function useMergeTask(
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<
+    MergeTaskResponse,
+    Error,
+    { taskId: string; targetBranch?: string; commitMessage?: string }
+  >({
     mutationFn: ({ taskId, targetBranch, commitMessage }) =>
       tasksApi.mergeTask(taskId, { targetBranch, commitMessage }),
     onMutate: async ({ taskId }) => {

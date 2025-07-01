@@ -1,5 +1,6 @@
 import type { ToolUseContent } from '@moatless/shared'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -33,17 +34,18 @@ describe('EventList Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         subType: 'tool_call',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:32.511Z',
+        timestamp: new Date('2025-06-25T12:38:32.511Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -87,17 +89,18 @@ describe('EventList Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         subType: 'tool_call',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:32.511Z',
+        timestamp: new Date('2025-06-25T12:38:32.511Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -115,11 +118,12 @@ describe('EventList Tool Calls', () => {
       },
       {
         eventId: '93d6016e-b264-4be3-b045-2fad6884abea',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         subType: 'tool_result',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:33.137Z',
+        timestamp: new Date('2025-06-25T12:38:33.137Z'),
         isError: false,
         payload: {
           type: 'user',
@@ -149,16 +153,17 @@ describe('EventList Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:32.511Z',
+        timestamp: new Date('2025-06-25T12:38:32.511Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [

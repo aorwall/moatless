@@ -426,7 +426,7 @@ function SettingsPage() {
             <AlertDialogFooter>
               <AlertDialogCancel
                 onClick={() => {
-                  setFormData({ ...formData, permission_mode: null })
+                  setFormData({ ...formData, permissionMode: null })
                 }}
               >
                 Cancel

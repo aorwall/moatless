@@ -1,4 +1,5 @@
 import type { Event } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
@@ -9,16 +10,17 @@ describe('EventList Integration - Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:32.511Z',
+        timestamp: new Date('2025-06-25T12:38:32.511Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -66,16 +68,17 @@ describe('EventList Integration - Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:32.511Z',
+        timestamp: new Date('2025-06-25T12:38:32.511Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -95,10 +98,11 @@ describe('EventList Integration - Tool Calls', () => {
       },
       {
         eventId: '93d6016e-b264-4be3-b045-2fad6884abea',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:33.137Z',
+        timestamp: new Date('2025-06-25T12:38:33.137Z'),
         isError: false,
         payload: {
           type: 'user',
@@ -133,16 +137,17 @@ describe('EventList Integration - Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'b9e99242-2bef-4dc9-b47a-56028303a971',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.552Z',
+        timestamp: new Date('2025-06-25T12:38:37.552Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01CXrZbZ8ia8wwcoxJKnAQ64',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -176,16 +181,17 @@ describe('EventList Integration - Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'e81f1d4c-d470-4bf0-bf53-8e20468fb922',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.087Z',
+        timestamp: new Date('2025-06-25T12:38:37.087Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01CXrZbZ8ia8wwcoxJKnAQ64',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -230,16 +236,17 @@ describe('EventList Integration - Tool Calls', () => {
     const events: Event[] = [
       {
         eventId: 'mixed-content',
-        type: 'message',
+        agentType: 'claude-code',
+        type: EventType.MESSAGE,
         taskId: 'test-task',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.087Z',
+        timestamp: new Date('2025-06-25T12:38:37.087Z'),
         isError: false,
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_mixed',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [

@@ -2,7 +2,7 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useTaskData } from '@/features/tasks/contexts/task-providers'
+import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import {
   useCloseTask,
   useMergeTask,

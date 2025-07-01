@@ -72,10 +72,10 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
     }
 
     onSubmit({
-      name: formData.name,
-      description: formData.description,
-      prompt: formData.prompt,
-    })
+      name: formData.name.trim(),
+      description: formData.description.trim(),
+      prompt: formData.prompt.trim(),
+    } as CreateCommandRequest)
   }
 
   const handleCancel = () => {

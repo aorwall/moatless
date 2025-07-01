@@ -321,7 +321,7 @@ function ChatViewComponent() {
             {/* Show last three events when task is running */}
             {isTaskRunning && (
               <div className="mb-4">
-                <TaskMinifiedLastThreeEventsDisplay taskId={params.taskId} className="max-w-full" />
+                <TaskMinifiedLastThreeEventsDisplay />
               </div>
             )}
 
@@ -339,6 +339,7 @@ function ChatViewComponent() {
                         'commit the relevant changes',
                         () => {},
                         true,
+                        undefined,
                         undefined,
                         'commit',
                       )

@@ -88,10 +88,10 @@ export function CreateTaskForm() {
                   <span className="text-gray-600">None (branch from main)</span>
                 </SelectItem>
                 {branches?.branches.map((branch) => (
-                  <SelectItem key={branch.name} value={branch.name}>
+                  <SelectItem key={branch} value={branch}>
                     <div className="flex items-center gap-2">
-                      <span>{branch.name}</span>
-                      {branch.is_current && (
+                      <span>{branch}</span>
+                      {branch === branches.currentBranch && (
                         <span className="text-xs text-green-600">(current)</span>
                       )}
                     </div>

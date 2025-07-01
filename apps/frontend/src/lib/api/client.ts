@@ -49,7 +49,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   // Only set Content-Type when there's a body
-  const headers: HeadersInit = { ...fetchOptions.headers }
+  const headers: Record<string, string> = { 
+    ...(fetchOptions.headers as Record<string, string>) 
+  }
   if (fetchOptions.body !== undefined) {
     headers['Content-Type'] = 'application/json'
   }

@@ -41,6 +41,7 @@ describe('Create Task Flow - Data Sync Integration', () => {
       taskId: 'test-123',
       status: 'running',
       agentType: 'claude-code',
+      repositoryId: 'repo-1',
       environmentId: 'env-1',
       numTurns: 1,
       totalCostUsd: 0.05,
@@ -94,14 +95,14 @@ describe('Create Task Flow - Data Sync Integration', () => {
     // Execute the creation
     await mutation.execute({
       agentType: 'claude-code',
-      environmentId: 'env-1',
+      repositoryId: 'repo-1',
       message: 'Build a todo app',
     })
 
     // Verify that all APIs were called
     expect(tasksApi.createTask).toHaveBeenCalledWith({
       agentType: 'claude-code',
-      environmentId: 'env-1',
+      repositoryId: 'repo-1',
       message: 'Build a todo app',
     })
 

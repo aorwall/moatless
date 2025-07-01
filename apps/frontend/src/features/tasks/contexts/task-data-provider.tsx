@@ -10,7 +10,7 @@ interface TaskDataContextValue {
   taskId: string
   status: string | undefined
   agentType: string | undefined
-  environmentId: string | undefined
+  repositoryId: string | undefined
   iterations: TaskIteration[]
   createdAt: Date | undefined
 
@@ -86,7 +86,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     return {
       status: task.status,
       agentType: task.agentType,
-      environmentId: task.environmentId,
+      repositoryId: task.repositoryId,
       iterations: task.iterations || [],
       createdAt: task.createdAt,
       isRunning: task.status === 'running',
@@ -113,7 +113,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       taskId,
       status: taskPrimitives?.status,
       agentType: taskPrimitives?.agentType,
-      environmentId: taskPrimitives?.environmentId,
+      repositoryId: taskPrimitives?.repositoryId,
       iterations: taskPrimitives?.iterations || [],
       createdAt: taskPrimitives?.createdAt,
 
@@ -191,6 +191,6 @@ export function useTaskLoadingError() {
 }
 
 export function useTaskMetadata() {
-  const { taskId, agentType, createdAt } = useTaskData()
-  return { taskId, agentType, createdAt }
+  const { taskId, agentType, repositoryId, createdAt } = useTaskData()
+  return { taskId, agentType, repositoryId, createdAt }
 }

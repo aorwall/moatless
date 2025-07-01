@@ -68,7 +68,8 @@ export function TaskCard({ task }: TaskCardProps) {
                   <span>${task.totalCostUsd.toFixed(4)}</span>
                 </div>
                 <div className="flex items-center space-x-2 text-muted-foreground">
-                  <span>Environment: {task.environmentId}</span>
+                  <Server className="h-4 w-4" />
+                  <span>Repository: {task.repositoryId}</span>
                 </div>
               </div>
             </div>
