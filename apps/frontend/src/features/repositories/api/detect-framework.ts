@@ -6,5 +6,5 @@ export interface DetectFrameworkResponse {
 }
 
 export async function detectFramework(repositoryId: string): Promise<DetectFrameworkResponse> {
-  return apiClient.post<DetectFrameworkResponse>(`/repositories/${repositoryId}/detect-framework`)
+  return apiClient.post<DetectFrameworkResponse>(`/api/v1/repositories/${repositoryId}/detect-framework`)
 }

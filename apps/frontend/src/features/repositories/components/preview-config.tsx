@@ -3,6 +3,7 @@ import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/shared/ty
 import { 
   FRAMEWORK_OPTIONS, 
   INJECTION_METHOD_OPTIONS,
+  FRAMEWORK_DEFAULT_COMMANDS,
 } from '@moatless/shared/constants/preview-config'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
@@ -18,7 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib
 import { Badge } from '@/lib/components/ui/badge'
 import { Collapsible, CollapsibleContent } from '@/lib/components/ui/collapsible'
 import { Separator } from '@/lib/components/ui/separator'
-import { Loader2, Wand2, ChevronDown, Info, CheckCircle2, XCircle } from 'lucide-react'
+import { Loader2, Wand2, ChevronDown, Info } from 'lucide-react'
 
 interface PreviewConfigFormProps {
   previewConfig?: PreviewConfig
@@ -72,10 +73,17 @@ export function PreviewConfigForm({
   const handleFrameworkChange = (value: string) => {
     const framework = value as PreviewConfig['framework']
     
+    // Get default command for the selected framework
+    const defaultCommand = framework ? FRAMEWORK_DEFAULT_COMMANDS[framework] : ''
+    
     setConfig({ 
       ...config, 
       framework,
-      // Keep the current port - system uses random ports anyway
+      // Set default server command if none is set or if it's the default for another framework
+      serverStartCommand: !config.serverStartCommand || 
+        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(config.serverStartCommand as any)
+        ? defaultCommand 
+        : config.serverStartCommand,
     })
   }
 
@@ -171,7 +179,12 @@ export function PreviewConfigForm({
                 onChange={(e) => setConfig({ ...config, serverStartCommand: e.target.value })}
               />
               <p className="text-sm text-muted-foreground">
-                Command to start the development server. Leave empty to use the default for your framework.
+                Command to start the development server. Use {'{PORT}'} as a placeholder for the port number.
+                {config.framework && FRAMEWORK_DEFAULT_COMMANDS[config.framework] && (
+                  <span className="block mt-1">
+                    Default for {FRAMEWORK_OPTIONS.find(opt => opt.value === config.framework)?.label}: <code className="text-xs bg-muted px-1 py-0.5 rounded">{FRAMEWORK_DEFAULT_COMMANDS[config.framework]}</code>
+                  </span>
+                )}
               </p>
             </div>
 
@@ -216,7 +229,7 @@ export function PreviewConfigForm({
                     </p>
                     
                     <div className="space-y-3">
-                      {INJECTION_METHOD_OPTIONS.map((method) => (
+                      {INJECTION_METHOD_OPTIONS.filter(method => ['html-injection', 'middleware'].includes(method.value)).map((method) => (
                         <div key={method.value} className="border rounded p-3">
                           <div className="flex items-start justify-between mb-2">
                             <h6 className="font-medium text-sm">{method.label}</h6>
@@ -225,33 +238,26 @@ export function PreviewConfigForm({
                             </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground mb-2">{method.description}</p>
-                          <p className="text-xs mb-2">{method.details}</p>
                           
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <div className="flex items-center gap-1 mb-1">
-                                <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                <span className="font-medium">Pros:</span>
-                              </div>
-                              <ul className="list-disc list-inside text-muted-foreground ml-4 space-y-0.5">
-                                {method.pros.map((pro, i) => <li key={i}>{pro}</li>)}
-                              </ul>
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1 mb-1">
-                                <XCircle className="h-3 w-3 text-red-500" />
-                                <span className="font-medium">Cons:</span>
-                              </div>
-                              <ul className="list-disc list-inside text-muted-foreground ml-4 space-y-0.5">
-                                {method.cons.map((con, i) => <li key={i}>{con}</li>)}
-                              </ul>
-                            </div>
-                          </div>
-                          
-                          <div className="mt-2 pt-2 border-t">
-                            <span className="text-xs font-medium">Requirements: </span>
-                            <span className="text-xs text-muted-foreground">{method.requirements}</span>
-                          </div>
+                          {method.value === 'html-injection' ? (
+                            <p className="text-xs text-muted-foreground">
+                              The system will search for HTML files in this order and inject the preview inspector script into the first one found:
+                              <span className="block mt-1 font-mono">
+                                index.html → public/index.html → dist/index.html → build/index.html
+                              </span>
+                              <span className="block mt-1">
+                                The script is injected only once into the {'<head>'} tag or at the beginning of {'<body>'}. 
+                                If you specify a custom path above, it will be checked first.
+                              </span>
+                            </p>
+                          ) : method.value === 'middleware' ? (
+                            <p className="text-xs text-muted-foreground">
+                              Currently only implemented for Next.js applications. The system creates a middleware 
+                              file that adds headers to HTML responses, enabling script injection without modifying source files.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">{method.details}</p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -277,7 +283,7 @@ export function PreviewConfigForm({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {INJECTION_METHOD_OPTIONS.map((option) => (
+                    {INJECTION_METHOD_OPTIONS.filter(option => ['html-injection', 'middleware'].includes(option.value)).map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         <div className="flex flex-col">
                           <span>{option.label}</span>
@@ -289,10 +295,25 @@ export function PreviewConfigForm({
                 </Select>
                 {selectedInjectionMethod && (
                   <div className="rounded border p-3 bg-muted/30">
-                    <p className="text-sm mb-2">{selectedInjectionMethod.details}</p>
-                    <p className="text-xs text-muted-foreground">
-                      <strong>Requirements:</strong> {selectedInjectionMethod.requirements}
-                    </p>
+                    {selectedInjectionMethod.value === 'html-injection' ? (
+                      <p className="text-xs text-muted-foreground">
+                        The system will search for HTML files in this order and inject the preview inspector script into the first one found:
+                        <span className="block mt-1 font-mono">
+                          {config.injectionStrategy?.config?.indexPath ? `${config.injectionStrategy.config.indexPath} → ` : ''}
+                          index.html → public/index.html → dist/index.html → build/index.html
+                        </span>
+                        <span className="block mt-1">
+                          The script is injected only once into the {'<head>'} tag or at the beginning of {'<body>'}. 
+                        </span>
+                      </p>
+                    ) : selectedInjectionMethod.value === 'middleware' ? (
+                      <p className="text-xs text-muted-foreground">
+                        Currently only implemented for Next.js applications. The system creates a middleware 
+                        file that adds headers to HTML responses, enabling script injection without modifying source files.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{selectedInjectionMethod.details}</p>
+                    )}
                   </div>
                 )}
               </div>
