@@ -25,7 +25,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@moatless/shared': path.resolve(__dirname, '../shared'),
+      '@moatless/shared': path.resolve(__dirname, '../../packages/shared'),
       '@test-utils': path.resolve(__dirname, './src/test-utils'),
     },
   },

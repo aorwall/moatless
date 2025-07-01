@@ -1,5 +1,7 @@
 import type { PermissionMode } from './claude.js'
 
+export type { PermissionMode } from './claude.js'
+
 export interface ClaudeCodeTool {
   name: string
   description: string

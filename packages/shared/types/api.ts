@@ -192,7 +192,7 @@ export interface EventListResponse {
 // Error Types
 // ============================================
 
-export interface ApiError {
+export interface BaseApiError {
   code: string
   message: string
   details?: unknown

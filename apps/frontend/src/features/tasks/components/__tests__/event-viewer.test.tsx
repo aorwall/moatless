@@ -7,6 +7,22 @@ import { renderWithRouter } from '@/test-utils/render'
 import { useTaskEventsWithStreaming } from '../../hooks/use-task-events'
 import { EventViewer } from '../event-viewer/event-viewer'
 
+// Mock TaskEventsProvider
+const MockTaskEventsProvider = ({ children }: { children: React.ReactNode }) => {
+  return <div data-testid="mock-task-events-provider">{children}</div>
+}
+
+vi.mock('../../contexts/task-events-provider', () => ({
+  TaskEventsProvider: MockTaskEventsProvider,
+  useTaskEvents: vi.fn(() => ({
+    events: [],
+    isStreaming: false,
+    streamingError: null,
+    hasVisitedTask: false,
+    markTaskAsVisited: vi.fn(),
+  })),
+}))
+
 // Top-level regex for event test IDs
 const EVENT_TESTID_REGEX = /^event-\d+$/
 

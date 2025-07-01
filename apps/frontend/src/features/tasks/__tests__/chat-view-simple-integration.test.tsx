@@ -96,7 +96,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
       queryKey: queryKeys.task(taskId),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.tasks(),
+      queryKey: queryKeys.tasksList(),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.taskWorkspaceStatus(taskId),

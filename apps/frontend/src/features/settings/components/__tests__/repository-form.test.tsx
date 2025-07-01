@@ -17,7 +17,7 @@ describe('RepositoryForm', () => {
     it('should render empty form in create mode', () => {
       render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
-      expect(screen.getByText('Create New Environment')).toBeInTheDocument()
+      expect(screen.getByText('Create New Repository')).toBeInTheDocument()
       expect(screen.getByLabelText(/Name/)).toHaveValue('')
       expect(screen.getByLabelText(/Description/)).toHaveValue('')
       expect(screen.getByLabelText(/Repository Type/)).toHaveTextContent('Local')
@@ -28,7 +28,7 @@ describe('RepositoryForm', () => {
       render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Try to submit without filling required fields
-      const submitButton = screen.getByText('Create Environment')
+      const submitButton = screen.getByText('Create Repository')
       fireEvent.click(submitButton)
 
       await waitFor(() => {
@@ -185,7 +185,7 @@ describe('RepositoryForm', () => {
         />,
       )
 
-      expect(screen.getByText('Edit Environment')).toBeInTheDocument()
+      expect(screen.getByText('Edit Repository')).toBeInTheDocument()
       expect(screen.getByLabelText(/Name/)).toHaveValue(mockRepository.name)
       expect(screen.getByLabelText(/Description/)).toHaveValue(mockRepository.description)
       expect(screen.getByLabelText(/Local Path/)).toHaveValue(
@@ -213,7 +213,7 @@ describe('RepositoryForm', () => {
       })
 
       // Submit
-      fireEvent.click(screen.getByText('Update Environment'))
+      fireEvent.click(screen.getByText('Update Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(

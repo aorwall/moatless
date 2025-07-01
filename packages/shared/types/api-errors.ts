@@ -1,15 +1,15 @@
 export interface ApiErrorResponse {
-  error: ApiError
+  error: ApiResponseError
   requestId?: string
 }
 
-export interface ApiError {
+export interface ApiResponseError {
   code: string
   message: string
   details?: Record<string, unknown>
 }
 
-export interface ValidationError extends ApiError {
+export interface ApiValidationError extends ApiResponseError {
   code: 'VALIDATION_ERROR'
   details: {
     errors:
@@ -21,7 +21,7 @@ export interface ValidationError extends ApiError {
   }
 }
 
-export interface NotFoundError extends ApiError {
+export interface NotFoundError extends ApiResponseError {
   code: 'NOT_FOUND' | 'ENVIRONMENT_NOT_FOUND' | 'REPOSITORY_NOT_FOUND' | 'TASK_NOT_FOUND'
   details?: {
     id?: string
@@ -29,21 +29,21 @@ export interface NotFoundError extends ApiError {
   }
 }
 
-export interface InternalServerError extends ApiError {
+export interface InternalServerError extends ApiResponseError {
   code: 'INTERNAL_SERVER_ERROR'
   details?: {
     error?: string
   }
 }
 
-export type TypedApiError = ValidationError | NotFoundError | InternalServerError | ApiError
+export type TypedApiError = ApiValidationError | NotFoundError | InternalServerError | ApiResponseError
 
 // Type guard functions
-export function isValidationError(error: ApiError): error is ValidationError {
+export function isValidationError(error: ApiResponseError): error is ApiValidationError {
   return error.code === 'VALIDATION_ERROR'
 }
 
-export function isNotFoundError(error: ApiError): error is NotFoundError {
+export function isNotFoundError(error: ApiResponseError): error is NotFoundError {
   return error.code.endsWith('_NOT_FOUND') || error.code === 'NOT_FOUND'
 }
 

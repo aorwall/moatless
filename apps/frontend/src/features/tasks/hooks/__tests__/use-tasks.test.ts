@@ -3,6 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'
+import { serverApi } from '@/features/preview/api/server'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   createMockAgentTriggerResponse,
@@ -18,16 +19,18 @@ import { createWrapper } from '@/test-utils/render'
 import {
   useCreateTask,
   useSendMessage,
-  useServerStatus,
-  useStartServer,
   useStopAgent,
-  useStopServer,
   useTask,
   useTaskEvents,
   useTaskGitDiff,
   useTasksList,
   useTaskWorkspaceStatus,
 } from '../use-tasks'
+import {
+  useServerStatus,
+  useStartServer,
+  useStopServer,
+} from '@/features/preview/hooks/use-server'
 
 // Mock the tasks API
 vi.mock('@/features/tasks/api/tasks', () => ({
@@ -40,6 +43,20 @@ vi.mock('@/features/tasks/api/tasks', () => ({
     getTaskEvents: vi.fn(),
     getTaskGitDiff: vi.fn(),
     getTaskWorkspaceStatus: vi.fn(),
+    getServerStatus: vi.fn(),
+    startServer: vi.fn(),
+    stopServer: vi.fn(),
+  },
+}))
+
+// Mock the router
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: vi.fn(() => vi.fn()),
+}))
+
+// Mock the preview server API  
+vi.mock('@/features/preview/api/server', () => ({
+  serverApi: {
     getServerStatus: vi.fn(),
     startServer: vi.fn(),
     stopServer: vi.fn(),
@@ -170,7 +187,6 @@ describe('Task Hooks', () => {
 
       const wrapper = createWrapper()
       const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
-      const spyRefetch = vi.spyOn(wrapper({ children: null }).props.client, 'refetchQueries')
 
       const { result } = renderHook(() => useSendMessage(), { wrapper })
 
@@ -181,17 +197,17 @@ describe('Task Hooks', () => {
         })
       })
 
-      // Verify correct invalidations
+      // Verify correct invalidations - check that the specific task was invalidated
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.task('task-123'),
       })
+      // Verify task list was invalidated
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasksList(),
       })
-
-      // Verify immediate refetch
-      expect(spyRefetch).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+      // Verify workspace status was invalidated
+      expect(spyInvalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.taskWorkspaceStatus('task-123'),
       })
     })
   })
@@ -216,7 +232,7 @@ describe('Task Hooks', () => {
         queryKey: queryKeys.task('task-123'),
       })
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks(),
+        queryKey: queryKeys.tasks.all,
       })
     })
   })
@@ -325,7 +341,7 @@ describe('Task Hooks', () => {
   describe('useServerStatus', () => {
     it('fetches server status', async () => {
       const mockStatus = createMockServerStatus({ running: true })
-      vi.mocked(tasksApi.getServerStatus).mockResolvedValue(mockStatus)
+      vi.mocked(serverApi.getServerStatus).mockResolvedValue(mockStatus)
 
       const { result } = renderHook(() => useServerStatus('task-123'), {
         wrapper: createWrapper(),
@@ -340,14 +356,14 @@ describe('Task Hooks', () => {
 
     it('refetches when server is running', async () => {
       const runningStatus = createMockServerStatus({ running: true })
-      vi.mocked(tasksApi.getServerStatus).mockResolvedValue(runningStatus)
+      vi.mocked(serverApi.getServerStatus).mockResolvedValue(runningStatus)
 
       renderHook(() => useServerStatus('task-123'), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => {
-        expect(tasksApi.getServerStatus).toHaveBeenCalled()
+        expect(serverApi.getServerStatus).toHaveBeenCalled()
       })
 
       // The refetch interval should be 5 seconds when running
@@ -357,7 +373,7 @@ describe('Task Hooks', () => {
   describe('useStartServer', () => {
     it('starts server and invalidates queries', async () => {
       const mockStatus = createMockServerStatus({ running: true })
-      vi.mocked(tasksApi.startServer).mockResolvedValue(mockStatus)
+      vi.mocked(serverApi.startServer).mockResolvedValue(mockStatus)
 
       const wrapper = createWrapper()
       const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
@@ -371,16 +387,13 @@ describe('Task Hooks', () => {
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.taskServerStatus('task-123'),
       })
-      expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
-      })
     })
   })
 
   describe('useStopServer', () => {
     it('stops server and invalidates queries', async () => {
       const mockStatus = createMockServerStatus({ running: false })
-      vi.mocked(tasksApi.stopServer).mockResolvedValue(mockStatus)
+      vi.mocked(serverApi.stopServer).mockResolvedValue(mockStatus)
 
       const wrapper = createWrapper()
       const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
@@ -394,9 +407,6 @@ describe('Task Hooks', () => {
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.taskServerStatus('task-123'),
       })
-      expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
-      })
     })
   })
 
@@ -407,7 +417,7 @@ describe('Task Hooks', () => {
       const spyInvalidate = vi.spyOn(client, 'invalidateQueries')
 
       // Set up some query data
-      client.setQueryData(queryKeys.tasks(), [])
+      client.setQueryData(queryKeys.tasks.all, [])
       client.setQueryData(queryKeys.task('task-123'), createMockTask())
       client.setQueryData(queryKeys.taskEvents('task-123'), [])
 

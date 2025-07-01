@@ -100,7 +100,7 @@ describe('useSendMessage Integration Test', () => {
     })
 
     // Verify API calls
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Test message')
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Test message', undefined, undefined, undefined, undefined, undefined)
     // React Query may call getTask multiple times due to automatic refetching
     // The important thing is that it was called at least twice (initial + refetch)
     expect(tasksApi.getTask).toHaveBeenCalledTimes(4)
@@ -136,8 +136,8 @@ describe('useSendMessage Integration Test', () => {
     await expect(Promise.all([promise1, promise2])).resolves.toBeDefined()
 
     // Both messages should have been sent
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'First message')
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Second message')
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'First message', undefined, undefined, undefined, undefined, undefined)
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Second message', undefined, undefined, undefined, undefined, undefined)
   })
 
   it('should properly handle errors and not invalidate on failure', async () => {
@@ -190,7 +190,7 @@ describe('useSendMessage Integration Test', () => {
       queryKey: queryKeys.task(taskId),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.tasks(),
+      queryKey: queryKeys.tasksList(),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.taskWorkspaceStatus(taskId),
@@ -204,7 +204,7 @@ describe('useSendMessage Integration Test', () => {
     // Verify the order of operations
     const calls = spyInvalidate.mock.calls
     expect((calls[0][0] as { queryKey: unknown }).queryKey).toEqual(queryKeys.task(taskId))
-    expect((calls[1][0] as { queryKey: unknown }).queryKey).toEqual(queryKeys.tasks())
+    expect((calls[1][0] as { queryKey: unknown }).queryKey).toEqual(queryKeys.tasksList())
     expect((calls[2][0] as { queryKey: unknown }).queryKey).toEqual(
       queryKeys.taskWorkspaceStatus(taskId),
     )

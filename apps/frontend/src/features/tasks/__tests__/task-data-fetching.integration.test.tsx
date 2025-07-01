@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { EventType } from '@moatless/shared/types/event'
+import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { createMockTask, createMockTaskEvent } from '@/test-utils/mocks'
@@ -42,10 +44,16 @@ vi.mock('@/features/tasks/hooks/use-task-sse-connection', () => ({
   })),
 }))
 
-// Import the route directly
-import { Route } from '@/routes/tasks/$taskId'
+// Import the TaskPage and providers directly
+import { TaskPage, TaskProviders } from '@/features/tasks'
 
-const TaskDetail = Route.component
+function TaskDetail() {
+  return (
+    <TaskProviders taskId="test-task-123">
+      <TaskPage />
+    </TaskProviders>
+  )
+}
 
 describe('Task Data Fetching Integration', () => {
   beforeEach(() => {
@@ -65,21 +73,20 @@ describe('Task Data Fetching Integration', () => {
     const mockTask = createMockTask({
       taskId: 'test-task-123',
       status: 'running',
-      title: 'Test running task',
     })
 
     const mockEvents = [
-      createMockTaskEvent({ taskId: 'test-task-123', type: 'message' }),
-      createMockTaskEvent({ taskId: 'test-task-123', type: 'tool_use' }),
+      createMockTaskEvent({ taskId: 'test-task-123', type: EventType.MESSAGE }),
+      createMockTaskEvent({ taskId: 'test-task-123', type: EventType.TOOL }),
     ]
 
     const mockGitDiff = {
       diff: 'diff --git a/file.ts b/file.ts\n+added line',
-      files: [{ path: 'file.ts', additions: 1, deletions: 0 }],
+      files: [{ oldFile: 'file.ts', newFile: 'file.ts', hunks: ['+added line'] }],
     }
 
     const mockWorkspaceStatus = {
-      status: 'idle',
+      status: WorkspaceStatus.IDLE,
       hasUncommittedChanges: true,
       hasUnmergedCommits: false,
       isBehindBase: false,
@@ -95,10 +102,10 @@ describe('Task Data Fetching Integration', () => {
     vi.mocked(tasksApi.getTaskEvents).mockImplementation(async () => {
       apiCallTracker.getTaskEvents++
       console.log(`getTaskEvents called: ${apiCallTracker.getTaskEvents} times`)
-      return { events: mockEvents, items: mockEvents }
+      return mockEvents
     })
 
-    vi.mocked(tasksApi.getGitDiff).mockImplementation(async () => {
+    vi.mocked(tasksApi.getTaskGitDiff).mockImplementation(async () => {
       apiCallTracker.getGitDiff++
       console.log(`getGitDiff called: ${apiCallTracker.getGitDiff} times`)
       return mockGitDiff
@@ -118,7 +125,7 @@ describe('Task Data Fetching Integration', () => {
     // Wait for initial render
     await waitFor(
       () => {
-        expect(screen.getByText('Test running task')).toBeInTheDocument()
+        expect(screen.getByTestId('task-page')).toBeInTheDocument()
       },
       { timeout: 5000 },
     )
@@ -153,7 +160,6 @@ describe('Task Data Fetching Integration', () => {
     const mockTask = createMockTask({
       taskId: 'test-task-123',
       status: 'running',
-      title: 'Test running task',
     })
 
     vi.mocked(tasksApi.getTask).mockImplementation(async () => {
@@ -163,10 +169,10 @@ describe('Task Data Fetching Integration', () => {
 
     vi.mocked(tasksApi.getTaskEvents).mockImplementation(async () => {
       apiCallTracker.getTaskEvents++
-      return { events: [], items: [] }
+      return []
     })
 
-    vi.mocked(tasksApi.getGitDiff).mockImplementation(async () => {
+    vi.mocked(tasksApi.getTaskGitDiff).mockImplementation(async () => {
       apiCallTracker.getGitDiff++
       return { diff: '', files: [] }
     })
@@ -174,7 +180,7 @@ describe('Task Data Fetching Integration', () => {
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockImplementation(async () => {
       apiCallTracker.getTaskWorkspaceStatus++
       return {
-        status: 'idle',
+        status: WorkspaceStatus.IDLE,
         hasUncommittedChanges: false,
         hasUnmergedCommits: false,
         isBehindBase: false,
@@ -189,7 +195,7 @@ describe('Task Data Fetching Integration', () => {
     // Wait for component to settle
     await waitFor(
       () => {
-        expect(screen.getByText('Test running task')).toBeInTheDocument()
+        expect(screen.getByTestId('task-page')).toBeInTheDocument()
       },
       { timeout: 5000 },
     )

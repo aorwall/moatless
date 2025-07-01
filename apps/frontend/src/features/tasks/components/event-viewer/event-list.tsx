@@ -1,4 +1,4 @@
-import { isToolUseContent } from '@moatless/shared/types/claude-content'
+import { isToolUseContent } from '@moatless/shared'
 import type { Event, MessageEvent as MessageEventType } from '@moatless/shared/types/event'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'

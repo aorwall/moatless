@@ -1,4 +1,4 @@
-import type { ToolUseContent } from '@moatless/shared/types/claude-content'
+import type { ToolUseContent } from '@moatless/shared'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'

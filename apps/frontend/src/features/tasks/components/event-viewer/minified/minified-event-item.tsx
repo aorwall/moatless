@@ -2,7 +2,7 @@ import {
   isToolResultContent,
   isToolUseContent,
   type ToolUseContent,
-} from '@moatless/shared/types/claude-content'
+} from '@moatless/shared'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import {
   Bot,
