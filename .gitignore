@@ -29,6 +29,9 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Build cache
+.turbo/
+
 # Data files
 data/
 *.db
