@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { registerCommandRoutes } from './commands.js'
-import { registerRepositoryRoutes } from './repositories.js'
 import { registerEventRoutes } from './events.js'
+import { registerRepositoryRoutes } from './repositories.js'
 import { registerTaskRoutes } from './tasks.js'
 import { uploadRoutes } from './uploads.js'
 

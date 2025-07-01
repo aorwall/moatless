@@ -23,7 +23,7 @@ describe('Global Event Stream', () => {
 
   const mockTask: Task = {
     taskId: 'test-task-123',
-    environmentId: 'test-env',
+    repositoryId: 'test-env',
     agentType: 'test-agent',
     status: 'open',
     createdAt: new Date('2024-01-01'),
