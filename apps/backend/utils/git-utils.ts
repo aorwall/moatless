@@ -46,11 +46,28 @@ export async function hasUncommittedChanges(repoPath: string): Promise<boolean> 
   }
 }
 
+export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Promise<void> {
+  try {
+    const base = baseBranch || (await detectBaseBranch(repoPath))
+    // Fetch the latest changes from origin for the base branch
+    await execAsync(`git fetch origin ${base}:${base}`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+  } catch (error) {
+    // Log the error but continue - fetch failure is not critical
+    console.error(`Failed to fetch ${baseBranch || 'main'} branch:`, error instanceof Error ? error.message : String(error))
+  }
+}
+
 export async function getGitDiffString(
   repoPath: string,
   baseBranch?: string,
 ): Promise<[string, string]> {
   try {
+    // Fetch latest changes from remote before comparing
+    await fetchBaseBranch(repoPath, baseBranch)
+
     // Get the current branch
     const currentBranch = await getCurrentBranch(repoPath)
 
@@ -580,6 +597,9 @@ export async function getComprehensiveGitStatus(
   providedBaseBranch?: string,
 ): Promise<GitStatus> {
   try {
+    // Fetch latest changes from remote before status checks
+    await fetchBaseBranch(repoPath, providedBaseBranch)
+
     // Get current branch
     const currentBranch = await getCurrentBranch(repoPath)
 
