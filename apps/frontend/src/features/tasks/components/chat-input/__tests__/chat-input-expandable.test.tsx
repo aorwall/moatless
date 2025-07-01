@@ -23,6 +23,10 @@ vi.mock('@/features/tasks/hooks/use-tasks', () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
+  useStopAgent: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
 }))
 
 vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({

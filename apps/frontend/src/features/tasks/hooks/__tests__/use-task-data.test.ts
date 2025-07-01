@@ -13,6 +13,7 @@ vi.mock('@/features/tasks/api/tasks', () => ({
     getTask: vi.fn(),
     getTaskEvents: vi.fn(),
     getTaskGitDiff: vi.fn(),
+    getTaskWorkspaceStatus: vi.fn(),
   },
 }))
 
@@ -38,11 +39,16 @@ describe('useTaskData', () => {
         },
       ],
     }
+    const mockWorkspaceStatus = {
+      status: 'idle' as const,
+      message: 'Workspace is idle',
+    }
 
     // Setup mock responses
     vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask)
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue(mockEvents)
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue(mockGitDiff)
+    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(mockWorkspaceStatus)
 
     // Render the hook
     const { result } = renderHook(() => useTaskData(taskId), {
@@ -64,6 +70,7 @@ describe('useTaskData', () => {
     expect(result.current.task).toEqual(mockTask)
     expect(result.current.events).toEqual(mockEvents)
     expect(result.current.gitDiff).toEqual(mockGitDiff)
+    expect(result.current.workspaceStatus).toEqual(mockWorkspaceStatus)
     expect(result.current.error).toBeNull()
 
     // Verify each API was called exactly once
@@ -75,6 +82,9 @@ describe('useTaskData', () => {
 
     expect(tasksApi.getTaskGitDiff).toHaveBeenCalledTimes(1)
     expect(tasksApi.getTaskGitDiff).toHaveBeenCalledWith(taskId)
+
+    expect(tasksApi.getTaskWorkspaceStatus).toHaveBeenCalledTimes(1)
+    expect(tasksApi.getTaskWorkspaceStatus).toHaveBeenCalledWith(taskId)
   })
 
   it('should handle errors gracefully', async () => {
@@ -85,6 +95,7 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTask).mockRejectedValue(mockError)
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
+    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({ status: 'idle', message: 'Idle' })
 
     // Render the hook
     const { result } = renderHook(() => useTaskData(taskId), {
@@ -113,5 +124,6 @@ describe('useTaskData', () => {
     expect(tasksApi.getTask).not.toHaveBeenCalled()
     expect(tasksApi.getTaskEvents).not.toHaveBeenCalled()
     expect(tasksApi.getTaskGitDiff).not.toHaveBeenCalled()
+    expect(tasksApi.getTaskWorkspaceStatus).not.toHaveBeenCalled()
   })
 })

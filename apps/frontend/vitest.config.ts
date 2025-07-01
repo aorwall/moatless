@@ -29,4 +29,7 @@ export default defineConfig({
       '@test-utils': path.resolve(__dirname, './src/test-utils'),
     },
   },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('test'),
+  },
 })

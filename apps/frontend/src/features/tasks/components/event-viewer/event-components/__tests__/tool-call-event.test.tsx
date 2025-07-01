@@ -46,7 +46,8 @@ describe('ToolCallEvent', () => {
     render(<ToolCallEvent event={event} />)
 
     expect(screen.getByText('Read')).toBeInTheDocument()
-    expect(screen.getByText('/test/file.ts')).toBeInTheDocument()
+    // The file path is rendered as "cat /test/file.ts" in a code element
+    expect(screen.getByText('cat /test/file.ts')).toBeInTheDocument()
   })
 
   it('should render tool call with result', () => {

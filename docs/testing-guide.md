@@ -17,6 +17,30 @@ src/features/tasks/
 │   └── use-tasks.ts
 ```
 
+## React 19 Compatibility
+
+This project uses React 19 with @testing-library/react. To ensure compatibility:
+
+### Test Setup Configuration
+
+The test setup file (`src/test-utils/setup.ts`) includes React 19 compatibility:
+
+```typescript
+// React 19 compatibility: Set the act environment flag
+// This tells React Testing Library that we're in a test environment
+if (!globalThis.IS_REACT_ACT_ENVIRONMENT) {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+}
+```
+
+This flag is required for React 19 to properly handle the `act` function in tests. Without it, you'll encounter "React.act is not a function" errors.
+
+### Important Notes
+
+1. **@testing-library/react v16.3.0** works with React 19 when the environment flag is set
+2. **No downgrade needed** - Keep React 19 and use the compatibility flag
+3. **act() is built into React 19** - The testing library uses React's native act implementation
+
 ## Testing Strategy
 
 ### Layered Testing Approach

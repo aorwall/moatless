@@ -23,31 +23,35 @@ interface UseTaskDataResult {
  * are automatically invalidated when the parent task is invalidated.
  */
 export function useTaskData(taskId: string): UseTaskDataResult {
+  // Don't fetch data for temporary task IDs
+  const isTemporaryId = taskId.startsWith('temp-')
+  const shouldFetch = !!taskId && !isTemporaryId
+
   const queries = useQueries({
     queries: [
       {
         queryKey: queryKeys.task(taskId),
         queryFn: () => tasksApi.getTask(taskId),
         staleTime: 5 * 60 * 1000,
-        enabled: !!taskId,
+        enabled: shouldFetch,
       },
       {
         queryKey: queryKeys.taskEvents(taskId),
         queryFn: () => tasksApi.getTaskEvents(taskId),
         staleTime: 60 * 1000,
-        enabled: !!taskId,
+        enabled: shouldFetch,
       },
       {
         queryKey: queryKeys.taskGitDiff(taskId),
         queryFn: () => tasksApi.getTaskGitDiff(taskId),
         staleTime: 10 * 60 * 1000,
-        enabled: !!taskId,
+        enabled: shouldFetch,
         retry: false,
       },
       {
         queryKey: queryKeys.taskWorkspaceStatus(taskId),
         queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
-        enabled: !!taskId,
+        enabled: shouldFetch,
         refetchInterval: 10000, // 10 seconds - balanced polling frequency
         staleTime: 2000, // Consider data stale after 2 seconds
       },

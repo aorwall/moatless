@@ -2,6 +2,7 @@ import type { Event } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { mergeToolEvents } from '@/features/tasks/utils/merge-tool-events'
 
 import { EventList } from '../event-list'
 
@@ -123,7 +124,9 @@ describe('EventList Integration - Tool Calls', () => {
       },
     ]
 
-    render(<EventList events={events} />)
+    // Merge tool events before rendering
+    const mergedEvents = mergeToolEvents(events)
+    render(<EventList events={mergedEvents} />)
 
     // Should render the LS tool
     expect(screen.getByText('LS')).toBeInTheDocument()
@@ -173,8 +176,10 @@ describe('EventList Integration - Tool Calls', () => {
     // Should render the Read tool
     expect(screen.getByText('Read')).toBeInTheDocument()
 
-    // Should show the file path
-    expect(screen.getByText(/App\.tsx/)).toBeInTheDocument()
+    // Should show the file path as part of the cat command
+    expect(screen.getByText((content, element) => {
+      return element?.tagName === 'CODE' && content.includes('App.tsx')
+    })).toBeInTheDocument()
   })
 
   it('should render regular text messages without tool call styling', () => {
