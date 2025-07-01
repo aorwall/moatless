@@ -63,14 +63,13 @@ export function SidebarTasks() {
   useEffect(() => {
     return subscribeToAll((event) => {
       // Invalidate task list on relevant events
-      if (
-        event.type === 'task:created' ||
-        event.type === 'task:updated' ||
-        event.type === 'task:statusChanged' ||
-        event.type === 'message' ||
-        event.type === 'iteration:created' ||
-        event.type === 'iteration:updated'
-      ) {
+      if (event.subType && (
+        event.subType === 'task:created' ||
+        event.subType === 'task:updated' ||
+        event.subType === 'task:statusChanged' ||
+        event.subType === 'iteration:created' ||
+        event.subType === 'iteration:updated'
+      )) {
         queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
       }
     })

@@ -8,7 +8,6 @@ import type {
 } from '@moatless/shared/types/repository'
 
 type LocalRepository = Extract<Repository, { type: 'local' }>
-type GithubRepository = Extract<Repository, { type: 'github' }>
 
 import { useId, useState } from 'react'
 import { z } from 'zod'
@@ -90,12 +89,8 @@ export function RepositoryForm({
     }
 
     return {
-      localPath: '',
-      useGitWorktrees: false,
-      githubRepoId: repo.repoId,
-      githubBranch: repo.branch || 'main',
-      githubCommit: repo.commit || '',
-      githubToken: repo.token || '',
+      localPath: repo.path || '',
+      useGitWorktrees: repo.useGitWorktrees || false,
     }
   }
 
@@ -190,21 +185,11 @@ export function RepositoryForm({
   }
 
   const createRepository = (): Repository => {
-    if (formData.repositoryType === 'local') {
-      return {
-        type: 'local',
-        path: formData.localPath,
-        useGitWorktrees: formData.useGitWorktrees || undefined,
-      } as LocalRepository
-    }
-
     return {
-      type: 'github',
-      repoId: formData.githubRepoId,
-      branch: formData.githubBranch || 'main',
-      commit: formData.githubCommit || undefined,
-      token: formData.githubToken || undefined,
-    } as GithubRepository
+      type: 'local',
+      path: formData.localPath,
+      useGitWorktrees: formData.useGitWorktrees || undefined,
+    } as LocalRepository
   }
 
   const createCodeExecution = (): CodeExecution => {

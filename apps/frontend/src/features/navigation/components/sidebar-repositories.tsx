@@ -2,7 +2,6 @@ import { Link } from '@tanstack/react-router'
 import { Plus, Server } from 'lucide-react'
 
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -64,7 +63,7 @@ export function SidebarRepositories() {
       </SidebarGroupLabel>
       <SidebarGroupAction asChild>
         <Button variant="ghost" size="icon" asChild>
-          <Link to="/environments/new">
+          <Link to="/repositories/new">
             <Plus className="h-4 w-4" />
           </Link>
         </Button>
@@ -78,11 +77,6 @@ export function SidebarRepositories() {
                   <div className="flex flex-col items-start gap-1 overflow-hidden">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm">{repo.name}</span>
-                      {repo.is_active && (
-                        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                          Active
-                        </Badge>
-                      )}
                     </div>
                     {repo.description && (
                       <span className="truncate text-xs text-muted-foreground">

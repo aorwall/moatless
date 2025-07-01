@@ -7,7 +7,6 @@ import type {
 } from '@moatless/shared/types/repository'
 
 type LocalRepository = Extract<Repository, { type: 'local' }>
-type GithubRepository = Extract<Repository, { type: 'github' }>
 
 // Repository factories
 export function createMockLocalRepository(overrides?: Partial<LocalRepository>): LocalRepository {
@@ -19,19 +18,6 @@ export function createMockLocalRepository(overrides?: Partial<LocalRepository>):
   }
 }
 
-export function createMockGithubRepositoryConfig(
-  overrides?: Partial<GithubRepository>,
-): GithubRepository {
-  return {
-    type: 'github',
-    url: 'https://github.com/test-org/test-repo',
-    repoId: 'test-org/test-repo',
-    branch: 'main',
-    commit: undefined,
-    token: undefined,
-    ...overrides,
-  }
-}
 
 // Code execution factories
 export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {
@@ -76,24 +62,6 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
   }
 }
 
-export function createMockGithubRepository(
-  overrides?: Partial<RepositoryResponse>,
-): RepositoryResponse {
-  return {
-    id: 'env-github-456',
-    name: 'GitHub Repository',
-    description: 'A GitHub-based test repository',
-    repository: createMockGithubRepositoryConfig(),
-    codeExecution: createMockDockerCodeExecution(),
-    variables: {
-      NODE_ENV: 'production',
-      DATABASE_URL: 'postgresql://localhost:5432/testdb',
-    },
-    createdAt: new Date('2024-01-01T00:00:00Z'),
-    updatedAt: new Date('2024-01-01T00:00:00Z'),
-    ...overrides,
-  }
-}
 
 // Request factories
 export function createMockCreateRepositoryRequest(
@@ -126,17 +94,11 @@ export function createMockRepositoryList(count = 3): RepositoryResponse[] {
   const repositories: RepositoryResponse[] = []
 
   for (let i = 0; i < count; i++) {
-    const isGithub = i % 2 === 1
     repositories.push(
-      isGithub
-        ? createMockGithubRepository({
-            id: `repo-github-${i}`,
-            name: `GitHub Repository ${i}`,
-          })
-        : createMockRepository({
-            id: `repo-local-${i}`,
-            name: `Local Repository ${i}`,
-          }),
+      createMockRepository({
+        id: `repo-local-${i}`,
+        name: `Local Repository ${i}`,
+      }),
     )
   }
 

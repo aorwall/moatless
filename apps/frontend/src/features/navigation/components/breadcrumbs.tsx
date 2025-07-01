@@ -17,7 +17,7 @@ const getBreadcrumbLabel = (
   segment: string,
   prevSegment: string | undefined,
   isTaskId: boolean,
-  task: { agent_type: string } | undefined,
+  task: { agentType: string } | undefined,
 ): string => {
   const settingsMap: Record<string, string> = {
     environments: 'Environments',
@@ -47,7 +47,7 @@ const createBreadcrumbItem = (
   index: number,
   segments: Array<string>,
   taskId: string | undefined,
-  task: { agent_type: string } | undefined,
+  task: { agentType: string } | undefined,
 ): { label: string; href?: string; key: string } => {
   const currentPath = `/${segments.slice(0, index + 1).join('/')}`
   const isLast = index === segments.length - 1

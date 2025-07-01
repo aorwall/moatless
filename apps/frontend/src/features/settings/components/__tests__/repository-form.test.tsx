@@ -1,7 +1,9 @@
-import type { CodeExecution } from '@moatless/shared/types/repository'
+import type { Repository } from '@moatless/shared/types/repository'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createMockGithubRepository, createMockRepository } from '@/test-utils/factories'
+import { createMockRepository } from '@/test-utils/factories'
+
+type LocalRepository = Extract<Repository, { type: 'local' }>
 import { render } from '@/test-utils/render'
 import { RepositoryForm } from '../repository-form'
 
@@ -203,30 +205,6 @@ describe('RepositoryForm', () => {
       )
     })
 
-    it('should populate form with GitHub environment', () => {
-      const mockRepository = createMockGithubRepository()
-
-      render(
-        <RepositoryForm
-          onSubmit={mockOnSubmit}
-          onCancel={mockOnCancel}
-          mode="edit"
-          initialData={mockRepository}
-        />,
-      )
-
-      expect(screen.getByLabelText(/Repository Type/)).toHaveTextContent('GitHub')
-      expect(screen.getByLabelText(/Repository ID/)).toHaveValue(
-        (mockRepository.repository as GithubRepository).repoId,
-      )
-      expect(screen.getByLabelText(/Branch/)).toHaveValue(
-        (mockRepository.repository as GithubRepository).branch,
-      )
-      expect(screen.getByLabelText(/Execution Type/)).toHaveTextContent('Docker')
-      expect(screen.getByLabelText(/Docker Image/)).toHaveValue(
-        (mockRepository.codeExecution as CodeExecution).image,
-      )
-    })
 
     it('should submit updated data', async () => {
       const mockRepository = createMockRepository()
@@ -308,23 +286,14 @@ describe('RepositoryForm', () => {
     it('should validate with Zod schema', async () => {
       render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
-      // Fill invalid data
-      fireEvent.change(screen.getByLabelText(/Name/), {
-        target: { value: 'Test' },
-      })
-
-      // Switch to GitHub but don't fill required fields
-      fireEvent.click(screen.getByLabelText(/Repository Type/))
-      fireEvent.click(screen.getByText('GitHub'))
-
-      // Try to submit
+      // Try to submit without required fields
       fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).not.toHaveBeenCalled()
       })
 
-      // Should show validation error for missing GitHub fields
+      // Should show validation error for missing required fields
       expect(screen.queryByText(/required/i)).toBeInTheDocument()
     })
   })

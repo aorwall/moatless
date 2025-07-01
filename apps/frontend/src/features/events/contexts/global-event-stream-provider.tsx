@@ -1,4 +1,5 @@
-import type { Event, EventType } from '@moatless/shared/types/event'
+import type { Event } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/shared/types/event'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -36,7 +37,7 @@ export function GlobalEventStreamProvider({
   const [eventsByTask] = useState(() => new Map<string, Event[]>())
 
   const eventSourceRef = useRef<EventSource | null>(null)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>()
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const reconnectAttemptsRef = useRef(0)
   const queryClient = useQueryClient()
 
@@ -55,23 +56,39 @@ export function GlobalEventStreamProvider({
       taskEvents.push(event)
       eventsByTask.set(event.taskId, taskEvents)
 
-      // Invalidate relevant queries based on event type
-      switch (event.type) {
-        case 'iteration:created':
-        case 'iteration:updated':
-        case 'task:created':
-        case 'task:updated':
-        case 'task:statusChanged':
-          queryClient.invalidateQueries({ queryKey: queryKeys.task(event.taskId) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
-          break
+      // Invalidate relevant queries based on event type and subType
+      if (event.subType) {
+        switch (event.subType) {
+          case 'iteration:created':
+          case 'iteration:updated':
+          case 'task:created':
+          case 'task:updated':
+          case 'task:statusChanged':
+            queryClient.invalidateQueries({ queryKey: queryKeys.task(event.taskId) })
+            queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
+            break
 
-        case 'message':
-        case 'tool:start':
-        case 'tool:result':
-        case 'tool:error':
+          case 'tool:start':
+          case 'tool:result':
+          case 'tool:error':
+            queryClient.invalidateQueries({ queryKey: queryKeys.taskMessages(event.taskId) })
+            queryClient.invalidateQueries({ queryKey: queryKeys.taskEvents(event.taskId) })
+            break
+        }
+      }
+
+      // Also handle by main event type
+      switch (event.type) {
+        case EventType.MESSAGE:
+        case EventType.TOOL:
           queryClient.invalidateQueries({ queryKey: queryKeys.taskMessages(event.taskId) })
           queryClient.invalidateQueries({ queryKey: queryKeys.taskEvents(event.taskId) })
+          break
+        case EventType.START:
+        case EventType.STOP:
+        case EventType.RESULT:
+          queryClient.invalidateQueries({ queryKey: queryKeys.task(event.taskId) })
+          queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
           break
       }
 

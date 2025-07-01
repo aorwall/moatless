@@ -112,7 +112,19 @@ export function getElementAttributes(element: Element): Record<string, string> {
 /**
  * Get computed styles for an element
  */
-export function getComputedStyles(element: Element): Record<string, string> {
+export function getComputedStyles(element: Element): {
+  display: string
+  position: string
+  width: string
+  height: string
+  color: string
+  backgroundColor: string
+  fontSize: string
+  fontFamily: string
+  padding: string
+  margin: string
+  border: string
+} {
   const computed = window.getComputedStyle(element)
 
   return {

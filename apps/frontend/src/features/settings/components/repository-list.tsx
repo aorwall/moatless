@@ -52,11 +52,7 @@ export function RepositoryList({
 
   const getRepositoryInfo = (repo: RepositoryResponse) => {
     const { repository } = repo
-    if (repository.type === 'local') {
-      return repository.path
-    } else {
-      return `${repository.repoId}${repository.branch !== 'main' ? ` (${repository.branch})` : ''}`
-    }
+    return repository.path
   }
 
   const getExecutionInfo = (repo: RepositoryResponse) => {
