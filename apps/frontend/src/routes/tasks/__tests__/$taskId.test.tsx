@@ -395,8 +395,8 @@ describe('TaskDetail Route - Integration Tests', () => {
       expect(screen.getByTestId('task-header')).toBeInTheDocument()
 
       // Verify task viewer shows iterations (integration with real component)
-      expect(screen.getByText(taskWithIterations.iterations[0].initial_message)).toBeInTheDocument()
-      expect(screen.getByText(taskWithIterations.iterations[1].initial_message)).toBeInTheDocument()
+      expect(screen.getByText(taskWithIterations.iterations[0].initialMessage)).toBeInTheDocument()
+      expect(screen.getByText(taskWithIterations.iterations[1].initialMessage)).toBeInTheDocument()
 
       // Verify layout components are present
       expect(screen.getByRole('tablist')).toBeInTheDocument()
@@ -668,7 +668,7 @@ describe('TaskDetail Route - Contract Tests', () => {
     vi.clearAllMocks()
 
     vi.mocked(useTask).mockReturnValue({
-      data: createMockTask({ task_id: 'task-123' }),
+      data: createMockTask({ taskId: 'task-123' }),
       isLoading: false,
       error: null,
     } as ReturnType<typeof useTaskGitDiff>)
@@ -785,8 +785,7 @@ describe('TaskDetail Route - Contract Tests', () => {
   it('provides correct context to child components', () => {
     const taskData = createMockTaskWithIterations(
       {
-        task_id: 'test-task',
-        title: 'Contract Test Task',
+        taskId: 'test-task',
       },
       2,
     )
@@ -802,8 +801,8 @@ describe('TaskDetail Route - Contract Tests', () => {
     // Verify that task data is available to child components
     // This tests the integration without mocking the children
     expect(useTask).toHaveBeenCalledWith('task-123') // Verify hook contract
-    expect(screen.getByText(taskData.iterations[0].initial_message)).toBeInTheDocument()
-    expect(screen.getByText(taskData.iterations[1].initial_message)).toBeInTheDocument()
+    expect(screen.getByText(taskData.iterations[0].initialMessage)).toBeInTheDocument()
+    expect(screen.getByText(taskData.iterations[1].initialMessage)).toBeInTheDocument()
   })
 
   it('maintains responsive layout contracts', () => {

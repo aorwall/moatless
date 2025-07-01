@@ -92,6 +92,10 @@ export interface MockWorkspaceStatusResponse {
   gitStatus?: {
     currentBranch: string
     baseBranch: string
+    hasUncommittedChanges: boolean
+    hasUnmergedCommits: boolean
+    isBehindBase: boolean
+    hasConflicts: boolean
     commitsAhead: number
     commitsBehind: number
   }

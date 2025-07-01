@@ -90,7 +90,7 @@ describe('ChatView Workspace Integration', () => {
   it('should show processing when workspace is setting up', () => {
     const task = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         is_running: false,
         status: 'completed',
       },
@@ -130,7 +130,7 @@ describe('ChatView Workspace Integration', () => {
   it('should update message count from event stream', () => {
     const task = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         is_running: true,
         status: 'active',
       },
@@ -207,7 +207,7 @@ describe('ChatView Workspace Integration', () => {
     const createdAt = new Date(Date.now() - 65000) // 65 seconds ago
     const task = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         is_running: true,
         status: 'active',
       },
@@ -255,7 +255,7 @@ describe('ChatView Workspace Integration', () => {
   it('should use static values when not streaming', () => {
     const task = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         is_running: false,
         status: 'completed',
       },

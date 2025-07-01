@@ -59,8 +59,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const updatedTask = createMockTaskWithIterations(
       {
         taskId: taskId,
-        status: 'active',
-        is_running: true,
+        status: 'running',
       },
       2,
     )

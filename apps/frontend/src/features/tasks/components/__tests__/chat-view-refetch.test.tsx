@@ -48,7 +48,7 @@ describe('ChatView Refetch Behavior', () => {
     // Initial task with 1 iteration
     const initialTask = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         title: 'Test Task',
         is_running: false,
         status: 'completed',
@@ -59,7 +59,7 @@ describe('ChatView Refetch Behavior', () => {
     // Updated task with 2 iterations
     const updatedTask = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         title: 'Test Task',
         is_running: true,
         status: 'active',
@@ -78,7 +78,7 @@ describe('ChatView Refetch Behavior', () => {
     const { rerender } = renderWithRouter(<ChatView />)
 
     // Verify initial state - only 1 iteration
-    expect(screen.getByText(initialTask.iterations[0].initial_message)).toBeInTheDocument()
+    expect(screen.getByText(initialTask.iterations[0].initialMessage)).toBeInTheDocument()
     expect(screen.queryByText('Processing...')).not.toBeInTheDocument()
 
     // Update the mock to return updated task
@@ -95,8 +95,8 @@ describe('ChatView Refetch Behavior', () => {
     // Wait for the UI to update
     await waitFor(() => {
       // Should now show both iterations
-      expect(screen.getByText(updatedTask.iterations[0].initial_message)).toBeInTheDocument()
-      expect(screen.getByText(updatedTask.iterations[1].initial_message)).toBeInTheDocument()
+      expect(screen.getByText(updatedTask.iterations[0].initialMessage)).toBeInTheDocument()
+      expect(screen.getByText(updatedTask.iterations[1].initialMessage)).toBeInTheDocument()
       // Should show processing indicator when task is running
       expect(screen.getByText('Processing...')).toBeInTheDocument()
     })
@@ -119,7 +119,7 @@ describe('ChatView Refetch Behavior', () => {
   it('should display loading indicator only for running tasks with iterations', () => {
     const runningTask = createMockTaskWithIterations(
       {
-        task_id: 'task-123',
+        taskId: 'task-123',
         is_running: true,
         status: 'active',
       },
@@ -143,11 +143,11 @@ describe('ChatView Refetch Behavior', () => {
   })
 
   it('should update cost and duration when task data changes', async () => {
-    const task1 = createMockTaskWithIterations({ task_id: 'task-123' }, 1)
+    const task1 = createMockTaskWithIterations({ taskId: 'task-123' }, 1)
     task1.iterations[0].cost_usd = 0.01
     task1.iterations[0].duration_ms = 1000
 
-    const task2 = createMockTaskWithIterations({ task_id: 'task-123' }, 1)
+    const task2 = createMockTaskWithIterations({ taskId: 'task-123' }, 1)
     task2.iterations[0].cost_usd = 0.02
     task2.iterations[0].duration_ms = 2000
 

@@ -51,7 +51,7 @@ describe('TaskHeader', () => {
     // Default mocks
     vi.mocked(useTask).mockReturnValue({
       data: createMockTask({
-        task_id: 'task-123',
+        taskId: 'task-123',
         title: 'Test Task',
         is_running: false,
         status: 'completed',
@@ -83,7 +83,7 @@ describe('TaskHeader', () => {
     vi.mocked(useStopAgent).mockReturnValue({
       mutate: mockStopAgent,
       isPending: false,
-    } as unknown as UseMutationResult<{ status: string; task_id: string }, Error, string>)
+    } as unknown as UseMutationResult<{ status: string; taskId: string }, Error, string>)
 
     vi.mocked(useStartServer).mockReturnValue({
       mutate: mockStartServer,
@@ -109,7 +109,7 @@ describe('TaskHeader', () => {
     it('uses task ID when title is not provided', () => {
       vi.mocked(useTask).mockReturnValue({
         data: createMockTask({
-          task_id: 'task-12345678',
+          taskId: 'task-12345678',
           title: undefined,
         }),
         isLoading: false,
@@ -342,7 +342,7 @@ describe('TaskHeader', () => {
       vi.mocked(useStopAgent).mockReturnValue({
         mutate: mockStopAgent,
         isPending: true,
-      } as unknown as UseMutationResult<{ status: string; task_id: string }, Error, string>)
+      } as unknown as UseMutationResult<{ status: string; taskId: string }, Error, string>)
 
       renderWithRouter(<TaskHeader />)
       expect(screen.getByText('Stopping...')).toBeDisabled()
@@ -351,7 +351,7 @@ describe('TaskHeader', () => {
     it('shows toast notification on stop agent success', async () => {
       const user = userEvent.setup()
       let capturedOnSuccess:
-        | ((data: { status: string; task_id: string }, variables: string, context: unknown) => void)
+        | ((data: { status: string; taskId: string }, variables: string, context: unknown) => void)
         | undefined
 
       vi.mocked(useTask).mockReturnValue({
@@ -366,7 +366,7 @@ describe('TaskHeader', () => {
         return {
           mutate: mockStopAgent,
           isPending: false,
-        } as unknown as UseMutationResult<{ status: string; task_id: string }, Error, string>
+        } as unknown as UseMutationResult<{ status: string; taskId: string }, Error, string>
       })
 
       renderWithRouter(<TaskHeader />)
@@ -377,7 +377,7 @@ describe('TaskHeader', () => {
 
       // Simulate successful mutation by calling the captured onSuccess
       if (capturedOnSuccess) {
-        capturedOnSuccess({ status: 'stopped', task_id: 'task-123' }, 'task-123', {})
+        capturedOnSuccess({ status: 'stopped', taskId: 'task-123' }, 'task-123', {})
       }
 
       await waitFor(() => {
