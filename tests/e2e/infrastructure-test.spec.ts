@@ -42,9 +42,9 @@ test.describe('E2E Test Infrastructure Validation', () => {
     // Test our API utility functions without needing a real server
     const apiTest = await page.evaluate(() => {
       // Simulate API request structure validation
-      const mockEnvironment = {
-        name: 'Test Environment',
-        description: 'Test environment for validation',
+      const mockRepository = {
+        name: 'Test Repository',
+        description: 'Test repository for validation',
         repository: {
           type: 'local',
           path: '/tmp/test',
@@ -58,32 +58,32 @@ test.describe('E2E Test Infrastructure Validation', () => {
       
       const mockTask = {
         agentType: 'claude-code',
-        environmentId: 'env-123',
+        repositoryId: 'repo-123',
         message: 'Test task',
         start: true
       }
       
       // Validate our request structure
-      const isValidEnvironment = (
-        mockEnvironment.name &&
-        mockEnvironment.repository &&
-        mockEnvironment.codeExecution
+      const isValidRepository = (
+        mockRepository.name &&
+        mockRepository.repository &&
+        mockRepository.codeExecution
       )
       
       const isValidTask = (
         mockTask.agentType &&
-        mockTask.environmentId &&
+        mockTask.repositoryId &&
         mockTask.message !== undefined
       )
       
       return {
-        environmentValid: isValidEnvironment,
+        repositoryValid: isValidRepository,
         taskValid: isValidTask,
         mockDataStructured: true
       }
     })
     
-    expect(apiTest.environmentValid).toBe(true)
+    expect(apiTest.repositoryValid).toBe(true)
     expect(apiTest.taskValid).toBe(true)
     expect(apiTest.mockDataStructured).toBe(true)
     
@@ -276,21 +276,21 @@ test.describe('E2E Test Infrastructure Validation', () => {
         hasType: true,
         hasTimestamp: true
       },
-      environmentInterface: {
+      repositoryInterface: {
         hasId: true,
         hasName: true,
         hasTempDir: true
       },
       taskInterface: {
         hasTaskId: true,
-        hasEnvironmentId: true,
+        hasRepositoryId: true,
         hasAgentType: true
       }
     }
     
     expect(typeValidation.eventInterface.hasEventId).toBe(true)
     expect(typeValidation.eventInterface.hasTaskId).toBe(true)
-    expect(typeValidation.environmentInterface.hasId).toBe(true)
+    expect(typeValidation.repositoryInterface.hasId).toBe(true)
     expect(typeValidation.taskInterface.hasTaskId).toBe(true)
     
     console.log('✅ TypeScript interfaces validated')

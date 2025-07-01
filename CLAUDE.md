@@ -9,7 +9,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies (requires pnpm 10.7.1)
 pnpm install
 
-# Build for production
+# Development (runs all apps concurrently with Turborepo)
+pnpm dev
+
+# Build for production (builds all packages and apps)
 pnpm build
 
 # Run tests (tiered by speed and scope)
@@ -29,11 +32,11 @@ pnpm type:check
 pnpm biome:check      # check for issues
 pnpm biome:fix        # auto-fix issues
 
-# Run all checks (optimized for speed)
+# Run all checks (optimized for speed with Turborepo)
 pnpm check:turbo
 
-# Install shadcn/ui components
-pnpm dlx shadcn@latest add [component]
+# Install shadcn/ui components (run from frontend app)
+cd apps/frontend && pnpm dlx shadcn@latest add [component]
 ```
 
 ## Mandatory Workflow
@@ -130,74 +133,85 @@ For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-
 
 ## Architecture
 
-### Project Structure
+### Project Structure (Turborepo Monorepo)
 ```
-├── client/                    # React frontend application
-│   └── src/
-│       ├── features/          # Feature-based modules
-│       │   ├── claude-code/   # Claude Code integration
-│       │   │   ├── api/         # Claude Code API
-│       │   │   ├── hooks/       # Claude Code hooks
-│       │   │   └── index.ts     # Feature exports
-│       │   ├── environments/  # Environment management
-│       │   │   ├── api/         # Environment API endpoints
-│       │   │   ├── components/  # Environment components
-│       │   │   ├── hooks/       # Environment hooks
-│       │   │   └── index.ts     # Feature exports
-│       │   ├── navigation/    # Navigation components
-│       │   │   └── components/  # Sidebar, breadcrumbs, etc.
-│       │   ├── preview/       # Preview functionality
-│       │   │   ├── api/         # Preview API
-│       │   │   ├── components/  # Preview UI components
-│       │   │   ├── hooks/       # Preview hooks
-│       │   │   ├── stores/      # Preview state management
-│       │   │   ├── types/       # Preview types
-│       │   │   ├── utils/       # Preview utilities
-│       │   │   └── index.ts     # Feature exports
-│       │   ├── settings/      # Settings management
-│       │   │   ├── components/  # Settings components
-│       │   │   └── hooks/       # Settings hooks
-│       │   └── tasks/         # Tasks feature
-│       │       ├── api/         # Task API endpoints
-│       │       ├── components/  # Task-related components
-│       │       ├── hooks/       # Task-specific hooks
-│       │       ├── stores/      # Task state management
-│       │       ├── utils/       # Task utilities
-│       │       └── index.ts     # Feature exports
-│       ├── lib/               # Shared utilities and components
-│       │   ├── api/           # Core API utilities
-│       │   │   ├── client.ts    # Base HTTP client
-│       │   │   ├── query-client.ts # React Query setup
-│       │   │   └── query-keys.ts   # Query key factory
-│       │   ├── components/    # Shared components
-│       │   │   ├── ui/          # Generic UI components
-│       │   │   ├── error-boundary.tsx # Error handling
-│       │   │   └── theme-provider.tsx # Theme management
-│       │   ├── hooks/         # Shared hooks
-│       │   ├── layout/        # Layout components
-│       │   ├── styles/        # Global styles
-│       │   └── utils/         # Utility functions
-│       ├── routes/            # Page components & routing
-│       │   ├── environments/  # Environment routes
-│       │   ├── tasks/         # Task routes
-│       │   └── settings/      # Settings route
-│       ├── test-utils/        # Testing utilities
-│       ├── types/             # TypeScript type definitions
-│       │   └── git-diff.ts    # Git diff types (only remaining)
-│       └── main.tsx          # Application entry point
-├── server/                    # Node.js backend application
-│   ├── routes/                # API route handlers
-│   ├── services/              # Business logic services
-│   │   └── agents/            # AI agent implementations
-│   ├── plugins/               # Fastify plugins
-│   ├── utils/                 # Server utilities
-│   └── app.ts                # Server entry point
-├── shared/                    # Shared code between client and server
-│   ├── types/                 # Shared TypeScript types
-│   ├── constants/             # Shared constants
-│   ├── schemas/               # Validation schemas
-│   └── utils/                 # Shared utilities
-├── data/                      # Persistent data storage
+├── apps/                      # Application packages
+│   ├── frontend/              # React frontend application
+│   │   ├── src/
+│   │   │   ├── features/      # Feature-based modules
+│   │   │   │   ├── claude-code/   # Claude Code integration
+│   │   │   │   │   ├── api/         # Claude Code API
+│   │   │   │   │   ├── hooks/       # Claude Code hooks
+│   │   │   │   │   └── index.ts     # Feature exports
+│   │   │   │   ├── environments/  # Environment management
+│   │   │   │   │   ├── api/         # Environment API endpoints
+│   │   │   │   │   ├── components/  # Environment components
+│   │   │   │   │   ├── hooks/       # Environment hooks
+│   │   │   │   │   └── index.ts     # Feature exports
+│   │   │   │   ├── navigation/    # Navigation components
+│   │   │   │   │   └── components/  # Sidebar, breadcrumbs, etc.
+│   │   │   │   ├── preview/       # Preview functionality
+│   │   │   │   │   ├── api/         # Preview API
+│   │   │   │   │   ├── components/  # Preview UI components
+│   │   │   │   │   ├── hooks/       # Preview hooks
+│   │   │   │   │   ├── stores/      # Preview state management
+│   │   │   │   │   ├── types/       # Preview types
+│   │   │   │   │   ├── utils/       # Preview utilities
+│   │   │   │   │   └── index.ts     # Feature exports
+│   │   │   │   ├── settings/      # Settings management
+│   │   │   │   │   ├── components/  # Settings components
+│   │   │   │   │   └── hooks/       # Settings hooks
+│   │   │   │   └── tasks/         # Tasks feature
+│   │   │   │       ├── api/         # Task API endpoints
+│   │   │   │       ├── components/  # Task-related components
+│   │   │   │       ├── hooks/       # Task-specific hooks
+│   │   │   │       ├── stores/      # Task state management
+│   │   │   │       ├── utils/       # Task utilities
+│   │   │   │       └── index.ts     # Feature exports
+│   │   │   ├── lib/           # Shared utilities and components
+│   │   │   │   ├── api/       # Core API utilities
+│   │   │   │   │   ├── client.ts    # Base HTTP client
+│   │   │   │   │   ├── query-client.ts # React Query setup
+│   │   │   │   │   └── query-keys.ts   # Query key factory
+│   │   │   │   ├── components/    # Shared components
+│   │   │   │   │   ├── ui/          # Generic UI components
+│   │   │   │   │   ├── error-boundary.tsx # Error handling
+│   │   │   │   │   └── theme-provider.tsx # Theme management
+│   │   │   │   ├── hooks/     # Shared hooks
+│   │   │   │   ├── layout/    # Layout components
+│   │   │   │   ├── styles/    # Global styles
+│   │   │   │   └── utils/     # Utility functions
+│   │   │   ├── routes/        # Page components & routing
+│   │   │   │   ├── repositories/  # Repository routes
+│   │   │   │   ├── tasks/         # Task routes
+│   │   │   │   └── settings/      # Settings route
+│   │   │   ├── test-utils/    # Testing utilities
+│   │   │   ├── types/         # TypeScript type definitions
+│   │   │   │   └── git-diff.ts    # Git diff types (only remaining)
+│   │   │   └── main.tsx      # Application entry point
+│   │   ├── dist/             # Build output
+│   │   ├── package.json      # Frontend package configuration
+│   │   └── vite.config.ts    # Vite configuration
+│   └── backend/              # Node.js backend application
+│       ├── routes/           # API route handlers
+│       ├── services/         # Business logic services
+│       │   └── agents/       # AI agent implementations
+│       ├── plugins/          # Fastify plugins
+│       ├── utils/            # Server utilities
+│       ├── app.ts           # Server entry point
+│       ├── index.ts         # Main entry point
+│       ├── dist/            # Build output
+│       └── package.json     # Backend package configuration
+├── packages/                 # Shared packages
+│   └── shared/              # Shared code between frontend and backend
+│       ├── types/           # Shared TypeScript types
+│       ├── constants/       # Shared constants
+│       ├── schemas/         # Validation schemas
+│       ├── utils/           # Shared utilities
+│       ├── index.ts         # Package exports
+│       ├── dist/            # Build output
+│       └── package.json     # Shared package configuration
+├── data/                    # Persistent data storage
 │   ├── environments/          # Environment configurations
 │   ├── events/                # Task events
 │   ├── tasks/                 # Task metadata
@@ -207,13 +221,23 @@ For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-
 
 
 ### Technology Stack
-- **Framework**: React 19 with TypeScript
-- **Build Tool**: Vite
+- **Monorepo Tool**: Turborepo
+- **Package Manager**: pnpm workspaces
+- **Frontend Framework**: React 19 with TypeScript
+- **Backend Framework**: Fastify with TypeScript
+- **Build Tools**: Vite (frontend), TypeScript Compiler (backend)
 - **Styling**: Tailwind CSS v4
 - **Routing**: TanStack Router (file-based)
 - **Data Fetching**: TanStack Query (React Query)
 - **Code Quality**: Biome
 - **Testing**: Vitest
+
+### Monorepo Workflow
+- **Shared Package**: `@moatless/shared` contains types, constants, schemas, and utilities shared between frontend and backend
+- **Development**: `pnpm dev` runs all apps concurrently using Turborepo
+- **Building**: `pnpm build` builds all packages in the correct order (shared → apps)
+- **Testing**: Tests run with Turborepo caching for optimal performance
+- **Type Safety**: Shared types ensure consistency across frontend and backend
 
 ### API Integration Patterns
 
@@ -317,7 +341,8 @@ The task detail page uses a React Context to manage and share task-related data 
   - Handle loading, error, and success states
 - **Import Patterns**:
   - Feature imports: `@/features/[feature]/`
-  - Shared imports: `@/lib/`
+  - Shared imports: `@moatless/shared` (from the shared package)
+  - Library imports: `@/lib/`
   - Prefer named imports over barrel imports
 - **Error Handling**: 
   - Use the `ApiError` class for consistent error handling

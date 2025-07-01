@@ -18,11 +18,8 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "paths": {
-      "@shared/*": ["./shared/*"],
-      "@server/*": ["./server/*"]
-    }
+    "baseUrl": "./"
   },
-  "include": ["server/**/*", "shared/**/*", "bin/**/*"],
-  "exclude": ["node_modules", "dist", "client"]
+  "include": ["apps/**/*", "packages/**/*", "bin/**/*"],
+  "exclude": ["node_modules", "dist", "apps/frontend"]
 }

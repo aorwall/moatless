@@ -12,7 +12,7 @@ async function globalSetup(config: FullConfig) {
   tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-e2e-test-'))
   console.log('Created temp directory:', tempDir)
 
-  // Set environment variables for test
+  // Set variables for test
   process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
   process.env.USE_CONSOLE_LOGGING = 'true'
   process.env.NODE_ENV = 'test'
@@ -38,7 +38,7 @@ async function globalSetup(config: FullConfig) {
 
   // Start the server
   console.log('Starting server for E2E tests...')
-  serverProcess = spawn('node', ['dist/server/index.js'], {
+  serverProcess = spawn('node', ['apps/backend/dist/index.js'], {
     env: {
       ...process.env,
       PORT: '3001',

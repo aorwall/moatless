@@ -15,7 +15,7 @@ async function globalTeardown(config: FullConfig) {
     }
   }
 
-  // Clean up environment variables
+  // Clean up test variables
   delete process.env.SKIP_CLAUDE_DISK_EVENTS
   delete process.env.E2E_TEMP_DIR
 

@@ -4,10 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 /**
- * Utility functions for setting up test environments and repositories
+ * Utility functions for setting up test repositories
  */
 
-export interface TestEnvironment {
+export interface TestRepository {
   id: string
   name: string
   tempDir: string
@@ -15,7 +15,7 @@ export interface TestEnvironment {
 
 export interface TestTask {
   taskId: string
-  environmentId: string
+  repositoryId: string
   agentType: string
 }
 
@@ -41,21 +41,21 @@ export async function setupTempGitRepo(tempDir: string): Promise<void> {
 }
 
 /**
- * Create a test environment via API
+ * Create a test repository via API
  */
-export async function createTestEnvironment(
+export async function createTestRepository(
   baseURL: string,
   name: string,
   tempDir: string,
-): Promise<TestEnvironment> {
-  const response = await fetch(`${baseURL}/api/v1/environments`, {
+): Promise<TestRepository> {
+  const response = await fetch(`${baseURL}/api/v1/repositories`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       name,
-      description: `E2E Test Environment - ${name}`,
+      description: `E2E Test Repository - ${name}`,
       repository: {
         type: 'local',
         path: tempDir,
@@ -63,19 +63,19 @@ export async function createTestEnvironment(
       },
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "E2E Environment setup complete"',
+        setupCommands: 'echo "E2E Repository setup complete"',
       },
     }),
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to create environment: ${response.status} ${response.statusText}`)
+    throw new Error(`Failed to create repository: ${response.status} ${response.statusText}`)
   }
 
-  const environment = await response.json()
+  const repository = await response.json()
   return {
-    id: environment.id,
-    name: environment.name,
+    id: repository.id,
+    name: repository.name,
     tempDir,
   }
 }
@@ -85,7 +85,7 @@ export async function createTestEnvironment(
  */
 export async function createTestTask(
   baseURL: string,
-  environmentId: string,
+  repositoryId: string,
   message: string,
   agentType: string = 'claude-code',
   start: boolean = true,
@@ -97,7 +97,7 @@ export async function createTestTask(
     },
     body: JSON.stringify({
       agentType,
-      environmentId,
+      repositoryId,
       message,
       start,
     }),
@@ -110,7 +110,7 @@ export async function createTestTask(
   const result = await response.json()
   return {
     taskId: result.taskId,
-    environmentId,
+    repositoryId,
     agentType,
   }
 }
@@ -143,18 +143,18 @@ export async function deleteTestTask(baseURL: string, taskId: string): Promise<v
 }
 
 /**
- * Delete a test environment via API
+ * Delete a test repository via API
  */
-export async function deleteTestEnvironment(baseURL: string, environmentId: string): Promise<void> {
+export async function deleteTestRepository(baseURL: string, repositoryId: string): Promise<void> {
   try {
-    const response = await fetch(`${baseURL}/api/v1/environments/${environmentId}`, {
+    const response = await fetch(`${baseURL}/api/v1/repositories/${repositoryId}`, {
       method: 'DELETE',
     })
     if (!response.ok && response.status !== 404) {
-      console.warn(`Failed to delete environment ${environmentId}: ${response.status}`)
+      console.warn(`Failed to delete repository ${repositoryId}: ${response.status}`)
     }
   } catch (error) {
-    console.warn(`Error deleting environment ${environmentId}:`, error)
+    console.warn(`Error deleting repository ${repositoryId}:`, error)
   }
 }
 

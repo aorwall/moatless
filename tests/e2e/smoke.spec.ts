@@ -26,12 +26,12 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     const baseURL = 'http://127.0.0.1:3001'
     
     // Test basic API accessibility
-    const response = await page.request.get(`${baseURL}/api/v1/environments`)
+    const response = await page.request.get(`${baseURL}/api/v1/repositories`)
     expect(response.status()).toBe(200)
     
     const data = await response.json()
-    expect(data).toHaveProperty('environments')
-    expect(Array.isArray(data.environments)).toBe(true)
+    expect(data).toHaveProperty('repositories')
+    expect(Array.isArray(data.repositories)).toBe(true)
     
     console.log('✅ API endpoints accessible')
   })

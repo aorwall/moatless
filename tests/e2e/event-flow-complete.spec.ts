@@ -4,11 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   setupTempGitRepo,
-  createTestEnvironment,
+  createTestRepository,
   createTestTask,
   deleteTestTask,
-  deleteTestEnvironment,
-  type TestEnvironment,
+  deleteTestRepository,
+  type TestRepository,
   type TestTask,
 } from './helpers/test-server'
 import {
@@ -34,8 +34,8 @@ import {
 test.describe('Complete Event Flow E2E', () => {
   let tempDirA: string
   let tempDirB: string
-  let environmentA: TestEnvironment
-  let environmentB: TestEnvironment
+  let repositoryA: TestRepository
+  let repositoryB: TestRepository
   let taskA: TestTask
   let taskB: TestTask
   let apiMonitor: APIEventMonitor
@@ -55,13 +55,13 @@ test.describe('Complete Event Flow E2E', () => {
     await setupTempGitRepo(tempDirA)
     await setupTempGitRepo(tempDirB)
 
-    // Create test environments
-    environmentA = await createTestEnvironment(baseURL, 'E2E Environment A', tempDirA)
-    environmentB = await createTestEnvironment(baseURL, 'E2E Environment B', tempDirB)
+    // Create test repositories
+    repositoryA = await createTestRepository(baseURL, 'E2E Repository A', tempDirA)
+    repositoryB = await createTestRepository(baseURL, 'E2E Repository B', tempDirB)
 
-    console.log('Created environments:', { 
-      environmentA: environmentA.id, 
-      environmentB: environmentB.id 
+    console.log('Created repositories:', { 
+      repositoryA: repositoryA.id, 
+      repositoryB: repositoryB.id 
     })
 
     // Initialize event monitors
@@ -92,12 +92,12 @@ test.describe('Complete Event Flow E2E', () => {
       await deleteTestTask(baseURL, taskB.taskId)
     }
 
-    // Clean up environments
-    if (environmentA?.id) {
-      await deleteTestEnvironment(baseURL, environmentA.id)
+    // Clean up repositories
+    if (repositoryA?.id) {
+      await deleteTestRepository(baseURL, repositoryA.id)
     }
-    if (environmentB?.id) {
-      await deleteTestEnvironment(baseURL, environmentB.id)
+    if (repositoryB?.id) {
+      await deleteTestRepository(baseURL, repositoryB.id)
     }
 
     // Clean up monitors
@@ -121,7 +121,7 @@ test.describe('Complete Event Flow E2E', () => {
     console.log('Creating Task A: File creation task')
     taskA = await createTestTask(
       baseURL,
-      environmentA.id,
+      repositoryA.id,
       'Create a Python file called calculator.py with basic arithmetic functions (add, subtract, multiply, divide)',
       'claude-code',
       true
@@ -130,7 +130,7 @@ test.describe('Complete Event Flow E2E', () => {
     console.log('Creating Task B: Documentation task')  
     taskB = await createTestTask(
       baseURL,
-      environmentB.id,
+      repositoryB.id,
       'Create a markdown file called FEATURES.md that lists the key features of this project',
       'claude-code',
       true
@@ -338,7 +338,7 @@ test.describe('Complete Event Flow E2E', () => {
     // Create a single task for this test
     taskA = await createTestTask(
       baseURL,
-      environmentA.id,
+      repositoryA.id,
       'Create a simple hello.txt file with "Hello World" content',
       'claude-code',
       true
