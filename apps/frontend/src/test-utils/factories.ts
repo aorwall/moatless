@@ -4,8 +4,8 @@ import { EventType } from '@moatless/shared/types/event'
 import type { GitDiffResponse, Task, TaskIteration } from '@moatless/shared/types/task'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 
-// Re-export environment factories
-export * from './factories/environment'
+// Re-export repository factories
+export * from './factories/repository'
 
 // Task factories
 export function createMockTask(overrides?: Partial<Task>): Task {
@@ -14,7 +14,7 @@ export function createMockTask(overrides?: Partial<Task>): Task {
     createdAt: new Date('2024-01-01T00:00:00Z'),
     lastMessageAt: new Date('2024-01-01T00:00:00Z'),
     agentType: 'test-agent',
-    environmentId: 'test-env',
+    repositoryId: 'test-repo',
     status: 'open',
     numTurns: 5,
     totalCostUsd: 0.0234,

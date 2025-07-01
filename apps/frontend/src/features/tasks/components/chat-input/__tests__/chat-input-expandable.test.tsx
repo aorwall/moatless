@@ -217,7 +217,7 @@ describe('ChatInput - Expandable Textarea', () => {
     })
 
     it('should work in homepage context with custom maxHeight', () => {
-      render(<ChatInput showEnvironmentSelector={true} showTitle={true} maxHeight="300px" />)
+      render(<ChatInput showRepositorySelector={true} showTitle={true} maxHeight="300px" />)
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -247,7 +247,7 @@ describe('ChatInput - Expandable Textarea', () => {
       const user = userEvent.setup()
       const onCreateTask = vi.fn()
 
-      render(<ChatInput showEnvironmentSelector={true} onCreateTask={onCreateTask} />)
+      render(<ChatInput showRepositorySelector={true} onCreateTask={onCreateTask} />)
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
 

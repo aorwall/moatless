@@ -19,9 +19,10 @@ function Dashboard() {
     },
   })
 
+
   const handleCreateTask = (
     message: string,
-    environmentId: string,
+    repositoryId: string,
     clearMessage: () => void,
     model?: string,
     files?: UploadFileResponse[],
@@ -33,7 +34,7 @@ function Dashboard() {
       {
         agentType: 'claude-code',
         message,
-        environmentId,
+        repositoryId,
         model,
         filePaths,
       },
@@ -48,12 +49,12 @@ function Dashboard() {
   return (
     <div className="flex h-full items-center justify-center">
       <ChatInput
-        showEnvironmentSelector={true}
+        showRepositorySelector={true}
         showTitle={true}
         title="What should we build today?"
         onCreateTask={handleCreateTask}
         isLoading={createTask.isPending}
-        className="w-full max-w-2xl px-6"
+        className="w-full max-w-3xl px-6"
         maxHeight="300px"
       />
     </div>
