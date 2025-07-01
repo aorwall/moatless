@@ -1,5 +1,6 @@
 export * from './claude-models.js'
 export * from './errors.js'
+export * from './preview-config.js'
 
 // Additional constants
 export const DEFAULT_PAGE_SIZE = 20

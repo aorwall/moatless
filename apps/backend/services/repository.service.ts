@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { RepositoryNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
+import { 
+  FRAMEWORK_DEFAULT_COMMANDS,
+  PACKAGE_MANAGER_FILES,
+} from '@moatless/shared/constants/preview-config'
 import type { FastifyInstance } from 'fastify'
 import type {
   CreateRepositoryRequest,
@@ -289,25 +293,45 @@ export class RepositoryService {
   }
 
   /**
+   * Detect the package manager from lock files
+   */
+  private async detectPackageManager(repoPath: string): Promise<string> {
+    for (const { file, manager } of PACKAGE_MANAGER_FILES) {
+      try {
+        await fs.access(path.join(repoPath, file))
+        return manager
+      } catch {
+        // File doesn't exist, continue
+      }
+    }
+    return 'npm' // Default fallback
+  }
+
+  /**
    * Detect the framework type and version from a local repository path
    */
-  private async detectFramework(repoPath: string): Promise<Partial<PreviewConfig>> {
+  async detectFramework(repoPath: string): Promise<Partial<PreviewConfig>> {
     const packageJsonPath = path.join(repoPath, 'package.json')
 
     try {
-      // Read package.json to detect dependencies
+      // Detect package manager and read package.json
+      const packageManager = await this.detectPackageManager(repoPath)
       const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'))
       const deps = { ...packageJson.dependencies, ...packageJson.devDependencies }
       const scripts = packageJson.scripts || {}
 
+      // Helper to get default command with detected package manager
+      const getDefaultCommand = (framework: keyof typeof FRAMEWORK_DEFAULT_COMMANDS): string => {
+        return FRAMEWORK_DEFAULT_COMMANDS[framework].replace('npm', packageManager)
+      }
+
       // Detect framework based on dependencies
       if (deps.vite) {
-        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve'])
+        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('vite')
         return {
           framework: 'vite',
           frameworkVersion: deps.vite,
           serverStartCommand: serverCommand,
-          serverPort: 5173, // Vite default port
           injectionStrategy: {
             method: 'html-injection',
             config: {
@@ -319,12 +343,11 @@ export class RepositoryService {
       }
 
       if (deps.next) {
-        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start'])
+        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start']) || getDefaultCommand('nextjs')
         return {
           framework: 'nextjs',
           frameworkVersion: deps.next,
           serverStartCommand: serverCommand,
-          serverPort: 3000, // Next.js default port
           injectionStrategy: {
             method: 'middleware',
             config: {
@@ -335,12 +358,11 @@ export class RepositoryService {
       }
 
       if (deps['react-scripts']) {
-        const serverCommand = this.detectServerCommand(scripts, ['start', 'dev'])
+        const serverCommand = this.detectServerCommand(scripts, ['start', 'dev']) || getDefaultCommand('cra')
         return {
           framework: 'cra',
           frameworkVersion: deps['react-scripts'],
           serverStartCommand: serverCommand,
-          serverPort: 3000, // CRA default port
           injectionStrategy: {
             method: 'html-injection',
             config: {
@@ -352,12 +374,11 @@ export class RepositoryService {
       }
 
       if (deps.webpack) {
-        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve'])
+        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('webpack')
         return {
           framework: 'webpack',
           frameworkVersion: deps.webpack,
           serverStartCommand: serverCommand,
-          serverPort: 8080, // Webpack dev server default port
           injectionStrategy: {
             method: 'html-injection',
             config: {},
@@ -366,7 +387,7 @@ export class RepositoryService {
       }
 
       // Unknown framework, try to detect start command
-      const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve'])
+      const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('unknown')
       return {
         framework: 'unknown',
         serverStartCommand: serverCommand,
@@ -377,8 +398,11 @@ export class RepositoryService {
       }
     } catch (error) {
       logger.debug('Failed to detect framework', { repoPath, error })
+      // Try to detect package manager even if package.json parsing failed
+      const packageManager = await this.detectPackageManager(repoPath).catch(() => 'npm')
       return {
         framework: 'unknown',
+        serverStartCommand: FRAMEWORK_DEFAULT_COMMANDS.unknown.replace('npm', packageManager),
         injectionStrategy: {
           method: 'html-injection',
           config: {},

@@ -18,6 +18,10 @@
       "types": "./dist/constants/errors.d.ts",
       "import": "./dist/constants/errors.js"
     },
+    "./constants/preview-config": {
+      "types": "./dist/constants/preview-config.d.ts",
+      "import": "./dist/constants/preview-config.js"
+    },
     "./types": {
       "types": "./dist/types/index.d.ts",
       "import": "./dist/types/index.js"

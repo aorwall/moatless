@@ -157,4 +157,25 @@ export async function registerRepositoryRoutes(app: FastifyInstance) {
       return { branches }
     },
   )
+
+  // Detect framework
+  app.post(
+    '/:repositoryId/detect-framework',
+    {
+      schema: {
+        params: RepositoryIdParamsSchema,
+      },
+    },
+    async (request, _reply) => {
+      const params = request.params as z.infer<typeof RepositoryIdParamsSchema>
+      const repository = await repositoryService.getRepositoryById(params.repositoryId)
+
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      const previewConfig = await repositoryService.detectFramework(repository.path)
+      return { previewConfig }
+    },
+  )
 }
