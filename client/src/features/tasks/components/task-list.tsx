@@ -1,7 +1,7 @@
 import type { Task } from '@shared/types/task'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
@@ -46,14 +46,14 @@ function getRelativeTime(date: Date | string): string {
 }
 
 export function TaskList({ tasks, loading }: TaskListProps) {
-  const { data: environments } = useEnvironmentsList()
+  const { data: repositories } = useRepositoriesList()
   const deleteTask = useDeleteTask()
 
-  // Create a map of environment IDs to names
-  const environmentMap =
-    environments?.reduce(
-      (acc, env) => {
-        acc[env.id] = env.name
+  // Create a map of repository IDs to names
+  const repositoryMap =
+    repositories?.reduce(
+      (acc, repo) => {
+        acc[repo.id] = repo.name
         return acc
       },
       {} as Record<string, string>,
@@ -102,7 +102,7 @@ export function TaskList({ tasks, loading }: TaskListProps) {
               const taskTitle =
                 task.iterations?.[0]?.initialMessage?.split('\n')[0] ||
                 `Task ${task.taskId.slice(0, 8)}`
-              const environmentName = environmentMap[task.environmentId] || task.environmentId
+              const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
 
               return (
                 <TableRow key={task.taskId} className="cursor-pointer">
@@ -115,7 +115,7 @@ export function TaskList({ tasks, loading }: TaskListProps) {
                       {taskTitle}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{environmentName}</TableCell>
+                  <TableCell className="text-muted-foreground">{repositoryName}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {getRelativeTime(task.lastMessageAt || task.createdAt)}
                   </TableCell>

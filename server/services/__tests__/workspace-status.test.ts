@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Environment } from '../../../shared/types/environment.js'
+import type { RepositoryConfig } from '../../../shared/types/repository.js'
 import type { Task } from '../../../shared/types/task.js'
 import { WorkspaceStatus } from '../../../shared/types/workspace.js'
-import type { EnvironmentService } from '../environment.service.js'
 import type { EventService } from '../event.service.js'
+import type { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
 
@@ -48,7 +48,7 @@ vi.mock('../../utils/git-utils.js', () => ({
 
 describe('WorkspaceService Status Management', () => {
   let workspaceService: WorkspaceService
-  let mockEnvironmentService: EnvironmentService
+  let mockRepositoryService: RepositoryService
   let mockEventService: EventService
   let mockStorage: StorageBackend
 
@@ -64,10 +64,10 @@ describe('WorkspaceService Status Management', () => {
     iterations: [],
   }
 
-  const mockEnvironment: Environment = {
+  const mockRepository: RepositoryConfig = {
     id: 'env-123',
-    name: 'Test Environment',
-    description: 'Test environment',
+    name: 'Test Repository',
+    description: 'Test repository',
     repository: {
       type: 'local',
       path: '/test/repo',
@@ -84,9 +84,9 @@ describe('WorkspaceService Status Management', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    mockEnvironmentService = {
-      getEnvironment: vi.fn().mockResolvedValue(mockEnvironment),
-    } as unknown as EnvironmentService
+    mockRepositoryService = {
+      getRepositoryById: vi.fn().mockResolvedValue(mockRepository),
+    } as unknown as RepositoryService
 
     mockEventService = {
       emit: vi.fn(),
@@ -103,7 +103,7 @@ describe('WorkspaceService Status Management', () => {
       list: vi.fn(),
     } as unknown as StorageBackend
 
-    workspaceService = new WorkspaceService(mockEnvironmentService, mockEventService, mockStorage)
+    workspaceService = new WorkspaceService(mockRepositoryService, mockEventService, mockStorage)
   })
 
   describe('getOrCreateWorkspace', () => {
@@ -126,13 +126,13 @@ describe('WorkspaceService Status Management', () => {
       const workspace1 = await workspaceService.getOrCreateWorkspace(uniqueTaskId)
 
       // Clear mock call count after first workspace creation
-      vi.mocked(mockEnvironmentService.getEnvironment).mockClear()
+      vi.mocked(mockRepositoryService.getRepositoryById).mockClear()
 
       const workspace2 = await workspaceService.getOrCreateWorkspace(uniqueTaskId)
 
       expect(workspace1).toBe(workspace2)
-      // Should not call getEnvironment again for existing workspace
-      expect(mockEnvironmentService.getEnvironment).not.toHaveBeenCalled()
+      // Should not call getRepositoryById again for existing workspace
+      expect(mockRepositoryService.getRepositoryById).not.toHaveBeenCalled()
     })
 
     it('should throw error if task not found', async () => {
@@ -143,11 +143,11 @@ describe('WorkspaceService Status Management', () => {
       )
     })
 
-    it('should throw error if environment not found', async () => {
-      vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValue(null)
+    it('should throw error if repository not found', async () => {
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValue(null)
 
       await expect(workspaceService.getOrCreateWorkspace('test-task-123')).rejects.toThrow(
-        'Environment env-123 not found',
+        'Repository env-123 not found',
       )
     })
   })

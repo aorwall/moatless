@@ -4,8 +4,8 @@ import type {
   SimpleTaskResponse,
   WorkspaceStatusResponse,
 } from '@shared/types/api'
-import type { FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
+import type { FileSearchResponse } from '@shared/types/repository'
 import type { GitDiffResponse, Task } from '@shared/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

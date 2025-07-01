@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EnvironmentNotFoundError, TaskNotFoundError } from '../../../shared/constants/errors.js'
+import { RepositoryNotFoundError, TaskNotFoundError } from '../../../shared/constants/errors.js'
 import type { CreateTaskRequest, Task } from '../../../shared/types/task.js'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
-import type { EnvironmentService } from '../environment.service.js'
+import type { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
@@ -11,7 +11,7 @@ import type { WorkspaceService } from '../workspace.service.js'
 describe('TaskService', () => {
   let taskService: TaskService
   let mockStorage: StorageBackend
-  let mockEnvironmentService: EnvironmentService
+  let mockRepositoryService: RepositoryService
   let mockWorkspaceService: WorkspaceService
   let mockAgentService: AgentService
 
@@ -27,13 +27,13 @@ describe('TaskService', () => {
       write: vi.fn(),
     } as unknown as StorageBackend
 
-    mockEnvironmentService = {
-      getEnvironment: vi.fn(),
-      listEnvironments: vi.fn(),
-      createEnvironment: vi.fn(),
-      updateEnvironment: vi.fn(),
-      deleteEnvironment: vi.fn(),
-    } as unknown as EnvironmentService
+    mockRepositoryService = {
+      getRepositoryById: vi.fn(),
+      listRepositories: vi.fn(),
+      createRepository: vi.fn(),
+      updateRepository: vi.fn(),
+      deleteRepository: vi.fn(),
+    } as unknown as RepositoryService
 
     mockWorkspaceService = {
       getOrCreateWorkspace: vi.fn(),
@@ -70,9 +70,9 @@ describe('TaskService', () => {
         start: true,
       }
 
-      vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValueOnce({
         id: 'env-123',
-        name: 'Test Environment',
+        name: 'Test Repository',
       } as any)
 
       // Mock the new workspace methods
@@ -146,9 +146,9 @@ describe('TaskService', () => {
         start: false,
       }
 
-      vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValueOnce({
         id: 'env-123',
-        name: 'Test Environment',
+        name: 'Test Repository',
       } as any)
 
       // Mock workspace creation
@@ -182,9 +182,9 @@ describe('TaskService', () => {
         start: false,
       }
 
-      vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValueOnce({
         id: 'env-123',
-        name: 'Test Environment',
+        name: 'Test Repository',
       } as any)
 
       // Mock workspace creation
@@ -207,19 +207,19 @@ describe('TaskService', () => {
       )
     })
 
-    it('should throw EnvironmentNotFoundError if environment does not exist', async () => {
+    it('should throw RepositoryNotFoundError if repository does not exist', async () => {
       const request: CreateTaskRequest = {
         agentType: 'test-agent',
         repositoryId: 'non-existent',
         message: 'Test task',
       }
 
-      // Mock createWorkspace to throw EnvironmentNotFoundError
+      // Mock createWorkspace to throw RepositoryNotFoundError
       vi.mocked(mockWorkspaceService.createWorkspace).mockRejectedValueOnce(
-        new EnvironmentNotFoundError('non-existent'),
+        new RepositoryNotFoundError('non-existent'),
       )
 
-      await expect(taskService.createTask(request)).rejects.toThrow(EnvironmentNotFoundError)
+      await expect(taskService.createTask(request)).rejects.toThrow(RepositoryNotFoundError)
     })
 
     it('should handle workspace setup errors gracefully', async () => {
@@ -230,7 +230,7 @@ describe('TaskService', () => {
         start: true,
       }
 
-      vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValueOnce({
         id: 'env-123',
       } as any)
 
@@ -469,7 +469,7 @@ describe('TaskService', () => {
         message: 'Test task',
       }
 
-      vi.mocked(mockEnvironmentService.getEnvironment).mockResolvedValueOnce({
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValueOnce({
         id: 'env-123',
       } as any)
 

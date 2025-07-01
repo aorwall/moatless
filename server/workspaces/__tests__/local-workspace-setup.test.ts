@@ -2,7 +2,7 @@
 import { promises as fs } from 'node:fs'
 // import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Environment } from '../../../shared/types/environment.js'
+import type { RepositoryConfig } from '../../../shared/types/repository.js'
 import type { EventService } from '../../services/event.service.js'
 import { LocalWorkspace } from '../local.js'
 
@@ -53,10 +53,10 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
   let mockEventService: EventService
   const taskId = 'test-task-123'
   const testWorkspacePath = '/tmp/test-repo-workspace-test-task-123'
-  const mockEnvironment = {
+  const mockRepository = {
     id: 'env-123',
-    name: 'Test Environment',
-    description: 'Test environment',
+    name: 'Test Repository',
+    description: 'Test repository',
     repository: {
       type: 'local' as const,
       path: '/tmp/test-repo',
@@ -115,7 +115,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
     // Create workspace with non-existent path
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as Environment,
+      mockRepository as RepositoryConfig,
       mockEventService,
       undefined,
       undefined,
@@ -161,7 +161,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as Environment,
+      mockRepository as RepositoryConfig,
       mockEventService,
       undefined,
       undefined,
@@ -186,7 +186,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
   it('should validate workspace path exists before running commands', async () => {
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as Environment,
+      mockRepository as RepositoryConfig,
       mockEventService,
       undefined,
       undefined,
@@ -211,7 +211,7 @@ describe('LocalWorkspace - Setup with Missing Path', () => {
 
     const workspace = new LocalWorkspace(
       taskId,
-      mockEnvironment as Environment,
+      mockRepository as RepositoryConfig,
       mockEventService,
       undefined,
       undefined,

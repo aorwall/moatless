@@ -2,8 +2,8 @@ import * as child_process from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EnvironmentService } from '../environment.service.js'
 import { EventService } from '../event.service.js'
+import { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
 
@@ -50,7 +50,7 @@ describe('WorkspaceService', () => {
   let service: WorkspaceService
   let storage: StorageBackend
   let eventService: EventService
-  let environmentService: EnvironmentService
+  let repositoryService: RepositoryService
   let tempDir: string
 
   const mockTask = {
@@ -66,9 +66,9 @@ describe('WorkspaceService', () => {
     workspacePath: '/test/repo',
   }
 
-  const mockEnvironment = {
+  const mockRepository = {
     id: 'test-env',
-    name: 'Test Environment',
+    name: 'Test Repository',
     repository: {
       type: 'local' as const,
       path: '/test/repo',
@@ -105,8 +105,8 @@ describe('WorkspaceService', () => {
         }
         return Promise.resolve(null)
       }),
-      saveEnvironment: vi.fn().mockResolvedValue(undefined),
-      getEnvironment: vi.fn().mockResolvedValue(mockEnvironment),
+      saveRepository: vi.fn().mockResolvedValue(undefined),
+      getRepository: vi.fn().mockResolvedValue(mockRepository),
       list: vi.fn().mockResolvedValue([]),
       delete: vi.fn().mockResolvedValue(undefined),
       saveEvents: vi.fn().mockResolvedValue(undefined),
@@ -114,17 +114,17 @@ describe('WorkspaceService', () => {
     } as any as StorageBackend
 
     eventService = new EventService(storage)
-    environmentService = new EnvironmentService(storage)
+    repositoryService = new RepositoryService(storage)
 
     // Mock the validateRepository method to skip validation
     vi.spyOn(
-      environmentService as unknown as { validateRepository: () => Promise<void> },
+      repositoryService as unknown as { validateRepository: () => Promise<void> },
       'validateRepository',
     ).mockResolvedValue(undefined)
-    vi.spyOn(environmentService, 'createEnvironment').mockResolvedValue(mockEnvironment as any)
-    vi.spyOn(environmentService, 'getEnvironment').mockResolvedValue(mockEnvironment as any)
+    vi.spyOn(repositoryService, 'createRepository').mockResolvedValue(mockRepository as any)
+    vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValue(mockRepository as any)
 
-    service = new WorkspaceService(environmentService, eventService, storage)
+    service = new WorkspaceService(repositoryService, eventService, storage)
   })
 
   afterEach(async () => {
@@ -139,7 +139,7 @@ describe('WorkspaceService', () => {
       expect(retrievedWorkspace.id).toBe('test-task')
       expect(retrievedWorkspace.type).toBe('local')
       expect(retrievedWorkspace.getStatus()).toBe('idle') // Status when workspace path exists
-      expect(retrievedWorkspace.repositoryId).toBe(mockEnvironment.id)
+      expect(retrievedWorkspace.repositoryId).toBe(mockRepository.id)
       expect(retrievedWorkspace.getWorkspacePath()).toBe('/test/repo')
     })
 
@@ -251,13 +251,11 @@ describe('WorkspaceService', () => {
   describe('Docker workspace', () => {
     it('should create a Docker workspace', async () => {
       // Update mock environment for Docker
-      vi.mocked(environmentService.getEnvironment).mockResolvedValueOnce({
-        ...mockEnvironment,
+      vi.mocked(repositoryService.getRepositoryById).mockResolvedValueOnce({
+        ...mockRepository,
         repository: {
-          type: 'github',
-          url: 'https://github.com/test/repo',
-          repoId: 'test/repo',
-          branch: 'main',
+          type: 'local',
+          path: '/test/docker-repo',
         },
         codeExecution: {
           type: 'docker',
@@ -300,13 +298,11 @@ describe('WorkspaceService', () => {
         return Promise.resolve(null)
       })
 
-      vi.mocked(environmentService.getEnvironment).mockResolvedValueOnce({
-        ...mockEnvironment,
+      vi.mocked(repositoryService.getRepositoryById).mockResolvedValueOnce({
+        ...mockRepository,
         repository: {
-          type: 'github',
-          url: 'https://github.com/test/repo',
-          repoId: 'test/repo',
-          branch: 'main',
+          type: 'local',
+          path: '/test/docker-repo',
         },
         codeExecution: {
           type: 'docker',

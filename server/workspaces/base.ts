@@ -1,4 +1,4 @@
-import type { Environment } from '@shared/types/environment.js'
+import type { RepositoryConfig } from '@shared/types/repository.js'
 import type { CommandResult, Workspace, WorkspaceStatus } from '@shared/types/workspace.js'
 import type { EventService } from '../services/event.service.js'
 
@@ -21,7 +21,7 @@ export interface FileSearchResponse {
 
 export abstract class BaseWorkspace {
   protected taskId: string
-  protected environment: Environment
+  protected repositoryConfig: RepositoryConfig
   protected eventService: EventService
 
   // Properties that match the Workspace interface
@@ -35,16 +35,16 @@ export abstract class BaseWorkspace {
   abstract get error(): string | undefined
 
   get repositoryId(): string {
-    return this.environment.id
+    return this.repositoryConfig.id
   }
 
-  get environmentConfig(): Environment {
-    return this.environment
+  get environmentConfig(): RepositoryConfig {
+    return this.repositoryConfig
   }
 
-  constructor(taskId: string, environment: Environment, eventService: EventService) {
+  constructor(taskId: string, repositoryConfig: RepositoryConfig, eventService: EventService) {
     this.taskId = taskId
-    this.environment = environment
+    this.repositoryConfig = repositoryConfig
     this.eventService = eventService
   }
 

@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useEnvironmentsList, useSearchFiles } from '@/features/environments/hooks/use-environments'
+import { useRepositoriesList, useSearchFiles } from '@/features/repositories/hooks/use-repositories'
 import {
   useCreateTask,
   useSendMessage,
@@ -39,7 +39,7 @@ import { renderWithRouter } from '@/test-utils/render'
 
 // Mock external dependencies only
 vi.mock('@/features/tasks/hooks/use-tasks')
-vi.mock('@/features/environments/hooks/use-environments')
+vi.mock('@/features/repositories/hooks/use-repositories')
 vi.mock('@/features/tasks/stores/task-ui-store', () => ({
   useTaskUIStore: vi.fn(),
   useRightPanelView: vi.fn(),
@@ -294,7 +294,7 @@ describe('TaskDetail Route - Integration Tests', () => {
       data: undefined,
     } as ReturnType<typeof useTaskGitDiff>)
 
-    vi.mocked(useEnvironmentsList).mockReturnValue({
+    vi.mocked(useRepositoriesList).mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
@@ -742,7 +742,7 @@ describe('TaskDetail Route - Contract Tests', () => {
       data: undefined,
     } as ReturnType<typeof useTaskGitDiff>)
 
-    vi.mocked(useEnvironmentsList).mockReturnValue({
+    vi.mocked(useRepositoriesList).mockReturnValue({
       data: [],
       isLoading: false,
       error: null,

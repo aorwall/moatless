@@ -44,7 +44,7 @@ describe('App Setup', () => {
       expect(body).toHaveProperty('version', '1.0.0')
       expect(body).toHaveProperty('endpoints')
       expect(body.endpoints).toHaveProperty('tasks', '/api/v1/tasks')
-      expect(body.endpoints).toHaveProperty('environments', '/api/v1/environments')
+      expect(body.endpoints).toHaveProperty('repositories', '/api/v1/repositories')
     })
   })
 
@@ -53,7 +53,7 @@ describe('App Setup', () => {
       expect(app.services).toBeDefined()
       expect(app.services.storage).toBeDefined()
       expect(app.services.event).toBeDefined()
-      expect(app.services.environment).toBeDefined()
+      expect(app.services.repository).toBeDefined()
       expect(app.services.workspace).toBeDefined()
       expect(app.services.task).toBeDefined()
     })

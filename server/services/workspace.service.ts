@@ -7,8 +7,11 @@ import {
   WorkspaceError,
 } from '@shared/constants/errors.js'
 import type { FastifyInstance } from 'fastify'
-import type { CommandResult, LocalRepository, ServerStatus } from '../../shared/types/index.js'
+import type { CommandResult, Repository, ServerStatus } from '../../shared/types/index.js'
 import { WorkspaceStatus } from '../../shared/types/workspace.js'
+
+type LocalRepository = Extract<Repository, { type: 'local' }>
+
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
@@ -197,7 +200,7 @@ export class WorkspaceService {
       return existing
     }
 
-    // Get task to retrieve environment ID and workspace path
+    // Get task to retrieve repository ID and workspace path
     const task = await this.storage.getTask(taskId)
     if (!task) {
       workspaceLogger.error('Task not found', undefined, { taskId })
@@ -220,7 +223,7 @@ export class WorkspaceService {
     }
 
     workspaceLogger.debug('Repository loaded successfully', {
-      environmentType: repository.repository.type,
+      repositoryType: repository.repository.type,
       codeExecutionType: repository.codeExecution.type,
       useGitWorktrees:
         repository.repository.type === 'local' ? repository.repository.useGitWorktrees : false,
@@ -252,7 +255,7 @@ export class WorkspaceService {
       return workspace
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
-        environmentType: repository.repository.type,
+        repositoryType: repository.repository.type,
         codeExecutionType: repository.codeExecution.type,
       })
       throw error

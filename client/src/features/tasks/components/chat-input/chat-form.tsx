@@ -1,6 +1,6 @@
 import { CLAUDE_MODEL_DISPLAY_NAMES, CLAUDE_MODELS, type ClaudeModel } from '@shared/constants'
 import type { UploadFileResponse } from '@shared/types/api'
-import type { Environment } from '@shared/types/environment'
+import type { RepositoryResponse } from '@shared/types/repository'
 import { ArrowUp, Circle, Paperclip, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
@@ -29,19 +29,19 @@ interface ChatFormProps {
   textareaDisabled?: boolean
   sendDisabled?: boolean
   placeholder?: string
-  environmentId?: string
+  repositoryId?: string
   taskId?: string
   isTaskContext: boolean
   buttonText: string
   selectedModel: ClaudeModel
   onModelChange: (model: ClaudeModel) => void
   isRunning?: boolean
-  // Environment selector props (only shown when creating new task)
-  showEnvironmentSelector?: boolean
-  environments?: Environment[]
-  selectedEnvironmentId?: string
-  onEnvironmentChange?: (environmentId: string) => void
-  environmentsLoading?: boolean
+  // Repository selector props (only shown when creating new task)
+  showRepositorySelector?: boolean
+  repositories?: RepositoryResponse[]
+  selectedRepositoryId?: string
+  onRepositoryChange?: (repositoryId: string) => void
+  repositoriesLoading?: boolean
   maxHeight?: string
   uploadedFiles?: UploadFileResponse[]
   onFilesChange?: (files: UploadFileResponse[]) => void
@@ -54,18 +54,18 @@ export function ChatForm({
   textareaDisabled = false,
   sendDisabled = false,
   placeholder,
-  environmentId,
+  repositoryId,
   taskId,
   isTaskContext,
   buttonText,
   selectedModel,
   onModelChange,
   isRunning = false,
-  showEnvironmentSelector = false,
-  environments,
-  selectedEnvironmentId,
-  onEnvironmentChange,
-  environmentsLoading = false,
+  showRepositorySelector = false,
+  repositories,
+  selectedRepositoryId,
+  onRepositoryChange,
+  repositoriesLoading = false,
   maxHeight = '200px',
   uploadedFiles = [],
   onFilesChange,
@@ -87,7 +87,7 @@ export function ChatForm({
     handleKeyDown: handleAutocompleteKeyDown,
     selectFile,
   } = useUniversalFileAutocomplete({
-    environmentId,
+    repositoryId,
     taskId,
     value: message,
     onValueChange: onMessageChange,
@@ -262,21 +262,21 @@ export function ChatForm({
         </div>
       )}
       <div className="flex items-center justify-between gap-2">
-        {/* Left side - Environment and Model selectors */}
+        {/* Left side - Repository and Model selectors */}
         <div className="flex items-center gap-2">
-          {showEnvironmentSelector && onEnvironmentChange && (
+          {showRepositorySelector && onRepositoryChange && (
             <Select
-              value={selectedEnvironmentId}
-              onValueChange={onEnvironmentChange}
-              disabled={environmentsLoading}
+              value={selectedRepositoryId}
+              onValueChange={onRepositoryChange}
+              disabled={repositoriesLoading}
             >
               <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[180px]">
-                <SelectValue placeholder="Select environment" />
+                <SelectValue placeholder="Select repository" />
               </SelectTrigger>
               <SelectContent>
-                {environments?.map((env) => (
-                  <SelectItem key={env.id} value={env.id} className="text-xs">
-                    {env.name}
+                {repositories?.map((repo) => (
+                  <SelectItem key={repo.id} value={repo.id} className="text-xs">
+                    {repo.name}
                   </SelectItem>
                 ))}
               </SelectContent>

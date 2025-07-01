@@ -1,16 +1,15 @@
-import {
-  CreateEnvironmentSchema,
-  UpdateEnvironmentSchema,
-} from '@shared/schemas/environment.schemas'
+import { CreateRepositorySchema, UpdateRepositorySchema } from '@shared/schemas/repository.schemas'
 import type {
   CodeExecution,
-  CreateEnvironmentRequest,
-  EnvironmentResponse,
-  GithubRepository,
-  LocalRepository,
+  CreateRepositoryRequest,
   Repository,
-  UpdateEnvironmentRequest,
-} from '@shared/types/environment'
+  RepositoryResponse,
+  UpdateRepositoryRequest,
+} from '@shared/types/repository'
+
+type LocalRepository = Extract<Repository, { type: 'local' }>
+type GithubRepository = Extract<Repository, { type: 'github' }>
+
 import { useId, useState } from 'react'
 import { z } from 'zod'
 import { Button } from '@/lib/components/ui/button'
@@ -27,21 +26,21 @@ import {
 import { Switch } from '@/lib/components/ui/switch'
 import { Textarea } from '@/lib/components/ui/textarea'
 
-interface EnvironmentFormProps {
-  onSubmit: (data: CreateEnvironmentRequest | UpdateEnvironmentRequest) => void
+interface RepositoryFormProps {
+  onSubmit: (data: CreateRepositoryRequest | UpdateRepositoryRequest) => void
   onCancel: () => void
   isSubmitting?: boolean
-  initialData?: EnvironmentResponse
+  initialData?: RepositoryResponse
   mode?: 'create' | 'edit'
 }
 
-export function EnvironmentForm({
+export function RepositoryForm({
   onSubmit,
   onCancel,
   isSubmitting = false,
   initialData,
   mode = 'create',
-}: EnvironmentFormProps) {
+}: RepositoryFormProps) {
   // Generate unique IDs for form fields
   const nameId = useId()
   const descriptionId = useId()
@@ -148,23 +147,23 @@ export function EnvironmentForm({
   const validateForm = (): boolean => {
     try {
       if (mode === 'create') {
-        const request: CreateEnvironmentRequest = {
+        const request: CreateRepositoryRequest = {
           name: formData.name,
           description: formData.description || undefined,
           repository: createRepository(),
           codeExecution: createCodeExecution(),
           variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
-        CreateEnvironmentSchema.parse(request)
+        CreateRepositorySchema.parse(request)
       } else {
-        const request: UpdateEnvironmentRequest = {
+        const request: UpdateRepositoryRequest = {
           name: formData.name,
           description: formData.description || undefined,
           repository: createRepository(),
           codeExecution: createCodeExecution(),
           variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
-        UpdateEnvironmentSchema.parse(request)
+        UpdateRepositorySchema.parse(request)
       }
       setErrors({})
       return true
@@ -241,14 +240,14 @@ export function EnvironmentForm({
             repository: createRepository(),
             codeExecution: createCodeExecution(),
             variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
-          } as CreateEnvironmentRequest)
+          } as CreateRepositoryRequest)
         : ({
             name: formData.name,
             description: formData.description || undefined,
             repository: createRepository(),
             codeExecution: createCodeExecution(),
             variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
-          } as UpdateEnvironmentRequest)
+          } as UpdateRepositoryRequest)
 
     onSubmit(request)
   }
@@ -267,11 +266,11 @@ export function EnvironmentForm({
   return (
     <Card className="w-full max-w-4xl">
       <CardHeader>
-        <CardTitle>{mode === 'create' ? 'Create New Environment' : 'Edit Environment'}</CardTitle>
+        <CardTitle>{mode === 'create' ? 'Create New Repository' : 'Edit Repository'}</CardTitle>
         <CardDescription>
           {mode === 'create'
-            ? 'Configure a new environment with repository and execution settings'
-            : 'Update the environment configuration'}
+            ? 'Configure a new repository with repository and execution settings'
+            : 'Update the repository configuration'}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -286,7 +285,7 @@ export function EnvironmentForm({
                 id={nameId}
                 value={formData.name}
                 onChange={(e) => updateFormData('name', e.target.value)}
-                placeholder="Environment name"
+                placeholder="Repository name"
               />
               {errors.name && <FormMessage>{errors.name}</FormMessage>}
             </FormField>
@@ -297,7 +296,7 @@ export function EnvironmentForm({
                 id={descriptionId}
                 value={formData.description}
                 onChange={(e) => updateFormData('description', e.target.value)}
-                placeholder="Environment description"
+                placeholder="Repository description"
                 rows={3}
               />
             </FormField>
@@ -440,7 +439,7 @@ export function EnvironmentForm({
                     rows={3}
                   />
                   <FormDescription>
-                    Commands to run when setting up the environment (one per line)
+                    Commands to run when setting up the repository (one per line)
                   </FormDescription>
                 </FormField>
               </div>
@@ -486,8 +485,8 @@ export function EnvironmentForm({
                   ? 'Creating...'
                   : 'Updating...'
                 : mode === 'create'
-                  ? 'Create Environment'
-                  : 'Update Environment'}
+                  ? 'Create Repository'
+                  : 'Update Repository'}
             </Button>
           </div>
         </Form>

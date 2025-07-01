@@ -1,11 +1,11 @@
-import type { CodeExecution, GithubRepository, LocalRepository } from '@shared/types/environment'
+import type { CodeExecution } from '@shared/types/repository'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createMockEnvironment, createMockGithubEnvironment } from '@/test-utils/factories'
+import { createMockGithubRepository, createMockRepository } from '@/test-utils/factories'
 import { render } from '@/test-utils/render'
-import { EnvironmentForm } from '../environment-form'
+import { RepositoryForm } from '../repository-form'
 
-describe('EnvironmentForm', () => {
+describe('RepositoryForm', () => {
   const mockOnSubmit = vi.fn()
   const mockOnCancel = vi.fn()
 
@@ -15,7 +15,7 @@ describe('EnvironmentForm', () => {
 
   describe('Create Mode', () => {
     it('should render empty form in create mode', () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       expect(screen.getByText('Create New Environment')).toBeInTheDocument()
       expect(screen.getByLabelText(/Name/)).toHaveValue('')
@@ -25,7 +25,7 @@ describe('EnvironmentForm', () => {
     })
 
     it('should validate required fields', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Try to submit without filling required fields
       const submitButton = screen.getByText('Create Environment')
@@ -40,7 +40,7 @@ describe('EnvironmentForm', () => {
     })
 
     it('should submit valid local environment', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Fill in the form
       fireEvent.change(screen.getByLabelText(/Name/), {
@@ -54,7 +54,7 @@ describe('EnvironmentForm', () => {
       })
 
       // Submit the form
-      fireEvent.click(screen.getByText('Create Environment'))
+      fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
@@ -74,7 +74,7 @@ describe('EnvironmentForm', () => {
     })
 
     it('should handle GitHub repository configuration', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Switch to GitHub repository
       fireEvent.click(screen.getByLabelText(/Repository Type/))
@@ -97,7 +97,7 @@ describe('EnvironmentForm', () => {
       })
 
       // Submit
-      fireEvent.click(screen.getByText('Create Environment'))
+      fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
@@ -113,7 +113,7 @@ describe('EnvironmentForm', () => {
     })
 
     it('should handle Docker execution configuration', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Fill basic fields
       fireEvent.change(screen.getByLabelText(/Name/), {
@@ -136,7 +136,7 @@ describe('EnvironmentForm', () => {
       })
 
       // Submit
-      fireEvent.click(screen.getByText('Create Environment'))
+      fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
@@ -151,7 +151,7 @@ describe('EnvironmentForm', () => {
     })
 
     it('should toggle git worktrees option', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Fill required fields
       fireEvent.change(screen.getByLabelText(/Name/), {
@@ -166,7 +166,7 @@ describe('EnvironmentForm', () => {
       fireEvent.click(worktreeSwitch)
 
       // Submit
-      fireEvent.click(screen.getByText('Create Environment'))
+      fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
@@ -184,59 +184,59 @@ describe('EnvironmentForm', () => {
 
   describe('Edit Mode', () => {
     it('should populate form with existing data', () => {
-      const mockEnvironment = createMockEnvironment()
+      const mockRepository = createMockRepository()
 
       render(
-        <EnvironmentForm
+        <RepositoryForm
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           mode="edit"
-          initialData={mockEnvironment}
+          initialData={mockRepository}
         />,
       )
 
       expect(screen.getByText('Edit Environment')).toBeInTheDocument()
-      expect(screen.getByLabelText(/Name/)).toHaveValue(mockEnvironment.name)
-      expect(screen.getByLabelText(/Description/)).toHaveValue(mockEnvironment.description)
+      expect(screen.getByLabelText(/Name/)).toHaveValue(mockRepository.name)
+      expect(screen.getByLabelText(/Description/)).toHaveValue(mockRepository.description)
       expect(screen.getByLabelText(/Local Path/)).toHaveValue(
-        (mockEnvironment.repository as LocalRepository).path,
+        (mockRepository.repository as LocalRepository).path,
       )
     })
 
     it('should populate form with GitHub environment', () => {
-      const mockEnvironment = createMockGithubEnvironment()
+      const mockRepository = createMockGithubRepository()
 
       render(
-        <EnvironmentForm
+        <RepositoryForm
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           mode="edit"
-          initialData={mockEnvironment}
+          initialData={mockRepository}
         />,
       )
 
       expect(screen.getByLabelText(/Repository Type/)).toHaveTextContent('GitHub')
       expect(screen.getByLabelText(/Repository ID/)).toHaveValue(
-        (mockEnvironment.repository as GithubRepository).repoId,
+        (mockRepository.repository as GithubRepository).repoId,
       )
       expect(screen.getByLabelText(/Branch/)).toHaveValue(
-        (mockEnvironment.repository as GithubRepository).branch,
+        (mockRepository.repository as GithubRepository).branch,
       )
       expect(screen.getByLabelText(/Execution Type/)).toHaveTextContent('Docker')
       expect(screen.getByLabelText(/Docker Image/)).toHaveValue(
-        (mockEnvironment.codeExecution as CodeExecution).image,
+        (mockRepository.codeExecution as CodeExecution).image,
       )
     })
 
     it('should submit updated data', async () => {
-      const mockEnvironment = createMockEnvironment()
+      const mockRepository = createMockRepository()
 
       render(
-        <EnvironmentForm
+        <RepositoryForm
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           mode="edit"
-          initialData={mockEnvironment}
+          initialData={mockRepository}
         />,
       )
 
@@ -253,9 +253,9 @@ describe('EnvironmentForm', () => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'Updated Environment Name',
-            description: mockEnvironment.description,
-            repository: mockEnvironment.repository,
-            codeExecution: mockEnvironment.codeExecution,
+            description: mockRepository.description,
+            repository: mockRepository.repository,
+            codeExecution: mockRepository.codeExecution,
           }),
         )
       })
@@ -264,7 +264,7 @@ describe('EnvironmentForm', () => {
 
   describe('Common Interactions', () => {
     it('should call onCancel when cancel button is clicked', () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       fireEvent.click(screen.getByText('Cancel'))
       expect(mockOnCancel).toHaveBeenCalled()
@@ -272,7 +272,7 @@ describe('EnvironmentForm', () => {
 
     it('should disable submit button when submitting', () => {
       render(
-        <EnvironmentForm
+        <RepositoryForm
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           mode="create"
@@ -285,10 +285,10 @@ describe('EnvironmentForm', () => {
     })
 
     it('should clear errors when user types', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Submit without name to trigger error
-      fireEvent.click(screen.getByText('Create Environment'))
+      fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(screen.queryByText(/required/i)).toBeInTheDocument()
@@ -306,7 +306,7 @@ describe('EnvironmentForm', () => {
     })
 
     it('should validate with Zod schema', async () => {
-      render(<EnvironmentForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
+      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Fill invalid data
       fireEvent.change(screen.getByLabelText(/Name/), {
@@ -318,7 +318,7 @@ describe('EnvironmentForm', () => {
       fireEvent.click(screen.getByText('GitHub'))
 
       // Try to submit
-      fireEvent.click(screen.getByText('Create Environment'))
+      fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
         expect(mockOnSubmit).not.toHaveBeenCalled()

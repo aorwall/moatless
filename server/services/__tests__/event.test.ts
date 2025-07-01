@@ -18,8 +18,6 @@ describe('EventService', () => {
       exists: vi.fn(),
       saveTask: vi.fn(),
       getTask: vi.fn(),
-      saveEnvironment: vi.fn(),
-      getEnvironment: vi.fn(),
       saveRepository: vi.fn(),
       getRepository: vi.fn(),
       saveWorkspace: vi.fn(),

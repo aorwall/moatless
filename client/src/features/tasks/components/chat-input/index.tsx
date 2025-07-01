@@ -2,7 +2,7 @@ import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@shared/c
 import type { UploadFileResponse } from '@shared/types/api'
 import type { Task } from '@shared/types/task'
 import { useEffect, useState } from 'react'
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
@@ -15,7 +15,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   task?: Task // Optional task data to avoid duplicate API calls
 
   // For homepage context
-  showEnvironmentSelector?: boolean
+  showRepositorySelector?: boolean
   showTitle?: boolean
   title?: string
 
@@ -34,7 +34,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   ) => void
   onCreateTask?: (
     message: string,
-    environmentId: string,
+    repositoryId: string,
     clearMessage: () => void,
     model?: ClaudeModel,
     files?: UploadFileResponse[],
@@ -51,7 +51,7 @@ export function ChatInput({
   task, // Use provided task data instead of fetching
   taskStatus,
   lastIterationHasError = false,
-  showEnvironmentSelector = false,
+  showRepositorySelector = false,
   showTitle = false,
   title = 'What should we build today?',
   onSendMessage,
@@ -63,10 +63,10 @@ export function ChatInput({
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>(() => {
-    // Load last selected environment from localStorage
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | undefined>(() => {
+    // Load last selected repository from localStorage
     if (typeof window !== 'undefined' && !taskId) {
-      return localStorage.getItem('lastSelectedEnvironmentId') || undefined
+      return localStorage.getItem('lastSelectedRepositoryId') || undefined
     }
     return undefined
   })
@@ -86,9 +86,9 @@ export function ChatInput({
   // Stop agent mutation
   const stopAgent = useStopAgent()
 
-  // Environment data (only needed for homepage)
-  const { data: environments, isLoading: environmentsLoading } = useEnvironmentsList({
-    enabled: showEnvironmentSelector,
+  // Repository data (only needed for homepage)
+  const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList({
+    enabled: showRepositorySelector,
   })
 
   const isTaskContext = !!taskId
@@ -115,12 +115,12 @@ export function ChatInput({
     return () => clearInterval(interval)
   }, [isRunning, task?.iterations])
 
-  // Save selected environment to localStorage
+  // Save selected repository to localStorage
   useEffect(() => {
-    if (selectedEnvironmentId && !taskId) {
-      localStorage.setItem('lastSelectedEnvironmentId', selectedEnvironmentId)
+    if (selectedRepositoryId && !taskId) {
+      localStorage.setItem('lastSelectedRepositoryId', selectedRepositoryId)
     }
-  }, [selectedEnvironmentId, taskId])
+  }, [selectedRepositoryId, taskId])
 
   // Save selected model to localStorage
   useEffect(() => {
@@ -157,15 +157,9 @@ export function ChatInput({
           filePaths,
         )
       }
-    } else if (selectedEnvironmentId && onCreateTask && !isPending) {
+    } else if (selectedRepositoryId && onCreateTask && !isPending) {
       // Homepage context - create task with uploaded files
-      onCreateTask(
-        message.trim(),
-        selectedEnvironmentId,
-        clearMessage,
-        selectedModel,
-        uploadedFiles,
-      )
+      onCreateTask(message.trim(), selectedRepositoryId, clearMessage, selectedModel, uploadedFiles)
     }
   }
 
@@ -207,7 +201,7 @@ export function ChatInput({
     isPending ||
     (!isRunning && !message.trim()) ||
     (isTaskContext && (taskStatus === 'completed' || taskStatus === 'failed')) ||
-    !(isTaskContext || selectedEnvironmentId)
+    !(isTaskContext || selectedRepositoryId)
 
   return (
     <div className={className} {...divProps}>
@@ -250,19 +244,19 @@ export function ChatInput({
           textareaDisabled={isTextareaDisabled}
           sendDisabled={isSendDisabled}
           placeholder={getPlaceholderText()}
-          environmentId={selectedEnvironmentId}
+          repositoryId={selectedRepositoryId}
           taskId={taskId}
           isTaskContext={isTaskContext}
           buttonText={getButtonText()}
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           isRunning={isRunning}
-          // Environment selector props
-          showEnvironmentSelector={showEnvironmentSelector}
-          environments={environments}
-          selectedEnvironmentId={selectedEnvironmentId}
-          onEnvironmentChange={setSelectedEnvironmentId}
-          environmentsLoading={environmentsLoading}
+          // Repository selector props
+          showRepositorySelector={showRepositorySelector}
+          repositories={repositories}
+          selectedRepositoryId={selectedRepositoryId}
+          onRepositoryChange={setSelectedRepositoryId}
+          repositoriesLoading={repositoriesLoading}
           maxHeight={maxHeight}
           // File upload props
           uploadedFiles={uploadedFiles}

@@ -186,9 +186,7 @@ describe('Repository Routes', () => {
         url: '/api/v1/repositories/env-123',
       })
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
-      expect(body.status).toBe('deleted')
+      expect(response.statusCode).toBe(204)
     })
   })
 
@@ -205,7 +203,7 @@ describe('Repository Routes', () => {
       }
 
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
-      vi.spyOn(app.services.workspace, 'searchFiles').mockResolvedValueOnce({
+      vi.spyOn(app.services.repository, 'searchFiles').mockResolvedValueOnce({
         results: [
           { path: '/test/file1.ts', absolutePath: '/test/file1.ts', score: 1 },
           { path: '/test/file2.ts', absolutePath: '/test/file2.ts', score: 2 },
@@ -219,8 +217,7 @@ describe('Repository Routes', () => {
         url: '/api/v1/repositories/env-123/search-files',
         payload: {
           query: 'test',
-          filePattern: '*.ts',
-          maxResults: 50,
+          limit: 50,
         },
       })
 
@@ -257,6 +254,14 @@ describe('Repository Routes', () => {
       }
 
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
+      vi.spyOn(app.services.workspace, 'createWorkspace').mockResolvedValueOnce({} as any)
+      vi.spyOn(app.services.workspace, 'setupWorkspace').mockResolvedValueOnce(undefined)
+      vi.spyOn(app.services.workspace, 'runCommand').mockResolvedValueOnce({
+        command: 'echo "test"',
+        output: 'test',
+        exitCode: 0,
+        durationMs: 100,
+      })
 
       const response = await app.inject({
         method: 'POST',

@@ -3,12 +3,12 @@ import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import path from 'node:path'
 import { TaskNotFoundError, WorkspaceError } from '@shared/constants/errors.js'
-import type { ScriptInjectionStrategy } from '@shared/types/environment.js'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
   ProcessValidation,
 } from '@shared/types/preview-environment.js'
+import type { ScriptInjectionStrategy } from '@shared/types/repository.js'
 import type { ServerStatus } from '@shared/types/workspace.js'
 import type { FastifyInstance } from 'fastify'
 import { logger } from '../utils/logger.js'

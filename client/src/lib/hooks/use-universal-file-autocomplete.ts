@@ -1,10 +1,10 @@
-import type { FileSearchResult } from '@shared/types/environment'
+import type { FileSearchResult } from '@shared/types/repository'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchFiles } from '@/features/environments/hooks/use-environments'
+import { useSearchFiles } from '@/features/repositories/hooks/use-repositories'
 import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
 
 interface UseUniversalFileAutocompleteOptions {
-  environmentId?: string
+  repositoryId?: string
   taskId?: string
   value: string
   onValueChange: (value: string) => void
@@ -19,7 +19,7 @@ interface AutocompleteState {
 }
 
 export function useUniversalFileAutocomplete({
-  environmentId,
+  repositoryId,
   taskId,
   value,
   onValueChange,
@@ -39,8 +39,8 @@ export function useUniversalFileAutocomplete({
     data: envSearchResults,
     isLoading: envLoading,
     error: envError,
-  } = useSearchFiles(environmentId || '', state.searchTerm, {
-    enabled: state.isOpen && !!environmentId && !taskId && state.searchTerm.length >= 3,
+  } = useSearchFiles(repositoryId || '', state.searchTerm, {
+    enabled: state.isOpen && !!repositoryId && !taskId && state.searchTerm.length >= 3,
   })
 
   // Use task search when in task context

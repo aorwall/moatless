@@ -1,11 +1,14 @@
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import { ValidationError } from '@shared/constants/errors.js'
-import type { RemoteRepository } from '../../shared/types/index.js'
+
+// import type { RemoteRepository } from '../../shared/types/index.js'
 
 const execAsync = promisify(exec)
 
-export async function validateRepositoryAccess(repo: RemoteRepository): Promise<void> {
+// TODO: Implement when RemoteRepository is added
+// export async function validateRepositoryAccess(repo: RemoteRepository): Promise<void> {
+export async function validateRepositoryAccess(repo: any): Promise<void> {
   try {
     // For GitHub/GitLab, we can use git ls-remote to check accessibility
     const command = `git ls-remote --heads "${repo.url}"`
@@ -29,7 +32,7 @@ export async function validateRepositoryAccess(repo: RemoteRepository): Promise<
   }
 }
 
-export async function getRemoteRepositoryInfo(repo: RemoteRepository): Promise<{
+export async function getRemoteRepositoryInfo(repo: any): Promise<{
   branches: string[]
   defaultBranch: string
   lastCommit?: string

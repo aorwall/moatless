@@ -1,4 +1,10 @@
-import type { Environment } from '../../shared/types/environment.js'
+// Environment template types (not to be confused with Repository types)
+interface Environment {
+  language?: string
+  framework?: string
+  testFramework?: string
+  [key: string]: any
+}
 
 export interface EnvironmentTemplate {
   id: string

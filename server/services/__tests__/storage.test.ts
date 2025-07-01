@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../../../shared/types/event.js'
-import type { Environment, Event, Task, Workspace } from '../../../shared/types/index.js'
+import type { Event, Task, Workspace } from '../../../shared/types/index.js'
 import { FileStorage } from '../storage.js'
 
 describe('FileStorage', () => {
@@ -94,23 +94,23 @@ describe('FileStorage', () => {
       expect(retrieved?.agentType).toBe('test-agent')
     })
 
-    it('should save and retrieve environments', async () => {
-      const env: Environment = {
-        id: 'env-123',
-        name: 'Test Environment',
-        repository: { type: 'local', path: '/test/path' },
-        codeExecution: { type: 'local' },
+    it('should save and retrieve repositories', async () => {
+      const repo = {
+        id: 'repo-123',
+        name: 'Test Repository',
+        repository: { type: 'local' as const, path: '/test/path' },
+        codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }
 
-      await storage.saveEnvironment(env)
-      const retrieved = await storage.getEnvironment('env-123')
+      await storage.saveRepository(repo)
+      const retrieved = await storage.getRepository('repo-123')
 
       expect(retrieved).toBeTruthy()
-      expect(retrieved?.id).toBe('env-123')
-      expect(retrieved?.name).toBe('Test Environment')
+      expect(retrieved?.id).toBe('repo-123')
+      expect(retrieved?.name).toBe('Test Repository')
     })
 
     it('should save and retrieve workspaces', async () => {

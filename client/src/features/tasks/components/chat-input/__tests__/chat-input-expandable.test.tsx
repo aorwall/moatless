@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from '../index'
 
 // Mock dependencies
-vi.mock('@/features/environments/hooks/use-environments', () => ({
-  useEnvironmentsList: () => ({
+vi.mock('@/features/repositories/hooks/use-repositories', () => ({
+  useRepositoriesList: () => ({
     data: [
-      { id: 'env-1', name: 'Test Environment 1' },
-      { id: 'env-2', name: 'Test Environment 2' },
+      { id: 'repo-1', name: 'Test Repository 1' },
+      { id: 'repo-2', name: 'Test Repository 2' },
     ],
     isLoading: false,
   }),

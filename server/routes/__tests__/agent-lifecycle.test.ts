@@ -4,9 +4,9 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-  CreateEnvironmentRequest,
+  CreateRepositoryRequest,
   CreateTaskRequest,
-  Environment,
+  RepositoryConfig,
   Task,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
@@ -71,7 +71,7 @@ async function runCommand(command: string, args: string[], cwd: string): Promise
 describe('Agent Lifecycle Test', () => {
   let app: FastifyInstance
   let tempDir: string
-  let createdEnvironmentId: string
+  let createdRepositoryId: string
   let createdTaskId: string
 
   beforeEach(async () => {
@@ -112,15 +112,15 @@ describe('Agent Lifecycle Test', () => {
       }
     }
 
-    // Cleanup environment if it exists
-    if (createdEnvironmentId) {
+    // Cleanup repository if it exists
+    if (createdRepositoryId) {
       try {
         await app.inject({
           method: 'DELETE',
-          url: `/api/v1/environments/${createdEnvironmentId}`,
+          url: `/api/v1/repositories/${createdRepositoryId}`,
         })
       } catch (_e) {
-        // Environment might already be deleted
+        // Repository might already be deleted
       }
     }
 
@@ -143,10 +143,10 @@ describe('Agent Lifecycle Test', () => {
   })
 
   it('should start an agent, stop it, and verify server continues running', async () => {
-    // Step 1: Create environment
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
-      name: 'Agent Lifecycle Test Environment',
-      description: 'Test environment for agent lifecycle verification',
+    // Step 1: Create repository
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'Agent Lifecycle Test Repository',
+      description: 'Test repository for agent lifecycle verification',
       repository: {
         type: 'local',
         path: tempDir,
@@ -154,24 +154,24 @@ describe('Agent Lifecycle Test', () => {
       },
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Environment ready for agent lifecycle test"',
+        setupCommands: 'echo "Repository ready for agent lifecycle test"',
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    expect(createEnvResponse.statusCode).toBe(200)
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    expect(createRepoResponse.statusCode).toBe(200)
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
     // Step 2: Create and start a task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      repositoryId: environment.id,
+      repositoryId: repository.id,
       message:
         'Create a file called lifecycle_test.py with a simple Python function that adds two numbers',
       start: true,
@@ -246,16 +246,16 @@ describe('Agent Lifecycle Test', () => {
     // Step 6: Verify server is still responsive by making various API calls
     console.log('Verifying server is still responsive...')
 
-    // Test 1: List environments
-    const listEnvResponse = await app.inject({
+    // Test 1: List repositories
+    const listRepoResponse = await app.inject({
       method: 'GET',
-      url: '/api/v1/environments',
+      url: '/api/v1/repositories',
     })
-    expect(listEnvResponse.statusCode).toBe(200)
-    const envData = JSON.parse(listEnvResponse.body)
-    expect(envData).toHaveProperty('environments')
-    expect(Array.isArray(envData.environments)).toBe(true)
-    console.log('✅ Can list environments')
+    expect(listRepoResponse.statusCode).toBe(200)
+    const repoData = JSON.parse(listRepoResponse.body)
+    expect(repoData).toHaveProperty('repositories')
+    expect(Array.isArray(repoData.repositories)).toBe(true)
+    console.log('✅ Can list repositories')
 
     // Test 2: Get task details
     const getTaskResponse = await app.inject({
@@ -280,7 +280,7 @@ describe('Agent Lifecycle Test', () => {
     // Test 4: Create a new task to verify we can start new agents
     const createNewTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      repositoryId: environment.id,
+      repositoryId: repository.id,
       message: 'Create a simple hello.txt file',
       start: false, // Don't start it, just create
     }
@@ -320,8 +320,8 @@ describe('Agent Lifecycle Test', () => {
   }, 60000) // 60 second timeout to accommodate cleanup wait times
 
   it('should handle multiple agent start/stop cycles', async () => {
-    // Create environment
-    const createEnvironmentRequest: CreateEnvironmentRequest = {
+    // Create repository
+    const createRepositoryRequest: CreateRepositoryRequest = {
       name: 'Multiple Agent Cycles Test',
       repository: {
         type: 'local',
@@ -333,19 +333,19 @@ describe('Agent Lifecycle Test', () => {
       },
     }
 
-    const createEnvResponse = await app.inject({
+    const createRepoResponse = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
-      payload: createEnvironmentRequest,
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
     })
 
-    const environment: Environment = JSON.parse(createEnvResponse.body)
-    createdEnvironmentId = environment.id
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
 
     // Create a task
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
-      repositoryId: environment.id,
+      repositoryId: repository.id,
       start: false,
     }
 

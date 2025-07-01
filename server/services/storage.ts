@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { logger } from '@server/utils/index.js'
 import type { FastifyInstance } from 'fastify'
-import type { Environment, Event, Task, Workspace } from '../../shared/types/index.js'
+import type { Event, Task, Workspace } from '../../shared/types/index.js'
 import type { RepositoryConfig } from '../../shared/types/repository.js'
 import { fromJSON, toJSON } from '../../shared/utils/validation.js'
 
@@ -18,8 +18,6 @@ export interface StorageBackend {
   // Type-safe convenience methods
   saveTask(task: Task): Promise<void>
   getTask(taskId: string): Promise<Task | null>
-  saveEnvironment(env: Environment): Promise<void>
-  getEnvironment(envId: string): Promise<Environment | null>
   saveRepository(repo: RepositoryConfig): Promise<void>
   getRepository(repoId: string): Promise<RepositoryConfig | null>
   saveWorkspace(workspace: Workspace): Promise<void>
@@ -41,11 +39,12 @@ export class FileStorage implements StorageBackend {
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
+    const filePath = await this.getPath(key)
     try {
-      const filePath = await this.getPath(key)
       const content = await fs.readFile(filePath, 'utf-8')
       return fromJSON<T>(content)
     } catch {
+      logger.warn(`Failed to read file: ${filePath}`)
       return null
     }
   }
@@ -106,14 +105,6 @@ export class FileStorage implements StorageBackend {
 
   async getTask(taskId: string): Promise<Task | null> {
     return this.get<Task>(`tasks/${taskId}`)
-  }
-
-  async saveEnvironment(env: Environment): Promise<void> {
-    await this.save(`environments/${env.id}`, env)
-  }
-
-  async getEnvironment(envId: string): Promise<Environment | null> {
-    return this.get<Environment>(`environments/${envId}`)
   }
 
   async saveRepository(repo: RepositoryConfig): Promise<void> {

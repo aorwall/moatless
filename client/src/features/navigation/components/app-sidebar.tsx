@@ -14,7 +14,7 @@ import {
 } from '@/lib/components/ui/sidebar'
 
 import { SidebarCommands } from './sidebar-commands'
-import { SidebarEnvironments } from './sidebar-environments'
+import { SidebarRepositories } from './sidebar-repositories'
 import { SidebarTasks } from './sidebar-tasks'
 
 export function AppSidebar() {
@@ -57,7 +57,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarTasks />
-        <SidebarEnvironments />
+        <SidebarRepositories />
         <SidebarCommands />
       </SidebarContent>
 

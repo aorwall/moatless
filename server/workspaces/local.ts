@@ -3,7 +3,10 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { WorkspaceError } from '@shared/constants/errors.js'
-import type { Environment, LocalRepository } from '@shared/types/environment.js'
+import type { Repository, RepositoryConfig } from '@shared/types/repository.js'
+
+type LocalRepository = Extract<Repository, { type: 'local' }>
+
 import {
   type CommandResult,
   type ServerStatus,
@@ -65,13 +68,13 @@ export class LocalWorkspace extends BaseWorkspace {
 
   constructor(
     taskId: string,
-    environment: Environment,
+    repositoryConfig: RepositoryConfig,
     eventService: EventService,
     originalBranch?: string,
     branchName?: string,
     existingWorkspacePath?: string,
   ) {
-    super(taskId, environment, eventService)
+    super(taskId, repositoryConfig, eventService)
     this.originalBranch = originalBranch
     this.branchName = branchName
     this.logger = createTaskLogger(taskId)
@@ -82,9 +85,9 @@ export class LocalWorkspace extends BaseWorkspace {
     }
 
     this.logger.debug('LocalWorkspace constructor', {
-      repositoryId: environment.id,
-      environmentType: environment.repository.type,
-      codeExecutionType: environment.codeExecution.type,
+      repositoryId: repositoryConfig.id,
+      repositoryType: repositoryConfig.repository.type,
+      codeExecutionType: repositoryConfig.codeExecution.type,
       hasOriginalBranch: !!originalBranch,
       hasBranchName: !!branchName,
       hasExistingWorkspacePath: !!existingWorkspacePath,
@@ -96,15 +99,15 @@ export class LocalWorkspace extends BaseWorkspace {
     const startTime = Date.now()
 
     this.logger.info('Starting LocalWorkspace setup', {
-      repositoryId: this.environment.id,
+      repositoryId: this.repositoryConfig.id,
       workspacePath: this.workspacePath,
     })
 
     try {
       // Step 1: Validate repository type
-      if (this.environment.repository.type !== 'local') {
+      if (this.repositoryConfig.repository.type !== 'local') {
         this.logger.error('Invalid repository type for LocalWorkspace', undefined, {
-          repositoryType: this.environment.repository.type,
+          repositoryType: this.repositoryConfig.repository.type,
         })
         throw new Error('LocalWorkspace requires local repository')
       }
@@ -115,7 +118,7 @@ export class LocalWorkspace extends BaseWorkspace {
       }
 
       // Step 3: Check if workspace path exists, recreate if needed
-      const repo = this.environment.repository as LocalRepository
+      const repo = this.repositoryConfig.repository as LocalRepository
       if (repo.useGitWorktrees && !(await this.pathExists(this.workspacePath))) {
         this.logger.warn('Workspace path does not exist, recreating git worktree', {
           workspacePath: this.workspacePath,
@@ -199,12 +202,12 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   private async runSetupCommands(): Promise<void> {
-    if (!this.environment.codeExecution.setupCommands) {
+    if (!this.repositoryConfig.codeExecution.setupCommands) {
       this.logger.debug('No setup commands configured')
       return
     }
 
-    const commands = this.environment.codeExecution.setupCommands.split('\n')
+    const commands = this.repositoryConfig.codeExecution.setupCommands.split('\n')
     this.logger.info('Running setup commands', {
       commandCount: commands.filter((c) => c.trim()).length,
     })
@@ -280,7 +283,7 @@ export class LocalWorkspace extends BaseWorkspace {
 
     // If we created a git worktree, remove it
     if (this.workspacePath && (await this.pathExists(this.workspacePath))) {
-      const repo = this.environment.repository as LocalRepository
+      const repo = this.repositoryConfig.repository as LocalRepository
       if (repo.useGitWorktrees && (this.originalBranch || this.branch)) {
         this.logger.debug('Removing git worktree', {
           repositoryPath: repo.path,
@@ -475,11 +478,11 @@ export class LocalWorkspace extends BaseWorkspace {
 
   async mergeChanges(): Promise<string> {
     // Check if repository is local
-    if (this.environment.repository.type !== 'local') {
+    if (this.repositoryConfig.repository.type !== 'local') {
       throw new Error('Merge only supported for local repositories')
     }
 
-    const repo = this.environment.repository as LocalRepository
+    const repo = this.repositoryConfig.repository as LocalRepository
 
     // Check if worktrees are enabled
     if (!repo.useGitWorktrees) {
@@ -653,7 +656,7 @@ export class LocalWorkspace extends BaseWorkspace {
     return {
       id: this.taskId,
       type: 'local' as const,
-      repositoryId: this.environment.id,
+      repositoryId: this.repositoryConfig.id,
       status: this.status,
       createdAt: this.createdAt,
       path: this.workspacePath,
@@ -786,7 +789,7 @@ export class LocalWorkspace extends BaseWorkspace {
       await fs.access(this.workspacePath)
 
       // For git worktrees, also check if it's still a valid git repository
-      const repo = this.environment.repository as LocalRepository
+      const repo = this.repositoryConfig.repository as LocalRepository
       if (repo.useGitWorktrees) {
         return await isGitRepository(this.workspacePath)
       }

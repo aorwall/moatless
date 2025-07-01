@@ -22,7 +22,7 @@ export interface ValidationError extends ApiError {
 }
 
 export interface NotFoundError extends ApiError {
-  code: 'NOT_FOUND' | 'ENVIRONMENT_NOT_FOUND' | 'TASK_NOT_FOUND'
+  code: 'NOT_FOUND' | 'ENVIRONMENT_NOT_FOUND' | 'REPOSITORY_NOT_FOUND' | 'TASK_NOT_FOUND'
   details?: {
     id?: string
     resource?: string

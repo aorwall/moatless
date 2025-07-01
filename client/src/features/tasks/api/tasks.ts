@@ -7,8 +7,8 @@ import type {
   TaskListResponse,
   WorkspaceStatusResponse,
 } from '@shared/types/api'
-import type { FileSearchRequest, FileSearchResponse } from '@shared/types/environment'
 import type { Event } from '@shared/types/event'
+import type { FileSearchRequest, FileSearchResponse } from '@shared/types/repository'
 import type { GitDiffResponse, Task } from '@shared/types/task'
 import { apiClient } from '@/lib/api/client'
 

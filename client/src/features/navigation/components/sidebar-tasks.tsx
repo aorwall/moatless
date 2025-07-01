@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
@@ -52,8 +52,8 @@ export function SidebarTasks() {
     },
   )
 
-  // Fetch environments to map IDs to names
-  const { data: environments } = useEnvironmentsList()
+  // Fetch repositories to map IDs to names
+  const { data: repositories } = useRepositoriesList()
 
   // Filter out closed tasks and sort by last_message_at, with open/running tasks first
   const sortedTasks =
@@ -78,9 +78,9 @@ export function SidebarTasks() {
       })
       .slice(0, 20) || []
 
-  // Create a map of environment IDs to names
-  const environmentMap =
-    environments?.reduce(
+  // Create a map of repository IDs to names
+  const repositoryMap =
+    repositories?.reduce(
       (acc, env) => {
         acc[env.id] = env.name
         return acc
@@ -122,7 +122,7 @@ export function SidebarTasks() {
                 // Use the initial message from the first iteration as the title
                 const taskTitle =
                   task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
-                const environmentName = environmentMap[task.environmentId] || task.environmentId
+                const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
 
                 return (
                   <SidebarMenuItem key={task.taskId}>
@@ -146,7 +146,7 @@ export function SidebarTasks() {
                                   {taskTitle}
                                 </span>
                                 <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-                                  <span className="truncate">{environmentName}</span>
+                                  <span className="truncate">{repositoryName}</span>
                                   <span className="shrink-0">
                                     {getRelativeTime(task.lastMessageAt || task.createdAt)}
                                   </span>
@@ -164,7 +164,7 @@ export function SidebarTasks() {
                               : taskTitle}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {environmentName} •{' '}
+                            {repositoryName} •{' '}
                             {getRelativeTime(task.lastMessageAt || task.createdAt)}
                           </p>
                         </div>

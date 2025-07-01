@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@shared/types/environment'
+import type { FileSearchResult } from '@shared/types/repository'
 import { AlertCircle, FileIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { getErrorMessage } from '@/lib/utils/error'

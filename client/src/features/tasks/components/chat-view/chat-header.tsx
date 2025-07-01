@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useEnvironmentsList } from '@/features/environments/hooks/use-environments'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import {
   useCloseTask,
@@ -22,8 +22,8 @@ import { getErrorMessage } from '@/lib/utils/error'
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
   const navigate = useNavigate()
-  const { taskId, status, agentType, environmentId, iterations } = useTaskData()
-  const { data: environments } = useEnvironmentsList()
+  const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
+  const { data: repositories } = useRepositoriesList()
   const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
     params.taskId,
   )
@@ -82,9 +82,9 @@ export function ChatHeader() {
     return null
   }
 
-  // Get environment name
-  const environment = environments?.find((env) => env.id === environmentId)
-  const environmentName = environment?.name || environmentId
+  // Get repository name
+  const repository = repositories?.find((repo) => repo.id === repositoryId)
+  const repositoryName = repository?.name || repositoryId
 
   // Get task title (first line of initial message or agent type)
   const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
@@ -100,7 +100,7 @@ export function ChatHeader() {
           <div className="flex flex-col min-w-0">
             <h1 className="text-sm font-medium truncate">{taskTitle}</h1>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="truncate">{environmentName}</span>
+              <span className="truncate">{repositoryName}</span>
               <span>•</span>
               <div className={`flex items-center gap-1 ${statusConfig.color}`}>
                 {statusConfig.icon}

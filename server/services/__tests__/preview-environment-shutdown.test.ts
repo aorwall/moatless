@@ -5,9 +5,9 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
-  CreateEnvironmentRequest,
+  CreateRepositoryRequest,
   CreateTaskRequest,
-  Environment,
+  RepositoryConfig,
   ServerStatus,
 } from '../../../shared/types/index.js'
 import { build } from '../../test/helper.js'
@@ -24,7 +24,7 @@ import { build } from '../../test/helper.js'
 describe('Preview Environment Graceful Shutdown', () => {
   let app: FastifyInstance
   let tempDir: string
-  let createdEnvironmentIds: string[] = []
+  let createdRepositoryIds: string[] = []
   let createdTaskIds: string[] = []
 
   beforeEach(async () => {
@@ -50,15 +50,15 @@ describe('Preview Environment Graceful Shutdown', () => {
       }
     }
 
-    // Cleanup environments
-    for (const envId of createdEnvironmentIds) {
+    // Cleanup repositories
+    for (const repoId of createdRepositoryIds) {
       try {
         await app.inject({
           method: 'DELETE',
-          url: `/api/v1/environments/${envId}`,
+          url: `/api/v1/repositories/${repoId}`,
         })
       } catch (_e) {
-        // Environment might already be deleted
+        // Repository might already be deleted
       }
     }
 
@@ -72,7 +72,7 @@ describe('Preview Environment Graceful Shutdown', () => {
     }
 
     // Reset arrays
-    createdEnvironmentIds = []
+    createdRepositoryIds = []
     createdTaskIds = []
 
     await app.close()
@@ -128,8 +128,8 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'server2.js'), serverCode2)
 
     // Create environments and tasks
-    const env1 = await createEnvironment('Test Environment 1', 'node server1.js {PORT}')
-    const env2 = await createEnvironment('Test Environment 2', 'node server2.js {PORT}')
+    const env1 = await createRepository('Test Repository 1', 'node server1.js {PORT}')
+    const env2 = await createRepository('Test Repository 2', 'node server2.js {PORT}')
 
     const task1 = await createTask(env1.id)
     const task2 = await createTask(env2.id)
@@ -223,11 +223,11 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'stubborn-server.js'), stubbornServerCode)
 
     // Create environment and task
-    const env = await createEnvironment(
+    const repo = await createRepository(
       'Stubborn Test Environment',
       'node stubborn-server.js {PORT}',
     )
-    const task = await createTask(env.id)
+    const task = await createTask(repo.id)
 
     // Wait for workspace setup
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -297,11 +297,11 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'orphan-test-server.js'), serverCode)
 
     // Create environment and task
-    const env = await createEnvironment(
+    const repo = await createRepository(
       'Orphan Test Environment',
       'node orphan-test-server.js {PORT}',
     )
-    const task = await createTask(env.id)
+    const task = await createTask(repo.id)
 
     // Wait for workspace setup
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -379,11 +379,11 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'signal-test-server.js'), serverCode)
 
     // Create environment and task
-    const env = await createEnvironment(
+    const repo = await createRepository(
       'Signal Test Environment',
       'node signal-test-server.js {PORT}',
     )
-    const task = await createTask(env.id)
+    const task = await createTask(repo.id)
 
     // Wait for workspace setup
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -427,10 +427,10 @@ process.on('SIGTERM', () => {
   }, 30000)
 
   // Helper functions
-  async function createEnvironment(name: string, serverCommand: string): Promise<Environment> {
-    const request: CreateEnvironmentRequest = {
+  async function createRepository(name: string, serverCommand: string): Promise<RepositoryConfig> {
+    const request: CreateRepositoryRequest = {
       name,
-      description: `Test environment for shutdown testing`,
+      description: `Test repository for shutdown testing`,
       repository: {
         type: 'local',
         path: tempDir,
@@ -446,14 +446,14 @@ process.on('SIGTERM', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/environments',
+      url: '/api/v1/repositories',
       payload: request,
     })
 
     expect(response.statusCode).toBe(200)
-    const environment: Environment = JSON.parse(response.body)
-    createdEnvironmentIds.push(environment.id)
-    return environment
+    const repository: RepositoryConfig = JSON.parse(response.body)
+    createdRepositoryIds.push(repository.id)
+    return repository
   }
 
   async function createTask(repositoryId: string): Promise<{ taskId: string }> {

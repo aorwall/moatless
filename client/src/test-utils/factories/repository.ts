@@ -1,11 +1,13 @@
 import type {
   CodeExecution,
-  CreateEnvironmentRequest,
-  EnvironmentResponse,
-  GithubRepository,
-  LocalRepository,
-  UpdateEnvironmentRequest,
-} from '@shared/types/environment'
+  CreateRepositoryRequest,
+  Repository,
+  RepositoryResponse,
+  UpdateRepositoryRequest,
+} from '@shared/types/repository'
+
+type LocalRepository = Extract<Repository, { type: 'local' }>
+type GithubRepository = Extract<Repository, { type: 'github' }>
 
 // Repository factories
 export function createMockLocalRepository(overrides?: Partial<LocalRepository>): LocalRepository {
@@ -17,7 +19,7 @@ export function createMockLocalRepository(overrides?: Partial<LocalRepository>):
   }
 }
 
-export function createMockGithubRepository(
+export function createMockGithubRepositoryConfig(
   overrides?: Partial<GithubRepository>,
 ): GithubRepository {
   return {
@@ -56,14 +58,12 @@ export function createMockDockerCodeExecution(overrides?: Partial<CodeExecution>
   }
 }
 
-// Environment factories
-export function createMockEnvironment(
-  overrides?: Partial<EnvironmentResponse>,
-): EnvironmentResponse {
+// Repository factories
+export function createMockRepository(overrides?: Partial<RepositoryResponse>): RepositoryResponse {
   return {
     id: 'env-123',
-    name: 'Test Environment',
-    description: 'A test environment for unit tests',
+    name: 'Test Repository',
+    description: 'A test repository for unit tests',
     repository: createMockLocalRepository(),
     codeExecution: createMockLocalCodeExecution(),
     variables: {
@@ -76,14 +76,14 @@ export function createMockEnvironment(
   }
 }
 
-export function createMockGithubEnvironment(
-  overrides?: Partial<EnvironmentResponse>,
-): EnvironmentResponse {
+export function createMockGithubRepository(
+  overrides?: Partial<RepositoryResponse>,
+): RepositoryResponse {
   return {
     id: 'env-github-456',
-    name: 'GitHub Environment',
-    description: 'A GitHub-based test environment',
-    repository: createMockGithubRepository(),
+    name: 'GitHub Repository',
+    description: 'A GitHub-based test repository',
+    repository: createMockGithubRepositoryConfig(),
     codeExecution: createMockDockerCodeExecution(),
     variables: {
       NODE_ENV: 'production',
@@ -96,12 +96,12 @@ export function createMockGithubEnvironment(
 }
 
 // Request factories
-export function createMockCreateEnvironmentRequest(
-  overrides?: Partial<CreateEnvironmentRequest>,
-): CreateEnvironmentRequest {
+export function createMockCreateRepositoryRequest(
+  overrides?: Partial<CreateRepositoryRequest>,
+): CreateRepositoryRequest {
   return {
-    name: 'New Test Environment',
-    description: 'A newly created test environment',
+    name: 'New Test Repository',
+    description: 'A newly created test repository',
     repository: createMockLocalRepository(),
     codeExecution: createMockLocalCodeExecution(),
     variables: {
@@ -111,34 +111,34 @@ export function createMockCreateEnvironmentRequest(
   }
 }
 
-export function createMockUpdateEnvironmentRequest(
-  overrides?: Partial<UpdateEnvironmentRequest>,
-): UpdateEnvironmentRequest {
+export function createMockUpdateRepositoryRequest(
+  overrides?: Partial<UpdateRepositoryRequest>,
+): UpdateRepositoryRequest {
   return {
-    name: 'Updated Environment Name',
-    description: 'Updated environment description',
+    name: 'Updated Repository Name',
+    description: 'Updated repository description',
     ...overrides,
   }
 }
 
 // List factory
-export function createMockEnvironmentList(count = 3): EnvironmentResponse[] {
-  const environments: EnvironmentResponse[] = []
+export function createMockRepositoryList(count = 3): RepositoryResponse[] {
+  const repositories: RepositoryResponse[] = []
 
   for (let i = 0; i < count; i++) {
     const isGithub = i % 2 === 1
-    environments.push(
+    repositories.push(
       isGithub
-        ? createMockGithubEnvironment({
-            id: `env-github-${i}`,
-            name: `GitHub Environment ${i}`,
+        ? createMockGithubRepository({
+            id: `repo-github-${i}`,
+            name: `GitHub Repository ${i}`,
           })
-        : createMockEnvironment({
-            id: `env-local-${i}`,
-            name: `Local Environment ${i}`,
+        : createMockRepository({
+            id: `repo-local-${i}`,
+            name: `Local Repository ${i}`,
           }),
     )
   }
 
-  return environments
+  return repositories
 }

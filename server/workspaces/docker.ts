@@ -47,7 +47,7 @@ export class DockerWorkspace extends BaseWorkspace {
     try {
       // Emit setup started event
 
-      this.image = this.environment.codeExecution.image || 'node:18-alpine'
+      this.image = this.repositoryConfig.codeExecution.image || 'node:18-alpine'
       const workdir = '/workspace'
 
       // Create container
@@ -56,15 +56,15 @@ export class DockerWorkspace extends BaseWorkspace {
       let createCommand = `docker create --name "${this.containerName}" -w "${workdir}"`
 
       // Add volume mounts if specified
-      if (this.environment.codeExecution.volumes) {
-        for (const volume of this.environment.codeExecution.volumes) {
+      if (this.repositoryConfig.codeExecution.volumes) {
+        for (const volume of this.repositoryConfig.codeExecution.volumes) {
           createCommand += ` -v "${volume}"`
         }
       }
 
       // Add environment variables
-      if (this.environment.codeExecution.envVars) {
-        for (const [key, value] of Object.entries(this.environment.codeExecution.envVars)) {
+      if (this.repositoryConfig.codeExecution.envVars) {
+        for (const [key, value] of Object.entries(this.repositoryConfig.codeExecution.envVars)) {
           createCommand += ` -e "${key}=${value}"`
         }
       }
@@ -77,20 +77,16 @@ export class DockerWorkspace extends BaseWorkspace {
       // Start container
       await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
 
-      // Clone repository inside container if it's a remote repository
-      if (this.environment.repository.type !== 'local') {
-        const cloneCommand = `docker exec "${this.containerId}" git clone "${this.environment.repository.url}" .`
-        await execAsync(cloneCommand, { timeout: 60000 })
-
-        if (this.environment.repository.branch) {
-          const checkoutCommand = `docker exec "${this.containerId}" git checkout "${this.environment.repository.branch}"`
-          await execAsync(checkoutCommand, { timeout: 10000 })
-        }
+      // For local repositories, we need to copy the files into the container
+      if (this.repositoryConfig.repository.type === 'local') {
+        // Copy repository files to container
+        const copyCommand = `docker cp "${this.repositoryConfig.repository.path}/." "${this.containerId}:/workspace/"`
+        await execAsync(copyCommand, { timeout: 60000 })
       }
 
       // Run setup commands if specified
-      if (this.environment.codeExecution.setupCommands) {
-        const commands = this.environment.codeExecution.setupCommands.split('\n')
+      if (this.repositoryConfig.codeExecution.setupCommands) {
+        const commands = this.repositoryConfig.codeExecution.setupCommands.split('\n')
         for (const command of commands) {
           const trimmedCommand = command.trim()
           if (!trimmedCommand) continue
@@ -433,7 +429,7 @@ export class DockerWorkspace extends BaseWorkspace {
     return {
       id: this.taskId,
       type: 'docker' as const,
-      repositoryId: this.environment.id,
+      repositoryId: this.repositoryConfig.id,
       status: this.status,
       createdAt: this.createdAt,
       containerId: this.containerId,

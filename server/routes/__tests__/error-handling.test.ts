@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MoatlessError } from '../../../shared/constants/errors.js'
-import type { Environment } from '../../../shared/types/environment.js'
+import type { RepositoryConfig } from '../../../shared/types/repository.js'
 import { build } from '../../test/helper.js'
 
 describe('API Error Handling', () => {
@@ -184,10 +184,10 @@ describe('API Error Handling', () => {
 
   describe('Content Type Validation', () => {
     it('should accept application/json content type', async () => {
-      vi.spyOn(app.services.environment, 'getEnvironment').mockResolvedValueOnce({
+      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce({
         id: 'test-env',
-        name: 'Test Environment',
-      } as Environment)
+        name: 'Test Repository',
+      } as RepositoryConfig)
 
       vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce('test-task-id')
 

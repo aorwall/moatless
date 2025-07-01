@@ -1,41 +1,39 @@
-import type { EnvironmentResponse } from '@shared/types/environment'
+import type { RepositoryResponse } from '@shared/types/repository'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 
-interface EnvironmentListProps {
-  environments: Array<EnvironmentResponse>
+interface RepositoryListProps {
+  repositories: Array<RepositoryResponse>
   onCreateNew: () => void
-  onEdit: (environment: EnvironmentResponse) => void
-  onDelete: (environmentId: string) => void
+  onEdit: (repository: RepositoryResponse) => void
+  onDelete: (repositoryId: string) => void
   isLoading?: boolean
 }
 
-export function EnvironmentList({
-  environments,
+export function RepositoryList({
+  repositories,
   onCreateNew,
   onEdit,
   onDelete,
   isLoading = false,
-}: EnvironmentListProps) {
+}: RepositoryListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const handleDelete = async (environmentId: string) => {
-    if (
-      confirm('Are you sure you want to delete this environment? This action cannot be undone.')
-    ) {
-      setDeletingId(environmentId)
+  const handleDelete = async (repositoryId: string) => {
+    if (confirm('Are you sure you want to delete this repository? This action cannot be undone.')) {
+      setDeletingId(repositoryId)
       try {
-        await onDelete(environmentId)
+        await onDelete(repositoryId)
       } finally {
         setDeletingId(null)
       }
     }
   }
 
-  const getRepositoryBadge = (environment: EnvironmentResponse) => {
-    const { repository } = environment
+  const getRepositoryBadge = (repo: RepositoryResponse) => {
+    const { repository } = repo
     if (repository.type === 'local') {
       return <Badge variant="outline">Local</Badge>
     } else {
@@ -43,8 +41,8 @@ export function EnvironmentList({
     }
   }
 
-  const getExecutionBadge = (environment: EnvironmentResponse) => {
-    const { codeExecution } = environment
+  const getExecutionBadge = (repo: RepositoryResponse) => {
+    const { codeExecution } = repo
     if (codeExecution.type === 'local') {
       return <Badge variant="secondary">Local</Badge>
     } else {
@@ -52,8 +50,8 @@ export function EnvironmentList({
     }
   }
 
-  const getRepositoryInfo = (environment: EnvironmentResponse) => {
-    const { repository } = environment
+  const getRepositoryInfo = (repo: RepositoryResponse) => {
+    const { repository } = repo
     if (repository.type === 'local') {
       return repository.path
     } else {
@@ -61,8 +59,8 @@ export function EnvironmentList({
     }
   }
 
-  const getExecutionInfo = (environment: EnvironmentResponse) => {
-    const { codeExecution } = environment
+  const getExecutionInfo = (repo: RepositoryResponse) => {
+    const { codeExecution } = repo
     if (codeExecution.type === 'local') {
       return 'Local execution'
     } else {
@@ -75,8 +73,8 @@ export function EnvironmentList({
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold">Environments</h2>
-            <p className="text-muted-foreground">Loading environments...</p>
+            <h2 className="text-2xl font-bold">Repositories</h2>
+            <p className="text-muted-foreground">Loading repositories...</p>
           </div>
         </div>
         <div className="grid gap-4">
@@ -99,38 +97,38 @@ export function EnvironmentList({
         <div>
           <h2 className="text-2xl font-bold">Environments</h2>
           <p className="text-muted-foreground">
-            Manage your development environments and their configurations
+            Manage your development repositories and their configurations
           </p>
         </div>
-        <Button onClick={onCreateNew}>Create Environment</Button>
+        <Button onClick={onCreateNew}>Create Repository</Button>
       </div>
 
-      {environments.length === 0 ? (
+      {repositories.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
             <div className="text-muted-foreground">
-              <p className="text-lg mb-2">No environments configured</p>
-              <p className="text-sm mb-4">Create your first environment to get started</p>
-              <Button onClick={onCreateNew}>Create Environment</Button>
+              <p className="text-lg mb-2">No repositories configured</p>
+              <p className="text-sm mb-4">Create your first repository to get started</p>
+              <Button onClick={onCreateNew}>Create Repository</Button>
             </div>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4">
-          {environments.map((environment) => (
-            <Card key={environment.id}>
+          {repositories.map((repository) => (
+            <Card key={repository.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <CardTitle className="text-lg">{environment.name}</CardTitle>
+                      <CardTitle className="text-lg">{repository.name}</CardTitle>
                       <div className="flex gap-2">
-                        {getRepositoryBadge(environment)}
-                        {getExecutionBadge(environment)}
+                        {getRepositoryBadge(repository)}
+                        {getExecutionBadge(repository)}
                       </div>
                     </div>
-                    {environment.description && (
-                      <CardDescription>{environment.description}</CardDescription>
+                    {repository.description && (
+                      <CardDescription>{repository.description}</CardDescription>
                     )}
                   </div>
                 </div>
@@ -140,19 +138,19 @@ export function EnvironmentList({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="font-medium text-muted-foreground">Repository:</span>
-                      <div className="mt-1">{getRepositoryInfo(environment)}</div>
+                      <div className="mt-1">{getRepositoryInfo(repository)}</div>
                     </div>
                     <div>
                       <span className="font-medium text-muted-foreground">Execution:</span>
-                      <div className="mt-1">{getExecutionInfo(environment)}</div>
+                      <div className="mt-1">{getExecutionInfo(repository)}</div>
                     </div>
                   </div>
 
-                  {Object.keys(environment.variables).length > 0 && (
+                  {Object.keys(repository.variables).length > 0 && (
                     <div>
                       <span className="font-medium text-muted-foreground text-sm">Variables:</span>
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {Object.keys(environment.variables).map((key) => (
+                        {Object.keys(repository.variables).map((key) => (
                           <Badge key={key} variant="outline" className="text-xs">
                             {key}
                           </Badge>
@@ -163,24 +161,24 @@ export function EnvironmentList({
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="text-xs text-muted-foreground">
-                      Created: {new Date(environment.createdAt).toLocaleDateString()}
-                      {environment.updatedAt !== environment.createdAt && (
+                      Created: {new Date(repository.createdAt).toLocaleDateString()}
+                      {repository.updatedAt !== repository.createdAt && (
                         <span className="ml-2">
-                          Updated: {new Date(environment.updatedAt).toLocaleDateString()}
+                          Updated: {new Date(repository.updatedAt).toLocaleDateString()}
                         </span>
                       )}
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => onEdit(environment)}>
+                      <Button variant="outline" size="sm" onClick={() => onEdit(repository)}>
                         Edit
                       </Button>
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => handleDelete(environment.id)}
-                        disabled={deletingId === environment.id}
+                        onClick={() => handleDelete(repository.id)}
+                        disabled={deletingId === repository.id}
                       >
-                        {deletingId === environment.id ? 'Deleting...' : 'Delete'}
+                        {deletingId === repository.id ? 'Deleting...' : 'Delete'}
                       </Button>
                     </div>
                   </div>

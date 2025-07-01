@@ -1,8 +1,8 @@
 import { DEFAULT_CLAUDE_MODEL } from '@shared/constants'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { useBranches, useEnvironmentsList } from '@/features/environments/hooks/use-environments'
-import { EnvironmentSelector } from '@/features/tasks/components/chat-input/environment-selector'
+import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { RepositorySelector } from '@/features/tasks/components/chat-input/repository-selector'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -18,12 +18,12 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 export function CreateTaskForm() {
   const navigate = useNavigate()
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>('')
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>('')
   const [selectedBranch, setSelectedBranch] = useState<string>('__none__')
 
-  const { data: environments, isLoading: environmentsLoading } = useEnvironmentsList()
+  const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList()
 
-  const { data: branches, isLoading: branchesLoading } = useBranches(selectedEnvironmentId)
+  const { data: branches, isLoading: branchesLoading } = useBranches(selectedRepositoryId)
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
@@ -31,20 +31,20 @@ export function CreateTaskForm() {
     },
   })
 
-  const handleEnvironmentChange = (envId: string) => {
-    setSelectedEnvironmentId(envId)
-    setSelectedBranch('__none__') // Reset branch selection when environment changes
+  const handleRepositoryChange = (repoId: string) => {
+    setSelectedRepositoryId(repoId)
+    setSelectedBranch('__none__') // Reset branch selection when repository changes
   }
 
   const handleCreateTask = () => {
-    if (!selectedEnvironmentId) {
+    if (!selectedRepositoryId) {
       return
     }
 
     createTask.mutate({
       agentType: 'claude-code',
       message: '',
-      environmentId: selectedEnvironmentId,
+      repositoryId: selectedRepositoryId,
       branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
       model: DEFAULT_CLAUDE_MODEL, // Use default model for now
     })
@@ -57,18 +57,18 @@ export function CreateTaskForm() {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
-          <Label htmlFor="environment" className="text-sm font-medium text-gray-700">
-            Select Environment
+          <Label htmlFor="repository" className="text-sm font-medium text-gray-700">
+            Select Repository
           </Label>
-          <EnvironmentSelector
-            environments={environments || []}
-            loading={environmentsLoading}
-            selectedEnvironmentId={selectedEnvironmentId}
-            onEnvironmentChange={handleEnvironmentChange}
+          <RepositorySelector
+            repositories={repositories || []}
+            loading={repositoriesLoading}
+            selectedRepositoryId={selectedRepositoryId}
+            onRepositoryChange={handleRepositoryChange}
           />
         </div>
 
-        {selectedEnvironmentId && (
+        {selectedRepositoryId && (
           <div className="space-y-2">
             <Label htmlFor="branch" className="text-sm font-medium text-gray-700">
               Select Branch (optional)
@@ -113,7 +113,7 @@ export function CreateTaskForm() {
 
         <Button
           onClick={handleCreateTask}
-          disabled={!selectedEnvironmentId || createTask.isPending}
+          disabled={!selectedRepositoryId || createTask.isPending}
           className="w-full"
           size="lg"
         >
