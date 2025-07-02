@@ -21,7 +21,7 @@ vi.mock('@/features/tasks/api/tasks', () => ({
 }))
 
 describe('useSendMessage Integration Test', () => {
-  it('should invalidate and refetch task data after sending a message', async () => {
+  it('should refetch task data after sending a message', async () => {
     const taskId = 'task-123'
 
     // Initial task state with 1 iteration
@@ -101,9 +101,9 @@ describe('useSendMessage Integration Test', () => {
 
     // Verify API calls
     expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Test message', undefined, undefined, undefined, undefined, undefined)
-    // React Query may call getTask multiple times due to automatic refetching
-    // The important thing is that it was called at least twice (initial + refetch)
-    expect(tasksApi.getTask).toHaveBeenCalledTimes(4)
+    // In event-driven architecture, explicit refetch calls are reduced
+    // Initial call + immediate refetch after message
+    expect(tasksApi.getTask).toHaveBeenCalledTimes(2)
   })
 
   it('should handle concurrent message sends correctly', async () => {
@@ -165,7 +165,7 @@ describe('useSendMessage Integration Test', () => {
     expect(spyInvalidate).not.toHaveBeenCalled()
   })
 
-  it('should maintain correct query key hierarchy', async () => {
+  it('should maintain correct query key hierarchy in event-driven architecture', async () => {
     const taskId = 'task-123'
 
     vi.mocked(tasksApi.sendMessage).mockResolvedValue(createMockAgentTriggerResponse())
@@ -185,28 +185,23 @@ describe('useSendMessage Integration Test', () => {
       })
     })
 
-    // Verify the exact query keys that should be invalidated
-    expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.task(taskId),
-    })
+    // In the new event-driven architecture, mutations only invalidate task lists
+    // Task-specific queries are invalidated by events, not mutations
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.tasksList(),
     })
-    expect(spyInvalidate).toHaveBeenCalledWith({
+    
+    // Task-specific queries should NOT be invalidated by mutations
+    expect(spyInvalidate).not.toHaveBeenCalledWith({
+      queryKey: queryKeys.task(taskId),
+    })
+    expect(spyInvalidate).not.toHaveBeenCalledWith({
       queryKey: queryKeys.taskWorkspaceStatus(taskId),
     })
 
-    // Verify immediate refetch of task data
+    // Verify immediate refetch of task data still happens
     expect(spyRefetch).toHaveBeenCalledWith({
       queryKey: queryKeys.task(taskId),
     })
-
-    // Verify the order of operations
-    const calls = spyInvalidate.mock.calls
-    expect((calls[0][0] as { queryKey: unknown }).queryKey).toEqual(queryKeys.task(taskId))
-    expect((calls[1][0] as { queryKey: unknown }).queryKey).toEqual(queryKeys.tasksList())
-    expect((calls[2][0] as { queryKey: unknown }).queryKey).toEqual(
-      queryKeys.taskWorkspaceStatus(taskId),
-    )
   })
 })

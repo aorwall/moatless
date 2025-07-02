@@ -197,23 +197,23 @@ describe('Task Hooks', () => {
         })
       })
 
-      // Verify correct invalidations - check that the specific task was invalidated
-      expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
-      })
-      // Verify task list was invalidated
+      // In the new event-driven architecture, mutations only invalidate task lists
+      // Task-specific queries are invalidated by events, not mutations
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.tasksList(),
       })
-      // Verify workspace status was invalidated
-      expect(spyInvalidate).toHaveBeenCalledWith({
+      // Task-specific queries should NOT be invalidated by mutations
+      expect(spyInvalidate).not.toHaveBeenCalledWith({
+        queryKey: queryKeys.task('task-123'),
+      })
+      expect(spyInvalidate).not.toHaveBeenCalledWith({
         queryKey: queryKeys.taskWorkspaceStatus('task-123'),
       })
     })
   })
 
   describe('useStopAgent', () => {
-    it('stops agent and invalidates queries', async () => {
+    it('stops agent and invalidates correct queries', async () => {
       vi.mocked(tasksApi.stopAgent).mockResolvedValue({
         status: 'stopped',
         task_id: 'task-123',
@@ -228,11 +228,14 @@ describe('Task Hooks', () => {
         await result.current.mutateAsync('task-123')
       })
 
+      // In the new event-driven architecture, mutations only invalidate task lists
+      // Task-specific queries are invalidated by events, not mutations
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasksList(),
       })
-      expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks.all,
+      // Task-specific queries should NOT be invalidated by mutations
+      expect(spyInvalidate).not.toHaveBeenCalledWith({
+        queryKey: queryKeys.task('task-123'),
       })
     })
   })

@@ -13,7 +13,6 @@ import {
   type TaskListResponse,
 } from '@moatless/shared/types/api'
 import type { EventType } from '@moatless/shared/types/event'
-import { sseManager } from '../utils/sse-manager.js'
 
 // Schema for URL params
 const TaskIdParamsSchema = z.object({
@@ -58,9 +57,6 @@ const MergeTaskSchema = z.object({
   commitMessage: z.string().optional(),
 })
 
-const SSEQuerySchema = z.object({
-  lastEventId: z.string().optional(),
-})
 
 // Response schema for merge endpoint
 const MergeResponseSchema = z.object({
@@ -708,144 +704,4 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     },
   )
 
-  // SSE endpoint for real-time events
-  app.get(
-    '/:taskId/stream',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        querystring: z.object({
-          lastEventId: z.string().optional(),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { lastEventId } = request.query as z.infer<typeof SSEQuerySchema>
-
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      // Set SSE headers with CORS
-      const origin = request.headers.origin
-      const corsHeaders: Record<string, string> = {}
-
-      // Add CORS headers based on the same logic as the CORS plugin
-      if (origin) {
-        // In development, allow all localhost origins
-        if (process.env.NODE_ENV !== 'production') {
-          try {
-            const url = new URL(origin)
-            if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-              corsHeaders['Access-Control-Allow-Origin'] = origin
-              corsHeaders['Access-Control-Allow-Credentials'] = 'true'
-            }
-          } catch {
-            // Invalid origin URL, skip CORS headers
-          }
-        } else {
-          // In production, use configured origin
-          const allowedOrigin = process.env.CORS_ORIGIN
-          if (allowedOrigin === 'true' || allowedOrigin === origin) {
-            corsHeaders['Access-Control-Allow-Origin'] = origin
-            corsHeaders['Access-Control-Allow-Credentials'] = 'true'
-          }
-        }
-      } else if (process.env.CORS_ORIGIN === 'true' || process.env.NODE_ENV !== 'production') {
-        // No origin header but CORS allows all origins
-        corsHeaders['Access-Control-Allow-Origin'] = '*'
-      }
-
-      reply.raw.writeHead(200, {
-        'Content-Type': 'application/x-ndjson',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no', // Disable Nginx buffering
-        ...corsHeaders,
-      })
-
-      // Register connection with manager
-      const connectionId = sseManager.connect(taskId, request, reply, lastEventId)
-
-      let offset = 0
-
-      // If lastEventId is provided, find the offset
-      if (lastEventId) {
-        const allEvents = await eventService.getEvents(taskId, undefined, 0, undefined, task)
-        for (let i = 0; i < allEvents.length; i++) {
-          if (allEvents[i].eventId === lastEventId) {
-            offset = i + 1
-            break
-          }
-        }
-      }
-
-      // Send existing events from offset
-      const existingEvents = await eventService.getEvents(taskId, 1000, offset, undefined, task)
-      for (const event of existingEvents) {
-        reply.raw.write(`${JSON.stringify(event)}\n`)
-      }
-
-      // Flush the initial data
-      reply.raw.flushHeaders()
-
-      // Subscribe to new events
-      const unsubscribe = eventService.subscribe(taskId, (event) => {
-        try {
-          reply.raw.write(`${JSON.stringify(event)}\n`)
-        } catch (error) {
-          request.log.error('Failed to send event over SSE', error)
-        }
-      })
-
-      // Keep connection alive with periodic pings
-      const pingInterval = setInterval(() => {
-        try {
-          // Send a ping event for NDJSON format
-          const pingEvent = {
-            type: 'ping',
-            timestamp: new Date().toISOString(),
-          }
-          reply.raw.write(`${JSON.stringify(pingEvent)}\n`)
-        } catch (_error) {
-          clearInterval(pingInterval)
-        }
-      }, 30000)
-
-      // Handle client disconnect
-      request.raw.on('close', () => {
-        unsubscribe()
-        sseManager.disconnect(taskId, connectionId)
-        clearInterval(pingInterval)
-        reply.raw.end()
-      })
-    },
-  )
-
-  // Get SSE stream status
-  app.get(
-    '/:taskId/stream/status',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      return {
-        activeConnections: sseManager.getConnectionCount(taskId),
-        taskActive: task.status === 'open' || task.status === 'running',
-      }
-    },
-  )
 }

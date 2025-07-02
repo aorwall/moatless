@@ -52,8 +52,8 @@ export function useTaskData(taskId: string): UseTaskDataResult {
         queryKey: queryKeys.taskWorkspaceStatus(taskId),
         queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
         enabled: shouldFetch,
-        refetchInterval: 10000, // 10 seconds - balanced polling frequency
-        staleTime: 2000, // Consider data stale after 2 seconds
+        // Removed polling - rely on event-driven updates
+        staleTime: 5 * 60 * 1000, // Increase stale time since we have real-time updates
       },
     ],
   })

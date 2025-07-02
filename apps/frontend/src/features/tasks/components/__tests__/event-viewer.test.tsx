@@ -4,30 +4,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockEventList } from '@/test-utils/factories'
 import { renderWithRouter } from '@/test-utils/render'
 
-import { useTaskEventsWithStreaming } from '../../hooks/use-task-events'
 import { EventViewer } from '../event-viewer/event-viewer'
 
-// Mock TaskEventsProvider
-const MockTaskEventsProvider = ({ children }: { children: React.ReactNode }) => {
-  return <div data-testid="mock-task-events-provider">{children}</div>
-}
+// Mock TaskEventsProvider and useTaskEvents hook
+const mockUseTaskEvents = vi.fn(() => ({
+  events: [] as Array<Event>,
+  isStreaming: false,
+  streamingError: null,
+  latestEventId: null,
+  hasNewEvents: false,
+  isLoading: false,
+  error: null as Error | null,
+}))
 
 vi.mock('../../contexts/task-events-provider', () => ({
-  TaskEventsProvider: MockTaskEventsProvider,
-  useTaskEvents: vi.fn(() => ({
-    events: [],
-    isStreaming: false,
-    streamingError: null,
-    hasVisitedTask: false,
-    markTaskAsVisited: vi.fn(),
-  })),
+  TaskEventsProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-task-events-provider">{children}</div>
+  ),
+  useTaskEvents: mockUseTaskEvents,
 }))
 
 // Top-level regex for event test IDs
 const EVENT_TESTID_REGEX = /^event-\d+$/
 
 // Mock dependencies
-vi.mock('../../hooks/use-task-events')
+// Note: use-task-events hook was removed during SSE migration
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ taskId: 'task-123' }),
 }))
@@ -74,11 +75,14 @@ describe('EventViewer', () => {
 
   describe('Loading States', () => {
     it('shows loading state', () => {
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: [],
         isLoading: true,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -91,11 +95,14 @@ describe('EventViewer', () => {
 
     it('shows error state', () => {
       const error = new Error('Failed to fetch events')
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: [],
         isLoading: false,
         error,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -105,11 +112,14 @@ describe('EventViewer', () => {
     })
 
     it('shows empty state when no events', () => {
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: [],
         isLoading: false,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -118,11 +128,14 @@ describe('EventViewer', () => {
     })
 
     it('shows waiting state when streaming with no events', () => {
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: [],
         isLoading: false,
         error: null,
         isStreaming: true,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -134,11 +147,14 @@ describe('EventViewer', () => {
   describe('Event Display', () => {
     it('renders event list when events are available', () => {
       const mockEvents = createMockEventList(5)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: mockEvents,
         isLoading: false,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -152,11 +168,14 @@ describe('EventViewer', () => {
       const initialEvents = createMockEventList(3)
       const { rerender } = renderWithRouter(<EventViewer />)
 
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: initialEvents,
         isLoading: false,
         error: null,
         isStreaming: true,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       rerender(<EventViewer />)
@@ -164,11 +183,14 @@ describe('EventViewer', () => {
 
       // Add more events
       const updatedEvents = createMockEventList(5)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: updatedEvents,
         isLoading: false,
         error: null,
         isStreaming: true,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       rerender(<EventViewer />)
@@ -210,11 +232,14 @@ describe('EventViewer', () => {
 
     it('does not auto-scroll when not at bottom', async () => {
       const initialEvents = createMockEventList(5)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: initialEvents,
         isLoading: false,
         error: null,
         isStreaming: true,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       const { rerender } = renderWithRouter(<EventViewer />)
@@ -247,11 +272,14 @@ describe('EventViewer', () => {
 
       // Add new events
       const updatedEvents = createMockEventList(8)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: updatedEvents,
         isLoading: false,
         error: null,
         isStreaming: true,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       rerender(<EventViewer />)
@@ -264,11 +292,14 @@ describe('EventViewer', () => {
   describe('Scroll Event Handling', () => {
     it('tracks scroll position', () => {
       const mockEvents = createMockEventList(10)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: mockEvents,
         isLoading: false,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -302,11 +333,14 @@ describe('EventViewer', () => {
 
     it('cleans up scroll event listener on unmount', () => {
       const mockEvents = createMockEventList(5)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: mockEvents,
         isLoading: false,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       const { unmount } = renderWithRouter(<EventViewer />)
@@ -325,11 +359,14 @@ describe('EventViewer', () => {
 
   describe('Edge Cases', () => {
     it('handles missing scroll element gracefully', async () => {
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: createMockEventList(5),
         isLoading: false,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       // Mock ScrollArea to not have the expected structure
@@ -344,11 +381,14 @@ describe('EventViewer', () => {
     })
 
     it('handles empty events array without error', () => {
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: [],
         isLoading: false,
         error: null,
         isStreaming: false,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       renderWithRouter(<EventViewer />)
@@ -358,11 +398,14 @@ describe('EventViewer', () => {
 
     it('does not scroll when events length stays the same', async () => {
       const mockEvents = createMockEventList(5)
-      vi.mocked(useTaskEventsWithStreaming).mockReturnValue({
+      mockUseTaskEvents.mockReturnValue({
         events: mockEvents,
         isLoading: false,
         error: null,
         isStreaming: true,
+        streamingError: null,
+        latestEventId: null,
+        hasNewEvents: false,
       })
 
       const { rerender } = renderWithRouter(<EventViewer />)

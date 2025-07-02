@@ -5,6 +5,7 @@ import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { queryKeys } from '@/lib/api/query-keys'
+import { getInvalidationKeys, shouldInvalidateTaskList } from '../utils/event-handlers'
 
 interface GlobalEventStreamContextType {
   isConnected: boolean
@@ -56,7 +57,33 @@ export function GlobalEventStreamProvider({
       taskEvents.push(event)
       eventsByTask.set(event.taskId, taskEvents)
 
-      // Invalidate relevant queries based on event type and subType
+      // Use smart invalidation mapping
+      const invalidationKeys = getInvalidationKeys(event)
+      
+      if (invalidationKeys.length > 0) {
+        console.log(`[GlobalEventStream] Event ${event.type} triggering invalidations:`, invalidationKeys.map(fn => fn.name))
+        
+        // Use queueMicrotask to ensure state updates complete before invalidation
+        queueMicrotask(() => {
+          // Invalidate each affected query
+          invalidationKeys.forEach(keyFunction => {
+            queryClient.invalidateQueries({
+              queryKey: keyFunction(event.taskId),
+              refetchType: 'active',
+            })
+          })
+          
+          // Always invalidate task lists for status-affecting events
+          if (shouldInvalidateTaskList(event)) {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.tasksList(),
+              refetchType: 'active',
+            })
+          }
+        })
+      }
+
+      // Handle subType-specific invalidations (legacy support)
       if (event.subType) {
         switch (event.subType) {
           case 'iteration:created':
@@ -75,21 +102,6 @@ export function GlobalEventStreamProvider({
             queryClient.invalidateQueries({ queryKey: queryKeys.taskEvents(event.taskId) })
             break
         }
-      }
-
-      // Also handle by main event type
-      switch (event.type) {
-        case EventType.MESSAGE:
-        case EventType.TOOL:
-          queryClient.invalidateQueries({ queryKey: queryKeys.taskMessages(event.taskId) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.taskEvents(event.taskId) })
-          break
-        case EventType.START:
-        case EventType.STOP:
-        case EventType.RESULT:
-          queryClient.invalidateQueries({ queryKey: queryKeys.task(event.taskId) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
-          break
       }
 
       // Notify subscribers

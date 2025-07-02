@@ -35,7 +35,6 @@ export {
 
 // Hooks
 export * from './hooks/use-task-data'
-export * from './hooks/use-task-streaming'
 export * from './hooks/use-tasks'
 
 // Utils

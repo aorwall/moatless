@@ -8,21 +8,17 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
-import { useGlobalEventStream, useTaskEventSubscription } from '@/features/events'
+import { 
+  useGlobalEventStream, 
+  useTaskEventSubscription,
+  getInvalidationKeys,
+  STATUS_AFFECTING_EVENTS,
+  shouldInvalidateTaskList,
+} from '@/features/events'
 import { queryKeys } from '@/lib/api/query-keys'
-import { NDJSONSSEClient } from '../api/ndjson-sse'
 import { tasksApi } from '../api/tasks'
-
-// Define which event types trigger task data updates
-const STATUS_AFFECTING_EVENTS = [
-  EventType.RESULT, // Task completed successfully
-  EventType.ERROR, // Task failed
-  EventType.STOP, // Agent stopped
-  EventType.START, // Agent started
-] as const
 
 interface TaskEventsContextValue {
   events: Event[]
@@ -43,27 +39,23 @@ const TaskEventsContext = createContext<TaskEventsContextValue | undefined>(unde
 interface TaskEventsProviderProps {
   taskId: string
   children: ReactNode
-  useGlobalStream?: boolean // Optional flag to use global stream instead of task-specific
 }
 
 /**
  * TaskEventsProvider manages real-time events and event-driven updates.
  * Implements smart event merging and status-affecting event handling.
- * Can use either task-specific SSE stream or global event stream.
+ * Uses the global event stream for all task events.
  */
 export function TaskEventsProvider({
   taskId,
   children,
-  useGlobalStream = false,
 }: TaskEventsProviderProps) {
   const queryClient = useQueryClient()
-  const sseClientRef = useRef<NDJSONSSEClient | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
 
-  // Get global stream connection status (always call the hook to satisfy React rules)
+  // Get global stream connection status
   const globalStream = useGlobalEventStream()
-  const activeGlobalStream = useGlobalStream ? globalStream : null
 
   // Get events from React Query - this is the ONLY source of truth
   const eventsQuery = useQuery({
@@ -74,10 +66,10 @@ export function TaskEventsProvider({
     refetchInterval: isStreaming ? false : 5000, // Poll only when not streaming
   })
 
-  // Simplified event handler that only updates React Query cache
+  // Smart event handler with invalidation mapping
   const handleTaskEvent = useCallback(
     (event: Event) => {
-      // Update React Query cache directly - single source of truth
+      // 1. Update React Query cache directly - single source of truth
       queryClient.setQueryData(queryKeys.taskEvents(taskId), (old: Event[] = []) => {
         const eventMap = new Map(old.map((e) => [e.eventId, e]))
         eventMap.set(event.eventId, event)
@@ -88,103 +80,43 @@ export function TaskEventsProvider({
         })
       })
 
-      // Refetch task data for status-affecting events
-      if ((STATUS_AFFECTING_EVENTS as readonly EventType[]).includes(event.type)) {
-        console.log(`[Events] Status-affecting event ${event.type}, refetching task data`)
-
+      // 2. Get invalidation keys based on event type
+      const invalidationKeys = getInvalidationKeys(event)
+      
+      if (invalidationKeys.length > 0) {
+        console.log(`[Events] Event ${event.type} triggering invalidations:`, invalidationKeys.map(fn => fn.name))
+        
         // Use queueMicrotask to ensure cache update completes before invalidation
         queueMicrotask(() => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.task(taskId),
-            refetchType: 'active',
+          // 3. Invalidate each affected query
+          invalidationKeys.forEach(keyFunction => {
+            queryClient.invalidateQueries({
+              queryKey: keyFunction(taskId),
+              refetchType: 'active',
+            })
           })
-
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.taskWorkspaceStatus(taskId),
-            refetchType: 'active',
-          })
+          
+          // 4. Always invalidate task lists for status-affecting events
+          if (shouldInvalidateTaskList(event)) {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.tasksList(),
+              refetchType: 'active',
+            })
+          }
         })
       }
     },
     [taskId, queryClient],
   )
 
-  // SSE connection management
-  const shouldStream = useMemo(() => {
-    return !!taskId && !taskId.startsWith('temp-') && !useGlobalStream
-  }, [taskId, useGlobalStream])
+  // Subscribe to global stream events for this task
+  useTaskEventSubscription(taskId, handleTaskEvent)
 
-  const handleSSEEvent = useCallback(
-    (event: Event) => {
-      handleTaskEvent(event)
-      setStreamingError(null)
-    },
-    [handleTaskEvent],
-  )
-
-  const handleSSEError = useCallback((error: Error) => {
-    console.error('SSE error:', error)
-    if (error.message.includes('Task not found')) {
-      setStreamingError('Task not found')
-    } else {
-      setStreamingError('Streaming connection error')
-    }
-  }, [])
-
-  const handleSSEConnect = useCallback(() => {
-    console.log(`[SSE] Connected for task ${taskId}`)
-    setIsStreaming(true)
-    setStreamingError(null)
-  }, [taskId])
-
-  const handleSSEDisconnect = useCallback(() => {
-    console.log(`[SSE] Disconnected for task ${taskId}`)
-    setIsStreaming(false)
-  }, [taskId])
-
-  // Subscribe to global stream events for this task if using global stream
-  useTaskEventSubscription(
-    useGlobalStream ? taskId : undefined,
-    useGlobalStream ? handleTaskEvent : () => {},
-  )
-
-  // Update streaming status when using global stream
+  // Update streaming status from global stream
   useEffect(() => {
-    if (activeGlobalStream) {
-      setIsStreaming(activeGlobalStream.isConnected)
-      setStreamingError(activeGlobalStream.connectionError?.message || null)
-    }
-  }, [activeGlobalStream])
-
-  // SSE connection effect (only used when not using global stream)
-  useEffect(() => {
-    if (!shouldStream) {
-      return
-    }
-
-    console.log(`[SSE] Starting streaming for task ${taskId}`)
-
-    const client = new NDJSONSSEClient({
-      taskId,
-      onEvent: handleSSEEvent,
-      onError: handleSSEError,
-      onConnect: handleSSEConnect,
-      onDisconnect: handleSSEDisconnect,
-      onTaskNotFound: () => setStreamingError('Task not found'),
-    })
-
-    sseClientRef.current = client
-    client.connect()
-
-    return () => {
-      if (sseClientRef.current) {
-        sseClientRef.current.disconnect()
-        sseClientRef.current = null
-      }
-      setIsStreaming(false)
-      setStreamingError(null)
-    }
-  }, [shouldStream, taskId, handleSSEEvent, handleSSEError, handleSSEConnect, handleSSEDisconnect])
+    setIsStreaming(globalStream.isConnected)
+    setStreamingError(globalStream.connectionError?.message || null)
+  }, [globalStream.isConnected, globalStream.connectionError])
 
   // Get latest event ID for stable reference
   const latestEventId = useMemo(() => {

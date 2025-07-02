@@ -117,17 +117,13 @@ export function useSendMessage(
     mutationFn: ({ taskId, message, resume, model, fileIds, filePaths, commandName }) =>
       tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),
     onSuccess: async (data, variables, context) => {
-      // Invalidate all data for this specific task (detail, messages, events, etc.)
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(variables.taskId),
-      })
-      // Also invalidate the tasks list to update metadata like last_message_at and status
+      // Only invalidate task lists - events will handle task-specific invalidations
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasksList(),
       })
-      // Invalidate workspace status since sending a message may trigger workspace activity
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
+      // Immediately refetch task data for instant feedback
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.task(variables.taskId),
       })
       options?.onSuccess?.(data, variables, context)
     },
@@ -143,13 +139,9 @@ export function useStopAgent(
   return useMutation({
     mutationFn: (taskId: string) => tasksApi.stopAgent(taskId),
     onSuccess: (data, taskId, context) => {
-      // Invalidate all data for this specific task
+      // Only invalidate task lists - STOP event will handle task-specific invalidations
       queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      // Also invalidate the tasks list to update the status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.all,
+        queryKey: queryKeys.tasksList(),
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -255,19 +247,7 @@ export function useMergeTask(
       options?.onError?.(err, variables, context)
     },
     onSettled: (_data, _error, variables) => {
-      // Always refetch to ensure consistency with server state
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.task(variables.taskId),
-      })
-      // Invalidate workspace status to reflect merge
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskWorkspaceStatus(variables.taskId),
-      })
-      // Invalidate git diff to show updated state
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskGitDiff(variables.taskId),
-      })
-      // Invalidate task lists that might show this task
+      // Only invalidate task lists - events will handle the rest
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasksList(),
         exact: false,
@@ -315,26 +295,9 @@ export function useCloseTask(
       options?.onError?.(err, taskId, context)
     },
     onSettled: async (_data, _error, taskId) => {
-      // Always refetch to ensure consistency with server state
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
-      })
-      // Invalidate workspace status
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskWorkspaceStatus(taskId),
-      })
-      // Invalidate server status
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
-      })
-      // Invalidate AND refetch task lists immediately
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.all,
-        exact: false,
-      })
-      // Force an immediate refetch of all task lists
+      // Only force refetch task lists - events will handle task-specific updates
       await queryClient.refetchQueries({
-        queryKey: queryKeys.tasks.all,
+        queryKey: queryKeys.tasksList(),
         exact: false,
         type: 'active',
       })

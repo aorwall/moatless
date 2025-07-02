@@ -35,6 +35,23 @@ vi.mock('@/features/tasks/api/tasks', () => ({
   },
 }))
 
+// Mock Global Event Stream
+vi.mock('@/features/events', () => ({
+  useGlobalEventStream: vi.fn(() => ({
+    isConnected: true,
+    connectionError: null,
+    lastEvent: null,
+    eventsByTask: new Map(),
+    subscribeToTask: vi.fn(() => () => {}),
+    subscribeToAll: vi.fn(() => () => {}),
+    subscribeToType: vi.fn(() => () => {}),
+  })),
+  useTaskEventSubscription: vi.fn(),
+  getInvalidationKeys: vi.fn(() => []),
+  STATUS_AFFECTING_EVENTS: [],
+  shouldInvalidateTaskList: vi.fn(() => false),
+}))
+
 // Mock SSE connection
 vi.mock('@/features/tasks/hooks/use-task-sse-connection', () => ({
   useTaskSSEConnection: vi.fn(() => ({
