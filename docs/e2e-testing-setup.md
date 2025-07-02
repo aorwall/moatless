@@ -2,187 +2,369 @@
 
 ## Overview
 
-The Moatless Swarm UI uses Playwright for end-to-end testing, focusing on validating the event-driven architecture, real-time SSE connections, and cross-agent communication. The test suite includes infrastructure validation tests and comprehensive integration tests with real Claude Code agents.
+The Moatless Swarm UI uses Playwright for end-to-end testing, validating the complete user experience from UI interactions through backend processing to agent execution. The test suite includes infrastructure validation, smoke tests, and comprehensive workflow tests with real Claude Code agents.
 
-## Test Categories
+## Test Categories & Running Tests
 
-### 1. Infrastructure Tests
-Quick validation tests that verify the E2E framework components work correctly without requiring a full server setup.
+### 1. Smoke Tests (`smoke.spec.ts`)
+Quick validation that the application is running correctly:
+- Homepage loads successfully
+- API endpoints respond (repositories, events)
+- SSE connections can be established
+- Event stream infrastructure is ready
 
-### 2. Smoke Tests
-Basic tests to ensure the application loads and API endpoints are accessible.
-
-### 3. Complete E2E Tests
-Full integration tests that run real Claude Code agents and validate the entire event flow architecture.
-
-## Running the Tests
-
-### Prerequisites
-- Node.js and pnpm installed
-- Server dependencies installed: `pnpm install`
-- Build the application: `pnpm build`
-
-### Test Commands
+**Run time**: ~5-10 seconds
 
 ```bash
-# Run all Playwright E2E tests
-pnpm test:e2e
-
-# Run tests with Playwright UI (interactive mode)
-pnpm test:e2e:ui
-
-# Run tests in headed mode (see browser)
-pnpm test:e2e:headed
-
-# Debug tests step-by-step
-pnpm test:e2e:debug
-
-# Run infrastructure tests only (faster)
-pnpm exec playwright test --config=playwright-infrastructure.config.ts
-
-# Run specific test file
-pnpm test:e2e tests/e2e/smoke.spec.ts
+# Run smoke tests only
+pnpm test:e2e smoke.spec.ts
 ```
 
-## Test Suite Details
+### 2. Infrastructure Tests (`infrastructure-test.spec.ts`)
+Validates E2E testing framework components without a server:
+- Event monitoring utilities
+- API request/response validation
+- Event filtering logic
+- Connection resilience simulation
+- TypeScript interface validation
 
-### Smoke Tests (`smoke.spec.ts`)
-Validates basic infrastructure functionality:
-- **Homepage Loading**: Ensures the application loads correctly
-- **API Accessibility**: Tests that API endpoints respond with correct status codes
-- **SSE Connection**: Verifies Server-Sent Events endpoints are accessible
-- **Dependencies Check**: Confirms event stream infrastructure is ready
+**Run time**: ~10-15 seconds
 
-### Infrastructure Tests (`infrastructure-test.spec.ts`)
-Tests E2E framework components without requiring a server:
-- **Event Monitoring Utilities**: Validates event processing and filtering logic
-- **API Request Helpers**: Tests request/response data structure validation
-- **Event Filtering Logic**: Verifies task-specific and type-based filtering
-- **Cross-Agent Visibility**: Tests event isolation and global aggregation logic
-- **Connection Resilience**: Simulates disconnection and reconnection scenarios
-- **TypeScript Validation**: Ensures all interfaces compile correctly
+```bash
+# Run infrastructure tests only (fastest)
+pnpm exec playwright test --config=playwright-infrastructure.config.ts
+```
 
-### Event Flow Complete Tests (`event-flow-complete.spec.ts`)
-Comprehensive tests with real Claude Code agents:
+### 3. UI Task Workflow Tests (`ui-task-complete-workflow.spec.ts`)
+Complete user journey through the UI:
+- Creates a test repository
+- Form inputs and validation
+- Repository selection dropdown
+- Task submission button
+- Uses UI to create a new task:
+  - Selects repository from dropdown
+  - Enters task description
+  - Clicks "Start Task" button
+- Navigation to task detail page
+- Real-time UI updates
+- Monitors task execution until completion
+- Claude Code agent startup
+- Task processing
+- File creation and git operations
+- Verifies agent created the requested file
+- Validates git diff shows changes
 
-#### Dual Agent Execution Test
-- Creates two separate environments with git repositories
-- Launches two Claude Code agents with different tasks:
-  - Agent A: Creates a Python calculator file
-  - Agent B: Creates a markdown features document
-- Monitors events through multiple channels:
-  - API polling monitor
-  - Global SSE connection
-  - Task-specific SSE connection
-- Validates:
-  - File creation by both agents
-  - Cross-visibility of events between agents
-  - Event ordering and integrity
-  - Frontend UI updates
-  - Connection statistics
+**Run time**: ~30-60 seconds
 
-#### Connection Resilience Test
-- Tests SSE connection recovery after interruption
-- Verifies event continuity after reconnection
-- Ensures task completion despite network issues
+```bash
+# Run UI workflow tests
+pnpm test:e2e ui-task-complete-workflow.spec.ts
 
-## Test Architecture
+# Run specific test in UI mode
+pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task via UI"
+```
 
-### Event Monitors
-The tests use specialized monitor classes to track events:
+### 4. Event Flow Tests (`event-flow-complete.spec.ts`)
+Advanced multi-agent scenarios:
+- Dual agent execution with cross-visibility
+- SSE connection establishment and resilience
+- Event delivery and task status updates
+- Event ordering and integrity
+- Global vs task-specific event streams
 
-1. **APIEventMonitor**: Polls the REST API for events
-2. **SSEEventMonitor**: Establishes SSE connections via Playwright
-3. **Both monitors track**:
-   - Event content and metadata
-   - Connection status
-   - Error conditions
+**Run time**: ~60-90 seconds
 
-### Test Helpers
-Located in `tests/e2e/helpers/`:
-- `test-server.ts`: Environment and task creation utilities
-- `event-monitors.ts`: Event monitoring implementations
-- `global-setup.ts`: Server startup for tests
-- `global-teardown.ts`: Cleanup after tests
+```bash
+# Run event flow tests
+pnpm test:e2e event-flow-complete.spec.ts
+```
 
-## What the Tests Validate
+## Prerequisites & Setup
 
-### Backend Event Flow
-- ✅ Event emission from agents
-- ✅ Dual channel emission (task-specific + global)
-- ✅ Event persistence and storage
-- ✅ SSE connection management
-- ✅ Event filtering and routing
+1. Install dependencies:
+   ```bash
+   pnpm install
+   ```
 
-### Frontend Integration
-- ✅ Global event stream provider functionality
-- ✅ Task-specific event subscriptions
-- ✅ React Query cache invalidation from events
-- ✅ UI component updates from real-time events
-- ✅ Connection status monitoring
+2. Build the application:
+   ```bash
+   pnpm build
+   ```
 
-### Cross-Agent Architecture
-- ✅ Event visibility across different agents
-- ✅ Event isolation for task-specific streams
-- ✅ Global stream aggregation
-- ✅ Event ordering and timing validation
-- ✅ Connection resilience and recovery
+3. **Port Configuration**: Tests automatically find available ports if the default ones are occupied.
 
-### Performance & Reliability
-- ✅ Connection limit management
-- ✅ Event deduplication
-- ✅ Memory leak prevention
-- ✅ Error handling and recovery
-- ✅ Reconnection with exponential backoff
+### Custom Port Selection
 
-## Configuration
+If you need to specify custom ports or the defaults are occupied:
 
-### Main Configuration (`playwright.config.ts`)
-- **Test timeout**: 90 seconds (for tests with real agents)
-- **Assertion timeout**: 10 seconds
-- **Base URL**: http://127.0.0.1:3001
-- **Browser**: Chromium only
-- **Features**: Screenshots, videos, and traces on failure
+```bash
+# Use custom port for E2E test server
+E2E_PORT=4000 pnpm test:e2e
 
-### Infrastructure Configuration (`playwright-infrastructure.config.ts`)
-- **Test timeout**: 30 seconds (faster tests)
-- **Assertion timeout**: 5 seconds
-- **Test match**: Only infrastructure and smoke tests
-- **Simplified setup**: No full server required
+# Use random available port (automatically selected)
+pnpm test:e2e
+```
+
+**Finding Available Ports**: The test setup automatically finds the first available port starting from 3002. If that port is occupied, it will try 3003, 3004, etc., and display the selected port in the terminal:
+
+```
+Starting server for E2E tests...
+Server: Server listening on http://0.0.0.0:3003
+E2E setup complete. Server running on port 3003 with PID: 12345
+```
+
+## Common Test Commands
+
+```bash
+# Run all E2E tests
+pnpm test:e2e
+
+# Run specific test file
+pnpm test:e2e ui-task-complete-workflow.spec.ts
+
+# Run tests matching a pattern
+pnpm test:e2e --grep "should create task via UI"
+
+# Run in UI mode (interactive debugging)
+pnpm test:e2e:ui
+
+# Run with browser visible
+pnpm test:e2e:headed
+
+# Debug mode (step through)
+pnpm test:e2e:debug
+
+# Generate and view HTML report
+pnpm test:e2e --reporter=html
+pnpm exec playwright show-report
+```
+
+### Running Specific Tests in UI Mode
+
+To run a specific test in UI mode for interactive debugging:
+
+```bash
+# Run specific test file in UI mode
+pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts
+
+# Run specific test by name pattern in UI mode
+pnpm exec playwright test --ui --grep "should create task via UI"
+
+# Run specific test file and grep pattern in UI mode
+pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task"
+
+# Alternative: Use the pnpm script with additional arguments
+pnpm test:e2e:ui -- tests/e2e/ui-task-complete-workflow.spec.ts
+```
+
+In UI mode, you can:
+- Click on individual tests to run them
+- See the browser preview in real-time
+- Step through each action with the timeline
+- Inspect DOM elements
+- View network requests
+- Debug with breakpoints
+- Re-run tests instantly
+
+**Example: Debugging the UI task creation test**
+```bash
+# Open UI mode for the task creation test
+pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task via UI"
+```
+
+This opens the Playwright UI where you can:
+1. Select the test in the left panel
+2. Click "Run" to execute it
+3. Use the timeline to step through each action
+4. Hover over steps to see screenshots
+5. Click "Pick locator" to test selectors
+6. Use "Watch mode" for automatic re-runs on code changes
+
+### Test Output
+
+Tests provide detailed console output:
+```
+✅ Test repository created: dc448762-a0ac-4663-b2fe-aa730c744eb2
+✅ Homepage loaded, chat input visible
+✅ Repository selected: UI E2E Test Repository
+✅ Task message entered
+✅ Task created with ID: 3e0a8c55-7947-45e7-84cd-494b75ec7b14
+✅ Task detail page loaded
+⏳ Waiting for agent to complete task...
+✅ Agent completed the task
+✅ Task completed successfully
+✅ File hello_world.py was created (shown in git diff)
+✅ UI-based task creation and monitoring test completed successfully!
+```
+
+## Test Environment
+
+### Automatic Setup
+Tests automatically:
+1. Create temporary directories for git repositories
+2. Find an available port (starting from 3002)
+3. Start the server on the selected port
+4. Build the frontend and backend
+5. Set up test data (repositories, tasks)
+6. Clean up after completion
+
+### Configuration Files
+
+**Main Configuration** (`playwright.config.ts`):
+- Test timeout: 90 seconds
+- Retries: 2 on CI, 0 locally
+- Base URL: dynamically determined by available port
+- Browser: Chromium
+- Screenshots/videos on failure
+
+**Infrastructure Config** (`playwright-infrastructure.config.ts`):
+- Test timeout: 30 seconds
+- No server startup required
+- Faster execution
 
 ## Debugging Failed Tests
 
-### View Test Reports
+### 1. Use UI Mode
 ```bash
-# After running tests, open the HTML report
-npx playwright show-report
+pnpm test:e2e:ui
+```
+- Step through tests interactively
+- See browser state at each step
+- Time-travel debugging
+
+### 2. Check Artifacts
+Failed tests generate:
+- Screenshots: `test-results/*/test-failed-1.png`
+- Videos: `test-results/*/video.webm`
+- Traces: Can be viewed in trace viewer
+
+### 3. View HTML Report
+```bash
+pnpm exec playwright show-report
+```
+Shows detailed test results with:
+- Step-by-step execution
+- Timing information
+- Error messages
+- Attached artifacts
+
+### 4. Common Issues
+
+**Ports in Use**
+The system automatically finds available ports, but you can also:
+
+```bash
+# Check what's using ports
+lsof -i :3002-3010
+
+# Use environment variable for specific port
+E2E_PORT=4000 pnpm test:e2e
+
+# Kill specific process if needed (last resort)
+lsof -ti:3002 | xargs kill -9
 ```
 
-### Debug Strategies
-1. **Use UI Mode**: `pnpm test:e2e:ui` for interactive debugging
-2. **Check Screenshots**: Located in `test-results/` directory
-3. **Review Videos**: Automatically recorded on failure
-4. **Inspect Traces**: Use Playwright trace viewer for detailed execution logs
-5. **Console Logs**: Tests include extensive logging for troubleshooting
+**Test Timeouts**
+- Increase timeout in test: `test('name', async ({ page }) => { ... }, 120000)`
+- Or globally in config: `timeout: 120000`
 
-### Common Issues
-- **Server not started**: Ensure the global setup completes successfully
-- **Port conflicts**: Check if port 3001 is available
-- **Timeout errors**: Real agent tests may take longer; adjust timeouts if needed
-- **Connection failures**: Verify SSE endpoints are accessible
+**Repository Creation Fails**
+- Check git is installed
+- Verify temp directory permissions
+- Ensure path in test matches schema
 
-## CI/CD Integration
+**Agent Doesn't Complete**
+- Check Claude Code API key is set
+- Verify agent service is running
+- Look for errors in server logs
 
-The tests are configured for CI environments:
-- Retries enabled (2 attempts on CI)
-- Single worker to avoid resource conflicts
-- Fail on `test.only` to prevent accidental test skipping
-- HTML reports generated for artifact storage
+## Writing New Tests
 
-## Best Practices
+### Basic Structure
+```typescript
+test('should perform user action', async ({ page }) => {
+  // Navigate to page
+  await page.goto('/')
+  
+  // Interact with UI
+  await page.locator('button').click()
+  
+  // Wait for result
+  await expect(page.locator('.result')).toBeVisible()
+  
+  // Verify via API
+  const response = await page.request.get('/api/endpoint')
+  expect(response.ok()).toBeTruthy()
+})
+```
 
-1. **Run infrastructure tests first** to quickly validate setup
-2. **Use specific test files** when debugging individual features
-3. **Monitor test logs** for detailed event flow information
-4. **Clean up resources** - tests automatically clean up environments and tasks
-5. **Check event counts** in test summaries to understand system behavior
+### Best Practices
+
+1. **Use data-testid attributes** for reliable element selection
+2. **Wait for specific conditions** rather than arbitrary timeouts
+3. **Verify through multiple channels** (UI + API)
+4. **Clean up resources** in afterEach hooks
+5. **Log progress** for easier debugging
+6. **Make tests independent** - each test should work in isolation
+
+### Helper Functions
+
+The test suite provides utilities in `tests/e2e/helpers/`:
+
+```typescript
+// Create a test repository
+const repo = await createTestRepository(baseURL, name, tempDir)
+
+// Create a task via API
+const task = await createTestTask(baseURL, repoId, message)
+
+// Wait for task completion
+const result = await waitForTaskCompletion(baseURL, taskId)
+
+// Clean up
+await deleteTestTask(baseURL, taskId)
+await deleteTestRepository(baseURL, repoId)
+```
+
+## Performance Tips
+
+1. **Run smoke tests first** - Quick validation before longer tests
+2. **Use grep for focused testing** - Run only relevant tests during development
+3. **Parallelize carefully** - Agent tests may conflict if run simultaneously
+4. **Cache builds** - Use turbo cache for faster subsequent runs
+5. **Monitor resource usage** - Agent tests can be CPU intensive
+
+## Troubleshooting
+
+### Server Won't Start
+- Check node version matches requirements
+- Verify all dependencies installed: `pnpm install`
+- Look for port conflicts (system will auto-select available ports)
+- Check server logs in test output
+
+### Flaky Tests
+- Add explicit waits for conditions
+- Increase assertion timeouts
+- Check for race conditions
+- Use retry mechanisms for network requests
+
+### Memory Issues
+- Ensure proper cleanup in afterEach
+- Check for SSE connection leaks
+- Monitor node process memory
+- Use `--max-old-space-size` if needed
+
+## Test Suite Structure
+
+```
+tests/e2e/
+├── helpers/                    # Shared test utilities
+│   ├── test-server.ts         # Repository & task creation helpers
+│   ├── event-monitors.ts      # SSE & API event monitoring
+│   ├── global-setup.ts        # Server startup
+│   └── global-teardown.ts     # Cleanup
+├── smoke.spec.ts              # Basic health checks
+├── infrastructure-test.spec.ts # Framework validation
+├── event-flow-complete.spec.ts # Multi-agent event tests
+└── ui-task-complete-workflow.spec.ts # UI-driven task creation
+```

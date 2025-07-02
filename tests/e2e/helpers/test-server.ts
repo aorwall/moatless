@@ -56,11 +56,8 @@ export async function createTestRepository(
     body: JSON.stringify({
       name,
       description: `E2E Test Repository - ${name}`,
-      repository: {
-        type: 'local',
-        path: tempDir,
-        useGitWorktrees: false,
-      },
+      path: tempDir,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "E2E Repository setup complete"',
