@@ -85,7 +85,7 @@ This document outlines a comprehensive refactoring strategy to implement a Three
 ### Tier 1: Core/Primitive Tokens
 
 ```css
-/* src/styles/tokens/01-core.css */
+/* src/lib/styles/tokens/01-core.css */
 :root {
   /* Color Primitives - Raw OKLCH values */
   --core-white: oklch(1 0 0);
@@ -194,7 +194,7 @@ This document outlines a comprehensive refactoring strategy to implement a Three
 ### Tier 2: Semantic/Alias Tokens
 
 ```css
-/* src/styles/tokens/02-semantic.css */
+/* src/lib/styles/tokens/02-semantic.css */
 :root {
   /* Semantic Colors - Light Theme */
   --semantic-bg-primary: var(--core-white);
@@ -292,7 +292,7 @@ This document outlines a comprehensive refactoring strategy to implement a Three
 ### Tier 3: Component Tokens
 
 ```css
-/* src/styles/tokens/03-components.css */
+/* src/lib/styles/tokens/03-components.css */
 :root {
   /* Button Component Tokens */
   --button-height-sm: 2rem;        /* 32px */

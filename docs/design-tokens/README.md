@@ -37,7 +37,7 @@ This directory contains all documentation related to the Three-Tier Design Token
 
 The actual token CSS files are located in:
 ```
-apps/frontend/src/styles/tokens/
+apps/frontend/src/lib/styles/tokens/
 ├── 01-core.css      # Primitive tokens
 ├── 02-semantic.css  # Semantic/alias tokens
 └── 03-components.css # Component tokens

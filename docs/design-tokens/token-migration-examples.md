@@ -292,7 +292,7 @@ function Notification({ variant = 'default', icon, title, message }) {
 ### Token Type Definitions
 
 ```typescript
-// src/styles/tokens.ts
+// src/lib/styles/tokens.ts
 export const tokens = {
   // Core tokens
   core: {

@@ -33,7 +33,7 @@ Concrete before/after examples including:
 - TypeScript integration examples
 
 ### 3. **Token CSS Files**
-**Directory:** `apps/frontend/src/styles/tokens/`
+**Directory:** `apps/frontend/src/lib/styles/tokens/`
 
 Complete implementation-ready CSS files:
 - `01-core.css` - All primitive/core tokens
@@ -71,7 +71,7 @@ Navigation guide for all design token documentation and implementation status.
 
 1. **Create the token structure:**
    ```bash
-   mkdir -p apps/frontend/src/styles/tokens
+   mkdir -p apps/frontend/src/lib/styles/tokens
    # Copy the provided CSS files to this directory
    ```
 
@@ -139,6 +139,6 @@ All deliverables are ready for your team to begin the refactoring process. The a
 ## 📍 File Locations
 
 - **Documentation:** `docs/design-tokens/` directory  
-- **Token CSS Files:** `apps/frontend/src/styles/tokens/` directory
+- **Token CSS Files:** `apps/frontend/src/lib/styles/tokens/` directory
 
 Good luck with the implementation! 🚀
