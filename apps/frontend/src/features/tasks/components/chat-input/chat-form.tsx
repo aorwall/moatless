@@ -337,10 +337,10 @@ export function ChatForm({
                     type="submit"
                     disabled={sendDisabled}
                     size="sm"
-                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-gray-400/30 text-gray-500 transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-gray-500/10 hover:border-gray-400/40"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-muted-foreground/30 text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-muted-foreground/10 hover:border-muted-foreground/40"
                   >
                     <span>{buttonText}</span>
-                    <Circle className="h-3 w-3 text-gray-500" />
+                    <Circle className="h-3 w-3 text-muted-foreground" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
