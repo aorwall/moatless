@@ -1,0 +1,305 @@
+/* 
+ * Semantic/Alias Design Tokens
+ * These tokens map primitive values to semantic meanings.
+ * Use these tokens in components for consistent theming.
+ */
+
+:root {
+  /* ============================================
+     SEMANTIC COLORS - LIGHT THEME
+     ============================================ */
+  
+  /* Background Colors */
+  --semantic-bg-primary: var(--core-white);
+  --semantic-bg-secondary: var(--core-gray-50);
+  --semantic-bg-tertiary: var(--core-gray-100);
+  --semantic-bg-inverse: var(--core-gray-900);
+  
+  /* Surface Colors - For cards, modals, etc */
+  --semantic-surface-primary: var(--core-white);
+  --semantic-surface-secondary: var(--core-gray-50);
+  --semantic-surface-tertiary: var(--core-gray-100);
+  --semantic-surface-overlay: oklch(from var(--core-black) l c h / 0.5);
+  
+  /* Text Colors */
+  --semantic-text-primary: var(--core-gray-900);
+  --semantic-text-secondary: var(--core-gray-500);
+  --semantic-text-tertiary: var(--core-gray-400);
+  --semantic-text-disabled: var(--core-gray-300);
+  --semantic-text-inverse: var(--core-gray-50);
+  --semantic-text-link: var(--core-blue-600);
+  --semantic-text-link-hover: var(--core-blue-700);
+  
+  /* Brand Colors */
+  --semantic-brand-primary: var(--core-gray-900);
+  --semantic-brand-primary-hover: oklch(from var(--core-gray-900) calc(l * 0.9) c h);
+  --semantic-brand-primary-active: oklch(from var(--core-gray-900) calc(l * 0.8) c h);
+  --semantic-brand-secondary: var(--core-gray-200);
+  --semantic-brand-secondary-hover: oklch(from var(--core-gray-200) calc(l * 0.95) c h);
+  
+  /* Interactive Colors */
+  --semantic-accent: var(--core-gray-100);
+  --semantic-accent-hover: oklch(from var(--core-gray-100) calc(l * 0.95) c h);
+  --semantic-accent-active: oklch(from var(--core-gray-100) calc(l * 0.9) c h);
+  
+  /* Status Colors */
+  --semantic-success: var(--core-emerald-500);
+  --semantic-success-hover: var(--core-emerald-600);
+  --semantic-success-light: oklch(from var(--core-emerald-500) l c h / 0.1);
+  
+  --semantic-warning: var(--core-amber-500);
+  --semantic-warning-hover: var(--core-amber-600);
+  --semantic-warning-light: oklch(from var(--core-amber-500) l c h / 0.1);
+  
+  --semantic-error: var(--core-red-500);
+  --semantic-error-hover: var(--core-red-600);
+  --semantic-error-light: oklch(from var(--core-red-500) l c h / 0.1);
+  
+  --semantic-info: var(--core-blue-500);
+  --semantic-info-hover: var(--core-blue-600);
+  --semantic-info-light: oklch(from var(--core-blue-500) l c h / 0.1);
+  
+  /* Border Colors */
+  --semantic-border-primary: oklch(from var(--core-gray-200) l c h / 0.9);
+  --semantic-border-secondary: var(--core-gray-300);
+  --semantic-border-tertiary: var(--core-gray-200);
+  --semantic-border-inverse: var(--core-gray-700);
+  
+  /* Chart Colors - Maintaining existing chart color scheme */
+  --semantic-chart-1: oklch(0.646 0.222 41.116);
+  --semantic-chart-2: oklch(0.6 0.118 184.704);
+  --semantic-chart-3: oklch(0.398 0.07 227.392);
+  --semantic-chart-4: oklch(0.828 0.189 84.429);
+  --semantic-chart-5: oklch(0.769 0.188 70.08);
+  
+  /* ============================================
+     SEMANTIC SPACING
+     ============================================ */
+  
+  --semantic-spacing-none: var(--core-space-0);
+  --semantic-spacing-xs: var(--core-space-1);      /* 4px */
+  --semantic-spacing-sm: var(--core-space-2);      /* 8px */
+  --semantic-spacing-md: var(--core-space-3);      /* 12px */
+  --semantic-spacing-base: var(--core-space-4);    /* 16px */
+  --semantic-spacing-lg: var(--core-space-6);      /* 24px */
+  --semantic-spacing-xl: var(--core-space-8);      /* 32px */
+  --semantic-spacing-2xl: var(--core-space-12);    /* 48px */
+  --semantic-spacing-3xl: var(--core-space-16);    /* 64px */
+  
+  /* Layout Spacing */
+  --semantic-spacing-page: var(--core-space-6);
+  --semantic-spacing-section: var(--core-space-8);
+  --semantic-spacing-element: var(--core-space-4);
+  --semantic-spacing-component: var(--core-space-3);
+  --semantic-spacing-tight: var(--core-space-2);
+  
+  /* ============================================
+     SEMANTIC TYPOGRAPHY
+     ============================================ */
+  
+  /* Font Families */
+  --semantic-font-family-base: var(--core-font-sans);
+  --semantic-font-family-heading: var(--core-font-sans);
+  --semantic-font-family-code: var(--core-font-mono);
+  
+  /* Text Sizes */
+  --semantic-text-xs: var(--core-font-size-xs);
+  --semantic-text-sm: var(--core-font-size-sm);
+  --semantic-text-base: var(--core-font-size-base);
+  --semantic-text-lg: var(--core-font-size-lg);
+  --semantic-text-xl: var(--core-font-size-xl);
+  --semantic-text-2xl: var(--core-font-size-2xl);
+  --semantic-text-3xl: var(--core-font-size-3xl);
+  --semantic-text-4xl: var(--core-font-size-4xl);
+  
+  /* Font Weights */
+  --semantic-font-weight-normal: var(--core-font-weight-normal);
+  --semantic-font-weight-medium: var(--core-font-weight-medium);
+  --semantic-font-weight-semibold: var(--core-font-weight-semibold);
+  --semantic-font-weight-bold: var(--core-font-weight-bold);
+  
+  /* Line Heights */
+  --semantic-line-height-tight: var(--core-line-height-tight);
+  --semantic-line-height-normal: var(--core-line-height-normal);
+  --semantic-line-height-relaxed: var(--core-line-height-relaxed);
+  
+  /* ============================================
+     SEMANTIC BORDERS & RADIUS
+     ============================================ */
+  
+  /* Border Radius */
+  --semantic-radius-none: var(--core-radius-none);
+  --semantic-radius-sm: var(--core-radius-sm);
+  --semantic-radius-base: var(--core-radius-base);
+  --semantic-radius-element: var(--core-radius-md);      /* Default element radius */
+  --semantic-radius-container: var(--core-radius-lg);    /* Cards, modals */
+  --semantic-radius-button: var(--core-radius-base);     /* Buttons, inputs */
+  --semantic-radius-pill: var(--core-radius-full);
+  
+  /* Border Width */
+  --semantic-border-width-thin: 1px;
+  --semantic-border-width-base: 1px;
+  --semantic-border-width-thick: 2px;
+  
+  /* ============================================
+     SEMANTIC SHADOWS & ELEVATION
+     ============================================ */
+  
+  --semantic-shadow-none: var(--core-shadow-none);
+  --semantic-shadow-sm: var(--core-shadow-xs);
+  --semantic-shadow-base: var(--core-shadow-sm);
+  --semantic-shadow-md: var(--core-shadow-md);
+  --semantic-shadow-lg: var(--core-shadow-lg);
+  --semantic-shadow-xl: var(--core-shadow-xl);
+  
+  /* Elevation levels */
+  --semantic-elevation-flat: var(--core-shadow-none);
+  --semantic-elevation-raised: var(--core-shadow-xs);
+  --semantic-elevation-overlay: var(--core-shadow-md);
+  --semantic-elevation-sticky: var(--core-shadow-lg);
+  --semantic-elevation-temporary: var(--core-shadow-xl);
+  
+  /* ============================================
+     SEMANTIC ANIMATION
+     ============================================ */
+  
+  --semantic-duration-instant: var(--core-duration-instant);
+  --semantic-duration-fast: var(--core-duration-fast);
+  --semantic-duration-normal: var(--core-duration-normal);
+  --semantic-duration-slow: var(--core-duration-slow);
+  
+  --semantic-ease-default: var(--core-ease-in-out);
+  --semantic-ease-in: var(--core-ease-in);
+  --semantic-ease-out: var(--core-ease-out);
+  
+  /* ============================================
+     SEMANTIC INTERACTIVE STATES
+     ============================================ */
+  
+  /* Focus States */
+  --semantic-focus-ring-color: var(--semantic-brand-primary);
+  --semantic-focus-ring-width: 3px;
+  --semantic-focus-ring-opacity: var(--core-opacity-50);
+  --semantic-focus-ring-offset: 0px;
+  
+  /* Hover States */
+  --semantic-hover-opacity: var(--core-opacity-90);
+  --semantic-active-opacity: var(--core-opacity-80);
+  --semantic-disabled-opacity: var(--core-opacity-50);
+  
+  /* ============================================
+     SEMANTIC Z-INDEX
+     ============================================ */
+  
+  --semantic-z-index-below: -1;
+  --semantic-z-index-base: 0;
+  --semantic-z-index-raised: var(--core-z-index-10);
+  --semantic-z-index-dropdown: var(--core-z-index-dropdown);
+  --semantic-z-index-sticky: var(--core-z-index-sticky);
+  --semantic-z-index-overlay: var(--core-z-index-modal-backdrop);
+  --semantic-z-index-modal: var(--core-z-index-modal);
+  --semantic-z-index-popover: var(--core-z-index-popover);
+  --semantic-z-index-tooltip: var(--core-z-index-tooltip);
+}
+
+/* ============================================
+   DARK THEME OVERRIDES
+   ============================================ */
+
+.dark {
+  /* Background Colors */
+  --semantic-bg-primary: var(--core-gray-800);
+  --semantic-bg-secondary: var(--core-gray-900);
+  --semantic-bg-tertiary: var(--core-gray-950);
+  --semantic-bg-inverse: var(--core-gray-50);
+  
+  /* Surface Colors */
+  --semantic-surface-primary: var(--core-gray-900);
+  --semantic-surface-secondary: var(--core-gray-950);
+  --semantic-surface-tertiary: var(--core-black);
+  --semantic-surface-overlay: oklch(from var(--core-black) l c h / 0.7);
+  
+  /* Text Colors */
+  --semantic-text-primary: var(--core-gray-50);
+  --semantic-text-secondary: var(--core-gray-400);
+  --semantic-text-tertiary: var(--core-gray-500);
+  --semantic-text-disabled: var(--core-gray-600);
+  --semantic-text-inverse: var(--core-gray-900);
+  --semantic-text-link: var(--core-blue-400);
+  --semantic-text-link-hover: var(--core-blue-300);
+  
+  /* Brand Colors */
+  --semantic-brand-primary: var(--core-gray-50);
+  --semantic-brand-primary-hover: oklch(from var(--core-gray-50) calc(l * 0.9) c h);
+  --semantic-brand-primary-active: oklch(from var(--core-gray-50) calc(l * 0.8) c h);
+  --semantic-brand-secondary: var(--core-gray-700);
+  --semantic-brand-secondary-hover: oklch(from var(--core-gray-700) calc(l * 1.1) c h);
+  
+  /* Interactive Colors */
+  --semantic-accent: var(--core-gray-700);
+  --semantic-accent-hover: oklch(from var(--core-gray-700) calc(l * 1.2) c h);
+  --semantic-accent-active: oklch(from var(--core-gray-700) calc(l * 1.3) c h);
+  
+  /* Status Colors */
+  --semantic-success: var(--core-emerald-500);
+  --semantic-success-hover: var(--core-emerald-400);
+  --semantic-success-light: oklch(from var(--core-emerald-500) l c h / 0.15);
+  
+  --semantic-warning: var(--core-amber-500);
+  --semantic-warning-hover: var(--core-amber-400);
+  --semantic-warning-light: oklch(from var(--core-amber-500) l c h / 0.15);
+  
+  --semantic-error: var(--core-red-600);
+  --semantic-error-hover: var(--core-red-500);
+  --semantic-error-light: oklch(from var(--core-red-600) l c h / 0.15);
+  
+  --semantic-info: var(--core-blue-500);
+  --semantic-info-hover: var(--core-blue-400);
+  --semantic-info-light: oklch(from var(--core-blue-500) l c h / 0.15);
+  
+  /* Border Colors */
+  --semantic-border-primary: oklch(from var(--core-gray-700) l c h / 0.6);
+  --semantic-border-secondary: var(--core-gray-600);
+  --semantic-border-tertiary: var(--core-gray-700);
+  --semantic-border-inverse: var(--core-gray-200);
+  
+  /* Chart Colors */
+  --semantic-chart-1: oklch(0.488 0.243 264.376);
+  --semantic-chart-2: oklch(0.696 0.17 162.48);
+  --semantic-chart-3: oklch(0.769 0.188 70.08);
+  --semantic-chart-4: oklch(0.627 0.265 303.9);
+  --semantic-chart-5: oklch(0.645 0.246 16.439);
+  
+  /* Focus States - Adjusted for dark mode */
+  --semantic-focus-ring-color: var(--core-gray-400);
+  --semantic-focus-ring-opacity: var(--core-opacity-40);
+  
+  /* Shadows - Stronger shadows for dark mode */
+  --semantic-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.2), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --semantic-shadow-base: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --semantic-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --semantic-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --semantic-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.5);
+}
+
+/* ============================================
+   THEME VARIATIONS (Future Enhancement)
+   ============================================ */
+
+/* High Contrast Theme */
+.theme-high-contrast {
+  --semantic-text-primary: var(--core-black);
+  --semantic-text-secondary: var(--core-gray-700);
+  --semantic-bg-primary: var(--core-white);
+  --semantic-border-primary: var(--core-gray-900);
+  --semantic-focus-ring-width: 4px;
+  --semantic-focus-ring-opacity: var(--core-opacity-100);
+}
+
+/* Colorful Theme */
+.theme-colorful {
+  --semantic-brand-primary: var(--core-blue-500);
+  --semantic-brand-primary-hover: var(--core-blue-600);
+  --semantic-accent: var(--core-amber-100);
+  --semantic-accent-hover: var(--core-amber-200);
+}
