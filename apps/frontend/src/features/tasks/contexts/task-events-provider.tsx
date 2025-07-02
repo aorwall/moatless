@@ -63,7 +63,7 @@ export function TaskEventsProvider({
     queryFn: () => tasksApi.getTaskEvents(taskId),
     staleTime: 60 * 1000, // 1 minute
     enabled: !!taskId && !taskId.startsWith('temp-'),
-    refetchInterval: isStreaming ? false : 5000, // Poll only when not streaming
+    // No polling - events are updated via SSE only
   })
 
   // Smart event handler with invalidation mapping
