@@ -110,10 +110,10 @@ export class EventService extends EventEmitter {
       Promise.resolve(handler(event)).catch(console.error)
     }
 
-    this.on('event', wrappedHandler)
+    this.on('global', wrappedHandler)
 
     return () => {
-      this.off('event', wrappedHandler)
+      this.off('global', wrappedHandler)
     }
   }
 

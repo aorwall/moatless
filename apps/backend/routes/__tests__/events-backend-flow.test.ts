@@ -74,12 +74,12 @@ describe('Global Event Stream Backend Flow', () => {
       expect(typeof unsubscribe).toBe('function')
 
       // The handler should be wrapped and registered
-      const listeners = eventService.listeners('event')
+      const listeners = eventService.listeners('global')
       expect(listeners.length).toBeGreaterThan(0)
 
       // Cleanup
       unsubscribe()
-      const listenersAfter = eventService.listeners('event')
+      const listenersAfter = eventService.listeners('global')
       expect(listenersAfter.length).toBe(listeners.length - 1)
     })
 
