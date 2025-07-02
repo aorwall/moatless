@@ -105,7 +105,7 @@ describe('Global Event Stream', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      expect(response.headers['content-type']).toBe('application/x-ndjson')
+      expect(response.headers['content-type']).toBe('text/event-stream')
       expect(response.headers['cache-control']).toBe('no-cache')
       expect(response.headers.connection).toBe('keep-alive')
       expect(response.headers['x-accel-buffering']).toBe('no')

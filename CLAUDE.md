@@ -39,6 +39,19 @@ pnpm check:turbo
 cd apps/frontend && pnpm dlx shadcn@latest add [component]
 ```
 
+### Running on Different Ports
+```bash
+# Run backend on a different port (useful for testing)
+PORT=8001 pnpm start
+
+# Run frontend dev server on a different port
+PORT=3001 pnpm dev
+
+# Environment variables for different ports
+PORT=8001 NODE_ENV=production pnpm start  # Backend production on port 8001
+PORT=8001 pnpm dev                         # Development on port 8001
+```
+
 ## Mandatory Workflow
 - You MUST run `pnpm type:check` after code changes to catch TypeScript errors
 - You MUST run `pnpm biome:check` after code changes for linting and formatting

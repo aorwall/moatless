@@ -71,7 +71,7 @@ export async function registerEventRoutes(app: FastifyInstance) {
       }
 
       reply.raw.writeHead(200, {
-        'Content-Type': 'application/x-ndjson',
+        'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no', // Disable Nginx buffering

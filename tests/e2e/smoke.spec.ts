@@ -83,7 +83,7 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     expect(sseTest.ok).toBe(true)
     if (!sseTest.aborted) {
       expect(sseTest.status).toBe(200)
-      expect(sseTest.contentType).toContain('application/x-ndjson')
+      expect(sseTest.contentType).toContain('text/event-stream')
     }
     
     console.log('✅ SSE endpoints are accessible')
