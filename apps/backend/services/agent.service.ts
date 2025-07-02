@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import { CriticalError } from '@moatless/shared/constants/errors'
 import type { SDKResultMessage } from '@moatless/shared/types/claude'
@@ -173,8 +174,24 @@ export class AgentService {
       // Update task status back to open if not error
       const task = await this.storage.getTask(taskId)
       if (task && task.status === 'running') {
+        const previousStatus = task.status
         task.status = 'open'
         await this.storage.saveTask(task)
+        
+        // Emit status change event
+        await this.eventService.emitEvent({
+          taskId,
+          type: EventType.INPUT,
+          subType: 'task:statusChanged',
+          payload: {
+            status: 'open',
+            previousStatus
+          },
+          eventId: randomUUID(),
+          timestamp: new Date(),
+          agentType: task.agentType,
+          isError: false
+        })
       }
     }
   }

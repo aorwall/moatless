@@ -22,9 +22,7 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     console.log('✅ Homepage loaded successfully')
   })
 
-  test('should be able to access API endpoints', async ({ page }) => {
-    const baseURL = 'http://127.0.0.1:3002'
-    
+  test('should be able to access API endpoints', async ({ page, baseURL }) => {
     // Test basic API accessibility
     const response = await page.request.get(`${baseURL}/api/v1/repositories`)
     expect(response.status()).toBe(200)
@@ -36,9 +34,7 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     console.log('✅ API endpoints accessible')
   })
 
-  test('should be able to establish SSE connection', async ({ page }) => {
-    const baseURL = 'http://127.0.0.1:3002'
-    
+  test('should be able to establish SSE connection', async ({ page, baseURL }) => {
     // Navigate to the app first to establish proper context
     await page.goto('/')
     
@@ -89,10 +85,8 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     console.log('✅ SSE endpoints are accessible')
   })
 
-  test('should have required dependencies available', async ({ page }) => {
+  test('should have required dependencies available', async ({ page, baseURL }) => {
     // Check that the global event stream status endpoint works
-    const baseURL = 'http://127.0.0.1:3002'
-    
     const response = await page.request.get(`${baseURL}/api/v1/events/stream/status`)
     expect(response.status()).toBe(200)
     

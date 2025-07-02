@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { TaskNotFoundError } from '@moatless/shared/constants/errors'
 import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
+import { EventType } from '@moatless/shared/types/event'
 import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
@@ -33,6 +34,7 @@ export class TaskService {
 
   constructor(
     private storage: StorageBackend,
+    private eventService: EventService,
     private workspaceService: WorkspaceService,
     private agentService: AgentService,
     private commandService: CommandService,
@@ -261,9 +263,26 @@ export class TaskService {
     metadata.iterations.push(iteration)
     metadata.lastMessageAt = now
     metadata.numTurns += 1
+    const previousStatus = metadata.status
     metadata.status = 'running'
 
     await this.storage.saveTask(metadata)
+    
+    // Emit status change event
+    await this.eventService.emitEvent({
+      taskId,
+      type: EventType.INPUT,
+      subType: 'task:statusChanged',
+      payload: {
+        status: 'running',
+        previousStatus,
+        iterationNumber
+      },
+      eventId: randomUUID(),
+      timestamp: now,
+      agentType: metadata.agentType,
+      isError: false
+    })
 
     // Pass the full iteration object with task reference
     iteration.task = metadata
@@ -320,8 +339,24 @@ export class TaskService {
     await this.workspaceService.cleanupWorkspace(taskId)
 
     // Update task status to closed
+    const previousStatus = task.status
     task.status = 'closed'
     await this.storage.saveTask(task)
+    
+    // Emit status change event
+    await this.eventService.emitEvent({
+      taskId,
+      type: EventType.INPUT,
+      subType: 'task:statusChanged',
+      payload: {
+        status: 'closed',
+        previousStatus
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      agentType: task.agentType,
+      isError: false
+    })
 
     logger.info('Task closed successfully', { taskId })
   }
@@ -330,10 +365,10 @@ export class TaskService {
 export function createTaskService(
   _app: FastifyInstance,
   storage: StorageBackend,
-  _eventService: EventService,
+  eventService: EventService,
   workspaceService: WorkspaceService,
   agentService: AgentService,
   commandService: CommandService,
 ): TaskService {
-  return new TaskService(storage, workspaceService, agentService, commandService)
+  return new TaskService(storage, eventService, workspaceService, agentService, commandService)
 }

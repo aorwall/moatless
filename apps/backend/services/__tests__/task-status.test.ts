@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '@moatless/shared/types/task'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
+import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
@@ -44,8 +45,13 @@ describe('Task Status Management', () => {
       getCommand: vi.fn(),
     } as unknown as CommandService
 
+    const mockEventService = {
+      emitEvent: vi.fn().mockResolvedValue(undefined),
+    } as unknown as EventService
+
     taskService = new TaskService(
       mockStorage,
+      mockEventService,
       mockWorkspaceService,
       mockAgentService,
       mockCommandService,

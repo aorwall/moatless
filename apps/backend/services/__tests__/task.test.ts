@@ -3,6 +3,7 @@ import { RepositoryNotFoundError, TaskNotFoundError } from '@moatless/shared/con
 import type { CreateTaskRequest, Task } from '@moatless/shared/types/task'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
+import type { EventService } from '../event.service.js'
 import type { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.service.js'
@@ -52,9 +53,13 @@ describe('TaskService', () => {
       getAgentSessionId: vi.fn(),
     } as unknown as AgentService
 
+    const mockEventService = {
+      emitEvent: vi.fn().mockResolvedValue(undefined),
+    } as unknown as EventService
     const mockCommandService = {} as unknown as CommandService
     taskService = new TaskService(
       mockStorage,
+      mockEventService,
       mockWorkspaceService,
       mockAgentService,
       mockCommandService,
