@@ -22,14 +22,12 @@ const GlobalEventStreamContext = createContext<GlobalEventStreamContextType | nu
 interface GlobalEventStreamProviderProps {
   children: React.ReactNode
   enabled?: boolean
-  activeTasksOnly?: boolean
   types?: EventType[]
 }
 
 export function GlobalEventStreamProvider({
   children,
   enabled = true,
-  activeTasksOnly = true,
   types,
 }: GlobalEventStreamProviderProps) {
   const [isConnected, setIsConnected] = useState(false)
@@ -125,7 +123,6 @@ export function GlobalEventStreamProvider({
 
     try {
       const params = new URLSearchParams()
-      if (activeTasksOnly) params.append('activeTasksOnly', 'true')
       if (types?.length) params.append('types', types.join(','))
 
       const url = `/api/v1/events/stream?${params.toString()}`
@@ -178,7 +175,7 @@ export function GlobalEventStreamProvider({
       setConnectionError(error instanceof Error ? error : new Error('Failed to connect'))
       toast.error('Failed to connect to event stream')
     }
-  }, [enabled, activeTasksOnly, types, handleEvent])
+  }, [enabled, types, handleEvent])
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

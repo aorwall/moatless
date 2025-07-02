@@ -10,9 +10,7 @@ import { build } from '../../test/helper.js'
  * This test starts an actual server and establishes real SSE connections to ensure
  * the event streaming mechanism works properly.
  * 
- * Important: The SSE endpoint defaults to activeTasksOnly=true, which means it only
- * streams events for tasks with status 'open' or 'running'. Set activeTasksOnly=false
- * to receive all events regardless of task status.
+ * The SSE endpoint now streams all events by default without filtering by task status.
  */
 describe('SSE Real Server Integration', () => {
   let app: FastifyInstance
@@ -34,9 +32,9 @@ describe('SSE Real Server Integration', () => {
   it('should receive events through SSE stream', async () => {
     console.log('🧪 Testing SSE with real HTTP connection...')
     
-    // Connect to SSE stream with activeTasksOnly=false to receive all events
+    // Connect to SSE stream (now streams all events by default)
     const abortController = new AbortController()
-    const sseResponse = await fetch(`${serverUrl}/api/v1/events/stream?activeTasksOnly=false`, {
+    const sseResponse = await fetch(`${serverUrl}/api/v1/events/stream`, {
       signal: abortController.signal,
       headers: {
         'Accept': 'text/event-stream',

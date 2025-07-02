@@ -15,7 +15,6 @@ export interface GlobalSSEConnection {
   request: FastifyRequest
   filters?: {
     types?: EventType[]
-    activeTasksOnly?: boolean
   }
 }
 

@@ -124,7 +124,6 @@ describe('Global Event Stream', () => {
         expect.any(Object), // reply
         expect.objectContaining({
           types: undefined,
-          activeTasksOnly: true,
         }),
       )
     })
@@ -142,16 +141,16 @@ describe('Global Event Stream', () => {
         expect.any(Object),
         expect.objectContaining({
           types: ['message', 'tool:start'],
-          activeTasksOnly: true,
         }),
       )
     })
 
-    it.skip('should handle activeTasksOnly parameter', async () => {
+    it.skip('should ignore unknown parameters', async () => {
       // Skip: app.inject() waits for response to complete, which never happens with SSE
+      // Test that unknown parameters are ignored (activeTasksOnly was removed)
       await app.inject({
         method: 'GET',
-        url: '/api/v1/events/stream?activeTasksOnly=false',
+        url: '/api/v1/events/stream?activeTasksOnly=false&unknownParam=value',
       })
 
       expect(sseManager.connectGlobal).toHaveBeenCalledWith(
@@ -159,7 +158,7 @@ describe('Global Event Stream', () => {
         expect.any(Object),
         expect.any(Object),
         expect.objectContaining({
-          activeTasksOnly: false,
+          types: undefined,
         }),
       )
     })

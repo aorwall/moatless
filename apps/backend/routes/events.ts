@@ -5,22 +5,10 @@ import type { EventListResponse } from '@moatless/shared/types/api'
 import type { Event, EventType } from '@moatless/shared/types/event'
 import { sseManager } from '../utils/sse-manager.js'
 
-// Custom boolean schema that properly handles string "false"
-const stringToBoolean = z
-  .union([
-    z.boolean(),
-    z.string().transform((val) => {
-      if (val === 'true') return true
-      if (val === 'false') return false
-      // For any other string, use standard coercion
-      return Boolean(val)
-    }),
-  ]);
 
 // Schema for global stream query params
 const GlobalStreamQuerySchema = z.object({
   types: z.array(z.string()).optional(),
-  activeTasksOnly: stringToBoolean.optional().default(true),
   lastEventId: z.string().optional(),
 })
 
@@ -36,7 +24,7 @@ export async function registerEventRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { types, activeTasksOnly, lastEventId } = request.query as z.infer<
+      const { types, lastEventId } = request.query as z.infer<
         typeof GlobalStreamQuerySchema
       >
 
@@ -82,7 +70,6 @@ export async function registerEventRoutes(app: FastifyInstance) {
       const connectionId = randomUUID()
       const filters = {
         types: types as EventType[] | undefined,
-        activeTasksOnly,
       }
 
       // Register connection with manager
@@ -90,12 +77,8 @@ export async function registerEventRoutes(app: FastifyInstance) {
 
       // Send existing events if reconnecting
       if (lastEventId) {
-        // Get all active tasks
-        const tasks = await taskService.listTasks(
-          undefined,
-          0,
-          activeTasksOnly ? 'open' : undefined,
-        )
+        // Get all tasks
+        const tasks = await taskService.listTasks()
 
         // Find the offset based on lastEventId across all tasks
         let foundLastEvent = false
@@ -155,28 +138,11 @@ export async function registerEventRoutes(app: FastifyInstance) {
           return
         }
 
-        if (filters.activeTasksOnly) {
-          // Check if task is active
-          taskService
-            .getTask(event.taskId)
-            .then((task) => {
-              if (task && (task.status === 'open' || task.status === 'running')) {
-                try {
-                  reply.raw.write(`${JSON.stringify(event)}\n`)
-                } catch (error) {
-                  request.log.error('Failed to send global event over SSE', error)
-                }
-              }
-            })
-            .catch(() => {
-              // Task not found, skip
-            })
-        } else {
-          try {
-            reply.raw.write(`${JSON.stringify(event)}\n`)
-          } catch (error) {
-            request.log.error('Failed to send global event over SSE', error)
-          }
+        // Send all events (no activeTasksOnly filtering)
+        try {
+          reply.raw.write(`${JSON.stringify(event)}\n`)
+        } catch (error) {
+          request.log.error('Failed to send global event over SSE', error)
         }
       })
 
