@@ -91,24 +91,24 @@ pnpm test:e2e event-flow-complete.spec.ts
    pnpm build
    ```
 
-3. **Port Configuration**: Tests use port 3002 by default. You must ensure this port is available.
+3. **Port Configuration**: Tests automatically find available ports starting from 3002.
 
-### Port Requirements
+### Automatic Port Detection
 
-The E2E tests require port 3002 to be available. If the port is occupied:
+The E2E tests automatically detect and use available ports:
 
 ```bash
-# Check what's using port 3002
-lsof -i :3002
-
-# Kill process using port 3002 if needed
-lsof -ti:3002 | xargs kill -9
-
-# Then run tests
+# Tests automatically find an available port
 pnpm test:e2e
+
+# Use a custom starting port
+E2E_PORT=4000 pnpm test:e2e
+
+# Check which port was selected (shown in test output)
+# Example output: "Starting server for E2E tests on port 3003..."
 ```
 
-**Note**: Currently, E2E tests use a hardcoded port (3002). If you need dynamic port allocation, this would require updating the global setup configuration.
+**How it works**: The setup automatically scans ports starting from 3002 (or your custom port) and selects the first available one. The selected port is displayed in the terminal output.
 
 ## Common Test Commands
 
@@ -199,17 +199,18 @@ Tests provide detailed console output:
 ### Automatic Setup
 Tests automatically:
 1. Create temporary directories for git repositories
-2. Build the frontend and backend
-3. Start the server on port 3002
-4. Set up test data (repositories, tasks)
-5. Clean up after completion
+2. Find an available port (starting from 3002)
+3. Build the frontend and backend
+4. Start the server on the selected port
+5. Set up test data (repositories, tasks)
+6. Clean up after completion
 
 ### Configuration Files
 
 **Main Configuration** (`playwright.config.ts`):
 - Test timeout: 90 seconds
 - Retries: 2 on CI, 0 locally
-- Base URL: http://127.0.0.1:3002 (hardcoded)
+- Base URL: Dynamically set based on available port
 - Browser: Chromium
 - Screenshots/videos on failure
 
@@ -246,18 +247,17 @@ Shows detailed test results with:
 
 ### 4. Common Issues
 
-**Port 3002 Already in Use**
-The tests require port 3002 to be available:
+**All Ports in Range Occupied**
+If you encounter issues with port detection:
 
 ```bash
-# Check what's using port 3002
-lsof -i :3002
+# Check which ports are in use in the range
+lsof -i :3002-3102
 
-# Kill the process using port 3002
-lsof -ti:3002 | xargs kill -9
+# Use a different starting port range
+E2E_PORT=4000 pnpm test:e2e
 
-# Then run tests
-pnpm test:e2e
+# The system will automatically find the first available port
 ```
 
 **Test Timeouts**
@@ -335,7 +335,8 @@ await deleteTestRepository(baseURL, repoId)
 ### Server Won't Start
 - Check node version matches requirements
 - Verify all dependencies installed: `pnpm install`
-- Ensure port 3002 is available (kill any conflicting processes)
+- Ensure some ports are available in the 3002+ range
+- Try a different port range: `E2E_PORT=4000 pnpm test:e2e`
 - Check server logs in test output
 
 ### Flaky Tests

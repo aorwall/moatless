@@ -20,7 +20,7 @@ test.describe('UI Task Complete Workflow', () => {
   let tempDir: string
   let repository: { id: string; name: string }
   let createdTaskId: string | undefined
-  const baseURL = 'http://127.0.0.1:3002'
+  const baseURL = `http://127.0.0.1:${globalThis.__E2E_SERVER_PORT__ || 3002}`
 
   test.beforeEach(async () => {
     // Create a temporary directory for our test git repository

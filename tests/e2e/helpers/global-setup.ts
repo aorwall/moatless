@@ -1,16 +1,49 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createServer } from 'node:net'
 import type { FullConfig } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 
 // Store server process info globally for teardown
 declare global {
   var __E2E_SERVER_PID__: number | undefined
+  var __E2E_SERVER_PORT__: number | undefined
 }
 
 let serverProcess: ChildProcess | null = null
 let tempDir: string
+
+/**
+ * Find an available port starting from the given port number
+ */
+async function findAvailablePort(startPort: number = 3002): Promise<number> {
+  for (let port = startPort; port < startPort + 100; port++) {
+    if (await isPortAvailable(port)) {
+      return port
+    }
+  }
+  throw new Error(`No available port found in range ${startPort}-${startPort + 99}`)
+}
+
+/**
+ * Check if a port is available by trying to create a server on it
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer()
+    
+    server.listen(port, () => {
+      server.close(() => {
+        resolve(true)
+      })
+    })
+    
+    server.on('error', () => {
+      resolve(false)
+    })
+  })
+}
 
 async function globalSetup(config: FullConfig) {
   // Create a temporary directory for test repositories
@@ -41,12 +74,23 @@ async function globalSetup(config: FullConfig) {
     buildProcess.on('error', reject)
   })
 
+  // Find an available port
+  const availablePort = await findAvailablePort(
+    process.env.E2E_PORT ? parseInt(process.env.E2E_PORT, 10) : 3002
+  )
+  
+  // Store the port globally for tests to use
+  globalThis.__E2E_SERVER_PORT__ = availablePort
+  
+  // Set the base URL for Playwright config
+  process.env.E2E_BASE_URL = `http://127.0.0.1:${availablePort}`
+  
   // Start the server
-  console.log('Starting server for E2E tests...')
+  console.log(`Starting server for E2E tests on port ${availablePort}...`)
   serverProcess = spawn('node', ['apps/backend/dist/index.js'], {
     env: {
       ...process.env,
-      PORT: '3002',
+      PORT: availablePort.toString(),
       NODE_ENV: 'production', // Use production mode to enable static file serving
       SKIP_CLAUDE_DISK_EVENTS: 'true',
       USE_CONSOLE_LOGGING: 'true',
@@ -99,9 +143,9 @@ async function globalSetup(config: FullConfig) {
   // Store the server PID for cleanup
   if (serverProcess?.pid) {
     globalThis.__E2E_SERVER_PID__ = serverProcess.pid
-    console.log('E2E setup complete. Server running on port 3002 with PID:', serverProcess.pid)
+    console.log(`E2E setup complete. Server running on port ${availablePort} with PID: ${serverProcess.pid}`)
   } else {
-    console.log('E2E setup complete. Server running on port 3002')
+    console.log(`E2E setup complete. Server running on port ${availablePort}`)
   }
   
   // Give the server a moment to fully initialize
