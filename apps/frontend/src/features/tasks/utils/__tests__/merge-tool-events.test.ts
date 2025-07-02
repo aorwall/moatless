@@ -1,6 +1,7 @@
 import type { ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
-import { describe, expect, it, vi } from 'vitest'
+import { EventType } from '@moatless/shared/types/event'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { mergeToolEvents } from '../merge-tool-events'
 
@@ -9,12 +10,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -32,15 +34,16 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -57,7 +60,7 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)
@@ -75,12 +78,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -98,7 +102,7 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)
@@ -114,12 +118,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -135,7 +140,7 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
       {
         eventId: 'event-2',
         type: 'input',
@@ -144,6 +149,7 @@ describe('mergeToolEvents', () => {
         iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -164,12 +170,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -187,15 +194,16 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -212,15 +220,16 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
       {
         eventId: 'event-3',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
         timestamp: '2025-01-01T00:00:02Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -238,15 +247,16 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
       {
         eventId: 'event-4',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
         timestamp: '2025-01-01T00:00:03Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -263,7 +273,7 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)
@@ -287,12 +297,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '', // No subType, should detect by content
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -313,12 +324,13 @@ describe('mergeToolEvents', () => {
       },
       {
         eventId: 'event-2',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '', // empty subType should also work
         taskId: 'task-1',
         iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -353,12 +365,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -380,15 +393,16 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
         timestamp: '2025-01-01T00:00:01Z',
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -405,7 +419,7 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)
@@ -429,12 +443,13 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: 'message',
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:00Z',
+        timestamp: new Date('2025-01-01T00:00:00Z'),
         isError: false,
+        agentType: 'test-agent',
         contextTokens: 100,
         numTurns: 1,
         totalCost: 0.01,
@@ -451,7 +466,7 @@ describe('mergeToolEvents', () => {
             ],
           },
         } as ClaudeCodeSDKMessage,
-      } as MessageEvent,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)
@@ -475,11 +490,11 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-1',
-          type: 'message',
+          type: EventType.MESSAGE,
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
-          timestamp: '2025-01-01T00:00:00Z',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
           isError: false,
           payload: {
             type: 'assistant',
@@ -495,7 +510,7 @@ describe('mergeToolEvents', () => {
               ],
             },
           } as ClaudeCodeSDKMessage,
-        } as MessageEvent,
+        } as unknown as MessageEvent,
       ]
 
       mergeToolEvents(events)
@@ -510,11 +525,11 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-1',
-          type: 'message',
+          type: EventType.MESSAGE,
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
-          timestamp: '2025-01-01T00:00:00Z',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
           isError: false,
           payload: {
             type: 'user',
@@ -529,7 +544,7 @@ describe('mergeToolEvents', () => {
               ],
             },
           } as ClaudeCodeSDKMessage,
-        } as MessageEvent,
+        } as unknown as MessageEvent,
       ]
 
       mergeToolEvents(events)
@@ -544,14 +559,14 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-bad',
-          type: 'message',
+          type: EventType.MESSAGE,
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
-          timestamp: '2025-01-01T00:00:00Z',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
           isError: false,
           payload: null as unknown as ClaudeCodeSDKMessage,
-        } as MessageEvent,
+        } as unknown as MessageEvent,
       ]
 
       const merged = mergeToolEvents(events)
@@ -567,11 +582,11 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-1',
-          type: 'message',
+          type: EventType.MESSAGE,
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
-          timestamp: '2025-01-01T00:00:00Z',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
           isError: false,
           payload: {
             type: 'system',
@@ -580,7 +595,7 @@ describe('mergeToolEvents', () => {
               content: 'System message',
             },
           } as unknown as ClaudeCodeSDKMessage,
-        } as MessageEvent,
+        } as unknown as MessageEvent,
       ]
 
       const merged = mergeToolEvents(events)

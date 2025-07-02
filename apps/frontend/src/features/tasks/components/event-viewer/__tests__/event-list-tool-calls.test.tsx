@@ -18,8 +18,8 @@ vi.mock('../event-components/tool-calls/ls-tool-call', () => ({
 vi.mock('../event-components/tool-call-event', () => ({
   ToolCallEvent: ({ event }: { event: MessageEvent }) => {
     const payload = event.payload
-    const content = payload?.message?.content || []
-    const toolUse = content.find((item): item is ToolUseContent => item.type === 'tool_use')
+    const content = (payload as any)?.content || []
+    const toolUse = content.find((item: any): item is ToolUseContent => item.type === 'tool_use')
 
     if (toolUse?.name === 'LS') {
       return <LSToolCallMock input={toolUse.input as { path: string }} />

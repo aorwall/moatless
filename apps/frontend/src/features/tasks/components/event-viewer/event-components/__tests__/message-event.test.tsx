@@ -1,4 +1,5 @@
 import type { Event } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/shared/types/event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
@@ -6,16 +7,17 @@ import { MessageEvent } from '../message-event'
 
 describe('MessageEvent', () => {
   const createMessageEvent = (payload: Record<string, unknown>): Event => ({
-    event_id: 'test-event',
-    type: 'message',
+    eventId: 'test-event',
+    type: EventType.MESSAGE,
     subType: '',
     taskId: 'test-task',
-    iterationNumber: 1,
-    timestamp: '2025-01-01T00:00:00Z',
+    iterationId: 1,
+    timestamp: new Date('2025-01-01T00:00:00Z'),
     isError: false,
     contextTokens: 100,
     numTurns: 1,
     totalCost: 0.01,
+    agentType: 'test-agent',
     payload,
   })
 
@@ -171,16 +173,17 @@ describe('MessageEvent', () => {
     it('should handle SDK assistant message with content array', () => {
       const event: Event = {
         eventId: 'e81f1d4c-d470-4bf0-bf53-8e20468fb922',
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.087Z',
+        timestamp: new Date('2025-06-25T12:38:37.087Z'),
         isError: false,
+        agentType: 'test-agent',
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01CXrZbZ8ia8wwcoxJKnAQ64',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -217,16 +220,17 @@ describe('MessageEvent', () => {
     it('should handle SDK tool use message', () => {
       const event: Event = {
         eventId: 'b9e99242-2bef-4dc9-b47a-56028303a971',
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.552Z',
+        timestamp: new Date('2025-06-25T12:38:37.552Z'),
         isError: false,
+        agentType: 'test-agent',
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_01CXrZbZ8ia8wwcoxJKnAQ64',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -264,11 +268,12 @@ describe('MessageEvent', () => {
     it('should handle SDK user message with tool result', () => {
       const event: Event = {
         eventId: 'a2370d8d-c3de-4e31-8ebb-77a91eb27cfc',
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:38.105Z',
+        timestamp: new Date('2025-06-25T12:38:38.105Z'),
         isError: false,
+        agentType: 'test-agent',
         payload: {
           type: 'user',
           message: {
@@ -296,16 +301,17 @@ describe('MessageEvent', () => {
     it('should handle SDK message with multiple content items', () => {
       const event: Event = {
         eventId: 'test-multiple-content',
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId: 'test-task',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.087Z',
+        timestamp: new Date('2025-06-25T12:38:37.087Z'),
         isError: false,
+        agentType: 'test-agent',
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_test',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -343,16 +349,17 @@ describe('MessageEvent', () => {
     it('should handle SDK message with empty content array', () => {
       const event: Event = {
         eventId: 'test-empty-content',
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId: 'test-task',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.087Z',
+        timestamp: new Date('2025-06-25T12:38:37.087Z'),
         isError: false,
+        agentType: 'test-agent',
         payload: {
           type: 'assistant',
           message: {
             id: 'msg_test',
-            type: 'message',
+            type: EventType.MESSAGE,
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [],
@@ -374,11 +381,12 @@ describe('MessageEvent', () => {
     it('should correctly identify role from payload.type when message.role differs', () => {
       const event: Event = {
         eventId: 'test-role-priority',
-        type: 'message',
+        type: EventType.MESSAGE,
         taskId: 'test-task',
         iterationId: 1,
-        timestamp: '2025-06-25T12:38:37.087Z',
+        timestamp: new Date('2025-06-25T12:38:37.087Z'),
         isError: false,
+        agentType: 'test-agent',
         payload: {
           type: 'assistant', // This should take priority
           message: {

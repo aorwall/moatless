@@ -1,4 +1,5 @@
 import type { Event } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/shared/types/event'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
@@ -12,13 +13,14 @@ describe('ToolCallEvent', () => {
     input: Record<string, unknown>,
     toolResult?: Event,
   ): MergedEvent => ({
-    event_id: 'test-event',
-    type: 'message',
+    eventId: 'test-event',
+    type: EventType.MESSAGE,
     subType: 'tool_call',
     taskId: 'test-task',
-    iterationNumber: 1,
-    timestamp: '2025-01-01T00:00:00Z',
+    iterationId: 1,
+    timestamp: new Date('2025-01-01T00:00:00Z'),
     isError: false,
+    agentType: 'test-agent',
     contextTokens: 100,
     numTurns: 1,
     totalCost: 0.01,

@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@moatless/shared/types/api-errors'
+import type { CreateCommandRequest } from '@moatless/shared/types/command'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 
@@ -23,7 +24,7 @@ function NewCommand() {
   return (
     <div className="container mx-auto py-6 max-w-2xl">
       <CommandForm
-        onSubmit={(data) => createCommand.mutate(data)}
+        onSubmit={(data) => createCommand.mutate(data as CreateCommandRequest)}
         isSubmitting={createCommand.isPending}
       />
     </div>
