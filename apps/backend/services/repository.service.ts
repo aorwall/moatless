@@ -27,18 +27,7 @@ export class RepositoryService {
 
     // Auto-detect framework for local repositories if not provided
     let previewConfig = request.previewConfig
-    if (!previewConfig?.framework) {
-      try {
-        const detectedConfig = await this.detectFramework(request.path)
-        previewConfig = {
-          ...previewConfig,
-          ...detectedConfig,
-          autoDetected: true,
-        }
-      } catch (error) {
-        logger.warn('Failed to auto-detect framework', { error })
-      }
-    }
+
 
     // Set serverCommand from preview config if available and not already set
     let serverCommand = request.codeExecution.serverCommand
