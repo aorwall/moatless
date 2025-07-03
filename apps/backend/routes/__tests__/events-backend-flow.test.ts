@@ -119,10 +119,9 @@ describe('Global Event Stream Backend Flow', () => {
       const mockRequest = { log: { info: vi.fn() } } as any
       const mockReply = {} as any
       const connectionId = 'test-connection-123'
-      const filters = {}
 
       // Register global connection
-      sseManager.connectGlobal(connectionId, mockRequest, mockReply, filters)
+      sseManager.connectGlobal(connectionId, mockRequest, mockReply)
 
       // Check connection count
       expect(sseManager.getGlobalConnectionCount()).toBe(1)

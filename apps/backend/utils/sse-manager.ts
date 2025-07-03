@@ -1,5 +1,4 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import type { EventType } from '@moatless/shared/types/event'
 
 export interface SSEConnection {
   id: string
@@ -7,15 +6,14 @@ export interface SSEConnection {
   reply: FastifyReply
   request: FastifyRequest
   lastEventId?: string
+  eventCount: number
 }
 
 export interface GlobalSSEConnection {
   id: string
   reply: FastifyReply
   request: FastifyRequest
-  filters?: {
-    types?: EventType[]
-  }
+  eventCount: number
 }
 
 export class SSEConnectionManager {
@@ -37,6 +35,7 @@ export class SSEConnectionManager {
       reply,
       request,
       lastEventId,
+      eventCount: 0,
     }
 
     if (!this.connections.has(taskId)) {
@@ -84,13 +83,12 @@ export class SSEConnectionManager {
     connectionId: string,
     request: FastifyRequest,
     reply: FastifyReply,
-    filters?: GlobalSSEConnection['filters'],
   ): void {
     const connection: GlobalSSEConnection = {
       id: connectionId,
       reply,
       request,
-      filters,
+      eventCount: 0,
     }
 
     this.globalConnections.set(connectionId, connection)
@@ -119,6 +117,75 @@ export class SSEConnectionManager {
       counts[taskId] = connections.size
     }
     return counts
+  }
+
+  // Methods to track event counts
+  incrementTaskEventCount(taskId: string): void {
+    const connections = this.connections.get(taskId)
+    if (connections) {
+      connections.forEach((connection) => {
+        connection.eventCount++
+      })
+    }
+  }
+
+  incrementGlobalEventCount(): void {
+    this.globalConnections.forEach((connection) => {
+      connection.eventCount++
+    })
+  }
+
+  // Get detailed connection info including event counts
+  getTaskConnectionDetails(taskId: string): { connectionCount: number; totalEvents: number } {
+    const connections = this.connections.get(taskId)
+    if (!connections) {
+      return { connectionCount: 0, totalEvents: 0 }
+    }
+    
+    const totalEvents = Array.from(connections).reduce((sum, conn) => sum + conn.eventCount, 0)
+    return {
+      connectionCount: connections.size,
+      totalEvents,
+    }
+  }
+
+  getGlobalConnectionDetails(): { connectionCount: number; totalEvents: number } {
+    const totalEvents = Array.from(this.globalConnections.values()).reduce(
+      (sum, conn) => sum + conn.eventCount,
+      0,
+    )
+    return {
+      connectionCount: this.globalConnections.size,
+      totalEvents,
+    }
+  }
+
+  getAllConnectionStats(): {
+    global: { connectionCount: number; totalEvents: number }
+    tasks: Record<string, { connectionCount: number; totalEvents: number }>
+    total: { connectionCount: number; totalEvents: number }
+  } {
+    const globalStats = this.getGlobalConnectionDetails()
+    const taskStats: Record<string, { connectionCount: number; totalEvents: number }> = {}
+    
+    let totalConnections = globalStats.connectionCount
+    let totalEvents = globalStats.totalEvents
+    
+    for (const taskId of this.connections.keys()) {
+      const details = this.getTaskConnectionDetails(taskId)
+      taskStats[taskId] = details
+      totalConnections += details.connectionCount
+      totalEvents += details.totalEvents
+    }
+    
+    return {
+      global: globalStats,
+      tasks: taskStats,
+      total: {
+        connectionCount: totalConnections,
+        totalEvents,
+      },
+    }
   }
 }
 

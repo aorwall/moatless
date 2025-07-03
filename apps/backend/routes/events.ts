@@ -1,19 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { EventListResponse } from '@moatless/shared/types/api'
-import type { Event, EventType } from '@moatless/shared/types/event'
 import { sseManager } from '../utils/sse-manager.js'
+import {logger} from "../utils/index.js";
 
 
-// Schema for global stream query params
-const GlobalStreamQuerySchema = z.object({
-  types: z.array(z.string()).optional(),
-  lastEventId: z.string().optional(),
-})
+// Schema for global stream query params (currently empty)
+const GlobalStreamQuerySchema = z.object({})
 
 export async function registerEventRoutes(app: FastifyInstance) {
-  const { event: eventService, task: taskService } = app.services
+  const { event: eventService } = app.services
 
   // Global event stream endpoint
   app.get(
@@ -24,9 +20,7 @@ export async function registerEventRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { types, lastEventId } = request.query as z.infer<
-        typeof GlobalStreamQuerySchema
-      >
+      // No query parameters needed for simple streaming
 
       // Set SSE headers with CORS
       const origin = request.headers.origin
@@ -68,79 +62,22 @@ export async function registerEventRoutes(app: FastifyInstance) {
 
       // Create global connection
       const connectionId = randomUUID()
-      const filters = {
-        types: types as EventType[] | undefined,
-      }
 
       // Register connection with manager
-      sseManager.connectGlobal(connectionId, request, reply, filters)
+      sseManager.connectGlobal(connectionId, request, reply)
 
-      // Send existing events if reconnecting
-      if (lastEventId) {
-        // Get all tasks
-        const tasks = await taskService.listTasks()
-
-        // Find the offset based on lastEventId across all tasks
-        let foundLastEvent = false
-
-        for (const task of tasks) {
-          if (foundLastEvent) break
-
-          const events = await eventService.getEvents(task.taskId, undefined, 0, undefined, task)
-          for (let i = 0; i < events.length; i++) {
-            if (events[i].eventId === lastEventId) {
-              foundLastEvent = true
-
-              // Send remaining events from this task
-              for (let j = i + 1; j < events.length; j++) {
-                if (!filters.types || filters.types.includes(events[j].type)) {
-                  reply.raw.write(`${JSON.stringify(events[j])}\n`)
-                }
-              }
-              break
-            }
-          }
-        }
-
-        // Send events from tasks after the one containing lastEventId
-        if (foundLastEvent) {
-          const taskIndex = tasks.findIndex((t) => {
-            const events = eventService.getEvents(t.taskId, undefined, 0, undefined, t)
-            return events.then((evts) => evts.some((e) => e.eventId === lastEventId))
-          })
-
-          if (taskIndex !== -1 && taskIndex < tasks.length - 1) {
-            for (let i = taskIndex + 1; i < tasks.length; i++) {
-              const events = await eventService.getEvents(
-                tasks[i].taskId,
-                undefined,
-                0,
-                undefined,
-                tasks[i],
-              )
-              for (const event of events) {
-                if (!filters.types || filters.types.includes(event.type)) {
-                  reply.raw.write(`${JSON.stringify(event)}\n`)
-                }
-              }
-            }
-          }
-        }
-      }
+      // Only stream new events, no replay of existing events
 
       // Flush the initial data
       reply.raw.flushHeaders()
 
       // Subscribe to all task events
       const unsubscribe = eventService.subscribeAll((event) => {
-        // Apply filters
-        if (filters.types && !filters.types.includes(event.type)) {
-          return
-        }
-
-        // Send all events (no activeTasksOnly filtering)
+        // Send all events without any filtering
         try {
           reply.raw.write(`${JSON.stringify(event)}\n`)
+          // Increment event count for this connection
+          sseManager.incrementGlobalEventCount()
         } catch (error) {
           request.log.error('Failed to send global event over SSE', error)
         }
@@ -154,6 +91,7 @@ export async function registerEventRoutes(app: FastifyInstance) {
             type: 'ping',
             timestamp: new Date().toISOString(),
           }
+          logger.debug('Sending ping event', { pingEvent })
           reply.raw.write(`${JSON.stringify(pingEvent)}\n`)
         } catch (_error) {
           clearInterval(pingInterval)
@@ -170,86 +108,22 @@ export async function registerEventRoutes(app: FastifyInstance) {
     },
   )
 
-  // Get all events (non-streaming)
-  app.get(
-    '/',
-    {
-      schema: {
-        querystring: z.object({
-          limit: z.number().optional().default(100),
-          offset: z.number().optional().default(0),
-          type: z.string().optional(),
-          taskId: z.string().optional(),
-        }),
-      },
-    },
-    async (request, _reply) => {
-      const { limit, offset, type, taskId } = request.query as {
-        limit: number
-        offset: number
-        type?: string
-        taskId?: string
-      }
 
-      let allEvents: Event[] = []
-
-      if (taskId) {
-        // Get events for specific task
-        const task = await taskService.getTask(taskId)
-        if (task) {
-          allEvents = await eventService.getEvents(
-            taskId,
-            undefined,
-            0,
-            type as EventType | undefined,
-            task,
-          )
-        }
-      } else {
-        // Get events from all tasks
-        const tasks = await taskService.listTasks()
-
-        for (const task of tasks) {
-          const taskEvents = await eventService.getEvents(
-            task.taskId,
-            undefined,
-            0,
-            type as EventType | undefined,
-            task,
-          )
-          allEvents.push(...taskEvents)
-        }
-
-        // Sort by timestamp (newest first)
-        allEvents.sort((a, b) => {
-          const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0
-          const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0
-          return dateB - dateA
-        })
-      }
-
-      // Apply pagination
-      const paginatedEvents = allEvents.slice(offset, offset + limit)
-
-      const response: EventListResponse = {
-        events: paginatedEvents,
-        items: paginatedEvents,
-      }
-
-      return response
-    },
-  )
-
-  // Get global stream status
+  // Get global stream status with event counts
   app.get('/stream/status', async (_request, _reply) => {
-    const globalConnections = sseManager.getGlobalConnectionCount()
-    const taskConnections = sseManager.getAllTaskConnectionCounts()
+    const stats = sseManager.getAllConnectionStats()
 
     return {
-      globalConnections,
-      taskConnections,
-      totalConnections:
-        globalConnections + Object.values(taskConnections).reduce((a, b) => a + b, 0),
+      globalConnections: stats.global.connectionCount,
+      globalEventCount: stats.global.totalEvents,
+      taskConnections: Object.fromEntries(
+        Object.entries(stats.tasks).map(([taskId, details]) => [taskId, details.connectionCount])
+      ),
+      taskEventCounts: Object.fromEntries(
+        Object.entries(stats.tasks).map(([taskId, details]) => [taskId, details.totalEvents])
+      ),
+      totalConnections: stats.total.connectionCount,
+      totalEventCount: stats.total.totalEvents,
     }
   })
 }

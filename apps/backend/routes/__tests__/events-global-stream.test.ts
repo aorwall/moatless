@@ -13,6 +13,8 @@ vi.mock('../../utils/sse-manager', () => ({
     disconnectGlobal: vi.fn(),
     getGlobalConnectionCount: vi.fn(),
     getAllTaskConnectionCounts: vi.fn(),
+    incrementGlobalEventCount: vi.fn(),
+    getAllConnectionStats: vi.fn(),
   },
 }))
 
@@ -122,64 +124,25 @@ describe('Global Event Stream', () => {
         expect.any(String), // connectionId
         expect.any(Object), // request
         expect.any(Object), // reply
-        expect.objectContaining({
-          types: undefined,
-        }),
       )
     })
 
-    it.skip('should filter by event types when specified', async () => {
-      // Skip: app.inject() waits for response to complete, which never happens with SSE
-      await app.inject({
-        method: 'GET',
-        url: '/api/v1/events/stream?types=message,tool:start',
-      })
-
-      expect(sseManager.connectGlobal).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Object),
-        expect.any(Object),
-        expect.objectContaining({
-          types: ['message', 'tool:start'],
-        }),
-      )
-    })
 
     it.skip('should ignore unknown parameters', async () => {
       // Skip: app.inject() waits for response to complete, which never happens with SSE
-      // Test that unknown parameters are ignored (activeTasksOnly was removed)
+      // Test that unknown parameters are ignored
       await app.inject({
         method: 'GET',
-        url: '/api/v1/events/stream?activeTasksOnly=false&unknownParam=value',
+        url: '/api/v1/events/stream?unknownParam=value',
       })
 
       expect(sseManager.connectGlobal).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Object),
         expect.any(Object),
-        expect.objectContaining({
-          types: undefined,
-        }),
       )
     })
 
-    it.skip('should send existing events when reconnecting with lastEventId', async () => {
-      // Skip: app.inject() waits for response to complete, which never happens with SSE
-      mockEventService.getEvents.mockResolvedValueOnce(mockEvents)
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/events/stream?lastEventId=event-1',
-      })
-
-      expect(mockTaskService.listTasks).toHaveBeenCalled()
-      expect(mockEventService.getEvents).toHaveBeenCalled()
-
-      // Should contain events after the lastEventId
-      const responseText = response.payload
-      expect(responseText).toContain('event-2')
-      expect(responseText).not.toContain('event-1') // Should not include the lastEventId event
-    })
 
     it.skip('should subscribe to all events', async () => {
       // Skip: app.inject() waits for response to complete, which never happens with SSE
@@ -219,86 +182,17 @@ describe('Global Event Stream', () => {
     })
   })
 
-  describe('GET /api/v1/events', () => {
-    it('should return paginated events', async () => {
-      mockEventService.getEvents.mockResolvedValue(mockEvents)
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/events?limit=2&offset=0',
-      })
-
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.payload)
-      expect(body.events).toHaveLength(2)
-      expect(body.items).toHaveLength(2)
-    })
-
-    it('should filter events by type', async () => {
-      const messageEvents = mockEvents.filter((e) => e.type === EventType.MESSAGE)
-      mockEventService.getEvents.mockResolvedValue(messageEvents)
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/events?type=message',
-      })
-
-      expect(response.statusCode).toBe(200)
-      expect(mockEventService.getEvents).toHaveBeenCalledWith(
-        expect.any(String),
-        undefined,
-        0,
-        'message',
-        expect.any(Object),
-      )
-    })
-
-    it('should filter events by taskId', async () => {
-      const taskEvents = mockEvents.filter((e) => e.taskId === 'test-task-123')
-      mockEventService.getEvents.mockResolvedValue(taskEvents)
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/events?taskId=test-task-123',
-      })
-
-      expect(response.statusCode).toBe(200)
-      expect(mockTaskService.getTask).toHaveBeenCalledWith('test-task-123')
-      expect(mockEventService.getEvents).toHaveBeenCalledWith(
-        'test-task-123',
-        undefined,
-        0,
-        undefined,
-        mockTask,
-      )
-    })
-
-    it('should sort events by timestamp (newest first)', async () => {
-      mockEventService.getEvents.mockResolvedValue(mockEvents)
-      mockTaskService.listTasks.mockResolvedValue([mockTask])
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/events',
-      })
-
-      const body = JSON.parse(response.payload)
-      const timestamps = body.events.map((e: Event) => new Date(e.timestamp!).getTime())
-
-      // Verify descending order
-      for (let i = 1; i < timestamps.length; i++) {
-        expect(timestamps[i - 1]).toBeGreaterThanOrEqual(timestamps[i])
-      }
-    })
-  })
 
   describe('GET /api/v1/events/stream/status', () => {
-    it('should return connection statistics', async () => {
-      vi.mocked(sseManager.getGlobalConnectionCount).mockReturnValue(5)
-      vi.mocked(sseManager.getAllTaskConnectionCounts).mockReturnValue({
-        'task-1': 2,
-        'task-2': 3,
-        'task-3': 1,
+    it('should return connection statistics with event counts', async () => {
+      vi.mocked(sseManager.getAllConnectionStats).mockReturnValue({
+        global: { connectionCount: 5, totalEvents: 150 },
+        tasks: {
+          'task-1': { connectionCount: 2, totalEvents: 50 },
+          'task-2': { connectionCount: 3, totalEvents: 75 },
+          'task-3': { connectionCount: 1, totalEvents: 25 },
+        },
+        total: { connectionCount: 11, totalEvents: 300 },
       })
 
       const response = await app.inject({
@@ -310,78 +204,23 @@ describe('Global Event Stream', () => {
       const body = JSON.parse(response.payload)
       expect(body).toEqual({
         globalConnections: 5,
+        globalEventCount: 150,
         taskConnections: {
           'task-1': 2,
           'task-2': 3,
           'task-3': 1,
         },
-        totalConnections: 11, // 5 + 2 + 3 + 1
+        taskEventCounts: {
+          'task-1': 50,
+          'task-2': 75,
+          'task-3': 25,
+        },
+        totalConnections: 11,
+        totalEventCount: 300,
       })
     })
   })
 
-  describe('Event filtering in stream', () => {
-    it.skip('should filter events by type in real-time', async () => {
-      // Skip: Complex SSE testing with app.inject
-      let eventHandler: ((event: Event) => void) | undefined
-      const responseChunks: string[] = []
-
-      mockEventService.subscribeAll.mockImplementation((handler: (event: Event) => void) => {
-        eventHandler = handler
-        return () => {}
-      })
-
-      // Mock reply.raw.write to capture output
-      vi.fn((chunk: string) => {
-        responseChunks.push(chunk)
-      })
-
-      // Override app.inject to provide custom reply mock
-      const originalInject = app.inject.bind(app)
-      // @ts-expect-error - Overriding inject for testing
-      app.inject = async (opts: any) => {
-        const response = await originalInject(opts)
-        // Intercept the handler registration
-        if (opts.url.includes('/api/v1/events/stream?types=message')) {
-          // Simulate event emission
-          const messageEvent: Event = {
-            eventId: 'test-event',
-            taskId: 'test-task',
-            type: EventType.MESSAGE,
-            timestamp: new Date(),
-            agentType: 'test-agent',
-            isError: false,
-            payload: { content: 'Test' },
-          }
-          const toolEvent: Event = {
-            eventId: 'test-event-2',
-            taskId: 'test-task',
-            type: EventType.TOOL,
-            subType: 'start',
-            timestamp: new Date(),
-            agentType: 'test-agent',
-            isError: false,
-            payload: { tool: 'test' },
-          }
-
-          // The handler should be registered by now
-          if (eventHandler) {
-            // Only message event should be written
-            eventHandler(messageEvent)
-            eventHandler(toolEvent)
-          }
-        }
-        return response
-      }
-
-      await app.inject({
-        method: 'GET',
-        url: '/api/v1/events/stream?types=message',
-      })
-
-      expect(eventHandler).toBeDefined()
-    })
-  })
 })
 
 describe('Event Service Global Channel Integration', () => {
@@ -398,7 +237,8 @@ describe('Event Service Global Channel Integration', () => {
   })
 
   it('should emit events to both task-specific and global channels', async () => {
-    const emitSpy = vi.spyOn(eventService, 'emit')
+    // Spy on the EventEmitter's emit method via the prototype
+    const emitSpy = vi.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(eventService)), 'emit')
 
     const testEvent: Event = {
       eventId: 'test-123',
