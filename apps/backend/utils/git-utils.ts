@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { GitStatus } from '@moatless/shared/types/api'
+import { logger } from './logger.js'
 
 const execAsync = promisify(exec)
 
@@ -51,6 +52,14 @@ export async function hasUncommittedChanges(repoPath: string): Promise<boolean> 
 export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Promise<void> {
   try {
     const base = baseBranch || (await detectBaseBranch(repoPath))
+    const currentBranch = await getCurrentBranch(repoPath)
+    
+    // If we're on the base branch, just log and skip
+    if (currentBranch === base) {
+      logger.info(`Skipping fetch: currently on ${base} branch`, { repoPath, branch: base })
+      return
+    }
+    
     // Fetch the latest changes from origin for the base branch
     await execAsync(`git fetch origin ${base}:${base}`, {
       cwd: repoPath,
@@ -58,7 +67,7 @@ export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Pr
     })
   } catch (error) {
     // Log the error but continue - fetch failure is not critical
-    console.error(`Failed to fetch ${baseBranch || 'main'} branch:`, error instanceof Error ? error.message : String(error))
+    logger.warn(`Failed to fetch ${baseBranch || 'main'} branch: ${error instanceof Error ? error.message : String(error)}`, { repoPath, baseBranch })
   }
 }
 
