@@ -1,6 +1,5 @@
 import type { Task } from '@moatless/shared/types/task'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
@@ -30,7 +29,7 @@ vi.mock('../../services/agents/claude-code-agent.js', () => {
 })
 
 describe('Workspace Endpoints', () => {
-  let app: FastifyInstance
+  let app: Awaited<ReturnType<typeof build>>
   const taskId = 'test-task-123'
 
   const mockTask: Task = {
@@ -92,19 +91,18 @@ describe('Workspace Endpoints', () => {
   })
 
   afterEach(async () => {
-    await app.close()
+    // Hono doesn't need cleanup
     vi.restoreAllMocks()
   })
 
   describe('GET /:taskId/workspace-status', () => {
     it('should return workspace status', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/workspace-status`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/workspace-status`,
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const status = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const status = await response.json() as any
       expect(status).toEqual({
         status: 'idle',
         hasUncommittedChanges: false,
@@ -116,13 +114,12 @@ describe('Workspace Endpoints', () => {
       // Mock task service to return null for non-existent task
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/non-existent/workspace-status', {
         method: 'GET',
-        url: '/api/v1/tasks/non-existent/workspace-status',
-      })
+      }))
 
-      expect(response.statusCode).toBe(404)
-      const error = JSON.parse(response.payload)
+      expect(response.status).toBe(404)
+      const error = await response.json() as any
       // Check the actual error format - may be nested under 'error' property
       const errorMessage = error.error?.message || error.message || error.error
       expect(errorMessage).toBe('Task non-existent not found')
@@ -131,13 +128,12 @@ describe('Workspace Endpoints', () => {
 
   describe('GET /:taskId/files', () => {
     it('should list files in workspace', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/files`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/files`,
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const result = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const result = await response.json() as any
       expect(result).toEqual({
         files: ['file1.ts', 'file2.ts'],
         totalCount: 2,
@@ -145,16 +141,11 @@ describe('Workspace Endpoints', () => {
     })
 
     it('should list files with path and recursive params', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/files?path=src&recursive=true`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/files`,
-        query: {
-          path: 'src',
-          recursive: 'true',
-        },
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
+      expect(response.status).toBe(200)
       expect(app.services.workspace.listFiles).toHaveBeenCalledWith(taskId, 'src', true)
     })
 
@@ -165,13 +156,12 @@ describe('Workspace Endpoints', () => {
         backgroundTaskCount: 0,
       })
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/files`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/files`,
-      })
+      }))
 
-      expect(response.statusCode).toBe(400)
-      const error = JSON.parse(response.payload)
+      expect(response.status).toBe(400)
+      const error = await response.json() as any
       const errorMessage = error.error?.message || error.message || error.error
       expect(errorMessage).toContain('Workspace not created')
     })
@@ -179,13 +169,12 @@ describe('Workspace Endpoints', () => {
 
   describe('GET /:taskId/files/:filePath', () => {
     it('should read file content', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/files/src/test.ts`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/files/src/test.ts`,
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const result = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const result = await response.json() as any
       expect(result).toEqual({
         content: 'console.log("test");',
         encoding: 'utf-8',
@@ -195,27 +184,28 @@ describe('Workspace Endpoints', () => {
     it('should handle file not found', async () => {
       vi.mocked(app.services.workspace.readFile).mockRejectedValueOnce(new Error('File not found'))
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/files/non-existent.ts`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/files/non-existent.ts`,
-      })
+      }))
 
-      expect(response.statusCode).toBe(500)
+      expect(response.status).toBe(500)
     })
   })
 
   describe('PUT /:taskId/files/:filePath', () => {
     it('should write file content', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/files/src/new.ts`, {
         method: 'PUT',
-        url: `/api/v1/tasks/${taskId}/files/src/new.ts`,
-        payload: {
-          content: 'export const test = 123;',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      })
+        body: JSON.stringify({
+          content: 'export const test = 123;',
+        }),
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const result = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const result = await response.json() as any
       expect(result).toEqual({ success: true })
       expect(app.services.workspace.writeFile).toHaveBeenCalledWith(
         taskId,
@@ -227,17 +217,19 @@ describe('Workspace Endpoints', () => {
 
   describe('POST /:taskId/search-files', () => {
     it('should search files by pattern', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/search-files`, {
         method: 'POST',
-        url: `/api/v1/tasks/${taskId}/search-files`,
-        payload: {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           query: 'console.log',
           limit: 50,
-        },
-      })
+        }),
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const result = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const result = await response.json() as any
       expect(result).toEqual({
         results: [{ path: 'file1.ts', absolutePath: '/tmp/test-repo/file1.ts', score: 1 }],
         totalFound: 1,
@@ -248,13 +240,12 @@ describe('Workspace Endpoints', () => {
 
   describe('GET /:taskId/git-diff', () => {
     it('should return git diff', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/git-diff`, {
         method: 'GET',
-        url: `/api/v1/tasks/${taskId}/git-diff`,
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const result = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const result = await response.json() as any
       expect(result).toEqual({
         diff: 'diff --git a/file1.ts b/file1.ts',
         files: [],
@@ -265,17 +256,19 @@ describe('Workspace Endpoints', () => {
 
   describe('POST /:taskId/execute', () => {
     it('should execute command in workspace', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/execute`, {
         method: 'POST',
-        url: `/api/v1/tasks/${taskId}/execute`,
-        payload: {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           command: 'echo test',
           timeout: 5000,
-        },
-      })
+        }),
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const result = JSON.parse(response.payload)
+      expect(response.status).toBe(200)
+      const result = await response.json() as any
       expect(result).toEqual({
         command: 'echo test',
         output: 'test',
@@ -291,16 +284,18 @@ describe('Workspace Endpoints', () => {
         backgroundTaskCount: 0,
       })
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/execute`, {
         method: 'POST',
-        url: `/api/v1/tasks/${taskId}/execute`,
-        payload: {
-          command: 'echo test',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      })
+        body: JSON.stringify({
+          command: 'echo test',
+        }),
+      }))
 
-      expect(response.statusCode).toBe(400)
-      const error = JSON.parse(response.payload)
+      expect(response.status).toBe(400)
+      const error = await response.json() as any
       const errorMessage = error.error?.message || error.message || error.error
       expect(errorMessage).toContain('Cannot execute command: workspace is running')
     })
@@ -309,16 +304,18 @@ describe('Workspace Endpoints', () => {
   describe('Server Management', () => {
     describe('POST /:taskId/server/start', () => {
       it('should start development server', async () => {
-        const response = await app.inject({
+        const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/server/start`, {
           method: 'POST',
-          url: `/api/v1/tasks/${taskId}/server/start`,
-          payload: {
-            port: 3000,
+          headers: {
+            'Content-Type': 'application/json',
           },
-        })
+          body: JSON.stringify({
+            port: 3000,
+          }),
+        }))
 
-        expect(response.statusCode).toBe(200)
-        const result = JSON.parse(response.payload)
+        expect(response.status).toBe(200)
+        const result = await response.json() as any
         expect(result).toMatchObject({
           running: true,
           port: 3000,
@@ -329,13 +326,12 @@ describe('Workspace Endpoints', () => {
 
     describe('POST /:taskId/server/stop', () => {
       it('should stop development server', async () => {
-        const response = await app.inject({
+        const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/server/stop`, {
           method: 'POST',
-          url: `/api/v1/tasks/${taskId}/server/stop`,
-        })
+        }))
 
-        expect(response.statusCode).toBe(200)
-        const result = JSON.parse(response.payload)
+        expect(response.status).toBe(200)
+        const result = await response.json() as any
         expect(result).toMatchObject({
           stopped: true,
           runtime: 0,
@@ -345,13 +341,12 @@ describe('Workspace Endpoints', () => {
 
     describe('GET /:taskId/server/status', () => {
       it('should return server status', async () => {
-        const response = await app.inject({
+        const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/server/status`, {
           method: 'GET',
-          url: `/api/v1/tasks/${taskId}/server/status`,
-        })
+        }))
 
-        expect(response.statusCode).toBe(200)
-        const result = JSON.parse(response.payload)
+        expect(response.status).toBe(200)
+        const result = await response.json() as any
         expect(result).toEqual({
           running: false,
           configured: true,
@@ -362,16 +357,12 @@ describe('Workspace Endpoints', () => {
 
     describe('GET /:taskId/server/logs', () => {
       it('should return server logs', async () => {
-        const response = await app.inject({
+        const response = await app.fetch(new Request(`http://localhost/api/v1/tasks/${taskId}/server/logs?lines=50`, {
           method: 'GET',
-          url: `/api/v1/tasks/${taskId}/server/logs`,
-          query: {
-            lines: '50',
-          },
-        })
+        }))
 
-        expect(response.statusCode).toBe(200)
-        const result = JSON.parse(response.payload)
+        expect(response.status).toBe(200)
+        const result = await response.json() as any
         expect(result).toMatchObject({
           logs: 'Server logs...',
           lines: 1,

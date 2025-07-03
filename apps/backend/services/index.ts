@@ -1,4 +1,3 @@
-import type { FastifyInstance } from 'fastify'
 import { type AgentService, createAgentService } from './agent.service.js'
 import { type CommandService, createCommandService } from './command.service.js'
 import { createEventService, type EventService } from './event.service.js'
@@ -22,20 +21,20 @@ export interface Services {
   task: TaskService
 }
 
-export async function setupServices(app: FastifyInstance): Promise<Services> {
+export async function setupServices(): Promise<Services> {
   // Create services with dependency injection
-  const storage = await createStorageService(app)
-  const event = createEventService(app, storage)
-  const repository = createRepositoryService(app, storage)
-  const command = createCommandService(app, storage)
-  const workspace = createWorkspaceService(app, repository, event, storage)
-  const previewEnvironment = createPreviewEnvironmentService(app, storage, workspace)
+  const storage = await createStorageService()
+  const event = createEventService(storage)
+  const repository = createRepositoryService(storage)
+  const command = createCommandService(storage)
+  const workspace = createWorkspaceService(repository, event, storage)
+  const previewEnvironment = createPreviewEnvironmentService(storage, workspace)
 
   // Set preview environment service on workspace service
   workspace.setPreviewEnvironmentService(previewEnvironment)
 
-  const agent = createAgentService(app, storage, event, workspace)
-  const task = createTaskService(app, storage, event, workspace, agent, command)
+  const agent = createAgentService(storage, event, workspace)
+  const task = createTaskService(storage, event, workspace, agent, command)
 
   return {
     storage,
@@ -46,13 +45,6 @@ export async function setupServices(app: FastifyInstance): Promise<Services> {
     previewEnvironment,
     agent,
     task,
-  }
-}
-
-// Augment Fastify instance with services
-declare module 'fastify' {
-  interface FastifyInstance {
-    services: Services
   }
 }
 

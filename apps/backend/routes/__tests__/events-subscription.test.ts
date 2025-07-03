@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { FastifyInstance } from 'fastify'
 import { EventType } from '@moatless/shared/types/event'
 import { build } from '../../test/helper.js'
 
@@ -10,14 +9,13 @@ import { build } from '../../test/helper.js'
  * for Server-Sent Events (SSE) streaming.
  */
 describe('SSE Event Subscription', () => {
-  let app: FastifyInstance
+  let app: any
 
   beforeEach(async () => {
     app = await build()
   })
 
   afterEach(async () => {
-    await app.close()
   })
 
   it('should emit and receive events through subscribeAll', async () => {
@@ -27,7 +25,7 @@ describe('SSE Event Subscription', () => {
     const receivedEvents: any[] = []
     
     // Subscribe using subscribeAll for global event stream
-    const unsubscribe = eventService.subscribeAll((event) => {
+    const unsubscribe = eventService.subscribeAll((event: any) => {
       receivedEvents.push(event)
     })
     
@@ -63,13 +61,13 @@ describe('SSE Event Subscription', () => {
     
     // Track events for specific task
     const taskEvents: any[] = []
-    const unsubscribeTask = eventService.subscribe(taskId, (event) => {
+    const unsubscribeTask = eventService.subscribe(taskId, (event: any) => {
       taskEvents.push(event)
     })
     
     // Track all events
     const allEvents: any[] = []
-    const unsubscribeAll = eventService.subscribeAll((event) => {
+    const unsubscribeAll = eventService.subscribeAll((event: any) => {
       allEvents.push(event)
     })
     

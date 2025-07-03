@@ -1,23 +1,16 @@
-import type { FastifyInstance } from 'fastify'
+import type { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
+import type { AppBindings } from '../app.js'
 import { TaskNotFoundError, WorkspaceError } from '@moatless/shared/constants/errors'
 import {
   CreateTaskRequestSchema,
-  DeleteTaskResponseSchema,
   type EventListResponse,
   SendMessageRequestSchema,
-  SendMessageResponseSchema,
-  SimpleTaskResponseSchema,
-  StopAgentResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
 } from '@moatless/shared/types/api'
 import type { EventType } from '@moatless/shared/types/event'
-
-// Schema for URL params
-const TaskIdParamsSchema = z.object({
-  taskId: z.string(),
-})
 
 // Schema for query params
 const EventTypeQuerySchema = z.object({
@@ -31,11 +24,6 @@ const FileQuerySchema = z.object({
 
 const FileContentSchema = z.object({
   content: z.string(),
-})
-
-const TaskFileParamsSchema = z.object({
-  taskId: z.string(),
-  '*': z.string(),
 })
 
 const FileSearchSchema = z.object({
@@ -58,650 +46,556 @@ const MergeTaskSchema = z.object({
 })
 
 
-// Response schema for merge endpoint
-const MergeResponseSchema = z.object({
-  success: z.boolean(),
-  mergeCommit: z.string(),
-  sourceBranch: z.string(),
-  targetBranch: z.string(),
-})
-
-export async function registerTaskRoutes(app: FastifyInstance) {
-  const { task: taskService, event: eventService } = app.services
+export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string) {
 
   // Create a new task
-  app.post(
-    '/',
-    {
-      schema: {
-        body: CreateTaskRequestSchema,
-        response: {
-          200: SimpleTaskResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { model, filePaths, ...taskData } = request.body as z.infer<
-        typeof CreateTaskRequestSchema
-      >
-      const taskId = await taskService.createTask({ ...taskData, model, filePaths })
+  app.post(prefix, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const body = await c.req.json()
+    const validatedBody = CreateTaskRequestSchema.parse(body)
+    const { model, filePaths, ...taskData } = validatedBody
+    
+    const taskId = await taskService.createTask({ ...taskData, model, filePaths })
 
-      // Get the task to return the current status
-      const task = await taskService.getTask(taskId)
-      return { taskId, status: task?.status || 'open' }
-    },
-  )
+    // Get the task to return the current status
+    const task = await taskService.getTask(taskId)
+    return c.json({ taskId, status: task?.status || 'open' })
+  })
 
   // Get task by ID
-  app.get(
-    '/:taskId',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const task = await taskService.getTask(taskId)
+  app.get(`${prefix}/:taskId`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const task = await taskService.getTask(taskId)
 
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
 
-      return task
-    },
-  )
+    return c.json(task)
+  })
 
   // List all tasks with pagination
-  app.get(
-    '/',
-    {
-      schema: {
-        querystring: TaskListQuerySchema,
-      },
-    },
-    async (request, _reply) => {
-      const { limit, offset, status } = request.query as z.infer<typeof TaskListQuerySchema>
-      const tasks = await taskService.listTasks(limit, offset, status)
+  app.get(prefix, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const queryParams = c.req.query()
+    const validatedQuery = TaskListQuerySchema.parse(queryParams)
+    const { limit, offset, status } = validatedQuery
+    
+    const tasks = await taskService.listTasks(limit, offset, status)
 
-      const response: TaskListResponse = {
-        tasks: tasks,
-        items: tasks,
-        pagination: {
-          limit,
-          offset,
-          total: tasks.length, // Note: This is simplified, real implementation would need total count
-        },
-      }
-      return response
-    },
-  )
+    const response: TaskListResponse = {
+      tasks: tasks,
+      items: tasks,
+      pagination: {
+        limit,
+        offset,
+        total: tasks.length, // Note: This is simplified, real implementation would need total count
+      },
+    }
+    return c.json(response)
+  })
 
   // Send message to task
-  app.post(
-    '/:taskId/messages',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        body: SendMessageRequestSchema,
-        response: {
-          200: SendMessageResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { message, resume, model, fileIds, filePaths, commandName } = request.body as z.infer<
-        typeof SendMessageRequestSchema
-      >
+  app.post(`${prefix}/:taskId/messages`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const body = await c.req.json()
+    const validatedBody = SendMessageRequestSchema.parse(body)
+    const { message, resume, model, fileIds, filePaths, commandName } = validatedBody
 
-      await taskService.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName)
-      return { status: 'sent', timestamp: new Date().toISOString() }
-    },
-  )
+    await taskService.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName)
+    return c.json({ status: 'sent', timestamp: new Date().toISOString() })
+  })
 
   // Get task events without pagination
-  app.get(
-    '/:taskId/events',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        querystring: z.object({
-          type: z.string().optional(),
-        }),
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { type } = request.query as z.infer<typeof EventTypeQuerySchema>
+  app.get(`${prefix}/:taskId/events`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService, event: eventService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const queryParams = c.req.query()
+    const validatedQuery = EventTypeQuerySchema.parse(queryParams)
+    const { type } = validatedQuery
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
+    // Verify task exists
+    const task = await taskService.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
 
-      const events = await eventService.getEvents(
-        taskId,
-        undefined, // no limit
-        0, // offset 0
-        type as EventType | undefined,
-        task,
-      )
+    const events = await eventService.getEvents(
+      taskId,
+      undefined, // no limit
+      0, // offset 0
+      type as EventType | undefined,
+      task,
+    )
 
-      const response: EventListResponse = {
-        events,
-        items: events,
-      }
-      return response
-    },
-  )
+    const response: EventListResponse = {
+      events,
+      items: events,
+    }
+    return c.json(response)
+  })
 
   // Delete task
-  app.delete(
-    '/:taskId',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        response: {
-          200: DeleteTaskResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.delete(`${prefix}/:taskId`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      await taskService.deleteTask(taskId)
-      return { status: 'deleted' }
-    },
-  )
+    await taskService.deleteTask(taskId)
+    return c.json({ status: 'deleted' })
+  })
 
   // Get workspace status
-  app.get(
-    '/:taskId/workspace-status',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.get(`${prefix}/:taskId/workspace-status`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      // Task validation now handled in workspace service
-      const workspaceStatus = await app.services.workspace.getWorkspaceStatus(taskId)
-      return workspaceStatus
-    },
-  )
+    // Task validation now handled in workspace service
+    const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
+    return c.json(workspaceStatus as any)
+  })
 
   // Stop agent
-  app.post(
-    '/:taskId/stop',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        response: {
-          200: StopAgentResponseSchema,
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.post(`${prefix}/:taskId/stop`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      // Stop agent through AgentService
-      const stopped = await app.services.agent.stopAgent(taskId)
+    // Stop agent through AgentService
+    const stopped = await services.agent.stopAgent(taskId)
 
-      return {
-        status: stopped ? 'stopped' : 'not_running',
-        taskId,
-      }
-    },
-  )
+    return c.json({
+      status: stopped ? 'stopped' : 'not_running',
+      taskId,
+    })
+  })
 
   // Close task (teardown workspace, stop server, set status to closed)
-  app.post(
-    '/:taskId/close',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        response: {
-          200: z.object({
-            status: z.literal('closed'),
-            taskId: z.string(),
-          }),
-        },
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.post(`${prefix}/:taskId/close`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      await taskService.closeTask(taskId)
+    await taskService.closeTask(taskId)
 
-      return {
-        status: 'closed',
-        taskId,
-      }
-    },
-  )
+    return c.json({
+      status: 'closed',
+      taskId,
+    })
+  })
 
   // List files in workspace
-  app.get(
-    '/:taskId/files',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        querystring: z.object({
-          path: z.string().optional(),
-          recursive: z.coerce.boolean().optional(),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { path = '/', recursive = false } = request.query as z.infer<typeof FileQuerySchema>
+  app.get(`${prefix}/:taskId/files`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const queryParams = c.req.query()
+    const validatedQuery = FileQuerySchema.parse(queryParams)
+    const { path = '/', recursive = false } = validatedQuery
 
-      try {
-        // Task validation and capability check now handled in workspace service
-        const files = await app.services.workspace.listFiles(taskId, path, recursive)
-        return { files, totalCount: files.length }
-      } catch (error) {
-        if (error instanceof TaskNotFoundError) {
-          return reply.status(404).send({ error: 'Task not found' })
-        }
-        if (error instanceof Error && error.message.includes('Path not found')) {
-          return reply.status(404).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Access denied')) {
-          return reply.status(403).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Cannot list files')) {
-          return reply.status(403).send({ error: error.message })
-        }
-        throw error
+    try {
+      // Task validation and capability check now handled in workspace service
+      const files = await services.workspace.listFiles(taskId, path, recursive)
+      return c.json({ files, totalCount: files.length })
+    } catch (error) {
+      if (error instanceof TaskNotFoundError) {
+        throw new HTTPException(404, { message: 'Task not found' })
       }
-    },
-  )
+      if (error instanceof Error && error.message.includes('Path not found')) {
+        throw new HTTPException(404, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Access denied')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Cannot list files')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      throw error
+    }
+  })
 
   // Read file content
-  app.get(
-    '/:taskId/files/*',
-    {
-      schema: {
-        params: z.object({
-          taskId: z.string(),
-          '*': z.string(),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { '*': filePath } = request.params as z.infer<typeof TaskFileParamsSchema>
+  app.get(`${prefix}/:taskId/files/*`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    // Get the wildcard portion of the path
+    const path = c.req.path
+    const basePattern = `${prefix}/${taskId}/files/`
+    const filePath = path.replace(basePattern, '')
 
-      if (!filePath) {
-        return reply.status(400).send({ error: 'File path is required' })
-      }
+    if (!filePath) {
+      throw new HTTPException(400, { message: 'File path is required' })
+    }
 
-      try {
-        // Task validation and capability check now handled in workspace service
-        const content = await app.services.workspace.readFile(taskId, filePath)
-        return { content, encoding: 'utf-8' }
-      } catch (error) {
-        if (error instanceof TaskNotFoundError) {
-          return reply.status(404).send({ error: 'Task not found' })
-        }
-        if (error instanceof Error && error.message.includes('File not found')) {
-          return reply.status(404).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Access denied')) {
-          return reply.status(403).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('File too large')) {
-          return reply.status(413).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Path is not a file')) {
-          return reply.status(400).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Cannot read file')) {
-          return reply.status(403).send({ error: error.message })
-        }
-        throw error
+    try {
+      // Task validation and capability check now handled in workspace service
+      const content = await services.workspace.readFile(taskId, filePath)
+      return c.json({ content, encoding: 'utf-8' })
+    } catch (error) {
+      if (error instanceof TaskNotFoundError) {
+        throw new HTTPException(404, { message: 'Task not found' })
       }
-    },
-  )
+      if (error instanceof Error && error.message.includes('File not found')) {
+        throw new HTTPException(404, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Access denied')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('File too large')) {
+        throw new HTTPException(413, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Path is not a file')) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Cannot read file')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      throw error
+    }
+  })
 
   // Write file content
-  app.put(
-    '/:taskId/files/*',
-    {
-      schema: {
-        params: z.object({
-          taskId: z.string(),
-          '*': z.string(),
-        }),
-        body: z.object({
-          content: z.string(),
-        }),
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { '*': filePath } = request.params as z.infer<typeof TaskFileParamsSchema>
-      const { content } = request.body as z.infer<typeof FileContentSchema>
+  app.put(`${prefix}/:taskId/files/*`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    // Get the wildcard portion of the path
+    const path = c.req.path
+    const basePattern = `${prefix}/${taskId}/files/`
+    const filePath = path.replace(basePattern, '')
+    
+    if (!filePath) {
+      throw new HTTPException(400, { message: 'File path is required' })
+    }
+    
+    const body = await c.req.json()
+    const validatedBody = FileContentSchema.parse(body)
+    const { content } = validatedBody
 
-      // Task validation and capability check now handled in workspace service
-      await app.services.workspace.writeFile(taskId, filePath, content)
-      return { success: true }
-    },
-  )
+    // Task validation and capability check now handled in workspace service
+    await services.workspace.writeFile(taskId, filePath, content)
+    return c.json({ success: true })
+  })
 
   // Search files by filename/path
-  app.post(
-    '/:taskId/search-files',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        body: z.object({
-          query: z.string(),
-          limit: z.number().optional(),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { query, limit } = request.body as z.infer<typeof FileSearchSchema>
+  app.post(`${prefix}/:taskId/search-files`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const body = await c.req.json()
+    const validatedBody = FileSearchSchema.parse(body)
+    const { query, limit } = validatedBody
 
-      try {
-        // Task validation and capability check now handled in workspace service
-        const result = await app.services.workspace.searchFiles(taskId, {
-          query,
-          limit,
-        })
-        return result
-      } catch (error) {
-        if (error instanceof TaskNotFoundError) {
-          return reply.status(404).send({ error: 'Task not found' })
-        }
-        if (error instanceof Error && error.message.includes('Cannot search files')) {
-          return reply.status(403).send({ error: error.message })
-        }
-        throw error
+    try {
+      // Task validation and capability check now handled in workspace service
+      const result = await services.workspace.searchFiles(taskId, {
+        query,
+        limit,
+      })
+      return c.json(result)
+    } catch (error) {
+      if (error instanceof TaskNotFoundError) {
+        throw new HTTPException(404, { message: 'Task not found' })
       }
-    },
-  )
+      if (error instanceof Error && error.message.includes('Cannot search files')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      throw error
+    }
+  })
 
   // Get git diff for workspace
-  app.get(
-    '/:taskId/git-diff',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.get(`${prefix}/:taskId/git-diff`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      try {
-        // Task validation and capability check now handled in workspace service
-        const diff = await app.services.workspace.getGitDiff(taskId)
-        return {
-          diff,
-          files: [], // TODO: Parse diff to extract file list
-          hasChanges: (diff as string).length > 0,
-        }
-      } catch (error) {
-        if (error instanceof TaskNotFoundError) {
-          return reply.status(404).send({ error: 'Task not found' })
-        }
-        if (error instanceof WorkspaceError) {
-          return reply.status(error.statusCode).send({ error: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Cannot access git')) {
-          return reply.status(403).send({ error: error.message })
-        }
-        throw error
+    try {
+      // Task validation and capability check now handled in workspace service
+      const diff = await services.workspace.getGitDiff(taskId)
+      return c.json({
+        diff,
+        files: [], // TODO: Parse diff to extract file list
+        hasChanges: (diff as string).length > 0,
+      })
+    } catch (error) {
+      if (error instanceof TaskNotFoundError) {
+        throw new HTTPException(404, { message: 'Task not found' })
       }
-    },
-  )
+      if (error instanceof WorkspaceError) {
+        throw new HTTPException(error.statusCode as any, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Cannot access git')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      throw error
+    }
+  })
 
   // Execute command in workspace
-  app.post(
-    '/:taskId/execute',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        body: z.object({
-          command: z.string(),
-          timeout: z.number().optional(),
-          env: z.record(z.string()).optional(),
-        }),
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { command, timeout } = request.body as z.infer<typeof CommandExecutionSchema>
+  app.post(`${prefix}/:taskId/execute`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const body = await c.req.json()
+    const validatedBody = CommandExecutionSchema.parse(body)
+    const { command, timeout } = validatedBody
 
-      // Task validation and capability check now handled in workspace service
-      const result = await app.services.workspace.runCommand(taskId, command, timeout)
-      return result
-    },
-  )
+    // Task validation and capability check now handled in workspace service
+    const result = await services.workspace.runCommand(taskId, command, timeout)
+    return c.json(result)
+  })
 
   // Start development server
-  app.post(
-    '/:taskId/server/start',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.post(`${prefix}/:taskId/server/start`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      // Task validation and capability check now handled in workspace service
-      const result = await app.services.workspace.startServer(taskId)
-      return result
-    },
-  )
+    // Task validation and capability check now handled in workspace service
+    const result = await services.workspace.startServer(taskId)
+    return c.json(result as any)
+  })
 
   // Stop development server
-  app.post(
-    '/:taskId/server/stop',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.post(`${prefix}/:taskId/server/stop`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      // Task validation and capability check now handled in workspace service
-      const stopped = await app.services.workspace.stopServer(taskId)
-      return {
-        stopped,
-        runtime: 0, // TODO: Calculate actual runtime
-      }
-    },
-  )
+    // Task validation and capability check now handled in workspace service
+    const stopped = await services.workspace.stopServer(taskId)
+    return c.json({
+      stopped,
+      runtime: 0, // TODO: Calculate actual runtime
+    })
+  })
 
   // Restart development server
-  app.post(
-    '/:taskId/server/restart',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
+  app.post(`${prefix}/:taskId/server/restart`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
 
-      // Task validation and capability check now handled in workspace service
-      const result = await app.services.workspace.restartServer(taskId)
-      return result
-    },
-  )
+    // Task validation and capability check now handled in workspace service
+    const result = await services.workspace.restartServer(taskId)
+    return c.json(result as any)
+  })
 
   // Get server status
-  app.get(
-    '/:taskId/server/status',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      // Task validation and capability check now handled in workspace service
-      return await app.services.workspace.getServerStatus(taskId)
-    },
-  )
+  app.get(`${prefix}/:taskId/server/status`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    // Task validation and capability check now handled in workspace service
+    const status = await services.workspace.getServerStatus(taskId)
+    return c.json(status as any)
+  })
 
   // Get server logs
-  app.get(
-    '/:taskId/server/logs',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        querystring: z.object({
-          lines: z.coerce.number().optional().default(100),
-          follow: z.coerce.boolean().optional().default(false),
-        }),
-      },
-    },
-    async (request, _reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const { lines } = request.query as z.infer<typeof ServerLogsQuerySchema>
+  app.get(`${prefix}/:taskId/server/logs`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const queryParams = c.req.query()
+    const validatedQuery = ServerLogsQuerySchema.parse(queryParams)
+    const { lines } = validatedQuery
 
-      // Task validation and capability check now handled in workspace service
-      const logs = await app.services.workspace.getServerLogs(taskId, lines)
-      return {
-        logs,
-        lines: logs.split('\n').length,
-        truncated: false, // TODO: Implement truncation logic
-      }
-    },
-  )
+    // Task validation and capability check now handled in workspace service
+    const logs = await services.workspace.getServerLogs(taskId, lines)
+    return c.json({
+      logs,
+      lines: logs.split('\n').length,
+      truncated: false, // TODO: Implement truncation logic
+    })
+  })
 
   // Merge task changes
-  app.post(
-    '/:taskId/merge',
-    {
-      schema: {
-        params: TaskIdParamsSchema,
-        body: z
-          .object({
-            targetBranch: z.string().optional(),
-            commitMessage: z.string().optional(),
-          })
-          .nullable()
-          .optional(),
-        response: {
-          200: MergeResponseSchema,
-          400: z.object({
-            statusCode: z.literal(400),
-            error: z.string(),
-            message: z.string(),
-          }),
-        },
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as z.infer<typeof TaskIdParamsSchema>
-      const body = request.body || {}
-      const { targetBranch = 'main', commitMessage } = body as z.infer<typeof MergeTaskSchema>
+  app.post(`${prefix}/:taskId/merge`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    let body: any = {}
+    try {
+      body = await c.req.json()
+    } catch {
+      // Body is optional for this endpoint
+    }
+    const validatedBody = MergeTaskSchema.parse(body || {})
+    const { targetBranch = 'main', commitMessage } = validatedBody
 
-      // Import git utils
-      const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch, checkForConflicts } =
-        await import('../utils/git-utils.js')
+    // Import git utils
+    const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch, checkForConflicts } =
+      await import('../utils/git-utils.js')
 
-      // Get task to verify it exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
+    // Get task to verify it exists
+    const task = await taskService.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
 
-      // Get workspace through workspace service
-      const workspace = await app.services.workspace.getOrCreateWorkspace(taskId)
-      if (!workspace) {
-        throw new Error(`No workspace found for task ${taskId}`)
-      }
+    // Get workspace through workspace service
+    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    if (!workspace) {
+      throw new Error(`No workspace found for task ${taskId}`)
+    }
 
-      const workspacePath = workspace.getWorkspacePath()
+    const workspacePath = workspace.getWorkspacePath()
 
-      // Get current branch
-      const currentBranch = await getCurrentBranch(workspacePath)
+    // Get current branch
+    const currentBranch = await getCurrentBranch(workspacePath)
 
-      // Extract main repo path from worktree for additional checks
-      const gitPath = `${workspacePath}/.git`
-      let mainRepoPath = workspacePath
+    // Extract main repo path from worktree for additional checks
+    const gitPath = `${workspacePath}/.git`
+    let mainRepoPath = workspacePath
 
-      try {
-        const { exec } = await import('node:child_process')
-        const { promisify } = await import('node:util')
-        const execAsync = promisify(exec)
+    try {
+      const { exec } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execAsync = promisify(exec)
 
-        const { stdout: gitFileContent } = await execAsync(`cat "${gitPath}"`, {
-          cwd: workspacePath,
-          timeout: 5000,
-        })
+      const { stdout: gitFileContent } = await execAsync(`cat "${gitPath}"`, {
+        cwd: workspacePath,
+        timeout: 5000,
+      })
 
-        // If .git is a file (worktree), extract main repo path
-        if (gitFileContent.startsWith('gitdir:')) {
-          const gitDir = gitFileContent.split(':')[1].trim()
-          // Extract main repo path from worktree git dir
-          const pathParts = gitDir.split('/')
-          const worktreesIndex = pathParts.lastIndexOf('worktrees')
-          if (worktreesIndex > 0) {
-            mainRepoPath = pathParts.slice(0, worktreesIndex - 1).join('/')
-          }
-        }
-      } catch {
-        // .git is a directory, we're in the main repo
-      }
-
-      // Check for uncommitted changes in the main repository target branch
-      const mainHasChanges = await hasUncommittedChanges(mainRepoPath)
-      if (mainHasChanges) {
-        reply.code(400)
-        return {
-          statusCode: 400,
-          error: 'Bad Request',
-          message: `Cannot merge: target branch '${targetBranch}' has uncommitted changes in the main repository`,
+      // If .git is a file (worktree), extract main repo path
+      if (gitFileContent.startsWith('gitdir:')) {
+        const gitDir = gitFileContent.split(':')[1].trim()
+        // Extract main repo path from worktree git dir
+        const pathParts = gitDir.split('/')
+        const worktreesIndex = pathParts.lastIndexOf('worktrees')
+        if (worktreesIndex > 0) {
+          mainRepoPath = pathParts.slice(0, worktreesIndex - 1).join('/')
         }
       }
+    } catch {
+      // .git is a directory, we're in the main repo
+    }
 
-      // Check for conflicts before attempting merge
-      const hasConflicts = await checkForConflicts(workspacePath, targetBranch)
-      if (hasConflicts) {
-        reply.code(400)
-        return {
-          statusCode: 400,
-          error: 'Bad Request',
-          message: `Cannot merge: conflicts detected between '${currentBranch}' and '${targetBranch}'`,
-        }
-      }
+    // Check for uncommitted changes in the main repository target branch
+    const mainHasChanges = await hasUncommittedChanges(mainRepoPath)
+    if (mainHasChanges) {
+      throw new HTTPException(400, { 
+        message: `Cannot merge: target branch '${targetBranch}' has uncommitted changes in the main repository` 
+      })
+    }
 
-      // Perform the merge
-      const mergeCommit = await mergeGitBranch(
-        workspacePath,
-        currentBranch,
-        targetBranch,
-        commitMessage,
-      )
+    // Check for conflicts before attempting merge
+    const hasConflicts = await checkForConflicts(workspacePath, targetBranch)
+    if (hasConflicts) {
+      throw new HTTPException(400, { 
+        message: `Cannot merge: conflicts detected between '${currentBranch}' and '${targetBranch}'` 
+      })
+    }
 
-      // Check if worktree has uncommitted changes after merge
-      const worktreeHasChanges = await hasUncommittedChanges(workspacePath)
+    // Perform the merge
+    const mergeCommit = await mergeGitBranch(
+      workspacePath,
+      currentBranch,
+      targetBranch,
+      commitMessage,
+    )
 
-      // If no uncommitted changes on the worktree branch after merge, update task status to "merged"
-      if (!worktreeHasChanges) {
-        await taskService.updateTask(taskId, { status: 'merged' })
-      }
+    // Check if worktree has uncommitted changes after merge
+    const worktreeHasChanges = await hasUncommittedChanges(workspacePath)
 
-      return {
-        success: true,
-        mergeCommit,
-        sourceBranch: currentBranch,
-        targetBranch,
-      }
-    },
-  )
+    // If no uncommitted changes on the worktree branch after merge, update task status to "merged"
+    if (!worktreeHasChanges) {
+      await taskService.updateTask(taskId, { status: 'merged' })
+    }
+
+    return c.json({
+      success: true,
+      mergeCommit,
+      sourceBranch: currentBranch,
+      targetBranch,
+    })
+  })
 
 }

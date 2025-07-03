@@ -1,16 +1,15 @@
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
 describe('Repository Routes', () => {
-  let app: FastifyInstance
+  let app: Awaited<ReturnType<typeof build>>
 
   beforeEach(async () => {
     app = await build()
   })
 
   afterEach(async () => {
-    await app.close()
+    // Hono doesn't need cleanup
   })
 
   describe('POST /api/repositories', () => {
@@ -29,10 +28,12 @@ describe('Repository Routes', () => {
 
       vi.spyOn(app.services.repository, 'createRepository').mockResolvedValueOnce(mockRepository)
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories', {
         method: 'POST',
-        url: '/api/v1/repositories',
-        payload: {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           name: 'Test Repository',
           description: 'A test repository',
           path: '/test/path',
@@ -40,26 +41,28 @@ describe('Repository Routes', () => {
           codeExecution: {
             type: 'local',
           },
-        },
-      })
+        }),
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.name).toBe('Test Repository')
       expect(body.id).toBe('test-env-id')
       expect(body.createdAt).toBeDefined()
     })
 
     it('should validate required fields', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories', {
         method: 'POST',
-        url: '/api/v1/repositories',
-        payload: {
-          // Missing required fields
+        headers: {
+          'Content-Type': 'application/json',
         },
-      })
+        body: JSON.stringify({
+          // Missing required fields
+        }),
+      }))
 
-      expect(response.statusCode).toBe(400)
+      expect(response.status).toBe(400)
     })
   })
 
@@ -90,13 +93,12 @@ describe('Repository Routes', () => {
 
       vi.spyOn(app.services.repository, 'listRepositories').mockResolvedValueOnce(mockRepositories)
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories', {
         method: 'GET',
-        url: '/api/v1/repositories',
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.repositories).toHaveLength(2)
     })
   })
@@ -116,13 +118,12 @@ describe('Repository Routes', () => {
 
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123', {
         method: 'GET',
-        url: '/api/v1/repositories/env-123',
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.id).toBe('env-123')
       expect(body.name).toBe('Test Repository')
     })
@@ -130,13 +131,12 @@ describe('Repository Routes', () => {
     it('should return 404 for non-existent repository', async () => {
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(null)
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/non-existent', {
         method: 'GET',
-        url: '/api/v1/repositories/non-existent',
-      })
+      }))
 
-      expect(response.statusCode).toBe(404)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(404)
+      const body = await response.json() as any
       expect(body.error.code).toBe('REPOSITORY_NOT_FOUND')
     })
   })
@@ -164,17 +164,19 @@ describe('Repository Routes', () => {
         updatedEnvironment,
       )
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123', {
         method: 'PUT',
-        url: '/api/v1/repositories/env-123',
-        payload: {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           name: 'Updated Name',
           description: 'Updated description',
-        },
-      })
+        }),
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.name).toBe('Updated Name')
       expect(body.description).toBe('Updated description')
     })
@@ -184,12 +186,11 @@ describe('Repository Routes', () => {
     it('should delete repository', async () => {
       vi.spyOn(app.services.repository, 'deleteRepository').mockResolvedValueOnce()
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123', {
         method: 'DELETE',
-        url: '/api/v1/repositories/env-123',
-      })
+      }))
 
-      expect(response.statusCode).toBe(204)
+      expect(response.status).toBe(204)
     })
   })
 
@@ -216,32 +217,36 @@ describe('Repository Routes', () => {
         query: 'test',
       })
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123/search-files', {
         method: 'POST',
-        url: '/api/v1/repositories/env-123/search-files',
-        payload: {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           query: 'test',
           limit: 50,
-        },
-      })
+        }),
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.results).toBeDefined()
       expect(body.totalFound).toBeDefined()
       expect(body.query).toBeDefined()
     })
 
     it('should validate search query', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123/search-files', {
         method: 'POST',
-        url: '/api/v1/repositories/env-123/search-files',
-        payload: {
-          query: '', // Empty query
+        headers: {
+          'Content-Type': 'application/json',
         },
-      })
+        body: JSON.stringify({
+          query: '', // Empty query
+        }),
+      }))
 
-      expect(response.statusCode).toBe(400)
+      expect(response.status).toBe(400)
     })
   })
 
@@ -268,13 +273,12 @@ describe('Repository Routes', () => {
         durationMs: 100,
       })
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123/run-setup', {
         method: 'POST',
-        url: '/api/v1/repositories/env-123/run-setup',
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.success).toBeDefined()
       expect(body.output).toBeDefined()
     })
@@ -295,13 +299,12 @@ describe('Repository Routes', () => {
 
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
 
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/repositories/env-123/branches', {
         method: 'GET',
-        url: '/api/v1/repositories/env-123/branches',
-      })
+      }))
 
-      expect(response.statusCode).toBe(200)
-      const body = JSON.parse(response.body)
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
       expect(body.branches).toBeDefined()
       expect(Array.isArray(body.branches)).toBe(true)
     })

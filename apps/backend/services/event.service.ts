@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { ClaudeCodeSettings } from '@moatless/shared/types/claude'
-import type { FastifyInstance } from 'fastify'
 import type { Event, EventType } from '@moatless/shared/types/index'
 import type { Task } from '@moatless/shared/types/task'
 import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
@@ -132,7 +131,6 @@ export class EventService extends EventEmitter {
 }
 
 export function createEventService(
-  _app: FastifyInstance,
   storage: StorageBackend,
   claudeCodeSettings?: ClaudeCodeSettings,
 ): EventService {

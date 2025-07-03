@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
   CreateRepositoryRequest,
@@ -69,7 +68,7 @@ async function runCommand(command: string, args: string[], cwd: string): Promise
 }
 
 describe('Agent Lifecycle Test', () => {
-  let app: FastifyInstance
+  let app: any
   let tempDir: string
   let createdRepositoryId: string
   let createdTaskId: string

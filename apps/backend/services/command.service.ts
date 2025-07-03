@@ -1,5 +1,4 @@
 import { CommandNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
-import type { FastifyInstance } from 'fastify'
 import type {
   Command,
   CommandsFile,
@@ -113,7 +112,6 @@ export class CommandService {
 }
 
 export function createCommandService(
-  _app: FastifyInstance,
   storage: StorageBackend,
 ): CommandService {
   return new CommandService(storage)

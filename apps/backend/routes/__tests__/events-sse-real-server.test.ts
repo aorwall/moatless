@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { FastifyInstance } from 'fastify'
 import { EventType } from '@moatless/shared/types/event'
 import { build } from '../../test/helper.js'
 
@@ -13,7 +12,7 @@ import { build } from '../../test/helper.js'
  * The SSE endpoint now streams all events by default without filtering by task status.
  */
 describe('SSE Real Server Integration', () => {
-  let app: FastifyInstance
+  let app: any
   let serverUrl: string
 
   beforeEach(async () => {

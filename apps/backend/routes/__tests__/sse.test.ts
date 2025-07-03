@@ -9,26 +9,24 @@ describe('SSE Routes (Deprecated)', () => {
   })
 
   afterEach(async () => {
-    await app.close()
+    // Hono doesn't need cleanup
   })
 
   describe('Task-specific SSE endpoints (removed)', () => {
     it('should return 404 for removed task stream endpoint', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/any-task/stream', {
         method: 'GET',
-        url: '/api/v1/tasks/any-task/stream',
-      })
+      }))
 
-      expect(response.statusCode).toBe(404)
+      expect(response.status).toBe(404)
     })
 
     it('should return 404 for removed task stream status endpoint', async () => {
-      const response = await app.inject({
+      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/any-task/stream/status', {
         method: 'GET',
-        url: '/api/v1/tasks/any-task/stream/status',
-      })
+      }))
 
-      expect(response.statusCode).toBe(404)
+      expect(response.status).toBe(404)
     })
   })
 

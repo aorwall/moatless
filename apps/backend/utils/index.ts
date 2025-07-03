@@ -10,6 +10,4 @@ export * from './performance.js'
 // Process and async utilities
 export * from './process-utils.js'
 
-// Rate limiting
-export * from './rate-limiter.js'
 export * from './repository.js'

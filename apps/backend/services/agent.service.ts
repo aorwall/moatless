@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import { CriticalError } from '@moatless/shared/constants/errors'
 import type { SDKResultMessage } from '@moatless/shared/types/claude'
-import type { FastifyInstance } from 'fastify'
 import { EventType, type TaskIteration } from '@moatless/shared/types/index'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
@@ -483,7 +482,6 @@ export class AgentService {
 }
 
 export function createAgentService(
-  _app: FastifyInstance,
   storage: StorageBackend,
   eventService: EventService,
   workspaceService: WorkspaceService,

@@ -6,7 +6,6 @@ import {
   FRAMEWORK_DEFAULT_COMMANDS,
   PACKAGE_MANAGER_FILES,
 } from '@moatless/shared/constants/preview-config'
-import type { FastifyInstance } from 'fastify'
 import type {
   CreateRepositoryRequest,
   FileSearchResponse,
@@ -445,7 +444,6 @@ export class RepositoryService {
 }
 
 export function createRepositoryService(
-  _app: FastifyInstance,
   storage: StorageBackend,
 ): RepositoryService {
   return new RepositoryService(storage)

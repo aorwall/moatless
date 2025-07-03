@@ -1,89 +1,83 @@
-import type { FastifyInstance } from 'fastify'
-import type { z } from 'zod'
+import type { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
+import type { AppBindings } from '../app.js'
 import { CommandNotFoundError } from '@moatless/shared/constants/errors'
 import {
-  CommandNameParamsSchema,
   CreateCommandSchema,
   UpdateCommandSchema,
 } from '@moatless/shared/schemas/command.schemas'
 import type { CommandList } from '@moatless/shared/types/command'
 
-export async function registerCommandRoutes(app: FastifyInstance) {
-  const { command: commandService } = app.services
+export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: string) {
 
   // Create command
-  app.post(
-    '/',
-    {
-      schema: {
-        body: CreateCommandSchema,
-      },
-    },
-    async (request, _reply) => {
-      const body = request.body as z.infer<typeof CreateCommandSchema>
+  app.post(prefix, async (c) => {
+    const services = c.get('services')
+    const { command: commandService } = services
+    
+    const body = await c.req.json()
+    const validatedBody = CreateCommandSchema.parse(body)
 
-      const command = await commandService.createCommand(body)
-      return command
-    },
-  )
+    const command = await commandService.createCommand(validatedBody)
+    return c.json(command)
+  })
 
   // List commands
-  app.get('/', async (_request, _reply) => {
+  app.get(prefix, async (c) => {
+    const services = c.get('services')
+    const { command: commandService } = services
+    
     const commands = await commandService.listCommands()
-    return { commands } as CommandList
+    return c.json({ commands } as CommandList)
   })
 
   // Get command by name
-  app.get(
-    '/:commandName',
-    {
-      schema: {
-        params: CommandNameParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { commandName } = request.params as z.infer<typeof CommandNameParamsSchema>
-      const command = await commandService.getCommand(commandName)
+  app.get(`${prefix}/:commandName`, async (c) => {
+    const services = c.get('services')
+    const { command: commandService } = services
+    
+    const commandName = c.req.param('commandName')
+    if (!commandName) {
+      throw new HTTPException(400, { message: 'Command name is required' })
+    }
+    
+    const command = await commandService.getCommand(commandName)
 
-      if (!command) {
-        throw new CommandNotFoundError(commandName)
-      }
+    if (!command) {
+      throw new CommandNotFoundError(commandName)
+    }
 
-      return command
-    },
-  )
+    return c.json(command)
+  })
 
   // Update command
-  app.put(
-    '/:commandName',
-    {
-      schema: {
-        params: CommandNameParamsSchema,
-        body: UpdateCommandSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { commandName } = request.params as z.infer<typeof CommandNameParamsSchema>
-      const updates = request.body as z.infer<typeof UpdateCommandSchema>
+  app.put(`${prefix}/:commandName`, async (c) => {
+    const services = c.get('services')
+    const { command: commandService } = services
+    
+    const commandName = c.req.param('commandName')
+    if (!commandName) {
+      throw new HTTPException(400, { message: 'Command name is required' })
+    }
+    
+    const body = await c.req.json()
+    const validatedBody = UpdateCommandSchema.parse(body)
 
-      const updatedCommand = await commandService.updateCommand(commandName, updates)
-      return updatedCommand
-    },
-  )
+    const updatedCommand = await commandService.updateCommand(commandName, validatedBody)
+    return c.json(updatedCommand)
+  })
 
   // Delete command
-  app.delete(
-    '/:commandName',
-    {
-      schema: {
-        params: CommandNameParamsSchema,
-      },
-    },
-    async (request, _reply) => {
-      const { commandName } = request.params as z.infer<typeof CommandNameParamsSchema>
+  app.delete(`${prefix}/:commandName`, async (c) => {
+    const services = c.get('services')
+    const { command: commandService } = services
+    
+    const commandName = c.req.param('commandName')
+    if (!commandName) {
+      throw new HTTPException(400, { message: 'Command name is required' })
+    }
 
-      await commandService.deleteCommand(commandName)
-      return { status: 'deleted' }
-    },
-  )
+    await commandService.deleteCommand(commandName)
+    return c.json({ status: 'deleted' })
+  })
 }

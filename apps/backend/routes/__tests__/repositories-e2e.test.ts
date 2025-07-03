@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/shared/types/repository'
 import { build } from '../../test/helper.js'
@@ -12,7 +11,7 @@ vi.mock('../../utils/repository', () => ({
 }))
 
 describe('Repository Routes E2E', () => {
-  let app: FastifyInstance
+  let app: any
   let createdRepositoryId: string
   let tempDir: string
 
@@ -465,7 +464,7 @@ describe('Repository Routes E2E', () => {
 })
 
 describe('Repositories E2E - Additional Tests', () => {
-  let app: FastifyInstance
+  let app: any
   let tempDir: string
 
   beforeEach(async () => {

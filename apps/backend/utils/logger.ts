@@ -94,3 +94,8 @@ export function createTaskLogger(taskId: string) {
 export function createConsoleLogger(context?: Record<string, unknown>) {
   return logger.child(context || {})
 }
+
+// Helper function to create logger instance (for compatibility with Hono)
+export function createLogger() {
+  return logger
+}

@@ -1,18 +1,14 @@
-import type { FastifyReply, FastifyRequest } from 'fastify'
-
 export interface SSEConnection {
   id: string
   taskId: string
-  reply: FastifyReply
-  request: FastifyRequest
+  controller: ReadableStreamDefaultController
   lastEventId?: string
   eventCount: number
 }
 
 export interface GlobalSSEConnection {
   id: string
-  reply: FastifyReply
-  request: FastifyRequest
+  controller: ReadableStreamDefaultController
   eventCount: number
 }
 
@@ -23,8 +19,7 @@ export class SSEConnectionManager {
 
   connect(
     taskId: string,
-    request: FastifyRequest,
-    reply: FastifyReply,
+    controller: ReadableStreamDefaultController,
     lastEventId?: string,
   ): string {
     const connectionId = `sse_${this.connectionCounter++}`
@@ -32,8 +27,7 @@ export class SSEConnectionManager {
     const connection: SSEConnection = {
       id: connectionId,
       taskId,
-      reply,
-      request,
+      controller,
       lastEventId,
       eventCount: 0,
     }
@@ -43,7 +37,7 @@ export class SSEConnectionManager {
     }
 
     this.connections.get(taskId)!.add(connection)
-    request.log.info(`SSE connection ${connectionId} established for task ${taskId}`)
+    console.log(`SSE connection ${connectionId} established for task ${taskId}`)
 
     return connectionId
   }
@@ -57,7 +51,7 @@ export class SSEConnectionManager {
         if (taskConnections.size === 0) {
           this.connections.delete(taskId)
         }
-        connection.request.log.info(`SSE connection ${connectionId} closed for task ${taskId}`)
+        console.log(`SSE connection ${connectionId} closed for task ${taskId}`)
       }
     }
   }
@@ -81,25 +75,23 @@ export class SSEConnectionManager {
   // Global connection methods
   connectGlobal(
     connectionId: string,
-    request: FastifyRequest,
-    reply: FastifyReply,
+    controller: ReadableStreamDefaultController,
   ): void {
     const connection: GlobalSSEConnection = {
       id: connectionId,
-      reply,
-      request,
+      controller,
       eventCount: 0,
     }
 
     this.globalConnections.set(connectionId, connection)
-    request.log.info(`Global SSE connection ${connectionId} established`)
+    console.log(`Global SSE connection ${connectionId} established`)
   }
 
   disconnectGlobal(connectionId: string): void {
     const connection = this.globalConnections.get(connectionId)
     if (connection) {
       this.globalConnections.delete(connectionId)
-      connection.request.log.info(`Global SSE connection ${connectionId} closed`)
+      console.log(`Global SSE connection ${connectionId} closed`)
     }
   }
 

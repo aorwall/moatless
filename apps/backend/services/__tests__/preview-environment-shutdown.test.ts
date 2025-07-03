@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
   CreateRepositoryRequest,
@@ -22,7 +21,7 @@ import { build } from '../../test/helper.js'
  * - Works with real processes and file system operations
  */
 describe('Preview Environment Graceful Shutdown', () => {
-  let app: FastifyInstance
+  let app: any
   let tempDir: string
   let createdRepositoryIds: string[] = []
   let createdTaskIds: string[] = []
@@ -75,7 +74,7 @@ describe('Preview Environment Graceful Shutdown', () => {
     createdRepositoryIds = []
     createdTaskIds = []
 
-    await app.close()
+    // No server cleanup needed
   })
 
   it('should gracefully shutdown all preview environment servers', async () => {

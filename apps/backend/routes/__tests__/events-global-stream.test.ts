@@ -1,4 +1,3 @@
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Event } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
@@ -19,7 +18,7 @@ vi.mock('../../utils/sse-manager', () => ({
 }))
 
 describe('Global Event Stream', () => {
-  let app: FastifyInstance
+  let app: any
   let mockTaskService: any
   let mockEventService: any
 
@@ -92,7 +91,6 @@ describe('Global Event Stream', () => {
   })
 
   afterEach(async () => {
-    await app.close()
   })
 
   describe('GET /api/v1/events/stream', () => {
@@ -224,7 +222,7 @@ describe('Global Event Stream', () => {
 })
 
 describe('Event Service Global Channel Integration', () => {
-  let app: FastifyInstance
+  let app: any
   let eventService: any
 
   beforeEach(async () => {
@@ -233,7 +231,6 @@ describe('Event Service Global Channel Integration', () => {
   })
 
   afterEach(async () => {
-    await app.close()
   })
 
   it('should emit events to both task-specific and global channels', async () => {

@@ -10,7 +10,6 @@ import type {
 } from '@moatless/shared/types/preview-environment'
 import type { ScriptInjectionStrategy } from '@moatless/shared/types/repository'
 import type { ServerStatus } from '@moatless/shared/types/workspace'
-import type { FastifyInstance } from 'fastify'
 import { logger } from '../utils/logger.js'
 import { ServerHandler } from '../workspaces/server-handler.js'
 import type { StorageBackend } from './storage.js'
@@ -1382,7 +1381,6 @@ export const config = {
 }
 
 export function createPreviewEnvironmentService(
-  _app: FastifyInstance,
   storage: StorageBackend,
   workspaceService: WorkspaceService,
 ): PreviewEnvironmentService {

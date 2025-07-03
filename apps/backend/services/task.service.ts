@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import type { FastifyInstance } from 'fastify'
 import { TaskNotFoundError } from '@moatless/shared/constants/errors'
 import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
 import { EventType } from '@moatless/shared/types/event'
@@ -363,7 +362,6 @@ export class TaskService {
 }
 
 export function createTaskService(
-  _app: FastifyInstance,
   storage: StorageBackend,
   eventService: EventService,
   workspaceService: WorkspaceService,

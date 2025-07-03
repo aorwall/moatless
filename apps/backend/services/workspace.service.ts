@@ -6,7 +6,6 @@ import {
   TaskNotFoundError,
   WorkspaceError,
 } from '@moatless/shared/constants/errors'
-import type { FastifyInstance } from 'fastify'
 import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
@@ -612,7 +611,6 @@ export class WorkspaceService {
 }
 
 export function createWorkspaceService(
-  _app: FastifyInstance,
   repositoryService: RepositoryService,
   eventService: EventService,
   storage: StorageBackend,

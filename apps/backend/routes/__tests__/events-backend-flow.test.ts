@@ -1,4 +1,3 @@
-import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Event } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
@@ -6,7 +5,7 @@ import { build } from '../../test/helper.js'
 import { sseManager } from '../../utils/sse-manager.js'
 
 describe('Global Event Stream Backend Flow', () => {
-  let app: FastifyInstance
+  let app: any
 
   beforeEach(async () => {
     app = await build()
@@ -17,7 +16,6 @@ describe('Global Event Stream Backend Flow', () => {
     if (app.services?.event) {
       app.services.event.clearCache()
     }
-    await app.close()
   })
 
   describe('Event Service Integration', () => {
@@ -29,8 +27,8 @@ describe('Global Event Stream Backend Flow', () => {
       const globalEvents: Event[] = []
 
       // Subscribe to both channels
-      eventService.on('task:task-456', (event) => taskEvents.push(event))
-      eventService.on('global', (event) => globalEvents.push(event))
+      eventService.on('task:task-456', (event: any) => taskEvents.push(event))
+      eventService.on('global', (event: any) => globalEvents.push(event))
 
       const testEvent: Event = {
         eventId: 'test-123',
@@ -116,12 +114,16 @@ describe('Global Event Stream Backend Flow', () => {
     it('should track global connections', () => {
       // sseManager is imported at the top
 
-      const mockRequest = { log: { info: vi.fn() } } as any
-      const mockReply = {} as any
+      const mockController = {
+        enqueue: vi.fn(),
+        close: vi.fn(),
+        error: vi.fn(),
+        desiredSize: 1
+      } as any
       const connectionId = 'test-connection-123'
 
       // Register global connection
-      sseManager.connectGlobal(connectionId, mockRequest, mockReply)
+      sseManager.connectGlobal(connectionId, mockController)
 
       // Check connection count
       expect(sseManager.getGlobalConnectionCount()).toBe(1)
@@ -226,7 +228,7 @@ describe('Global Event Stream Backend Flow', () => {
       // Get filtered events
       const messageEvents = await eventService.getEvents(taskId, undefined, 0, EventType.MESSAGE)
       expect(messageEvents).toHaveLength(2)
-      expect(messageEvents.every((e) => e.type === EventType.MESSAGE)).toBe(true)
+      expect(messageEvents.every((e: any) => e.type === EventType.MESSAGE)).toBe(true)
 
       const toolEvents = await eventService.getEvents(taskId, undefined, 0, EventType.TOOL)
       expect(toolEvents).toHaveLength(1)
