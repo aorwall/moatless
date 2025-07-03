@@ -394,15 +394,24 @@ export class WorkspaceService {
 
     const startTime = Date.now()
     try {
-      workspaceLogger.debug('Initiating workspace teardown', {
+      // Get workspace details before cleanup for logging
+      const workspacePath = workspace.getWorkspacePath()
+      const workspaceStatus = workspace.getStatus()
+      
+      workspaceLogger.info('Initiating workspace teardown', {
         workspaceType: workspace.type,
+        workspacePath,
+        workspaceStatus,
         force: true,
       })
 
       await workspace.teardown(true) // Force cleanup
 
       const teardownTime = Date.now() - startTime
-      workspaceLogger.debug('Workspace teardown completed', { teardownTimeMs: teardownTime })
+      workspaceLogger.info('Workspace teardown completed', { 
+        teardownTimeMs: teardownTime,
+        workspacePath,
+      })
 
       // Remove from active workspaces
       this.activeWorkspaces.delete(taskId)
@@ -417,7 +426,9 @@ export class WorkspaceService {
         timeToFailureMs: failureTime,
         workspaceType: workspace.type,
       })
-      throw error
+      // Don't rethrow - we want to try to clean up as much as possible
+      // Still remove from active workspaces even if teardown failed
+      this.activeWorkspaces.delete(taskId)
     }
   }
 

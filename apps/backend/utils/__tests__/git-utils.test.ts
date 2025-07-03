@@ -12,6 +12,8 @@ import {
   getGitDiffString,
   getGitStatus,
   getMergeBase,
+  isGitWorktree,
+  pruneWorktrees,
 } from '../git-utils.js'
 
 // Helper class for creating and managing test git repositories
@@ -84,9 +86,6 @@ describe('git-utils with real git commands', () => {
     repo.cleanup()
   })
 
-  describe('getGitDiffFiles', () => {
-    // TODO: Add tests for getGitDiffFiles
-  })
 
   describe('getCurrentBranch', () => {
     it('should return the current branch name', async () => {
@@ -466,6 +465,167 @@ describe('git-utils with real git commands', () => {
         // Clean up worktree
         repo.exec(`git worktree remove "${worktreePath}" --force`)
       }
+    })
+  })
+
+  describe('isGitWorktree', () => {
+    it('should correctly identify a git worktree', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Main repo should not be a worktree
+      const isMainWorktree = await isGitWorktree(repo.path)
+      expect(isMainWorktree).toBe(false)
+
+      // Create a worktree
+      const worktreePath = path.join(path.dirname(repo.path), 'test-worktree')
+      repo.exec(`git worktree add "${worktreePath}" -b test-branch`)
+
+      try {
+        // Worktree should be identified as a worktree
+        const isWorktree = await isGitWorktree(worktreePath)
+        expect(isWorktree).toBe(true)
+
+        // Verify .git is a file in worktree
+        const gitPath = path.join(worktreePath, '.git')
+        const stat = await fs.promises.stat(gitPath)
+        expect(stat.isFile()).toBe(true)
+
+        // Verify .git file contains gitdir
+        const content = await fs.promises.readFile(gitPath, 'utf-8')
+        expect(content).toMatch(/^gitdir:/)
+      } finally {
+        repo.exec(`git worktree remove "${worktreePath}" --force`)
+      }
+    })
+
+    it('should return false for non-git directories', async () => {
+      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'non-git-'))
+      
+      try {
+        const isWorktree = await isGitWorktree(nonGitDir)
+        expect(isWorktree).toBe(false)
+      } finally {
+        fs.rmSync(nonGitDir, { recursive: true, force: true })
+      }
+    })
+
+    it('should return false for regular git repository', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      const isWorktree = await isGitWorktree(repo.path)
+      expect(isWorktree).toBe(false)
+
+      // Verify .git is a directory in main repo
+      const gitPath = path.join(repo.path, '.git')
+      const stat = await fs.promises.stat(gitPath)
+      expect(stat.isDirectory()).toBe(true)
+    })
+  })
+
+  describe('pruneWorktrees', () => {
+    it('should prune stale worktree entries', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Create a worktree
+      const worktreePath = path.join(path.dirname(repo.path), 'test-worktree')
+      repo.exec(`git worktree add "${worktreePath}" -b test-branch`)
+
+      // Manually remove the worktree directory (simulating orphaned entry)
+      fs.rmSync(worktreePath, { recursive: true, force: true })
+
+      // List worktrees should still show the orphaned entry
+      const beforePrune = repo.exec('git worktree list')
+      expect(beforePrune).toContain(worktreePath)
+
+      // Prune worktrees
+      await pruneWorktrees(repo.path)
+
+      // List worktrees should no longer show the orphaned entry
+      const afterPrune = repo.exec('git worktree list')
+      expect(afterPrune).not.toContain(worktreePath)
+    })
+
+    it('should handle repositories without worktrees', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Should not throw when no worktrees exist
+      await expect(pruneWorktrees(repo.path)).resolves.not.toThrow()
+    })
+  })
+
+  describe('worktree cleanup integration', () => {
+    it('should properly clean up worktree and branch', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      const taskId = `test-${Date.now()}`
+      const worktreePath = path.join(path.dirname(repo.path), `test-workspace-${taskId}`)
+      const branchName = `workspace-${taskId}`
+
+      // Create worktree with branch
+      repo.exec(`git worktree add -b "${branchName}" "${worktreePath}"`)
+
+      // Verify worktree exists
+      expect(await isGitWorktree(worktreePath)).toBe(true)
+      const branches = await getBranchList(repo.path)
+      // getBranchList might include branch prefix indicators, so check if any branch contains the name
+      expect(branches.some(b => b.includes(branchName))).toBe(true)
+
+      // Simulate cleanup process
+      repo.exec(`git worktree remove --force "${worktreePath}"`)
+      
+      // Try to delete branch
+      try {
+        repo.exec(`git branch -D "${branchName}"`)
+      } catch {
+        // Branch might be checked out, that's ok
+      }
+
+      // Prune any stale entries
+      await pruneWorktrees(repo.path)
+
+      // Verify cleanup
+      const worktreeList = repo.exec('git worktree list')
+      expect(worktreeList).not.toContain(worktreePath)
+      
+      // Verify directory is gone
+      expect(fs.existsSync(worktreePath)).toBe(false)
+    })
+
+    it('should handle worktree removal when directory already deleted', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'test')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      const worktreePath = path.join(path.dirname(repo.path), 'orphaned-worktree')
+      repo.exec(`git worktree add "${worktreePath}" -b orphaned-branch`)
+
+      // Delete directory manually (simulating unexpected deletion)
+      fs.rmSync(worktreePath, { recursive: true, force: true })
+
+      // Should still be able to remove worktree entry
+      await expect(async () => {
+        repo.exec(`git worktree remove --force "${worktreePath}"`)
+      }).not.toThrow()
+
+      // Verify worktree entry is gone
+      const worktreeList = repo.exec('git worktree list')
+      expect(worktreeList).not.toContain(worktreePath)
     })
   })
 })

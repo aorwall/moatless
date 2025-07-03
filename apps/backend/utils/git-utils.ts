@@ -1,4 +1,6 @@
 import { exec } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { promisify } from 'node:util'
 import type { GitStatus } from '@moatless/shared/types/api'
 
@@ -635,6 +637,40 @@ export async function getComprehensiveGitStatus(
       commitsAhead: 0,
       commitsBehind: 0,
     }
+  }
+}
+
+
+export async function pruneWorktrees(repoPath: string): Promise<void> {
+  try {
+    // Prune worktree information for deleted worktrees
+    await execAsync('git worktree prune', {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+  } catch (error) {
+    throw new Error(
+      `Failed to prune worktrees: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+export async function isGitWorktree(workspacePath: string): Promise<boolean> {
+  try {
+    // In a worktree, .git is a file (not a directory) containing the path to the real git directory
+    const gitPath = path.join(workspacePath, '.git')
+    const stat = await fs.stat(gitPath)
+    
+    if (stat.isFile()) {
+      // Read the .git file to confirm it's a worktree
+      const content = await fs.readFile(gitPath, 'utf-8')
+      return content.startsWith('gitdir:')
+    }
+    
+    return false
+  } catch {
+    // If any error occurs (file doesn't exist, etc.), it's not a worktree
+    return false
   }
 }
 
