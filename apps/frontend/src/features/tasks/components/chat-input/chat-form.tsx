@@ -43,6 +43,12 @@ interface ChatFormProps {
   selectedRepositoryId?: string
   onRepositoryChange?: (repositoryId: string) => void
   repositoriesLoading?: boolean
+  // Branch selector props (only shown when creating new task and repository is selected)
+  showBranchSelector?: boolean
+  branches?: string[]
+  selectedBranch?: string
+  onBranchChange?: (branch: string) => void
+  branchesLoading?: boolean
   maxHeight?: string
   uploadedFiles?: UploadFileResponse[]
   onFilesChange?: (files: UploadFileResponse[]) => void
@@ -68,6 +74,11 @@ export function ChatForm({
   selectedRepositoryId,
   onRepositoryChange,
   repositoriesLoading = false,
+  showBranchSelector = false,
+  branches,
+  selectedBranch,
+  onBranchChange,
+  branchesLoading = false,
   maxHeight = '200px',
   uploadedFiles = [],
   onFilesChange,
@@ -264,7 +275,7 @@ export function ChatForm({
         </div>
       )}
       <div className="flex items-center justify-between gap-2">
-        {/* Left side - Repository and Model selectors */}
+        {/* Left side - Repository, Branch and Model selectors */}
         <div className="flex items-center gap-2">
           {showRepositorySelector && onRepositoryChange && (
             <Select
@@ -279,6 +290,24 @@ export function ChatForm({
                 {repositories?.map((repo) => (
                   <SelectItem key={repo.id} value={repo.id} className="text-xs">
                     {repo.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {showBranchSelector && onBranchChange && selectedRepositoryId && (
+            <Select
+              value={selectedBranch}
+              onValueChange={onBranchChange}
+              disabled={branchesLoading}
+            >
+              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[140px]">
+                <SelectValue placeholder={branchesLoading ? "Loading..." : "Select branch"} />
+              </SelectTrigger>
+              <SelectContent>
+                {branches?.map((branch) => (
+                  <SelectItem key={branch} value={branch} className="text-xs">
+                    {branch}
                   </SelectItem>
                 ))}
               </SelectContent>

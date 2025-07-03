@@ -19,7 +19,8 @@ export const CreateTaskRequestSchema = z.object({
   agentType: z.string(),
   repositoryId: z.string(),
   message: z.string().optional(),
-  branchName: z.string().optional(),
+  branchName: z.string().optional(), // Name for the new workspace branch (deprecated, use originalBranch)
+  originalBranch: z.string().optional(), // Branch to create from (the source branch)
   start: z.boolean().optional(),
   model: z.string().optional(),
   filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files

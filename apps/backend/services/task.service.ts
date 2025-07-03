@@ -67,7 +67,7 @@ export class TaskService {
       const workspace = await this.workspaceService.createWorkspace(
         task.taskId,
         params.repositoryId,
-        params.branchName,
+        params.originalBranch || params.branchName, // Use originalBranch if provided, fallback to branchName for backward compatibility
       )
       task.workspacePath = workspace.getWorkspacePath()
     } catch (error) {

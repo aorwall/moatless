@@ -26,6 +26,7 @@ function Dashboard() {
     clearMessage: () => void,
     model?: string,
     files?: UploadFileResponse[],
+    originalBranch?: string,
   ) => {
     // Extract file paths from uploaded files
     const filePaths = files?.map((f) => f.absolutePath) || []
@@ -37,6 +38,7 @@ function Dashboard() {
         repositoryId,
         model,
         filePaths,
+        originalBranch,
       },
       {
         onSuccess: () => {

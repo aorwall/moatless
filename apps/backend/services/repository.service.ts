@@ -175,13 +175,32 @@ export class RepositoryService {
         return []
       }
 
-      return result.output
+      const branches = result.output
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line.length > 0)
         .map((line) => line.replace(/^\*\s*/, '')) // Remove current branch marker
         .map((line) => line.replace(/^remotes\/origin\//, '')) // Remove remote prefix
         .filter((line) => !line.includes('HEAD ->')) // Remove HEAD pointer
+        .filter((line) => !line.startsWith('workspace-')) // Filter out workspace branches
+
+      // Deduplicate branches
+      const uniqueBranches = [...new Set(branches)]
+
+      // Sort branches: main/master first, then alphabetically
+      return uniqueBranches.sort((a, b) => {
+        const isMainA = a === 'main' || a === 'master'
+        const isMainB = b === 'main' || b === 'master'
+        
+        if (isMainA && !isMainB) return -1
+        if (!isMainA && isMainB) return 1
+        if (isMainA && isMainB) {
+          // Both are main branches, prefer 'main' over 'master'
+          return a === 'main' ? -1 : 1
+        }
+        
+        return a.localeCompare(b)
+      })
     } catch {
       return []
     }

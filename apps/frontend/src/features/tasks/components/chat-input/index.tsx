@@ -2,7 +2,7 @@ import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless
 import type { UploadFileResponse } from '@moatless/shared/types/api'
 import type { Task } from '@moatless/shared/types/task'
 import { useEffect, useState } from 'react'
-import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { useRepositoriesList, useBranches } from '@/features/repositories/hooks/use-repositories'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
@@ -38,6 +38,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
     clearMessage: () => void,
     model?: ClaudeModel,
     files?: UploadFileResponse[],
+    originalBranch?: string,
   ) => void
   isLoading?: boolean
 
@@ -82,6 +83,7 @@ export function ChatInput({
     }
     return DEFAULT_CLAUDE_MODEL
   })
+  const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
 
   // Stop agent mutation
   const stopAgent = useStopAgent()
@@ -90,6 +92,15 @@ export function ChatInput({
   const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList({
     enabled: showRepositorySelector,
   })
+
+  // Branch data (only needed for homepage when repository is selected)
+  const { data: branchesData, isLoading: branchesLoading } = useBranches(
+    selectedRepositoryId || '',
+    {
+      enabled: showRepositorySelector && !!selectedRepositoryId,
+    }
+  )
+  const branches = branchesData?.branches || []
 
   const isTaskContext = !!taskId
   const isPending = isLoading
@@ -127,6 +138,17 @@ export function ChatInput({
     localStorage.setItem('lastSelectedModel', selectedModel)
   }, [selectedModel])
 
+  // Auto-select first branch when branches are loaded or reset when repository changes
+  useEffect(() => {
+    if (showRepositorySelector && selectedRepositoryId) {
+      if (branches.length > 0 && !selectedBranch) {
+        setSelectedBranch(branches[0]) // Select the first branch (should be main/master)
+      }
+    } else {
+      setSelectedBranch(undefined) // Reset branch when no repository
+    }
+  }, [showRepositorySelector, selectedRepositoryId, branches, selectedBranch])
+
   const handleSendMessage = () => {
     // If running, stop the agent instead of sending message
     if (isRunning && taskId) {
@@ -158,8 +180,8 @@ export function ChatInput({
         )
       }
     } else if (selectedRepositoryId && onCreateTask && !isPending) {
-      // Homepage context - create task with uploaded files
-      onCreateTask(message.trim(), selectedRepositoryId, clearMessage, selectedModel, uploadedFiles)
+      // Homepage context - create task with uploaded files and selected branch
+      onCreateTask(message.trim(), selectedRepositoryId, clearMessage, selectedModel, uploadedFiles, selectedBranch)
     }
   }
 
@@ -258,6 +280,12 @@ export function ChatInput({
           selectedRepositoryId={selectedRepositoryId}
           onRepositoryChange={setSelectedRepositoryId}
           repositoriesLoading={repositoriesLoading}
+          // Branch selector props
+          showBranchSelector={showRepositorySelector}
+          branches={branches}
+          selectedBranch={selectedBranch}
+          onBranchChange={setSelectedBranch}
+          branchesLoading={branchesLoading}
           maxHeight={maxHeight}
           // File upload props
           uploadedFiles={uploadedFiles}
