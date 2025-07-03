@@ -76,11 +76,11 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
     console.error('Error rendering event:', error, event)
     return (
       <div className="text-sm text-muted-foreground">
-        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-          <p className="text-red-600 dark:text-red-400 font-medium mb-2">
+        <div className="bg-status-error/10 border border-status-error/20 rounded-lg p-3">
+          <p className="text-status-error font-medium mb-2">
             Failed to render {event.type} event
           </p>
-          <p className="text-xs text-red-500 dark:text-red-400">
+          <p className="text-xs text-status-error">
             {error instanceof Error ? error.message : 'Unknown error'}
           </p>
         </div>

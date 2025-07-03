@@ -111,7 +111,7 @@ export function ChatHeader() {
                   {workspaceStatus.gitStatus.hasUnmergedCommits && (
                     <>
                       <span>•</span>
-                      <span className="text-blue-600 dark:text-blue-400">
+                      <span className="text-status-info">
                         {workspaceStatus.gitStatus.commitsAhead} ahead
                       </span>
                     </>
@@ -119,7 +119,7 @@ export function ChatHeader() {
                   {workspaceStatus.gitStatus.isBehindBase && (
                     <>
                       <span>•</span>
-                      <span className="text-orange-600 dark:text-orange-400">
+                      <span className="text-status-warning">
                         {workspaceStatus.gitStatus.commitsBehind} behind
                       </span>
                     </>
@@ -127,13 +127,13 @@ export function ChatHeader() {
                   {workspaceStatus.gitStatus.hasConflicts && (
                     <>
                       <span>•</span>
-                      <span className="text-red-600 dark:text-red-400">has conflicts</span>
+                      <span className="text-status-error">has conflicts</span>
                     </>
                   )}
                   {workspaceStatus.gitStatus.hasUncommittedChanges && (
                     <>
                       <span>•</span>
-                      <span className="text-yellow-600 dark:text-yellow-400">
+                      <span className="text-status-warning">
                         uncommitted changes
                       </span>
                     </>
@@ -144,13 +144,13 @@ export function ChatHeader() {
                   {workspaceStatus?.hasUnmergedCommits && (
                     <>
                       <span>•</span>
-                      <span className="text-blue-600 dark:text-blue-400">unmerged commits</span>
+                      <span className="text-status-info">unmerged commits</span>
                     </>
                   )}
                   {workspaceStatus?.isBehindBase && (
                     <>
                       <span>•</span>
-                      <span className="text-orange-600 dark:text-orange-400">behind main</span>
+                      <span className="text-status-warning">behind main</span>
                     </>
                   )}
                 </>

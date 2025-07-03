@@ -81,8 +81,8 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
 
   const getServerStatusColor = () => {
     if (!serverStatus) return 'text-muted-foreground'
-    if (serverStatus.running) return 'text-green-500'
-    return 'text-red-500'
+    if (serverStatus.running) return 'text-status-success'
+    return 'text-status-error'
   }
 
   const getServerStatusText = () => {
@@ -136,7 +136,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
                   <div
                     className={cn(
                       'w-2 h-2 rounded-full',
-                      serverStatus?.running ? 'bg-green-500' : 'bg-red-500',
+                      serverStatus?.running ? 'bg-status-success' : 'bg-status-error',
                     )}
                   />
                   <span className="text-muted-foreground">Status:</span>

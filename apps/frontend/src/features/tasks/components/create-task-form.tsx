@@ -57,7 +57,7 @@ export function CreateTaskForm() {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
-          <Label htmlFor="repository" className="text-sm font-medium text-gray-700">
+          <Label htmlFor="repository" className="text-sm font-medium text-foreground">
             Select Repository
           </Label>
           <RepositorySelector
@@ -70,7 +70,7 @@ export function CreateTaskForm() {
 
         {selectedRepositoryId && (
           <div className="space-y-2">
-            <Label htmlFor="branch" className="text-sm font-medium text-gray-700">
+            <Label htmlFor="branch" className="text-sm font-medium text-foreground">
               Select Branch (optional)
             </Label>
             <Select value={selectedBranch} onValueChange={setSelectedBranch}>
@@ -85,28 +85,28 @@ export function CreateTaskForm() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">
-                  <span className="text-gray-600">None (branch from main)</span>
+                  <span className="text-muted-foreground">None (branch from main)</span>
                 </SelectItem>
                 {branches?.branches.map((branch) => (
                   <SelectItem key={branch} value={branch}>
                     <div className="flex items-center gap-2">
                       <span>{branch}</span>
                       {branch === branches.currentBranch && (
-                        <span className="text-xs text-green-600">(current)</span>
+                        <span className="text-xs text-status-success">(current)</span>
                       )}
                     </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               If no branch is selected, the task will branch out from main
             </p>
           </div>
         )}
 
         {createTask.error && (
-          <div className="rounded-md bg-red-50 p-4 text-sm text-red-800">
+          <div className="rounded-md bg-status-error/10 p-4 text-sm text-status-error">
             {getErrorMessage(createTask.error)}
           </div>
         )}

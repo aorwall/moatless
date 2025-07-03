@@ -167,7 +167,7 @@ function ChatViewComponent() {
           taskStatus={status}
           onSendMessage={handleSendMessage}
           isLoading={true}
-          className="p-4 border-t border-slate-200 dark:border-slate-700"
+          className="p-4 border-t border-border"
         />
       </div>
     )
@@ -239,7 +239,7 @@ function ChatViewComponent() {
                 <div key={iteration.iterationNumber || `iteration-${index}`} className="space-y-4">
                   {/* Initial Message */}
                   <div className="bg-secondary rounded-lg p-4">
-                    <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
+                    <div className="text-sm text-foreground prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {iteration.initialMessage}
                       </ReactMarkdown>
@@ -251,7 +251,7 @@ function ChatViewComponent() {
                     <div className="flex justify-center py-2">
                       <button
                         type="button"
-                        className="cursor-pointer text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors flex items-center gap-4 bg-transparent border-none p-0"
+                        className="cursor-pointer text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-4 bg-transparent border-none p-0"
                         onClick={() => handleIterationClick(iteration)}
                         onKeyDown={(e) => handleKeyDown(e, iteration)}
                       >
@@ -301,7 +301,7 @@ function ChatViewComponent() {
                               <summary className="text-xs cursor-pointer hover:underline">
                                 Show stack trace
                               </summary>
-                              <pre className="mt-2 text-xs overflow-x-auto whitespace-pre-wrap bg-black/10 dark:bg-white/10 p-2 rounded">
+                              <pre className="mt-2 text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
                                 {iteration.error.stack}
                               </pre>
                             </details>
@@ -310,7 +310,7 @@ function ChatViewComponent() {
                       </AlertDescription>
                     </Alert>
                   ) : iteration.result ? (
-                    <div className="text-sm text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none">
+                    <div className="text-sm text-foreground prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
                     </div>
                   ) : null}
@@ -376,7 +376,7 @@ function ChatViewComponent() {
           lastIterationHasError={lastIterationHasError || false}
           onSendMessage={handleSendMessage}
           isLoading={sendMessage.isPending}
-          className="p-4 border-t border-slate-200 dark:border-slate-700"
+          className="p-4 border-t border-border"
           maxHeight="150px"
         />
       </ErrorBoundary>

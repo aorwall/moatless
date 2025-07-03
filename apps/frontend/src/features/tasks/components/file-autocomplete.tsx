@@ -50,7 +50,7 @@ export function FileAutocomplete({
         className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg p-2`}
       >
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+          <div className="flex items-center gap-2 text-sm text-status-error">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span className="font-medium">File search failed</span>
           </div>

@@ -152,13 +152,13 @@ function SetupOutputSheet({
               <div className="flex items-center gap-2 mt-2">
                 {setupScriptResult.success ? (
                   <>
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-green-600">All commands succeeded</span>
+                    <CheckCircle className="h-4 w-4 text-status-success" />
+                    <span className="text-status-success">All commands succeeded</span>
                   </>
                 ) : (
                   <>
-                    <XCircle className="h-4 w-4 text-red-500" />
-                    <span className="text-red-600">Some commands failed</span>
+                    <XCircle className="h-4 w-4 text-destructive" />
+                    <span className="text-destructive">Some commands failed</span>
                   </>
                 )}
               </div>
@@ -173,8 +173,8 @@ function SetupOutputSheet({
                   key={`command-${index}-${command.command.slice(0, 20)}`}
                   className={`rounded-lg border ${
                     command.success
-                      ? 'border-green-200 dark:border-green-800'
-                      : 'border-red-200 dark:border-red-800'
+                      ? 'border-status-success/20'
+                      : 'border-status-error/20'
                   } p-4 space-y-2`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -183,9 +183,9 @@ function SetupOutputSheet({
                     </code>
                     <div className="flex items-center gap-2">
                       {command.success ? (
-                        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        <CheckCircle className="h-4 w-4 text-status-success flex-shrink-0" />
                       ) : (
-                        <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                        <XCircle className="h-4 w-4 text-destructive flex-shrink-0" />
                       )}
                       <span className="text-xs text-muted-foreground">
                         Exit code: {command.exit_code}
@@ -202,8 +202,8 @@ function SetupOutputSheet({
                   )}
                   {command.error && (
                     <div className="space-y-1">
-                      <div className="text-xs font-medium text-red-600">Error:</div>
-                      <pre className="text-xs bg-red-50 dark:bg-red-900/10 text-red-900 dark:text-red-100 p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
+                      <div className="text-xs font-medium text-destructive">Error:</div>
+                      <pre className="text-xs bg-destructive/10 text-destructive p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
                         {command.error}
                       </pre>
                     </div>
@@ -437,11 +437,11 @@ export function CodeExecutionConfig({
                   value={formData.server_command}
                   onChange={(e) => handleServerCommandChange(e.target.value)}
                   placeholder="npm run dev -- --port {PORT}"
-                  className={serverCommandError ? 'border-red-500' : ''}
+                  className={serverCommandError ? 'border-destructive' : ''}
                 />
                 <div className="space-y-1 mt-2">
                   {serverCommandError && (
-                    <div className="flex items-center gap-2 text-sm text-red-600">
+                    <div className="flex items-center gap-2 text-sm text-destructive">
                       <AlertCircle className="h-4 w-4" />
                       <span>{serverCommandError}</span>
                     </div>

@@ -77,8 +77,8 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
           <span className="font-mono text-sm">{filePath}</span>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
-          <span className="text-red-600 dark:text-red-400">−{stats.deletions}</span>
+          <span className="text-status-success">+{stats.additions}</span>
+          <span className="text-status-error">−{stats.deletions}</span>
         </div>
       </button>
 
@@ -205,11 +205,11 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       {gitDiff && parsedFiles.length > 0 && (
         <div className="mb-4 text-sm text-muted-foreground">
           Showing {parsedFiles.length} changed files with{' '}
-          <span className="text-green-600 dark:text-green-400 font-medium">
+          <span className="text-status-success font-medium">
             {totalStats.totalAdditions} additions
           </span>{' '}
           and{' '}
-          <span className="text-red-600 dark:text-red-400 font-medium">
+          <span className="text-status-error font-medium">
             {totalStats.totalDeletions} deletions
           </span>
         </div>

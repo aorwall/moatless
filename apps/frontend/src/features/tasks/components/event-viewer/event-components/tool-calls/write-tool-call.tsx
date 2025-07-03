@@ -46,7 +46,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
   if (!input || typeof input !== 'object') {
     console.error('[WriteToolCall] Invalid input:', input)
     return (
-      <div className="text-sm text-red-600 dark:text-red-400">
+      <div className="text-sm text-destructive">
         Error: Invalid input for {name} tool
       </div>
     )
@@ -55,7 +55,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
   if (!input.filePath || typeof input.filePath !== 'string') {
     console.error('[WriteToolCall] Missing or invalid filePath:', input)
     return (
-      <div className="text-sm text-red-600 dark:text-red-400">
+      <div className="text-sm text-destructive">
         Error: Missing file path for {name} tool
       </div>
     )
@@ -64,7 +64,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
   if (input.content === undefined || input.content === null) {
     console.error('[WriteToolCall] Missing content:', input)
     return (
-      <div className="text-sm text-red-600 dark:text-red-400">
+      <div className="text-sm text-destructive">
         Error: Missing content for {name} tool
       </div>
     )
@@ -73,7 +73,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <FilePlus className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+        <FilePlus className="h-3.5 w-3.5 text-status-success" />
         <span className="font-medium text-foreground">{name}</span>
         <span className="text-xs text-muted-foreground">- {input.filePath}</span>
         <span className="text-xs text-muted-foreground">({lineCount} lines)</span>
@@ -82,8 +82,8 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
       <DiffView
         diffContent={diffContent}
         fallback={
-          <div className="bg-green-50 dark:bg-green-900/20 rounded p-2">
-            <span className="text-xs text-green-600 dark:text-green-400 font-mono">
+          <div className="bg-status-success/10 rounded p-2">
+            <span className="text-xs text-status-success font-mono">
               + New file:
             </span>
             <pre className="text-xs font-mono whitespace-pre-wrap mt-1">{content}</pre>

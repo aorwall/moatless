@@ -213,13 +213,13 @@ export function ChatInput({
 
       <div className={showTitle ? 'max-w-2xl mx-auto space-y-4' : 'space-y-4'}>
         {isTaskContext && lastIterationHasError && (
-          <div className="px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+          <div className="px-4 py-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
             <div className="flex items-start gap-3">
               <div className="flex-1">
-                <p className="text-sm text-orange-800 dark:text-orange-200 font-medium">
+                <p className="text-sm text-status-warning font-medium">
                   Previous iteration failed
                 </p>
-                <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">
+                <p className="text-sm text-status-warning mt-1">
                   You can choose to start fresh without context from the previous conversation.
                 </p>
               </div>
@@ -228,9 +228,9 @@ export function ChatInput({
                   type="checkbox"
                   checked={resumeConversation}
                   onChange={(e) => setResumeConversation(e.target.checked)}
-                  className="rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                  className="rounded border-status-warning/30 text-status-warning focus:ring-status-warning/50"
                 />
-                <span className="text-sm text-orange-700 dark:text-orange-300 whitespace-nowrap">
+                <span className="text-sm text-status-warning whitespace-nowrap">
                   Resume conversation
                 </span>
               </label>

@@ -62,14 +62,14 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
       className={cn(
         'prose prose-sm dark:prose-invert max-w-full p-6 min-w-0',
         'prose-p:my-2',
-        'prose-pre:bg-gray-100 prose-pre:dark:bg-gray-800',
-        'prose-pre:text-gray-800 prose-pre:dark:text-gray-200',
-        'prose-code:bg-gray-100 prose-code:dark:bg-gray-800',
-        'prose-code:text-gray-800 prose-code:dark:text-gray-200',
+        'prose-pre:bg-muted',
+        'prose-pre:text-foreground',
+        'prose-code:bg-muted',
+        'prose-code:text-foreground',
         'prose-code:px-1 prose-code:py-0.5 prose-code:rounded',
         'prose-code:before:content-none prose-code:after:content-none',
         'prose-strong:text-current',
-        'prose-a:text-blue-600 prose-a:dark:text-blue-400',
+        'prose-a:text-primary',
         'prose-a:no-underline prose-a:hover:underline',
         'prose-ul:my-2 prose-ol:my-2',
         'prose-li:my-0',
@@ -99,7 +99,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
 
             return (
               <pre
-                className="overflow-x-auto rounded-md bg-gray-100 dark:bg-gray-800 p-4 text-sm"
+                className="overflow-x-auto rounded-md bg-muted p-4 text-sm"
                 {...props}
               >
                 {children}
@@ -110,7 +110,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
             const isInline = !className
             return isInline ? (
               <code
-                className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm"
+                className="px-1 py-0.5 rounded bg-muted text-foreground text-sm"
                 {...props}
               >
                 {children}

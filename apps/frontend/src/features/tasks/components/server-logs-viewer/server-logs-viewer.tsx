@@ -62,10 +62,10 @@ export function ServerLogsViewer() {
   }
 
   return (
-    <div className="h-full w-full bg-slate-950 dark:bg-black">
+    <div className="h-full w-full bg-background border rounded-md">
       <ScrollArea ref={scrollAreaRef} className="h-full w-full" onScroll={handleScroll}>
         <div className="p-4">
-          <pre className="text-xs leading-relaxed text-slate-100 dark:text-slate-200 font-mono whitespace-pre-wrap break-all">
+          <pre className="text-xs leading-relaxed text-foreground font-mono whitespace-pre-wrap break-all">
             {logContent}
           </pre>
         </div>
@@ -78,11 +78,11 @@ function ServerLogsViewerSkeleton() {
   const skeletonWidths = [85, 92, 87, 95, 90, 88, 93, 86]
 
   return (
-    <div className="h-full w-full bg-slate-950 dark:bg-black p-4 space-y-2">
+    <div className="h-full w-full bg-background border rounded-md p-4 space-y-2">
       {skeletonWidths.map((width) => (
         <Skeleton
           key={`skeleton-width-${width}`}
-          className="h-4 bg-slate-800 dark:bg-slate-900"
+          className="h-4"
           style={{ width: `${width}%` }}
         />
       ))}

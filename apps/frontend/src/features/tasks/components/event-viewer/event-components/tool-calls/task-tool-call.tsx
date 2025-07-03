@@ -13,7 +13,7 @@ export function TaskToolCall({ input, name }: TaskToolCallProps): ReactNode {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <Brain className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+        <Brain className="h-3.5 w-3.5 text-status-info" />
         <span className="font-medium text-foreground">{name}</span>
         {input.description && (
           <>
@@ -24,8 +24,8 @@ export function TaskToolCall({ input, name }: TaskToolCallProps): ReactNode {
       </div>
 
       {input.prompt && (
-        <div className="bg-zinc-900 dark:bg-zinc-950 rounded-lg p-3 font-mono text-sm">
-          <code className="text-zinc-100 break-words whitespace-pre-wrap">{input.prompt}</code>
+        <div className="bg-background border rounded-lg p-3 font-mono text-sm">
+          <code className="text-foreground break-words whitespace-pre-wrap">{input.prompt}</code>
         </div>
       )}
     </div>

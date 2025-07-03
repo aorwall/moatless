@@ -21,12 +21,12 @@ import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 
 function StatusBadge({ status }: { status: string }) {
-  const statusColors = {
-    open: 'bg-blue-500/10 text-blue-700 border-blue-500/20 dark:text-blue-400',
-    running: 'bg-yellow-500/10 text-yellow-700 border-yellow-500/20 dark:text-yellow-400',
-    error: 'bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-400',
-    closed: 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:text-gray-400',
-    merged: 'bg-green-500/10 text-green-700 border-green-500/20 dark:text-green-400',
+  const statusStyles = {
+    open: 'bg-status-info/10 text-status-info border-status-info/20',
+    running: 'bg-status-warning/10 text-status-warning border-status-warning/20',
+    error: 'bg-status-error/10 text-status-error border-status-error/20',
+    closed: 'bg-status-pending/10 text-status-pending border-status-pending/20',
+    merged: 'bg-status-success/10 text-status-success border-status-success/20',
   }
 
   return (
@@ -34,8 +34,8 @@ function StatusBadge({ status }: { status: string }) {
       variant="outline"
       className={cn(
         'capitalize font-medium',
-        statusColors[status as keyof typeof statusColors] ||
-          'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:text-gray-400',
+        statusStyles[status as keyof typeof statusStyles] ||
+          'bg-status-pending/10 text-status-pending border-status-pending/20',
       )}
     >
       {status}
@@ -136,8 +136,8 @@ export function TaskHeader() {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex items-center space-x-1">
-                      <WifiOff className="h-4 w-4 text-yellow-500" />
-                      <span className="text-sm text-yellow-500">Not streaming</span>
+                      <WifiOff className="h-4 w-4 text-status-warning" />
+                      <span className="text-sm text-status-warning">Not streaming</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>

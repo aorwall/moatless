@@ -56,6 +56,18 @@ These CSS variables automatically switch values based on theme:
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   
+  /* Status states - NEW! */
+  --status-info: oklch(0.598 0.155 231.528);      /* Info/Open states */
+  --status-info-foreground: oklch(0.985 0 0);
+  --status-success: oklch(0.622 0.178 149.882);   /* Success/Complete */
+  --status-success-foreground: oklch(0.985 0 0);
+  --status-warning: oklch(0.768 0.149 84.929);    /* Warning/Running */
+  --status-warning-foreground: oklch(0.205 0 0);
+  --status-error: oklch(0.577 0.245 27.325);      /* Error states */
+  --status-error-foreground: oklch(0.985 0 0);
+  --status-pending: oklch(0.708 0 0);             /* Pending/Muted */
+  --status-pending-foreground: oklch(0.985 0 0);
+  
   /* Borders and inputs */
   --border: oklch(0.9 0.004 106.66);     /* Default borders */
   --input: oklch(0.922 0 0);             /* Input backgrounds */
@@ -99,6 +111,55 @@ These CSS variables automatically switch values based on theme:
 </div>
 ```
 
+### Status Colors - Semantic State Indicators
+
+Use semantic status colors for consistent state representation across the application:
+
+```tsx
+// ✅ CORRECT - Using semantic status colors
+function TaskStatus({ status }: { status: string }) {
+  const statusConfig = {
+    open: {
+      icon: <CircleIcon className="h-4 w-4" />,
+      className: 'text-status-info bg-status-info/10 border-status-info/20',
+    },
+    running: {
+      icon: <Loader2 className="h-4 w-4 animate-spin" />,
+      className: 'text-status-warning bg-status-warning/10 border-status-warning/20',
+    },
+    error: {
+      icon: <AlertCircle className="h-4 w-4" />,
+      className: 'text-status-error bg-status-error/10 border-status-error/20',
+    },
+    complete: {
+      icon: <CheckCircle className="h-4 w-4" />,
+      className: 'text-status-success bg-status-success/10 border-status-success/20',
+    },
+  }
+  
+  const config = statusConfig[status] || statusConfig.open
+  
+  return (
+    <Badge variant="outline" className={config.className}>
+      {config.icon}
+      <span className="ml-1">{status}</span>
+    </Badge>
+  )
+}
+
+// ❌ AVOID - Hardcoded status colors
+function BadTaskStatus({ status }: { status: string }) {
+  const colors = {
+    open: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20',
+    running: 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20',
+    error: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20',
+    complete: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20',
+  }
+  
+  return <Badge className={colors[status]}>{status}</Badge>
+}
+```
+
 ### Semantic Token Reference
 
 | Token | Purpose | Example Usage |
@@ -112,10 +173,16 @@ These CSS variables automatically switch values based on theme:
 | `muted` | Subtle backgrounds | `bg-muted` |
 | `muted-foreground` | Subtle text | `text-muted-foreground` |
 | `accent` | Hover states | `hover:bg-accent hover:text-accent-foreground` |
-| `destructive` | Errors/warnings | `bg-destructive text-destructive-foreground` |
+| `destructive` | Errors/critical actions | `bg-destructive text-destructive-foreground` |
 | `border` | All borders | `border-border` |
 | `input` | Form inputs | `bg-input` |
 | `ring` | Focus rings | `ring-ring` |
+| **Status Colors** | **Semantic States** | **Example Usage** |
+| `status-info` | Info messages, open states | `text-status-info bg-status-info/10` |
+| `status-success` | Success, complete, merged | `text-status-success bg-status-success/10` |
+| `status-warning` | Warnings, running states | `text-status-warning bg-status-warning/10` |
+| `status-error` | Errors, failed states | `text-status-error bg-status-error/10` |
+| `status-pending` | Pending, closed, muted | `text-status-pending bg-status-pending/10` |
 
 ### Customizing Colors
 

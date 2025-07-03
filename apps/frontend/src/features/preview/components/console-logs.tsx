@@ -97,17 +97,17 @@ export function ConsoleLogs() {
   const getLevelColor = (level: ConsoleLog['level']) => {
     switch (level) {
       case 'error':
-        return 'text-red-400'
+        return 'text-status-error'
       case 'warn':
-        return 'text-yellow-400'
+        return 'text-status-warning'
       case 'info':
-        return 'text-blue-400'
+        return 'text-status-info'
       case 'debug':
-        return 'text-gray-500'
+        return 'text-muted-foreground'
       case 'route':
-        return 'text-green-400'
+        return 'text-status-success'
       default:
-        return 'text-slate-100 dark:text-slate-200'
+        return 'text-foreground'
     }
   }
 
@@ -148,7 +148,7 @@ export function ConsoleLogs() {
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-slate-950 dark:bg-black">
+    <div className="h-full w-full flex flex-col bg-background">
       <ScrollArea ref={scrollAreaRef} className="flex-1 w-full" onScrollCapture={handleScroll}>
         <div className="p-4 space-y-1">
           {logs.map((log) => (
@@ -158,7 +158,7 @@ export function ConsoleLogs() {
             >
               <span className={getLevelColor(log.level)}>{formatMessage(log)}</span>
               {log.stack && (
-                <div className="mt-1 pl-4 text-gray-400 dark:text-gray-500 text-xs">
+                <div className="mt-1 pl-4 text-muted-foreground text-xs">
                   {formatStackTrace(log.stack)}
                 </div>
               )}

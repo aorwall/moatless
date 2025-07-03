@@ -19,9 +19,9 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
   const getStatusIcon = (status: Todo['status']) => {
     switch (status) {
       case 'completed':
-        return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+        return <CheckCircle2 className="h-3.5 w-3.5 text-status-success" />
       case 'inProgress':
-        return <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+        return <Clock className="h-3.5 w-3.5 text-status-info" />
       default:
         return <Circle className="h-3.5 w-3.5 text-muted-foreground" />
     }
@@ -30,9 +30,9 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
   const getPriorityColor = (priority: Todo['priority']) => {
     switch (priority) {
       case 'high':
-        return 'text-red-600 dark:text-red-400'
+        return 'text-status-error'
       case 'medium':
-        return 'text-yellow-600 dark:text-yellow-400'
+        return 'text-status-warning'
       case 'low':
         return 'text-muted-foreground'
       default:
@@ -43,7 +43,7 @@ export function TodoToolCall({ input, name }: TodoToolCallProps): ReactNode {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <ListTodo className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+        <ListTodo className="h-3.5 w-3.5 text-status-info" />
         <span className="font-medium text-foreground">{name}</span>
         <span className="text-xs text-muted-foreground">
           - {input.todos.length} item{input.todos.length !== 1 ? 's' : ''}

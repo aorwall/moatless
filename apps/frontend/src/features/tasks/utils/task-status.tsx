@@ -13,50 +13,50 @@ export function getTaskStatusConfig(status: string): TaskStatusConfig {
       return {
         icon: <PlayCircle className="h-3 w-3" />,
         tooltip: 'Open',
-        color: 'text-blue-600 dark:text-blue-400',
+        color: 'text-status-info',
       }
     case 'running':
       return {
         icon: <Loader2 className="h-3 w-3 animate-spin" />,
         tooltip: 'Running',
-        color: 'text-yellow-600 dark:text-yellow-400',
+        color: 'text-status-warning',
       }
     case 'error':
       return {
         icon: <AlertCircle className="h-3 w-3" />,
         tooltip: 'Error',
-        color: 'text-red-600 dark:text-red-400',
+        color: 'text-status-error',
       }
     case 'merged':
       return {
         icon: <GitMerge className="h-3 w-3" />,
         tooltip: 'Merged',
-        color: 'text-green-600 dark:text-green-400',
+        color: 'text-status-success',
       }
     case 'closed':
       return {
         icon: <CircleDot className="h-3 w-3" />,
         tooltip: 'Closed',
-        color: 'text-gray-600 dark:text-gray-400',
+        color: 'text-status-pending',
       }
     // Legacy statuses for backward compatibility
     case 'active':
       return {
         icon: <PlayCircle className="h-3 w-3" />,
         tooltip: 'Open',
-        color: 'text-blue-600 dark:text-blue-400',
+        color: 'text-status-info',
       }
     case 'completed':
       return {
         icon: <CheckCircle className="h-3 w-3" />,
         tooltip: 'Completed',
-        color: 'text-green-600 dark:text-green-400',
+        color: 'text-status-success',
       }
     default:
       return {
         icon: <CircleDot className="h-3 w-3" />,
         tooltip: 'Unknown',
-        color: 'text-gray-600 dark:text-gray-400',
+        color: 'text-status-pending',
       }
   }
 }

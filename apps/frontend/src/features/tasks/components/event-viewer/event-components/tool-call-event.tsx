@@ -223,14 +223,14 @@ const ToolResultPreview = ({ result }: { result: string }) => {
           </button>
         )}
       </div>
-      <div className="text-xs bg-zinc-800 dark:bg-zinc-900 text-zinc-300 dark:text-zinc-400 rounded p-3 overflow-x-auto">
+      <div className="text-xs bg-background border rounded p-3 overflow-x-auto">
         <pre className="whitespace-pre-wrap break-words font-mono">
           {displayContent}
           {!isExpanded && hasMoreLines && (
             <button
               type="button"
               onClick={() => setIsExpanded(true)}
-              className="text-zinc-500 hover:text-zinc-300 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors cursor-pointer"
+              className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               {'\n'}... ({lines.length - 3} more lines)
             </button>
