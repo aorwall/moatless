@@ -1,6 +1,5 @@
 import type { GitSyncStatus } from '@moatless/shared/types/api'
 import {
-  AlertCircle,
   Check,
   ChevronDown,
   ChevronUp,

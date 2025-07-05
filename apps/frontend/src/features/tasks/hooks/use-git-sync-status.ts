@@ -8,7 +8,7 @@ export function useGitSyncStatus(taskId: string, enabled = true) {
     queryKey: queryKeys.tasks.gitSyncStatus(taskId),
     queryFn: async () => {
       const response = await apiClient.get<GitSyncStatusInfo>(`/api/tasks/${taskId}/git-sync-status`)
-      return response.data
+      return response
     },
     enabled: !!taskId && enabled,
     staleTime: 30000, // Consider data stale after 30 seconds
