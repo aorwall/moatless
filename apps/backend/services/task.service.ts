@@ -222,7 +222,7 @@ export class TaskService {
       status: 'active',
       messageCount: 1,
       costUsd: 0,
-      initialMessage: finalMessage,
+      initialMessage: message,
       commandName,
     }
 
