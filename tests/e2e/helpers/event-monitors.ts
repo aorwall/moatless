@@ -106,51 +106,113 @@ export class SSEEventMonitor implements EventMonitor {
       (window as any).sseConnected = false
     })
 
-    // Start the SSE connection in the browser context
+    // Start the NDJSON stream connection in the browser context (matching frontend implementation)
     this.connectionScript = `
       const events = [];
       const errors = [];
       let connected = false;
+      let abortController = new AbortController();
 
       const url = '${this.baseURL}/api/v1/events/stream?activeTasksOnly=true';
-      const eventSource = new EventSource(url);
+      
+      // Use fetch with ReadableStream to handle NDJSON format (matching frontend)
+      fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/plain',
+          'Cache-Control': 'no-cache',
+        },
+        credentials: 'include',
+        signal: abortController.signal,
+      })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+        }
 
-      eventSource.onopen = () => {
+        if (!response.body) {
+          throw new Error('No response body');
+        }
+
         connected = true;
         window.sseConnected = true;
-        console.log('[E2E SSE] Connected to event stream');
-      };
+        console.log('[E2E SSE] Connected to NDJSON stream');
 
-      eventSource.onmessage = (event) => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
         try {
-          const data = JSON.parse(event.data);
-          if (data.type !== 'ping') {
-            events.push(data);
-            window.sseEvents = [...events];
-            console.log('[E2E SSE] Event received:', data.type, data.eventId);
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log('[E2E SSE] Stream ended');
+              break;
+            }
+
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete lines (NDJSON format)
+            const lines = buffer.split('\\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              if (line.trim()) {
+                try {
+                  console.log('[E2E SSE] Raw line received:', line);
+                  
+                  const data = JSON.parse(line);
+                  
+                  console.log('[E2E SSE] Parsed event data:', {
+                    type: data.type,
+                    taskId: data.taskId,
+                    eventId: data.eventId || data.id,
+                    timestamp: data.timestamp,
+                  });
+
+                  // Ignore ping events
+                  if (data.type === 'ping') {
+                    console.log('[E2E SSE] Ignoring ping event');
+                    continue;
+                  }
+
+                  events.push(data);
+                  window.sseEvents = [...events];
+                  console.log('[E2E SSE] Event received:', data.type, data.eventId || data.id);
+                } catch (error) {
+                  const errorMsg = 'Failed to parse NDJSON line: ' + error.message + ' Raw line: ' + line;
+                  errors.push(errorMsg);
+                  window.sseErrors = [...errors];
+                  console.error('[E2E SSE]', errorMsg);
+                }
+              }
+            }
           }
         } catch (error) {
-          const errorMsg = 'Failed to parse SSE event: ' + error.message;
-          errors.push(errorMsg);
-          window.sseErrors = [...errors];
-          console.error('[E2E SSE]', errorMsg);
+          if (error.name === 'AbortError') {
+            console.log('[E2E SSE] Connection aborted');
+            return;
+          }
+          throw error;
         }
-      };
-
-      eventSource.onerror = (error) => {
+      })
+      .catch((error) => {
         connected = false;
         window.sseConnected = false;
-        const errorMsg = 'SSE connection error: ' + error.type;
+        const errorMsg = 'NDJSON connection error: ' + error.message;
         errors.push(errorMsg);
         window.sseErrors = [...errors];
         console.error('[E2E SSE]', errorMsg);
-      };
+      });
 
       // Store cleanup function globally
       window.cleanupSSE = () => {
-        eventSource.close();
+        abortController.abort();
         connected = false;
         window.sseConnected = false;
+        console.log('[E2E SSE] Connection cleaned up');
       };
     `
 
