@@ -2,7 +2,9 @@ import type { Task } from '@moatless/shared/types/task'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { useGitSyncStatus } from '@/features/tasks/hooks/use-git-sync-status'
 import { useDeleteTask } from '@/features/tasks/hooks/use-tasks'
+import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -43,6 +45,97 @@ function getRelativeTime(date: Date | string): string {
   if (months < 12) return `${months}mo ago`
   const years = Math.floor(days / 365)
   return `${years}y ago`
+}
+
+// Component for individual task row with git sync status
+function TaskRow({ 
+  task, 
+  repositoryName, 
+  onDelete,
+  isDeleting = false
+}: { 
+  task: Task
+  repositoryName: string
+  onDelete: (taskId: string, event: React.MouseEvent) => void
+  isDeleting?: boolean
+}) {
+  const statusConfig = getTaskStatusConfig(task.status)
+  const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || `Task ${task.taskId.slice(0, 8)}`
+  
+  // Only fetch git sync status for open tasks
+  const { data: gitSyncStatus } = useGitSyncStatus(task.taskId, task.status === 'open')
+  const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
+
+  return (
+    <TableRow className="cursor-pointer">
+      <TableCell className="font-medium max-w-0">
+        <Link
+          to="/tasks/$taskId"
+          params={{ taskId: task.taskId }}
+          className="block hover:text-primary truncate"
+        >
+          {taskTitle}
+        </Link>
+      </TableCell>
+      <TableCell className="text-muted-foreground">{repositoryName}</TableCell>
+      <TableCell className="text-muted-foreground">
+        {getRelativeTime(task.lastMessageAt || task.createdAt)}
+      </TableCell>
+      <TableCell>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={`inline-flex items-center gap-2 ${statusConfig.color}`}>
+              <span className="text-sm">{statusConfig.tooltip}</span>
+              {statusConfig.icon}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="text-xs">
+              {task.status === 'running' && 'Agent is currently running'}
+              {task.status === 'open' && 'Ready for new messages'}
+              {task.status === 'error' && 'Last iteration failed'}
+              {task.status === 'merged' && 'Changes have been merged'}
+              {task.status === 'closed' && 'Task has been closed'}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TableCell>
+      <TableCell>
+        {task.status === 'open' && gitSyncConfig ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md ${gitSyncConfig.bgColor} ${gitSyncConfig.color}`}>
+                {gitSyncConfig.icon}
+                <span className="text-xs font-medium">{gitSyncConfig.tooltip}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div>
+                <p className="font-medium">{gitSyncConfig.tooltip}</p>
+                {gitSyncStatus && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatGitSyncDetails(gitSyncStatus)}
+                  </p>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="text-xs text-muted-foreground">-</span>
+        )}
+      </TableCell>
+      <TableCell className="text-right">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => onDelete(task.taskId, e)}
+          disabled={isDeleting}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
 }
 
 export function TaskList({ tasks, loading }: TaskListProps) {
@@ -89,66 +182,25 @@ export function TaskList({ tasks, loading }: TaskListProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[45%]">Task</TableHead>
+              <TableHead className="w-[35%]">Task</TableHead>
               <TableHead>Environment</TableHead>
               <TableHead>Last Activity</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Git Sync</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedTasks.map((task) => {
-              const statusConfig = getTaskStatusConfig(task.status)
-              const taskTitle =
-                task.iterations?.[0]?.initialMessage?.split('\n')[0] ||
-                `Task ${task.taskId.slice(0, 8)}`
               const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
-
               return (
-                <TableRow key={task.taskId} className="cursor-pointer">
-                  <TableCell className="font-medium max-w-0">
-                    <Link
-                      to="/tasks/$taskId"
-                      params={{ taskId: task.taskId }}
-                      className="block hover:text-primary truncate"
-                    >
-                      {taskTitle}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{repositoryName}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {getRelativeTime(task.lastMessageAt || task.createdAt)}
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className={`inline-flex items-center gap-2 ${statusConfig.color}`}>
-                          <span className="text-sm">{statusConfig.tooltip}</span>
-                          {statusConfig.icon}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">
-                          {task.status === 'running' && 'Agent is currently running'}
-                          {task.status === 'open' && 'Ready for new messages'}
-                          {task.status === 'error' && 'Last iteration failed'}
-                          {task.status === 'merged' && 'Changes have been merged'}
-                          {task.status === 'closed' && 'Task has been closed'}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => handleDelete(task.taskId, e)}
-                      disabled={deleteTask.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <TaskRow
+                  key={task.taskId}
+                  task={task}
+                  repositoryName={repositoryName}
+                  onDelete={handleDelete}
+                  isDeleting={deleteTask.isPending}
+                />
               )
             })}
           </TableBody>

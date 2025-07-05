@@ -4,7 +4,9 @@ import { useEffect } from 'react'
 import { useGlobalEventStream } from '@/features/events'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
+import { useGitSyncStatus } from '@/features/tasks/hooks/use-git-sync-status'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
+import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
@@ -40,6 +42,92 @@ function getRelativeTime(date: Date | string): string {
   if (months < 12) return `${months}mo ago`
   const years = Math.floor(days / 365)
   return `${years}y ago`
+}
+
+// Component for rendering individual task item with git sync status
+function SidebarTaskItem({ 
+  task, 
+  repositoryName 
+}: { 
+  task: any // Using any to match existing code style
+  repositoryName: string 
+}) {
+  const statusConfig = getTaskStatusConfig(task.status)
+  const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
+  
+  // Only fetch git sync status for open tasks
+  const { data: gitSyncStatus } = useGitSyncStatus(task.taskId, task.status === 'open')
+  const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
+
+  return (
+    <SidebarMenuItem>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
+            <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
+              <div className="flex w-full items-center gap-2 min-w-0">
+                <div className="flex items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className={`flex items-center ${statusConfig.color}`}>
+                        {statusConfig.icon}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="text-xs">
+                      {statusConfig.tooltip}
+                    </TooltipContent>
+                  </Tooltip>
+                  {task.status === 'open' && gitSyncConfig && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className={`flex items-center ${gitSyncConfig.color}`}>
+                          {gitSyncConfig.icon}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        <div>
+                          <p className="font-medium">{gitSyncConfig.tooltip}</p>
+                          {gitSyncStatus && (
+                            <p className="text-muted-foreground">
+                              {formatGitSyncDetails(gitSyncStatus)}
+                            </p>
+                          )}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+                  <span className="font-medium text-sm truncate leading-tight">
+                    {taskTitle}
+                  </span>
+                  <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
+                    <span className="truncate">{repositoryName}</span>
+                    <span className="shrink-0">
+                      {getRelativeTime(task.lastMessageAt || task.createdAt)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          </SidebarMenuButton>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-xs">
+          <div className="space-y-1">
+            <p className="font-medium text-sm break-words">
+              {taskTitle.length > 150
+                ? `${taskTitle.substring(0, 150)}...`
+                : taskTitle}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {repositoryName} •{' '}
+              {getRelativeTime(task.lastMessageAt || task.createdAt)}
+            </p>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </SidebarMenuItem>
+  )
 }
 
 export function SidebarTasks() {
@@ -147,59 +235,13 @@ export function SidebarTasks() {
           {sortedTasks.length > 0 ? (
             <SidebarMenu>
               {sortedTasks.map((task) => {
-                const statusConfig = getTaskStatusConfig(task.status)
-                // Use the initial message from the first iteration as the title
-                const taskTitle =
-                  task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
                 const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
-
                 return (
-                  <SidebarMenuItem key={task.taskId}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
-                          <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
-                            <div className="flex w-full items-center gap-2 min-w-0">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className={`flex items-center ${statusConfig.color}`}>
-                                    {statusConfig.icon}
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="text-xs">
-                                  {statusConfig.tooltip}
-                                </TooltipContent>
-                              </Tooltip>
-                              <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-                                <span className="font-medium text-sm truncate leading-tight">
-                                  {taskTitle}
-                                </span>
-                                <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-                                  <span className="truncate">{repositoryName}</span>
-                                  <span className="shrink-0">
-                                    {getRelativeTime(task.lastMessageAt || task.createdAt)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </Link>
-                        </SidebarMenuButton>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs">
-                        <div className="space-y-1">
-                          <p className="font-medium text-sm break-words">
-                            {taskTitle.length > 150
-                              ? `${taskTitle.substring(0, 150)}...`
-                              : taskTitle}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {repositoryName} •{' '}
-                            {getRelativeTime(task.lastMessageAt || task.createdAt)}
-                          </p>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </SidebarMenuItem>
+                  <SidebarTaskItem 
+                    key={task.taskId} 
+                    task={task} 
+                    repositoryName={repositoryName} 
+                  />
                 )
               })}
             </SidebarMenu>

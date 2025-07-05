@@ -20,6 +20,7 @@ export const queryKeys = {
     workspaceStatus: (id: string) => [...queryKeys.tasks.detail(id), 'workspace'] as const,
     serverStatus: (id: string) => [...queryKeys.tasks.detail(id), 'server'] as const,
     serverLogs: (id: string) => [...queryKeys.tasks.detail(id), 'server-logs'] as const,
+    gitSyncStatus: (id: string) => [...queryKeys.tasks.detail(id), 'git-sync-status'] as const,
     fileSearch: (id: string, query: string) =>
       [...queryKeys.tasks.detail(id), 'file-search', query] as const,
     fileList: (id: string, path?: string, recursive?: boolean) =>
