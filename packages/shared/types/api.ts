@@ -122,6 +122,21 @@ export const GitStatusSchema = z.object({
 })
 export type GitStatus = z.infer<typeof GitStatusSchema>
 
+// Git Sync Status with Origin
+export const GitSyncStatusSchema = z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error'])
+export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
+
+export const GitSyncStatusInfoSchema = z.object({
+  status: GitSyncStatusSchema,
+  commitsAhead: z.number(),
+  commitsBehind: z.number(),
+  hasUncommittedChanges: z.boolean(),
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  originExists: z.boolean(),
+})
+export type GitSyncStatusInfo = z.infer<typeof GitSyncStatusInfoSchema>
+
 // Workspace Status Response
 export const WorkspaceStatusResponseSchema = z.object({
   status: z.nativeEnum(WorkspaceStatus),
@@ -129,6 +144,7 @@ export const WorkspaceStatusResponseSchema = z.object({
   hasUnmergedCommits: z.boolean(),
   isBehindBase: z.boolean(),
   gitStatus: GitStatusSchema.optional(),
+  gitSyncStatus: GitSyncStatusInfoSchema.optional(),
 })
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 

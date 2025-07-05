@@ -439,6 +439,17 @@ export class WorkspaceService {
       gitStatus = await workspace.getGitStatus()
     }
 
+    // Check if workspace has getOriginSyncStatus method (LocalWorkspace)
+    let gitSyncStatus: any = undefined
+    if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
+      try {
+        gitSyncStatus = await workspace.getOriginSyncStatus()
+      } catch (error) {
+        // Log error but continue without sync status
+        logger.warn('Failed to get origin sync status', { error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+
     // For backward compatibility, also get individual values
     let hasUnmergedCommits = gitStatus?.hasUnmergedCommits ?? false
     let isBehindBase = gitStatus?.isBehindBase ?? false
@@ -460,6 +471,7 @@ export class WorkspaceService {
       hasUnmergedCommits,
       isBehindBase,
       gitStatus,
+      gitSyncStatus,
       backgroundTaskCount,
     }
   }

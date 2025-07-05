@@ -852,3 +852,154 @@ export async function removeGitWorktree(workspacePath: string, force: boolean = 
     )
   }
 }
+
+export type GitSyncStatus = 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
+
+export interface GitSyncStatusInfo {
+  status: GitSyncStatus
+  commitsAhead: number
+  commitsBehind: number
+  hasUncommittedChanges: boolean
+  currentBranch: string
+  baseBranch: string
+  originExists: boolean
+}
+
+/**
+ * Check sync status with origin/main or origin/master
+ */
+export async function getOriginSyncStatus(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<GitSyncStatusInfo> {
+  try {
+    // Get current branch
+    const currentBranch = await getCurrentBranch(repoPath)
+    
+    // Detect base branch if not provided
+    const base = baseBranch || (await detectBaseBranch(repoPath))
+    
+    // Check if origin exists
+    let originExists = false
+    try {
+      await execAsync('git remote get-url origin', {
+        cwd: repoPath,
+        timeout: 5000,
+      })
+      originExists = true
+    } catch {
+      // No origin remote
+    }
+
+    if (!originExists) {
+      const hasChanges = await hasUncommittedChanges(repoPath)
+      return {
+        status: hasChanges ? 'uncommitted_changes' : 'synced',
+        commitsAhead: 0,
+        commitsBehind: 0,
+        hasUncommittedChanges: hasChanges,
+        currentBranch,
+        baseBranch: base,
+        originExists: false,
+      }
+    }
+
+    // Fetch latest changes from origin
+    try {
+      await execAsync(`git fetch origin ${base}`, {
+        cwd: repoPath,
+        timeout: 30000,
+      })
+    } catch (error) {
+      logger.warn(`Failed to fetch origin/${base}`, { error: error instanceof Error ? error.message : String(error) })
+    }
+
+    // Check for uncommitted changes first
+    const hasChanges = await hasUncommittedChanges(repoPath)
+    
+    // Get commit counts relative to origin/base
+    const { ahead, behind } = await getOriginCommitCounts(repoPath, base)
+    
+    // Determine sync status
+    let status: GitSyncStatus
+    if (hasChanges) {
+      status = 'uncommitted_changes'
+    } else if (ahead > 0 && behind > 0) {
+      status = 'diverged'
+    } else if (ahead > 0) {
+      status = 'ahead'
+    } else if (behind > 0) {
+      status = 'behind'
+    } else {
+      status = 'synced'
+    }
+
+    return {
+      status,
+      commitsAhead: ahead,
+      commitsBehind: behind,
+      hasUncommittedChanges: hasChanges,
+      currentBranch,
+      baseBranch: base,
+      originExists: true,
+    }
+  } catch (error) {
+    logger.error('Failed to get origin sync status', error as Error)
+    const hasChanges = await hasUncommittedChanges(repoPath).catch(() => false)
+    const currentBranch = await getCurrentBranch(repoPath).catch(() => 'unknown')
+    const base = baseBranch || 'main'
+    
+    return {
+      status: 'error',
+      commitsAhead: 0,
+      commitsBehind: 0,
+      hasUncommittedChanges: hasChanges,
+      currentBranch,
+      baseBranch: base,
+      originExists: false,
+    }
+  }
+}
+
+/**
+ * Get commit counts ahead/behind relative to origin/base branch
+ */
+export async function getOriginCommitCounts(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<{ ahead: number; behind: number }> {
+  try {
+    const base = baseBranch || (await detectBaseBranch(repoPath))
+    const originBranch = `origin/${base}`
+
+    // Check if origin branch exists
+    try {
+      await execAsync(`git rev-parse --verify ${originBranch}`, {
+        cwd: repoPath,
+        timeout: 5000,
+      })
+    } catch {
+      // Origin branch doesn't exist, fall back to local branch comparison
+      return getCommitCounts(repoPath, base)
+    }
+
+    // Get commits ahead and behind relative to origin
+    const { stdout } = await execAsync(`git rev-list --left-right --count ${originBranch}...HEAD`, {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+
+    const [behind, ahead] = stdout
+      .trim()
+      .split('\t')
+      .map((n) => parseInt(n, 10))
+      
+    return { ahead, behind }
+  } catch (error) {
+    logger.warn('Failed to get origin commit counts, falling back to local', { 
+      error: error instanceof Error ? error.message : String(error) 
+    })
+    // Fall back to local branch comparison
+    return getCommitCounts(repoPath, baseBranch)
+  }
+}

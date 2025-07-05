@@ -390,6 +390,23 @@ export class AgentService {
           iteration.endTime = new Date()
           iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
+          // Capture git sync status when iteration completes
+          try {
+            if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
+              iteration.gitSyncStatus = await workspace.getOriginSyncStatus()
+              agentLogger.debug('Captured git sync status for iteration', {
+                syncStatus: iteration.gitSyncStatus?.status,
+                commitsAhead: iteration.gitSyncStatus?.commitsAhead,
+                commitsBehind: iteration.gitSyncStatus?.commitsBehind,
+                hasUncommittedChanges: iteration.gitSyncStatus?.hasUncommittedChanges,
+              })
+            }
+          } catch (error) {
+            agentLogger.warn('Failed to capture git sync status for iteration', {
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+
           // Find and update the iteration in the task's iterations array
           const task = await this.storage.getTask(taskId)
           if (task) {
@@ -428,6 +445,23 @@ export class AgentService {
       }
       iteration.endTime = new Date()
       iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
+
+      // Capture git sync status even for failed iterations
+      try {
+        if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
+          iteration.gitSyncStatus = await workspace.getOriginSyncStatus()
+          agentLogger.debug('Captured git sync status for failed iteration', {
+            syncStatus: iteration.gitSyncStatus?.status,
+            commitsAhead: iteration.gitSyncStatus?.commitsAhead,
+            commitsBehind: iteration.gitSyncStatus?.commitsBehind,
+            hasUncommittedChanges: iteration.gitSyncStatus?.hasUncommittedChanges,
+          })
+        }
+      } catch (syncError) {
+        agentLogger.warn('Failed to capture git sync status for failed iteration', {
+          syncError: syncError instanceof Error ? syncError.message : String(syncError),
+        })
+      }
 
       // Find and update the iteration in the task's iterations array
       const task = await this.storage.getTask(taskId)

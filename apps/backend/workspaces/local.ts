@@ -539,6 +539,29 @@ export class LocalWorkspace extends BaseWorkspace {
     return getComprehensiveGitStatus(this.workspacePath, this.originalBranch)
   }
 
+  async getOriginSyncStatus(): Promise<import('../utils/git-utils.js').GitSyncStatusInfo> {
+    // If workspace doesn't exist or is not set up, return defaults
+    if (
+      !this.workspacePath ||
+      !(await this.pathExists(this.workspacePath)) ||
+      this.getStatus() === WorkspaceStatus.NOT_SETUP
+    ) {
+      return {
+        status: 'error',
+        commitsAhead: 0,
+        commitsBehind: 0,
+        hasUncommittedChanges: false,
+        currentBranch: 'unknown',
+        baseBranch: 'main',
+        originExists: false,
+      }
+    }
+
+    // Import the function from git-utils
+    const { getOriginSyncStatus } = await import('../utils/git-utils.js')
+    return getOriginSyncStatus(this.workspacePath, this.originalBranch)
+  }
+
   async mergeChanges(): Promise<string> {
     // Check if worktrees are enabled
     if (!this.repositoryConfig.useGitWorktrees) {

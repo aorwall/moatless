@@ -391,6 +391,47 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }
   })
 
+  // Get git sync status with origin for workspace
+  app.get(`${prefix}/:taskId/git-sync-status`, async (c) => {
+    const services = c.get('services')
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+
+    try {
+      // Get workspace status which now includes git sync status
+      const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
+      
+      if ((workspaceStatus as any).gitSyncStatus) {
+        return c.json((workspaceStatus as any).gitSyncStatus)
+      } else {
+        // If git sync status is not available, return a default response
+        return c.json({
+          status: 'error',
+          commitsAhead: 0,
+          commitsBehind: 0,
+          hasUncommittedChanges: false,
+          currentBranch: 'unknown',
+          baseBranch: 'main',
+          originExists: false,
+        })
+      }
+    } catch (error) {
+      if (error instanceof TaskNotFoundError) {
+        throw new HTTPException(404, { message: 'Task not found' })
+      }
+      if (error instanceof WorkspaceError) {
+        throw new HTTPException(error.statusCode as any, { message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Cannot access git')) {
+        throw new HTTPException(403, { message: error.message })
+      }
+      throw error
+    }
+  })
+
   // Execute command in workspace
   app.post(`${prefix}/:taskId/execute`, async (c) => {
     const services = c.get('services')

@@ -12,6 +12,15 @@ export interface TaskIteration {
   gitDiff?: string
   merged?: boolean
   agentSessionId?: string
+  gitSyncStatus?: {
+    status: 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
+    commitsAhead: number
+    commitsBehind: number
+    hasUncommittedChanges: boolean
+    currentBranch: string
+    baseBranch: string
+    originExists: boolean
+  }
   attachments?: Array<{
     fileId?: string // Optional for backward compatibility
     filename: string
