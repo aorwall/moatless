@@ -1,5 +1,4 @@
 import type { Event } from '@moatless/shared/types/event'
-import { EventType } from '@moatless/shared/types/event'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createContext,
@@ -14,7 +13,6 @@ import {
   useGlobalEventStream,
   useTaskEventSubscription,
   getInvalidationKeys,
-  STATUS_AFFECTING_EVENTS,
   shouldInvalidateTaskList,
 } from '@/features/events'
 import { queryKeys } from '@/lib/api/query-keys'

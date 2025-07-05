@@ -17,7 +17,7 @@ export function LastEventDisplay({
   const [displayedEvent, setDisplayedEvent] = useState<Event | MergedEvent | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [fadeState, setFadeState] = useState<'in' | 'out'>('in')
-  const transitionTimerRef = useRef<NodeJS.Timeout>()
+  const transitionTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const lastEvent = events[events.length - 1] || null
 

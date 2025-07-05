@@ -177,12 +177,13 @@ export function useTaskGitDiff(
 export function useTaskFileSearch(
   taskId: string,
   query: string,
+  repositoryId: string,
   options?: Omit<UseQueryOptions<FileSearchResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.taskFileSearch(taskId, query),
-    queryFn: () => tasksApi.searchTaskFiles(taskId, { query }),
-    enabled: !!taskId && query.length >= 3,
+    queryFn: () => tasksApi.searchTaskFiles(taskId, { query, repositoryId }),
+    enabled: !!taskId && !!repositoryId && query.length >= 3,
     staleTime: 30 * 1000, // 30 seconds
     ...options,
   })
@@ -219,20 +220,20 @@ export function useMergeTask(
   >({
     mutationFn: ({ taskId, targetBranch, commitMessage }) =>
       tasksApi.mergeTask(taskId, { targetBranch, commitMessage }),
-    onMutate: async ({ taskId }) => {
+    onMutate: async (variables) => {
       // Cancel any in-flight queries for this task
-      await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) })
+      await queryClient.cancelQueries({ queryKey: queryKeys.task(variables.taskId) })
 
       // Snapshot the previous task data
-      const previousTask = queryClient.getQueryData<Task>(queryKeys.task(taskId))
+      const previousTask = queryClient.getQueryData<Task>(queryKeys.task(variables.taskId))
 
       // Optimistically update the task status to 'merged'
       if (previousTask) {
         const updatedTask = { ...previousTask, status: 'merged' as const }
-        queryClient.setQueryData<Task>(queryKeys.task(taskId), updatedTask)
+        queryClient.setQueryData<Task>(queryKeys.task(variables.taskId), updatedTask)
 
         // Update the task in all cached lists
-        updateTaskInLists(queryClient, taskId, { status: 'merged' })
+        updateTaskInLists(queryClient, variables.taskId, { status: 'merged' })
       }
 
       // Return context with snapshot for potential rollback
@@ -240,13 +241,13 @@ export function useMergeTask(
     },
     onError: (err, variables, context) => {
       // Rollback on error
-      if (context?.previousTask) {
+      if (context && typeof context === 'object' && 'previousTask' in context && context.previousTask) {
         queryClient.setQueryData(queryKeys.task(variables.taskId), context.previousTask)
         updateTaskInLists(queryClient, variables.taskId, context.previousTask)
       }
       options?.onError?.(err, variables, context)
     },
-    onSettled: (_data, _error, variables) => {
+    onSettled: (_data, _error, _variables) => {
       // Only invalidate task lists - events will handle the rest
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasksList(),
@@ -265,7 +266,7 @@ export function useCloseTask(
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<{ status: 'closed'; taskId: string }, Error, string>({
     mutationFn: (taskId: string) => tasksApi.closeTask(taskId),
     onMutate: async (taskId) => {
       // Cancel any in-flight queries for this task
@@ -288,13 +289,13 @@ export function useCloseTask(
     },
     onError: (err, taskId, context) => {
       // Rollback on error
-      if (context?.previousTask) {
+      if (context && typeof context === 'object' && 'previousTask' in context && context.previousTask) {
         queryClient.setQueryData(queryKeys.task(taskId), context.previousTask)
         updateTaskInLists(queryClient, taskId, context.previousTask)
       }
       options?.onError?.(err, taskId, context)
     },
-    onSettled: async (_data, _error, taskId) => {
+    onSettled: async (_data, _error, _taskId) => {
       // Only force refetch task lists - events will handle task-specific updates
       await queryClient.refetchQueries({
         queryKey: queryKeys.tasksList(),

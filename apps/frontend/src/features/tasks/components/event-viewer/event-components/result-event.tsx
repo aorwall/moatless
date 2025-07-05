@@ -55,7 +55,7 @@ export function ResultEvent({ event }: ResultEventProps) {
           </div>
         </div>
 
-        {payload.result && (
+        {'result' in payload && payload.result && (
           <div className="mt-3 p-3 bg-background rounded border text-sm">
             <div className="text-xs text-muted-foreground mb-2">Result</div>
             <div className="whitespace-pre-wrap">{payload.result}</div>

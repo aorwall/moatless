@@ -21,8 +21,8 @@ interface EventHeaderProps {
   children: React.ReactNode
 }
 
-const formatTimestamp = (timestamp: string) => {
-  const date = new Date(timestamp)
+const formatTimestamp = (timestamp: Date | undefined) => {
+  const date = timestamp ? new Date(timestamp) : new Date()
   return {
     time: date.toLocaleTimeString('en-US', {
       hour12: false,
@@ -76,7 +76,7 @@ export function EventHeader({ event, children }: EventHeaderProps) {
         <div className="flex-1">{children}</div>
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
-          {event.contextTokens > 0 && (
+          {event.contextTokens && event.contextTokens > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>

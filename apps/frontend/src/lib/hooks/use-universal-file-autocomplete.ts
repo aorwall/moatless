@@ -48,8 +48,8 @@ export function useUniversalFileAutocomplete({
     data: taskSearchResults,
     isLoading: taskLoading,
     error: taskError,
-  } = useTaskFileSearch(taskId || '', state.searchTerm, {
-    enabled: state.isOpen && !!taskId && state.searchTerm.length >= 3,
+  } = useTaskFileSearch(taskId || '', state.searchTerm, repositoryId || '', {
+    enabled: state.isOpen && !!taskId && !!repositoryId && state.searchTerm.length >= 3,
   })
 
   // Determine which results to use

@@ -1,4 +1,5 @@
 import { EventType } from '@moatless/shared/types/event'
+import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'
@@ -40,8 +41,10 @@ describe('useTaskData', () => {
       ],
     }
     const mockWorkspaceStatus = {
-      status: 'idle' as const,
-      message: 'Workspace is idle',
+      status: WorkspaceStatus.IDLE,
+      hasUncommittedChanges: false,
+      hasUnmergedCommits: false,
+      isBehindBase: false,
     }
 
     // Setup mock responses
@@ -95,7 +98,12 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTask).mockRejectedValue(mockError)
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
-    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({ status: 'idle', message: 'Idle' })
+    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({ 
+      status: WorkspaceStatus.IDLE,
+      hasUncommittedChanges: false,
+      hasUnmergedCommits: false,
+      isBehindBase: false
+    })
 
     // Render the hook
     const { result } = renderHook(() => useTaskData(taskId), {

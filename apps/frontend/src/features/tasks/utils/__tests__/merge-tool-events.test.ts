@@ -41,7 +41,7 @@ describe('mergeToolEvents', () => {
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:01Z',
+        timestamp: new Date('2025-01-01T00:00:01Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -143,11 +143,11 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: 'input',
+        type: EventType.INPUT,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:01Z',
+        timestamp: new Date('2025-01-01T00:00:01Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -201,7 +201,7 @@ describe('mergeToolEvents', () => {
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:01Z',
+        timestamp: new Date('2025-01-01T00:00:01Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -227,7 +227,7 @@ describe('mergeToolEvents', () => {
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:02Z',
+        timestamp: new Date('2025-01-01T00:00:02Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -254,7 +254,7 @@ describe('mergeToolEvents', () => {
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:03Z',
+        timestamp: new Date('2025-01-01T00:00:03Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -328,7 +328,7 @@ describe('mergeToolEvents', () => {
         subType: '', // empty subType should also work
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:01Z',
+        timestamp: new Date('2025-01-01T00:00:01Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -400,7 +400,7 @@ describe('mergeToolEvents', () => {
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
-        timestamp: '2025-01-01T00:00:01Z',
+        timestamp: new Date('2025-01-01T00:00:01Z'),
         isError: false,
         agentType: 'test-agent',
         contextTokens: 100,
@@ -433,7 +433,9 @@ describe('mergeToolEvents', () => {
     })
     // Ensure the text content is still present
     const mergedPayload = merged[0].payload as Record<string, unknown>
-    expect(mergedPayload.message.content[0]).toMatchObject({
+    const message = mergedPayload.message as Record<string, unknown>
+    const content = message.content as Array<Record<string, unknown>>
+    expect(content[0]).toMatchObject({
       type: 'text',
       text: 'Let me check the file for you.',
     })

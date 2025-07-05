@@ -61,30 +61,30 @@ function getToolSummary(toolContent: ToolUseContent): string {
   // Provide concise summaries based on tool type
   switch (toolName) {
     case 'Read':
-      return input.file_path ? truncateText(input.file_path, 40) : ''
+      return input.file_path && typeof input.file_path === 'string' ? truncateText(input.file_path, 40) : ''
     case 'Write':
-      return input.file_path ? truncateText(input.file_path, 40) : ''
+      return input.file_path && typeof input.file_path === 'string' ? truncateText(input.file_path, 40) : ''
     case 'Edit':
     case 'MultiEdit':
-      return input.file_path ? truncateText(input.file_path, 40) : ''
+      return input.file_path && typeof input.file_path === 'string' ? truncateText(input.file_path, 40) : ''
     case 'Grep':
-      return input.pattern ? `"${truncateText(input.pattern, 30)}"` : ''
+      return input.pattern && typeof input.pattern === 'string' ? `"${truncateText(input.pattern, 30)}"` : ''
     case 'Glob':
-      return input.pattern ? `"${truncateText(input.pattern, 30)}"` : ''
+      return input.pattern && typeof input.pattern === 'string' ? `"${truncateText(input.pattern, 30)}"` : ''
     case 'Bash':
-      return input.command ? truncateText(input.command, 50) : ''
+      return input.command && typeof input.command === 'string' ? truncateText(input.command, 50) : ''
     case 'WebFetch':
-      return input.url ? truncateText(input.url, 40) : ''
+      return input.url && typeof input.url === 'string' ? truncateText(input.url, 40) : ''
     case 'TodoWrite':
-      return input.todos?.length ? `${input.todos.length} items` : ''
+      return input.todos && Array.isArray(input.todos) ? `${input.todos.length} items` : ''
     case 'TodoRead':
       return ''
     case 'LS':
-      return input.path ? truncateText(input.path, 40) : ''
+      return input.path && typeof input.path === 'string' ? truncateText(input.path, 40) : ''
     case 'Task':
-      return input.description ? truncateText(input.description, 40) : ''
+      return input.description && typeof input.description === 'string' ? truncateText(input.description, 40) : ''
     default:
-      return input.description || ''
+      return (input.description && typeof input.description === 'string') ? input.description : ''
   }
 }
 

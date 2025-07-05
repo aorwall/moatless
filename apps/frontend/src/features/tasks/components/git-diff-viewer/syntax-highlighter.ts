@@ -1,5 +1,5 @@
 import Prism from 'prismjs'
-import type { Hunk, HunkTokens } from 'react-diff-view'
+import type { HunkTokens } from 'react-diff-view'
 
 // Import common language grammars
 // Web languages
@@ -255,7 +255,7 @@ function tokenizeLine(line: string, language: string): DiffTokenNode[] {
 }
 
 // Main tokenize function for react-diff-view
-export function tokenizeHunks(hunks: Hunk[], filePath?: string): HunkTokens {
+export function tokenizeHunks(hunks: Array<any>, filePath?: string): HunkTokens {
   // Get first line content for shebang detection
   let firstLine: string | undefined
   if (hunks.length > 0 && hunks[0].changes.length > 0) {

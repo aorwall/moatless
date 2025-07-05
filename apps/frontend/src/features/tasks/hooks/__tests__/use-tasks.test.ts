@@ -71,8 +71,8 @@ describe('Task Hooks', () => {
   describe('useTasksList', () => {
     it('fetches tasks list', async () => {
       const mockTasks = [
-        createMockTask({ task_id: 'task-1' }),
-        createMockTask({ task_id: 'task-2' }),
+        createMockTask({ taskId: 'task-1' }),
+        createMockTask({ taskId: 'task-2' }),
       ]
       vi.mocked(tasksApi.listTasks).mockResolvedValue(mockTasks)
 
@@ -120,7 +120,7 @@ describe('Task Hooks', () => {
     })
 
     it('refetches every 2 seconds when task is active', async () => {
-      const activeTask = createMockTask({ status: 'active', is_running: true })
+      const activeTask = createMockTask({ status: 'running' })
       vi.mocked(tasksApi.getTask).mockResolvedValue(activeTask)
 
       const { result } = renderHook(() => useTask('task-123'), {
@@ -138,8 +138,7 @@ describe('Task Hooks', () => {
 
     it('does not refetch when task is not active', async () => {
       const inactiveTask = createMockTask({
-        status: 'completed',
-        is_running: false,
+        status: 'closed',
       })
       vi.mocked(tasksApi.getTask).mockResolvedValue(inactiveTask)
 
@@ -168,8 +167,8 @@ describe('Task Hooks', () => {
 
       await act(async () => {
         await result.current.mutateAsync({
-          agent_type: 'test-agent',
-          environment_id: 'test-env',
+          agentType: 'test-agent',
+          repositoryId: 'test-env',
           message: 'Test message',
         })
       })
@@ -216,7 +215,7 @@ describe('Task Hooks', () => {
     it('stops agent and invalidates correct queries', async () => {
       vi.mocked(tasksApi.stopAgent).mockResolvedValue({
         status: 'stopped',
-        task_id: 'task-123',
+        taskId: 'task-123',
       })
 
       const wrapper = createWrapper()
@@ -256,16 +255,16 @@ describe('Task Hooks', () => {
       expect(result.current.data).toEqual(mockEvents)
     })
 
-    it('fetches events with pagination', async () => {
-      const params = { limit: 10, offset: 20 }
+    it('fetches events with type filter', async () => {
+      const type = 'message'
       vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
 
-      renderHook(() => useTaskEvents('task-123', params), {
+      renderHook(() => useTaskEvents('task-123', type), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => {
-        expect(tasksApi.getTaskEvents).toHaveBeenCalledWith('task-123', params)
+        expect(tasksApi.getTaskEvents).toHaveBeenCalledWith('task-123', type)
       })
     })
   })

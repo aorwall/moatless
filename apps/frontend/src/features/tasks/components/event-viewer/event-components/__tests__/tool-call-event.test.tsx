@@ -54,13 +54,14 @@ describe('ToolCallEvent', () => {
 
   it('should render tool call with result', () => {
     const toolResult: Event = {
-      event_id: 'result-event',
-      type: 'message',
+      eventId: 'result-event',
+      type: EventType.MESSAGE,
       subType: '',
       taskId: 'test-task',
-      iterationNumber: 1,
-      timestamp: '2025-01-01T00:00:01Z',
+      iterationId: 1,
+      timestamp: new Date('2025-01-01T00:00:01Z'),
       isError: false,
+      agentType: 'test-agent',
       contextTokens: 100,
       numTurns: 1,
       totalCost: 0.01,
@@ -95,13 +96,14 @@ describe('ToolCallEvent', () => {
     const user = userEvent.setup()
 
     const toolResult: Event = {
-      event_id: 'result-event',
-      type: 'message',
+      eventId: 'result-event',
+      type: EventType.MESSAGE,
       subType: '',
       taskId: 'test-task',
-      iterationNumber: 1,
-      timestamp: '2025-01-01T00:00:01Z',
+      iterationId: 1,
+      timestamp: new Date('2025-01-01T00:00:01Z'),
       isError: false,
+      agentType: 'test-agent',
       contextTokens: 100,
       numTurns: 1,
       totalCost: 0.01,
@@ -135,13 +137,14 @@ describe('ToolCallEvent', () => {
 
   it('should use dark background for tool results', () => {
     const toolResult: Event = {
-      event_id: 'result-event',
-      type: 'message',
+      eventId: 'result-event',
+      type: EventType.MESSAGE,
       subType: '',
       taskId: 'test-task',
-      iterationNumber: 1,
-      timestamp: '2025-01-01T00:00:01Z',
+      iterationId: 1,
+      timestamp: new Date('2025-01-01T00:00:01Z'),
       isError: false,
+      agentType: 'test-agent',
       contextTokens: 100,
       numTurns: 1,
       totalCost: 0.01,

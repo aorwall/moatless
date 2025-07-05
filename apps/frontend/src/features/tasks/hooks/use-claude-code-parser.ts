@@ -123,7 +123,7 @@ const parseClaudeMessage = (payload: Record<string, unknown>): ParsedMessage | n
 
 const createBaseEvent = (event: Event) => ({
   eventId: event.eventId,
-  timestamp: event.timestamp.toISOString(),
+  timestamp: event.timestamp ? event.timestamp.toISOString() : new Date().toISOString(),
   isError: event.isError,
 })
 

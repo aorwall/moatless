@@ -27,12 +27,10 @@ describe('useSendMessage Integration Test', () => {
     // Initial task state with 1 iteration
     const initialTask = createMockTaskWithIterations(
       {
-        task_id: taskId,
-        title: 'Test Task',
-        num_turns: 1,
-        total_cost_usd: 0.01,
-        status: 'completed',
-        is_running: false,
+        taskId: taskId,
+        numTurns: 1,
+        totalCostUsd: 0.01,
+        status: 'closed',
       },
       1,
     )
@@ -40,12 +38,10 @@ describe('useSendMessage Integration Test', () => {
     // Updated task state with 2 iterations after message sent
     const updatedTask = createMockTaskWithIterations(
       {
-        task_id: taskId,
-        title: 'Test Task',
-        num_turns: 2,
-        total_cost_usd: 0.02,
-        status: 'active',
-        is_running: true,
+        taskId: taskId,
+        numTurns: 2,
+        totalCostUsd: 0.02,
+        status: 'running',
       },
       2,
     )
@@ -95,8 +91,7 @@ describe('useSendMessage Integration Test', () => {
       // Check that the task data has been updated
       expect(taskResult.current.data).toEqual(updatedTask)
       expect(taskResult.current.data?.iterations).toHaveLength(2)
-      expect(taskResult.current.data?.is_running).toBe(true)
-      expect(taskResult.current.data?.status).toBe('active')
+      expect(taskResult.current.data?.status).toBe('running')
     })
 
     // Verify API calls
@@ -108,7 +103,7 @@ describe('useSendMessage Integration Test', () => {
 
   it('should handle concurrent message sends correctly', async () => {
     const taskId = 'task-123'
-    const mockTask = createMockTask({ task_id: taskId })
+    const mockTask = createMockTask({ taskId: taskId })
 
     vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask)
     vi.mocked(tasksApi.sendMessage).mockImplementation(
@@ -142,7 +137,7 @@ describe('useSendMessage Integration Test', () => {
 
   it('should properly handle errors and not invalidate on failure', async () => {
     const taskId = 'task-123'
-    const mockTask = createMockTask({ task_id: taskId })
+    const mockTask = createMockTask({ taskId: taskId })
     const error = new Error('Network error')
 
     vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask)

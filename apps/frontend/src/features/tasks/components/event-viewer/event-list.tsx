@@ -1,5 +1,5 @@
 import { isToolUseContent } from '@moatless/shared'
-import type { Event, MessageEvent as MessageEventType } from '@moatless/shared/types/event'
+import type { Event, MessageEvent as MessageEventType, ResultEvent as ResultEventType } from '@moatless/shared/types/event'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 
@@ -60,7 +60,7 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
         // For text messages and other non-tool messages
         return <MessageEvent event={event} />
       case 'result':
-        return <ResultEvent event={event} />
+        return <ResultEvent event={event as ResultEventType} />
       default:
         return (
           <div className="text-sm text-muted-foreground">
