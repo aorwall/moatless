@@ -61,7 +61,8 @@ export function SidebarTasks() {
 
   // Subscribe to global events to invalidate the task list when relevant events occur
   useEffect(() => {
-    return subscribeToAll((event) => {
+    console.log('[SidebarTasks] Setting up global subscription')
+    const unsubscribe = subscribeToAll((event) => {
       // Invalidate task list on relevant events
       if (event.subType && (
         event.subType === 'task:created' ||
@@ -73,6 +74,11 @@ export function SidebarTasks() {
         queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
       }
     })
+
+    return () => {
+      console.log('[SidebarTasks] Cleaning up global subscription')
+      unsubscribe()
+    }
   }, [subscribeToAll, queryClient])
 
   // Fetch repositories to map IDs to names
