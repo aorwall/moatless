@@ -2,6 +2,7 @@ import type { Event } from '@moatless/shared/types/event'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import { IsolatedTimer } from '@/lib/components/ui/isolated-timer'
 import { MinifiedEventList } from './minified-event-list'
 
 interface MinifiedLastEventDisplayProps {
@@ -9,6 +10,8 @@ interface MinifiedLastEventDisplayProps {
   className?: string
   showTransitionIndicator?: boolean
   isRunning?: boolean
+  runningStartTime?: Date
+  latestContextTokens?: number | null
 }
 
 export function MinifiedLastEventDisplay({
@@ -16,6 +19,8 @@ export function MinifiedLastEventDisplay({
   className = '',
   showTransitionIndicator = true,
   isRunning = false,
+  runningStartTime,
+  latestContextTokens,
 }: MinifiedLastEventDisplayProps) {
   const [displayedEvent, setDisplayedEvent] = useState<Event | MergedEvent | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(false)
@@ -82,10 +87,44 @@ export function MinifiedLastEventDisplay({
         }`}
       >
         <div className="bg-muted/50 rounded-md p-3 flex items-center gap-3">
-          <div className="flex-1">
+          {/* Event content - takes most of the space */}
+          <div className="flex-1 min-w-0">
             <MinifiedEventList events={[displayedEvent]} />
           </div>
-          {isRunning && (
+
+          {/* Status panel - compact side section when running */}
+          {isRunning && (latestContextTokens || runningStartTime) && (
+            <div className="flex-shrink-0">
+              <div className="bg-muted/40 rounded px-2.5 py-1.5 flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                  <span className="text-xs font-medium text-foreground">Running</span>
+                </div>
+                
+                {runningStartTime && (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="font-mono font-medium text-foreground">
+                      <IsolatedTimer startTime={runningStartTime} />
+                    </span>
+                  </div>
+                )}
+                
+                {latestContextTokens && (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="font-mono font-medium text-foreground">
+                      {latestContextTokens > 1000 
+                        ? `${Math.round(latestContextTokens / 1000)}k ctx`
+                        : `${latestContextTokens.toLocaleString()} ctx`
+                      }
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Fallback running indicator when no detailed status */}
+          {isRunning && !(latestContextTokens || runningStartTime) && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               <span>running</span>

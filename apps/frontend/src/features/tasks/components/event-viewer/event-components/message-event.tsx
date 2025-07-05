@@ -23,6 +23,11 @@ export function MessageEvent({ event }: MessageEventProps) {
   const isAssistant = role === 'assistant'
   const isUser = role === 'user'
 
+  // Extract usage information for context tokens display
+  const usage = message.usage as Record<string, unknown> | null
+  const contextTokens = usage ? 
+    (Number(usage.input_tokens || 0) + Number(usage.cache_read_input_tokens || 0)) : null
+
   // Extract text content
   let textContent = ''
 
@@ -60,6 +65,11 @@ export function MessageEvent({ event }: MessageEventProps) {
           <span className="text-sm font-medium text-foreground">
             {isAssistant ? 'Assistant' : isUser ? 'User' : String(role)}
           </span>
+          {contextTokens && contextTokens > 0 && (
+            <span className="text-xs text-muted-foreground bg-muted rounded px-2 py-0.5">
+              {contextTokens.toLocaleString()} context tokens
+            </span>
+          )}
         </div>
 
         <div className="text-sm prose prose-sm dark:prose-invert max-w-none">

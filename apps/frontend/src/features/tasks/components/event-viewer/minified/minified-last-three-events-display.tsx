@@ -10,6 +10,7 @@ interface MinifiedLastThreeEventsDisplayProps {
   className?: string
   isRunning?: boolean
   runningStartTime?: Date
+  latestContextTokens?: number | null
 }
 
 function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
@@ -32,6 +33,7 @@ export function MinifiedLastThreeEventsDisplay({
   className = '',
   isRunning = false,
   runningStartTime,
+  latestContextTokens,
 }: MinifiedLastThreeEventsDisplayProps) {
   const [displayedEvents, setDisplayedEvents] = useState<Array<Event | MergedEvent>>([])
 
@@ -52,35 +54,61 @@ export function MinifiedLastThreeEventsDisplay({
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      <div className="space-y-px">
-        {displayedEvents.map((event, index) => {
-          const isLast = index === displayedEvents.length - 1
-          const opacity = isLast ? 1 : 0.5 + index * 0.25
-          const bgOpacity = isLast ? 0.5 : 0.3
+      <div className="flex items-start gap-3">
+        {/* Events column - takes most of the space */}
+        <div className="flex-1 min-w-0 space-y-px">
+          {displayedEvents.map((event, index) => {
+            const isLast = index === displayedEvents.length - 1
+            const opacity = isLast ? 1 : 0.5 + index * 0.25
+            const bgOpacity = isLast ? 0.5 : 0.3
 
-          return (
-            <div
-              key={event.eventId}
-              className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
-              style={{
-                opacity,
-                backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
-              }}
-            >
-              <MinifiedEventItem event={event} />
-              {isLast && isRunning && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {runningStartTime ? (
+            return (
+              <div
+                key={event.eventId}
+                className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
+                style={{
+                  opacity,
+                  backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
+                }}
+              >
+                <MinifiedEventItem event={event} />
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Status column - compact side panel when running */}
+        {isRunning && (latestContextTokens || runningStartTime) && (
+          <div className="flex-shrink-0">
+            <div className="bg-muted/30 rounded-md px-3 py-2 h-full flex flex-col justify-center gap-2">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span className="text-xs font-medium text-foreground">Running</span>
+              </div>
+              
+              {runningStartTime && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Time:</span>
+                  <span className="font-mono font-medium text-foreground">
                     <IsolatedTimer startTime={runningStartTime} />
-                  ) : (
-                    <span>running</span>
-                  )}
+                  </span>
+                </div>
+              )}
+              
+              {latestContextTokens && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Ctx:</span>
+                  <span className="font-mono font-medium text-foreground">
+                    {latestContextTokens > 1000 
+                      ? `${Math.round(latestContextTokens / 1000)}k`
+                      : latestContextTokens.toLocaleString()
+                    }
+                  </span>
                 </div>
               )}
             </div>
-          )
-        })}
+          </div>
+        )}
       </div>
     </div>
   )
