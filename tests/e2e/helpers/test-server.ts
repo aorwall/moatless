@@ -62,6 +62,7 @@ export async function createTestRepository(
         type: 'local',
         setupCommands: 'echo "E2E Repository setup complete"',
       },
+      variables: {},
     }),
   })
 

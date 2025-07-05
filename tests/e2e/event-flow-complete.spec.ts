@@ -34,13 +34,13 @@ import {
 test.describe('Complete Event Flow E2E', () => {
   let tempDirA: string
   let tempDirB: string
-  let repositoryA: TestRepository
-  let repositoryB: TestRepository
-  let taskA: TestTask
-  let taskB: TestTask
-  let apiMonitor: APIEventMonitor
-  let sseMonitorGlobal: SSEEventMonitor
-  let sseMonitorTaskA: SSEEventMonitor
+  let repositoryA: TestRepository | undefined
+  let repositoryB: TestRepository | undefined
+  let taskA: TestTask | undefined
+  let taskB: TestTask | undefined
+  let apiMonitor: APIEventMonitor | undefined
+  let sseMonitorGlobal: SSEEventMonitor | undefined
+  let sseMonitorTaskA: SSEEventMonitor | undefined
 
   const baseURL = 'http://127.0.0.1:3002'
 
@@ -101,8 +101,12 @@ test.describe('Complete Event Flow E2E', () => {
     }
 
     // Clean up monitors
-    await apiMonitor.cleanup()
-    await sseMonitorGlobal.cleanup()
+    if (apiMonitor) {
+      await apiMonitor.cleanup()
+    }
+    if (sseMonitorGlobal) {
+      await sseMonitorGlobal.cleanup()
+    }
     if (sseMonitorTaskA) {
       await sseMonitorTaskA.cleanup()
     }
@@ -117,6 +121,14 @@ test.describe('Complete Event Flow E2E', () => {
   })
 
   test('should handle dual agent execution with cross-visibility of events', async ({ page }) => {
+    // Ensure repositories and monitors exist
+    if (!repositoryA || !repositoryB) {
+      throw new Error('Repositories not created')
+    }
+    if (!apiMonitor || !sseMonitorGlobal) {
+      throw new Error('Event monitors not initialized')
+    }
+    
     // Step 1: Create two tasks with different agents and different objectives
     console.log('Creating Task A: File creation task')
     taskA = await createTestTask(
@@ -143,16 +155,31 @@ test.describe('Complete Event Flow E2E', () => {
     await sseMonitorTaskA.start()
     expect(await sseMonitorTaskA.checkConnection()).toBe(true)
 
-    // Step 3: Wait for both tasks to start processing
+    // Step 3: Check SSE connection status
+    const sseErrors = await sseMonitorGlobal.getLatestErrors()
+    if (sseErrors.length > 0) {
+      console.log('SSE Connection Errors:', sseErrors)
+    }
+    
+    // Wait for both tasks to start processing
     console.log('Waiting for tasks to start processing...')
+    
+    // Add a small delay to allow events to flow
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    // Check if we have any events at all
+    await sseMonitorGlobal.getLatestEvents()
+    console.log('Current SSE events count:', sseMonitorGlobal.events.length)
     
     await Promise.all([
       waitForEventType(apiMonitor, 'message', 30000).catch(e => 
         console.warn('Task start monitoring timed out:', e.message)
       ),
-      waitForEventType(sseMonitorGlobal, 'message', 30000).catch(e => 
+      waitForEventType(sseMonitorGlobal, 'message', 30000).catch(e => {
         console.warn('SSE global start monitoring timed out:', e.message)
-      )
+        console.log('SSE events at timeout:', sseMonitorGlobal.events.length)
+        return null
+      })
     ])
 
     // Step 4: Monitor event stream status during execution
@@ -325,16 +352,21 @@ test.describe('Complete Event Flow E2E', () => {
 
     // Final summary
     console.log('\n🎉 Complete E2E Event Flow Test Summary:')
-    console.log(`- API Events Captured: ${apiMonitor.events.length}`)
-    console.log(`- Global SSE Events: ${sseMonitorGlobal.events.length}`)
-    console.log(`- Task-Specific SSE Events: ${sseMonitorTaskA.events.length}`)
-    console.log(`- API Errors: ${apiMonitor.errors.length}`)
-    console.log(`- SSE Errors: ${sseMonitorGlobal.errors.length}`)
+    console.log(`- API Events Captured: ${apiMonitor?.events.length || 0}`)
+    console.log(`- Global SSE Events: ${sseMonitorGlobal?.events.length || 0}`)
+    console.log(`- Task-Specific SSE Events: ${sseMonitorTaskA?.events.length || 0}`)
+    console.log(`- API Errors: ${apiMonitor?.errors.length || 0}`)
+    console.log(`- SSE Errors: ${sseMonitorGlobal?.errors.length || 0}`)
     console.log(`- Files Created: ${Number(calculatorExists) + Number(featuresExists)}/2`)
     console.log(`- Event Types: [${eventTypes.join(', ')}]`)
   })
 
   test('should handle connection resilience and reconnection', async ({ page }) => {
+    // Ensure repository exists
+    if (!repositoryA) {
+      throw new Error('Repository A not created')
+    }
+    
     // Create a single task for this test
     taskA = await createTestTask(
       baseURL,
@@ -344,6 +376,11 @@ test.describe('Complete Event Flow E2E', () => {
       true
     )
 
+    // Ensure monitors exist
+    if (!apiMonitor || !sseMonitorGlobal) {
+      throw new Error('Event monitors not initialized')
+    }
+    
     // Wait for initial events
     await waitForEventType(apiMonitor, 'message', 30000)
     

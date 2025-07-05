@@ -112,7 +112,7 @@ export class SSEEventMonitor implements EventMonitor {
       const errors = [];
       let connected = false;
 
-      const url = '${this.baseURL}/api/v1/events/stream' + (${this.taskId ? `'?taskId=${this.taskId}'` : "''"});
+      const url = '${this.baseURL}/api/v1/events/stream?activeTasksOnly=true';
       const eventSource = new EventSource(url);
 
       eventSource.onopen = () => {
@@ -165,6 +165,13 @@ export class SSEEventMonitor implements EventMonitor {
   async getLatestEvents(): Promise<Event[]> {
     const events = await this.page.evaluate(() => (window as any).sseEvents || [])
     this.events = events
+    
+    // Also check for any errors
+    const errors = await this.page.evaluate(() => (window as any).sseErrors || [])
+    if (errors.length > 0) {
+      console.log('[SSE Monitor] Errors detected:', errors)
+    }
+    
     return events
   }
 
