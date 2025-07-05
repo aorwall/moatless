@@ -751,3 +751,104 @@ export async function mergeGitBranch(
     )
   }
 }
+
+export async function isBranchCheckedOut(repoPath: string, branchName: string): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(`git worktree list --porcelain`, {
+      cwd: repoPath,
+      timeout: 10000,
+    })
+    
+    const lines = stdout.trim().split('\n')
+    let currentBranch = ''
+    
+    for (const line of lines) {
+      if (line.startsWith('branch ')) {
+        currentBranch = line.substring(7).trim()
+        if (currentBranch === `refs/heads/${branchName}`) {
+          return true
+        }
+      }
+    }
+    
+    return false
+  } catch (error) {
+    logger.debug('Failed to check if branch is checked out', { error, branchName })
+    return false
+  }
+}
+
+export async function createGitWorktree(
+  repoPath: string,
+  workspacePath: string,
+  branchName?: string,
+  newBranchName?: string,
+): Promise<void> {
+  try {
+    if (branchName) {
+      // Check if the branch is already checked out
+      const isCheckedOut = await isBranchCheckedOut(repoPath, branchName)
+      
+      if (isCheckedOut) {
+        // Branch is already checked out, create a new branch based on it
+        if (!newBranchName) {
+          throw new Error(`Branch '${branchName}' is already checked out and no new branch name provided`)
+        }
+        logger.debug('Branch already checked out, creating new branch from it', { 
+          originalBranch: branchName, 
+          newBranch: newBranchName 
+        })
+        await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`, {
+          cwd: repoPath,
+          timeout: 30000,
+        })
+      } else {
+        // Create worktree from existing branch (no -b flag)
+        logger.debug('Using existing branch for worktree', { branch: branchName })
+        await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
+          cwd: repoPath,
+          timeout: 30000,
+        })
+      }
+    } else if (newBranchName) {
+      // Create new branch for worktree
+      logger.debug('Creating new branch for worktree', { branch: newBranchName })
+      await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
+        cwd: repoPath,
+        timeout: 30000,
+      })
+    } else {
+      throw new Error('Either branchName or newBranchName must be provided')
+    }
+
+    logger.info('Git worktree created successfully', {
+      workspacePath,
+      branchName,
+      newBranchName,
+    })
+  } catch (error) {
+    logger.error('Failed to create git worktree', error as Error, {
+      repoPath,
+      workspacePath,
+      branchName,
+      newBranchName,
+    })
+    throw new Error(
+      `Failed to create worktree: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+export async function removeGitWorktree(workspacePath: string, force: boolean = false): Promise<void> {
+  try {
+    const forceFlag = force ? '--force' : ''
+    await execAsync(`git worktree remove ${forceFlag} "${workspacePath}"`, {
+      timeout: 10000,
+    })
+    logger.debug('Git worktree removed successfully', { workspacePath, force })
+  } catch (error) {
+    throw new Error(
+      `Failed to remove worktree: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}

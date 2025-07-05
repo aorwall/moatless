@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { isGitRepository } from '../utils/index.js'
+import { createGitWorktree, isGitRepository } from '../utils/index.js'
 import {
   RepositoryNotFoundError,
   TaskNotFoundError,
@@ -95,7 +95,16 @@ export class WorkspaceService {
 
     // Create worktree if it doesn't exist
     if (!(await this.pathExists(workspacePath))) {
-      await this.createGitWorktree(repo.path, workspacePath, taskId, branchName)
+      if (branchName) {
+        // When using an existing branch, we might need to create a new branch
+        // if the existing one is already checked out
+        const newBranchName = this.getBranchName(taskId)
+        await createGitWorktree(repo.path, workspacePath, branchName, newBranchName)
+      } else {
+        // Create a new branch for this task
+        const newBranchName = this.getBranchName(taskId)
+        await createGitWorktree(repo.path, workspacePath, undefined, newBranchName)
+      }
     }
 
     return workspacePath
@@ -111,51 +120,6 @@ export class WorkspaceService {
 
     // Use the branch name for the worktree folder
     return `${repoLastDirName}-${this.getBranchName(taskId)}`
-  }
-
-  private async createGitWorktree(
-    repoPath: string,
-    workspacePath: string,
-    taskId: string,
-    branchName?: string,
-  ): Promise<void> {
-    logger.debug('Creating git worktree', { repoPath, workspacePath, taskId, branchName })
-
-    const { exec } = await import('node:child_process')
-    const { promisify } = await import('node:util')
-    const execAsync = promisify(exec)
-
-    try {
-      if (branchName) {
-        // Create worktree from existing branch (no -b flag)
-        logger.debug('Using existing branch for worktree', { branch: branchName })
-        await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
-          cwd: repoPath,
-          timeout: 30000,
-        })
-      } else {
-        // Create new branch for worktree
-        const newBranch = this.getBranchName(taskId)
-        logger.debug('Creating new branch for worktree', { branch: newBranch })
-        await execAsync(`git worktree add -b "${newBranch}" "${workspacePath}"`, {
-          cwd: repoPath,
-          timeout: 30000,
-        })
-      }
-
-      logger.info('Git worktree created successfully', {
-        workspacePath,
-        taskId,
-        branchName: branchName || this.getBranchName(taskId),
-      })
-    } catch (error) {
-      logger.error('Failed to create git worktree', error as Error, {
-        repoPath,
-        workspacePath,
-        taskId,
-      })
-      throw error
-    }
   }
 
   // Private helper methods
