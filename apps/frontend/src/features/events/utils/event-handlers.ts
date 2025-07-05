@@ -33,10 +33,10 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.SERVER]: [
     queryKeys.taskServerStatus,
   ],
-  [EventType.MESSAGE]: [
-    queryKeys.taskMessages,
+  [EventType.MESSAGE]: [],
+  [EventType.INPUT]: [
+    queryKeys.task,
   ],
-  [EventType.INPUT]: [],
   [EventType.TOOL]: [
     queryKeys.taskEvents,
   ],

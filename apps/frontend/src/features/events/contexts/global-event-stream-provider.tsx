@@ -48,31 +48,18 @@ export function GlobalEventStreamProvider({
 
   const handleEvent = useCallback(
     (event: Event) => {
-      console.log('[GlobalEventStream] handleEvent called with:', {
-        type: event.type,
-        taskId: event.taskId,
-        subType: event.subType,
-        timestamp: event.timestamp,
-        eventId: event.id,
-        status: event.status,
-        message: event.message
-      })
-
       // Update local state
       setLastEvent(event)
-      console.log('[GlobalEventStream] Updated lastEvent state')
 
       // Store event by task
       const taskEvents = eventsByTask.get(event.taskId) || []
       taskEvents.push(event)
       eventsByTask.set(event.taskId, taskEvents)
-      console.log('[GlobalEventStream] Stored event for task:', event.taskId, 'Total events for task:', taskEvents.length)
 
       // Use smart invalidation mapping
       const invalidationKeys = getInvalidationKeys(event)
       
       if (invalidationKeys.length > 0) {
-        console.log(`[GlobalEventStream] Event ${event.type} triggering invalidations:`, invalidationKeys.map(fn => fn.name))
         
         // Use queueMicrotask to ensure state updates complete before invalidation
         queueMicrotask(() => {
@@ -117,20 +104,28 @@ export function GlobalEventStreamProvider({
 
       // Notify subscribers
       const taskHandlers = taskHandlersRef.current.get(event.taskId)
+      const typeHandlers = typeHandlersRef.current.get(event.type)
+      const globalHandlers = allHandlersRef.current.size
+      
+      // Log event details and subscribers that will receive it
+      const subscribers = [
+        taskHandlers ? `task:${taskHandlers.size}` : null,
+        typeHandlers ? `type:${typeHandlers.size}` : null,
+        globalHandlers > 0 ? `global:${globalHandlers}` : null
+      ].filter(Boolean).join(', ')
+      
+      console.log(
+        `[GlobalEventStream] Event: type=${event.type}, subType=${event.subType || 'none'}, taskId=${event.taskId}, subscribers=[${subscribers || 'none'}]`
+      )
+      
       if (taskHandlers) {
-        console.log('[GlobalEventStream] Notifying', taskHandlers.size, 'task-specific handlers for task:', event.taskId)
         taskHandlers.forEach((handler) => handler(event))
       }
 
-      console.log('[GlobalEventStream] Notifying', allHandlersRef.current.size, 'global handlers')
       allHandlersRef.current.forEach((handler) => handler(event))
 
-      const typeHandlers = typeHandlersRef.current.get(event.type)
       if (typeHandlers) {
-        console.log('[GlobalEventStream] Notifying', typeHandlers.size, 'type-specific handlers for type:', event.type)
         typeHandlers.forEach((handler) => handler(event))
-      } else {
-        console.log('[GlobalEventStream] No type-specific handlers found for type:', event.type)
       }
     },
     [eventsByTask, queryClient],
@@ -224,25 +219,13 @@ export function GlobalEventStreamProvider({
               for (const line of lines) {
                 if (line.trim()) {
                   try {
-                    console.log('[GlobalEventStream] Raw line received:', line)
-                    
                     const data = JSON.parse(line)
-                    
-                    console.log('[GlobalEventStream] Parsed event data:', {
-                      type: data.type,
-                      taskId: data.taskId,
-                      subType: data.subType,
-                      timestamp: data.timestamp,
-                      fullEvent: data
-                    })
 
                     // Ignore ping events
                     if (data.type === 'ping') {
-                      console.log('[GlobalEventStream] Ignoring ping event')
                       continue
                     }
 
-                    console.log('[GlobalEventStream] Processing event:', data.type, 'for task:', data.taskId)
                     handleEvent(data as Event)
                   } catch (error) {
                     console.error('[GlobalEventStream] Failed to parse line:', error, 'Raw line:', line)
@@ -313,61 +296,48 @@ export function GlobalEventStreamProvider({
 
   // Subscribe functions
   const subscribeToTask = useCallback((taskId: string, handler: (event: Event) => void) => {
-    console.log('[GlobalEventStream] Subscribing to task events for task:', taskId)
-    console.log('[GlobalEventStream] Subscribe stack trace:', new Error().stack?.split('\n').slice(2, 7).join('\n'))
     if (!taskHandlersRef.current.has(taskId)) {
       taskHandlersRef.current.set(taskId, new Set())
     }
     taskHandlersRef.current.get(taskId)!.add(handler)
-    console.log('[GlobalEventStream] Total task handlers for', taskId, ':', taskHandlersRef.current.get(taskId)!.size)
+    console.log(`[GlobalEventStream] Subscribed to task: ${taskId}, total handlers: ${taskHandlersRef.current.get(taskId)!.size}`)
 
     return () => {
-      console.log('[GlobalEventStream] Unsubscribing from task events for task:', taskId)
       const handlers = taskHandlersRef.current.get(taskId)
       if (handlers) {
         handlers.delete(handler)
         if (handlers.size === 0) {
           taskHandlersRef.current.delete(taskId)
-          console.log('[GlobalEventStream] Removed all handlers for task:', taskId)
-        } else {
-          console.log('[GlobalEventStream] Remaining task handlers for', taskId, ':', handlers.size)
         }
+        console.log(`[GlobalEventStream] Unsubscribed from task: ${taskId}, remaining handlers: ${handlers.size}`)
       }
     }
   }, [])
 
   const subscribeToAll = useCallback((handler: (event: Event) => void) => {
-    console.log('[GlobalEventStream] Subscribing to all events', handler)
-    console.log('[GlobalEventStream] Subscribe stack trace:', new Error().stack?.split('\n').slice(2, 7).join('\n'))
     allHandlersRef.current.add(handler)
-    console.log('[GlobalEventStream] Total global handlers:', allHandlersRef.current.size)
+    console.log(`[GlobalEventStream] Subscribed to all events, total handlers: ${allHandlersRef.current.size}`)
     return () => {
-      console.log('[GlobalEventStream] Unsubscribing from all events', handler)
-      console.log('[GlobalEventStream] Unsubscribe stack trace:', new Error().stack?.split('\n').slice(2, 7).join('\n'))
       allHandlersRef.current.delete(handler)
-      console.log('[GlobalEventStream] Remaining global handlers:', allHandlersRef.current.size)
+      console.log(`[GlobalEventStream] Unsubscribed from all events, remaining handlers: ${allHandlersRef.current.size}`)
     }
   }, [])
 
   const subscribeToType = useCallback((type: EventType, handler: (event: Event) => void) => {
-    console.log('[GlobalEventStream] Subscribing to events of type:', type)
     if (!typeHandlersRef.current.has(type)) {
       typeHandlersRef.current.set(type, new Set())
     }
     typeHandlersRef.current.get(type)!.add(handler)
-    console.log('[GlobalEventStream] Total handlers for type', type, ':', typeHandlersRef.current.get(type)!.size)
+    console.log(`[GlobalEventStream] Subscribed to type: ${type}, total handlers: ${typeHandlersRef.current.get(type)!.size}`)
 
     return () => {
-      console.log('[GlobalEventStream] Unsubscribing from events of type:', type)
       const handlers = typeHandlersRef.current.get(type)
       if (handlers) {
         handlers.delete(handler)
         if (handlers.size === 0) {
           typeHandlersRef.current.delete(type)
-          console.log('[GlobalEventStream] Removed all handlers for type:', type)
-        } else {
-          console.log('[GlobalEventStream] Remaining handlers for type', type, ':', handlers.size)
         }
+        console.log(`[GlobalEventStream] Unsubscribed from type: ${type}, remaining handlers: ${handlers.size}`)
       }
     }
   }, [])
