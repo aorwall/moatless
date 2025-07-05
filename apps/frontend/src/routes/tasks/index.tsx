@@ -21,6 +21,7 @@ function TasksIndex() {
 
   // Subscribe to global events to invalidate the task list when relevant events occur
   useEffect(() => {
+    console.log('[TasksIndex] Setting up global subscription')
     return subscribeToAll((event) => {
       // Invalidate task list on relevant events
       if (event.subType && (

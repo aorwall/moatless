@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react'
 import { 
-  useGlobalEventStream, 
+  useGlobalEventStream,
   useTaskEventSubscription,
   getInvalidationKeys,
   STATUS_AFFECTING_EVENTS,
@@ -109,7 +109,11 @@ export function TaskEventsProvider({
     [taskId, queryClient],
   )
 
-  // Subscribe to global stream events for this task
+  // Subscribe to task-specific events from global stream
+  useEffect(() => {
+    console.log('[TaskEventsProvider] Setting up subscription for task:', taskId)
+  }, [taskId])
+  
   useTaskEventSubscription(taskId, handleTaskEvent)
 
   // Update streaming status from global stream

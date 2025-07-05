@@ -16,17 +16,7 @@ export default defineConfig({
     })
   ],
   server: {
-    port: 3001,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true
-      }
-    }
+    port: 3001
   },
   build: {
     outDir: 'dist',
