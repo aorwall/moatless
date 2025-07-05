@@ -200,7 +200,7 @@ function TaskPageComponent() {
               </TabsContent>
               <TabsContent value="preview" className="h-full mt-0">
                 <ErrorBoundary componentName="Preview">
-                  <Preview config={{ url: serverStatus?.url || '' }} />
+                  <Preview config={{ url: serverStatus?.url || '' }} serverStatus={serverStatus} />
                 </ErrorBoundary>
               </TabsContent>
               <TabsContent value="server" className="h-full mt-0">

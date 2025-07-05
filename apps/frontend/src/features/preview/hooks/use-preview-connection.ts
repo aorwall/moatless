@@ -5,6 +5,13 @@ export function usePreviewConnection(url: string) {
   const { isConnected, setConnected, setError } = usePreviewStore()
 
   const checkConnection = useCallback(async () => {
+    // Skip connection check if URL is empty or invalid
+    if (!url || url.trim() === '') {
+      setConnected(false)
+      setError(null)
+      return
+    }
+
     try {
       // Use a simple fetch with no-cors mode for localhost
       const controller = new AbortController()
