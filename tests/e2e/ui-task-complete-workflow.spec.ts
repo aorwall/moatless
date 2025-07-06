@@ -131,11 +131,41 @@ test.describe('UI Task Complete Workflow', () => {
     
     console.log('✅ Task detail page loaded')
     
+    // Step 6a: Verify task page UI structure
+    // Check header is present
+    const chatHeader = page.locator('h1').first()
+    await expect(chatHeader).toBeVisible()
+    
+    // Check task title contains part of our message
+    await expect(chatHeader).toContainText('Create a file')
+    
+    // Check repository name is displayed (partial match)
+    await expect(page.locator('text*=' + repository.name.slice(0, 10))).toBeVisible()
+    
+    // Check task status indicator is present
+    const taskStatusElement = page.locator('[class*="status"]').first()
+    await expect(taskStatusElement).toBeVisible()
+    
+    // Check tab navigation is present
+    await expect(page.locator('button:has-text("Events")')).toBeVisible()
+    await expect(page.locator('button:has-text("Changes")')).toBeVisible()
+    await expect(page.locator('button:has-text("Files")')).toBeVisible()
+    await expect(page.locator('button:has-text("Preview")')).toBeVisible()
+    
+    // Check chat input is present
+    await expect(page.locator('[data-testid="task-chat-input"] textarea')).toBeVisible()
+    
+    // Check initial message is displayed
+    await expect(page.locator('text="' + taskMessage + '"')).toBeVisible()
+    
+    console.log('✅ Task page UI structure verified')
+    
     // Step 7: Monitor task execution
     // Look for indicators that the task is running
     const runningIndicators = [
       page.locator('text=/Running|In Progress|Executing/i'),
-      page.locator('[data-testid="task-status"]:has-text("running")')
+      page.locator('[data-testid="task-status"]:has-text("running")'),
+      page.locator('text="running"')
     ]
     
     // Wait for task to start running
@@ -146,6 +176,25 @@ test.describe('UI Task Complete Workflow', () => {
         console.log('✅ Task is running')
         break
       }
+    }
+    
+    // Step 7a: Verify running state UI
+    if (isRunning) {
+      // Check for running indicator in the header
+      const runningStatus = page.locator('text="running"')
+      await expect(runningStatus).toBeVisible()
+      
+      // Check for task execution events in the Events tab
+      await page.locator('button:has-text("Events")').click()
+      
+      // Look for event activity
+      const eventsPanel = page.locator('[value="events"]')
+      await expect(eventsPanel).toBeVisible()
+      
+      // Switch back to main chat view
+      await page.locator('button:has-text("Events")').click()
+      
+      console.log('✅ Running state UI verified')
     }
     
     // Step 8: Wait for task to actually complete with real agent
@@ -202,6 +251,50 @@ test.describe('UI Task Complete Workflow', () => {
     
     expect(agentCompleted).toBe(true)
     console.log('✅ Task completed successfully')
+    
+    // Step 8a: Verify completion state UI
+    // Check that task is no longer running
+    const completedStatus = page.locator('text="open"')
+    await expect(completedStatus).toBeVisible({ timeout: 10000 })
+    
+    // Check that iteration results are displayed
+    const iterationResult = page.locator('.prose')
+    await expect(iterationResult).toBeVisible()
+    
+    // Check for iteration metrics (duration, messages, cost) - using SVG elements
+    await expect(page.locator('svg')).toBeVisible()
+    
+    // Look for specific metric text patterns
+    await expect(page.locator('text=/\\d+m \\d+s/')).toBeVisible() // Duration format
+    await expect(page.locator('text=/\\d+ messages/')).toBeVisible() // Message count
+    await expect(page.locator('text=/\\$\\d+\\.\\d+/')).toBeVisible() // Cost format
+    
+    // Check for "Click to view events" text
+    await expect(page.locator('text="Click to view events"')).toBeVisible()
+    
+    // Check that the Changes tab shows git diff
+    await page.locator('button:has-text("Changes")').click()
+    
+    // Look for git diff content
+    const gitDiffSection = page.locator('[value="diff"]')
+    await expect(gitDiffSection).toBeVisible()
+    
+    // Check for file changes indicators
+    const fileChanges = page.locator('text=/\+.*hello_world\.py/i')
+    await expect(fileChanges).toBeVisible({ timeout: 5000 })
+    
+    // Check Files tab
+    await page.locator('button:has-text("Files")').click()
+    
+    // Look for file tree
+    const fileTree = page.locator('[value="files"]')
+    await expect(fileTree).toBeVisible()
+    
+    // Check for the created file in the file tree
+    const createdFile = page.locator('text="hello_world.py"')
+    await expect(createdFile).toBeVisible({ timeout: 5000 })
+    
+    console.log('✅ Task completion UI verified')
     
     // Step 9: Check git diff to see if file was created
     const gitDiffResponse = await page.request.get(`${baseURL}/api/v1/tasks/${createdTaskId}/git-diff`)
@@ -290,7 +383,29 @@ test.describe('UI Task Complete Workflow', () => {
     
     expect(fileWasCreated).toBe(true)
     
-    // Step 14: Take a screenshot of the completed task
+    // Step 14: Final UI verification after all operations
+    // Verify task controls are available for completed task (look for X icon button)
+    await expect(page.locator('button svg')).toBeVisible()
+    
+    // Check that we're back in the main chat view
+    await page.locator('button:has-text("Events")').click()
+    
+    // Verify Events tab shows task events
+    const eventsTab = page.locator('[value="events"]')
+    await expect(eventsTab).toBeVisible()
+    
+    // Look for event entries in the events panel
+    const eventEntries = page.locator('[class*="event"]')
+    const eventCount = await eventEntries.count()
+    expect(eventCount).toBeGreaterThan(0)
+    
+    // Verify workspace controls are available
+    const workspaceControls = page.locator('button:has-text("Commit Changes")')
+    if (await workspaceControls.isVisible()) {
+      console.log('✅ Commit Changes button is available')
+    }
+    
+    // Take a screenshot of the completed task
     await page.screenshot({ 
       path: `test-results/ui-task-complete-${createdTaskId}.png`,
       fullPage: true 
@@ -301,14 +416,17 @@ test.describe('UI Task Complete Workflow', () => {
   
   test('should handle task creation errors gracefully', async ({ page }) => {
     // Navigate to homepage
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
+    
+    // Wait for initial load
+    await page.waitForTimeout(3000)
     
     // Try to create a task without selecting a repository
-    const chatInput = page.locator('[data-testid="chat-input"], textarea').first()
+    const chatInput = page.locator('textarea').first()
+    await chatInput.waitFor({ state: 'visible', timeout: 10000 })
     await chatInput.fill('This task should fail without a repository')
     
-    const submitButton = page.locator('button:has-text("Start Task"), button[type="submit"]').first()
+    const submitButton = page.locator('button:has-text("Start Task")').first()
     
     // Button should be disabled without repository selection
     await expect(submitButton).toBeDisabled()
