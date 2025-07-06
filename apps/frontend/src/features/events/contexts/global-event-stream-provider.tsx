@@ -67,7 +67,6 @@ export function GlobalEventStreamProvider({
           invalidationKeys.forEach(keyFunction => {
             queryClient.invalidateQueries({
               queryKey: keyFunction(event.taskId),
-              refetchType: 'active',
             })
           })
           
@@ -75,7 +74,6 @@ export function GlobalEventStreamProvider({
           if (shouldInvalidateTaskList(event)) {
             queryClient.invalidateQueries({
               queryKey: queryKeys.tasksList(),
-              refetchType: 'active',
             })
           }
         })
