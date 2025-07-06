@@ -9,6 +9,9 @@ export const STATUS_AFFECTING_EVENTS = [
   EventType.START,
 ] as const
 
+// Wrapper functions for constants that need to be used as invalidation keys
+const tasksAllKey = (_id: string) => queryKeys.tasks.all
+
 export const EVENT_INVALIDATION_MAP = {
   [EventType.START]: [
     queryKeys.task,
@@ -22,7 +25,7 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.RESULT]: [
     queryKeys.task,
     queryKeys.taskGitDiff,
-    queryKeys.tasks,
+    tasksAllKey,
   ],
   [EventType.ERROR]: [
     queryKeys.task,
@@ -37,7 +40,7 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.MESSAGE]: [],
   [EventType.INPUT]: [
     queryKeys.task,
-    queryKeys.tasks,
+    tasksAllKey,
   ],
   [EventType.TOOL]: [
     queryKeys.taskEvents,

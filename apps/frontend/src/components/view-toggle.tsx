@@ -13,7 +13,7 @@ export function ViewToggle({ mode, onModeChange, className }: ViewToggleProps) {
     <ToggleGroup
       type="single"
       value={mode}
-      onValueChange={(value) => value && onModeChange(value as ChatInputMode)}
+      onValueChange={(value: string) => value && onModeChange(value as ChatInputMode)}
       className={className}
     >
       <ToggleGroupItem value="code" aria-label="Code mode" size="sm">
