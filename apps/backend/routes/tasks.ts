@@ -5,6 +5,7 @@ import type { AppBindings } from '../app.js'
 import { TaskNotFoundError, WorkspaceError } from '@moatless/shared/constants/errors'
 import {
   CreateTaskRequestSchema,
+  CreateVibeTaskRequestSchema,
   type EventListResponse,
   SendMessageRequestSchema,
   TaskListQuerySchema,
@@ -58,6 +59,22 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     const { model, filePaths, ...taskData } = validatedBody
     
     const taskId = await taskService.createTask({ ...taskData, model, filePaths })
+
+    // Get the task to return the current status
+    const task = await taskService.getTask(taskId)
+    return c.json({ taskId, status: task?.status || 'open' })
+  })
+
+  // Create a new vibe task from template
+  app.post(`${prefix}/vibe`, async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const body = await c.req.json()
+    const validatedBody = CreateVibeTaskRequestSchema.parse(body)
+    const { model, filePaths, ...taskData } = validatedBody
+    
+    const taskId = await taskService.createVibeTask({ ...taskData, model, filePaths })
 
     // Get the task to return the current status
     const task = await taskService.getTask(taskId)

@@ -63,6 +63,7 @@ describe('TaskService', () => {
       mockWorkspaceService,
       mockAgentService,
       mockCommandService,
+      mockRepositoryService,
     )
   })
 

@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { TaskNotFoundError } from '@moatless/shared/constants/errors'
+import { TaskNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
 import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
+import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
+import { RepositoryTemplate } from '@moatless/shared/types/repository'
 import { EventType } from '@moatless/shared/types/event'
 import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
+import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
@@ -37,6 +41,7 @@ export class TaskService {
     private workspaceService: WorkspaceService,
     private agentService: AgentService,
     private commandService: CommandService,
+    private repositoryService: RepositoryService,
   ) {}
 
   async createTask(params: CreateTaskRequest): Promise<string> {
@@ -139,6 +144,91 @@ export class TaskService {
 
     logger.info('Task creation completed successfully', { taskId: task.taskId })
     return task.taskId
+  }
+
+  async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
+    logger.info('Starting vibe task creation from template', {
+      agentType: params.agentType,
+      templateId: params.templateId,
+      repositoryName: params.repositoryName,
+      hasMessage: !!params.message,
+      hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
+      start: params.start ?? true,
+    })
+
+    // Define available templates - in future this could be stored in database
+    const templates = [
+      new RepositoryTemplate(
+        'basic-hello-website',
+        'Basic Hello Website',
+        'https://github.com/aorwall/basic-hello-website.git',
+        'npm install',
+        {
+          serverStartCommand: 'npm run dev',
+          serverPort: 3000,
+          injectionStrategy: {
+            method: 'html-injection',
+          },
+        }
+      ),
+    ]
+
+    // Find the template
+    const template = templates.find(t => t.id === params.templateId)
+    if (!template) {
+      throw new ValidationError(`Template with id ${params.templateId} not found`, 'templateId')
+    }
+
+    // Create a directory for cloning the template
+    const dataDir = process.env.DATA_DIR || './data'
+    const templatesDir = path.join(dataDir, 'templates')
+    const templateRepoDir = path.join(templatesDir, template.id)
+    
+    // Ensure templates directory exists
+    await fs.mkdir(templatesDir, { recursive: true })
+    
+    // Clone or update the template repository if it doesn't exist
+    if (!(await this.pathExists(templateRepoDir))) {
+      logger.info('Cloning template repository', {
+        templateId: template.id,
+        gitUrl: template.gitUrl,
+        targetDir: templateRepoDir,
+      })
+      
+      const { exec } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execAsync = promisify(exec)
+      
+      await execAsync(`git clone ${template.gitUrl} ${template.id}`, {
+        cwd: templatesDir,
+        timeout: 30000, // 30 seconds for clone
+      })
+    }
+    
+    // Create a new repository from the template
+    const repository = await this.repositoryService.createRepository({
+      name: params.repositoryName,
+      description: `Created from template: ${template.name}`,
+      path: templateRepoDir,
+      useGitWorktrees: true,
+      codeExecution: {
+        type: 'local',
+        setupCommands: template.setupCommand,
+      },
+      previewConfig: template.previewConfig,
+    })
+
+    // Create a task with the new repository
+    const createTaskParams: CreateTaskRequest = {
+      agentType: params.agentType,
+      repositoryId: repository.id,
+      message: params.message,
+      start: params.start,
+      model: params.model,
+      filePaths: params.filePaths,
+    }
+
+    return this.createTask(createTaskParams)
   }
 
   async getTask(taskId: string): Promise<Task> {
@@ -359,6 +449,15 @@ export class TaskService {
 
     logger.info('Task closed successfully', { taskId })
   }
+
+  private async pathExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath)
+      return true
+    } catch {
+      return false
+    }
+  }
 }
 
 export function createTaskService(
@@ -367,6 +466,7 @@ export function createTaskService(
   workspaceService: WorkspaceService,
   agentService: AgentService,
   commandService: CommandService,
+  repositoryService: RepositoryService,
 ): TaskService {
-  return new TaskService(storage, eventService, workspaceService, agentService, commandService)
+  return new TaskService(storage, eventService, workspaceService, agentService, commandService, repositoryService)
 }

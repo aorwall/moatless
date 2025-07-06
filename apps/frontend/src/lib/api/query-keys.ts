@@ -71,4 +71,8 @@ export const queryKeys = {
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,
     tools: () => [...queryKeys.claudeCode.all(), 'tools'] as const,
   },
+  templates: {
+    all: () => [...queryKeys.all, 'templates'] as const,
+    list: () => [...queryKeys.templates.all(), 'list'] as const,
+  },
 } as const

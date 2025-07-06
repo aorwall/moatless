@@ -27,6 +27,18 @@ export const CreateTaskRequestSchema = z.object({
 })
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 
+// Create Vibe Task
+export const CreateVibeTaskRequestSchema = z.object({
+  agentType: z.string(),
+  templateId: z.string(),
+  repositoryName: z.string(), // Name for the new repository
+  message: z.string().optional(),
+  start: z.boolean().optional(),
+  model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(),
+})
+export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
+
 // Send Message
 export const SendMessageRequestSchema = z.object({
   message: z.string().min(1),

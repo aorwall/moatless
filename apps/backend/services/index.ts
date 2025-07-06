@@ -34,7 +34,7 @@ export async function setupServices(): Promise<Services> {
   workspace.setPreviewEnvironmentService(previewEnvironment)
 
   const agent = createAgentService(storage, event, workspace)
-  const task = createTaskService(storage, event, workspace, agent, command)
+  const task = createTaskService(storage, event, workspace, agent, command, repository)
 
   return {
     storage,

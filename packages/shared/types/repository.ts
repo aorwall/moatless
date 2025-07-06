@@ -10,6 +10,7 @@ export type {
 
 import type {
   RepositoryConfig as Repo,
+  PreviewConfig,
 } from '../schemas/repository.schemas.js'
 
 export interface RepositoryVariable {
@@ -62,4 +63,26 @@ export interface SetupScriptResponse {
 export interface BranchListResponse {
   branches: string[]
   currentBranch?: string
+}
+
+export class RepositoryTemplate {
+  id: string
+  name: string
+  gitUrl: string
+  setupCommand?: string
+  previewConfig?: PreviewConfig
+
+  constructor(
+    id: string,
+    name: string,
+    gitUrl: string = 'https://github.com/aorwall/basic-hello-website.git',
+    setupCommand?: string,
+    previewConfig?: PreviewConfig
+  ) {
+    this.id = id
+    this.name = name
+    this.gitUrl = gitUrl
+    this.setupCommand = setupCommand
+    this.previewConfig = previewConfig
+  }
 }

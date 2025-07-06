@@ -3,6 +3,7 @@ import type { Task } from '@moatless/shared/types/task'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
 import type { EventService } from '../event.service.js'
+import type { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { TaskService } from '../task.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
@@ -13,6 +14,7 @@ describe('Task Status Management', () => {
   let mockWorkspaceService: WorkspaceService
   let mockAgentService: AgentService
   let mockCommandService: CommandService
+  let mockRepositoryService: RepositoryService
 
   beforeEach(() => {
     // Create mock services
@@ -45,6 +47,11 @@ describe('Task Status Management', () => {
       getCommand: vi.fn(),
     } as unknown as CommandService
 
+    mockRepositoryService = {
+      getRepositoryById: vi.fn(),
+      createRepository: vi.fn(),
+    } as unknown as RepositoryService
+
     const mockEventService = {
       emitEvent: vi.fn().mockResolvedValue(undefined),
     } as unknown as EventService
@@ -55,6 +62,7 @@ describe('Task Status Management', () => {
       mockWorkspaceService,
       mockAgentService,
       mockCommandService,
+      mockRepositoryService,
     )
   })
 

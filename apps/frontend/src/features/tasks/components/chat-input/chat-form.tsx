@@ -4,8 +4,11 @@ import type { RepositoryResponse } from '@moatless/shared/types/repository'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
+import type { RepositoryTemplate } from '@/features/templates'
+import type { ChatInputMode } from '@/features/tasks/components/chat-input'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { Button } from '@/lib/components/ui/button'
+import { Input } from '@/lib/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -37,18 +40,28 @@ interface ChatFormProps {
   onModelChange: (model: ClaudeModel) => void
   isRunning?: boolean
   isLoading?: boolean
-  // Repository selector props (only shown when creating new task)
+  mode?: ChatInputMode
+  // Repository selector props (code mode)
   showRepositorySelector?: boolean
   repositories?: RepositoryResponse[]
   selectedRepositoryId?: string
   onRepositoryChange?: (repositoryId: string) => void
   repositoriesLoading?: boolean
-  // Branch selector props (only shown when creating new task and repository is selected)
+  // Branch selector props (code mode)
   showBranchSelector?: boolean
   branches?: string[]
   selectedBranch?: string
   onBranchChange?: (branch: string) => void
   branchesLoading?: boolean
+  // Template selector props (vibe mode)
+  showTemplateSelector?: boolean
+  templates?: RepositoryTemplate[]
+  selectedTemplateId?: string
+  onTemplateChange?: (templateId: string) => void
+  templatesLoading?: boolean
+  // Repository name input (vibe mode)
+  repositoryName?: string
+  onRepositoryNameChange?: (name: string) => void
   maxHeight?: string
   uploadedFiles?: UploadFileResponse[]
   onFilesChange?: (files: UploadFileResponse[]) => void
@@ -69,16 +82,27 @@ export function ChatForm({
   onModelChange,
   isRunning = false,
   isLoading = false,
+  // Repository selector props (code mode)
   showRepositorySelector = false,
   repositories,
   selectedRepositoryId,
   onRepositoryChange,
   repositoriesLoading = false,
+  // Branch selector props (code mode)
   showBranchSelector = false,
   branches,
   selectedBranch,
   onBranchChange,
   branchesLoading = false,
+  // Template selector props (vibe mode)
+  showTemplateSelector = false,
+  templates,
+  selectedTemplateId,
+  onTemplateChange,
+  templatesLoading = false,
+  // Repository name input (vibe mode)
+  repositoryName = '',
+  onRepositoryNameChange,
   maxHeight = '200px',
   uploadedFiles = [],
   onFilesChange,
@@ -312,6 +336,32 @@ export function ChatForm({
                 ))}
               </SelectContent>
             </Select>
+          )}
+          {showTemplateSelector && onTemplateChange && (
+            <Select
+              value={selectedTemplateId}
+              onValueChange={onTemplateChange}
+              disabled={templatesLoading}
+            >
+              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[180px]">
+                <SelectValue placeholder={templatesLoading ? "Loading..." : "Select template"} />
+              </SelectTrigger>
+              <SelectContent>
+                {templates?.map((template) => (
+                  <SelectItem key={template.id} value={template.id} className="text-xs">
+                    {template.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {showTemplateSelector && onRepositoryNameChange && (
+            <Input
+              placeholder="Repository name"
+              value={repositoryName}
+              onChange={(e) => onRepositoryNameChange(e.target.value)}
+              className="h-6 px-2 text-xs w-[140px]"
+            />
           )}
           <Select value={selectedModel} onValueChange={onModelChange}>
             <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[130px]">
