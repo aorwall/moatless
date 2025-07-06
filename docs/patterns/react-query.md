@@ -1,0 +1,310 @@
+# React Query Patterns
+
+## Problem
+
+Managing server state in React applications presents several challenges:
+- Synchronizing server data with UI state
+- Caching and cache invalidation
+- Handling loading and error states
+- Optimistic updates for better UX
+- Avoiding redundant network requests
+
+## Solution
+
+We use TanStack Query (React Query) with a set of established patterns:
+- Hierarchical query keys for smart invalidation
+- Standardized hooks for all API operations
+- Optimistic updates for immediate feedback
+- Event-driven cache management
+
+## Implementation
+
+### Query Key Architecture
+
+```typescript
+// Hierarchical query key factory
+export const queryKeys = {
+  // Top level - invalidates everything
+  tasks: () => ['tasks'] as const,
+  
+  // Specific task - invalidates all data for this task
+  task: (taskId: string) => [...queryKeys.tasks(), taskId] as const,
+  
+  // Task data types - granular invalidation
+  taskDetail: (taskId: string) => [...queryKeys.task(taskId), 'detail'] as const,
+  taskEvents: (taskId: string) => [...queryKeys.task(taskId), 'events'] as const,
+  taskGitDiff: (taskId: string) => [...queryKeys.task(taskId), 'git-diff'] as const,
+  
+  // With filters - precise cache entries
+  tasksList: (filters?: TaskFilters) => [...queryKeys.tasks(), 'list', filters] as const,
+};
+```
+
+### Query Hooks Pattern
+
+```typescript
+// Consistent hook structure
+export function useTasksList(options?: UseTasksListOptions) {
+  return useQuery({
+    queryKey: queryKeys.tasksList(options?.filters),
+    queryFn: () => tasksApi.list(options?.filters),
+    // Standardized options
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000,   // 10 minutes
+    retry: 3,
+    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
+    ...options?.queryOptions,
+  });
+}
+```
+
+### Mutation Hooks Pattern
+
+```typescript
+export function useCreateTask(options?: UseCreateTaskOptions) {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: tasksApi.create,
+    
+    // Optimistic update
+    onMutate: async (newTask) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks() });
+      
+      const previousTasks = queryClient.getQueryData(queryKeys.tasksList());
+      
+      // Optimistically add to list
+      queryClient.setQueryData(queryKeys.tasksList(), (old) => {
+        return [...(old || []), { ...newTask, id: 'temp-' + Date.now() }];
+      });
+      
+      return { previousTasks };
+    },
+    
+    // Handle errors
+    onError: (err, newTask, context) => {
+      queryClient.setQueryData(queryKeys.tasksList(), context.previousTasks);
+    },
+    
+    // Update with real data
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.taskDetail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() });
+    },
+    
+    ...options,
+  });
+}
+```
+
+### Smart Invalidation
+
+```typescript
+// Event-driven invalidation
+export function useEventDrivenInvalidation() {
+  const queryClient = useQueryClient();
+  
+  useEffect(() => {
+    const unsubscribe = eventBus.subscribe((event) => {
+      switch (event.type) {
+        case 'TASK_STATUS_CHANGED':
+        case 'TASK_COMPLETED':
+        case 'TASK_FAILED':
+          // Invalidate specific task and lists
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.task(event.taskId),
+          });
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.tasksList(),
+          });
+          break;
+          
+        case 'TASK_EVENT_ADDED':
+          // Only invalidate events, not entire task
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.taskEvents(event.taskId),
+          });
+          break;
+      }
+    });
+    
+    return unsubscribe;
+  }, [queryClient]);
+}
+```
+
+## Patterns in Practice
+
+### 1. Prefetching
+
+```typescript
+// Prefetch on hover for instant navigation
+function TaskListItem({ task }: { task: Task }) {
+  const queryClient = useQueryClient();
+  
+  const prefetchTask = () => {
+    queryClient.prefetchQuery({
+      queryKey: queryKeys.taskDetail(task.id),
+      queryFn: () => tasksApi.get(task.id),
+      staleTime: 10 * 1000, // 10 seconds
+    });
+  };
+  
+  return (
+    <Link 
+      to={`/tasks/${task.id}`}
+      onMouseEnter={prefetchTask}
+    >
+      {task.title}
+    </Link>
+  );
+}
+```
+
+### 2. Dependent Queries
+
+```typescript
+// Query depends on another query's result
+function useTaskWithWorkspace(taskId: string) {
+  const { data: task } = useTask(taskId);
+  
+  const { data: workspace } = useQuery({
+    queryKey: ['workspace', task?.workspaceId],
+    queryFn: () => workspaceApi.get(task!.workspaceId),
+    enabled: !!task?.workspaceId, // Only run when we have workspaceId
+  });
+  
+  return { task, workspace };
+}
+```
+
+### 3. Infinite Queries
+
+```typescript
+// For paginated data
+export function useInfiniteTaskEvents(taskId: string) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.taskEvents(taskId),
+    queryFn: ({ pageParam = 0 }) => 
+      eventsApi.list(taskId, { offset: pageParam, limit: 50 }),
+    getNextPageParam: (lastPage, pages) => 
+      lastPage.hasMore ? pages.length * 50 : undefined,
+    staleTime: 0, // Always fresh for real-time data
+  });
+}
+```
+
+### 4. Optimistic Updates with Navigation
+
+```typescript
+export function useCreateTaskWithNavigation() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: tasksApi.create,
+    
+    onMutate: async (newTask) => {
+      const tempId = 'temp-' + Date.now();
+      
+      // Create temporary task
+      const tempTask = {
+        ...newTask,
+        id: tempId,
+        status: 'creating',
+        createdAt: new Date().toISOString(),
+      };
+      
+      // Add to cache
+      queryClient.setQueryData(
+        queryKeys.taskDetail(tempId), 
+        tempTask
+      );
+      
+      // Navigate immediately
+      navigate(`/tasks/${tempId}`);
+      
+      return { tempId };
+    },
+    
+    onSuccess: (data, variables, context) => {
+      // Replace temp with real data
+      queryClient.removeQueries({
+        queryKey: queryKeys.taskDetail(context.tempId),
+      });
+      queryClient.setQueryData(
+        queryKeys.taskDetail(data.id), 
+        data
+      );
+      
+      // Update URL
+      navigate(`/tasks/${data.id}`, { replace: true });
+    },
+  });
+}
+```
+
+## Best Practices
+
+### DO's
+- Use query key factories for consistency
+- Implement optimistic updates for better UX
+- Set appropriate `staleTime` based on data volatility
+- Use `enabled` option for dependent queries
+- Prefetch data for predictable user actions
+
+### DON'Ts
+- Don't store server state in React state
+- Don't manually refetch unless necessary
+- Don't ignore error states
+- Don't create query keys manually
+- Don't mutate cache data directly
+
+## Configuration
+
+### Global Query Client Setup
+
+```typescript
+// apps/frontend/src/lib/api/query-client.ts
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,     // 5 minutes
+      gcTime: 10 * 60 * 1000,       // 10 minutes  
+      retry: 3,
+      retryDelay: attemptIndex => 
+        Math.min(1000 * 2 ** attemptIndex, 30000),
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: 'always',
+    },
+    mutations: {
+      retry: 1,
+      retryDelay: 1000,
+    },
+  },
+});
+```
+
+## Performance Benefits
+
+- **Reduced Network Requests**: Smart caching eliminates redundant fetches
+- **Instant Navigation**: Prefetching makes page transitions feel instant
+- **Optimistic UI**: Users see immediate feedback
+- **Background Updates**: Stale data updates seamlessly
+
+## Common Pitfalls
+
+1. **Over-invalidation**: Invalidating too broadly causes unnecessary refetches
+2. **Under-invalidation**: Not invalidating related data causes inconsistencies
+3. **Memory Leaks**: Not setting `gcTime` can cause memory issues
+4. **Race Conditions**: Not canceling queries can cause state issues
+
+## Related Patterns
+- [Tri-Context Pattern](./tri-context.md) - Uses React Query in data context
+- [Smart Cache Invalidation](./cache-invalidation.md) - Advanced invalidation strategies
+- [Optimistic UI Updates](./optimistic-updates.md) - UX patterns with React Query
+
+## Further Reading
+- [API Integration Patterns](../guides/api-integration.md)
+- [TanStack Query Docs](https://tanstack.com/query/latest)
+- [Query Key Factory Pattern](https://tkdodo.eu/blog/effective-react-query-keys)

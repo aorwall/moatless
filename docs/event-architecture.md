@@ -16,7 +16,7 @@ The application uses a hybrid event architecture that supports both task-specifi
 
 ## Event Types
 
-Events are strongly typed and defined in `shared/types/event.ts`:
+Events are strongly typed and defined in `packages/shared/types/event.ts`:
 
 ```typescript
 export enum EventType {
@@ -291,7 +291,7 @@ The architecture supports gradual migration from task-specific to global streams
 ### Feature Flags
 
 ```typescript
-// client/src/lib/config/feature-flags.ts
+// apps/frontend/src/lib/config/feature-flags.ts
 export const featureFlags = {
   useGlobalEventStream: {
     enabled: process.env.VITE_USE_GLOBAL_EVENT_STREAM === 'true',
