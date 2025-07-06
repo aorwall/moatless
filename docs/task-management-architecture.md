@@ -159,6 +159,10 @@ interface TaskDataContextValue {
   isRunning: boolean
   isComplete: boolean
   
+  // Task runtime metrics
+  runningStartTime: Date | undefined  // When task started running
+  latestContextTokens: number | undefined  // From latest assistant message
+  
   // Loading & error states
   isLoading: boolean
   error: Error | null
@@ -170,6 +174,7 @@ interface TaskDataContextValue {
 - **Smart polling** that stops when workspace becomes stable
 - **No complex select functions** that create new objects
 - **Conditional queries** based on task state
+- **Runtime metrics** derived from task state and events
 
 ### 3. TaskEventsProvider - Real-time Events
 
@@ -346,6 +351,10 @@ const { workspaceStatus, workspaceReady } = useWorkspaceStatus()
 
 // Git diff data
 const { gitDiff } = useGitDiff()
+
+// Task runtime metrics
+const { runningStartTime } = useTaskDuration()
+const { contextTokens } = useTaskContextTokens()
 ```
 
 ## Route Structure
@@ -441,6 +450,98 @@ describe('Task Page Flow', () => {
 5. **Clean Separation**: Focused providers with clear responsibilities
 6. **Type Safety**: Strong TypeScript interfaces throughout
 7. **Testability**: Provider pattern enables comprehensive testing
+
+## Runtime Metrics Pattern
+
+For runtime metrics like duration and context tokens that need to update frequently:
+
+1. **Provider supplies stable start time**: TaskDataProvider computes and provides `runningStartTime` based on running state and iterations
+2. **Display components handle duration updates**: Components that need live duration updates use local state and intervals
+3. **Context tokens from TaskEventsProvider**: A specialized hook `useLatestContextTokens()` computes the latest context tokens from events
+
+### Duration Handling
+TaskDataProvider now provides runningStartTime directly:
+```typescript
+// In TaskDataProvider
+const runningStartTime = isRunning && lastIteration?.startTime 
+  ? new Date(lastIteration.startTime) 
+  : undefined
+
+// In display component
+const { isRunning, runningStartTime } = useTaskDuration()
+const [runningDuration, setRunningDuration] = useState('')
+
+// Update duration locally
+useEffect(() => {
+  if (!isRunning || !runningStartTime) {
+    setRunningDuration('')
+    return
+  }
+  
+  const updateDuration = () => {
+    setRunningDuration(formatRunningDuration(runningStartTime))
+  }
+  
+  updateDuration() // Initial update
+  const interval = setInterval(updateDuration, 1000)
+  return () => clearInterval(interval)
+}, [isRunning, runningStartTime])
+```
+
+### Context Tokens Handling
+TaskEventsProvider exposes a hook that computes context tokens from the event stream:
+```typescript
+// In TaskEventsProvider
+export function useLatestContextTokens() {
+  const { events } = useTaskEvents()
+  
+  return useMemo(() => {
+    // Find the last message event with usage data
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i]
+      if (event.type === 'message' && event.payload?.message?.usage) {
+        const usage = event.payload.message.usage
+        const inputTokens = usage.input_tokens || 0
+        const cacheReadTokens = usage.cache_read_input_tokens || 0
+        return inputTokens + cacheReadTokens
+      }
+    }
+    return 0
+  }, [events])
+}
+
+// In display component
+const latestContextTokens = useLatestContextTokens()
+
+// Display with progress bar
+if (latestContextTokens > 0) {
+  return (
+    <div className="flex items-center gap-2">
+      <span>{latestContextTokens.toLocaleString()}</span>
+      <Progress 
+        value={(latestContextTokens / 200000) * 100} 
+        className="w-16 h-1.5" 
+      />
+    </div>
+  )
+}
+```
+
+### Implementation Architecture
+
+This pattern respects the existing provider hierarchy:
+- **TaskDataProvider**: Manages task metadata, iterations, and workspace status
+- **TaskEventsProvider**: Manages event stream and exposes derived data hooks
+- **Display Components**: Handle frequent UI updates locally
+
+### Benefits
+
+- **Maintains Provider Boundaries**: Each provider focuses on its core responsibility
+- **No Cross-Provider Dependencies**: TaskDataProvider doesn't need events access
+- **Minimal Re-renders**: Only components using these specific values re-render
+- **Clean Separation**: Data computation happens where the data lives
+- **Performance Optimized**: Duration updates happen in leaf components only
+- **Type Safe**: Leverages existing TypeScript interfaces
 
 ## Best Practices
 

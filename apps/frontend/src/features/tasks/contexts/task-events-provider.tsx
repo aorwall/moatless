@@ -172,3 +172,27 @@ export function useStreamingStatus() {
   const { isStreaming, streamingError, hasNewEvents } = useTaskEvents()
   return { isStreaming, streamingError, hasNewEvents }
 }
+
+/**
+ * Hook to get the latest context tokens from message events.
+ * Returns the sum of input_tokens + cache_read_input_tokens from the most recent message event.
+ */
+export function useLatestContextTokens() {
+  const { events } = useTaskEvents()
+  
+  return useMemo(() => {
+    // Find the last message event with usage data
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i]
+      if (event.type === 'message' && event.payload?.message) {
+        const message = event.payload.message as any
+        if (message.usage) {
+          const inputTokens = message.usage.input_tokens || 0
+          const cacheReadTokens = message.usage.cache_read_input_tokens || 0
+          return inputTokens + cacheReadTokens
+        }
+      }
+    }
+    return 0
+  }, [events])
+}

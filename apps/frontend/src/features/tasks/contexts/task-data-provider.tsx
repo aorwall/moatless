@@ -26,6 +26,7 @@ interface TaskDataContextValue {
   canExecute: boolean
   isRunning: boolean
   isComplete: boolean
+  runningStartTime: Date | undefined
 
   // Loading & error states
   isLoading: boolean
@@ -83,15 +84,23 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     const task = taskQuery.data
     if (!task) return null
 
+    const isRunning = task.status === 'running'
+    const iterations = task.iterations || []
+    const lastIteration = iterations.length > 0 ? iterations[iterations.length - 1] : null
+    const runningStartTime = isRunning && lastIteration?.startTime 
+      ? new Date(lastIteration.startTime) 
+      : undefined
+
     return {
       status: task.status,
       agentType: task.agentType,
       repositoryId: task.repositoryId,
-      iterations: task.iterations || [],
+      iterations,
       createdAt: task.createdAt,
-      isRunning: task.status === 'running',
+      isRunning,
       canExecute: task.status === 'open' || task.status === 'running',
       isComplete: task.status === 'closed' || task.status === 'merged' || task.status === 'error',
+      runningStartTime,
     }
   }, [taskQuery.data])
 
@@ -129,6 +138,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       canExecute: taskPrimitives?.canExecute ?? false,
       isRunning: taskPrimitives?.isRunning ?? false,
       isComplete: taskPrimitives?.isComplete ?? false,
+      runningStartTime: taskPrimitives?.runningStartTime,
 
       // Loading & error states
       isLoading: taskQuery.isLoading || workspaceQuery.isLoading || gitDiffQuery.isLoading,
@@ -182,6 +192,11 @@ export function useTaskIterations() {
 export function useGitDiff() {
   const { gitDiff } = useTaskData()
   return gitDiff
+}
+
+export function useTaskDuration() {
+  const { isRunning, runningStartTime } = useTaskData()
+  return { isRunning, runningStartTime }
 }
 
 // Performance optimized hooks that only return specific fields

@@ -29,6 +29,7 @@ export {
   TaskDataProvider,
   useGitDiff,
   useTaskData,
+  useTaskDuration,
   useTaskIterations,
   useTaskLoadingError,
   useTaskMetadata,
@@ -40,6 +41,7 @@ export {
   useEventStream,
   useStreamingStatus,
   useTaskEvents,
+  useLatestContextTokens,
 } from './task-events-provider'
 export {
   TaskUIProvider,

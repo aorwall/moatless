@@ -2,7 +2,8 @@ import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
-import { IsolatedTimer } from '@/lib/components/ui/isolated-timer'
+import { Progress } from '@/lib/components/ui/progress'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import { MinifiedEventItem } from './minified-event-item'
 
 interface MinifiedLastThreeEventsDisplayProps {
@@ -36,6 +37,7 @@ export function MinifiedLastThreeEventsDisplay({
   latestContextTokens,
 }: MinifiedLastThreeEventsDisplayProps) {
   const [displayedEvents, setDisplayedEvents] = useState<Array<Event | MergedEvent>>([])
+  const [runningDuration, setRunningDuration] = useState<string>('')
 
   // Filter and update displayed events
   useEffect(() => {
@@ -47,6 +49,23 @@ export function MinifiedLastThreeEventsDisplay({
 
     setDisplayedEvents(lastThree)
   }, [events])
+
+  // Update running duration every second (like chat input)
+  useEffect(() => {
+    if (!isRunning || !runningStartTime) {
+      setRunningDuration('')
+      return
+    }
+
+    const updateDuration = () => {
+      setRunningDuration(formatRunningDuration(runningStartTime))
+    }
+
+    updateDuration() // Initial update
+    const interval = setInterval(updateDuration, 1000)
+
+    return () => clearInterval(interval)
+  }, [isRunning, runningStartTime])
 
   if (displayedEvents.length === 0) {
     return null
@@ -86,24 +105,26 @@ export function MinifiedLastThreeEventsDisplay({
                 <span className="text-xs font-medium text-foreground">Running</span>
               </div>
               
-              {runningStartTime && (
+              {runningStartTime && runningDuration && (
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-muted-foreground">Time:</span>
                   <span className="font-mono font-medium text-foreground">
-                    <IsolatedTimer startTime={runningStartTime} />
+                    {runningDuration}
                   </span>
                 </div>
               )}
               
               {latestContextTokens && (
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-muted-foreground">Ctx:</span>
+                <div className="flex flex-col gap-1 text-xs">
                   <span className="font-mono font-medium text-foreground">
                     {latestContextTokens > 1000 
-                      ? `${Math.round(latestContextTokens / 1000)}k`
-                      : latestContextTokens.toLocaleString()
+                      ? `${Math.round(latestContextTokens / 1000)}k tokens`
+                      : `${latestContextTokens.toLocaleString()} tokens`
                     }
                   </span>
+                  <Progress 
+                    value={(latestContextTokens / 200000) * 100} 
+                    className="w-full h-1.5" 
+                  />
                 </div>
               )}
             </div>

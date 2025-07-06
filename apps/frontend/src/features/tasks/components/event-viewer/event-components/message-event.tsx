@@ -3,6 +3,7 @@ import { Bot, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { Progress } from '@/lib/components/ui/progress'
 import { EventHeader } from './event-header'
 
 interface MessageEventProps {
@@ -66,9 +67,15 @@ export function MessageEvent({ event }: MessageEventProps) {
             {isAssistant ? 'Assistant' : isUser ? 'User' : String(role)}
           </span>
           {contextTokens && contextTokens > 0 && (
-            <span className="text-xs text-muted-foreground bg-muted rounded px-2 py-0.5">
-              {contextTokens.toLocaleString()} context tokens
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {contextTokens.toLocaleString()}
+              </span>
+              <Progress 
+                value={(contextTokens / 200000) * 100} 
+                className="w-16 h-1.5" 
+              />
+            </div>
           )}
         </div>
 

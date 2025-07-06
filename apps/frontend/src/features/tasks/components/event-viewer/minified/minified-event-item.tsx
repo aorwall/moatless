@@ -144,25 +144,13 @@ export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
     // Handle text messages
     if (payload?.type === 'assistant' && payload.message?.content) {
       const content = payload.message.content
-      
-      // Extract usage information for context tokens
-      const usage = payload.message.usage as Record<string, unknown> | null
-      const contextTokens = usage ? 
-        (Number(usage.input_tokens || 0) + Number(usage.cache_read_input_tokens || 0)) : null
 
       // If content is a string, show it
       if (typeof content === 'string') {
         return (
           <div className="flex items-start gap-2 text-xs text-muted-foreground">
             <Bot className="h-3 w-3 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <span className="break-words">{truncateText(content)}</span>
-              {contextTokens && contextTokens > 0 && (
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {contextTokens.toLocaleString()}ctx
-                </span>
-              )}
-            </div>
+            <span className="break-words">{truncateText(content)}</span>
           </div>
         )
       }
@@ -174,14 +162,7 @@ export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
           return (
             <div className="flex items-start gap-2 text-xs text-muted-foreground">
               <Bot className="h-3 w-3 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <span className="break-words">{truncateText(textContent.text)}</span>
-                {contextTokens && contextTokens > 0 && (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {contextTokens.toLocaleString()}ctx
-                  </span>
-                )}
-              </div>
+              <span className="break-words">{truncateText(textContent.text)}</span>
             </div>
           )
         }
