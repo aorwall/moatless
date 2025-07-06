@@ -60,7 +60,7 @@ function ChatViewComponent() {
 
   // Handle sending message to task - define early to avoid hoisting issues
   const handleSendMessage = (
-    taskId: string,
+    _taskId: string,
     message: string,
     clearMessage: () => void,
     resume?: boolean,

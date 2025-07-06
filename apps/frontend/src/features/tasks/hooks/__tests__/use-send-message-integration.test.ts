@@ -71,14 +71,13 @@ describe('useSendMessage Integration Test', () => {
     vi.mocked(tasksApi.getTask).mockResolvedValueOnce(updatedTask)
 
     // Now render the useSendMessage hook
-    const { result: sendMessageResult } = renderHook(() => useSendMessage(), {
+    const { result: sendMessageResult } = renderHook(() => useSendMessage(taskId), {
       wrapper,
     })
 
     // Send a message
     await act(async () => {
       await sendMessageResult.current.mutateAsync({
-        taskId,
         message: 'Test message',
       })
     })
@@ -114,16 +113,14 @@ describe('useSendMessage Integration Test', () => {
     )
 
     const wrapper = createWrapper()
-    const { result } = renderHook(() => useSendMessage(), { wrapper })
+    const { result } = renderHook(() => useSendMessage(taskId), { wrapper })
 
     // Send two messages concurrently
     const promise1 = result.current.mutateAsync({
-      taskId,
       message: 'First message',
     })
 
     const promise2 = result.current.mutateAsync({
-      taskId,
       message: 'Second message',
     })
 
@@ -146,12 +143,11 @@ describe('useSendMessage Integration Test', () => {
     const wrapper = createWrapper()
     const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
 
-    const { result } = renderHook(() => useSendMessage(), { wrapper })
+    const { result } = renderHook(() => useSendMessage(taskId), { wrapper })
 
     // Try to send a message that will fail
     await expect(
       result.current.mutateAsync({
-        taskId,
         message: 'This will fail',
       }),
     ).rejects.toThrow('Network error')
@@ -171,11 +167,10 @@ describe('useSendMessage Integration Test', () => {
     const spyInvalidate = vi.spyOn(client, 'invalidateQueries')
     const spyRefetch = vi.spyOn(client, 'refetchQueries')
 
-    const { result } = renderHook(() => useSendMessage(), { wrapper })
+    const { result } = renderHook(() => useSendMessage(taskId), { wrapper })
 
     await act(async () => {
       await result.current.mutateAsync({
-        taskId,
         message: 'Test hierarchy',
       })
     })

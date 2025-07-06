@@ -80,13 +80,12 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const spyRefetch = vi.spyOn(client, 'refetchQueries')
 
     // Send message
-    const { result: sendMessageResult } = renderHook(() => useSendMessage(), {
+    const { result: sendMessageResult } = renderHook(() => useSendMessage(taskId), {
       wrapper,
     })
 
     await act(async () => {
       await sendMessageResult.current.mutateAsync({
-        taskId,
         message: 'Test message',
       })
     })
@@ -193,11 +192,10 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     listTasksSpy.mockClear()
 
     // Send message
-    const { result } = renderHook(() => useSendMessage(), { wrapper })
+    const { result } = renderHook(() => useSendMessage(taskId), { wrapper })
 
     await act(async () => {
       await result.current.mutateAsync({
-        taskId,
         message: 'Trigger refetch',
       })
     })

@@ -187,11 +187,10 @@ describe('Task Hooks', () => {
       const wrapper = createWrapper()
       const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
 
-      const { result } = renderHook(() => useSendMessage(), { wrapper })
+      const { result } = renderHook(() => useSendMessage('task-123'), { wrapper })
 
       await act(async () => {
         await result.current.mutateAsync({
-          taskId: 'task-123',
           message: 'Test message',
         })
       })
@@ -221,10 +220,10 @@ describe('Task Hooks', () => {
       const wrapper = createWrapper()
       const spyInvalidate = vi.spyOn(wrapper({ children: null }).props.client, 'invalidateQueries')
 
-      const { result } = renderHook(() => useStopAgent(), { wrapper })
+      const { result } = renderHook(() => useStopAgent('task-123'), { wrapper })
 
       await act(async () => {
-        await result.current.mutateAsync('task-123')
+        await result.current.mutateAsync()
       })
 
       // In the new event-driven architecture, mutations only invalidate task lists

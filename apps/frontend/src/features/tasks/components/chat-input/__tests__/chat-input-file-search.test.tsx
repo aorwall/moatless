@@ -1,6 +1,7 @@
 import type { FileSearchResponse } from '@moatless/shared/types/repository'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { useSearchFiles, useRepositoriesList, useBranches } from '@/features/repositories/hooks/use-repositories'
 import { useTaskFileSearch, useStopAgent, useSendMessage } from '@/features/tasks/hooks/use-tasks'
@@ -24,10 +25,11 @@ describe('ChatInput file search functionality', () => {
   
   const mockFileSearchResponse: FileSearchResponse = {
     results: [
-      { path: 'src/components/Button.tsx', size: 1024 },
-      { path: 'src/utils/helpers.ts', size: 512 },
+      { path: 'src/components/Button.tsx', absolutePath: '/repo/src/components/Button.tsx', score: 0.9 },
+      { path: 'src/utils/helpers.ts', absolutePath: '/repo/src/utils/helpers.ts', score: 0.8 },
     ],
-    hasMore: false,
+    totalFound: 2,
+    query: 'test',
   }
 
   const createWrapper = () => {
@@ -110,7 +112,7 @@ describe('ChatInput file search functionality', () => {
     
     // Use a ChatInput with pre-selected repository to avoid testing the select component
     const TestWrapper = () => {
-      const [selectedRepo] = useState(repositoryId)
+      const [_selectedRepo] = useState(repositoryId)
       return (
         <ChatInput
           showRepositorySelector={true}
