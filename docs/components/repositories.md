@@ -2,640 +2,767 @@
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Core Concepts](#core-concepts)
-3. [Architecture](#architecture)
-4. [Backend Implementation](#backend-implementation)
-5. [Frontend Implementation](#frontend-implementation)
-6. [Data Flow](#data-flow)
-7. [Integration Points](#integration-points)
-8. [Configuration](#configuration)
-9. [Best Practices](#best-practices)
-10. [Troubleshooting](#troubleshooting)
+2. [Conceptual Model](#conceptual-model)
+3. [Architectural Design](#architectural-design)
+4. [Repository Lifecycle](#repository-lifecycle)
+5. [Execution Environment Architecture](#execution-environment-architecture)
+6. [Integration Architecture](#integration-architecture)
+7. [State Management](#state-management)
+8. [Framework Detection System](#framework-detection-system)
+9. [Configuration Flow](#configuration-flow)
+10. [Security Architecture](#security-architecture)
 
 ## Overview
 
 ### Purpose
-Repositories in Moatless Swarm UI are not just git repositories - they are complete **execution environments** that define how code is built, run, and previewed. They provide the foundation for creating isolated workspaces where AI agents can safely modify and test code.
+Repositories in Moatless Swarm UI represent **execution environments** that define how AI agents interact with codebases. They are not merely git repositories, but complete configurations that enable isolated, concurrent, and safe code modifications through automated task execution.
 
-### Key Responsibilities
-- Define execution environments for tasks
-- Automatic framework detection and configuration
-- Manage preview server settings
-- Provide isolated workspaces via git worktrees
-- Store environment variables and setup commands
-- Enable concurrent task execution on the same codebase
-
-### Position in Architecture
-Repositories serve as the bridge between local codebases and the task execution system, providing configuration and isolation necessary for safe AI-driven code modifications.
-
-## Core Concepts
-
-### Domain Terminology
-
-| Term | Definition |
-|------|------------|
-| Repository | An execution environment configuration, not just a git repo |
-| Framework Detection | Automatic identification of project type (Vite, Next.js, etc.) |
-| Code Execution | How code runs - locally or in Docker containers |
-| Preview Config | Settings for live preview functionality |
-| Git Worktree | Isolated git working directory for concurrent tasks |
-| Injection Strategy | How preview scripts are added to the application |
-
-### Key Abstractions
-
-#### Repository as Configuration
-```typescript
-interface RepositoryConfig {
-  id: string
-  name: string
-  description?: string
-  path: string                    // Local file system path
-  useGitWorktrees?: boolean       // Enable isolation
-  originalBranch?: string         // Default branch
-  codeExecution: CodeExecution    // How to run code
-  previewConfig?: PreviewConfig   // Preview settings
-  variables: Record<string, string> // Environment vars
-  createdAt: Date
-  updatedAt: Date
-}
-```
-
-### Design Decisions
-- **Repositories are configurations**, not just paths to git repos
-- **Framework detection is automatic** but can be overridden
-- **Git worktrees provide isolation** for concurrent tasks
-- **Preview configuration is framework-aware** for optimal experience
-
-## Architecture
-
-### High-Level Overview
+### Architectural Role
 ```mermaid
 graph TB
-    subgraph "Repository Management"
-        RC[Repository Config]
-        FD[Framework Detector]
-        BM[Branch Manager]
-        VS[Validation Service]
+    subgraph "Core Concepts"
+        R[Repository as<br/>Execution Environment]
+        T[Task<br/>Execution]
+        W[Workspace<br/>Isolation]
+        P[Preview<br/>Environments]
+    end
+    
+    subgraph "Capabilities"
+        FD[Framework<br/>Detection]
+        CE[Code<br/>Execution]
+        SC[State<br/>Coordination]
+        IM[Isolation<br/>Management]
+    end
+    
+    R --> T
+    R --> W
+    R --> P
+    
+    R -.-> FD
+    R -.-> CE
+    R -.-> SC
+    R -.-> IM
+    
+    style R fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style T fill:#f8f9fa,stroke:#333,stroke-width:2px
+    style W fill:#f8f9fa,stroke:#333,stroke-width:2px
+    style P fill:#f8f9fa,stroke:#333,stroke-width:2px
+```
+
+### Key Responsibilities
+- **Define execution contexts** for AI agent operations
+- **Provide workspace isolation** through git worktrees
+- **Enable preview environments** with framework-aware configuration
+- **Coordinate state** across concurrent task executions
+- **Manage lifecycle** of code execution environments
+
+## Conceptual Model
+
+### Repository as an Execution Environment
+```mermaid
+graph LR
+    subgraph "Traditional View"
+        GR[Git Repository]
+        FS[File System]
+        BR[Branches]
+    end
+    
+    subgraph "Moatless View"
+        EE[Execution<br/>Environment]
+        IC[Isolation<br/>Context]
+        PC[Preview<br/>Configuration]
+        RC[Runtime<br/>Configuration]
+    end
+    
+    subgraph "Capabilities"
+        AI[AI Agent<br/>Execution]
+        CP[Code<br/>Preview]
+        CI[Concurrent<br/>Isolation]
+        SM[State<br/>Management]
+    end
+    
+    GR --> EE
+    FS --> IC
+    BR --> CI
+    
+    EE --> AI
+    PC --> CP
+    IC --> CI
+    RC --> SM
+    
+    style EE fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+```
+
+### Core Abstractions
+```mermaid
+classDiagram
+    class Repository {
+        +id: string
+        +name: string
+        +path: string
+        +executionConfig: ExecutionConfig
+        +previewConfig: PreviewConfig
+        +isolationStrategy: IsolationStrategy
+        +createWorkspace(): Workspace
+        +detectFramework(): Framework
+        +validateEnvironment(): ValidationResult
+    }
+    
+    class ExecutionConfig {
+        +type: local | docker
+        +setupCommands: string[]
+        +serverCommand: string
+        +environment: Map~string,string~
+        +execute(): ExecutionResult
+    }
+    
+    class PreviewConfig {
+        +framework: Framework
+        +port: number
+        +injectionStrategy: InjectionStrategy
+        +startPreview(): PreviewServer
+    }
+    
+    class IsolationStrategy {
+        +type: worktree | container | directory
+        +createIsolation(): IsolatedEnvironment
+        +cleanupIsolation(): void
+    }
+    
+    Repository --> ExecutionConfig
+    Repository --> PreviewConfig
+    Repository --> IsolationStrategy
+```
+
+## Architectural Design
+
+### System Architecture
+```mermaid
+graph TB
+    subgraph "Repository Layer"
+        RS[Repository<br/>Service]
+        FDS[Framework<br/>Detection]
+        VS[Validation<br/>Service]
+        CS[Configuration<br/>Service]
+    end
+    
+    subgraph "Execution Layer"
+        EM[Execution<br/>Manager]
+        IM[Isolation<br/>Manager]
+        PM[Preview<br/>Manager]
+        SM[State<br/>Manager]
+    end
+    
+    subgraph "Storage Layer"
+        RDB[Repository<br/>Database]
+        FS[File<br/>System]
+        GS[Git<br/>Storage]
+        CS2[Config<br/>Storage]
+    end
+    
+    subgraph "Integration Points"
+        TS[Task<br/>System]
+        WS[Workspace<br/>System]
+        PS[Preview<br/>System]
+        AS[Agent<br/>System]
+    end
+    
+    RS --> EM
+    RS --> FDS
+    RS --> VS
+    RS --> CS
+    
+    EM --> IM
+    EM --> PM
+    EM --> SM
+    
+    RS --> RDB
+    IM --> FS
+    IM --> GS
+    CS --> CS2
+    
+    TS --> RS
+    WS --> EM
+    PS --> PM
+    AS --> EM
+    
+    style RS fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style EM fill:#fff4e6,stroke:#ff9800,stroke-width:3px
+```
+
+### Component Interactions
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant RS as Repository Service
+    participant FD as Framework Detector
+    participant EM as Execution Manager
+    participant IM as Isolation Manager
+    participant PM as Preview Manager
+    
+    C->>RS: Create Repository
+    RS->>FD: Detect Framework
+    FD-->>RS: Framework Config
+    RS->>EM: Initialize Execution
+    EM->>IM: Setup Isolation
+    EM->>PM: Configure Preview
+    RS-->>C: Repository Ready
+    
+    Note over IM: Creates git worktree<br/>or container isolation
+    Note over PM: Configures framework-specific<br/>preview settings
+```
+
+## Repository Lifecycle
+
+### State Transitions
+```mermaid
+stateDiagram-v2
+    [*] --> Uninitialized
+    Uninitialized --> Validating: Create Request
+    Validating --> Configuring: Valid Path
+    Validating --> Failed: Invalid Path
+    Configuring --> Ready: Config Complete
+    Ready --> Active: Task Created
+    Active --> Ready: Task Complete
+    Ready --> Updating: Update Request
+    Updating --> Ready: Update Complete
+    Ready --> Archived: Archive Request
+    Active --> Suspended: Error/Pause
+    Suspended --> Active: Resume
+    Failed --> [*]
+    Archived --> [*]
+    
+    note right of Active: Multiple concurrent<br/>tasks supported
+    note right of Configuring: Framework detection<br/>and setup
+```
+
+### Lifecycle Management Flow
+```mermaid
+graph TB
+    subgraph "Creation Phase"
+        CP[Path<br/>Provided] --> VL[Validate<br/>Location]
+        VL --> DG[Detect<br/>Git Repo]
+        DG --> DF[Detect<br/>Framework]
+        DF --> GC[Generate<br/>Config]
+        GC --> ST[Store<br/>Repository]
+    end
+    
+    subgraph "Operation Phase"
+        ST --> CR[Create<br/>Workspace]
+        CR --> EX[Execute<br/>Tasks]
+        EX --> PR[Preview<br/>Changes]
+        PR --> UP[Update<br/>State]
+    end
+    
+    subgraph "Maintenance Phase"
+        UP --> CL[Cleanup<br/>Worktrees]
+        UP --> UC[Update<br/>Config]
+        UP --> AR[Archive<br/>Repository]
+    end
+    
+    style VL fill:#ffebee,stroke:#f44336,stroke-width:2px
+    style DF fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    style EX fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+```
+
+## Execution Environment Architecture
+
+### Environment Layers
+```mermaid
+graph TB
+    subgraph "Repository Configuration"
+        RC[Repository<br/>Config]
+        EC[Execution<br/>Config]
+        PC[Preview<br/>Config]
+        IC[Isolation<br/>Config]
+    end
+    
+    subgraph "Execution Context"
+        subgraph "Local Execution"
+            LE[Node.js<br/>Process]
+            LF[File<br/>System]
+            LP[Port<br/>Management]
+        end
+        
+        subgraph "Docker Execution"
+            DC[Docker<br/>Container]
+            DV[Volume<br/>Mounts]
+            DN[Network<br/>Config]
+        end
+    end
+    
+    subgraph "Isolation Mechanisms"
+        GW[Git<br/>Worktree]
+        TM[Temp<br/>Directory]
+        CT[Container<br/>Isolation]
+    end
+    
+    RC --> EC
+    RC --> PC
+    RC --> IC
+    
+    EC --> LE
+    EC --> DC
+    
+    IC --> GW
+    IC --> TM
+    IC --> CT
+    
+    style RC fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style GW fill:#fff4e6,stroke:#ff9800,stroke-width:2px
+```
+
+### Execution Flow
+```mermaid
+sequenceDiagram
+    participant T as Task
+    participant R as Repository
+    participant E as Execution Manager
+    participant I as Isolation Manager
+    participant P as Process Manager
+    participant F as File System
+    
+    T->>R: Request Workspace
+    R->>E: Create Execution Context
+    E->>I: Setup Isolation
+    
+    alt Git Worktree
+        I->>F: Create Worktree
+        F-->>I: Worktree Path
+    else Container
+        I->>P: Start Container
+        P-->>I: Container ID
+    end
+    
+    I-->>E: Isolated Environment
+    E->>P: Run Setup Commands
+    P-->>E: Setup Complete
+    E->>P: Start Preview Server
+    P-->>E: Server Running
+    E-->>R: Execution Ready
+    R-->>T: Workspace Available
+    
+    Note over I,F: Isolation ensures concurrent<br/>tasks don't conflict
+```
+
+## Integration Architecture
+
+### System Integration Points
+```mermaid
+graph TB
+    subgraph "Repository System"
+        RS[Repository<br/>Service]
+        RDB[Repository<br/>Store]
+        RV[Repository<br/>Validator]
     end
     
     subgraph "Task System"
-        TC[Task Creation]
-        WC[Workspace Creation]
-        PE[Preview Environment]
+        TC[Task<br/>Controller]
+        TE[Task<br/>Executor]
+        TQ[Task<br/>Queue]
+    end
+    
+    subgraph "Workspace System"
+        WM[Workspace<br/>Manager]
+        WI[Workspace<br/>Isolator]
+        WC[Workspace<br/>Cleaner]
+    end
+    
+    subgraph "Preview System"
+        PS[Preview<br/>Service]
+        PI[Preview<br/>Injector]
+        PP[Preview<br/>Proxy]
+    end
+    
+    subgraph "Agent System"
+        AM[Agent<br/>Manager]
+        AE[Agent<br/>Executor]
+        AS[Agent<br/>State]
+    end
+    
+    TC --> RS
+    TE --> WM
+    WM --> RS
+    PS --> RS
+    AM --> TE
+    
+    RS --> RDB
+    RS --> RV
+    WM --> WI
+    PS --> PI
+    PS --> PP
+    
+    style RS fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style TC fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    style WM fill:#fff4e6,stroke:#ff9800,stroke-width:2px
+    style PS fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    style AM fill:#ffebee,stroke:#f44336,stroke-width:2px
+```
+
+### Data Flow Between Systems
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant T as Task System
+    participant R as Repository System
+    participant W as Workspace System
+    participant P as Preview System
+    
+    A->>T: Create Task
+    T->>R: Get Repository Config
+    R-->>T: Config + Validation
+    T->>W: Create Workspace
+    W->>R: Get Execution Settings
+    R-->>W: Execution Config
+    W->>W: Setup Isolation
+    W-->>T: Workspace Ready
+    T->>A: Begin Execution
+    A->>W: Modify Code
+    W->>P: Request Preview
+    P->>R: Get Preview Config
+    R-->>P: Preview Settings
+    P-->>A: Preview URL
+    
+    Note over W: Isolated workspace prevents<br/>conflicts between tasks
+    Note over P: Framework-aware preview<br/>configuration from repository
+```
+
+## State Management
+
+### Repository State Model
+```mermaid
+graph TB
+    subgraph "Configuration State"
+        BS[Base<br/>Settings]
+        ES[Execution<br/>Settings]
+        PS[Preview<br/>Settings]
+        IS[Isolation<br/>Settings]
+    end
+    
+    subgraph "Runtime State"
+        AS[Active<br/>Tasks]
+        WS[Workspace<br/>Status]
+        PS2[Preview<br/>Status]
+        VS[Validation<br/>Status]
+    end
+    
+    subgraph "Persistent State"
+        DB[Database<br/>Storage]
+        FS[File<br/>System]
+        GS[Git<br/>State]
+    end
+    
+    subgraph "Transient State"
+        PC[Process<br/>Cache]
+        SC[Session<br/>Cache]
+        EC[Event<br/>Cache]
+    end
+    
+    BS --> DB
+    ES --> DB
+    PS --> DB
+    IS --> DB
+    
+    AS --> SC
+    WS --> PC
+    PS2 --> EC
+    VS --> SC
+    
+    DB --> FS
+    FS --> GS
+    
+    style DB fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style SC fill:#fff4e6,stroke:#ff9800,stroke-width:2px
+```
+
+### State Synchronization
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as API Layer
+    participant RS as Repository Service
+    participant CS as Cache Service
+    participant DB as Database
+    participant FS as File System
+    
+    C->>API: Update Repository
+    API->>RS: Process Update
+    RS->>DB: Persist Changes
+    RS->>CS: Invalidate Cache
+    RS->>FS: Update Files
+    
+    par Notify Systems
+        RS-->>C: Update Confirmed
+    and
+        RS-->>CS: Broadcast Change
+    and
+        CS-->>C: Cache Invalidation
+    end
+    
+    Note over CS: Cache invalidation ensures<br/>consistency across clients
+    Note over FS: File system changes for<br/>runtime configuration
+```
+
+## Framework Detection System
+
+### Detection Architecture
+```mermaid
+graph TB
+    subgraph "Detection Engine"
+        DE[Detection<br/>Engine]
+        PM[Package<br/>Manager]
+        FP[File<br/>Patterns]
+        DP[Dependency<br/>Parser]
+    end
+    
+    subgraph "Framework Analyzers"
+        VA[Vite<br/>Analyzer]
+        NA[Next.js<br/>Analyzer]
+        RA[React<br/>Analyzer]
+        CA[Custom<br/>Analyzer]
+    end
+    
+    subgraph "Configuration Generators"
+        VG[Vite<br/>Config]
+        NG[Next.js<br/>Config]
+        RG[React<br/>Config]
+        DG[Default<br/>Config]
+    end
+    
+    subgraph "Output"
+        FC[Framework<br/>Config]
+        EC[Execution<br/>Commands]
+        PC[Preview<br/>Settings]
+        IS[Injection<br/>Strategy]
+    end
+    
+    DE --> PM
+    DE --> FP
+    DE --> DP
+    
+    PM --> VA
+    PM --> NA
+    PM --> RA
+    PM --> CA
+    
+    VA --> VG
+    NA --> NG
+    RA --> RG
+    CA --> DG
+    
+    VG --> FC
+    NG --> FC
+    RG --> FC
+    DG --> FC
+    
+    FC --> EC
+    FC --> PC
+    FC --> IS
+    
+    style DE fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style FC fill:#fff4e6,stroke:#ff9800,stroke-width:2px
+```
+
+### Detection Flow
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant D as Detector
+    participant P as Parser
+    participant A as Analyzer
+    participant G as Generator
+    
+    U->>D: Detect Framework(path)
+    D->>P: Read package.json
+    P-->>D: Dependencies
+    D->>P: Check lock files
+    P-->>D: Package Manager
+    
+    D->>A: Analyze Dependencies
+    
+    alt Vite Detected
+        A->>G: Generate Vite Config
+        G-->>D: Vite Settings
+    else Next.js Detected
+        A->>G: Generate Next Config
+        G-->>D: Next Settings
+    else Unknown Framework
+        A->>G: Generate Default Config
+        G-->>D: Default Settings
+    end
+    
+    D-->>U: Framework Configuration
+    
+    Note over A: Checks for framework-specific<br/>dependencies and patterns
+    Note over G: Creates optimized settings<br/>for each framework
+```
+
+## Configuration Flow
+
+### Configuration Lifecycle
+```mermaid
+graph LR
+    subgraph "Input Sources"
+        UI[User<br/>Input]
+        AD[Auto<br/>Detection]
+        DF[Default<br/>Values]
+        EV[Environment<br/>Variables]
+    end
+    
+    subgraph "Processing"
+        VP[Validation<br/>Pipeline]
+        MP[Merge<br/>Processor]
+        TP[Transform<br/>Pipeline]
     end
     
     subgraph "Storage"
-        FS[File System]
-        GR[Git Repository]
+        MS[Memory<br/>Store]
+        PS[Persistent<br/>Store]
+        CS[Config<br/>Cache]
     end
     
-    RC --> TC
-    FD --> RC
-    BM --> GR
-    VS --> GR
-    TC --> WC
-    RC --> PE
-    WC --> GR
-```
-
-### Component Relationships
-- Tasks depend on repositories for workspace creation
-- Workspaces use repository configuration for setup
-- Preview environments use repository settings for server startup
-- Framework detection informs preview configuration
-
-### Dependency Flow
-```
-User Input → Repository Service → Git Repository
-                ↓
-        Framework Detection
-                ↓
-        Repository Config → Task Creation → Workspace
-                              ↓
-                        Preview Environment
-```
-
-## Backend Implementation
-
-### Service Layer
-
-#### Service Structure
-```typescript
-// apps/backend/services/repository.service.ts
-export class RepositoryService {
-  constructor(
-    private storageService: StorageService,
-    private gitService: GitService
-  ) {}
-
-  // Core CRUD operations
-  async createRepository(data: CreateRepositoryDto): Promise<RepositoryConfig>
-  async getRepository(id: string): Promise<RepositoryConfig>
-  async updateRepository(id: string, data: UpdateRepositoryDto): Promise<RepositoryConfig>
-  async deleteRepository(id: string): Promise<void>
-  async listRepositories(): Promise<RepositoryConfig[]>
-  
-  // Advanced operations
-  async detectFramework(path: string): Promise<DetectedFramework>
-  async validateRepository(path: string): Promise<ValidationResult>
-  async listBranches(id: string): Promise<string[]>
-  async runSetupScript(id: string): Promise<SetupResult>
-  async searchFiles(id: string, query: string): Promise<SearchResult[]>
-}
-```
-
-#### Key Methods
-| Method | Purpose | Parameters | Returns |
-|--------|---------|------------|---------|
-| `createRepository` | Create new repository config | Repository data | Complete config with ID |
-| `detectFramework` | Auto-detect project framework | Repository path | Framework info |
-| `validateRepository` | Ensure path is valid git repo | Repository path | Validation result |
-| `runSetupScript` | Execute setup commands | Repository ID | Command output |
-| `searchFiles` | Search files in repository | ID, query | Matching files |
-
-#### Error Handling
-```typescript
-// Repository-specific errors
-export class RepositoryNotFoundError extends Error {}
-export class InvalidRepositoryPathError extends Error {}
-export class RepositoryInUseError extends Error {}
-export class FrameworkDetectionError extends Error {}
-```
-
-### API Endpoints
-
-#### Route Definitions
-| Method | Path | Purpose | Auth Required |
-|--------|------|---------|---------------|
-| GET | `/api/v1/repositories` | List all repositories | No |
-| POST | `/api/v1/repositories` | Create repository | No |
-| GET | `/api/v1/repositories/:id` | Get repository details | No |
-| PUT | `/api/v1/repositories/:id` | Update repository | No |
-| DELETE | `/api/v1/repositories/:id` | Delete repository | No |
-| POST | `/api/v1/repositories/:id/run-setup` | Run setup script | No |
-| POST | `/api/v1/repositories/:id/search-files` | Search files | No |
-| GET | `/api/v1/repositories/:id/branches` | List branches | No |
-| POST | `/api/v1/repositories/:id/detect-framework` | Detect framework | No |
-
-#### Request/Response Schemas
-```typescript
-// Create repository request
-interface CreateRepositoryRequest {
-  name: string
-  description?: string
-  path: string
-  useGitWorktrees?: boolean
-  codeExecution?: CodeExecution
-  previewConfig?: PreviewConfig
-  variables?: Record<string, string>
-}
-
-// Repository response
-interface RepositoryResponse extends RepositoryConfig {
-  isValid: boolean
-  validationErrors?: string[]
-}
-```
-
-### Data Models
-
-#### TypeScript Interfaces
-```typescript
-// Code execution configuration
-interface CodeExecution {
-  type: 'local' | 'docker'
-  setupCommands?: string          // e.g., "npm install"
-  serverCommand?: string          // e.g., "npm run dev -- --port {PORT}"
-  serverPortPlaceholder?: string  // e.g., "{PORT}"
-  envVars?: Record<string, string>
-  dockerImage?: string            // For docker execution
-  dockerCommand?: string
-  dockerWorkdir?: string
-}
-
-// Preview configuration
-interface PreviewConfig {
-  framework?: 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown'
-  frameworkVersion?: string
-  serverStartCommand?: string
-  serverPort?: number
-  injectionStrategy?: ScriptInjectionStrategy
-  customScript?: string
-}
-
-// Framework detection result
-interface DetectedFramework {
-  framework: string
-  version?: string
-  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun'
-  suggestedServerCommand: string
-  suggestedSetupCommand: string
-  injectionStrategy: ScriptInjectionStrategy
-}
-```
-
-#### Validation Rules
-- Repository path must exist and be a valid git repository
-- Name must be unique across all repositories
-- Setup commands are validated for basic syntax
-- Server commands must include port placeholder if specified
-
-### Business Logic
-
-#### Framework Detection Algorithm
-```typescript
-async detectFramework(path: string): Promise<DetectedFramework> {
-  const packageJson = await this.readPackageJson(path);
-  
-  // Check dependencies for framework indicators
-  const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-  
-  if (deps['next']) {
-    return {
-      framework: 'nextjs',
-      version: deps['next'],
-      packageManager: await this.detectPackageManager(path),
-      suggestedServerCommand: 'npm run dev -- -p {PORT}',
-      suggestedSetupCommand: 'npm install',
-      injectionStrategy: 'middleware'
-    };
-  }
-  
-  if (deps['vite']) {
-    return {
-      framework: 'vite',
-      version: deps['vite'],
-      packageManager: await this.detectPackageManager(path),
-      suggestedServerCommand: 'npm run dev -- --port {PORT}',
-      suggestedSetupCommand: 'npm install',
-      injectionStrategy: 'html-injection'
-    };
-  }
-  
-  // ... more framework checks
-}
-```
-
-#### Git Worktree Management
-```typescript
-async createWorktreeForTask(repositoryId: string, taskId: string): Promise<string> {
-  const repository = await this.getRepository(repositoryId);
-  
-  if (!repository.useGitWorktrees) {
-    return repository.path; // Use main directory
-  }
-  
-  const worktreePath = path.join(
-    path.dirname(repository.path),
-    '.worktrees',
-    taskId
-  );
-  
-  await this.gitService.createWorktree(
-    repository.path,
-    worktreePath,
-    repository.originalBranch || 'main'
-  );
-  
-  return worktreePath;
-}
-```
-
-## Frontend Implementation
-
-### Feature Structure
-```
-apps/frontend/src/features/repositories/
-├── api/           # API client functions
-│   └── repositories-api.ts
-├── components/    # UI components
-│   ├── repository-list.tsx
-│   ├── repository-form.tsx
-│   ├── repository-selector.tsx
-│   └── framework-detector.tsx
-├── hooks/         # Custom React hooks
-│   ├── use-repositories.ts
-│   ├── use-repository.ts
-│   └── use-framework-detection.ts
-├── types/         # TypeScript types
-│   └── index.ts
-└── index.ts       # Public exports
-```
-
-### Components
-
-#### Component Hierarchy
-```mermaid
-graph TD
-    RepositorySettings[Repository Settings Page]
-    RepositoryList[Repository List]
-    RepositoryForm[Repository Form]
-    RepositoryItem[Repository Item]
-    FrameworkDetector[Framework Detector]
-    RepositorySelector[Repository Selector]
-    
-    RepositorySettings --> RepositoryList
-    RepositorySettings --> RepositoryForm
-    RepositoryList --> RepositoryItem
-    RepositoryForm --> FrameworkDetector
-    TaskCreation --> RepositorySelector
-```
-
-#### Key Components
-| Component | Purpose | Props | State Management |
-|-----------|---------|-------|------------------|
-| `RepositoryList` | Display all repositories | `repositories[]` | Query state |
-| `RepositoryForm` | Create/edit repository | `repository?`, `onSubmit` | Form state |
-| `RepositorySelector` | Select repo for task | `value`, `onChange` | Selection state |
-| `FrameworkDetector` | Auto-detect framework | `path`, `onDetect` | Detection state |
-
-### Hooks and Context
-
-#### Custom Hooks
-| Hook | Purpose | Parameters | Returns |
-|------|---------|------------|---------|
-| `useRepositories` | List all repositories | Query options | Repository list |
-| `useRepository` | Get single repository | Repository ID | Repository data |
-| `useCreateRepository` | Create repository | Mutation options | Mutation object |
-| `useDetectFramework` | Detect framework | Repository path | Detection result |
-
-#### Query Key Management
-```typescript
-export const repositoryKeys = {
-  all: ['repositories'] as const,
-  lists: () => [...repositoryKeys.all, 'list'] as const,
-  list: (filters?: RepositoryFilters) => 
-    [...repositoryKeys.lists(), filters] as const,
-  details: () => [...repositoryKeys.all, 'detail'] as const,
-  detail: (id: string) => [...repositoryKeys.details(), id] as const,
-  branches: (id: string) => [...repositoryKeys.detail(id), 'branches'] as const,
-};
-```
-
-### Real-time Updates
-While repositories don't have real-time events like tasks, they integrate with the system's event architecture:
-- Repository deletion events invalidate related task caches
-- Setup script completion triggers UI updates
-- Framework detection results update form state
-
-## Data Flow
-
-### Repository Creation Flow
-```mermaid
-sequenceDiagram
-    participant User
-    participant UI as Repository Form
-    participant API as Repository API
-    participant FD as Framework Detector
-    participant FS as File System
-    participant Storage
-    
-    User->>UI: Enter repository details
-    UI->>API: Validate repository path
-    API->>FS: Check git repository
-    FS-->>API: Validation result
-    
-    User->>UI: Request framework detection
-    UI->>FD: Detect framework(path)
-    FD->>FS: Read package.json
-    FD->>FS: Check lock files
-    FD-->>UI: Framework info
-    
-    User->>UI: Submit form
-    UI->>API: Create repository
-    API->>Storage: Save config
-    API-->>UI: Repository created
-    UI-->>User: Success message
-```
-
-### Task Creation with Repository
-```mermaid
-sequenceDiagram
-    participant User
-    participant Task as Task Form
-    participant Repo as Repository Service
-    participant Work as Workspace Service
-    participant Git
-    
-    User->>Task: Select repository
-    Task->>Repo: Get repository config
-    Repo-->>Task: Repository details
-    
-    User->>Task: Create task
-    Task->>Work: Create workspace
-    Work->>Repo: Get repository
-    
-    alt Using Git Worktrees
-        Work->>Git: Create worktree
-        Git-->>Work: Worktree path
-    else Direct usage
-        Work->>Work: Use repository path
+    subgraph "Application"
+        RT[Runtime<br/>Config]
+        TC[Task<br/>Config]
+        PC[Preview<br/>Config]
     end
     
-    Work->>Work: Run setup commands
-    Work-->>Task: Workspace ready
-    Task-->>User: Task created
+    UI --> VP
+    AD --> VP
+    DF --> MP
+    EV --> MP
+    
+    VP --> MP
+    MP --> TP
+    TP --> MS
+    TP --> PS
+    
+    MS --> CS
+    PS --> CS
+    
+    CS --> RT
+    CS --> TC
+    CS --> PC
+    
+    style VP fill:#ffebee,stroke:#f44336,stroke-width:2px
+    style CS fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
 ```
 
-## Integration Points
-
-### Dependencies
-- **Internal Components:**
-  - Task Service - Uses repositories for workspace creation
-  - Workspace Service - Creates workspaces from repository configs
-  - Preview Service - Uses repository settings for server startup
-  - Git Service - Manages git operations and worktrees
-
-- **External Libraries:**
-  - `simple-git` - Git operations
-  - `fs-extra` - File system operations
-  - `execa` - Command execution
-
-### Events
-Repository operations don't emit events directly but trigger cache invalidations:
-
-#### Cache Invalidation Triggers
-| Action | Invalidated Queries |
-|--------|-------------------|
-| Repository created | Repository list |
-| Repository updated | Repository detail, related tasks |
-| Repository deleted | Repository list, related tasks |
-| Framework detected | Repository detail |
-
-### Shared Data Structures
-```typescript
-// Shared between frontend and backend
-export interface RepositoryConfig {
-  // ... (defined in @moatless/shared)
-}
-
-// Used by multiple services
-export interface WorkspaceConfig {
-  repositoryId: string
-  workspacePath: string
-  isWorktree: boolean
-}
+### Configuration Validation
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant V as Validator
+    participant F as File System
+    participant G as Git
+    participant S as Schema Validator
+    
+    C->>V: Validate Config
+    
+    par Path Validation
+        V->>F: Check Path Exists
+        F-->>V: Path Status
+    and Git Validation
+        V->>G: Check Git Repo
+        G-->>V: Git Status
+    and Schema Validation
+        V->>S: Validate Schema
+        S-->>V: Schema Result
+    end
+    
+    V->>V: Aggregate Results
+    
+    alt All Valid
+        V-->>C: Validation Success
+    else Validation Failed
+        V-->>C: Validation Errors
+    end
+    
+    Note over V,S: Multiple validation layers<br/>ensure configuration integrity
 ```
 
-## Configuration
+## Security Architecture
 
-### Environment Variables
-| Variable | Purpose | Default | Required |
-|----------|---------|---------|----------|
-| `DEFAULT_SETUP_TIMEOUT` | Timeout for setup scripts | 300000 (5 min) | No |
-| `MAX_REPOSITORIES` | Maximum repositories allowed | 50 | No |
-| `ENABLE_DOCKER_EXECUTION` | Allow Docker execution | false | No |
-
-### Framework-Specific Defaults
-```typescript
-const FRAMEWORK_DEFAULTS = {
-  vite: {
-    serverCommand: 'npm run dev -- --port {PORT}',
-    setupCommand: 'npm install',
-    injectionStrategy: 'html-injection'
-  },
-  nextjs: {
-    serverCommand: 'npm run dev -- -p {PORT}',
-    setupCommand: 'npm install',
-    injectionStrategy: 'middleware'
-  },
-  // ... more frameworks
-};
+### Security Layers
+```mermaid
+graph TB
+    subgraph "Access Control"
+        PA[Path<br/>Authorization]
+        CA[Command<br/>Authorization]
+        EA[Execution<br/>Authorization]
+    end
+    
+    subgraph "Validation Layer"
+        PV[Path<br/>Validation]
+        CV[Command<br/>Validation]
+        IV[Input<br/>Validation]
+    end
+    
+    subgraph "Isolation Layer"
+        FI[File System<br/>Isolation]
+        PI[Process<br/>Isolation]
+        NI[Network<br/>Isolation]
+    end
+    
+    subgraph "Monitoring Layer"
+        AL[Audit<br/>Logging]
+        EM[Execution<br/>Monitoring]
+        AM[Access<br/>Monitoring]
+    end
+    
+    PA --> PV
+    CA --> CV
+    EA --> IV
+    
+    PV --> FI
+    CV --> PI
+    IV --> NI
+    
+    FI --> AL
+    PI --> EM
+    NI --> AM
+    
+    style PA fill:#ffebee,stroke:#f44336,stroke-width:3px
+    style FI fill:#e1f5e1,stroke:#4caf50,stroke-width:3px
+    style AL fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
 ```
 
-### Runtime Configuration
-Repositories can be configured at runtime via the API or UI:
-- Update server commands
-- Change injection strategies
-- Modify environment variables
-- Toggle git worktree usage
-
-## Best Practices
-
-### Do's
-- **Always validate repository paths** before saving
-- **Use framework detection** for optimal configuration
-- **Enable git worktrees** for concurrent task execution
-- **Define setup commands** to ensure dependencies are installed
-- **Use port placeholders** in server commands for flexibility
-- **Set appropriate injection strategies** based on framework
-- **Document custom configurations** in repository description
-
-### Don'ts
-- Don't hardcode ports in server commands
-- Don't skip repository validation
-- Don't delete repositories with active tasks
-- Don't use relative paths for repository locations
-- Don't ignore framework detection suggestions
-
-### Performance Considerations
-- **Cache repository configurations** to avoid repeated file system access
-- **Limit file search depth** to prevent long operations
-- **Use git worktrees** to avoid conflicts in concurrent operations
-- **Batch repository operations** when possible
-
-### Security Guidelines
-- **Validate all paths** to prevent directory traversal
-- **Sanitize setup commands** to prevent injection
-- **Limit command execution** to repository directories
-- **Never expose sensitive paths** in API responses
-- **Validate git operations** to prevent unauthorized access
-
-## Troubleshooting
-
-### Common Issues
-
-#### Issue: Framework Detection Fails
-**Symptoms:**
-- Framework shown as "unknown"
-- Incorrect server commands suggested
-- Preview not working properly
-
-**Cause:**
-- Missing package.json
-- Unusual project structure
-- New framework not supported
-
-**Solution:**
-1. Manually select framework in UI
-2. Provide custom server command
-3. Check package.json exists and is valid
-
-#### Issue: Git Worktree Creation Fails
-**Symptoms:**
-- Error: "fatal: not a git repository"
-- Workspace creation fails
-- Multiple tasks can't run concurrently
-
-**Cause:**
-- Path is not a git repository
-- Git version too old
-- Worktree already exists
-
-**Solution:**
-```bash
-# Initialize git repository
-cd /path/to/repository
-git init
-
-# Or update git
-git --version  # Should be 2.5+
-brew upgrade git  # macOS
+### Security Flow
+```mermaid
+sequenceDiagram
+    participant R as Request
+    participant A as Auth Layer
+    participant V as Validation
+    participant I as Isolation
+    participant E as Execution
+    participant M as Monitor
+    
+    R->>A: Repository Operation
+    A->>A: Check Permissions
+    A->>V: Validate Request
+    
+    V->>V: Path Validation
+    V->>V: Command Sanitization
+    V->>V: Input Validation
+    
+    V->>I: Setup Isolation
+    I->>I: Create Sandbox
+    I->>I: Apply Restrictions
+    
+    I->>E: Execute Operation
+    E->>M: Log Activity
+    
+    M->>M: Audit Trail
+    M->>M: Anomaly Detection
+    
+    E-->>R: Operation Result
+    
+    Note over V: Prevents path traversal<br/>and command injection
+    Note over I: Ensures operations are<br/>confined to repository
 ```
-
-#### Issue: Setup Script Timeout
-**Symptoms:**
-- Task creation hangs
-- "Setup script timed out" error
-- Dependencies not installed
-
-**Cause:**
-- Large dependencies
-- Slow network
-- Interactive prompts in script
-
-**Solution:**
-1. Increase timeout in environment variables
-2. Use non-interactive commands: `npm ci` instead of `npm install`
-3. Pre-install dependencies manually
-
-### Debug Strategies
-1. **Check repository validation**:
-   ```bash
-   # Verify git repository
-   cd /repository/path
-   git status
-   ```
-
-2. **Test framework detection**:
-   ```bash
-   # Check package.json
-   cat package.json | jq '.dependencies,.devDependencies'
-   ```
-
-3. **Verify setup commands**:
-   ```bash
-   # Run setup manually
-   cd /repository/path
-   npm install  # or your setup command
-   ```
-
-### Logging
-Repository operations are logged at various levels:
-- **INFO**: Repository CRUD operations
-- **DEBUG**: Framework detection details
-- **ERROR**: Validation failures, command errors
-- **WARN**: Deprecated configurations
-
-### Monitoring
-Key metrics to track:
-- Repository creation/deletion rate
-- Framework detection success rate
-- Setup script execution time
-- Git worktree creation failures
 
 ## Related Documentation
-- [Workspace Architecture](./workspaces.md)
-- [Task Management Architecture](./tasks.md)
-- [Preview Environment Architecture](./preview-environments.md)
-- [Git Operations Guide](../guides/git-operations.md)
+- [Workspace Architecture](./workspaces.md) - Detailed workspace isolation mechanisms
+- [Task Architecture](./tasks.md) - Task execution within repositories
+- [Preview Environment Architecture](./preview-environments.md) - Framework-specific preview configuration
+- [Agent Architecture](./agents.md) - AI agent interaction with repositories

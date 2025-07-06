@@ -1,4 +1,4 @@
-# Events Architecture
+# Event Architecture
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -15,20 +15,20 @@
 ## Overview
 
 ### Purpose
-The Events system provides real-time, bidirectional communication between the backend and frontend through Server-Sent Events (SSE). It enables live updates for task execution, agent actions, and system state changes, ensuring users see immediate feedback as AI agents work on their code.
+The Event system is the real-time communication backbone of Moatless Swarm UI, enabling instant feedback as AI agents modify code. It uses Server-Sent Events (SSE) to stream updates from backend services to frontend components, ensuring users see live progress without polling.
 
 ### Key Responsibilities
-- Stream real-time events from backend to frontend via SSE
-- Manage dual event emission (task-specific and global streams)
-- Handle connection lifecycle and automatic reconnection
-- Cache and persist event history
-- Enable targeted cache invalidation for UI updates
-- Support event filtering and aggregation
+- Stream real-time updates via SSE with automatic reconnection
+- Manage dual-stream architecture (global and task-specific)
+- Orchestrate cache invalidation for UI consistency
+- Buffer events for reliable delivery during disconnections
+- Track connection health with ping/pong heartbeats
+- Filter and route events to appropriate consumers
 - Provide debugging and monitoring capabilities
-- Ensure reliable delivery with connection health checks
+- Ensure ordered event delivery with sequence numbers
 
 ### Position in Architecture
-The Events system acts as the real-time communication backbone, connecting agent actions to UI updates. It sits between the service layer (which emits events) and the frontend components (which consume events), enabling a responsive, live-updating user experience.
+The Event system bridges the gap between backend actions and frontend reactions. It transforms discrete service operations into continuous streams of updates, enabling the reactive UI patterns that make Moatless feel responsive and alive.
 
 ## Core Concepts
 
@@ -46,1004 +46,1149 @@ The Events system acts as the real-time communication backbone, connecting agent
 | NDJSON | Newline-delimited JSON format used for streaming |
 | Connection ID | Unique identifier for each SSE connection |
 | Sequence Number | Ordered counter for event ordering |
+| Event Bus | Central dispatcher for event routing |
+| Heartbeat | Periodic ping to maintain connection health |
 
 ### Key Abstractions
 
-#### Event Structure
+#### Event Hierarchy
 ```typescript
-// packages/shared/types/event.ts
-export interface Event {
+interface BaseEvent {
   eventId: string
-  taskId: string
-  iterationId?: string
-  type: EventType
-  subtype?: string
-  payload: any
   timestamp: Date
   sequenceNumber: number
+}
+
+interface TaskEvent extends BaseEvent {
+  taskId: string
+  iterationId?: string
   agentType?: string
-  source?: string
 }
 
-export enum EventType {
-  INPUT = 'input',
-  MESSAGE = 'message',
-  START = 'start',
-  STOP = 'stop',
-  RESULT = 'result',
-  ERROR = 'error',
-  WORKSPACE = 'workspace',
-  SERVER = 'server',
-  TOOL = 'tool',
-  COMPLETION = 'completion',
+interface SystemEvent extends BaseEvent {
+  source: string
+  severity: 'info' | 'warning' | 'error'
 }
-```
-
-#### Composite Event Types
-```typescript
-// Frontend-specific composite types
-type CompositeEventType = 
-  | 'task:created' 
-  | 'task:updated' 
-  | 'task:statusChanged'
-  | 'iteration:created' 
-  | 'iteration:updated'
-  | 'tool:start' 
-  | 'tool:result' 
-  | 'tool:error'
 ```
 
 ### Design Decisions
 
-1. **Dual Stream Architecture**: Support both global and task-specific streams for flexibility
-2. **NDJSON Format**: Use newline-delimited JSON for simpler parsing and better reliability
-3. **In-Memory Caching**: Keep recent events in memory for fast catchup
-4. **Conditional Persistence**: Only persist non-Claude events to reduce storage
-5. **Event Enrichment**: Automatically add IDs and timestamps to events
-6. **Connection Health**: Regular ping/pong for connection liveness
-7. **Graceful Degradation**: System continues to function without real-time updates
+- **Dual-Stream Architecture**: Separate global and task streams for scalability
+- **NDJSON over SSE**: Simpler parsing, better proxy compatibility
+- **Event Buffering**: In-memory cache for reconnection recovery
+- **Selective Persistence**: Store only business-critical events
+- **Automatic Enrichment**: Add metadata at emission time
+- **Connection Multiplexing**: Single connection for multiple subscriptions
+- **Graceful Degradation**: Fall back to polling if SSE fails
 
 ## Architecture
 
 ### High-Level Overview
+
+The Event system orchestrates real-time communication through a sophisticated multi-layered architecture that ensures reliable, ordered delivery of updates across the application.
+
 ```mermaid
 graph TB
-    %% Backend Components
-    subgraph Backend["Backend Services"]
+    subgraph "Event Sources"
         AS[Agent Service]
-        ES[Event Service]
-        SSE[SSE Manager]
-        ST[Storage]
+        TS[Task Service]
+        WS[Workspace Service]
+        PS[Preview Service]
     end
     
-    %% Event Flow
-    AS -->|emitEvent| ES
-    ES -->|emit| SSE
-    ES -->|persist| ST
-    
-    %% SSE Connections
-    SSE -->|Global Stream| GS[Global SSE Connection]
-    SSE -->|Task Stream| TS[Task SSE Connection]
-    
-    %% Frontend Components
-    subgraph Frontend["Frontend"]
-        GSP[Global Event Stream Provider]
-        TEP[Task Events Provider]
-        TC[Task Components]
-        SC[Sidebar Components]
-        RQ[React Query Cache]
+    subgraph "Event Processing Core"
+        EB[Event Bus]
+        EE[Event Enricher]
+        EF[Event Filter]
+        EC[Event Cache]
     end
     
-    %% Connections
-    GS -.->|NDJSON| GSP
-    TS -.->|NDJSON| TEP
+    subgraph "Delivery Infrastructure"
+        SM[SSE Manager]
+        CM[Connection Manager]
+        HM[Health Monitor]
+    end
     
-    %% Event Distribution
-    GSP -->|subscribeToTask| SC
-    GSP -->|subscribeToType| RQ
-    TEP -->|handleEvent| TC
+    subgraph "Stream Types"
+        GS[Global Stream]
+        TS2[Task Streams]
+        AS2[Admin Stream]
+    end
     
-    %% Cache Invalidation
-    RQ -->|invalidate| SC
-    RQ -->|invalidate| TC
+    subgraph "Frontend Reception"
+        EP[Event Parser]
+        ER[Event Router]
+        EH[Event Handlers]
+    end
+    
+    subgraph "UI Updates"
+        RQ[React Query]
+        ST[State Updates]
+        UI[UI Components]
+    end
+    
+    AS --> EB
+    TS --> EB
+    WS --> EB
+    PS --> EB
+    
+    EB --> EE
+    EE --> EF
+    EF --> EC
+    EC --> SM
+    
+    SM --> CM
+    CM --> GS
+    CM --> TS2
+    CM --> AS2
+    
+    HM -.->|Monitor| CM
+    
+    GS --> EP
+    TS2 --> EP
+    
+    EP --> ER
+    ER --> EH
+    
+    EH --> RQ
+    EH --> ST
+    RQ --> UI
+    ST --> UI
+    
+    style EB fill:#f9f,stroke:#333,stroke-width:4px
+    style SM fill:#9ff,stroke:#333,stroke-width:2px
+    style ER fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
-### Component Relationships
+### Event Flow Architecture
 
-1. **Event Service** → **SSE Manager**: Event emission and distribution
-2. **SSE Manager** → **Frontend Providers**: Real-time event delivery
-3. **Frontend Providers** → **React Query**: Cache invalidation
-4. **Frontend Providers** → **Components**: Direct event handling
+The event system implements a sophisticated pipeline that transforms service-level operations into UI updates:
 
-### Dependency Flow
-
-- **Upstream**: Agent Service, Task Service, Workspace Service
-- **Core**: Event Service, SSE Manager
-- **Downstream**: Frontend components, React Query cache
-
-## Backend Implementation
-
-### Service Layer
-
-#### Event Service Structure
-```typescript
-// apps/backend/services/event.service.ts
-export class EventService extends EventEmitter {
-  private sequenceCounter = 0
-  private eventCache = new Map<string, Event[]>()
-  private readonly MAX_CACHE_SIZE = 1000
-  
-  constructor(
-    private storage: EventStorage,
-    private config: EventConfig
-  ) {
-    super()
-    this.setMaxListeners(100) // Support many concurrent connections
-  }
-  
-  async emitEvent(event: Partial<Event>): Promise<void> {
-    // Enrich event
-    const enrichedEvent: Event = {
-      ...event,
-      eventId: event.eventId || randomUUID(),
-      timestamp: event.timestamp || new Date(),
-      sequenceNumber: this.sequenceCounter++,
-    }
-    
-    // Cache event
-    this.cacheEvent(enrichedEvent)
-    
-    // Dual emission
-    this.emit(`task:${enrichedEvent.taskId}`, enrichedEvent)
-    this.emit('global', enrichedEvent)
-    
-    // Conditional persistence
-    if (enrichedEvent.agentType !== 'claude-code') {
-      await this.storage.saveEvents(enrichedEvent.taskId, [enrichedEvent])
-    }
-  }
-  
-  subscribeToTask(taskId: string, handler: (event: Event) => void): () => void {
-    this.on(`task:${taskId}`, handler)
-    return () => this.off(`task:${taskId}`, handler)
-  }
-  
-  subscribeAll(handler: (event: Event) => void): () => void {
-    this.on('global', handler)
-    return () => this.off('global', handler)
-  }
-}
-```
-
-#### Key Methods
-| Method | Purpose | Parameters | Returns |
-|--------|---------|------------|---------|
-| emitEvent | Emit an event to all subscribers | Partial<Event> | Promise<void> |
-| subscribeToTask | Subscribe to task-specific events | taskId, handler | Unsubscribe function |
-| subscribeAll | Subscribe to all events | handler | Unsubscribe function |
-| getRecentEvents | Get cached events | taskId?, limit? | Event[] |
-| clearCache | Clear event cache | taskId? | void |
-
-#### Error Handling
-```typescript
-async emitEvent(event: Partial<Event>): Promise<void> {
-  try {
-    // Event processing...
-  } catch (error) {
-    console.error('Failed to emit event:', error)
-    // Emit error event
-    this.emit('error', {
-      type: 'event-emission-error',
-      originalEvent: event,
-      error: error.message,
-    })
-  }
-}
-```
-
-### API Endpoints
-
-#### Route Definitions
-| Method | Path | Purpose | Auth Required |
-|--------|------|---------|---------------|
-| GET | /api/v1/events/stream | Global event stream | No |
-| GET | /api/v1/tasks/:taskId/stream | Task-specific event stream | No |
-| GET | /api/v1/events/stream/status | Connection status | No |
-| GET | /api/v1/tasks/:taskId/events | Historical events | No |
-
-#### Request/Response Schemas
-```typescript
-// Global stream query parameters
-interface GlobalStreamQuery {
-  types?: string          // Comma-separated event types
-  activeTasksOnly?: boolean
-  lastEventId?: string    // For reconnection
-}
-
-// Stream response format (NDJSON)
-interface StreamMessage {
-  type: 'event' | 'ping' | 'error'
-  data: Event | { timestamp: number } | { error: string }
-}
-
-// Historical events response
-interface EventsResponse {
-  events: Event[]
-  hasMore: boolean
-  nextCursor?: string
-}
-```
-
-### SSE Manager Implementation
-
-```typescript
-// apps/backend/utils/sse-manager.ts
-export class SSEConnectionManager {
-  private connections = new Map<string, Set<SSEConnection>>()
-  private globalConnections = new Map<string, GlobalSSEConnection>()
-  private stats = {
-    totalConnections: 0,
-    activeConnections: 0,
-    messagesDelivered: 0,
-  }
-  
-  connect(taskId: string, request: Request, reply: Reply): string {
-    const connectionId = randomUUID()
-    
-    // Set SSE headers
-    reply.raw.writeHead(200, {
-      'Content-Type': 'application/x-ndjson',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    })
-    
-    // Create connection
-    const connection: SSEConnection = {
-      id: connectionId,
-      taskId,
-      request,
-      reply,
-      createdAt: new Date(),
-      lastPing: new Date(),
-    }
-    
-    // Track connection
-    if (!this.connections.has(taskId)) {
-      this.connections.set(taskId, new Set())
-    }
-    this.connections.get(taskId)!.add(connection)
-    
-    this.stats.totalConnections++
-    this.stats.activeConnections++
-    
-    // Send initial ping
-    this.sendMessage(connection, { type: 'ping', data: { timestamp: Date.now() } })
-    
-    return connectionId
-  }
-  
-  sendEvent(taskId: string, event: Event): void {
-    const connections = this.connections.get(taskId)
-    if (!connections) return
-    
-    const message = { type: 'event', data: event }
-    
-    for (const connection of connections) {
-      try {
-        this.sendMessage(connection, message)
-        this.stats.messagesDelivered++
-      } catch (error) {
-        console.warn(`Failed to send event to connection ${connection.id}:`, error)
-        this.disconnect(taskId, connection.id)
-      }
-    }
-  }
-  
-  private sendMessage(connection: SSEConnection, message: any): void {
-    const data = JSON.stringify(message)
-    connection.reply.raw.write(`${data}\n`)
-  }
-}
-```
-
-### Business Logic
-
-#### Event Filtering
-```typescript
-function shouldSendEvent(event: Event, filters: EventFilters): boolean {
-  // Type filtering
-  if (filters.types && !filters.types.includes(event.type)) {
-    return false
-  }
-  
-  // Active tasks filtering
-  if (filters.activeTasksOnly) {
-    const task = getTask(event.taskId)
-    if (!task || !['open', 'running'].includes(task.status)) {
-      return false
-    }
-  }
-  
-  // Last event ID filtering (for reconnection)
-  if (filters.lastEventId) {
-    if (event.sequenceNumber <= getSequenceNumber(filters.lastEventId)) {
-      return false
-    }
-  }
-  
-  return true
-}
-```
-
-#### Connection Health Management
-```typescript
-class ConnectionHealthManager {
-  private readonly PING_INTERVAL = 30000 // 30 seconds
-  private readonly CONNECTION_TIMEOUT = 120000 // 2 minutes
-  
-  startHealthChecks(manager: SSEConnectionManager): void {
-    setInterval(() => {
-      const now = Date.now()
-      
-      // Check all connections
-      for (const [taskId, connections] of manager.connections) {
-        for (const connection of connections) {
-          const lastActivity = Math.max(
-            connection.createdAt.getTime(),
-            connection.lastPing.getTime()
-          )
-          
-          if (now - lastActivity > this.CONNECTION_TIMEOUT) {
-            console.warn(`Connection ${connection.id} timed out`)
-            manager.disconnect(taskId, connection.id)
-          } else {
-            // Send ping
-            manager.sendMessage(connection, {
-              type: 'ping',
-              data: { timestamp: now }
-            })
-            connection.lastPing = new Date()
-          }
-        }
-      }
-    }, this.PING_INTERVAL)
-  }
-}
-```
-
-## Frontend Implementation
-
-### Feature Structure
-```
-apps/frontend/src/features/events/
-├── api/           # Event API utilities
-├── components/    # Event viewer components
-├── contexts/      # Event stream providers
-├── hooks/         # Event subscription hooks
-├── stores/        # Event state management
-├── types/         # Event-specific types
-├── utils/         # Event utilities
-└── index.ts       # Public exports
-```
-
-### Components
-
-#### Component Hierarchy
 ```mermaid
-graph TD
-    App[App]
-    App --> GESP[GlobalEventStreamProvider]
-    
-    GESP --> Layout[Layout]
-    Layout --> Sidebar[Sidebar]
-    Layout --> TaskDetail[Task Detail Page]
-    
-    Sidebar --> TaskList[Task List]
-    TaskList --> |subscribeToAll| Events1[Event Updates]
-    
-    TaskDetail --> TEP[TaskEventsProvider]
-    TEP --> TaskViewer[Task Viewer]
-    TEP --> EventViewer[Event Viewer]
-    
-    TaskViewer --> |subscribeToTask| Events2[Task Events]
-    EventViewer --> |subscribeToTask| Events3[All Task Events]
-```
-
-#### Key Components
-| Component | Purpose | Props | State Management |
-|-----------|---------|-------|------------------|
-| GlobalEventStreamProvider | Manages global SSE connection | children | Internal state + context |
-| TaskEventsProvider | Manages task-specific events | taskId, useGlobalStream? | Internal state + context |
-| EventViewer | Displays event stream | taskId, filters? | Local filtering state |
-| EventListItem | Renders individual event | event, expanded? | Local expansion state |
-
-### Hooks and Context
-
-#### Custom Hooks
-| Hook | Purpose | Parameters | Returns |
-|------|---------|------------|---------|
-| useGlobalEventStream | Access global event stream | - | Context value with subscribe methods |
-| useTaskEventSubscription | Subscribe to task events | taskId, handler | void (manages subscription) |
-| useEventTypeSubscription | Subscribe to event type | type, handler | void (manages subscription) |
-| useEventHistory | Get historical events | taskId, options? | Event[] with loading state |
-
-#### Global Event Stream Context
-```typescript
-// apps/frontend/src/features/events/contexts/global-event-stream-context.tsx
-interface GlobalEventStreamContextValue {
-  isConnected: boolean
-  connectionError: string | null
-  subscribeToTask: (taskId: string, handler: (event: Event) => void) => () => void
-  subscribeToType: (type: EventType, handler: (event: Event) => void) => () => void
-  subscribeToAll: (handler: (event: Event) => void) => () => void
-  getConnectionStats: () => ConnectionStats
-}
-
-export function GlobalEventStreamProvider({ children }: PropsWithChildren) {
-  const [isConnected, setIsConnected] = useState(false)
-  const [connectionError, setConnectionError] = useState<string | null>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
-  const subscribersRef = useRef<EventSubscribers>({
-    task: new Map(),
-    type: new Map(),
-    all: new Set(),
-  })
-  
-  const connect = useCallback(() => {
-    if (eventSourceRef.current?.readyState === EventSource.OPEN) return
-    
-    const url = new URL('/api/v1/events/stream', window.location.origin)
-    url.searchParams.set('activeTasksOnly', 'true')
-    
-    const eventSource = new EventSource(url.toString())
-    
-    eventSource.onopen = () => {
-      setIsConnected(true)
-      setConnectionError(null)
-      console.log('Global event stream connected')
-    }
-    
-    eventSource.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data)
-        
-        if (message.type === 'event') {
-          handleEvent(message.data)
-        } else if (message.type === 'ping') {
-          // Connection health check
-        }
-      } catch (error) {
-        console.error('Failed to parse event:', error)
-      }
-    }
-    
-    eventSource.onerror = () => {
-      setIsConnected(false)
-      setConnectionError('Connection lost')
-      reconnectWithBackoff()
-    }
-    
-    eventSourceRef.current = eventSource
-  }, [])
-  
-  const handleEvent = useCallback((event: Event) => {
-    // Notify task subscribers
-    const taskSubscribers = subscribersRef.current.task.get(event.taskId)
-    taskSubscribers?.forEach(handler => handler(event))
-    
-    // Notify type subscribers
-    const typeSubscribers = subscribersRef.current.type.get(event.type)
-    typeSubscribers?.forEach(handler => handler(event))
-    
-    // Notify all subscribers
-    subscribersRef.current.all.forEach(handler => handler(event))
-    
-    // Handle cache invalidation
-    invalidateQueriesForEvent(event)
-  }, [])
-  
-  // ... subscription methods, reconnection logic, etc.
-}
-```
-
-### Real-time Updates
-
-#### SSE Integration
-```typescript
-// apps/frontend/src/features/events/utils/ndjson-sse-client.ts
-export class NDJSONSSEClient {
-  private eventSource: EventSource | null = null
-  private reconnectAttempts = 0
-  private reconnectTimer: number | null = null
-  
-  constructor(
-    private config: {
-      taskId?: string
-      onEvent: (event: Event) => void
-      onError?: (error: Error) => void
-      onConnect?: () => void
-      onDisconnect?: () => void
-    }
-  ) {}
-  
-  connect(): void {
-    const url = this.config.taskId
-      ? `/api/v1/tasks/${this.config.taskId}/stream`
-      : '/api/v1/events/stream'
-    
-    this.eventSource = new EventSource(url)
-    
-    this.eventSource.onopen = () => {
-      this.reconnectAttempts = 0
-      this.config.onConnect?.()
-    }
-    
-    this.eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'event') {
-          this.config.onEvent(data.data)
-        }
-      } catch (error) {
-        this.config.onError?.(new Error('Failed to parse event'))
-      }
-    }
-    
-    this.eventSource.onerror = () => {
-      this.config.onDisconnect?.()
-      this.scheduleReconnect()
-    }
-  }
-  
-  private scheduleReconnect(): void {
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)
-    this.reconnectAttempts++
-    
-    this.reconnectTimer = window.setTimeout(() => {
-      this.connect()
-    }, delay)
-  }
-  
-  disconnect(): void {
-    this.eventSource?.close()
-    this.eventSource = null
-    
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-  }
-}
-```
-
-#### Cache Invalidation
-```typescript
-// apps/frontend/src/features/events/utils/cache-invalidation.ts
-import { queryClient } from '@/lib/api/query-client'
-import { queryKeys } from '@/lib/api/query-keys'
-
-export function invalidateQueriesForEvent(event: Event): void {
-  switch (event.type) {
-    case EventType.RESULT:
-    case EventType.ERROR:
-      // Invalidate task queries
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.task(event.taskId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
-      })
-      break
-      
-    case EventType.INPUT:
-      // Invalidate task messages
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskMessages(event.taskId),
-      })
-      break
-      
-    case EventType.SERVER:
-      // Invalidate server status
-      if (event.subtype === 'started' || event.subtype === 'stopped') {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.taskServerStatus(event.taskId),
-        })
-      }
-      break
-      
-    case EventType.WORKSPACE:
-      // Invalidate workspace status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.taskWorkspaceStatus(event.taskId),
-      })
-      break
-  }
-  
-  // Handle composite event types
-  if (event.type.includes(':')) {
-    const [entity, action] = event.type.split(':')
-    
-    if (entity === 'task') {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
-      })
-      
-      if (action === 'statusChanged') {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.task(event.taskId),
-        })
-      }
-    }
-  }
-}
-```
-
-#### Optimistic Updates
-```typescript
-// Example of optimistic updates with events
-export function useCreateTaskWithOptimisticUpdate() {
-  const queryClient = useQueryClient()
-  const { subscribeToType } = useGlobalEventStream()
-  
-  useEffect(() => {
-    return subscribeToType('task:created', (event) => {
-      // Optimistically add task to list
-      queryClient.setQueryData(
-        queryKeys.tasksList(),
-        (old: Task[] = []) => [event.payload.task, ...old]
-      )
-    })
-  }, [])
-  
-  return useMutation({
-    mutationFn: createTask,
-    onMutate: async (newTask) => {
-      // Cancel in-flight queries
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasksList() })
-      
-      // Snapshot previous value
-      const previousTasks = queryClient.getQueryData(queryKeys.tasksList())
-      
-      // Optimistically update
-      queryClient.setQueryData(
-        queryKeys.tasksList(),
-        (old: Task[] = []) => [{
-          ...newTask,
-          taskId: `temp-${Date.now()}`,
-          status: 'open',
-          createdAt: new Date(),
-        }, ...old]
-      )
-      
-      return { previousTasks }
-    },
-    onError: (err, newTask, context) => {
-      // Rollback on error
-      queryClient.setQueryData(
-        queryKeys.tasksList(),
-        context.previousTasks
-      )
-    },
-    onSettled: () => {
-      // Always refetch after mutation
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
-    },
-  })
-}
-```
-
-## Data Flow
-
-### Complete Lifecycle
-```mermaid
-sequenceDiagram
-    participant User
-    participant Frontend
-    participant API
-    participant EventService
-    participant SSEManager
-    participant GlobalStream
-    participant TaskStream
-    participant Storage
-    
-    User->>Frontend: Send message
-    Frontend->>API: POST /api/v1/tasks/:id/iterations
-    API->>EventService: emitEvent({type: 'input'})
-    
-    EventService->>EventService: Enrich event (ID, timestamp, sequence)
-    EventService->>EventService: Cache event
-    
-    par Dual Emission
-        EventService->>SSEManager: emit('task:123', event)
-        EventService->>SSEManager: emit('global', event)
+graph LR
+    subgraph "Event Lifecycle"
+        CREATE[Event Created]
+        ENRICH[Event Enriched]
+        FILTER[Event Filtered]
+        ROUTE[Event Routed]
+        DELIVER[Event Delivered]
+        PROCESS[Event Processed]
     end
     
-    par Stream Delivery
-        SSEManager->>TaskStream: Write to task connections
-        SSEManager->>GlobalStream: Write to global connections
+    subgraph "Processing Steps"
+        S1[Add Metadata]
+        S2[Validate Schema]
+        S3[Apply Filters]
+        S4[Select Streams]
+        S5[Queue Delivery]
+        S6[Update UI]
     end
     
-    par Frontend Handling
-        TaskStream-->>Frontend: SSE: {type: 'event', data: {...}}
-        GlobalStream-->>Frontend: SSE: {type: 'event', data: {...}}
-    end
+    CREATE --> ENRICH
+    ENRICH --> S1
+    S1 --> S2
+    S2 --> FILTER
+    FILTER --> S3
+    S3 --> ROUTE
+    ROUTE --> S4
+    S4 --> S5
+    S5 --> DELIVER
+    DELIVER --> PROCESS
+    PROCESS --> S6
     
-    Frontend->>Frontend: Handle event (update UI)
-    Frontend->>Frontend: Invalidate React Query cache
-    
-    opt Non-Claude Agent
-        EventService->>Storage: Persist event
-    end
+    style CREATE fill:#9f9,stroke:#333,stroke-width:2px
+    style DELIVER fill:#99f,stroke:#333,stroke-width:2px
+    style S6 fill:#f99,stroke:#333,stroke-width:2px
 ```
 
-### State Transitions
+### Connection Management Architecture
+
+The system manages SSE connections through a sophisticated state machine that ensures reliability:
+
 ```mermaid
 stateDiagram-v2
     [*] --> Disconnected
     
     Disconnected --> Connecting: connect()
-    Connecting --> Connected: onopen
-    Connecting --> Disconnected: onerror
+    Connecting --> Handshaking: TCP established
+    Handshaking --> Authenticating: SSE headers sent
+    Authenticating --> Connected: Auth success
     
-    Connected --> Connected: onmessage
-    Connected --> Reconnecting: onerror
+    Connected --> Streaming: Events available
+    Streaming --> Connected: Event delivered
     
-    Reconnecting --> Connecting: after backoff
-    Reconnecting --> Disconnected: max retries
+    Connected --> Heartbeat: Ping interval
+    Heartbeat --> Connected: Pong received
+    Heartbeat --> Stale: Pong timeout
+    
+    Stale --> Reconnecting: Auto-reconnect
+    Reconnecting --> Connecting: Backoff complete
+    
+    Authenticating --> Failed: Auth failed
+    Failed --> Disconnected: Give up
+    
+    state Connected {
+        [*] --> Idle
+        Idle --> Receiving: Event arrives
+        Receiving --> Processing: Parse NDJSON
+        Processing --> Dispatching: Route event
+        Dispatching --> Idle: Complete
+    }
     
     Connected --> Disconnected: disconnect()
-    Reconnecting --> Disconnected: disconnect()
+    Streaming --> Disconnected: Connection lost
+```
+
+## Backend Implementation
+
+### Event Processing Pipeline
+
+The backend implements a sophisticated event processing pipeline that ensures reliable delivery and proper ordering:
+
+```mermaid
+graph TB
+    subgraph "Event Sources"
+        S1[Service Emits Event]
+        S2[Background Job Event]
+        S3[System Event]
+    end
+    
+    subgraph "Event Processing"
+        subgraph "Enrichment Stage"
+            E1[Generate Event ID]
+            E2[Add Timestamp]
+            E3[Assign Sequence]
+            E4[Add Context]
+        end
+        
+        subgraph "Validation Stage"
+            V1[Schema Validation]
+            V2[Permission Check]
+            V3[Rate Limiting]
+        end
+        
+        subgraph "Distribution Stage"
+            D1[Task Channel]
+            D2[Global Channel]
+            D3[Admin Channel]
+        end
+        
+        subgraph "Persistence Stage"
+            P1[Check Persistence Rules]
+            P2[Write to Storage]
+            P3[Update Cache]
+        end
+    end
+    
+    subgraph "Delivery"
+        SSE1[SSE Connections]
+        WS1[WebSocket Fallback]
+        POLL[Polling Endpoint]
+    end
+    
+    S1 --> E1
+    S2 --> E1
+    S3 --> E1
+    
+    E1 --> E2 --> E3 --> E4
+    E4 --> V1 --> V2 --> V3
+    
+    V3 --> D1
+    V3 --> D2
+    V3 --> D3
+    
+    D1 --> SSE1
+    D2 --> SSE1
+    D3 --> SSE1
+    
+    V3 --> P1
+    P1 -->|Persist| P2
+    P1 -->|Cache Only| P3
+    
+    SSE1 -.->|Fallback| WS1
+    WS1 -.->|Fallback| POLL
+    
+    style E1 fill:#9f9,stroke:#333,stroke-width:2px
+    style V1 fill:#ff9,stroke:#333,stroke-width:2px
+    style D2 fill:#99f,stroke:#333,stroke-width:2px
+```
+
+### Event Service Architecture
+
+The Event Service acts as the central hub for all event operations:
+
+```mermaid
+classDiagram
+    class EventService {
+        -sequenceCounter: number
+        -eventCache: Map
+        -eventBus: EventEmitter
+        -storage: EventStorage
+        +emitEvent(event): Promise
+        +subscribeToTask(taskId, handler): Unsubscribe
+        +subscribeToType(type, handler): Unsubscribe
+        +getRecentEvents(filters): Event[]
+        -enrichEvent(event): Event
+        -validateEvent(event): boolean
+        -distributeEvent(event): void
+    }
+    
+    class EventStorage {
+        <<interface>>
+        +saveEvents(taskId, events): Promise
+        +loadEvents(taskId, options): Promise
+        +deleteEvents(taskId): Promise
+    }
+    
+    class EventCache {
+        -cache: LRUCache
+        -index: Map
+        +add(event): void
+        +getByTask(taskId): Event[]
+        +getByType(type): Event[]
+        +clear(): void
+    }
+    
+    class EventDistributor {
+        -channels: Map
+        +register(channel, handler): void
+        +distribute(event): void
+        +getActiveChannels(): string[]
+    }
+    
+    EventService --> EventStorage
+    EventService --> EventCache
+    EventService --> EventDistributor
+```
+
+### SSE Connection Management
+
+The SSE Manager handles the complexity of maintaining persistent connections:
+
+```mermaid
+graph LR
+    subgraph "Connection Lifecycle"
+        NEW[New Connection]
+        REG[Register]
+        AUTH[Authenticate]
+        SUB[Subscribe]
+        STREAM[Stream Events]
+        CLOSE[Close]
+    end
+    
+    subgraph "Connection Pool"
+        POOL[Connection Pool]
+        GLOBAL[Global Connections]
+        TASK[Task Connections]
+        ADMIN[Admin Connections]
+    end
+    
+    subgraph "Health Management"
+        PING[Ping Scheduler]
+        CHECK[Health Check]
+        CLEAN[Cleanup]
+    end
+    
+    NEW --> REG
+    REG --> AUTH
+    AUTH --> SUB
+    SUB --> STREAM
+    STREAM --> CLOSE
+    
+    REG --> POOL
+    POOL --> GLOBAL
+    POOL --> TASK
+    POOL --> ADMIN
+    
+    PING --> CHECK
+    CHECK --> CLEAN
+    CLEAN --> POOL
+    
+    style NEW fill:#9f9,stroke:#333,stroke-width:2px
+    style STREAM fill:#99f,stroke:#333,stroke-width:2px
+    style CLEAN fill:#f99,stroke:#333,stroke-width:2px
+```
+
+### Event Routing Logic
+
+| Event Type | Global Stream | Task Stream | Admin Stream | Persistence |
+|------------|---------------|-------------|--------------|-------------|
+| MESSAGE | ✓ | ✓ | - | Conditional |
+| RESULT | ✓ | ✓ | ✓ | Always |
+| ERROR | ✓ | ✓ | ✓ | Always |
+| TOOL | - | ✓ | - | Never |
+| WORKSPACE | ✓ | ✓ | - | Always |
+| SERVER | - | ✓ | ✓ | Conditional |
+
+### Performance Optimization
+
+The backend employs several strategies to handle high event throughput:
+
+```mermaid
+graph TB
+    subgraph "Event Batching"
+        B1[Collect Events]
+        B2[Batch Window]
+        B3[Flush Batch]
+    end
+    
+    subgraph "Compression"
+        C1[Gzip Events]
+        C2[Binary Protocol]
+        C3[Delta Encoding]
+    end
+    
+    subgraph "Caching Strategy"
+        CACHE1[Memory Cache]
+        CACHE2[Redis Cache]
+        CACHE3[Disk Cache]
+    end
+    
+    B1 --> B2
+    B2 -->|10ms window| B3
+    B3 --> C1
+    
+    C1 --> CACHE1
+    CACHE1 -->|Overflow| CACHE2
+    CACHE2 -->|Archive| CACHE3
+    
+    style B2 fill:#9f9,stroke:#333,stroke-width:2px
+    style C1 fill:#99f,stroke:#333,stroke-width:2px
+    style CACHE1 fill:#ff9,stroke:#333,stroke-width:2px
+```
+
+## Frontend Implementation
+
+### Event Reception Architecture
+
+The frontend implements a sophisticated event reception and distribution system:
+
+```mermaid
+graph TB
+    subgraph "Event Reception Layer"
+        SSE[SSE Connection]
+        PARSER[NDJSON Parser]
+        VALIDATOR[Event Validator]
+    end
+    
+    subgraph "Event Processing Layer"
+        ROUTER[Event Router]
+        FILTER[Event Filter]
+        BUFFER[Event Buffer]
+    end
+    
+    subgraph "Distribution Layer"
+        subgraph "Subscription Manager"
+            TSUB[Task Subscriptions]
+            ESUB[Type Subscriptions]
+            GSUB[Global Subscriptions]
+        end
+    end
+    
+    subgraph "UI Update Layer"
+        HANDLER[Event Handlers]
+        CACHE[Cache Invalidator]
+        STATE[State Updater]
+    end
+    
+    subgraph "Components"
+        TASK[Task Components]
+        SIDEBAR[Sidebar]
+        NOTIFY[Notifications]
+    end
+    
+    SSE --> PARSER
+    PARSER --> VALIDATOR
+    VALIDATOR --> ROUTER
+    
+    ROUTER --> FILTER
+    FILTER --> BUFFER
+    
+    BUFFER --> TSUB
+    BUFFER --> ESUB
+    BUFFER --> GSUB
+    
+    TSUB --> HANDLER
+    ESUB --> HANDLER
+    GSUB --> HANDLER
+    
+    HANDLER --> CACHE
+    HANDLER --> STATE
+    
+    CACHE --> TASK
+    STATE --> SIDEBAR
+    HANDLER --> NOTIFY
+    
+    style ROUTER fill:#f9f,stroke:#333,stroke-width:4px
+    style HANDLER fill:#9ff,stroke:#333,stroke-width:2px
+    style CACHE fill:#ff9,stroke:#333,stroke-width:2px
+```
+
+### Event Stream Provider Architecture
+
+The providers manage connection lifecycle and event distribution:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unmounted
+    
+    Unmounted --> Mounting: Component mounts
+    Mounting --> Connecting: Initialize SSE
+    Connecting --> Connected: SSE open
+    Connected --> Active: First event
+    
+    Active --> Active: Process events
+    Active --> Reconnecting: Connection lost
+    Reconnecting --> Connecting: Retry
+    
+    Active --> Unmounting: Component unmounts
+    Unmounting --> Cleanup: Close SSE
+    Cleanup --> Unmounted: Complete
+    
+    state Active {
+        [*] --> Listening
+        Listening --> Processing: Event received
+        Processing --> Distributing: Parse success
+        Distributing --> Updating: Notify subscribers
+        Updating --> Listening: Complete
+        
+        Processing --> Error: Parse failed
+        Error --> Listening: Log & continue
+    }
+    
+    state Reconnecting {
+        [*] --> Waiting
+        Waiting --> Backoff: Calculate delay
+        Backoff --> Attempting: Timer elapsed
+        Attempting --> [*]: Retry
+    }
+```
+
+### React Query Integration
+
+Events trigger intelligent cache updates through a sophisticated invalidation system:
+
+```mermaid
+graph LR
+    subgraph "Event Types"
+        E1[Task Events]
+        E2[Result Events]
+        E3[Error Events]
+        E4[Workspace Events]
+    end
+    
+    subgraph "Invalidation Rules"
+        R1[Task List]
+        R2[Task Detail]
+        R3[Messages]
+        R4[Git Diff]
+        R5[Server Status]
+    end
+    
+    subgraph "Query Keys"
+        K1[tasks.list]
+        K2[tasks.detail.*]
+        K3[tasks.messages.*]
+        K4[tasks.diff.*]
+        K5[tasks.server.*]
+    end
+    
+    E1 --> R1
+    E1 --> R2
+    E2 --> R1
+    E2 --> R2
+    E2 --> R3
+    E3 --> R2
+    E4 --> R4
+    E4 --> R5
+    
+    R1 --> K1
+    R2 --> K2
+    R3 --> K3
+    R4 --> K4
+    R5 --> K5
+    
+    style E2 fill:#9f9,stroke:#333,stroke-width:2px
+    style R1 fill:#99f,stroke:#333,stroke-width:2px
+    style K1 fill:#ff9,stroke:#333,stroke-width:2px
+```
+
+### Component Integration Patterns
+
+Components integrate with the event system through well-defined patterns:
+
+```mermaid
+graph TB
+    subgraph "Hook Layer"
+        H1[useGlobalEventStream]
+        H2[useTaskEventSubscription]
+        H3[useEventTypeSubscription]
+        H4[useEventHistory]
+    end
+    
+    subgraph "Context Layer"
+        C1[GlobalEventContext]
+        C2[TaskEventContext]
+        C3[EventFilterContext]
+    end
+    
+    subgraph "Component Examples"
+        COMP1[Task List]
+        COMP2[Task Viewer]
+        COMP3[Event Log]
+        COMP4[Status Bar]
+    end
+    
+    subgraph "Update Patterns"
+        UP1[Optimistic Updates]
+        UP2[Real-time Sync]
+        UP3[Error Recovery]
+    end
+    
+    H1 --> C1
+    H2 --> C2
+    H3 --> C1
+    H4 --> C3
+    
+    COMP1 --> H1
+    COMP1 --> UP1
+    
+    COMP2 --> H2
+    COMP2 --> UP2
+    
+    COMP3 --> H4
+    COMP3 --> C3
+    
+    COMP4 --> H3
+    COMP4 --> UP3
+    
+    style H1 fill:#9ff,stroke:#333,stroke-width:2px
+    style UP1 fill:#9f9,stroke:#333,stroke-width:2px
+```
+
+### Event Hook Patterns
+
+| Hook | Purpose | Usage Pattern | Returns |
+|------|---------|---------------|---------|
+| useGlobalEventStream | Access global stream context | `const { subscribe } = useGlobalEventStream()` | Context API |
+| useTaskEventSubscription | Subscribe to task events | `useTaskEventSubscription(taskId, handler)` | Cleanup function |
+| useEventTypeSubscription | Subscribe by event type | `useEventTypeSubscription('result', handler)` | Cleanup function |
+| useEventHistory | Load past events | `const { events, loading } = useEventHistory(taskId)` | Query state |
+
+## Data Flow
+
+### End-to-End Event Journey
+
+The complete event flow demonstrates the sophistication of the real-time architecture:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as UI Component
+    participant API as API Endpoint
+    participant ES as Event Service
+    participant EB as Event Bus
+    participant SSE as SSE Manager
+    participant CON as Connections
+    participant FE as Frontend SSE
+    participant RQ as React Query
+    participant DOM as DOM Updates
+    
+    U->>UI: Perform action
+    UI->>API: HTTP request
+    API->>ES: Emit event
+    
+    Note over ES,EB: Event Processing
+    ES->>ES: Generate ID & timestamp
+    ES->>ES: Increment sequence
+    ES->>ES: Validate schema
+    ES->>EB: Publish to bus
+    
+    Note over EB,SSE: Distribution
+    EB->>SSE: Route to channels
+    SSE->>CON: Find connections
+    
+    par Global Stream
+        CON->>FE: NDJSON event
+    and Task Stream
+        CON->>FE: NDJSON event
+    end
+    
+    Note over FE,DOM: Frontend Processing
+    FE->>FE: Parse NDJSON
+    FE->>FE: Validate event
+    FE->>RQ: Invalidate cache
+    FE->>DOM: Update UI
+    
+    DOM->>U: See changes
+```
+
+### Event Routing Architecture
+
+Events flow through a sophisticated routing system that ensures proper delivery:
+
+```mermaid
+graph TB
+    subgraph "Event Sources"
+        S1[User Action]
+        S2[Agent Update]
+        S3[System Event]
+        S4[Background Job]
+    end
+    
+    subgraph "Event Bus"
+        EB[Central Bus]
+        TOPIC[Topic Router]
+        FILTER[Filter Engine]
+    end
+    
+    subgraph "Delivery Channels"
+        CH1[Task Channel]
+        CH2[Global Channel]
+        CH3[Type Channel]
+        CH4[Admin Channel]
+    end
+    
+    subgraph "Subscribers"
+        SUB1[Task Components]
+        SUB2[Sidebar Updates]
+        SUB3[Notifications]
+        SUB4[Admin Dashboard]
+    end
+    
+    S1 --> EB
+    S2 --> EB
+    S3 --> EB
+    S4 --> EB
+    
+    EB --> TOPIC
+    TOPIC --> FILTER
+    
+    FILTER --> CH1
+    FILTER --> CH2
+    FILTER --> CH3
+    FILTER --> CH4
+    
+    CH1 --> SUB1
+    CH2 --> SUB2
+    CH3 --> SUB3
+    CH4 --> SUB4
+    
+    style EB fill:#f9f,stroke:#333,stroke-width:4px
+    style TOPIC fill:#9ff,stroke:#333,stroke-width:2px
+    style SUB1 fill:#ff9,stroke:#333,stroke-width:2px
+```
+
+### Connection Recovery Flow
+
+The system handles connection failures gracefully with automatic recovery:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Connected: Initial connection
+    
+    Connected --> Disrupted: Network issue
+    Disrupted --> Buffering: Start buffering
+    
+    Buffering --> Reconnecting: Attempt reconnect
+    Reconnecting --> Handshaking: Connection established
+    Handshaking --> Recovering: Send buffered
+    Recovering --> Connected: Resume normal
+    
+    Reconnecting --> Backoff: Connection failed
+    Backoff --> Reconnecting: Retry with delay
+    
+    state Buffering {
+        [*] --> Collecting
+        Collecting --> Collecting: Add event
+        Collecting --> Full: Buffer limit
+        Full --> Dropping: Drop oldest
+        Dropping --> Collecting: Continue
+    }
+    
+    state Recovering {
+        [*] --> SendMissed
+        SendMissed --> Validate: Check sequence
+        Validate --> FillGaps: Request missing
+        FillGaps --> [*]: Complete
+    }
 ```
 
 ## Integration Points
 
-### Dependencies
+### System Integration Map
 
-- **Internal Components:**
-  - Task Service (emits task lifecycle events)
-  - Agent Service (emits execution events)
-  - Workspace Service (emits workspace events)
-  - Server Manager (emits preview server events)
-  
-- **External Libraries:**
-  - EventEmitter (Node.js built-in)
-  - EventSource API (browser built-in)
-  - React Query (cache invalidation)
+The Event system integrates deeply with all major components:
 
-### Events
+```mermaid
+graph TB
+    subgraph "Event Core"
+        EVENT[Event System]
+    end
+    
+    subgraph "Event Producers"
+        AGENT[Agent Service]
+        TASK[Task Service]
+        WORK[Workspace Service]
+        PREV[Preview Service]
+    end
+    
+    subgraph "Event Consumers"
+        UI[UI Components]
+        CACHE[Query Cache]
+        LOG[Audit Logger]
+        METRIC[Metrics Collector]
+    end
+    
+    subgraph "Infrastructure"
+        HTTP[HTTP Layer]
+        WS[WebSocket Layer]
+        STORE[Storage Layer]
+    end
+    
+    AGENT --> EVENT
+    TASK --> EVENT
+    WORK --> EVENT
+    PREV --> EVENT
+    
+    EVENT --> UI
+    EVENT --> CACHE
+    EVENT --> LOG
+    EVENT --> METRIC
+    
+    EVENT <--> HTTP
+    EVENT <--> WS
+    EVENT <--> STORE
+    
+    style EVENT fill:#f9f,stroke:#333,stroke-width:4px
+    style AGENT fill:#9ff,stroke:#333,stroke-width:2px
+    style UI fill:#ff9,stroke:#333,stroke-width:2px
+```
 
-#### Emitted Events
-| Event | Payload | When Triggered |
-|-------|---------|----------------|
-| input | { message, taskId, iterationId } | User sends message |
-| message | { content, role, taskId } | Agent generates response |
-| result | { result, status, cost } | Iteration completes |
-| error | { error, taskId, iterationId } | Error occurs |
-| workspace | { action, path, taskId } | Workspace changes |
-| server | { status, port, url } | Preview server state changes |
-| tool | { tool, args, result } | Tool execution |
+### Event Type Matrix
 
-#### Consumed Events
-| Event | Source | Action |
-|-------|--------|--------|
-| All events | Various services | Stream to connected clients |
-| task:* events | Task service | Filter and forward |
-| Task lifecycle | Task service | Update connection tracking |
+| Event Type | Producers | Consumers | Cache Impact | Persistence |
+|------------|-----------|-----------|--------------|-------------|
+| MESSAGE | Agent Service | Task UI, Event Log | Messages | Conditional |
+| RESULT | Agent Service | Task List, Task Detail | Full refresh | Always |
+| ERROR | All Services | Error Display, Logs | Status only | Always |
+| TOOL | Agent Service | Tool Monitor | None | Never |
+| WORKSPACE | Workspace Service | File Tree, Git UI | Workspace | Always |
+| SERVER | Preview Service | Preview UI | Server status | Conditional |
 
-### Shared Data Structures
-```typescript
-// packages/shared/types/event.ts
-export interface Event {
-  eventId: string
-  taskId: string
-  iterationId?: string
-  type: EventType
-  subtype?: string
-  payload: any
-  timestamp: Date
-  sequenceNumber: number
-  agentType?: string
-  source?: string
-}
+### Cross-System Event Flows
 
-// packages/shared/types/sse.ts
-export interface SSEMessage {
-  type: 'event' | 'ping' | 'error'
-  data: any
-}
+Events enable complex cross-system interactions:
 
-// packages/shared/constants/events.ts
-export const EVENT_TYPES = {
-  // ... event type constants
-} as const
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant E as Events
+    participant T as Tasks
+    participant W as Workspace
+    participant U as UI
+    
+    Note over A,U: Code Generation Flow
+    A->>E: TOOL event (file write)
+    E->>W: Update notification
+    W->>E: WORKSPACE event
+    E->>U: File tree update
+    
+    Note over A,U: Error Recovery Flow
+    A->>E: ERROR event
+    E->>T: Mark iteration failed
+    T->>E: TASK event (status)
+    E->>U: Show error state
+    
+    Note over A,U: Preview Update Flow
+    W->>E: SERVER event (started)
+    E->>U: Enable preview
+    A->>E: WORKSPACE event (file)
+    E->>U: Hot reload preview
 ```
 
 ## Configuration
 
-### Environment Variables
-| Variable | Purpose | Default | Required |
-|----------|---------|---------|----------|
-| SSE_PING_INTERVAL | Ping interval in ms | 30000 | No |
-| SSE_CONNECTION_TIMEOUT | Connection timeout in ms | 120000 | No |
-| EVENT_CACHE_SIZE | Max events to cache | 1000 | No |
-| PERSIST_CLAUDE_EVENTS | Persist Claude Code events | false | No |
-| VITE_USE_GLOBAL_EVENT_STREAM | Use global stream in frontend | false | No |
-| VITE_DEBUG_EVENT_STREAM | Enable debug logging | false | No |
+### Configuration Architecture
 
-### Feature Flags
-```typescript
-// apps/frontend/src/lib/config/feature-flags.ts
-export const featureFlags = {
-  useGlobalEventStream: {
-    enabled: process.env.VITE_USE_GLOBAL_EVENT_STREAM === 'true',
-    description: 'Use global event stream for all real-time updates'
-  },
-  eventBatching: {
-    enabled: false,
-    description: 'Batch multiple events for performance'
-  }
-}
+The Event system supports flexible configuration at multiple levels:
+
+```mermaid
+graph TB
+    subgraph "Configuration Layers"
+        ENV[Environment Variables]
+        FEAT[Feature Flags]
+        RUN[Runtime Config]
+        DYN[Dynamic Config]
+    end
+    
+    subgraph "Backend Config"
+        BC1[Connection Limits]
+        BC2[Buffer Sizes]
+        BC3[Timeouts]
+        BC4[Persistence Rules]
+    end
+    
+    subgraph "Frontend Config"
+        FC1[Reconnection Strategy]
+        FC2[Cache Strategy]
+        FC3[Debug Options]
+        FC4[Stream Selection]
+    end
+    
+    ENV --> BC1
+    ENV --> BC2
+    FEAT --> FC4
+    RUN --> BC3
+    RUN --> FC1
+    DYN --> BC4
+    DYN --> FC2
+    
+    style ENV fill:#9f9,stroke:#333,stroke-width:2px
+    style FEAT fill:#99f,stroke:#333,stroke-width:2px
+    style DYN fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
-### Runtime Configuration
-```typescript
-// Event service configuration
-interface EventConfig {
-  cacheSize: number
-  persistClaudeEvents: boolean
-  connectionTimeout: number
-  pingInterval: number
-  maxConnectionsPerTask: number
-  maxGlobalConnections: number
-}
+### Performance Tuning Parameters
 
-// SSE client configuration
-interface SSEClientConfig {
-  reconnectAttempts: number
-  reconnectDelay: number
-  maxReconnectDelay: number
-  heartbeatInterval: number
-}
-```
+| Parameter | Purpose | Default | Impact |
+|-----------|---------|---------|--------|
+| Connection Pool Size | Max concurrent SSE connections | 1000 | Memory usage |
+| Event Buffer Size | Events to buffer during disconnect | 100 | Recovery speed |
+| Batch Window | Time to collect events for batching | 10ms | Latency vs throughput |
+| Cache TTL | How long to cache events | 5min | Memory vs performance |
+| Ping Interval | Connection health check frequency | 30s | Network usage |
+| Reconnect Backoff | Delay multiplier for reconnection | 2x | Recovery time |
 
 ## Best Practices
 
-### Do's
-- Always include taskId in event payloads
-- Use specific event types for different actions
-- Handle connection errors gracefully
-- Clean up event subscriptions in useEffect
-- Use event subtypes for fine-grained control
-- Monitor connection health with regular pings
-- Cache recent events for fast reconnection
-- Test event handling with connection failures
+### Architectural Principles
 
-### Don'ts
-- Don't emit sensitive data in event payloads
-- Don't rely on event ordering across types
-- Don't create circular event dependencies
-- Don't emit high-frequency events without throttling
-- Don't keep connections open unnecessarily
-- Don't ignore connection cleanup on unmount
-- Don't parse events without error handling
+The Event system follows key principles for reliability and performance:
 
-### Performance Considerations
-- Use task-specific streams for focused views
-- Implement event filtering to reduce bandwidth
-- Batch cache invalidations when possible
-- Throttle high-frequency event types
-- Monitor connection count and memory usage
-- Use connection pooling for multiple streams
-- Implement event aggregation for bulk updates
+```mermaid
+graph TD
+    subgraph "Core Principles"
+        P1[Event Immutability]
+        P2[Ordered Delivery]
+        P3[At-Least-Once]
+        P4[Graceful Degradation]
+    end
+    
+    subgraph "Design Patterns"
+        D1[Event Sourcing]
+        D2[CQRS Pattern]
+        D3[Pub-Sub Model]
+        D4[Circuit Breaker]
+    end
+    
+    subgraph "Implementation"
+        I1[Sequence Numbers]
+        I2[Event Buffer]
+        I3[Retry Logic]
+        I4[Fallback Polling]
+    end
+    
+    P1 --> D1
+    P2 --> I1
+    P3 --> I2
+    P4 --> I4
+    
+    D1 --> I1
+    D3 --> I2
+    D4 --> I3
+    
+    style P1 fill:#f9f,stroke:#333,stroke-width:2px
+    style D1 fill:#9ff,stroke:#333,stroke-width:2px
+    style I1 fill:#ff9,stroke:#333,stroke-width:2px
+```
 
-### Security Guidelines
-- Validate event payloads before emission
-- Sanitize user-generated content in events
-- Don't expose internal system details
-- Rate limit connection attempts
-- Monitor for connection abuse
-- Use secure origins for EventSource
-- Implement proper CORS headers
+### Performance Architecture
+
+Optimize event handling for scale:
+
+```mermaid
+graph LR
+    subgraph "Optimization Strategies"
+        O1[Event Batching]
+        O2[Selective Subscription]
+        O3[Smart Caching]
+        O4[Connection Pooling]
+    end
+    
+    subgraph "Monitoring Points"
+        M1[Event Throughput]
+        M2[Connection Count]
+        M3[Buffer Usage]
+        M4[Latency Metrics]
+    end
+    
+    subgraph "Scaling Tactics"
+        S1[Horizontal Scaling]
+        S2[Event Sharding]
+        S3[Regional Streams]
+        S4[CDN Integration]
+    end
+    
+    O1 --> M1
+    O2 --> M2
+    O3 --> M3
+    O4 --> M4
+    
+    M1 --> S1
+    M2 --> S2
+    M3 --> S3
+    M4 --> S4
+    
+    style O1 fill:#9f9,stroke:#333,stroke-width:2px
+    style M1 fill:#99f,stroke:#333,stroke-width:2px
+    style S1 fill:#ff9,stroke:#333,stroke-width:2px
+```
+
+### Security Considerations
+
+- **Event Validation**: Schema validation on all events
+- **Rate Limiting**: Per-connection and per-IP limits
+- **Authentication**: Optional auth for sensitive streams
+- **Encryption**: TLS for all SSE connections
+- **Sanitization**: Clean user content in events
+- **Monitoring**: Track suspicious patterns
 
 ## Troubleshooting
 
-### Common Issues
+### Diagnostic Architecture
 
-#### Issue: Connection Keeps Dropping
-**Symptoms:**
-- Frequent disconnection/reconnection cycles
-- Missing events in the UI
-- Console errors about connection failures
+Systematic troubleshooting through layered diagnostics:
 
-**Cause:**
-- Network instability
-- Proxy/firewall interference
-- Server resource limits
-
-**Solution:**
-- Check network stability
-- Verify proxy configuration supports SSE
-- Increase server connection limits
-- Implement exponential backoff for reconnection
-
-#### Issue: Events Not Appearing in UI
-**Symptoms:**
-- Backend shows events emitted
-- Frontend doesn't update
-- No console errors
-
-**Cause:**
-- Incorrect event subscription
-- Event filtering too restrictive
-- Cache invalidation not configured
-
-**Solution:**
-- Verify subscription matches event type/taskId
-- Check event filters in subscription
-- Ensure cache invalidation is set up
-- Enable debug logging to trace events
-
-#### Issue: High Memory Usage
-**Symptoms:**
-- Browser memory increases over time
-- Application becomes sluggish
-- Event processing slows down
-
-**Cause:**
-- Event listeners not cleaned up
-- Large event payloads cached
-- Too many concurrent connections
-
-**Solution:**
-- Ensure all subscriptions are cleaned up
-- Limit event cache size
-- Implement event payload trimming
-- Use connection pooling
-
-### Debug Strategies
-1. Enable verbose event logging with `VITE_DEBUG_EVENT_STREAM=true`
-2. Monitor connection status endpoint `/api/v1/events/stream/status`
-3. Use browser DevTools Network tab to inspect SSE connections
-4. Check event sequence numbers for gaps
-5. Verify event enrichment (IDs, timestamps)
-6. Test with curl: `curl -N http://localhost:8000/api/v1/events/stream`
-
-### Logging
-```typescript
-// Backend event logging
-console.log('[EventService] Event emitted:', {
-  type: event.type,
-  taskId: event.taskId,
-  sequenceNumber: event.sequenceNumber,
-})
-
-// Frontend event logging
-console.log('[EventStream] Event received:', {
-  type: event.type,
-  taskId: event.taskId,
-  timestamp: event.timestamp,
-})
-
-// Connection logging
-console.log('[SSE] Connection state:', {
-  readyState: eventSource.readyState,
-  url: eventSource.url,
-})
+```mermaid
+graph TD
+    subgraph "Symptom Detection"
+        S1[No Events]
+        S2[Delayed Events]
+        S3[Missing Events]
+        S4[Connection Drops]
+    end
+    
+    subgraph "Diagnostic Tools"
+        D1[Event Inspector]
+        D2[Connection Monitor]
+        D3[Sequence Validator]
+        D4[Performance Profiler]
+    end
+    
+    subgraph "Root Causes"
+        R1[Network Issues]
+        R2[Server Overload]
+        R3[Client Errors]
+        R4[Config Problems]
+    end
+    
+    subgraph "Resolutions"
+        F1[Reconnect Logic]
+        F2[Scale Resources]
+        F3[Fix Subscriptions]
+        F4[Update Config]
+    end
+    
+    S1 --> D1
+    S2 --> D4
+    S3 --> D3
+    S4 --> D2
+    
+    D1 --> R3
+    D2 --> R1
+    D3 --> R2
+    D4 --> R4
+    
+    R1 --> F1
+    R2 --> F2
+    R3 --> F3
+    R4 --> F4
+    
+    style S1 fill:#f99,stroke:#333,stroke-width:2px
+    style D1 fill:#ff9,stroke:#333,stroke-width:2px
+    style F1 fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
-### Monitoring
-- **Connection Count**: Track active SSE connections
-- **Event Rate**: Monitor events per second
-- **Event Latency**: Measure emission to delivery time
-- **Connection Duration**: Track connection lifetimes
-- **Error Rate**: Monitor connection and parsing errors
-- **Memory Usage**: Track event cache size
-- **Reconnection Rate**: Monitor connection stability
+### Health Monitoring Dashboard
+
+Key metrics to track system health:
+
+```mermaid
+graph LR
+    subgraph "Real-time Metrics"
+        RT1[Active Connections]
+        RT2[Events/Second]
+        RT3[Error Rate]
+        RT4[Avg Latency]
+    end
+    
+    subgraph "Aggregate Metrics"
+        AG1[Daily Event Volume]
+        AG2[Peak Connections]
+        AG3[Reconnection Rate]
+        AG4[Success Rate]
+    end
+    
+    subgraph "Alerts"
+        A1[Connection Spike]
+        A2[High Error Rate]
+        A3[Memory Pressure]
+        A4[Sequence Gaps]
+    end
+    
+    RT1 --> AG2
+    RT2 --> AG1
+    RT3 --> AG4
+    RT4 --> AG3
+    
+    AG2 --> A1
+    AG4 --> A2
+    RT1 --> A3
+    RT2 --> A4
+    
+    style RT2 fill:#9f9,stroke:#333,stroke-width:2px
+    style AG1 fill:#99f,stroke:#333,stroke-width:2px
+    style A2 fill:#f99,stroke:#333,stroke-width:2px
+```
+
+### Debug Workflow
+
+1. **Check Connection Status**
+   ```bash
+   curl http://localhost:8000/api/v1/events/stream/status
+   ```
+
+2. **Monitor Event Stream**
+   ```bash
+   curl -N http://localhost:8000/api/v1/events/stream | jq .
+   ```
+
+3. **Validate Event Sequence**
+   ```javascript
+   // In browser console
+   window.DEBUG_EVENT_STREAM = true;
+   ```
+
+4. **Analyze Performance**
+   - Check Network tab for SSE timing
+   - Monitor Memory profiler for leaks
+   - Review Performance timeline
+
+### Common Patterns
+
+| Issue | Pattern | Solution |
+|-------|---------|----------|
+| Proxy timeout | Drops after 60s | Add keep-alive headers |
+| Buffer overflow | Events lost on reconnect | Increase buffer size |
+| Sequence gaps | Missing events | Check event cache |
+| Memory leak | Growing heap | Clean up subscriptions |
 
 ## Related Documentation
 - [Architecture Overview](../architecture-overview.md)
-- [Task Architecture](./tasks.md)
+- [Task Management Architecture](./tasks.md)
 - [Agent Architecture](./agents.md)
 - [Event-Driven Pattern](../patterns/event-driven.md)
 - [SSE Management Pattern](../patterns/sse-management.md)
+- [Cache Invalidation Pattern](../patterns/cache-invalidation.md)
+- [Real-time Architecture](../event-architecture.md)

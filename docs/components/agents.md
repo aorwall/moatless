@@ -92,103 +92,234 @@ interface AgentEvent {
 ## Architecture
 
 ### High-Level Overview
+
+The Agent system orchestrates AI-powered code modifications through a carefully designed flow that ensures workspace isolation, real-time feedback, and reliable execution.
+
 ```mermaid
 graph TB
-    subgraph "Agent System"
+    subgraph "Client Layer"
+        UI[User Interface]
+        TM[Task Manager]
+    end
+    
+    subgraph "Agent Orchestration Layer"
         AS[Agent Service]
+        AQ[Agent Queue]
+        AM[Agent Monitor]
+    end
+    
+    subgraph "Agent Execution Layer"
         BA[Base Agent]
         CC[Claude Code Agent]
+        CA[Custom Agents]
+    end
+    
+    subgraph "Tool Execution Layer"
         TE[Tool Executor]
+        TM2[Tool Manager]
+        TP[Tool Permissions]
+    end
+    
+    subgraph "Integration Layer"
+        WS[Workspace Service]
+        ES[Event Service]
+        SS[Storage Service]
     end
     
     subgraph "External Systems"
         SDK[Claude Code SDK]
-        WS[Workspace Service]
-        ES[Event Service]
-        TS[Task Service]
+        AI[AI APIs]
+        GH[GitHub API]
     end
     
-    subgraph "Tools"
-        BASH[Bash Tool]
-        WEB[Web Fetch Tool]
-        SEARCH[Search Tool]
+    UI -->|User Message| TM
+    TM -->|Create Iteration| AS
+    AS -->|Queue Task| AQ
+    AQ -->|Execute| BA
+    BA -->|Polymorphic| CC
+    BA -->|Polymorphic| CA
+    
+    CC -->|API Calls| SDK
+    CA -->|API Calls| AI
+    
+    BA -->|Execute Tools| TE
+    TE -->|Check Permissions| TP
+    TE -->|Route Tool| TM2
+    
+    AS <-->|Events| ES
+    AS <-->|Workspace| WS
+    AS <-->|Persist| SS
+    
+    ES -->|SSE Stream| UI
+    AM -->|Monitor Health| AS
+    
+    style AS fill:#f9f,stroke:#333,stroke-width:4px
+    style CC fill:#bbf,stroke:#333,stroke-width:2px
+    style ES fill:#fbf,stroke:#333,stroke-width:2px
+```
+
+### Agent Execution Flow
+
+The agent execution follows a precise choreography designed for reliability and real-time feedback:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as Frontend
+    participant API as API Route
+    participant AS as Agent Service
+    participant WS as Workspace Service
+    participant AG as Agent (Claude)
+    participant TE as Tool Executor
+    participant ES as Event Service
+    
+    U->>UI: Submit message
+    UI->>API: POST /tasks/{id}/iterations
+    API->>AS: executeAgent(taskId, message)
+    
+    Note over AS: Validation Phase
+    AS->>AS: Check for running agents
+    AS->>WS: validateWorkspace(taskId)
+    WS-->>AS: Workspace info
+    
+    Note over AS: Initialization Phase
+    AS->>AS: createAgent(type, config)
+    AS->>AG: Initialize with workspace context
+    
+    Note over AS,ES: Execution Phase
+    AS->>AS: Start background execution
+    
+    loop Event Stream
+        AG->>AG: Process message
+        AG->>TE: Execute tool
+        TE->>WS: Perform action
+        TE-->>AG: Tool result
+        AG->>AS: Emit event
+        AS->>ES: Publish to stream
+        ES->>UI: SSE update
+        UI->>U: Real-time feedback
     end
     
-    AS --> BA
-    BA <|-- CC
-    CC --> SDK
-    CC --> TE
-    TE --> BASH
-    TE --> WEB
-    TE --> SEARCH
+    AG->>AS: Final result
+    AS->>ES: Result event
+    AS->>AS: Cleanup agent
+    ES->>UI: Completion
+    UI->>U: Show result
+```
+
+### Tool Execution Architecture
+
+Tools extend agent capabilities by providing controlled access to external resources:
+
+```mermaid
+graph LR
+    subgraph "Tool Categories"
+        subgraph "Code Tools"
+            BASH[Bash Executor]
+            GIT[Git Operations]
+            FILE[File System]
+        end
+        
+        subgraph "Research Tools"
+            WEB[Web Fetch]
+            SEARCH[Web Search]
+            DOC[Documentation]
+        end
+        
+        subgraph "Analysis Tools"
+            CODE[Code Analysis]
+            SEC[Security Scan]
+            PERF[Performance]
+        end
+    end
     
-    AS --> WS
-    AS --> ES
-    AS --> TS
-```
-
-### Component Relationships
-- Agent Service orchestrates agent execution
-- Base Agent defines the contract
-- Claude Code Agent implements Claude-specific logic
-- Tools provide capabilities to agents
-- Integration with workspace, events, and tasks
-
-### Dependency Flow
-```
-User Message → Task Service → Agent Service
-                                  ↓
-                            Validate Workspace
-                                  ↓
-                            Create Agent → Execute
-                                            ↓
-                                      Tool Execution
-                                            ↓
-                                      Event Streaming → Client
+    subgraph "Tool Execution Pipeline"
+        REQ[Tool Request]
+        VAL[Validation]
+        PERM[Permission Check]
+        EXEC[Execution]
+        LOG[Logging]
+        RES[Result]
+    end
+    
+    REQ --> VAL
+    VAL --> PERM
+    PERM --> EXEC
+    EXEC --> LOG
+    LOG --> RES
+    
+    EXEC -.-> BASH
+    EXEC -.-> WEB
+    EXEC -.-> CODE
+    
+    style PERM fill:#f99,stroke:#333,stroke-width:2px
+    style EXEC fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
 ## Backend Implementation
 
-### Service Layer
+### Agent Lifecycle Management
 
-#### Agent Service
-```typescript
-// apps/backend/services/agent.service.ts
-export class AgentService {
-  private runningAgents = new Map<string, BaseAgent>()
-  
-  constructor(
-    private workspaceService: WorkspaceService,
-    private eventService: EventService,
-    private storageService: StorageService
-  ) {}
+The backend manages agent lifecycles through a sophisticated state machine that ensures proper resource management and error recovery:
 
-  // Core operations
-  async executeAgent(
-    taskId: string,
-    iterationId: string,
-    message: string,
-    options?: ExecuteAgentOptions
-  ): Promise<void>
-  
-  async stopAgent(taskId: string): Promise<void>
-  
-  // Agent management
-  private createAgent(type: string, config: AgentConfig): BaseAgent
-  private async validateWorkspace(taskId: string): Promise<WorkspaceInfo>
-  private async processAgentEvents(
-    agent: BaseAgent,
-    taskId: string,
-    iterationId: string
-  ): Promise<void>
-  
-  // Event handling
-  private createTaskEvent(
-    taskId: string,
-    iterationId: string,
-    agentEvent: AgentEvent
-  ): TaskEvent
-}
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Initializing: executeAgent()
+    Initializing --> Validating: Agent created
+    Validating --> Running: Workspace valid
+    Running --> Processing: Message received
+    Processing --> Running: Event emitted
+    Running --> Completing: Execution done
+    Completing --> Idle: Cleanup done
+    
+    Validating --> Error: Validation failed
+    Running --> Stopping: stop() called
+    Processing --> Error: Tool failed
+    Error --> Idle: Error handled
+    Stopping --> Idle: Stopped
+    
+    state Running {
+        [*] --> StreamingMessage
+        StreamingMessage --> ExecutingTool: Tool request
+        ExecutingTool --> StreamingMessage: Tool complete
+        StreamingMessage --> [*]: Message complete
+    }
+```
+
+### Concurrent Execution Prevention
+
+The system enforces single-agent-per-task to prevent race conditions:
+
+```mermaid
+graph TB
+    subgraph "Request Flow"
+        R1[Request 1: Execute Agent]
+        R2[Request 2: Execute Agent]
+        R3[Request 3: Stop Agent]
+    end
+    
+    subgraph "Agent Service"
+        MAP[Running Agents Map]
+        CHECK{Agent Running?}
+        CREATE[Create Agent]
+        REJECT[Reject Request]
+        STOP[Stop Agent]
+    end
+    
+    R1 --> CHECK
+    CHECK -->|No| CREATE
+    CHECK -->|Yes| REJECT
+    CREATE --> MAP
+    
+    R2 --> CHECK
+    R3 --> STOP
+    STOP --> MAP
+    
+    MAP -->|taskId -> agent| CHECK
+    
+    style REJECT fill:#f99,stroke:#333,stroke-width:2px
+    style CREATE fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
 #### Claude Code Agent
@@ -443,343 +574,501 @@ interface AgentInfoResponse {
 
 ## Frontend Implementation
 
-### Feature Structure
+### Agent Integration Architecture
+
+The frontend integrates agents through the task system, providing a seamless chat-based interface for AI interactions:
+
+```mermaid
+graph TB
+    subgraph "User Interface Layer"
+        CHAT[Chat Input]
+        VIEWER[Message Viewer]
+        STATUS[Status Indicator]
+    end
+    
+    subgraph "Task Context Layer"
+        TC[Task Context Provider]
+        TH[Task Hooks]
+        IM[Iteration Manager]
+    end
+    
+    subgraph "Agent Communication Layer"
+        MSG[Message Sender]
+        SSE[SSE Handler]
+        ERR[Error Handler]
+    end
+    
+    subgraph "State Management"
+        RQ[React Query Cache]
+        LS[Local State]
+        OPT[Optimistic Updates]
+    end
+    
+    CHAT -->|Submit| MSG
+    MSG -->|Mutation| RQ
+    RQ -->|API Call| TC
+    
+    SSE -->|Events| VIEWER
+    SSE -->|Updates| STATUS
+    SSE -->|Cache| RQ
+    
+    TC -->|Provide Data| TH
+    TH -->|Consume| IM
+    
+    ERR -->|Fallback| STATUS
+    OPT -->|Immediate| VIEWER
+    
+    style TC fill:#f9f,stroke:#333,stroke-width:2px
+    style SSE fill:#9ff,stroke:#333,stroke-width:2px
 ```
-apps/frontend/src/features/agents/
-├── api/           # API client functions
-│   └── agents-api.ts
-├── components/    # UI components (minimal)
-│   └── agent-selector.tsx
-├── hooks/         # Custom React hooks
-│   ├── use-agents.ts
-│   └── use-send-message.ts
-├── types/         # TypeScript types
-│   └── index.ts
-└── index.ts       # Public exports
+
+### Real-time Event Processing
+
+The frontend processes agent events through a sophisticated streaming architecture:
+
+```mermaid
+sequenceDiagram
+    participant UI as UI Component
+    participant SSE as SSE Connection
+    participant EH as Event Handler
+    participant RQ as React Query
+    participant DOM as DOM Updates
+    
+    Note over SSE: SSE Connection Established
+    
+    loop Event Stream
+        SSE->>EH: Receive Event
+        
+        alt Message Event
+            EH->>RQ: Update Message Cache
+            RQ->>UI: Trigger Re-render
+            UI->>DOM: Update Chat Display
+        else Result Event
+            EH->>RQ: Invalidate Queries
+            EH->>UI: Show Completion
+            UI->>DOM: Update Status
+        else Error Event
+            EH->>UI: Show Error
+            UI->>DOM: Display Error UI
+        end
+    end
+    
+    Note over SSE: Connection Closed
 ```
-
-### Integration with Task System
-
-Agents are primarily accessed through the task system:
-- Messages sent via task chat interface
-- Events received through task event stream
-- Status updates reflected in task UI
-
-### Hooks
-
-#### Custom Hooks
-| Hook | Purpose | Parameters | Returns |
-|------|---------|------------|---------|
-| `useAgents` | List available agents | void | Agent list |
-| `useSendMessage` | Send message mutation | taskId | Mutation object |
 
 ## Data Flow
 
-### Message Execution Flow
+### End-to-End Message Processing
+
+The complete data flow from user input to AI response demonstrates the system's sophisticated orchestration:
+
 ```mermaid
-sequenceDiagram
-    participant User
-    participant UI as Task Chat
-    participant API as Task API
-    participant AS as Agent Service
-    participant Agent
-    participant Tools
-    participant ES as Event Service
-    
-    User->>UI: Type message
-    UI->>API: POST /messages
-    API->>AS: executeAgent()
-    
-    AS->>AS: Validate workspace
-    AS->>Agent: Create instance
-    AS->>Agent: run(message)
-    
-    loop Process Events
-        Agent->>Tools: Execute tool
-        Tools-->>Agent: Tool result
-        Agent->>AS: Yield event
-        AS->>ES: Emit event
-        ES->>UI: SSE stream
-        UI->>User: Show response
+graph LR
+    subgraph "User Journey"
+        U1[User Types Message]
+        U2[Sees Typing Indicator]
+        U3[Reads AI Response]
+        U4[Sees Code Changes]
     end
     
-    Agent->>AS: Final result
-    AS->>ES: Emit result
-    ES->>UI: Complete
+    subgraph "Frontend Flow"
+        F1[Capture Input]
+        F2[Optimistic Update]
+        F3[API Mutation]
+        F4[SSE Handler]
+        F5[UI Update]
+    end
+    
+    subgraph "Backend Flow"
+        B1[Validate Request]
+        B2[Queue Execution]
+        B3[Agent Processing]
+        B4[Tool Execution]
+        B5[Event Emission]
+    end
+    
+    subgraph "Agent Flow"
+        A1[Context Loading]
+        A2[Message Analysis]
+        A3[Tool Selection]
+        A4[Response Generation]
+        A5[Result Compilation]
+    end
+    
+    U1 --> F1
+    F1 --> F2
+    F2 --> U2
+    F3 --> B1
+    B1 --> B2
+    B2 --> B3
+    B3 --> A1
+    A1 --> A2
+    A2 --> A3
+    A3 --> B4
+    B4 --> A4
+    A4 --> B5
+    B5 --> F4
+    F4 --> F5
+    F5 --> U3
+    A5 --> U4
+    
+    style U2 fill:#ff9,stroke:#333,stroke-width:2px
+    style B3 fill:#9f9,stroke:#333,stroke-width:2px
+    style A3 fill:#99f,stroke:#333,stroke-width:2px
 ```
 
-### Session Continuity Flow
+### Session Management Architecture
+
+The system maintains conversation continuity across multiple interactions:
+
 ```mermaid
-sequenceDiagram
-    participant User
-    participant UI
-    participant Agent
-    participant SDK
+stateDiagram-v2
+    [*] --> NewSession: First Message
+    NewSession --> ActiveSession: Session Created
+    ActiveSession --> Processing: New Message
+    Processing --> ActiveSession: Response Complete
+    ActiveSession --> Paused: User Idle
+    Paused --> ActiveSession: Resume Message
+    ActiveSession --> Completed: Task Done
+    Completed --> [*]
     
-    Note over User,SDK: First Message
-    User->>UI: Send message
-    UI->>Agent: run(message)
-    Agent->>SDK: query(message)
-    SDK-->>Agent: sessionId: "abc123"
-    Agent-->>UI: Result with sessionId
+    state ActiveSession {
+        [*] --> WaitingForUser
+        WaitingForUser --> ProcessingMessage: User Input
+        ProcessingMessage --> StreamingResponse: Agent Active
+        StreamingResponse --> WaitingForUser: Complete
+    }
     
-    Note over User,SDK: Resume Session
-    User->>UI: Send follow-up
-    UI->>Agent: run(message, resumeSessionId: "abc123")
-    Agent->>SDK: query(message, resume: "abc123")
-    SDK-->>Agent: Continued conversation
+    state Processing {
+        [*] --> LoadContext
+        LoadContext --> ExecuteTools
+        ExecuteTools --> GenerateResponse
+        GenerateResponse --> [*]
+    }
+```
+
+### Error Recovery Flow
+
+The system handles errors gracefully at multiple levels:
+
+```mermaid
+graph TB
+    subgraph "Error Detection"
+        E1[API Error]
+        E2[Agent Error]
+        E3[Tool Error]
+        E4[Network Error]
+    end
+    
+    subgraph "Error Handling"
+        H1[Retry Logic]
+        H2[Fallback Response]
+        H3[User Notification]
+        H4[State Recovery]
+    end
+    
+    subgraph "Recovery Actions"
+        R1[Reconnect SSE]
+        R2[Restore Session]
+        R3[Replay Events]
+        R4[Update UI]
+    end
+    
+    E1 --> H1
+    E2 --> H2
+    E3 --> H2
+    E4 --> H1
+    
+    H1 --> R1
+    H1 --> R2
+    H2 --> H3
+    H3 --> R4
+    H4 --> R3
+    
+    style H1 fill:#f99,stroke:#333,stroke-width:2px
+    style H3 fill:#ff9,stroke:#333,stroke-width:2px
+    style R4 fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
 ## Integration Points
 
-### Dependencies
-- **Internal Components:**
-  - Task Service - Creates iterations, tracks status
-  - Workspace Service - Provides execution environment
-  - Event Service - Streams responses to clients
-  - Storage Service - Persists agent outputs
+### System Integration Architecture
 
-- **External Libraries:**
-  - `@anthropic-ai/claude-code` - Claude Code SDK
-  - Native tools via SDK
+The Agent system integrates with multiple components to provide a cohesive AI experience:
 
-### Events
-
-#### Emitted Events
-| Event | Payload | When Triggered |
-|-------|---------|----------------|
-| `MESSAGE` | Agent response | During execution |
-| `RESULT` | Final outcome | Execution complete |
-| `ERROR` | Error details | Execution failed |
-| `INPUT` | Status change | Agent started/stopped |
-
-#### Event Flow
-```typescript
-// Agent yields event
-yield {
-  type: 'message',
-  data: { content: 'Analyzing code...' }
-}
-
-// Transformed to task event
-{
-  taskId: 'task-123',
-  iterationId: 'iter-456',
-  type: EventType.MESSAGE,
-  subtype: 'assistant',
-  payload: { content: 'Analyzing code...' }
-}
-
-// Emitted via SSE
-data: {"taskId":"task-123","type":"MESSAGE",...}
+```mermaid
+graph TB
+    subgraph "Agent Core"
+        AGENT[Agent System]
+    end
+    
+    subgraph "Direct Dependencies"
+        TASK[Task Service]
+        WS[Workspace Service]
+        EVENT[Event Service]
+        STORE[Storage Service]
+    end
+    
+    subgraph "Indirect Dependencies"
+        REPO[Repository Service]
+        ENV[Environment Service]
+        GIT[Git Service]
+    end
+    
+    subgraph "External Systems"
+        SDK[Claude Code SDK]
+        AI[AI APIs]
+        WEB[Web Services]
+    end
+    
+    AGENT <--> TASK
+    AGENT <--> WS
+    AGENT <--> EVENT
+    AGENT <--> STORE
+    
+    WS <--> REPO
+    WS <--> ENV
+    WS <--> GIT
+    
+    AGENT --> SDK
+    SDK --> AI
+    AGENT --> WEB
+    
+    style AGENT fill:#f9f,stroke:#333,stroke-width:4px
+    style TASK fill:#9ff,stroke:#333,stroke-width:2px
+    style WS fill:#9ff,stroke:#333,stroke-width:2px
 ```
 
-### Shared Data Structures
-```typescript
-// Message format
-interface AgentMessage {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  tool_use?: ToolUse[]
-}
+### Event-Driven Communication
 
-// Cost tracking
-interface UsageMetrics {
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  cost: number
-  model: string
-}
+The agent system communicates through a well-defined event protocol:
 
-// Tool invocation
-interface ToolUse {
-  tool: string
-  input: any
-  output?: any
-  error?: string
-}
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant ES as Event Service
+    participant C as Client
+    participant Q as Query Cache
+    
+    Note over A,Q: Message Processing
+    A->>ES: MESSAGE event
+    ES->>C: SSE: Message chunk
+    C->>C: Append to display
+    
+    Note over A,Q: Tool Execution
+    A->>ES: TOOL_USE event
+    ES->>C: SSE: Tool started
+    C->>C: Show tool indicator
+    
+    A->>ES: TOOL_RESULT event
+    ES->>C: SSE: Tool complete
+    C->>C: Update UI
+    
+    Note over A,Q: Completion
+    A->>ES: RESULT event
+    ES->>C: SSE: Execution complete
+    C->>Q: Invalidate queries
+    Q->>C: Refresh data
 ```
 
-## Configuration
+### Cross-Component Data Flow
 
-### Environment Variables
-| Variable | Purpose | Default | Required |
-|----------|---------|---------|----------|
-| `DEFAULT_AGENT_MODEL` | Default Claude model | claude-3-5-sonnet-20241022 | No |
-| `AGENT_TIMEOUT` | Max execution time | 3600000 (1 hour) | No |
-| `ENABLE_WEB_TOOLS` | Allow web fetch/search | true | No |
-| `MAX_TOOL_RETRIES` | Tool retry attempts | 3 | No |
+The agent system participates in complex data flows across the architecture:
 
-### Agent Configuration
-```typescript
-const AGENT_CONFIGS = {
-  'claude-code': {
-    displayName: 'Claude Code',
-    description: 'AI coding assistant with file editing',
-    supportedModels: [
-      'claude-3-5-sonnet-20241022',
-      'claude-3-5-haiku-20241022'
-    ],
-    defaultModel: 'claude-3-5-sonnet-20241022',
-    availableTools: ['WebFetch', 'WebSearch', 'Bash'],
-    permissionMode: 'acceptEdits'
-  }
-};
-```
-
-### Tool Permissions
-```typescript
-interface ToolPermissions {
-  bash: {
-    allowedCommands?: string[]  // Whitelist specific commands
-    blockedCommands?: string[]  // Blacklist dangerous commands
-    workingDirOnly: boolean     // Restrict to workspace
-  }
-  webFetch: {
-    allowedDomains?: string[]   // Whitelist domains
-    maxContentSize: number      // Limit response size
-  }
-  webSearch: {
-    safeSearch: boolean         // Filter results
-    maxResults: number          // Limit result count
-  }
-}
+```mermaid
+graph LR
+    subgraph "Input Sources"
+        UI[User Interface]
+        API[API Calls]
+        SCHED[Scheduled Jobs]
+    end
+    
+    subgraph "Processing Pipeline"
+        AGENT[Agent Engine]
+        TOOLS[Tool Executor]
+        VALID[Validators]
+    end
+    
+    subgraph "Output Targets"
+        WS[Workspace Files]
+        DB[Database]
+        EVENTS[Event Stream]
+        LOGS[Audit Logs]
+    end
+    
+    UI --> AGENT
+    API --> AGENT
+    SCHED --> AGENT
+    
+    AGENT --> TOOLS
+    TOOLS --> VALID
+    
+    VALID --> WS
+    VALID --> DB
+    AGENT --> EVENTS
+    TOOLS --> LOGS
+    
+    style AGENT fill:#f9f,stroke:#333,stroke-width:2px
+    style TOOLS fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
 ## Best Practices
 
-### Do's
-- **Always validate workspace** before agent execution
-- **Handle stop requests gracefully** via abort controllers
-- **Stream events in real-time** for responsive UI
-- **Track costs and usage** for transparency
-- **Maintain session continuity** for better context
-- **Log tool executions** for debugging
-- **Implement timeouts** to prevent hanging
+### Architectural Principles
 
-### Don'ts
-- Don't allow concurrent agents per task
-- Don't execute tools outside workspace
-- Don't ignore error events
-- Don't block on agent execution
-- Don't trust user input for tool commands
-- Don't keep agents running after task closure
+The agent system follows key architectural principles for reliability and security:
 
-### Performance Considerations
-- **Stream events efficiently** using generators
-- **Cache agent configurations** to avoid lookups
-- **Limit message history** for context windows
-- **Implement request queuing** for rate limits
-- **Use background execution** for long tasks
-- **Clean up resources** promptly
+```mermaid
+graph TD
+    subgraph "Core Principles"
+        ISO[Workspace Isolation]
+        SRP[Single Responsibility]
+        EVT[Event-Driven Design]
+        FAL[Fail-Safe Defaults]
+    end
+    
+    subgraph "Implementation Patterns"
+        SING[Single Agent per Task]
+        STRM[Real-time Streaming]
+        ASYNC[Async Execution]
+        AUDIT[Audit Logging]
+    end
+    
+    subgraph "Security Measures"
+        PERM[Permission Model]
+        SAND[Sandboxed Execution]
+        VAL[Input Validation]
+        LIMIT[Rate Limiting]
+    end
+    
+    ISO --> SING
+    ISO --> SAND
+    SRP --> ASYNC
+    EVT --> STRM
+    FAL --> PERM
+    FAL --> VAL
+    
+    SING --> AUDIT
+    STRM --> AUDIT
+    PERM --> LIMIT
+    
+    style ISO fill:#f9f,stroke:#333,stroke-width:2px
+    style FAL fill:#9ff,stroke:#333,stroke-width:2px
+```
 
-### Security Guidelines
-- **Isolate workspace access** per task
-- **Validate all tool inputs**
-- **Sanitize command execution**
-- **Limit network access** for tools
-- **Track and audit** all operations
-- **Implement rate limiting**
-- **Never expose API keys** in events
+### Performance Architecture
+
+The system optimizes performance through careful design choices:
+
+```mermaid
+graph LR
+    subgraph "Performance Strategies"
+        GEN[Generator Pattern]
+        CACHE[Smart Caching]
+        QUEUE[Request Queuing]
+        BGND[Background Jobs]
+    end
+    
+    subgraph "Resource Management"
+        POOL[Connection Pooling]
+        CLEAN[Auto Cleanup]
+        LIMIT[Context Limiting]
+        BATCH[Event Batching]
+    end
+    
+    GEN --> POOL
+    CACHE --> LIMIT
+    QUEUE --> BATCH
+    BGND --> CLEAN
+    
+    style GEN fill:#9f9,stroke:#333,stroke-width:2px
+    style BGND fill:#9f9,stroke:#333,stroke-width:2px
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Diagnostic Flow
 
-#### Issue: Agent Not Responding
-**Symptoms:**
-- No events after sending message
-- UI shows loading indefinitely
-- No errors in console
+When issues arise, follow this systematic diagnostic approach:
 
-**Cause:**
-- Agent crashed silently
-- Workspace issues
-- SDK initialization failed
-
-**Solution:**
-1. Check agent service logs
-2. Verify workspace exists:
-   ```bash
-   ls -la data/workspaces/
-   ```
-3. Check for running processes:
-   ```bash
-   ps aux | grep claude-code
-   ```
-
-#### Issue: Tool Execution Fails
-**Symptoms:**
-- Error: "Tool execution failed"
-- Bash commands not working
-- Web requests timeout
-
-**Cause:**
-- Insufficient permissions
-- Network issues
-- Command not in PATH
-
-**Solution:**
-```bash
-# Check workspace permissions
-ls -la /workspace/path
-
-# Test command manually
-cd /workspace/path && [command]
-
-# Verify network access
-curl -v https://example.com
+```mermaid
+graph TD
+    START[Issue Detected]
+    
+    CHECK1{Agent Running?}
+    CHECK2{Workspace Valid?}
+    CHECK3{Events Flowing?}
+    CHECK4{Tools Working?}
+    
+    FIX1[Restart Agent Service]
+    FIX2[Recreate Workspace]
+    FIX3[Check SSE Connection]
+    FIX4[Verify Permissions]
+    
+    RESOLVED[Issue Resolved]
+    ESCALATE[Check Logs]
+    
+    START --> CHECK1
+    CHECK1 -->|No| FIX1
+    CHECK1 -->|Yes| CHECK2
+    CHECK2 -->|No| FIX2
+    CHECK2 -->|Yes| CHECK3
+    CHECK3 -->|No| FIX3
+    CHECK3 -->|Yes| CHECK4
+    CHECK4 -->|No| FIX4
+    
+    FIX1 --> RESOLVED
+    FIX2 --> RESOLVED
+    FIX3 --> RESOLVED
+    FIX4 --> RESOLVED
+    
+    CHECK4 -->|Yes| ESCALATE
+    
+    style START fill:#f99,stroke:#333,stroke-width:2px
+    style RESOLVED fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
-#### Issue: Session Not Resuming
-**Symptoms:**
-- Agent doesn't remember context
-- Starting fresh conversation
-- Session ID null
+### System Health Monitoring
 
-**Cause:**
-- Session expired
-- Wrong session ID
-- Model change
+Key indicators for agent system health:
 
-**Solution:**
-1. Check session ID in task events
-2. Verify same model used
-3. Look for session expiry in logs
-
-### Debug Strategies
-
-1. **Enable verbose logging**:
-   ```typescript
-   console.debug('Agent event:', event)
-   ```
-
-2. **Monitor event stream**:
-   ```bash
-   curl -N http://localhost:8000/api/tasks/{taskId}/events/stream
-   ```
-
-3. **Check agent registry**:
-   ```typescript
-   console.log('Running agents:', this.runningAgents.keys())
-   ```
-
-### Logging
-Agent operations are logged:
-- **Info**: Agent start/stop, tool use
-- **Debug**: Event details, SDK calls
-- **Error**: Failures, exceptions
-- **Warn**: Timeout warnings, retries
-
-### Monitoring
-Key metrics to track:
-- Agent execution time
-- Tool usage frequency
-- Error rates by type
-- Cost per iteration
-- Session continuity rate
-- Message volume
+```mermaid
+graph LR
+    subgraph "Health Metrics"
+        M1[Active Agents]
+        M2[Event Throughput]
+        M3[Tool Success Rate]
+        M4[Response Time]
+    end
+    
+    subgraph "Warning Signs"
+        W1[Agent Timeouts]
+        W2[Event Backlog]
+        W3[Tool Failures]
+        W4[Memory Growth]
+    end
+    
+    subgraph "Critical Issues"
+        C1[Service Crash]
+        C2[Workspace Corruption]
+        C3[SDK Errors]
+        C4[Resource Exhaustion]
+    end
+    
+    M1 -.->|Monitor| W1
+    M2 -.->|Monitor| W2
+    M3 -.->|Monitor| W3
+    M4 -.->|Monitor| W4
+    
+    W1 -->|Escalate| C1
+    W2 -->|Escalate| C4
+    W3 -->|Escalate| C3
+    W4 -->|Escalate| C2
+    
+    style M1 fill:#9f9,stroke:#333,stroke-width:2px
+    style W1 fill:#ff9,stroke:#333,stroke-width:2px
+    style C1 fill:#f99,stroke:#333,stroke-width:2px
+```
 
 ## Related Documentation
 - [Task Management Architecture](./tasks.md)

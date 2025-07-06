@@ -2,985 +2,740 @@
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Core Concepts](#core-concepts)
-3. [Architecture](#architecture)
-4. [Backend Implementation](#backend-implementation)
-5. [Frontend Integration](#frontend-integration)
-6. [Data Flow](#data-flow)
-7. [Integration Points](#integration-points)
-8. [Configuration](#configuration)
-9. [Best Practices](#best-practices)
-10. [Troubleshooting](#troubleshooting)
+2. [Architectural Principles](#architectural-principles)
+3. [Core Architecture](#core-architecture)
+4. [Isolation Architecture](#isolation-architecture)
+5. [Lifecycle Management](#lifecycle-management)
+6. [Security Architecture](#security-architecture)
+7. [Integration Architecture](#integration-architecture)
+8. [Performance & Scalability](#performance--scalability)
+9. [Monitoring & Observability](#monitoring--observability)
+10. [Best Practices](#best-practices)
 
 ## Overview
 
 ### Purpose
-The Workspace system provides isolated execution environments for tasks, enabling safe code modification, testing, and execution. Each task gets its own workspace where AI agents can operate without affecting other tasks or the main repository.
+The Workspace system creates **isolated execution environments** for AI agents, enabling safe and concurrent task execution while maintaining complete separation between tasks and protecting the main repository.
 
-### Key Responsibilities
-- Create isolated environments for task execution
-- Manage git worktrees for version control isolation
-- Provide secure file system access
-- Execute commands within workspace boundaries
-- Manage workspace lifecycle (creation, setup, cleanup)
-- Support both local and containerized environments
-- Track workspace status and resource usage
-
-### Position in Architecture
-Workspaces sit between the task management system and the actual code execution, providing the isolated environment where repositories become active working directories for AI agents.
-
-## Core Concepts
-
-### Domain Terminology
-
-| Term | Definition |
-|------|------------|
-| Workspace | Isolated execution environment for a single task |
-| Git Worktree | Separate working directory sharing the same git repository |
-| Local Workspace | Host-based workspace using git worktrees |
-| Docker Workspace | Container-based workspace for enhanced isolation |
-| Workspace Status | Current state of workspace (setup, idle, running) |
-| Setup Commands | Repository-defined commands run during workspace creation |
-
-### Key Abstractions
-
-#### Workspace Interface
-```typescript
-interface WorkspaceInfo {
-  taskId: string
-  type: 'local' | 'docker'
-  path: string
-  status: WorkspaceStatus
-  repository: RepositoryConfig
-  isSetup: boolean
-  setupOutput?: string
-  error?: string
-}
-
-enum WorkspaceStatus {
-  NOT_SETUP = 'not_setup',     // Workspace not created
-  SETTING_UP = 'setting_up',   // Creation in progress  
-  IDLE = 'idle',               // Ready for operations
-  RUNNING = 'running',         // Agent actively running
-}
-```
-
-#### Workspace Capabilities
-```typescript
-interface WorkspaceCapabilities {
-  canListFiles: boolean
-  canExecuteCommands: boolean
-  canRunServer: boolean
-  hasGitSupport: boolean
-  supportsFileWatch: boolean
-  maxFileSize: number
-  allowedCommands?: string[]
-}
-```
-
-### Design Decisions
-- **One workspace per task** ensures complete isolation
-- **Git worktrees provide efficiency** while maintaining separation
-- **Lazy initialization** creates workspaces only when needed
-- **Background setup** keeps API responsive
-- **Security-first approach** with path validation and sandboxing
-
-## Architecture
-
-### High-Level Overview
+### Key Capabilities
 ```mermaid
 graph TB
-    subgraph "Workspace Management"
+    subgraph "Workspace Capabilities"
+        ISO[Isolation & Security]
+        GIT[Git Worktree Management]
+        EXE[Command Execution]
+        FS[File System Operations]
+        LC[Lifecycle Management]
+        MON[Resource Monitoring]
+    end
+    
+    ISO --> |"Process isolation"| EXE
+    ISO --> |"Path sandboxing"| FS
+    GIT --> |"Branch isolation"| LC
+    LC --> |"Setup/Teardown"| MON
+```
+
+### Strategic Value
+- **Complete Task Isolation**: Every task operates in its own environment
+- **Concurrent Execution**: Multiple agents work simultaneously without conflicts
+- **Version Control Safety**: Git worktrees prevent code conflicts
+- **Resource Management**: Controlled allocation and cleanup
+- **Security Boundaries**: Sandboxed execution prevents system access
+
+## Architectural Principles
+
+### Core Design Principles
+
+```mermaid
+graph LR
+    subgraph "Design Principles"
+        ISO[Task Isolation]
+        SEC[Security First]
+        EFF[Resource Efficiency]
+        CON[Concurrency Support]
+        TRA[Traceability]
+    end
+    
+    ISO --> |"One workspace per task"| SEC
+    SEC --> |"Sandboxed execution"| EFF
+    EFF --> |"Git worktrees"| CON
+    CON --> |"Parallel execution"| TRA
+```
+
+1. **Complete Isolation**: Each task operates in a completely separate environment
+2. **Security by Design**: All operations are sandboxed and validated
+3. **Resource Efficiency**: Shared git objects, lazy initialization
+4. **Concurrent Safety**: Multiple agents can work simultaneously
+5. **Full Traceability**: All operations are logged and tracked
+
+### Architectural Constraints
+
+- **No Shared State**: Workspaces never share data or resources
+- **Immutable Infrastructure**: Workspaces are disposable and recreatable
+- **Fail-Safe Defaults**: Security restrictions enabled by default
+- **Graceful Degradation**: Failures isolated to individual workspaces
+
+## Core Architecture
+
+### System Architecture
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        UI[UI Components]
+        API[API Client]
+    end
+    
+    subgraph "Service Layer"
         WS[Workspace Service]
-        BW[Base Workspace]
+        TS[Task Service]
+        AS[Agent Service]
+    end
+    
+    subgraph "Workspace Layer"
+        WM[Workspace Manager]
         LW[Local Workspace]
         DW[Docker Workspace]
+        VW[Virtual Workspace]
     end
     
-    subgraph "Storage & Git"
-        GW[Git Worktrees]
+    subgraph "Infrastructure Layer"
+        GIT[Git Worktrees]
         FS[File System]
-        DC[Docker Containers]
+        DOC[Docker Engine]
+        SEC[Security Layer]
     end
     
-    subgraph "Integration"
-        RS[Repository Service]
-        ES[Event Service]
-        SB[Storage Backend]
-    end
+    UI --> API
+    API --> WS
+    TS --> WS
+    AS --> WS
     
-    WS --> BW
-    BW <|-- LW
-    BW <|-- DW
+    WS --> WM
+    WM --> LW
+    WM --> DW
+    WM --> VW
     
-    LW --> GW
+    LW --> GIT
     LW --> FS
-    DW --> DC
+    DW --> DOC
+    VW --> SEC
     
-    WS --> RS
-    WS --> ES
-    WS --> SB
+    style WS fill:#f9f,stroke:#333,stroke-width:4px
+    style WM fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
-### Component Relationships
-- Workspace Service orchestrates all workspace operations
-- Base Workspace defines the common interface
-- Local/Docker Workspaces implement environment-specific logic
-- Integration services provide context and persistence
+### Component Architecture
 
-### Dependency Flow
-```
-Task Creation → Repository Config → Workspace Service
-                                         ↓
-                                  Create Workspace
-                                         ↓
-                               Setup Environment → Agent Execution
-```
-
-## Backend Implementation
-
-### Service Layer
-
-#### Workspace Service
-```typescript
-// apps/backend/services/workspace.service.ts
-export class WorkspaceService {
-  private activeWorkspaces = new Map<string, BaseWorkspace>()
-  
-  constructor(
-    private repositoryService: RepositoryService,
-    private eventService: EventService,
-    private storageService: StorageService
-  ) {}
-
-  // Core workspace operations
-  async createWorkspace(taskId: string): Promise<WorkspaceInfo>
-  async getWorkspace(taskId: string): Promise<WorkspaceInfo | null>
-  async deleteWorkspace(taskId: string, force?: boolean): Promise<void>
-  async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatus>
-  
-  // File operations
-  async listFiles(taskId: string, path?: string): Promise<FileInfo[]>
-  async readFile(taskId: string, filePath: string): Promise<string>
-  async writeFile(taskId: string, filePath: string, content: string): Promise<void>
-  async searchFiles(taskId: string, query: string): Promise<SearchResult[]>
-  
-  // Command execution
-  async executeCommand(
-    taskId: string, 
-    command: string, 
-    options?: CommandOptions
-  ): Promise<CommandResult>
-  
-  // Git operations
-  async getGitDiff(taskId: string): Promise<GitDiff>
-  async getGitSyncStatus(taskId: string): Promise<GitSyncStatus>
-  
-  // Capability checks
-  getWorkspaceCapabilities(taskId: string): WorkspaceCapabilities
-  
-  // Lifecycle management
-  private async setupWorkspace(workspace: BaseWorkspace): Promise<void>
-  private createWorkspaceInstance(
-    type: string, 
-    config: WorkspaceConfig
-  ): BaseWorkspace
-}
+```mermaid
+graph LR
+    subgraph "Workspace Service"
+        direction TB
+        API[API Layer]
+        ORCH[Orchestration]
+        VAL[Validation]
+        LIFE[Lifecycle Manager]
+    end
+    
+    subgraph "Workspace Types"
+        direction TB
+        LOCAL[Local Workspace]
+        DOCKER[Docker Workspace]
+        REMOTE[Remote Workspace]
+    end
+    
+    subgraph "Core Services"
+        direction TB
+        GIT[Git Service]
+        FS[File Service]
+        CMD[Command Service]
+        SEC[Security Service]
+    end
+    
+    API --> ORCH
+    ORCH --> VAL
+    ORCH --> LIFE
+    
+    LIFE --> LOCAL
+    LIFE --> DOCKER
+    LIFE --> REMOTE
+    
+    LOCAL --> GIT
+    LOCAL --> FS
+    LOCAL --> CMD
+    DOCKER --> SEC
 ```
 
-#### Base Workspace Abstract Class
-```typescript
-// apps/backend/workspaces/base.ts
-export abstract class BaseWorkspace {
-  protected status: WorkspaceStatus = WorkspaceStatus.NOT_SETUP
-  protected setupOutput: string = ''
-  protected error: string | null = null
-  
-  constructor(
-    protected taskId: string,
-    protected repository: RepositoryConfig,
-    protected eventService: EventService
-  ) {}
+### Workspace Hierarchy
 
-  // Abstract methods that implementations must provide
-  abstract setup(): Promise<void>
-  abstract teardown(force?: boolean): Promise<void>
-  abstract listFiles(path?: string): Promise<FileInfo[]>
-  abstract readFile(filePath: string): Promise<string>
-  abstract writeFile(filePath: string, content: string): Promise<void>
-  abstract executeCommand(
-    command: string, 
-    options?: CommandOptions
-  ): Promise<CommandResult>
-  abstract getPath(): string
-  abstract getCapabilities(): WorkspaceCapabilities
-  
-  // Common functionality
-  getStatus(): WorkspaceStatus { return this.status }
-  getSetupOutput(): string { return this.setupOutput }
-  getError(): string | null { return this.error }
-  
-  protected async emitEvent(type: string, data: any): Promise<void> {
-    await this.eventService.emitTaskEvent({
-      id: generateId(),
-      type: EventType.INPUT,
-      subtype: type,
-      payload: {
-        taskId: this.taskId,
-        ...data,
-      },
-      timestamp: new Date().toISOString(),
-      source: 'workspace',
-    })
-  }
-  
-  protected validatePath(path: string): void {
-    // Security validation
-    if (path.includes('..') || path.startsWith('/')) {
-      throw new SecurityError('Invalid file path')
+```mermaid
+classDiagram
+    class BaseWorkspace {
+        <<abstract>>
+        +taskId: string
+        +status: WorkspaceStatus
+        +setup(): Promise~void~
+        +teardown(): Promise~void~
+        +executeCommand(): Promise~CommandResult~
+        +listFiles(): Promise~FileInfo[]~
     }
-  }
-}
+    
+    class LocalWorkspace {
+        -workspacePath: string
+        -branchName: string
+        +createGitWorktree()
+        +runSetupCommands()
+    }
+    
+    class DockerWorkspace {
+        -containerId: string
+        -containerName: string
+        +createContainer()
+        +copyRepositoryFiles()
+    }
+    
+    class VirtualWorkspace {
+        -memoryFS: Map
+        +simulateCommand()
+        +mockFileSystem()
+    }
+    
+    BaseWorkspace <|-- LocalWorkspace
+    BaseWorkspace <|-- DockerWorkspace
+    BaseWorkspace <|-- VirtualWorkspace
 ```
 
-#### Local Workspace Implementation
-```typescript
-// apps/backend/workspaces/local.ts
-export class LocalWorkspace extends BaseWorkspace {
-  private workspacePath: string | null = null
-  private branchName: string
-  
-  constructor(
-    taskId: string,
-    repository: RepositoryConfig,
-    eventService: EventService
-  ) {
-    super(taskId, repository, eventService)
-    this.branchName = `workspace-${taskId}`
-  }
+## Isolation Architecture
 
-  async setup(): Promise<void> {
-    this.status = WorkspaceStatus.SETTING_UP
-    await this.emitEvent('workspace_setup_started', {})
+### Git Worktree Isolation
+
+```mermaid
+graph TB
+    subgraph "Main Repository"
+        MAIN[Main Branch]
+        OBJ[Git Objects]
+        REF[References]
+    end
     
-    try {
-      if (this.repository.useGitWorktrees) {
-        await this.createGitWorktree()
-      } else {
-        this.workspacePath = this.repository.path
-      }
-      
-      await this.runSetupCommands()
-      
-      this.status = WorkspaceStatus.IDLE
-      await this.emitEvent('workspace_setup_completed', {
-        path: this.workspacePath,
-      })
-      
-    } catch (error) {
-      this.status = WorkspaceStatus.NOT_SETUP
-      this.error = error.message
-      await this.emitEvent('workspace_setup_failed', {
-        error: error.message,
-      })
-      throw error
-    }
-  }
-  
-  private async createGitWorktree(): Promise<void> {
-    const repoName = path.basename(this.repository.path)
-    const worktreeName = `${repoName}-workspace-${this.taskId}`
-    const worktreePath = path.join(
-      path.dirname(this.repository.path),
-      '.worktrees',
-      worktreeName
-    )
+    subgraph "Workspace A"
+        WA[Worktree A]
+        BA[Branch: task-123]
+        FA[Files & Changes]
+    end
     
-    // Ensure worktrees directory exists
-    await fs.ensureDir(path.dirname(worktreePath))
+    subgraph "Workspace B"
+        WB[Worktree B]
+        BB[Branch: task-456]
+        FB[Files & Changes]
+    end
     
-    // Create git worktree with new branch
-    const git = simpleGit(this.repository.path)
+    subgraph "Workspace C"
+        WC[Worktree C]
+        BC[Branch: task-789]
+        FC[Files & Changes]
+    end
     
-    try {
-      await git.worktreeAdd(worktreePath, this.branchName, {
-        '--checkout': null,
-      })
-      
-      this.workspacePath = worktreePath
-      
-      console.log(`Created git worktree: ${worktreePath}`)
-    } catch (error) {
-      // If branch already exists, try to use existing worktree
-      if (error.message.includes('already exists')) {
-        await git.worktreeAdd(worktreePath, this.branchName)
-        this.workspacePath = worktreePath
-      } else {
-        throw new Error(`Failed to create git worktree: ${error.message}`)
-      }
-    }
-  }
-  
-  private async runSetupCommands(): Promise<void> {
-    const setupCommands = this.repository.codeExecution?.setupCommands
-    if (!setupCommands) return
+    OBJ --> |"Shared objects"| WA
+    OBJ --> |"Shared objects"| WB
+    OBJ --> |"Shared objects"| WC
     
-    console.log(`Running setup commands in ${this.workspacePath}`)
+    WA --> BA
+    WB --> BB
+    WC --> BC
     
-    const result = await this.executeCommand(setupCommands, {
-      timeout: 300000, // 5 minutes
-      cwd: this.workspacePath,
-    })
-    
-    this.setupOutput = result.output
-    
-    if (result.exitCode !== 0) {
-      throw new Error(`Setup commands failed: ${result.output}`)
-    }
-  }
-  
-  async teardown(force = false): Promise<void> {
-    if (!force) {
-      // Check for uncommitted changes
-      const gitStatus = await this.getGitStatus()
-      if (gitStatus.modified.length > 0 || gitStatus.staged.length > 0) {
-        throw new Error(
-          'Workspace has uncommitted changes. Use force=true to discard.'
-        )
-      }
-    }
-    
-    if (this.repository.useGitWorktrees && this.workspacePath) {
-      const git = simpleGit(this.repository.path)
-      
-      try {
-        // Remove worktree
-        await git.worktreeRemove(this.workspacePath, ['--force'])
-        
-        // Delete the branch
-        await git.branch(['-D', this.branchName])
-        
-        console.log(`Removed git worktree: ${this.workspacePath}`)
-      } catch (error) {
-        console.warn(`Failed to clean up worktree: ${error.message}`)
-      }
-    }
-    
-    this.status = WorkspaceStatus.NOT_SETUP
-    await this.emitEvent('workspace_deleted', {})
-  }
-  
-  async listFiles(relativePath = ''): Promise<FileInfo[]> {
-    this.validatePath(relativePath)
-    const fullPath = path.join(this.getPath(), relativePath)
-    
-    if (!await fs.pathExists(fullPath)) {
-      return []
-    }
-    
-    const entries = await fs.readdir(fullPath, { withFileTypes: true })
-    const files: FileInfo[] = []
-    
-    for (const entry of entries) {
-      // Skip hidden files and git directory
-      if (entry.name.startsWith('.') && entry.name !== '.env') {
-        continue
-      }
-      
-      const filePath = path.join(relativePath, entry.name)
-      const fullFilePath = path.join(fullPath, entry.name)
-      const stats = await fs.stat(fullFilePath)
-      
-      files.push({
-        name: entry.name,
-        path: filePath,
-        type: entry.isDirectory() ? 'directory' : 'file',
-        size: entry.isFile() ? stats.size : undefined,
-        modified: stats.mtime.toISOString(),
-      })
-    }
-    
-    return files.sort((a, b) => {
-      // Directories first, then files
-      if (a.type !== b.type) {
-        return a.type === 'directory' ? -1 : 1
-      }
-      return a.name.localeCompare(b.name)
-    })
-  }
-  
-  async readFile(filePath: string): Promise<string> {
-    this.validatePath(filePath)
-    const fullPath = path.join(this.getPath(), filePath)
-    
-    const stats = await fs.stat(fullPath)
-    if (stats.size > 10 * 1024 * 1024) { // 10MB limit
-      throw new Error('File too large to read')
-    }
-    
-    return fs.readFile(fullPath, 'utf-8')
-  }
-  
-  async writeFile(filePath: string, content: string): Promise<void> {
-    this.validatePath(filePath)
-    const fullPath = path.join(this.getPath(), filePath)
-    
-    // Ensure directory exists
-    await fs.ensureDir(path.dirname(fullPath))
-    
-    await fs.writeFile(fullPath, content, 'utf-8')
-  }
-  
-  async executeCommand(
-    command: string,
-    options: CommandOptions = {}
-  ): Promise<CommandResult> {
-    const startTime = Date.now()
-    const cwd = options.cwd || this.getPath()
-    const timeout = options.timeout || 120000 // 2 minutes
-    
-    console.log(`Executing command in ${cwd}: ${command}`)
-    
-    return new Promise((resolve, reject) => {
-      const child = spawn('bash', ['-c', command], {
-        cwd,
-        env: {
-          ...process.env,
-          ...this.repository.codeExecution?.envVars,
-          ...options.env,
-        },
-        stdio: 'pipe',
-      })
-      
-      let output = ''
-      let timeoutId: NodeJS.Timeout | null = null
-      
-      // Set timeout
-      if (timeout > 0) {
-        timeoutId = setTimeout(() => {
-          child.kill('SIGTERM')
-          reject(new Error(`Command timed out after ${timeout}ms`))
-        }, timeout)
-      }
-      
-      // Collect output
-      child.stdout?.on('data', (data) => {
-        output += data.toString()
-      })
-      
-      child.stderr?.on('data', (data) => {
-        output += data.toString()
-      })
-      
-      child.on('close', (code) => {
-        if (timeoutId) clearTimeout(timeoutId)
-        
-        const duration = Date.now() - startTime
-        
-        resolve({
-          output: output.trim(),
-          exitCode: code || 0,
-          duration,
-          command,
-        })
-      })
-      
-      child.on('error', (error) => {
-        if (timeoutId) clearTimeout(timeoutId)
-        reject(error)
-      })
-    })
-  }
-  
-  getPath(): string {
-    if (!this.workspacePath) {
-      throw new Error('Workspace not set up')
-    }
-    return this.workspacePath
-  }
-  
-  getCapabilities(): WorkspaceCapabilities {
-    return {
-      canListFiles: true,
-      canExecuteCommands: true,
-      canRunServer: true,
-      hasGitSupport: true,
-      supportsFileWatch: true,
-      maxFileSize: 10 * 1024 * 1024, // 10MB
-    }
-  }
-  
-  // Git-specific operations
-  async getGitDiff(): Promise<GitDiff> {
-    const git = simpleGit(this.getPath())
-    
-    const diff = await git.diff(['--cached'])
-    const diffUnstaged = await git.diff()
-    
-    return {
-      staged: diff,
-      unstaged: diffUnstaged,
-      combined: diff + '\n' + diffUnstaged,
-    }
-  }
-  
-  private async getGitStatus(): Promise<any> {
-    const git = simpleGit(this.getPath())
-    return git.status()
-  }
-}
+    style OBJ fill:#f96,stroke:#333,stroke-width:2px
 ```
 
-#### Docker Workspace Implementation
-```typescript
-// apps/backend/workspaces/docker.ts
-export class DockerWorkspace extends BaseWorkspace {
-  private containerId: string | null = null
-  private containerName: string
-  
-  constructor(
-    taskId: string,
-    repository: RepositoryConfig,
-    eventService: EventService
-  ) {
-    super(taskId, repository, eventService)
-    this.containerName = `workspace-${taskId}`
-  }
+**Key Benefits:**
+- **Shared Git Objects**: Efficient disk usage through object sharing
+- **Independent Branches**: Each workspace has its own branch
+- **Parallel Development**: Multiple agents work without conflicts
+- **Clean Separation**: Changes isolated until explicitly merged
 
-  async setup(): Promise<void> {
-    this.status = WorkspaceStatus.SETTING_UP
-    await this.emitEvent('workspace_setup_started', {})
+### Docker Container Isolation
+
+```mermaid
+graph TB
+    subgraph "Host System"
+        HS[Host OS]
+        HF[Host File System]
+        NET[Network Stack]
+    end
     
-    try {
-      await this.createContainer()
-      await this.copyRepositoryFiles()
-      await this.runSetupCommands()
-      
-      this.status = WorkspaceStatus.IDLE
-      await this.emitEvent('workspace_setup_completed', {
-        containerId: this.containerId,
-      })
-      
-    } catch (error) {
-      this.status = WorkspaceStatus.NOT_SETUP
-      this.error = error.message
-      await this.emitEvent('workspace_setup_failed', {
-        error: error.message,
-      })
-      throw error
-    }
-  }
-  
-  private async createContainer(): Promise<void> {
-    const image = this.repository.codeExecution?.dockerImage || 'node:18'
-    const workdir = this.repository.codeExecution?.dockerWorkdir || '/workspace'
-    const volumes = this.repository.codeExecution?.dockerVolumes || []
+    subgraph "Container A"
+        CA[Isolated Process]
+        FA[Container FS]
+        NA[Network Namespace]
+        RA[Resource Limits]
+    end
     
-    const createCommand = [
-      'docker', 'create',
-      '--name', this.containerName,
-      '--workdir', workdir,
-      ...volumes.flatMap(v => ['--volume', v]),
-      image,
-      'tail', '-f', '/dev/null' // Keep container running
-    ]
+    subgraph "Container B"
+        CB[Isolated Process]
+        FB[Container FS]
+        NB[Network Namespace]
+        RB[Resource Limits]
+    end
     
-    const result = await this.executeHostCommand(createCommand.join(' '))
-    this.containerId = result.output.trim()
+    HS --> |"Process isolation"| CA
+    HS --> |"Process isolation"| CB
+    HF --> |"Mount namespace"| FA
+    HF --> |"Mount namespace"| FB
+    NET --> |"Network isolation"| NA
+    NET --> |"Network isolation"| NB
     
-    // Start the container
-    await this.executeHostCommand(`docker start ${this.containerId}`)
-  }
-  
-  private async copyRepositoryFiles(): Promise<void> {
-    if (!this.containerId) throw new Error('Container not created')
-    
-    const repoPath = this.repository.path
-    const workdir = this.repository.codeExecution?.dockerWorkdir || '/workspace'
-    
-    await this.executeHostCommand(
-      `docker cp "${repoPath}/." ${this.containerId}:${workdir}`
-    )
-  }
-  
-  async teardown(force = false): Promise<void> {
-    if (this.containerId) {
-      try {
-        // Stop and remove container
-        await this.executeHostCommand(`docker stop ${this.containerId}`)
-        await this.executeHostCommand(`docker rm ${this.containerId}`)
-        
-        console.log(`Removed Docker container: ${this.containerId}`)
-      } catch (error) {
-        console.warn(`Failed to clean up container: ${error.message}`)
-      }
-    }
-    
-    this.status = WorkspaceStatus.NOT_SETUP
-    await this.emitEvent('workspace_deleted', {})
-  }
-  
-  async executeCommand(
-    command: string,
-    options: CommandOptions = {}
-  ): Promise<CommandResult> {
-    if (!this.containerId) {
-      throw new Error('Container not available')
-    }
-    
-    const workdir = this.repository.codeExecution?.dockerWorkdir || '/workspace'
-    const dockerCommand = `docker exec -w ${workdir} ${this.containerId} bash -c "${command}"`
-    
-    return this.executeHostCommand(dockerCommand, options)
-  }
-  
-  private async executeHostCommand(
-    command: string,
-    options: CommandOptions = {}
-  ): Promise<CommandResult> {
-    // Implementation similar to LocalWorkspace.executeCommand
-    // but runs on the host system for Docker commands
-  }
-  
-  getPath(): string {
-    return this.repository.codeExecution?.dockerWorkdir || '/workspace'
-  }
-  
-  getCapabilities(): WorkspaceCapabilities {
-    return {
-      canListFiles: true,
-      canExecuteCommands: true,
-      canRunServer: false, // Limited server support in containers
-      hasGitSupport: false, // Limited git support
-      supportsFileWatch: false,
-      maxFileSize: 10 * 1024 * 1024,
-    }
-  }
-}
+    style CA fill:#9f9,stroke:#333,stroke-width:2px
+    style CB fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
-### API Endpoints
+**Container Benefits:**
+- **Complete Process Isolation**: No cross-task interference
+- **Resource Limits**: CPU, memory, and I/O constraints
+- **Network Isolation**: Separate network namespaces
+- **File System Isolation**: Independent file systems
 
-#### Route Definitions
-| Method | Path | Purpose | Description |
-|--------|------|---------|-------------|
-| GET | `/api/tasks/:taskId/workspace-status` | Get workspace status | Returns status, path, and git info |
-| GET | `/api/tasks/:taskId/files` | List workspace files | Directory listing with file metadata |
-| GET | `/api/tasks/:taskId/files/*` | Read file content | Returns file content as text |
-| PUT | `/api/tasks/:taskId/files/*` | Write file content | Updates or creates file |
-| POST | `/api/tasks/:taskId/search-files` | Search files | Fuzzy search by filename/content |
-| GET | `/api/tasks/:taskId/git-diff` | Get git diff | Staged and unstaged changes |
-| GET | `/api/tasks/:taskId/git-sync-status` | Get sync status | Comparison with remote origin |
-| POST | `/api/tasks/:taskId/execute` | Execute command | Run command in workspace |
+### Process Isolation Strategy
 
-#### Request/Response Schemas
-```typescript
-// Workspace status response
-interface WorkspaceStatusResponse {
-  status: WorkspaceStatus
-  path?: string
-  isSetup: boolean
-  error?: string
-  gitStatus?: {
-    branch: string
-    ahead: number
-    behind: number
-    modified: string[]
-    staged: string[]
-  }
-}
-
-// File info response
-interface FileInfoResponse {
-  name: string
-  path: string
-  type: 'file' | 'directory'
-  size?: number
-  modified: string
-}
-
-// Command execution request
-interface ExecuteCommandRequest {
-  command: string
-  timeout?: number
-  env?: Record<string, string>
-}
-
-// Command execution response
-interface CommandResult {
-  output: string
-  exitCode: number
-  duration: number
-  command: string
-}
+```mermaid
+stateDiagram-v2
+    [*] --> Created: Task assigned
+    Created --> Initializing: Setup workspace
+    Initializing --> Ready: Setup complete
+    Initializing --> Failed: Setup error
+    Ready --> Active: Agent starts
+    Active --> Ready: Agent completes
+    Active --> Failed: Execution error
+    Ready --> Cleaning: Cleanup requested
+    Failed --> Cleaning: Force cleanup
+    Cleaning --> [*]: Resources freed
+    
+    note right of Active
+        - Sandboxed execution
+        - Resource monitoring
+        - Path validation
+    end note
+    
+    note right of Cleaning
+        - Git worktree removal
+        - Container teardown
+        - Resource cleanup
+    end note
 ```
 
-## Frontend Integration
-
-The frontend primarily interacts with workspaces through task-level APIs and doesn't directly manage workspace lifecycle.
-
-### Integration Points
-- **File Explorer**: Browse and edit workspace files
-- **Terminal**: Execute commands in workspace
-- **Git Diff Viewer**: View workspace changes
-- **Preview Environment**: Run servers in workspace
-- **Agent Chat**: Agents operate within workspace context
-
-## Data Flow
+## Lifecycle Management
 
 ### Workspace Creation Flow
-```mermaid
-sequenceDiagram
-    participant Task as Task Service
-    participant WS as Workspace Service
-    participant RS as Repository Service
-    participant LW as Local Workspace
-    participant Git
-    
-    Task->>WS: createWorkspace(taskId)
-    WS->>RS: getRepository(repositoryId)
-    RS-->>WS: repository config
-    
-    WS->>LW: new LocalWorkspace(config)
-    WS->>LW: setup()
-    
-    LW->>Git: createWorktree(path, branch)
-    Git-->>LW: worktree created
-    
-    LW->>LW: runSetupCommands()
-    LW-->>WS: setup complete
-    WS-->>Task: workspace ready
-```
 
-### File Operation Flow
 ```mermaid
 sequenceDiagram
     participant Client
-    participant API as Workspace API
-    participant WS as Workspace Service
-    participant LW as Local Workspace
-    participant FS as File System
+    participant TaskService
+    participant WorkspaceService
+    participant GitWorktree
+    participant FileSystem
     
-    Client->>API: GET /files/src/app.js
-    API->>WS: readFile(taskId, path)
-    WS->>LW: readFile(path)
-    LW->>LW: validatePath(path)
-    LW->>FS: readFile(fullPath)
-    FS-->>LW: file content
-    LW-->>WS: content
-    WS-->>API: content
-    API-->>Client: file content
+    Client->>TaskService: Create task
+    TaskService->>WorkspaceService: Request workspace
+    
+    alt Git Worktree Strategy
+        WorkspaceService->>GitWorktree: Create worktree
+        GitWorktree->>GitWorktree: New branch
+        GitWorktree->>FileSystem: Create directory
+        GitWorktree-->>WorkspaceService: Worktree ready
+    else Docker Strategy
+        WorkspaceService->>Docker: Create container
+        Docker->>Docker: Setup isolation
+        Docker-->>WorkspaceService: Container ready
+    end
+    
+    WorkspaceService->>WorkspaceService: Run setup commands
+    WorkspaceService-->>TaskService: Workspace ready
+    TaskService-->>Client: Task created
 ```
 
-## Integration Points
+### Workspace Teardown Flow
 
-### Dependencies
-- **Internal Components:**
-  - Repository Service - Provides repository configuration
-  - Event Service - Emits workspace lifecycle events  
-  - Storage Service - Persists workspace metadata
-  - Agent Service - Executes agents in workspaces
-  - Preview Service - Runs dev servers in workspaces
-
-- **External Dependencies:**
-  - `simple-git` - Git operations
-  - `fs-extra` - Enhanced file system operations
-  - `child_process` - Command execution
-  - Docker CLI (for Docker workspaces)
-
-### Events
-
-#### Emitted Events
-| Event | Payload | When Triggered |
-|-------|---------|----------------|
-| `workspace_setup_started` | { taskId } | Workspace creation begins |
-| `workspace_setup_completed` | { taskId, path } | Workspace ready |
-| `workspace_setup_failed` | { taskId, error } | Setup fails |
-| `workspace_deleted` | { taskId } | Workspace cleaned up |
-
-### Shared Data Structures
-```typescript
-// Used across workspace, task, and agent services
-interface WorkspaceContext {
-  taskId: string
-  workspacePath: string
-  repositoryId: string
-  status: WorkspaceStatus
-  capabilities: WorkspaceCapabilities
-}
+```mermaid
+graph TB
+    subgraph "Teardown Process"
+        CHECK[Check Status]
+        SAVE[Save Changes?]
+        STOP[Stop Processes]
+        CLEAN[Clean Resources]
+        REMOVE[Remove Workspace]
+    end
+    
+    subgraph "Git Cleanup"
+        GIT1[Remove Worktree]
+        GIT2[Delete Branch]
+        GIT3[Prune References]
+    end
+    
+    subgraph "Docker Cleanup"
+        DOC1[Stop Container]
+        DOC2[Remove Container]
+        DOC3[Clean Volumes]
+    end
+    
+    CHECK --> SAVE
+    SAVE --> |"Has changes"| STOP
+    SAVE --> |"No changes"| STOP
+    STOP --> CLEAN
+    CLEAN --> |"Git workspace"| GIT1
+    CLEAN --> |"Docker workspace"| DOC1
+    GIT1 --> GIT2
+    GIT2 --> GIT3
+    DOC1 --> DOC2
+    DOC2 --> DOC3
+    GIT3 --> REMOVE
+    DOC3 --> REMOVE
 ```
 
-## Configuration
+## Security Architecture
 
-### Environment Variables
-| Variable | Purpose | Default | Required |
-|----------|---------|---------|----------|
-| `WORKSPACE_ROOT` | Base directory for workspaces | `./data/workspaces` | No |
-| `MAX_COMMAND_TIMEOUT` | Maximum command timeout | 600000 (10 min) | No |
-| `MAX_FILE_SIZE` | Maximum file read size | 10485760 (10MB) | No |
-| `DOCKER_DEFAULT_IMAGE` | Default Docker image | `node:18` | No |
+### Path Sandboxing
 
-### Repository Configuration
-```typescript
-// Workspace behavior configured in repository
-interface RepositoryConfig {
-  useGitWorktrees: boolean // Enable git worktree isolation
-  codeExecution: {
-    type: 'local' | 'docker'
-    setupCommands?: string    // Commands to run on setup
-    dockerImage?: string      // Docker image for containers
-    dockerWorkdir?: string    // Working directory in container
-    dockerVolumes?: string[]  // Volume mounts
-    envVars?: Record<string, string> // Environment variables
-  }
-}
+```mermaid
+graph LR
+    subgraph "User Request"
+        REQ[File Path Request]
+    end
+    
+    subgraph "Validation Layer"
+        VAL1[Path Validation]
+        VAL2[Sanitization]
+        VAL3[Boundary Check]
+    end
+    
+    subgraph "Workspace Boundary"
+        WS[Workspace Root]
+        ALLOWED[Allowed Paths]
+        BLOCKED[Blocked Paths]
+    end
+    
+    REQ --> VAL1
+    VAL1 --> |"Check traversal"| VAL2
+    VAL2 --> |"Normalize path"| VAL3
+    VAL3 --> |"Within boundary"| ALLOWED
+    VAL3 --> |"Outside boundary"| BLOCKED
+    
+    style BLOCKED fill:#f99,stroke:#333,stroke-width:2px
+    style ALLOWED fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
-### Runtime Configuration
-Workspace behavior can be configured at runtime:
-- Command timeouts per operation
-- File size limits
-- Security restrictions
-- Container resources (for Docker workspaces)
+### Command Execution Security
+
+```mermaid
+graph TB
+    subgraph "Command Request"
+        CMD[User Command]
+        ENV[Environment]
+        TIMEOUT[Timeout]
+    end
+    
+    subgraph "Security Checks"
+        CHECK1[Command Validation]
+        CHECK2[Resource Limits]
+        CHECK3[Permission Check]
+    end
+    
+    subgraph "Execution Context"
+        SANDBOX[Sandboxed Process]
+        MONITOR[Resource Monitor]
+        KILL[Kill Switch]
+    end
+    
+    CMD --> CHECK1
+    ENV --> CHECK2
+    TIMEOUT --> CHECK3
+    
+    CHECK1 --> SANDBOX
+    CHECK2 --> MONITOR
+    CHECK3 --> KILL
+    
+    SANDBOX --> |"Execute"| MONITOR
+    MONITOR --> |"Exceed limits"| KILL
+```
+
+### Multi-Layer Security
+
+```mermaid
+graph TB
+    subgraph "Security Layers"
+        L1[API Authentication]
+        L2[Task Authorization]
+        L3[Path Validation]
+        L4[Command Sanitization]
+        L5[Resource Limits]
+        L6[Process Isolation]
+    end
+    
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
+    L4 --> L5
+    L5 --> L6
+    
+    style L1 fill:#ffd,stroke:#333,stroke-width:2px
+    style L6 fill:#dff,stroke:#333,stroke-width:2px
+```
+
+## Integration Architecture
+
+### Service Integration
+
+```mermaid
+graph TB
+    subgraph "Core Services"
+        WS[Workspace Service]
+        TS[Task Service]
+        RS[Repository Service]
+        ES[Event Service]
+    end
+    
+    subgraph "Workspace Operations"
+        CREATE[Create Workspace]
+        EXEC[Execute Commands]
+        FILES[File Operations]
+        CLEAN[Cleanup]
+    end
+    
+    subgraph "Event Flow"
+        E1[Setup Started]
+        E2[Setup Complete]
+        E3[Command Executed]
+        E4[Workspace Deleted]
+    end
+    
+    TS --> |"Request workspace"| WS
+    WS --> |"Get config"| RS
+    WS --> CREATE
+    CREATE --> E1
+    CREATE --> E2
+    EXEC --> E3
+    CLEAN --> E4
+    
+    E1 --> ES
+    E2 --> ES
+    E3 --> ES
+    E4 --> ES
+```
+
+### API Integration Pattern
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant Auth
+    participant Workspace
+    participant Agent
+    
+    Client->>API: Request file operation
+    API->>Auth: Validate token
+    Auth-->>API: Authorized
+    API->>Workspace: Check workspace exists
+    Workspace-->>API: Workspace ready
+    API->>Workspace: Execute operation
+    Workspace->>Agent: Provide context
+    Agent->>Workspace: Perform action
+    Workspace-->>API: Operation result
+    API-->>Client: Response
+```
+
+## Performance & Scalability
+
+### Resource Management
+
+```mermaid
+graph LR
+    subgraph "Resource Pool"
+        CPU[CPU Allocation]
+        MEM[Memory Allocation]
+        DISK[Disk Allocation]
+        NET[Network Bandwidth]
+    end
+    
+    subgraph "Workspace Types"
+        LOCAL[Local Workspaces]
+        DOCKER[Docker Workspaces]
+        REMOTE[Remote Workspaces]
+    end
+    
+    subgraph "Limits"
+        L1[Per-Workspace Limits]
+        L2[Global Limits]
+        L3[Dynamic Scaling]
+    end
+    
+    CPU --> L1
+    MEM --> L1
+    DISK --> L2
+    NET --> L3
+    
+    L1 --> LOCAL
+    L1 --> DOCKER
+    L2 --> REMOTE
+```
+
+### Scaling Strategy
+
+```mermaid
+graph TB
+    subgraph "Load Distribution"
+        LB[Load Balancer]
+        Q[Task Queue]
+        SCHED[Scheduler]
+    end
+    
+    subgraph "Worker Nodes"
+        W1[Worker 1]
+        W2[Worker 2]
+        W3[Worker N]
+    end
+    
+    subgraph "Workspace Distribution"
+        WS1[Workspaces 1-10]
+        WS2[Workspaces 11-20]
+        WS3[Workspaces N]
+    end
+    
+    LB --> Q
+    Q --> SCHED
+    SCHED --> W1
+    SCHED --> W2
+    SCHED --> W3
+    
+    W1 --> WS1
+    W2 --> WS2
+    W3 --> WS3
+    
+    style SCHED fill:#bbf,stroke:#333,stroke-width:2px
+```
+
+## Monitoring & Observability
+
+### Workspace Metrics
+
+```mermaid
+graph TB
+    subgraph "Metrics Collection"
+        M1[Creation Time]
+        M2[Setup Duration]
+        M3[Resource Usage]
+        M4[Command Execution]
+        M5[Error Rates]
+    end
+    
+    subgraph "Monitoring Systems"
+        PROM[Prometheus]
+        GRAF[Grafana]
+        ALERT[Alert Manager]
+    end
+    
+    subgraph "Dashboards"
+        D1[Workspace Health]
+        D2[Resource Usage]
+        D3[Performance Metrics]
+    end
+    
+    M1 --> PROM
+    M2 --> PROM
+    M3 --> PROM
+    M4 --> PROM
+    M5 --> PROM
+    
+    PROM --> GRAF
+    PROM --> ALERT
+    
+    GRAF --> D1
+    GRAF --> D2
+    GRAF --> D3
+```
+
+### Event Tracking
+
+```mermaid
+stateDiagram-v2
+    [*] --> WorkspaceCreated
+    WorkspaceCreated --> SetupStarted
+    SetupStarted --> SetupCompleted
+    SetupStarted --> SetupFailed
+    SetupCompleted --> CommandExecuted
+    CommandExecuted --> CommandExecuted
+    CommandExecuted --> FileModified
+    FileModified --> CommandExecuted
+    CommandExecuted --> WorkspaceDeleted
+    SetupFailed --> WorkspaceDeleted
+    WorkspaceDeleted --> [*]
+    
+    note right of CommandExecuted
+        Track all operations
+        for audit trail
+    end note
+```
 
 ## Best Practices
 
-### Do's
-- **Use git worktrees** for local development isolation
-- **Validate all file paths** to prevent directory traversal
-- **Set appropriate timeouts** for long-running commands
-- **Monitor workspace resource usage**
-- **Clean up workspaces** when tasks complete
-- **Handle setup failures gracefully**
-- **Use containerization** for untrusted code execution
+### Workspace Lifecycle Best Practices
 
-### Don'ts
-- Don't allow workspace operations without path validation
-- Don't ignore git worktree cleanup failures
-- Don't run unlimited command timeouts
-- Don't store sensitive data in workspace environment
-- Don't share workspaces between tasks
-- Don't skip capability checks
+1. **Lazy Initialization**
+   - Create workspaces only when needed
+   - Defer expensive operations
+   - Cache setup results
 
-### Performance Considerations
-- **Lazy workspace creation** reduces resource usage
-- **Background setup** keeps APIs responsive
-- **Efficient file operations** with streaming for large files
-- **Git worktree sharing** reduces disk usage
-- **Container reuse** for Docker workspaces when possible
+2. **Resource Cleanup**
+   - Always clean up on task completion
+   - Implement timeout-based cleanup
+   - Monitor orphaned workspaces
+
+3. **Error Handling**
+   - Graceful degradation on failures
+   - Automatic retry with backoff
+   - Clear error reporting
+
+4. **Security First**
+   - Validate all inputs
+   - Sandbox all operations
+   - Audit all actions
+
+### Performance Optimization
+
+```mermaid
+graph LR
+    subgraph "Optimization Strategies"
+        OPT1[Git Object Sharing]
+        OPT2[Container Reuse]
+        OPT3[Parallel Setup]
+        OPT4[Resource Pooling]
+    end
+    
+    subgraph "Benefits"
+        B1[Reduced Disk Usage]
+        B2[Faster Startup]
+        B3[Better Throughput]
+        B4[Lower Latency]
+    end
+    
+    OPT1 --> B1
+    OPT2 --> B2
+    OPT3 --> B3
+    OPT4 --> B4
+```
 
 ### Security Guidelines
-- **Sandbox all operations** within workspace boundaries
-- **Validate and sanitize** all file paths and commands
-- **Use Docker** for untrusted code execution
-- **Limit resource usage** (CPU, memory, disk)
-- **Audit all file operations**
-- **Never expose host system paths**
 
-## Troubleshooting
-
-### Common Issues
-
-#### Issue: Git Worktree Creation Fails
-**Symptoms:**
-- Workspace setup fails with git errors
-- "Branch already exists" error
-- Permission denied errors
-
-**Cause:**
-- Repository not properly initialized as git repo
-- Branch name conflicts
-- File system permission issues
-
-**Solution:**
-```bash
-# Check git repository status
-cd /repository/path
-git status
-
-# Clean up orphaned worktrees
-git worktree prune
-
-# Check permissions
-ls -la .git/worktrees/
-```
-
-#### Issue: Setup Commands Timeout
-**Symptoms:**
-- Workspace stuck in "setting_up" status
-- Timeout errors in logs
-- Commands that work manually fail in setup
-
-**Cause:**
-- Interactive commands waiting for input
-- Network issues during package installation
-- Missing dependencies
-
-**Solution:**
-1. Use non-interactive commands: `npm ci` instead of `npm install`
-2. Increase timeout for slow operations
-3. Pre-install dependencies manually
-
-#### Issue: File Operations Fail
-**Symptoms:**
-- "File not found" errors
-- Permission denied for file writes
-- Path validation errors
-
-**Cause:**
-- Workspace not fully set up
-- File path outside workspace
-- File system permission issues
-
-**Solution:**
-```bash
-# Check workspace directory exists
-ls -la /workspace/path
-
-# Verify workspace status
-curl /api/tasks/{taskId}/workspace-status
-
-# Check file permissions
-ls -la /workspace/path/file
-```
-
-### Debug Strategies
-
-1. **Check workspace status**:
-   ```bash
-   curl http://localhost:8000/api/tasks/{taskId}/workspace-status
-   ```
-
-2. **Examine setup logs**:
-   ```typescript
-   const workspace = await workspaceService.getWorkspace(taskId);
-   console.log(workspace.setupOutput);
-   ```
-
-3. **Test commands manually**:
-   ```bash
-   cd /workspace/path
-   # Run the same commands manually
-   ```
-
-### Logging
-Workspace operations are logged at various levels:
-- **INFO**: Workspace creation, setup completion
-- **DEBUG**: File operations, command execution
-- **ERROR**: Setup failures, git errors, permission issues
-- **WARN**: Cleanup failures, timeout warnings
-
-### Monitoring
-Key metrics to track:
-- Workspace creation success rate
-- Setup command duration
-- Active workspace count
-- Disk usage per workspace
-- Command execution failures
-- Git operation performance
+- **Never expose host paths** outside workspace boundaries
+- **Validate all file paths** against directory traversal
+- **Limit command execution** with timeouts and resource limits
+- **Audit all operations** for security analysis
+- **Use containers** for untrusted code execution
+- **Implement defense in depth** with multiple security layers
 
 ## Related Documentation
-- [Repository Architecture](./repositories.md)
+
+- [Architecture Overview](../architecture-overview.md)
+- [Repository Management](./repositories.md)
 - [Agent Architecture](./agents.md)
-- [Preview Environment Architecture](./preview-environments.md)
-- [Task Management Architecture](./tasks.md)
+- [Task Management](./tasks.md)
+- [Event Architecture](./events.md)
+- [Security Patterns](../patterns/security.md)
