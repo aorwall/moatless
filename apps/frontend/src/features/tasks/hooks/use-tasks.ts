@@ -97,11 +97,11 @@ export function useCreateTask(
 }
 
 export function useSendMessage(
+  taskId: string,
   options?: UseMutationOptions<
     SimpleTaskResponse,
     Error,
     {
-      taskId: string
       message: string
       resume?: boolean
       model?: string
@@ -114,7 +114,8 @@ export function useSendMessage(
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ taskId, message, resume, model, fileIds, filePaths, commandName }) =>
+    mutationKey: ['tasks', taskId, 'sendMessage'],
+    mutationFn: ({ message, resume, model, fileIds, filePaths, commandName }) =>
       tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),
     onSuccess: async (data, variables, context) => {
       // Only invalidate task lists - events will handle task-specific invalidations
@@ -123,7 +124,7 @@ export function useSendMessage(
       })
       // Immediately refetch task data for instant feedback
       await queryClient.refetchQueries({
-        queryKey: queryKeys.task(variables.taskId),
+        queryKey: queryKeys.task(taskId),
       })
       options?.onSuccess?.(data, variables, context)
     },
@@ -132,18 +133,20 @@ export function useSendMessage(
 }
 
 export function useStopAgent(
-  options?: UseMutationOptions<{ status: string; taskId: string }, Error, string>,
+  taskId: string,
+  options?: UseMutationOptions<{ status: string; taskId: string }, Error, void>,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (taskId: string) => tasksApi.stopAgent(taskId),
-    onSuccess: (data, taskId, context) => {
+    mutationKey: ['tasks', taskId, 'stop'],
+    mutationFn: () => tasksApi.stopAgent(taskId),
+    onSuccess: (data, _, context) => {
       // Only invalidate task lists - STOP event will handle task-specific invalidations
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasksList(),
       })
-      options?.onSuccess?.(data, taskId, context)
+      options?.onSuccess?.(data, undefined, context)
     },
     ...options,
   })

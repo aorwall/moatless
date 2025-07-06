@@ -85,8 +85,8 @@ export function ChatInput({
   })
   const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
 
-  // Stop agent mutation
-  const stopAgent = useStopAgent()
+  // Stop agent mutation - only initialize if we have a taskId
+  const stopAgent = useStopAgent(taskId || '')
 
   // Repository data (only needed for homepage)
   const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList({
@@ -155,7 +155,7 @@ export function ChatInput({
   const handleSendMessage = () => {
     // If running, stop the agent instead of sending message
     if (isRunning && taskId) {
-      stopAgent.mutate(taskId)
+      stopAgent.mutate()
       return
     }
 

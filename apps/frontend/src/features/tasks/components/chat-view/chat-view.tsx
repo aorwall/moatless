@@ -49,7 +49,7 @@ function ChatViewComponent() {
   })
 
   // Task message sending hook
-  const sendMessage = useSendMessage({
+  const sendMessage = useSendMessage(params.taskId, {
     onError: (error) => {
       console.error('Failed to send message:', error)
       toast.error('Failed to send message', {
@@ -69,7 +69,7 @@ function ChatViewComponent() {
     commandName?: string,
   ) => {
     sendMessage.mutate(
-      { taskId, message, resume, model, filePaths, commandName },
+      { message, resume, model, filePaths, commandName },
       {
         onSuccess: () => {
           clearMessage()

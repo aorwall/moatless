@@ -74,7 +74,7 @@ export function TaskHeader() {
     },
   })
 
-  const stopAgent = useStopAgent({
+  const stopAgent = useStopAgent(taskId, {
     onSuccess: () => {
       toast.success('Agent stopped successfully')
     },
@@ -85,7 +85,7 @@ export function TaskHeader() {
 
   const handleStop = () => {
     if (status) {
-      stopAgent.mutate(taskId)
+      stopAgent.mutate()
     }
   }
 
