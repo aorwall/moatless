@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -21,7 +21,6 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 export function ChatHeader() {
   const params = useParams({ from: '/tasks/$taskId' })
-  const navigate = useNavigate()
   const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
   const { data: repositories } = useRepositoriesList()
   const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
