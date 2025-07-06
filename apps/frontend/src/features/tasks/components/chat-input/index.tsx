@@ -105,6 +105,9 @@ export function ChatInput({
   const isTaskContext = !!taskId
   const isPending = isLoading
   const isRunning = taskStatus === 'running'
+  
+  // Extract repositoryId from task if available
+  const effectiveRepositoryId = isTaskContext ? task?.repositoryId : selectedRepositoryId
 
   // Update running duration every second
   useEffect(() => {
@@ -266,7 +269,7 @@ export function ChatInput({
           textareaDisabled={isTextareaDisabled}
           sendDisabled={isSendDisabled}
           placeholder={getPlaceholderText()}
-          repositoryId={selectedRepositoryId}
+          repositoryId={effectiveRepositoryId}
           taskId={taskId}
           isTaskContext={isTaskContext}
           buttonText={getButtonText()}

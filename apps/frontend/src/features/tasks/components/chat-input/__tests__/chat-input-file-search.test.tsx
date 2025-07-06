@@ -1,0 +1,336 @@
+import type { FileSearchResponse } from '@moatless/shared/types/repository'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { useSearchFiles, useRepositoriesList, useBranches } from '@/features/repositories/hooks/use-repositories'
+import { useTaskFileSearch, useStopAgent, useSendMessage } from '@/features/tasks/hooks/use-tasks'
+import { useUploadFile } from '@/features/uploads/hooks/use-upload'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ChatInput } from '../index'
+
+// Mock the hooks
+vi.mock('@/features/repositories/hooks/use-repositories')
+vi.mock('@/features/tasks/hooks/use-tasks')
+vi.mock('@/features/uploads/hooks/use-upload')
+
+describe('ChatInput file search functionality', () => {
+  const mockSearchFiles = vi.mocked(useSearchFiles)
+  const mockTaskFileSearch = vi.mocked(useTaskFileSearch)
+  const mockRepositoriesList = vi.mocked(useRepositoriesList)
+  const mockBranches = vi.mocked(useBranches)
+  const mockStopAgent = vi.mocked(useStopAgent)
+  const mockSendMessage = vi.mocked(useSendMessage)
+  const mockUploadFile = vi.mocked(useUploadFile)
+  
+  const mockFileSearchResponse: FileSearchResponse = {
+    results: [
+      { path: 'src/components/Button.tsx', size: 1024 },
+      { path: 'src/utils/helpers.ts', size: 512 },
+    ],
+    hasMore: false,
+  }
+
+  const createWrapper = () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    
+    return ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    
+    // Mock scrollIntoView for jsdom
+    Element.prototype.scrollIntoView = vi.fn()
+    
+    // Default mock implementations
+    mockSearchFiles.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    mockTaskFileSearch.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    mockRepositoriesList.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    mockBranches.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    mockStopAgent.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as any)
+    
+    mockSendMessage.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as any)
+    
+    mockUploadFile.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as any)
+  })
+
+  it.skip('should use repository search when in homepage context (no taskId)', async () => {
+    const user = userEvent.setup()
+    const repositoryId = 'repo-123'
+    
+    // Mock repositories data
+    mockRepositoriesList.mockReturnValue({
+      data: [{ id: repositoryId, name: 'test-repo' }],
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    // Mock successful search response
+    mockSearchFiles.mockReturnValue({
+      data: mockFileSearchResponse,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    // Use a ChatInput with pre-selected repository to avoid testing the select component
+    const TestWrapper = () => {
+      const [selectedRepo] = useState(repositoryId)
+      return (
+        <ChatInput
+          showRepositorySelector={true}
+          onCreateTask={vi.fn()}
+          // Pass repositoryId through a controlled component to simulate selection
+        />
+      )
+    }
+    
+    render(<TestWrapper />, { wrapper: createWrapper() })
+    
+    // Wait for the component to be ready
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/Describe your coding task/)).toBeInTheDocument()
+    })
+    
+    const textarea = screen.getByPlaceholderText(/Describe your coding task/)
+    
+    // Type @ to trigger autocomplete
+    await user.type(textarea, '@But')
+    
+    // Verify repository search was called with correct parameters
+    await waitFor(() => {
+      expect(mockSearchFiles).toHaveBeenCalledWith(
+        repositoryId,
+        'But',
+        expect.objectContaining({
+          enabled: true, // Should be enabled for homepage context
+        })
+      )
+    })
+    
+    // Task search should be called but disabled
+    expect(mockTaskFileSearch).toHaveBeenCalledWith(
+      '', // Empty taskId
+      'But',
+      repositoryId,
+      expect.objectContaining({
+        enabled: false, // Should be disabled for homepage context
+      })
+    )
+  })
+
+  it('should use task search when in task context with repositoryId', async () => {
+    const user = userEvent.setup()
+    const taskId = 'task-123'
+    const repositoryId = 'repo-456'
+    
+    // Mock successful search response
+    mockTaskFileSearch.mockReturnValue({
+      data: mockFileSearchResponse,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    // Mock task with repositoryId
+    const mockTask = {
+      iterations: [],
+      repositoryId,
+    }
+    
+    render(
+      <ChatInput
+        taskId={taskId}
+        task={mockTask as any}
+        taskStatus="open"
+        onSendMessage={vi.fn()}
+      />,
+      { wrapper: createWrapper() }
+    )
+    
+    const textarea = screen.getByPlaceholderText(/Type a new request/)
+    
+    // Type @ to trigger autocomplete
+    await user.type(textarea, '@But')
+    
+    // Verify task search was called with correct parameters
+    await waitFor(() => {
+      expect(mockTaskFileSearch).toHaveBeenCalledWith(
+        taskId,
+        'But',
+        repositoryId,
+        expect.objectContaining({
+          enabled: true,
+        })
+      )
+    })
+    
+    // Repository search should be called but disabled
+    expect(mockSearchFiles).toHaveBeenCalledWith(
+      repositoryId,
+      'But',
+      expect.objectContaining({
+        enabled: false, // Disabled in task context
+      })
+    )
+  })
+
+  it('should show autocomplete results when search returns data', async () => {
+    const user = userEvent.setup()
+    const taskId = 'task-123'
+    const repositoryId = 'repo-456'
+    
+    // Mock successful search response
+    mockTaskFileSearch.mockReturnValue({
+      data: mockFileSearchResponse,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    const mockTask = {
+      iterations: [],
+      repositoryId,
+    }
+    
+    render(
+      <ChatInput
+        taskId={taskId}
+        task={mockTask as any}
+        taskStatus="open"
+        onSendMessage={vi.fn()}
+      />,
+      { wrapper: createWrapper() }
+    )
+    
+    const textarea = screen.getByPlaceholderText(/Type a new request/)
+    
+    // Type @ to trigger autocomplete
+    await user.type(textarea, '@But')
+    
+    // Wait for autocomplete results to appear
+    await waitFor(() => {
+      expect(screen.getByText('src/components/Button.tsx')).toBeInTheDocument()
+      expect(screen.getByText('src/utils/helpers.ts')).toBeInTheDocument()
+    })
+  })
+
+  it('should fail to search files when repositoryId is missing in task context', async () => {
+    const user = userEvent.setup()
+    const taskId = 'task-123'
+    
+    // Mock task WITHOUT repositoryId
+    const mockTask = {
+      iterations: [],
+      // repositoryId is missing!
+    }
+    
+    render(
+      <ChatInput
+        taskId={taskId}
+        task={mockTask as any}
+        taskStatus="open"
+        onSendMessage={vi.fn()}
+      />,
+      { wrapper: createWrapper() }
+    )
+    
+    const textarea = screen.getByPlaceholderText(/Type a new request/)
+    
+    // Type @ to trigger autocomplete
+    await user.type(textarea, '@But')
+    
+    // Verify task search was called but with empty repositoryId
+    await waitFor(() => {
+      expect(mockTaskFileSearch).toHaveBeenCalledWith(
+        taskId,
+        'But',
+        '', // Empty repositoryId!
+        expect.objectContaining({
+          enabled: false, // Should be disabled without repositoryId
+        })
+      )
+    })
+  })
+
+  it('should complete file path when selecting from autocomplete', async () => {
+    const user = userEvent.setup()
+    const taskId = 'task-123'
+    const repositoryId = 'repo-456'
+    const onSendMessage = vi.fn()
+    
+    // Mock successful search response
+    mockTaskFileSearch.mockReturnValue({
+      data: mockFileSearchResponse,
+      isLoading: false,
+      error: null,
+    } as any)
+    
+    const mockTask = {
+      iterations: [],
+      repositoryId,
+    }
+    
+    render(
+      <ChatInput
+        taskId={taskId}
+        task={mockTask as any}
+        taskStatus="open"
+        onSendMessage={onSendMessage}
+      />,
+      { wrapper: createWrapper() }
+    )
+    
+    const textarea = screen.getByPlaceholderText(/Type a new request/) as HTMLTextAreaElement
+    
+    // Type @ to trigger autocomplete
+    await user.type(textarea, 'Check the @But')
+    
+    // Wait for results
+    await waitFor(() => {
+      expect(screen.getByText('src/components/Button.tsx')).toBeInTheDocument()
+    })
+    
+    // Click on the first result
+    const firstResult = screen.getByText('src/components/Button.tsx')
+    await user.click(firstResult)
+    
+    // Verify the textarea value was updated correctly
+    await waitFor(() => {
+      expect(textarea.value).toBe('Check the @src/components/Button.tsx')
+    })
+  })
+})

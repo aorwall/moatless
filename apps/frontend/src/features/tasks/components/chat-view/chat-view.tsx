@@ -31,7 +31,7 @@ function ChatViewComponent() {
   const params = useParams({ from: '/tasks/$taskId' })
 
   // Use specialized hooks from tri-context pattern
-  const { taskId, status, iterations, isLoading: isLoadingTask } = useTaskData()
+  const { taskId, status, iterations, repositoryId, isLoading: isLoadingTask } = useTaskData()
   const { events } = useEventStream()
   const { isStreaming } = useStreamingStatus()
   const { setSelectedIteration } = useSelectedIteration()
@@ -371,7 +371,7 @@ function ChatViewComponent() {
         <ChatInput
           data-testid="task-chat-input"
           taskId={params.taskId}
-          task={iterations ? ({ iterations } as Task) : undefined}
+          task={iterations ? ({ iterations, repositoryId } as Task) : undefined}
           taskStatus={status}
           lastIterationHasError={lastIterationHasError || false}
           onSendMessage={handleSendMessage}
