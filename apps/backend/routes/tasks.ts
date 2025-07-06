@@ -20,7 +20,7 @@ const EventTypeQuerySchema = z.object({
 
 const FileQuerySchema = z.object({
   path: z.string().optional().default('/'),
-  recursive: z.boolean().optional().default(false),
+  recursive: z.coerce.boolean().optional().default(false),
 })
 
 const FileContentSchema = z.object({
@@ -38,7 +38,7 @@ const CommandExecutionSchema = z.object({
 })
 
 const ServerLogsQuerySchema = z.object({
-  lines: z.number().optional(),
+  lines: z.coerce.number().optional(),
 })
 
 const MergeTaskSchema = z.object({
@@ -286,7 +286,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     // Get the wildcard portion of the path
     const path = c.req.path
     const basePattern = `${prefix}/${taskId}/files/`
-    const filePath = path.replace(basePattern, '')
+    const encodedFilePath = path.replace(basePattern, '')
+    const filePath = decodeURIComponent(encodedFilePath)
 
     if (!filePath) {
       throw new HTTPException(400, { message: 'File path is required' })
@@ -331,7 +332,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     // Get the wildcard portion of the path
     const path = c.req.path
     const basePattern = `${prefix}/${taskId}/files/`
-    const filePath = path.replace(basePattern, '')
+    const encodedFilePath = path.replace(basePattern, '')
+    const filePath = decodeURIComponent(encodedFilePath)
     
     if (!filePath) {
       throw new HTTPException(400, { message: 'File path is required' })

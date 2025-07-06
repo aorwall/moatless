@@ -6,7 +6,7 @@
 const testCreateVibeTask = async () => {
   const testData = {
     agentType: 'test-agent',
-    templateId: 'basic-hello-website',
+    templateId: 'hello-world-ui',
     repositoryName: 'my-test-website-from-template',
     message: 'Create a test website from the template',
     start: false,

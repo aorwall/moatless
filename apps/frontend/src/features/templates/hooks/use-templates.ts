@@ -8,13 +8,13 @@ import type { RepositoryTemplate } from '../types'
 // This matches the template defined in the backend service
 const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
   {
-    id: 'basic-hello-website',
+    id: 'hello-world-ui',
     name: 'Basic Hello Website',
     description: 'A simple website template with HTML, CSS, and JavaScript',
-    gitUrl: 'https://github.com/aorwall/basic-hello-website.git',
-    setupCommand: 'npm install',
+    gitUrl: 'https://github.com/aorwall/hello-world-ui.git',
+    setupCommand: 'pnpm install',
     previewConfig: {
-      serverStartCommand: 'npm run dev',
+      serverStartCommand: 'pnpm run dev',
       serverPort: 3000,
       injectionStrategy: {
         method: 'html-injection',
@@ -42,7 +42,7 @@ export function useCreateVibeTask(options?: {
 }) {
   return useMutation({
     mutationFn: async (request: CreateVibeTaskRequest) => {
-      return await apiClient.post<{ taskId: string; status: string }>('/api/tasks/vibe', request)
+      return await apiClient.post<{ taskId: string; status: string }>('/api/v1/tasks/vibe', request)
     },
     onSuccess: options?.onSuccess,
     onError: options?.onError,

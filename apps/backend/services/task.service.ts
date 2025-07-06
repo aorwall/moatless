@@ -159,9 +159,9 @@ export class TaskService {
     // Define available templates - in future this could be stored in database
     const templates = [
       new RepositoryTemplate(
-        'basic-hello-website',
+        'hello-world-ui',
         'Basic Hello Website',
-        'https://github.com/aorwall/basic-hello-website.git',
+        'https://github.com/aorwall/hello-world-ui.git',
         'npm install',
         {
           serverStartCommand: 'npm run dev',
