@@ -269,8 +269,6 @@ export function useCloseTask(
   return useMutation<{ status: 'closed'; taskId: string }, Error, string>({
     mutationFn: (taskId: string) => tasksApi.closeTask(taskId),
     onMutate: async (taskId) => {
-      // Cancel any in-flight queries for this task
-      await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) })
 
       // Snapshot the previous task data
       const previousTask = queryClient.getQueryData<Task>(queryKeys.task(taskId))

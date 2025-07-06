@@ -43,8 +43,6 @@ export function ChatHeader() {
   const closeTask = useCloseTask({
     onSuccess: () => {
       toast.success('Task closed successfully')
-      // Navigate back to tasks list
-      navigate({ to: '/tasks' })
     },
     onError: (error) => {
       console.error('Failed to close task:', error)
@@ -210,7 +208,11 @@ export function ChatHeader() {
                     disabled={closeTask.isPending || status === 'running'}
                     className="h-7 px-2 cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-colors"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    {closeTask.isPending ? (
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    ) : (
+                      <X className="h-3.5 w-3.5" />
+                    )}
                     <span className="sr-only">Close task</span>
                   </Button>
                 </TooltipTrigger>

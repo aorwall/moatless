@@ -11,16 +11,6 @@ import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
-// Removed: AgentStatus interface is no longer part of the API
-// export interface AgentStatus {
-//   status: 'idle' | 'running' | 'preparing' | 'error'
-//   sessionId: string | null
-//   startedAt: string | null
-//   currentIteration: number | null
-//   workspaceStatus: WorkspaceStatus
-//   canExecute: boolean
-// }
-
 export class AgentService {
   private runningAgents: Map<string, BaseAgent> = new Map()
 
@@ -29,64 +19,6 @@ export class AgentService {
     private eventService: EventService,
     private workspaceService: WorkspaceService,
   ) {}
-
-  // Removed: getAgentStatus method is no longer part of the API
-  // /**
-  //  * Get the current agent status for a task
-  //  */
-  // async getAgentStatus(taskId: string): Promise<AgentStatus> {
-  //   // Get task to ensure it exists
-  //   const task = await this.storage.getTask(taskId)
-  //   if (!task) {
-  //     throw new TaskNotFoundError(taskId)
-  //   }
-  //
-  //   // Get workspace status
-  //   const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
-  //
-  //   // Check if agent is actively running
-  //   const runningAgent = this.runningAgents.get(taskId)
-  //
-  //   let agentStatus: AgentStatus['status'] = 'idle'
-  //   let sessionId: string | null = null
-  //   let startedAt: string | null = null
-  //   let currentIteration: number | null = null
-  //
-  //   if (runningAgent) {
-  //     agentStatus = 'running'
-  //     // Get the latest iteration info from task data
-  //     if (task.iterations && task.iterations.length > 0) {
-  //       const latestIteration = task.iterations[task.iterations.length - 1]
-  //       currentIteration = latestIteration.iterationNumber
-  //       sessionId = latestIteration.agentSessionId || null
-  //       startedAt = latestIteration.startTime.toISOString()
-  //     }
-  //   } else if (workspaceStatus.status === WorkspaceStatus.SETTING_UP) {
-  //     agentStatus = 'preparing'
-  //   } else if (workspaceStatus.status === WorkspaceStatus.NOT_SETUP) {
-  //     agentStatus = 'error'
-  //   } else {
-  //     // Agent not running, but check if we have session info from last iteration
-  //     if (task.iterations && task.iterations.length > 0) {
-  //       const latestIteration = task.iterations[task.iterations.length - 1]
-  //       sessionId = latestIteration.agentSessionId || null
-  //     }
-  //
-  //     // Check task status to determine agent status
-  //     if (task.status === 'error') {
-  //       agentStatus = 'error'
-  //     }
-  //   }
-  //
-  //   return {
-  //     status: agentStatus,
-  //     sessionId,
-  //     startedAt,
-  //     currentIteration,
-  //     workspaceStatus: workspaceStatus.status,
-  //     canExecute: workspaceStatus.status === WorkspaceStatus.IDLE && !runningAgent,
-  //   }
-  // }
 
   /**
    * Execute an agent for a task
@@ -224,45 +156,11 @@ export class AgentService {
   }
 
   /**
-   * Check if an agent is running for a task
-   */
-  isAgentRunning(taskId: string): boolean {
-    return this.runningAgents.has(taskId)
-  }
-
-  /**
    * Get the current running status of a task.
    * This is used by other services to check if agent is still running.
    */
   async getTaskRunningStatus(taskId: string): Promise<boolean> {
     return this.runningAgents.has(taskId)
-  }
-
-  /**
-   * Stop all running agents (useful for shutdown)
-   */
-  async stopAllAgents(): Promise<void> {
-    const runningTaskIds = Array.from(this.runningAgents.keys())
-    logger.info('Stopping all running agents', { count: runningTaskIds.length })
-
-    const stopPromises = runningTaskIds.map((taskId) => this.stopAgent(taskId))
-    await Promise.allSettled(stopPromises)
-
-    // Clear the map
-    this.runningAgents.clear()
-  }
-
-  /**
-   * Get the session ID for the latest agent execution
-   */
-  async getAgentSessionId(taskId: string): Promise<string | null> {
-    const task = await this.storage.getTask(taskId)
-    if (!task || !task.iterations || task.iterations.length === 0) {
-      return null
-    }
-
-    const latestIteration = task.iterations[task.iterations.length - 1]
-    return latestIteration.agentSessionId || null
   }
 
   /**
@@ -373,13 +271,16 @@ export class AgentService {
               message: errorMessage,
               timestamp: new Date(),
             }
-            // Error results don't have a result property
-            iteration.result = undefined
+
+            if ('result' in resultPayload) {
+              iteration.result = resultPayload.result
+            }
+
           } else {
             // Handle successful result
             iteration.status = 'completed'
             // Type guard to ensure we're dealing with a success result
-            if (resultPayload.subtype === 'success' && 'result' in resultPayload) {
+            if ('result' in resultPayload) {
               iteration.result =
                 resultPayload.result || 'No result found in Claude Code SDK result message'
             } else {
