@@ -22,6 +22,7 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.RESULT]: [
     queryKeys.task,
     queryKeys.taskGitDiff,
+    queryKeys.tasks,
   ],
   [EventType.ERROR]: [
     queryKeys.task,
@@ -36,6 +37,7 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.MESSAGE]: [],
   [EventType.INPUT]: [
     queryKeys.task,
+    queryKeys.tasks,
   ],
   [EventType.TOOL]: [
     queryKeys.taskEvents,
