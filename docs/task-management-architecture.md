@@ -559,7 +559,7 @@ const closeTask = useCloseTask()
 
 When using this pattern, closing Task A makes the close button appear as "loading" for Task B, even though Task B isn't being closed.
 
-#### Recommended Solution: Task-Specific Mutation Keys (Most Pragmatic)
+#### Solution: Task-Specific Mutation Keys
 ```typescript
 // ✅ Use mutation keys to track per-task state
 export function useCloseTask(
@@ -577,64 +577,7 @@ export function useCloseTask(
 const closeTask = useCloseTask(taskId)
 ```
 
-**Why this is the most pragmatic approach:**
-- Minimal code changes required
-- Leverages React Query's built-in mutation key feature
-- Works immediately without architectural changes
-- Maintains the existing hook pattern
-- Easy to understand and implement
-
-#### Solution 2: Mutation State Map
-```typescript
-// ✅ Track multiple operation states
-export function useTaskOperations() {
-  const [pendingOperations, setPendingOperations] = useState<Set<string>>(new Set())
-  
-  const closeTask = useMutation({
-    mutationFn: (taskId: string) => tasksApi.closeTask(taskId),
-    onMutate: (taskId) => {
-      setPendingOperations(prev => new Set(prev).add(taskId))
-    },
-    onSettled: (_, __, taskId) => {
-      setPendingOperations(prev => {
-        const next = new Set(prev)
-        next.delete(taskId)
-        return next
-      })
-    }
-  })
-  
-  return {
-    closeTask,
-    isClosing: (taskId: string) => pendingOperations.has(taskId)
-  }
-}
-```
-
-#### Solution 3: Task-Scoped Hook Factory
-```typescript
-// ✅ Create isolated mutation instances per task
-export function createTaskMutations(taskId: string) {
-  const queryClient = useQueryClient()
-  
-  const closeTask = useMutation({
-    mutationKey: ['tasks', taskId, 'close'],
-    mutationFn: () => tasksApi.closeTask(taskId),
-    // ... rest of mutation config
-  })
-  
-  const mergeTask = useMutation({
-    mutationKey: ['tasks', taskId, 'merge'],
-    mutationFn: () => tasksApi.mergeTask(taskId),
-    // ... rest of mutation config
-  })
-  
-  return { closeTask, mergeTask }
-}
-
-// Usage in component
-const { closeTask, mergeTask } = createTaskMutations(taskId)
-```
+This approach leverages React Query's built-in mutation key feature to ensure each task has its own isolated mutation state. The `isPending` state is now specific to each task ID, preventing UI state leakage between different task views.
 
 ### Task Context Isolation Guidelines
 
@@ -676,53 +619,6 @@ export function ChatHeader() {
 }
 ```
 
-### Future Enhancement: Task Mutations Provider
-
-For even better organization and performance, consider creating a dedicated mutations provider as part of the tri-context pattern:
-
-```typescript
-// task-mutations-provider.tsx
-export function TaskMutationsProvider({ taskId, children }) {
-  const closeTask = useCloseTask(taskId)
-  const mergeTask = useMergeTask(taskId)
-  const stopAgent = useStopAgent(taskId)
-  const sendMessage = useSendMessage(taskId)
-  
-  const value = useMemo(() => ({
-    closeTask,
-    mergeTask,
-    stopAgent,
-    sendMessage
-  }), [closeTask, mergeTask, stopAgent, sendMessage])
-  
-  return (
-    <TaskMutationsContext.Provider value={value}>
-      {children}
-    </TaskMutationsContext.Provider>
-  )
-}
-
-// Integrate into TaskProviders
-export function TaskProviders({ taskId, children }) {
-  return (
-    <TaskUIProvider>
-      <TaskDataProvider taskId={taskId}>
-        <TaskMutationsProvider taskId={taskId}>
-          <TaskEventsProvider taskId={taskId}>
-            {children}
-          </TaskEventsProvider>
-        </TaskMutationsProvider>
-      </TaskDataProvider>
-    </TaskUIProvider>
-  )
-}
-```
-
-This approach offers:
-- Centralized mutation management
-- Single instance per task (better performance)
-- Consistent with the tri-context architecture
-- Easy testing through context mocking
 
 ## Best Practices
 
