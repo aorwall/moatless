@@ -42,7 +42,7 @@ Additionally, the frontend recognizes composite event types with subtypes:
 
 ### Event Service
 
-The `EventService` (`server/services/event.service.ts`) is the central hub for event management:
+The `EventService` (`apps/backend/services/event.service.ts`) is the central hub for event management:
 
 ```typescript
 class EventService extends EventEmitter {
@@ -76,7 +76,7 @@ Key features:
 
 ### SSE Manager
 
-The `SSEConnectionManager` (`server/utils/sse-manager.ts`) handles connection lifecycle:
+The `SSEConnectionManager` (`apps/backend/utils/sse-manager.ts`) handles connection lifecycle:
 
 ```typescript
 class SSEConnectionManager {
@@ -146,7 +146,7 @@ Similar to global stream but filtered to a specific task:
 
 ### Global Event Stream Provider
 
-The `GlobalEventStreamProvider` (`client/src/features/events/contexts/global-event-stream-provider.tsx`) manages the global SSE connection:
+The `GlobalEventStreamProvider` (`apps/frontend/src/features/events/contexts/global-event-stream-provider.tsx`) manages the global SSE connection:
 
 ```typescript
 function GlobalEventStreamProvider({ children }) {
@@ -369,7 +369,7 @@ VITE_DEBUG_EVENT_STREAM=true npm run dev
 
 1. **Event Replay**: Replay events from a specific point
 2. **Event Compression**: Compress event payloads
-3. **WebSocket Upgrade**: Consider WebSockets for bidirectional communication
+3. **Enhanced SSE Features**: Implement message acknowledgments via API calls
 4. **Event Batching**: Batch multiple events in single message
 5. **Priority Events**: Fast-track critical events
 6. **Event Analytics**: Track event patterns and performance

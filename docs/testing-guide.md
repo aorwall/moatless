@@ -60,7 +60,7 @@ The key principle: **Mock at the boundaries, test the behavior**.
 
 1. **External Dependencies**
    - API calls and data fetching hooks
-   - SSE connections and WebSocket
+   - SSE connections and real-time events
    - Third-party libraries
    - Browser APIs
 
@@ -259,7 +259,7 @@ vi.mocked(useTask).mockReturnValue({
 });
 ```
 
-#### SSE and WebSocket
+#### SSE Connections
 ```typescript
 vi.mock('@/features/tasks/hooks/use-task-sse-connection', () => ({
   useTaskSSEConnection: vi.fn(() => ({

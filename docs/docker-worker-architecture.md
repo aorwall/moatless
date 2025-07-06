@@ -346,7 +346,7 @@ Add new endpoints for worker event forwarding:
 
 ```typescript
 // apps/backend/routes/worker.ts
-export async function registerWorkerRoutes(app: FastifyInstance) {
+export async function registerWorkerRoutes(app: Hono) {
   // Receive events from workers
   app.post('/events', async (request, reply) => {
     const event = request.body as Event

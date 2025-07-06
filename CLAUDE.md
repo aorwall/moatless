@@ -146,6 +146,8 @@ For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-
 
 ## Architecture
 
+For a comprehensive overview of the system architecture, see [Architecture Overview](./docs/architecture-overview.md).
+
 ### Project Structure (Turborepo Monorepo)
 ```
 ├── apps/                      # Application packages
@@ -209,7 +211,7 @@ For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-
 │       ├── routes/           # API route handlers
 │       ├── services/         # Business logic services
 │       │   └── agents/       # AI agent implementations
-│       ├── plugins/          # Fastify plugins
+│       ├── plugins/          # Hono plugins
 │       ├── utils/            # Server utilities
 │       ├── app.ts           # Server entry point
 │       ├── index.ts         # Main entry point
@@ -224,9 +226,9 @@ For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-
 │       ├── index.ts         # Package exports
 │       ├── dist/            # Build output
 │       └── package.json     # Shared package configuration
-├── data/                    # Persistent data storage
-│   ├── environments/          # Environment configurations
+├── data/                    # Persistent data storage (created at runtime)
 │   ├── events/                # Task events
+│   ├── repositories/          # Repository configurations
 │   ├── tasks/                 # Task metadata
 │   └── workspaces/            # Workspace data
 └── docs/                      # Documentation
@@ -237,7 +239,7 @@ For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-
 - **Monorepo Tool**: Turborepo
 - **Package Manager**: pnpm workspaces
 - **Frontend Framework**: React 19 with TypeScript
-- **Backend Framework**: Fastify with TypeScript
+- **Backend Framework**: Hono with TypeScript
 - **Build Tools**: Vite (frontend), TypeScript Compiler (backend)
 - **Styling**: Tailwind CSS v4
 - **Routing**: TanStack Router (file-based)

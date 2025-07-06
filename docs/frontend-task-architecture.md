@@ -466,7 +466,7 @@ function MyComponent() {
 
 ## Future Considerations
 
-1. **WebSocket Migration**: For bidirectional communication
+1. **Enhanced SSE**: Add support for message priorities and acknowledgments
 2. **Event Sourcing**: Complete task reconstruction from events
 3. **Offline Support**: Local event queue and sync
 4. **Collaborative Features**: Multi-user task interaction
