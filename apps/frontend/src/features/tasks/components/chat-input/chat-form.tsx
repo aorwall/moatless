@@ -8,7 +8,6 @@ import type { RepositoryTemplate } from '@/features/templates'
 import type { ChatInputMode } from '@/features/tasks/components/chat-input'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { Button } from '@/lib/components/ui/button'
-import { Input } from '@/lib/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -59,9 +58,6 @@ interface ChatFormProps {
   selectedTemplateId?: string
   onTemplateChange?: (templateId: string) => void
   templatesLoading?: boolean
-  // Repository name input (vibe mode)
-  repositoryName?: string
-  onRepositoryNameChange?: (name: string) => void
   maxHeight?: string
   uploadedFiles?: UploadFileResponse[]
   onFilesChange?: (files: UploadFileResponse[]) => void
@@ -100,9 +96,6 @@ export function ChatForm({
   selectedTemplateId,
   onTemplateChange,
   templatesLoading = false,
-  // Repository name input (vibe mode)
-  repositoryName = '',
-  onRepositoryNameChange,
   maxHeight = '200px',
   uploadedFiles = [],
   onFilesChange,
@@ -354,14 +347,6 @@ export function ChatForm({
                 ))}
               </SelectContent>
             </Select>
-          )}
-          {showTemplateSelector && onRepositoryNameChange && (
-            <Input
-              placeholder="Repository name"
-              value={repositoryName}
-              onChange={(e) => onRepositoryNameChange(e.target.value)}
-              className="h-6 px-2 text-xs w-[140px]"
-            />
           )}
           <Select value={selectedModel} onValueChange={onModelChange}>
             <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[130px]">

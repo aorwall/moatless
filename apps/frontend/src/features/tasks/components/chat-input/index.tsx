@@ -47,7 +47,6 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   onCreateVibeTask?: (
     message: string,
     templateId: string,
-    repositoryName: string,
     clearMessage: () => void,
     model?: ClaudeModel,
     files?: UploadFileResponse[],
@@ -92,7 +91,6 @@ export function ChatInput({
     }
     return undefined
   })
-  const [repositoryName, setRepositoryName] = useState<string>('')
   const [runningDuration, setRunningDuration] = useState<string>('')
   const [resumeConversation, setResumeConversation] = useState(true)
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>(() => {
@@ -227,9 +225,9 @@ export function ChatInput({
     } else if (mode === 'code' && selectedRepositoryId && onCreateTask && !isPending) {
       // Code mode - create task with uploaded files and selected branch
       onCreateTask(message.trim(), selectedRepositoryId, clearMessage, selectedModel, uploadedFiles, selectedBranch)
-    } else if (mode === 'vibe' && selectedTemplateId && repositoryName.trim() && onCreateVibeTask && !isPending) {
+    } else if (mode === 'vibe' && selectedTemplateId && onCreateVibeTask && !isPending) {
       // Vibe mode - create vibe task with template
-      onCreateVibeTask(message.trim(), selectedTemplateId, repositoryName.trim(), clearMessage, selectedModel, uploadedFiles)
+      onCreateVibeTask(message.trim(), selectedTemplateId, clearMessage, selectedModel, uploadedFiles)
     }
   }
 
@@ -276,7 +274,7 @@ export function ChatInput({
     (isTaskContext && (taskStatus === 'completed' || taskStatus === 'failed')) ||
     !(isTaskContext || 
       (mode === 'code' && selectedRepositoryId) || 
-      (mode === 'vibe' && selectedTemplateId && repositoryName.trim())
+      (mode === 'vibe' && selectedTemplateId)
     )
 
   return (
@@ -347,9 +345,6 @@ export function ChatInput({
           selectedTemplateId={selectedTemplateId}
           onTemplateChange={setSelectedTemplateId}
           templatesLoading={templatesLoading}
-          // Repository name input (vibe mode)
-          repositoryName={repositoryName}
-          onRepositoryNameChange={setRepositoryName}
           maxHeight={maxHeight}
           // File upload props
           uploadedFiles={uploadedFiles}

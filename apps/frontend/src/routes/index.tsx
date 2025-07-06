@@ -78,13 +78,15 @@ function Dashboard() {
   const handleCreateVibeTask = (
     message: string,
     templateId: string,
-    repositoryName: string,
     clearMessage: () => void,
     model?: string,
     files?: UploadFileResponse[],
   ) => {
     // Extract file paths from uploaded files
     const filePaths = files?.map((f) => f.absolutePath) || []
+
+    // Generate a repository name based on template and timestamp
+    const repositoryName = `${templateId}-${Date.now()}`
 
     createVibeTask.mutate(
       {
