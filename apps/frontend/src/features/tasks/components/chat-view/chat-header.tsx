@@ -27,7 +27,7 @@ export function ChatHeader() {
     params.taskId,
   )
 
-  const mergeTask = useMergeTask({
+  const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
       toast.success('Changes merged successfully')
     },
@@ -39,7 +39,7 @@ export function ChatHeader() {
     },
   })
 
-  const closeTask = useCloseTask({
+  const closeTask = useCloseTask(taskId, {
     onSuccess: () => {
       toast.success('Task closed successfully')
     },
@@ -65,13 +65,13 @@ export function ChatHeader() {
         })
         return
       }
-      mergeTask.mutate({ taskId })
+      mergeTask.mutate({})
     }
   }
 
   const handleClose = () => {
     if (taskId) {
-      closeTask.mutate(taskId)
+      closeTask.mutate()
     }
   }
 

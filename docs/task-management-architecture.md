@@ -13,6 +13,7 @@ This document outlines the architecture for the task management system in the Mo
 5. **Clean Separation**: Separation of concerns through focused context providers
 6. **Tri-Context Pattern**: Specialized providers for data, events, and UI state
 7. **Stable References**: Minimize re-renders through primitive extraction and stable dependencies
+8. **Task Isolation**: Each task's operations and state must be isolated from other tasks
 
 ## High-Level Architecture
 
@@ -543,6 +544,186 @@ This pattern respects the existing provider hierarchy:
 - **Performance Optimized**: Duration updates happen in leaf components only
 - **Type Safe**: Leverages existing TypeScript interfaces
 
+## Task Isolation Patterns
+
+### Ensuring Task Context Isolation
+
+To prevent state leakage between tasks, follow these patterns for mutations and operations:
+
+#### Problem: Global Mutation State
+```typescript
+// ❌ PROBLEM: Single mutation instance with global isPending state
+const closeTask = useCloseTask()
+// closeTask.isPending is true for ANY task being closed
+```
+
+When using this pattern, closing Task A makes the close button appear as "loading" for Task B, even though Task B isn't being closed.
+
+#### Recommended Solution: Task-Specific Mutation Keys (Most Pragmatic)
+```typescript
+// ✅ Use mutation keys to track per-task state
+export function useCloseTask(
+  taskId: string,
+  options?: UseMutationOptions<{ status: 'closed' }, Error, void>
+) {
+  return useMutation({
+    mutationKey: ['tasks', taskId, 'close'],
+    mutationFn: () => tasksApi.closeTask(taskId),
+    ...options
+  })
+}
+
+// Usage - each task gets its own mutation state
+const closeTask = useCloseTask(taskId)
+```
+
+**Why this is the most pragmatic approach:**
+- Minimal code changes required
+- Leverages React Query's built-in mutation key feature
+- Works immediately without architectural changes
+- Maintains the existing hook pattern
+- Easy to understand and implement
+
+#### Solution 2: Mutation State Map
+```typescript
+// ✅ Track multiple operation states
+export function useTaskOperations() {
+  const [pendingOperations, setPendingOperations] = useState<Set<string>>(new Set())
+  
+  const closeTask = useMutation({
+    mutationFn: (taskId: string) => tasksApi.closeTask(taskId),
+    onMutate: (taskId) => {
+      setPendingOperations(prev => new Set(prev).add(taskId))
+    },
+    onSettled: (_, __, taskId) => {
+      setPendingOperations(prev => {
+        const next = new Set(prev)
+        next.delete(taskId)
+        return next
+      })
+    }
+  })
+  
+  return {
+    closeTask,
+    isClosing: (taskId: string) => pendingOperations.has(taskId)
+  }
+}
+```
+
+#### Solution 3: Task-Scoped Hook Factory
+```typescript
+// ✅ Create isolated mutation instances per task
+export function createTaskMutations(taskId: string) {
+  const queryClient = useQueryClient()
+  
+  const closeTask = useMutation({
+    mutationKey: ['tasks', taskId, 'close'],
+    mutationFn: () => tasksApi.closeTask(taskId),
+    // ... rest of mutation config
+  })
+  
+  const mergeTask = useMutation({
+    mutationKey: ['tasks', taskId, 'merge'],
+    mutationFn: () => tasksApi.mergeTask(taskId),
+    // ... rest of mutation config
+  })
+  
+  return { closeTask, mergeTask }
+}
+
+// Usage in component
+const { closeTask, mergeTask } = createTaskMutations(taskId)
+```
+
+### Task Context Isolation Guidelines
+
+1. **Mutation Keys**: Always include taskId in mutation keys for proper isolation
+2. **Component Boundaries**: Each task view should create its own mutation instances
+3. **State Cleanup**: Ensure pending states are cleaned up when components unmount
+4. **Error Boundaries**: Wrap task components to prevent cross-task error propagation
+5. **Query Keys**: Structure query keys hierarchically to enable proper cache invalidation
+
+### Implementation Example: Isolated Task Header
+
+```typescript
+export function ChatHeader() {
+  const { taskId } = useTaskData()
+  
+  // Task-specific mutations with isolated state
+  const closeTask = useCloseTask(taskId, {
+    onSuccess: () => {
+      toast.success('Task closed successfully')
+    }
+  })
+  
+  const mergeTask = useMergeTask(taskId, {
+    onSuccess: () => {
+      toast.success('Changes merged successfully')
+    }
+  })
+  
+  return (
+    <div>
+      <Button
+        onClick={() => closeTask.mutate()}
+        disabled={closeTask.isPending}  // Only true for THIS task
+      >
+        {closeTask.isPending ? <Spinner /> : <X />}
+      </Button>
+    </div>
+  )
+}
+```
+
+### Future Enhancement: Task Mutations Provider
+
+For even better organization and performance, consider creating a dedicated mutations provider as part of the tri-context pattern:
+
+```typescript
+// task-mutations-provider.tsx
+export function TaskMutationsProvider({ taskId, children }) {
+  const closeTask = useCloseTask(taskId)
+  const mergeTask = useMergeTask(taskId)
+  const stopAgent = useStopAgent(taskId)
+  const sendMessage = useSendMessage(taskId)
+  
+  const value = useMemo(() => ({
+    closeTask,
+    mergeTask,
+    stopAgent,
+    sendMessage
+  }), [closeTask, mergeTask, stopAgent, sendMessage])
+  
+  return (
+    <TaskMutationsContext.Provider value={value}>
+      {children}
+    </TaskMutationsContext.Provider>
+  )
+}
+
+// Integrate into TaskProviders
+export function TaskProviders({ taskId, children }) {
+  return (
+    <TaskUIProvider>
+      <TaskDataProvider taskId={taskId}>
+        <TaskMutationsProvider taskId={taskId}>
+          <TaskEventsProvider taskId={taskId}>
+            {children}
+          </TaskEventsProvider>
+        </TaskMutationsProvider>
+      </TaskDataProvider>
+    </TaskUIProvider>
+  )
+}
+```
+
+This approach offers:
+- Centralized mutation management
+- Single instance per task (better performance)
+- Consistent with the tri-context architecture
+- Easy testing through context mocking
+
 ## Best Practices
 
 ### DO: Use Specialized Hooks
@@ -588,4 +769,16 @@ queueMicrotask(() => {
 // Avoid - can cause race conditions
 queryClient.setQueryData(key, data)
 queryClient.invalidateQueries({ queryKey: parentKey }) // Too fast!
+```
+
+### DO: Isolate Task Mutations
+```typescript
+// Good - task-specific mutation state
+const closeTask = useCloseTask(taskId)
+```
+
+### DON'T: Share Mutation State Across Tasks
+```typescript
+// Avoid - global mutation state affects all tasks
+const closeTask = useCloseTask() // No taskId isolation
 ```
