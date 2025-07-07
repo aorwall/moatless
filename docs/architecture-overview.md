@@ -45,19 +45,11 @@ graph TB
     
     subgraph "Storage Layer"
         FS[File System]
-        GIT[Git Worktrees]
         
         WS --> FS
-        WS --> GIT
-    end
-    
-    subgraph "External Services"
-        AI[AI Agents]
-        AS --> AI
     end
     
     RQ -.-> API
-    SSE -.-> ES
 ```
 
 ## Technology Stack
@@ -136,7 +128,7 @@ Repositories define how codebases are accessed and executed within the system.
 - Custom execution commands
 - Preview environment configuration
 
-📖 **[Repository Architecture Documentation](./components/repositories.md)** *(Coming Soon)*
+📖 **[Repository Architecture Documentation](./components/repositories.md)**
 
 ### 4. Workspaces - Isolated Execution
 Workspaces provide safe, isolated environments for code modifications.
@@ -170,7 +162,7 @@ Preview environments allow testing changes in real-time with development servers
 - Live reload integration
 - DOM inspection capabilities
 
-📖 **[Preview Environment Documentation](./components/preview-environments.md)** *(Coming Soon)*
+📖 **[Preview Environment Documentation](./components/preview-environments.md)**
 
 ### 6. Agents - AI Task Processors
 Agents are the AI models that process tasks and generate code modifications.
@@ -187,7 +179,7 @@ Agents are the AI models that process tasks and generate code modifications.
 - Streaming responses
 - Error recovery
 
-📖 **[Agent Architecture Documentation](./components/agents.md)** *(Coming Soon)*
+📖 **[Agent Architecture Documentation](./components/agents.md)**
 
 ### Frontend Architecture
 The frontend implements sophisticated patterns for performance and developer experience.
@@ -226,7 +218,7 @@ The backend exposes the following API routes under `/api/v1`:
 - `GET /tasks/:taskId/git-diff` - Get git diff
 - `POST /tasks/:taskId/execute` - Execute command
 
-#### Server Management
+#### Preview Environment Server Management
 - `POST /tasks/:taskId/server/start` - Start dev server
 - `POST /tasks/:taskId/server/stop` - Stop dev server
 - `POST /tasks/:taskId/server/restart` - Restart dev server
@@ -296,13 +288,6 @@ graph LR
 5. React Query cache invalidated
 6. UI updates automatically
 
-### 3. Workspace Operation Flow
-1. User requests file operation
-2. WorkspaceService validates permissions
-3. Operation performed in isolated worktree
-4. Result returned to frontend
-5. UI updates reflect changes
-
 ## Security Considerations
 
 ### Workspace Isolation
@@ -361,68 +346,11 @@ pnpm biome:check
 - `CORS_ORIGIN` - CORS configuration
 - `DATA_DIR` - Data storage directory
 
-### Production Setup
-- Build all packages with `pnpm build`
-- Serve frontend static files
-- Run backend with process manager
-- Configure reverse proxy
-
 ## Future Enhancements
 
 ### Planned Features
 1. Docker-based workspace isolation
 2. Enhanced authentication and authorization
-3. Distributed task processing
-4. Advanced monitoring and analytics
-5. Multi-agent collaboration support
-
-### Architecture Evolution
-1. Microservices architecture for scalability
-2. Event sourcing for audit trails
-3. GraphQL API layer
-4. Kubernetes deployment support
-
-## Documentation Structure
-
-### 📚 Component Architecture
-Detailed documentation for each core component:
-
-#### Available Now
-- [Task Management Architecture](./task-management-architecture.md) - Task system design and tri-context pattern
-- [Event Architecture](./event-architecture.md) - SSE-based real-time event system
-- [Workspace Architecture](./workspace-architecture.md) - Git worktree isolation and execution
-- [Frontend Task Architecture](./frontend-task-architecture.md) - Frontend patterns and performance
-
-#### Coming Soon
-- [Repository Architecture](./components/repositories.md) - Repository configuration and management
-- [Preview Environment Architecture](./components/preview-environments.md) - Development server integration
-- [Agent Architecture](./components/agents.md) - AI agent implementation details
-
-### 🛠️ Development Guides
-Practical guides for development:
-- [API Reference](./api-reference.md) - Complete REST API documentation
-- [Testing Guide](./testing-guide.md) - Testing strategies and patterns
-- [Styling Guide](./styling-guide.md) - UI/UX guidelines and Tailwind usage
-- [Git Operations Guide](./git-operations-guide.md) - Git workflow for LLMs
-
-### 📋 Planning & Process
-- [Documentation Improvement Plan](./documentation-improvement-plan.md) - Roadmap for documentation consistency
-
-## Documentation Status
-
-### Up-to-Date Documents
-The following documents accurately reflect the current implementation:
-- **Task Management Architecture** - Comprehensive tri-context pattern documentation
-- **Event Architecture** - SSE and event streaming patterns (paths updated)
-- **Workspace Architecture** - Git worktree and Docker workspace support
-- **Frontend Task Architecture** - Detailed frontend patterns and lifecycle
-
-### Documents Needing Updates
-Based on code analysis, these areas need documentation updates:
-1. **Repository vs Environment** - Clarify terminology (repositories are used, not environments)
-2. **Agent Status Endpoint** - Document missing `/agent-status` endpoint or remove references
-3. **File Paths** - Update all `server/` and `client/` paths to `apps/backend/` and `apps/frontend/`
-4. **Framework References** - Ensure all Fastify references are updated to Hono
 
 ## Glossary
 
