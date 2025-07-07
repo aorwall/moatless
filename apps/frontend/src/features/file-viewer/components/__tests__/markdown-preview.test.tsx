@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import mermaid from 'mermaid'
 import { MarkdownPreview } from '../markdown-preview'
@@ -15,6 +15,14 @@ vi.mock('mermaid', () => ({
 const mockUseTheme = vi.fn(() => ({ theme: 'light' }))
 vi.mock('@/lib/components/theme-provider', () => ({
   useTheme: () => mockUseTheme(),
+}))
+
+// Mock Dialog components
+vi.mock('@/lib/components/ui/dialog', () => ({
+  Dialog: ({ children, open }: any) => open ? <div data-testid="dialog">{children}</div> : null,
+  DialogContent: ({ children }: any) => <div data-testid="dialog-content">{children}</div>,
+  DialogHeader: ({ children }: any) => <div>{children}</div>,
+  DialogTitle: ({ children }: any) => <h2>{children}</h2>,
 }))
 
 describe('MarkdownPreview', () => {
@@ -462,6 +470,146 @@ print("hello")
       // Should not crash with null/undefined
       rerender(<MarkdownPreview content={null as any} />)
       rerender(<MarkdownPreview content={undefined as any} />)
+    })
+  })
+
+  describe('Mermaid Diagram Expansion', () => {
+    it('should make mermaid diagrams clickable', async () => {
+      const content = `
+\`\`\`mermaid
+graph TD
+    A[Click me] --> B[To expand]
+\`\`\`
+`
+      render(<MarkdownPreview content={content} />)
+
+      // Wait for mermaid to render
+      await waitFor(() => {
+        const mermaidElements = document.querySelectorAll('.mermaid-rendered')
+        expect(mermaidElements).toHaveLength(1)
+      })
+
+      // Check that the diagram has a clickable wrapper
+      const wrapper = document.querySelector('.relative.group.cursor-pointer')
+      expect(wrapper).toBeInTheDocument()
+      
+      // Check for the expand button
+      const expandButton = screen.getByLabelText('Expand diagram')
+      expect(expandButton).toBeInTheDocument()
+    })
+
+    it('should open dialog when mermaid diagram is clicked', async () => {
+      const content = `
+\`\`\`mermaid
+graph TD
+    A[Start] --> B[End]
+\`\`\`
+`
+      render(<MarkdownPreview content={content} />)
+
+      // Wait for mermaid to render
+      await waitFor(() => {
+        const mermaidElements = document.querySelectorAll('.mermaid-rendered')
+        expect(mermaidElements).toHaveLength(1)
+      })
+
+      // Click the diagram wrapper
+      const wrapper = document.querySelector('.relative.group.cursor-pointer') as HTMLElement
+      expect(wrapper).toBeInTheDocument()
+      fireEvent.click(wrapper)
+
+      // Check that dialog opened
+      await waitFor(() => {
+        expect(screen.getByTestId('dialog')).toBeInTheDocument()
+        expect(screen.getByTestId('dialog-content')).toBeInTheDocument()
+        expect(screen.getByText('Mermaid Diagram')).toBeInTheDocument()
+      })
+    })
+
+    it('should display expanded SVG in dialog', async () => {
+      const content = `
+\`\`\`mermaid
+graph LR
+    A[Expanded] --> B[View]
+\`\`\`
+`
+      render(<MarkdownPreview content={content} />)
+
+      // Wait for mermaid to render
+      await waitFor(() => {
+        const mermaidElements = document.querySelectorAll('.mermaid-rendered')
+        expect(mermaidElements).toHaveLength(1)
+      })
+
+      // Click the diagram
+      const wrapper = document.querySelector('.relative.group.cursor-pointer') as HTMLElement
+      fireEvent.click(wrapper)
+
+      // Check that the SVG is displayed in the dialog
+      await waitFor(() => {
+        const dialogContent = screen.getByTestId('dialog-content')
+        const svg = dialogContent.querySelector('svg')
+        expect(svg).toBeInTheDocument()
+        expect(dialogContent.innerHTML).toContain('graph LR')
+      })
+    })
+
+    it('should show expand button on hover', async () => {
+      const content = `
+\`\`\`mermaid
+flowchart TB
+    A[Hover] --> B[Me]
+\`\`\`
+`
+      render(<MarkdownPreview content={content} />)
+
+      // Wait for mermaid to render
+      await waitFor(() => {
+        const mermaidElements = document.querySelectorAll('.mermaid-rendered')
+        expect(mermaidElements).toHaveLength(1)
+      })
+
+      // The expand button should have opacity classes
+      const expandButton = screen.getByLabelText('Expand diagram')
+      expect(expandButton.className).toContain('opacity-0')
+      expect(expandButton.className).toContain('group-hover:opacity-100')
+    })
+
+    it('should handle multiple diagrams independently', async () => {
+      const content = `
+\`\`\`mermaid
+graph TD
+    A1[First] --> B1[Diagram]
+\`\`\`
+
+Some text
+
+\`\`\`mermaid
+graph TD
+    A2[Second] --> B2[Diagram]
+\`\`\`
+`
+      render(<MarkdownPreview content={content} />)
+
+      // Wait for both diagrams to render
+      await waitFor(() => {
+        const mermaidElements = document.querySelectorAll('.mermaid-rendered')
+        expect(mermaidElements).toHaveLength(2)
+      })
+
+      // Both should be clickable
+      const wrappers = document.querySelectorAll('.relative.group.cursor-pointer')
+      expect(wrappers).toHaveLength(2)
+
+      // Click the first diagram
+      fireEvent.click(wrappers[0] as HTMLElement)
+
+      // Check that dialog shows first diagram content
+      await waitFor(() => {
+        const dialogContent = screen.getByTestId('dialog-content')
+        expect(dialogContent.innerHTML).toContain('A1[First]')
+        expect(dialogContent.innerHTML).not.toContain('A2[Second]')
+      })
     })
   })
 })

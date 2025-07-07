@@ -1,9 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import mermaid from 'mermaid'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/components/theme-provider'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/lib/components/ui/dialog'
 
 interface MarkdownPreviewProps {
   content: string
@@ -14,6 +20,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const renderingRef = useRef<Set<string>>(new Set())
+  const [expandedDiagram, setExpandedDiagram] = useState<{svg: string, definition: string} | null>(null)
 
   useEffect(() => {
     const isDark =
@@ -54,7 +61,34 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           .then(({ svg }) => {
             // Only update if element is still in DOM
             if (element.parentNode) {
-              element.innerHTML = svg
+              // Create a wrapper div with the SVG and an expand button
+              const wrapper = document.createElement('div')
+              wrapper.className = 'relative group cursor-pointer transition-all hover:opacity-90'
+              wrapper.innerHTML = `
+                ${svg}
+                <div class="absolute inset-0 bg-foreground/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+                <button 
+                  class="absolute top-2 right-2 p-2 bg-background/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border pointer-events-auto"
+                  aria-label="Expand diagram"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m21 21-6-6m6 6v-4.8m0 4.8h-4.8"/>
+                    <path d="M3 16.2V21m0 0h4.8M3 21l6-6"/>
+                    <path d="M21 7.8V3m0 0h-4.8M21 3l-6 6"/>
+                    <path d="M3 7.8V3m0 0h4.8M3 3l6 6"/>
+                  </svg>
+                </button>
+              `
+              
+              // Add click handler to the wrapper
+              wrapper.addEventListener('click', (e) => {
+                e.preventDefault()
+                setExpandedDiagram({ svg, definition: graphDefinition })
+              })
+              
+              // Replace the pre element content with the wrapper
+              element.innerHTML = ''
+              element.appendChild(wrapper)
               element.classList.remove('language-mermaid')
               element.classList.add('mermaid-rendered')
             }
@@ -82,7 +116,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
     return () => {
       renderingRef.current.clear()
     }
-  }, [content])
+  }, [content, setExpandedDiagram])
 
   return (
     <div
@@ -168,6 +202,23 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
       >
         {content}
       </ReactMarkdown>
+      
+      {/* Expanded Diagram Dialog */}
+      <Dialog open={!!expandedDiagram} onOpenChange={(open) => !open && setExpandedDiagram(null)}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Mermaid Diagram</DialogTitle>
+          </DialogHeader>
+          <div className="flex justify-center items-center p-4">
+            {expandedDiagram && (
+              <div 
+                dangerouslySetInnerHTML={{ __html: expandedDiagram.svg }}
+                className="[&>svg]:max-w-full [&>svg]:h-auto"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
