@@ -1,10 +1,10 @@
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
-import { Progress } from '@/lib/components/ui/progress'
-import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
-import { MinifiedEventItem } from './minified-event-item'
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
+import { Progress } from '@/lib/components/ui/progress.tsx'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
+import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedLastThreeEventsDisplayProps {
   events: Array<Event | MergedEvent>
@@ -29,7 +29,7 @@ function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
   return false
 }
 
-export function MinifiedLastThreeEventsDisplay({
+export function MinifiedLastEventsDisplay({
   events,
   className = '',
   isRunning = false,

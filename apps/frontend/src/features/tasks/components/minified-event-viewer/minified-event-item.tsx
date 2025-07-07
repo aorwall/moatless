@@ -17,7 +17,7 @@ import {
   Search,
   Terminal,
 } from 'lucide-react'
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
 
 interface MinifiedEventItemProps {
   event: Event | MergedEvent

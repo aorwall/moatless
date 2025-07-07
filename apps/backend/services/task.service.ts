@@ -210,7 +210,7 @@ export class TaskService {
       name: params.repositoryName,
       description: `Created from template: ${template.name}`,
       path: templateRepoDir,
-      useGitWorktrees: true,
+      useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: template.setupCommand,

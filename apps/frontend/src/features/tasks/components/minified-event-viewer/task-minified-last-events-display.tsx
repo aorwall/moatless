@@ -1,7 +1,7 @@
-import { useLatestContextTokens, useTaskDuration, useTaskEvents } from '@/features/tasks/contexts/task-providers'
-import { MinifiedLastEventDisplay } from './minified-last-event-display'
+import { useLatestContextTokens, useTaskDuration, useTaskEvents } from '@/features/tasks/contexts/task-providers.tsx'
+import { MinifiedLastEventsDisplay } from './minified-last-events-display.tsx'
 
-export function TaskMinifiedLastEventDisplay() {
+export function TaskMinifiedLastEventsDisplay() {
   const { events } = useTaskEvents()
   const { isRunning, runningStartTime } = useTaskDuration()
   const latestContextTokens = useLatestContextTokens()
@@ -11,7 +11,7 @@ export function TaskMinifiedLastEventDisplay() {
   }
 
   return (
-    <MinifiedLastEventDisplay 
+    <MinifiedLastEventsDisplay
       events={events} 
       isRunning={isRunning}
       runningStartTime={runningStartTime}

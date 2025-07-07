@@ -23,7 +23,7 @@ import { IsolatedTimer } from '@/lib/components/ui/isolated-timer'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
-import { TaskMinifiedLastThreeEventsDisplay } from '../event-viewer'
+import { TaskMinifiedLastEventsDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
 import { ChatViewSkeleton } from './chat-view-skeleton'
 
@@ -321,7 +321,8 @@ function ChatViewComponent() {
             {/* Show last three events when task is running */}
             {isTaskRunning && (
               <div className="mb-4">
-                <TaskMinifiedLastThreeEventsDisplay />
+
+                <TaskMinifiedLastEventsDisplay />
               </div>
             )}
 

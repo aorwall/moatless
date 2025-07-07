@@ -1,6 +1,0 @@
-export { MinifiedEventItem } from './minified-event-item'
-export { MinifiedEventList } from './minified-event-list'
-export { MinifiedLastEventDisplay } from './minified-last-event-display'
-export { MinifiedLastThreeEventsDisplay } from './minified-last-three-events-display'
-export { TaskMinifiedLastEventDisplay } from './task-minified-last-event-display'
-export { TaskMinifiedLastThreeEventsDisplay } from './task-minified-last-three-events-display'
