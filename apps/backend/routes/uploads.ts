@@ -3,8 +3,22 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
+import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { logger } from '../utils/logger.js'
+
+// Response schemas
+const uploadResponseSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  path: z.string(),
+  absolutePath: z.string(),
+  size: z.number(),
+  mimeType: z.string(),
+  uploadedAt: z.string(),
+})
 
 export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: string) {
   // Get the upload directory from env or use default
@@ -13,7 +27,46 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
   }
 
   // Upload file endpoint
-  app.post(prefix, async (c) => {
+  app.post(
+    prefix,
+    describeRoute({
+      description: 'Upload a file',
+      requestBody: {
+        description: 'File to upload',
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              properties: {
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'File to upload',
+                },
+              },
+              required: ['file'],
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'File uploaded successfully',
+          content: {
+            'application/json': {
+              schema: resolver(uploadResponseSchema),
+            },
+          },
+        },
+        400: {
+          description: 'No file provided or invalid request',
+        },
+        500: {
+          description: 'Failed to upload file',
+        },
+      },
+    }),
+    async (c) => {
     try {
       const formData = await c.req.formData()
       const file = formData.get('file') as File
@@ -74,7 +127,65 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
   })
 
   // Get uploaded file
-  app.get(`${prefix}/:uploadId/:filename`, async (c) => {
+  app.get(
+    `${prefix}/:uploadId/:filename`,
+    describeRoute({
+      description: 'Download or view an uploaded file',
+      parameters: [
+        {
+          name: 'uploadId',
+          in: 'path',
+          required: true,
+          schema: {
+            type: 'string',
+          },
+          description: 'Upload ID of the file',
+        },
+        {
+          name: 'filename',
+          in: 'path',
+          required: true,
+          schema: {
+            type: 'string',
+          },
+          description: 'Name of the file to retrieve',
+        },
+      ],
+      responses: {
+        200: {
+          description: 'File content',
+          content: {
+            'application/octet-stream': {
+              schema: {
+                type: 'string',
+                format: 'binary',
+              },
+            },
+            'image/*': {
+              schema: {
+                type: 'string',
+                format: 'binary',
+              },
+            },
+            'text/plain': {
+              schema: {
+                type: 'string',
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Upload ID and filename are required',
+        },
+        404: {
+          description: 'File not found',
+        },
+        500: {
+          description: 'Failed to retrieve file',
+        },
+      },
+    }),
+    async (c) => {
     const uploadId = c.req.param('uploadId')
     const filename = c.req.param('filename')
     

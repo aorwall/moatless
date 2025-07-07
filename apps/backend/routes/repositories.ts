@@ -1,5 +1,8 @@
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
+import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { RepositoryNotFoundError } from '@moatless/shared/constants/errors'
 import {
@@ -9,10 +12,82 @@ import {
 } from '@moatless/shared/schemas/repository.schemas'
 import type { RepositoryList } from '@moatless/shared/types/repository'
 
+// Response schemas
+const repositoryResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  path: z.string(),
+  remoteUrl: z.string().optional(),
+  branch: z.string().optional(),
+  cloneMode: z.string(),
+  setupCommands: z.array(z.string()).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+const repositoryListResponseSchema = z.object({
+  repositories: z.array(repositoryResponseSchema),
+})
+
+const setupResponseSchema = z.object({
+  success: z.boolean(),
+  output: z.string(),
+})
+
+const fileSearchResultSchema = z.object({
+  files: z.array(z.object({
+    path: z.string(),
+    type: z.string(),
+    size: z.number().optional(),
+  })),
+})
+
+const branchesResponseSchema = z.object({
+  branches: z.array(z.string()),
+})
+
+const previewConfigResponseSchema = z.object({
+  previewConfig: z.object({
+    framework: z.string().optional(),
+    buildCommand: z.string().optional(),
+    devCommand: z.string().optional(),
+    startCommand: z.string().optional(),
+    installCommand: z.string().optional(),
+    port: z.number().optional(),
+  }),
+})
+
 export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: string) {
 
   // Create repository
-  app.post(prefix, async (c) => {
+  app.post(
+    prefix,
+    describeRoute({
+      description: 'Create a new repository',
+      requestBody: {
+        description: 'Repository data to create',
+        content: {
+          'application/json': {
+            schema: resolver(CreateRepositorySchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Repository created successfully',
+          content: {
+            'application/json': {
+              schema: resolver(repositoryResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request body',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -24,7 +99,22 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // List repositories
-  app.get(prefix, async (c) => {
+  app.get(
+    prefix,
+    describeRoute({
+      description: 'Get list of all repositories',
+      responses: {
+        200: {
+          description: 'List of repositories',
+          content: {
+            'application/json': {
+              schema: resolver(repositoryListResponseSchema) as any,
+            },
+          },
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -33,7 +123,39 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Get repository by ID
-  app.get(`${prefix}/:repositoryId`, async (c) => {
+  app.get(
+    `${prefix}/:repositoryId`,
+    describeRoute({
+      description: 'Get repository by ID',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Repository details',
+          content: {
+            'application/json': {
+              schema: resolver(repositoryResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid repository ID',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -52,7 +174,47 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Update repository
-  app.put(`${prefix}/:repositoryId`, async (c) => {
+  app.put(
+    `${prefix}/:repositoryId`,
+    describeRoute({
+      description: 'Update repository',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Repository data to update',
+        content: {
+          'application/json': {
+            schema: resolver(UpdateRepositorySchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Repository updated successfully',
+          content: {
+            'application/json': {
+              schema: resolver(repositoryResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -69,7 +231,34 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Delete repository
-  app.delete(`${prefix}/:repositoryId`, async (c) => {
+  app.delete(
+    `${prefix}/:repositoryId`,
+    describeRoute({
+      description: 'Delete repository',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        204: {
+          description: 'Repository deleted successfully',
+        },
+        400: {
+          description: 'Invalid repository ID',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -83,7 +272,39 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Run setup script
-  app.post(`${prefix}/:repositoryId/run-setup`, async (c) => {
+  app.post(
+    `${prefix}/:repositoryId/run-setup`,
+    describeRoute({
+      description: 'Run setup commands for repository',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Setup completed successfully',
+          content: {
+            'application/json': {
+              schema: resolver(setupResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid repository ID',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -107,7 +328,47 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Search files in repository
-  app.post(`${prefix}/:repositoryId/search-files`, async (c) => {
+  app.post(
+    `${prefix}/:repositoryId/search-files`,
+    describeRoute({
+      description: 'Search files in repository',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'File search parameters',
+        content: {
+          'application/json': {
+            schema: resolver(FileSearchSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'File search results',
+          content: {
+            'application/json': {
+              schema: resolver(fileSearchResultSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -131,7 +392,39 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Get git branches
-  app.get(`${prefix}/:repositoryId/branches`, async (c) => {
+  app.get(
+    `${prefix}/:repositoryId/branches`,
+    describeRoute({
+      description: 'Get git branches for repository',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of git branches',
+          content: {
+            'application/json': {
+              schema: resolver(branchesResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid repository ID',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     
@@ -151,7 +444,39 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
   })
 
   // Detect framework
-  app.post(`${prefix}/:repositoryId/detect-framework`, async (c) => {
+  app.post(
+    `${prefix}/:repositoryId/detect-framework`,
+    describeRoute({
+      description: 'Detect framework and preview configuration for repository',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Detected framework configuration',
+          content: {
+            'application/json': {
+              schema: resolver(previewConfigResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid repository ID',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services
     

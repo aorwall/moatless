@@ -1,4 +1,7 @@
 import type { Hono } from 'hono'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
+import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
@@ -8,21 +11,49 @@ import { registerUploadRoutes } from './uploads.js'
 
 const API_PREFIX = '/api/v1'
 
+const apiInfoResponseSchema = z.object({
+  message: z.string(),
+  version: z.string(),
+  endpoints: z.object({
+    health: z.string(),
+    tasks: z.string(),
+    repositories: z.string(),
+    commands: z.string(),
+    events: z.string(),
+  }),
+})
+
 export async function registerRoutes(app: Hono<AppBindings>) {
   // Main API info endpoint
-  app.get(`${API_PREFIX}`, (c) => {
-    return c.json({
-      message: 'Moatless API',
-      version: '1.0.0',
-      endpoints: {
-        health: '/health',
-        tasks: `${API_PREFIX}/tasks`,
-        repositories: `${API_PREFIX}/repositories`,
-        commands: `${API_PREFIX}/commands`,
-        events: `${API_PREFIX}/events`,
+  app.get(
+    `${API_PREFIX}`,
+    describeRoute({
+      description: 'Get API information and available endpoints',
+      responses: {
+        200: {
+          description: 'API information and endpoint list',
+          content: {
+            'application/json': {
+              schema: resolver(apiInfoResponseSchema),
+            },
+          },
+        },
       },
-    })
-  })
+    }),
+    (c) => {
+      return c.json({
+        message: 'Moatless API',
+        version: '1.0.0',
+        endpoints: {
+          health: '/health',
+          tasks: `${API_PREFIX}/tasks`,
+          repositories: `${API_PREFIX}/repositories`,
+          commands: `${API_PREFIX}/commands`,
+          events: `${API_PREFIX}/events`,
+        },
+      })
+    }
+  )
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app, `${API_PREFIX}/tasks`)

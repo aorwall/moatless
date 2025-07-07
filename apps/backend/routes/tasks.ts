@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { TaskNotFoundError, WorkspaceError } from '@moatless/shared/constants/errors'
@@ -10,6 +12,14 @@ import {
   SendMessageRequestSchema,
   TaskListQuerySchema,
   type TaskListResponse,
+  SimpleTaskResponseSchema,
+  SendMessageResponseSchema,
+  DeleteTaskResponseSchema,
+  StopAgentResponseSchema,
+  WorkspaceStatusResponseSchema,
+  GitSyncStatusInfoSchema,
+  MergeTaskResponseSchema,
+  ServerLogsResponseSchema,
 } from '@moatless/shared/types/api'
 import type { EventType } from '@moatless/shared/types/event'
 
@@ -46,11 +56,164 @@ const MergeTaskSchema = z.object({
   commitMessage: z.string().optional(),
 })
 
+// Response schemas
+const TaskIterationSchema = z.object({
+  iterationNumber: z.number(),
+  startTime: z.date(),
+  endTime: z.date().optional(),
+  status: z.enum(['active', 'completed', 'error', 'failed']),
+  messageCount: z.number(),
+  costUsd: z.number(),
+  initialMessage: z.string().optional(),
+  commandName: z.string().optional(),
+  result: z.string().optional(),
+  durationMs: z.number().optional(),
+  gitDiff: z.string().optional(),
+  merged: z.boolean().optional(),
+  agentSessionId: z.string().optional(),
+  gitSyncStatus: z.object({
+    status: z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']),
+    commitsAhead: z.number(),
+    commitsBehind: z.number(),
+    hasUncommittedChanges: z.boolean(),
+    currentBranch: z.string(),
+    baseBranch: z.string(),
+    originExists: z.boolean(),
+  }).optional(),
+  attachments: z.array(z.object({
+    fileId: z.string().optional(),
+    filename: z.string(),
+    path: z.string(),
+    mimeType: z.string(),
+  })).optional(),
+  error: z.object({
+    message: z.string(),
+    stack: z.string().optional(),
+    timestamp: z.date(),
+  }).optional(),
+})
+
+const TaskResponseSchema = z.object({
+  taskId: z.string(),
+  createdAt: z.date(),
+  lastMessageAt: z.date(),
+  agentType: z.string(),
+  repositoryId: z.string(),
+  status: z.enum(['open', 'running', 'error', 'merged', 'closed']),
+  numTurns: z.number(),
+  totalCostUsd: z.number(),
+  iterations: z.array(TaskIterationSchema),
+  workspacePath: z.string().optional(),
+})
+
+const TaskListResponseSchema = z.object({
+  tasks: z.array(TaskResponseSchema),
+  items: z.array(TaskResponseSchema),
+  pagination: z.object({
+    limit: z.number(),
+    offset: z.number(),
+    total: z.number().optional(),
+  }),
+})
+
+const EventListResponseSchema = z.object({
+  events: z.array(z.any()), // Event type is complex, using any for now
+  items: z.array(z.any()),
+})
+
+const CloseTaskResponseSchema = z.object({
+  status: z.string(),
+  taskId: z.string(),
+})
+
+const FileListResponseSchema = z.object({
+  files: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+    type: z.enum(['file', 'directory']),
+    size: z.number().optional(),
+  })),
+  totalCount: z.number(),
+})
+
+const FileContentResponseSchema = z.object({
+  content: z.string(),
+  encoding: z.string(),
+})
+
+const FileWriteResponseSchema = z.object({
+  success: z.boolean(),
+})
+
+const FileSearchResponseSchema = z.object({
+  files: z.array(z.object({
+    path: z.string(),
+    matches: z.number(),
+  })),
+  totalMatches: z.number(),
+})
+
+const GitDiffResponseSchema = z.object({
+  diff: z.string(),
+  files: z.array(z.string()),
+  hasChanges: z.boolean(),
+})
+
+const CommandResultSchema = z.object({
+  command: z.string(),
+  output: z.string(),
+  exitCode: z.number(),
+  durationMs: z.number(),
+})
+
+const ServerStatusSchema = z.object({
+  running: z.boolean(),
+  configured: z.boolean(),
+  url: z.string().optional(),
+  pid: z.number().optional(),
+  uptimeSeconds: z.number(),
+})
+
+const ServerStopResponseSchema = z.object({
+  stopped: z.boolean(),
+  runtime: z.number(),
+})
+
+const ServerLogsResponseExtendedSchema = ServerLogsResponseSchema.extend({
+  truncated: z.boolean(),
+})
+
 
 export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string) {
 
   // Create a new task
-  app.post(prefix, async (c) => {
+  app.post(
+    prefix,
+    describeRoute({
+      description: 'Create a new task',
+      requestBody: {
+        description: 'Task creation parameters',
+        content: {
+          'application/json': {
+            schema: resolver(CreateTaskRequestSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Task created successfully',
+          content: {
+            'application/json': {
+              schema: resolver(SimpleTaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request body',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -66,7 +229,33 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Create a new vibe task from template
-  app.post(`${prefix}/vibe`, async (c) => {
+  app.post(
+    `${prefix}/vibe`,
+    describeRoute({
+      description: 'Create a new task from a Vibe template',
+      requestBody: {
+        description: 'Vibe task creation parameters',
+        content: {
+          'application/json': {
+            schema: resolver(CreateVibeTaskRequestSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Vibe task created successfully',
+          content: {
+            'application/json': {
+              schema: resolver(SimpleTaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request body',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -82,7 +271,39 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get task by ID
-  app.get(`${prefix}/:taskId`, async (c) => {
+  app.get(
+    `${prefix}/:taskId`,
+    describeRoute({
+      description: 'Get task details by ID',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Task details',
+          content: {
+            'application/json': {
+              schema: resolver(TaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -101,7 +322,60 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // List all tasks with pagination
-  app.get(prefix, async (c) => {
+  app.get(
+    prefix,
+    describeRoute({
+      description: 'List all tasks with pagination and filtering',
+      parameters: [
+        {
+          name: 'limit',
+          in: 'query',
+          required: false,
+          description: 'Number of tasks to return (1-100)',
+          schema: {
+            type: 'number',
+            minimum: 1,
+            maximum: 100,
+            default: 20,
+          },
+        },
+        {
+          name: 'offset',
+          in: 'query',
+          required: false,
+          description: 'Number of tasks to skip',
+          schema: {
+            type: 'number',
+            minimum: 0,
+            default: 0,
+          },
+        },
+        {
+          name: 'status',
+          in: 'query',
+          required: false,
+          description: 'Filter by task status',
+          schema: {
+            type: 'string',
+            enum: ['open', 'running', 'error', 'merged', 'closed'],
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of tasks',
+          content: {
+            'application/json': {
+              schema: resolver(TaskListResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid query parameters',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -124,7 +398,47 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Send message to task
-  app.post(`${prefix}/:taskId/messages`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/messages`,
+    describeRoute({
+      description: 'Send a message to a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Message parameters',
+        content: {
+          'application/json': {
+            schema: resolver(SendMessageRequestSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Message sent successfully',
+          content: {
+            'application/json': {
+              schema: resolver(SendMessageResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -142,7 +456,48 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get task events without pagination
-  app.get(`${prefix}/:taskId/events`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/events`,
+    describeRoute({
+      description: 'Get all events for a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'type',
+          in: 'query',
+          required: false,
+          description: 'Filter by event type',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of task events',
+          content: {
+            'application/json': {
+              schema: resolver(EventListResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService, event: eventService } = services
     
@@ -177,7 +532,39 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Delete task
-  app.delete(`${prefix}/:taskId`, async (c) => {
+  app.delete(
+    `${prefix}/:taskId`,
+    describeRoute({
+      description: 'Delete a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Task deleted successfully',
+          content: {
+            'application/json': {
+              schema: resolver(DeleteTaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -191,7 +578,39 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get workspace status
-  app.get(`${prefix}/:taskId/workspace-status`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/workspace-status`,
+    describeRoute({
+      description: 'Get workspace status for a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Workspace status information',
+          content: {
+            'application/json': {
+              schema: resolver(WorkspaceStatusResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -205,7 +624,36 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Stop agent
-  app.post(`${prefix}/:taskId/stop`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/stop`,
+    describeRoute({
+      description: 'Stop the agent running for a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Agent stop status',
+          content: {
+            'application/json': {
+              schema: resolver(StopAgentResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -223,7 +671,39 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Close task (teardown workspace, stop server, set status to closed)
-  app.post(`${prefix}/:taskId/close`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/close`,
+    describeRoute({
+      description: 'Close a task (teardown workspace, stop server, set status to closed)',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Task closed successfully',
+          content: {
+            'application/json': {
+              schema: resolver(CloseTaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     
@@ -241,7 +721,62 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // List files in workspace
-  app.get(`${prefix}/:taskId/files`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/files`,
+    describeRoute({
+      description: 'List files in task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'path',
+          in: 'query',
+          required: false,
+          description: 'Directory path to list files from',
+          schema: {
+            type: 'string',
+            default: '/',
+          },
+        },
+        {
+          name: 'recursive',
+          in: 'query',
+          required: false,
+          description: 'List files recursively',
+          schema: {
+            type: 'boolean',
+            default: false,
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of files',
+          content: {
+            'application/json': {
+              schema: resolver(FileListResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Access denied or operation not allowed',
+        },
+        404: {
+          description: 'Task or path not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -275,7 +810,54 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Read file content
-  app.get(`${prefix}/:taskId/files/*`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/files/*`,
+    describeRoute({
+      description: 'Read file content from task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: '*',
+          in: 'path',
+          required: true,
+          description: 'File path',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'File content',
+          content: {
+            'application/json': {
+              schema: resolver(FileContentResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Access denied or operation not allowed',
+        },
+        404: {
+          description: 'Task or file not found',
+        },
+        413: {
+          description: 'File too large',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -321,7 +903,59 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Write file content
-  app.put(`${prefix}/:taskId/files/*`, async (c) => {
+  app.put(
+    `${prefix}/:taskId/files/*`,
+    describeRoute({
+      description: 'Write file content to task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: '*',
+          in: 'path',
+          required: true,
+          description: 'File path',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'File content',
+        content: {
+          'application/json': {
+            schema: resolver(FileContentSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'File written successfully',
+          content: {
+            'application/json': {
+              schema: resolver(FileWriteResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Access denied or operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -349,7 +983,50 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Search files by filename/path
-  app.post(`${prefix}/:taskId/search-files`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/search-files`,
+    describeRoute({
+      description: 'Search files by filename/path in task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Search parameters',
+        content: {
+          'application/json': {
+            schema: resolver(FileSearchSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Search results',
+          content: {
+            'application/json': {
+              schema: resolver(FileSearchResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -380,7 +1057,42 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get git diff for workspace
-  app.get(`${prefix}/:taskId/git-diff`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/git-diff`,
+    describeRoute({
+      description: 'Get git diff for task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Git diff',
+          content: {
+            'application/json': {
+              schema: resolver(GitDiffResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        403: {
+          description: 'Cannot access git',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -411,7 +1123,42 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get git sync status with origin for workspace
-  app.get(`${prefix}/:taskId/git-sync-status`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/git-sync-status`,
+    describeRoute({
+      description: 'Get git sync status with origin for task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Git sync status',
+          content: {
+            'application/json': {
+              schema: resolver(GitSyncStatusInfoSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        403: {
+          description: 'Cannot access git',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -452,7 +1199,50 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Execute command in workspace
-  app.post(`${prefix}/:taskId/execute`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/execute`,
+    describeRoute({
+      description: 'Execute a command in task workspace',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Command execution parameters',
+        content: {
+          'application/json': {
+            schema: resolver(CommandExecutionSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Command execution result',
+          content: {
+            'application/json': {
+              schema: resolver(CommandResultSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -470,7 +1260,42 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Start development server
-  app.post(`${prefix}/:taskId/server/start`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/server/start`,
+    describeRoute({
+      description: 'Start development server for task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Server started successfully',
+          content: {
+            'application/json': {
+              schema: resolver(ServerStatusSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -484,7 +1309,42 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Stop development server
-  app.post(`${prefix}/:taskId/server/stop`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/server/stop`,
+    describeRoute({
+      description: 'Stop development server for task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Server stopped successfully',
+          content: {
+            'application/json': {
+              schema: resolver(ServerStopResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -501,7 +1361,42 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Restart development server
-  app.post(`${prefix}/:taskId/server/restart`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/server/restart`,
+    describeRoute({
+      description: 'Restart development server for task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Server restarted successfully',
+          content: {
+            'application/json': {
+              schema: resolver(ServerStatusSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -515,7 +1410,42 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get server status
-  app.get(`${prefix}/:taskId/server/status`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/server/status`,
+    describeRoute({
+      description: 'Get development server status for task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Server status',
+          content: {
+            'application/json': {
+              schema: resolver(ServerStatusSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -529,7 +1459,51 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Get server logs
-  app.get(`${prefix}/:taskId/server/logs`, async (c) => {
+  app.get(
+    `${prefix}/:taskId/server/logs`,
+    describeRoute({
+      description: 'Get development server logs for task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'lines',
+          in: 'query',
+          required: false,
+          description: 'Number of log lines to return',
+          schema: {
+            type: 'number',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Server logs',
+          content: {
+            'application/json': {
+              schema: resolver(ServerLogsResponseExtendedSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     
     const taskId = c.req.param('taskId')
@@ -551,7 +1525,47 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   })
 
   // Merge task changes
-  app.post(`${prefix}/:taskId/merge`, async (c) => {
+  app.post(
+    `${prefix}/:taskId/merge`,
+    describeRoute({
+      description: 'Merge task changes to target branch',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Merge parameters',
+        content: {
+          'application/json': {
+            schema: resolver(MergeTaskSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Merge completed successfully',
+          content: {
+            'application/json': {
+              schema: resolver(MergeTaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request or merge conflicts',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
     

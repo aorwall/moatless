@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { sseManager } from '../utils/sse-manager.js'
@@ -9,10 +11,38 @@ import {logger} from "../utils/index.js";
 // Schema for global stream query params (currently empty)
 const GlobalStreamQuerySchema = z.object({})
 
+// Response schemas
+const streamStatusResponseSchema = z.object({
+  globalConnections: z.number(),
+  globalEventCount: z.number(),
+  taskConnections: z.record(z.number()),
+  taskEventCounts: z.record(z.number()),
+  totalConnections: z.number(),
+  totalEventCount: z.number(),
+})
+
 export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string) {
 
   // Global event stream endpoint
-  app.get(`${prefix}/stream`, async (c) => {
+  app.get(
+    `${prefix}/stream`,
+    describeRoute({
+      description: 'Subscribe to global event stream via Server-Sent Events',
+      responses: {
+        200: {
+          description: 'Event stream connection established',
+          content: {
+            'text/event-stream': {
+              schema: {
+                type: 'string',
+                description: 'Newline-delimited JSON events',
+              },
+            },
+          },
+        },
+      },
+    }),
+    async (c) => {
     const services = c.get('services')
     const { event: eventService } = services
     
@@ -117,7 +147,22 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
 
 
   // Get global stream status with event counts
-  app.get(`${prefix}/stream/status`, async (c) => {
+  app.get(
+    `${prefix}/stream/status`,
+    describeRoute({
+      description: 'Get statistics about event stream connections and event counts',
+      responses: {
+        200: {
+          description: 'Event stream statistics',
+          content: {
+            'application/json': {
+              schema: resolver(streamStatusResponseSchema),
+            },
+          },
+        },
+      },
+    }),
+    async (c) => {
     const stats = sseManager.getAllConnectionStats()
 
     return c.json({
