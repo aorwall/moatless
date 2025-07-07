@@ -164,7 +164,7 @@ export class TaskService {
         'https://github.com/aorwall/hello-world-ui.git',
         'npm install',
         {
-          serverStartCommand: 'npm run dev',
+          serverStartCommand: 'pnpm run dev',
           serverPort: 3000,
           injectionStrategy: {
             method: 'html-injection',
