@@ -158,6 +158,47 @@ graph TB
     style ES fill:#fbf,stroke:#333,stroke-width:2px
 ```
 
+#### Component Flow Description
+
+The high-level architecture consists of several interconnected layers, each with specific responsibilities:
+
+1. **Client Layer**:
+   - **User Interface** (`apps/frontend/src/features/tasks/components/chat-input.tsx`): Captures user messages and displays agent responses
+   - **Task Manager** (`apps/frontend/src/features/tasks/hooks/use-create-iteration.ts`): Manages task iterations and coordinates with the backend
+
+2. **Agent Orchestration Layer**:
+   - **Agent Service** (`apps/backend/services/agent.service.ts`): Central service that manages agent lifecycle, handles execution requests, and coordinates with other services
+   - **Agent Queue**: In-memory queue that prevents concurrent agent execution on the same task
+   - **Agent Monitor**: Health monitoring component that tracks agent performance and resource usage
+
+3. **Agent Execution Layer**:
+   - **Base Agent** (`apps/backend/services/agents/base.agent.ts`): Abstract base class defining the agent interface and common functionality
+   - **Claude Code Agent** (`apps/backend/services/agents/claude-code.agent.ts`): Concrete implementation integrating with Claude Code SDK
+   - **Custom Agents**: Placeholder for future agent implementations (e.g., GPT-4, local models)
+
+4. **Tool Execution Layer**:
+   - **Tool Executor**: Processes tool requests from agents and delegates to appropriate handlers
+   - **Tool Manager**: Manages available tools and their configurations
+   - **Tool Permissions**: Enforces security policies and access controls for tool usage
+
+5. **Integration Layer**:
+   - **Workspace Service** (`apps/backend/services/workspace.service.ts`): Provides isolated file system access for agent operations
+   - **Event Service** (`apps/backend/services/event.service.ts`): Manages real-time event streaming to clients
+   - **Storage Service** (`apps/backend/services/storage.service.ts`): Persists agent results and metadata
+
+#### Data Flow Through the System
+
+When a user submits a message, the following sequence occurs:
+
+1. The UI component captures the input and sends it to the Task Manager
+2. Task Manager creates a new iteration and calls the Agent Service
+3. Agent Service validates the request and queues it for execution
+4. The queue dispatcher creates the appropriate agent instance (usually Claude Code)
+5. The agent processes the message and may request tool executions
+6. Tool requests are validated against permissions before execution
+7. Results stream back through the Event Service to the UI in real-time
+8. Final results are persisted via the Storage Service
+
 ### Agent Execution Flow
 
 The agent execution follows a precise choreography designed for reliability and real-time feedback:
@@ -206,6 +247,77 @@ sequenceDiagram
     ES->>UI: Completion
     UI->>U: Show result
 ```
+
+#### Detailed Execution Flow Steps
+
+**1. User Input Capture**
+- **Location**: `apps/frontend/src/features/tasks/components/chat-input.tsx`
+- **Process**: User types a message in the chat interface
+- **Action**: The ChatInput component captures the text and triggers the submission handler
+
+**2. API Request**
+- **Location**: `apps/frontend/src/features/tasks/hooks/use-create-iteration.ts`
+- **Process**: Frontend creates a new iteration using React Query mutation
+- **Route**: `POST /api/v1/tasks/{taskId}/iterations`
+- **Handler**: `apps/backend/routes/task.routes.ts`
+
+**3. Agent Service Invocation**
+- **Location**: `apps/backend/services/agent.service.ts` - `executeAgent()` method
+- **Process**: The route handler delegates to the Agent Service for execution
+
+**4. Validation Phase**
+- **Concurrent Check**: 
+  - Location: `apps/backend/services/agent.service.ts` - `runningAgents` Map
+  - Process: Verifies no other agent is running for this task
+  - Error: Throws if agent already active
+- **Workspace Validation**:
+  - Location: `apps/backend/services/workspace.service.ts` - `validateWorkspace()` 
+  - Process: Ensures workspace exists and is accessible
+  - Recovery: Auto-creates workspace if missing
+
+**5. Initialization Phase**
+- **Agent Factory**:
+  - Location: `apps/backend/services/agent.service.ts` - `createAgent()` method
+  - Process: Instantiates appropriate agent based on type (default: claude-code)
+- **Context Setup**:
+  - Working directory path from workspace
+  - Model configuration (e.g., claude-3-5-sonnet)
+  - Session ID for conversation continuity
+
+**6. Background Execution**
+- **Location**: `apps/backend/services/agent.service.ts` - `processAgentEvents()` method
+- **Process**: Executes agent in background to keep API responsive
+- **Error Handling**: Catches and emits errors as events
+
+**7. Event Stream Loop**
+- **Message Processing**:
+  - Location: `apps/backend/services/agents/claude-code.agent.ts` - `run()` generator
+  - Process: Agent analyzes message and determines required actions
+- **Tool Execution**:
+  - Request: Agent requests tool use (bash, web search, etc.)
+  - Validation: Tool permissions checked
+  - Execution: Tool performs action in workspace context
+  - Result: Tool output returned to agent
+- **Event Emission**:
+  - Location: `apps/backend/services/event.service.ts` - `emitTaskEvent()`
+  - Types: MESSAGE, TOOL_USE, TOOL_RESULT, ERROR
+  - Transport: Server-Sent Events (SSE) to frontend
+- **UI Updates**:
+  - Location: `apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts`
+  - Process: SSE handler updates UI in real-time
+  - Display: Messages appear as they stream
+
+**8. Completion**
+- **Final Result**:
+  - Location: `apps/backend/services/agents/claude-code.agent.ts`
+  - Content: Summary, cost metrics, session ID
+- **Cleanup**:
+  - Location: `apps/backend/services/agent.service.ts`
+  - Actions: Remove from running agents map, abort controller cleanup
+- **UI Finalization**:
+  - Status update to "completed"
+  - Enable input for next message
+  - Show cost and token usage
 
 ### Tool Execution Architecture
 
@@ -256,6 +368,57 @@ graph LR
     style EXEC fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
+#### Tool Execution Pipeline Details
+
+**1. Tool Request Phase**
+- **Origin**: Agent determines it needs to execute a tool based on user request
+- **Format**: Tool request includes tool name, parameters, and context
+- **Example**: `{ tool: "Bash", params: { command: "npm test" } }`
+
+**2. Validation Phase**
+- **Location**: Tool-specific validators in Claude Code SDK
+- **Checks**:
+  - Parameter format and types
+  - Command syntax validation
+  - Path existence verification
+  - Input sanitization
+
+**3. Permission Check Phase**
+- **Location**: `apps/backend/services/agents/claude-code.agent.ts` - `sdkOptions.allowedTools`
+- **Process**:
+  - Verify tool is in allowed list for agent
+  - Check user permissions for tool category
+  - Validate scope of requested operation
+- **Default Allowed Tools**: WebFetch, WebSearch, Bash
+
+**4. Execution Phase**
+- **Bash Executor**:
+  - Location: Handled by Claude Code SDK
+  - Context: Executes in task workspace directory
+  - Security: Sandboxed to workspace path
+  - Timeout: Configurable per command
+- **Web Fetch**:
+  - Location: Claude Code SDK internal
+  - Features: HTML to markdown conversion
+  - Limits: Content length restrictions
+- **Web Search**:
+  - Location: Claude Code SDK internal  
+  - Provider: Integrated search API
+  - Filtering: Domain allow/block lists
+
+**5. Logging Phase**
+- **Location**: `apps/backend/services/event.service.ts`
+- **Events Emitted**:
+  - TOOL_USE: When tool execution starts
+  - TOOL_RESULT: When tool completes
+  - TOOL_ERROR: On tool failure
+- **Audit Trail**: All tool uses logged with timestamp, parameters, and results
+
+**6. Result Phase**
+- **Format**: Structured result object with output, error status, execution time
+- **Delivery**: Results returned to agent for processing
+- **Integration**: Agent incorporates results into response generation
+
 ## Backend Implementation
 
 ### Agent Lifecycle Management
@@ -286,6 +449,72 @@ stateDiagram-v2
         StreamingMessage --> [*]: Message complete
     }
 ```
+
+#### Lifecycle State Transitions
+
+**1. Idle State**
+- **Description**: No agent is active for the task
+- **Location**: `apps/backend/services/agent.service.ts` - `runningAgents` Map is empty for task
+- **Entry Actions**: None
+- **Exit Actions**: Register new agent in running agents map
+
+**2. Initializing State**
+- **Trigger**: `executeAgent()` method called
+- **Location**: `apps/backend/services/agent.service.ts` - `executeAgent()` method
+- **Actions**:
+  - Validate no concurrent agent running
+  - Retrieve task and workspace information
+  - Create agent instance via factory
+
+**3. Validating State**
+- **Location**: `apps/backend/services/workspace.service.ts` - `validateWorkspace()` method
+- **Checks**:
+  - Workspace directory exists
+  - File system permissions valid
+  - Git repository initialized (if needed)
+- **Recovery**: Auto-create missing workspace
+
+**4. Running State**
+- **Location**: `apps/backend/services/agent.service.ts` - `processAgentEvents()` method
+- **Characteristics**:
+  - Background execution active
+  - Event stream open
+  - Agent generator yielding events
+- **Sub-states**:
+  - **StreamingMessage**: Agent generating response text
+  - **ExecutingTool**: Tool operation in progress
+
+**5. Processing State**
+- **Location**: `apps/backend/services/agents/claude-code.agent.ts` - `run()` generator
+- **Actions**:
+  - Parse user message
+  - Determine required tools
+  - Generate response chunks
+  - Emit events for each chunk
+
+**6. Completing State**
+- **Trigger**: Agent generator completes
+- **Actions**:
+  - Emit final result event
+  - Calculate usage metrics
+  - Store completion status
+
+**7. Error State**
+- **Triggers**:
+  - Validation failures
+  - Tool execution errors
+  - Network timeouts
+  - SDK errors
+- **Location**: Error handling in `processAgentEvents()`
+- **Recovery**: Emit error event, cleanup resources
+
+**8. Stopping State**
+- **Trigger**: `stopAgent()` method called
+- **Location**: `apps/backend/services/agent.service.ts` - `stopAgent()` method
+- **Actions**:
+  - Call agent's `stop()` method
+  - Abort any active HTTP requests
+  - Clean up from running agents map
 
 ### Concurrent Execution Prevention
 
@@ -321,6 +550,64 @@ graph TB
     style REJECT fill:#f99,stroke:#333,stroke-width:2px
     style CREATE fill:#9f9,stroke:#333,stroke-width:2px
 ```
+
+#### Concurrency Control Implementation
+
+**1. Running Agents Map**
+- **Location**: `apps/backend/services/agent.service.ts` - `private runningAgents: Map<string, BaseAgent>`
+- **Structure**: Maps task ID to active agent instance
+- **Purpose**: Tracks which tasks have agents currently executing
+
+**2. Request Processing Flow**
+
+**Request 1 - First Agent Execution**:
+- **Check**: `runningAgents.has(taskId)` returns false
+- **Action**: Create new agent and add to map
+- **Result**: Agent begins execution
+
+**Request 2 - Concurrent Attempt**:
+- **Check**: `runningAgents.has(taskId)` returns true
+- **Action**: Throw error "Agent already running for task"
+- **Result**: Request rejected, user notified
+
+**Request 3 - Stop Request**:
+- **Action**: Retrieve agent from map
+- **Process**:
+  - Call `agent.stop()` to set stop flag
+  - Call `abortController.abort()` to cancel HTTP requests
+  - Remove from running agents map
+- **Result**: Agent stops gracefully
+
+**3. Implementation Details**
+
+```typescript
+// Location: apps/backend/services/agent.service.ts
+
+private runningAgents = new Map<string, BaseAgent>();
+
+async executeAgent(taskId: string, ...): Promise<void> {
+  // Concurrency check
+  if (this.runningAgents.has(taskId)) {
+    throw new Error('Agent already running for this task');
+  }
+  
+  // Create and register
+  const agent = this.createAgent(...);
+  this.runningAgents.set(taskId, agent);
+  
+  // Clean up on completion
+  try {
+    await this.processAgentEvents(agent, ...);
+  } finally {
+    this.runningAgents.delete(taskId);
+  }
+}
+```
+
+**4. Race Condition Prevention**
+- **Synchronous Check**: Map check and insertion are synchronous
+- **No Await Between**: No async operations between check and set
+- **Guaranteed Cleanup**: Finally block ensures removal even on error
 
 #### Claude Code Agent
 ```typescript
@@ -622,6 +909,77 @@ graph TB
     style SSE fill:#9ff,stroke:#333,stroke-width:2px
 ```
 
+#### Frontend Architecture Components
+
+**1. User Interface Layer**
+- **Chat Input** (`apps/frontend/src/features/tasks/components/chat-input.tsx`):
+  - Captures user messages
+  - Handles file attachments
+  - Manages input state and validation
+  - Disables during agent execution
+  
+- **Message Viewer** (`apps/frontend/src/features/tasks/components/task-viewer.tsx`):
+  - Displays conversation history
+  - Renders markdown content
+  - Shows tool executions
+  - Streams responses in real-time
+  
+- **Status Indicator** (`apps/frontend/src/features/tasks/components/task-header.tsx`):
+  - Shows agent execution state
+  - Displays cost and token usage
+  - Indicates active/completed status
+
+**2. Task Context Layer**
+- **Task Context Provider** (`apps/frontend/src/features/tasks/contexts/task-context.tsx`):
+  - Central data provider for task components
+  - Manages task metadata, iterations, and events
+  - Coordinates SSE connections
+  - Handles state synchronization
+  
+- **Task Hooks** (`apps/frontend/src/features/tasks/hooks/`):
+  - `useTask()`: Fetches task metadata
+  - `useTaskEvents()`: Manages event stream
+  - `useCreateIteration()`: Handles message submission
+  - `useStopTask()`: Cancels agent execution
+  
+- **Iteration Manager**:
+  - Tracks conversation history
+  - Manages selected iteration state
+  - Handles iteration navigation
+
+**3. Agent Communication Layer**
+- **Message Sender** (`apps/frontend/src/features/tasks/hooks/use-create-iteration.ts`):
+  - React Query mutation for message submission
+  - Handles optimistic updates
+  - Manages loading states
+  
+- **SSE Handler** (`apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts`):
+  - Establishes EventSource connection
+  - Processes incoming events
+  - Updates React Query cache
+  - Handles reconnection logic
+  
+- **Error Handler**:
+  - Catches API errors
+  - Displays user-friendly messages
+  - Provides retry mechanisms
+
+**4. State Management**
+- **React Query Cache**:
+  - Caches task data, iterations, events
+  - Manages cache invalidation
+  - Handles background refetching
+  
+- **Local State**:
+  - UI-only state (selected panels, filters)
+  - Form state management
+  - Temporary display states
+  
+- **Optimistic Updates**:
+  - Immediate UI feedback on submission
+  - Rollback on error
+  - Smooth user experience
+
 ### Real-time Event Processing
 
 The frontend processes agent events through a sophisticated streaming architecture:
@@ -655,6 +1013,75 @@ sequenceDiagram
     
     Note over SSE: Connection Closed
 ```
+
+#### Event Processing Implementation
+
+**1. SSE Connection Setup**
+- **Location**: `apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts`
+- **Process**:
+  ```typescript
+  const eventSource = new EventSource(`/api/v1/tasks/${taskId}/events`);
+  eventSource.onmessage = handleEvent;
+  eventSource.onerror = handleError;
+  ```
+- **Features**:
+  - Auto-reconnection on disconnect
+  - Connection health monitoring
+  - Cleanup on unmount
+
+**2. Event Types and Handlers**
+
+**Message Events**:
+- **Type**: `EVENT_MESSAGE`
+- **Handler Location**: `apps/frontend/src/features/tasks/utils/event-handlers.ts`
+- **Processing**:
+  - Parse message content
+  - Update iteration's message array
+  - Trigger UI re-render
+  - Scroll to latest content
+
+**Tool Use Events**:
+- **Type**: `TOOL_USE`
+- **Display**: Show tool indicator with spinning icon
+- **Content**: Tool name, parameters, execution status
+
+**Result Events**:
+- **Type**: `EVENT_RESULT`
+- **Actions**:
+  - Mark iteration as complete
+  - Update cost metrics
+  - Enable chat input
+  - Invalidate related queries
+
+**Error Events**:
+- **Type**: `EVENT_ERROR`
+- **Display**: Error alert with retry option
+- **Logging**: Console error for debugging
+
+**3. Cache Update Strategy**
+- **Location**: `apps/frontend/src/lib/api/query-client.ts`
+- **Method**: Direct cache manipulation for real-time updates
+- **Pattern**:
+  ```typescript
+  queryClient.setQueryData(
+    queryKeys.taskEvents(taskId),
+    (old) => [...old, newEvent]
+  );
+  ```
+
+**4. UI Update Flow**
+- **Message Streaming**:
+  - Append text chunks to existing message
+  - Maintain cursor position
+  - Preserve formatting
+- **Status Updates**:
+  - Update task header status
+  - Show/hide loading indicators
+  - Update progress bars
+- **Error Handling**:
+  - Display inline error messages
+  - Maintain conversation context
+  - Allow retry from last point
 
 ## Data Flow
 
@@ -716,6 +1143,107 @@ graph LR
     style B3 fill:#9f9,stroke:#333,stroke-width:2px
     style A3 fill:#99f,stroke:#333,stroke-width:2px
 ```
+
+#### Detailed Flow Steps
+
+**1. User Journey**
+- **U1 - User Types Message**:
+  - Location: Chat interface in task detail view
+  - Component: `apps/frontend/src/features/tasks/components/chat-input.tsx`
+  - User enters request like "Add error handling to the login function"
+
+- **U2 - Sees Typing Indicator**:
+  - Immediate feedback via optimistic update
+  - Message appears in UI with "pending" status
+  - Input disabled, loading spinner shown
+
+- **U3 - Reads AI Response**:
+  - Response streams in real-time
+  - Markdown formatted with syntax highlighting
+  - Tool executions shown inline
+
+- **U4 - Sees Code Changes**:
+  - File modifications displayed in diff viewer
+  - Updated workspace reflected in UI
+  - Git status shows changes
+
+**2. Frontend Flow**
+- **F1 - Capture Input**:
+  - Location: `apps/frontend/src/features/tasks/components/chat-input.tsx`
+  - Validates non-empty message
+  - Prepares mutation payload
+
+- **F2 - Optimistic Update**:
+  - Location: `apps/frontend/src/features/tasks/hooks/use-create-iteration.ts`
+  - Adds message to UI immediately
+  - Sets iteration status to "active"
+
+- **F3 - API Mutation**:
+  - Endpoint: `POST /api/v1/tasks/{taskId}/iterations`
+  - Payload: `{ content: string, attachments?: File[] }`
+  - Handled by React Query
+
+- **F4 - SSE Handler**:
+  - Location: `apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts`
+  - Processes streaming events
+  - Updates React Query cache
+
+- **F5 - UI Update**:
+  - Re-renders affected components
+  - Scrolls to new content
+  - Updates status indicators
+
+**3. Backend Flow**
+- **B1 - Validate Request**:
+  - Location: `apps/backend/routes/task.routes.ts`
+  - Checks task exists and is active
+  - Validates message format
+
+- **B2 - Queue Execution**:
+  - Location: `apps/backend/services/agent.service.ts`
+  - Checks no agent already running
+  - Creates background execution task
+
+- **B3 - Agent Processing**:
+  - Creates agent instance
+  - Initializes with workspace context
+  - Begins event generation
+
+- **B4 - Tool Execution**:
+  - Agent requests tool use
+  - Tools execute in workspace
+  - Results returned to agent
+
+- **B5 - Event Emission**:
+  - Location: `apps/backend/services/event.service.ts`
+  - Broadcasts via SSE
+  - Persists to event store
+
+**4. Agent Flow**
+- **A1 - Context Loading**:
+  - Loads workspace information
+  - Retrieves conversation history
+  - Sets up execution environment
+
+- **A2 - Message Analysis**:
+  - Parses user intent
+  - Identifies required actions
+  - Plans execution strategy
+
+- **A3 - Tool Selection**:
+  - Determines necessary tools
+  - Prepares tool parameters
+  - Validates permissions
+
+- **A4 - Response Generation**:
+  - Formulates natural language response
+  - Incorporates tool results
+  - Streams output chunks
+
+- **A5 - Result Compilation**:
+  - Summarizes actions taken
+  - Calculates usage metrics
+  - Prepares final state
 
 ### Session Management Architecture
 
@@ -839,6 +1367,86 @@ graph TB
     style WS fill:#9ff,stroke:#333,stroke-width:2px
 ```
 
+#### Integration Details
+
+**1. Direct Dependencies**
+
+**Task Service Integration**:
+- **Location**: `apps/backend/services/task.service.ts`
+- **Purpose**: Manages task lifecycle and iterations
+- **Interactions**:
+  - Agent retrieves task metadata
+  - Creates new iterations for messages
+  - Updates task status on completion
+  - Stores result summaries
+
+**Workspace Service Integration**:
+- **Location**: `apps/backend/services/workspace.service.ts`
+- **Purpose**: Provides isolated execution environment
+- **Interactions**:
+  - Validates workspace exists before execution
+  - Provides working directory path
+  - Manages file system operations
+  - Handles workspace cleanup
+
+**Event Service Integration**:
+- **Location**: `apps/backend/services/event.service.ts`
+- **Purpose**: Real-time event broadcasting
+- **Interactions**:
+  - Emits agent events (messages, tools, results)
+  - Manages SSE connections
+  - Persists events to storage
+  - Handles event replay
+
+**Storage Service Integration**:
+- **Location**: `apps/backend/services/storage.service.ts`
+- **Purpose**: Persistent data storage
+- **Interactions**:
+  - Stores iteration messages
+  - Persists agent results
+  - Saves cost metrics
+  - Archives conversation history
+
+**2. Indirect Dependencies**
+
+**Repository Service**:
+- **Location**: `apps/backend/services/repository.service.ts`
+- **Access**: Via Workspace Service
+- **Purpose**: Repository configuration for workspaces
+
+**Environment Service**:
+- **Location**: `apps/backend/services/environment.service.ts`
+- **Access**: Via Workspace Service
+- **Purpose**: Environment setup for agent execution
+
+**Git Service**:
+- **Location**: `apps/backend/services/git.service.ts`
+- **Access**: Via Workspace Service
+- **Purpose**: Version control operations in workspace
+
+**3. External Systems**
+
+**Claude Code SDK**:
+- **Location**: `@anthropic/claude-code-sdk`
+- **Purpose**: Core AI capabilities
+- **Features**:
+  - Message processing
+  - Tool execution
+  - Response generation
+  - Session management
+
+**AI APIs**:
+- **Access**: Through Claude Code SDK
+- **Purpose**: LLM inference
+- **Models**: Claude 3.5 Sonnet, etc.
+
+**Web Services**:
+- **Purpose**: External data access
+- **Tools**:
+  - Web fetch for content retrieval
+  - Web search for information gathering
+  - API integrations
+
 ### Event-Driven Communication
 
 The agent system communicates through a well-defined event protocol:
@@ -870,6 +1478,89 @@ sequenceDiagram
     C->>Q: Invalidate queries
     Q->>C: Refresh data
 ```
+
+#### Event Protocol Details
+
+**1. Message Events**
+- **Type**: `EVENT_MESSAGE`
+- **Emitter**: `apps/backend/services/agents/claude-code.agent.ts`
+- **Payload**:
+  ```typescript
+  {
+    type: 'EVENT_MESSAGE',
+    subtype: 'assistant',
+    payload: {
+      content: string,
+      role: 'assistant' | 'user',
+      tool_use?: ToolUse[]
+    }
+  }
+  ```
+- **Client Handler**: `apps/frontend/src/features/tasks/utils/event-handlers.ts`
+- **UI Effect**: Appends message chunk to conversation display
+
+**2. Tool Events**
+- **TOOL_USE Event**:
+  - Type: `TOOL_USE`
+  - Indicates tool execution started
+  - Payload: Tool name, parameters
+  - UI: Shows spinning indicator with tool name
+
+- **TOOL_RESULT Event**:
+  - Type: `TOOL_RESULT`
+  - Contains tool execution output
+  - Payload: Result data, execution time
+  - UI: Updates tool card with results
+
+**3. Result Event**
+- **Type**: `EVENT_RESULT`
+- **Emitter**: Agent completion handler
+- **Payload**:
+  ```typescript
+  {
+    type: 'EVENT_RESULT',
+    payload: {
+      status: 'completed' | 'failed',
+      cost: { input_tokens: number, output_tokens: number },
+      sessionId: string,
+      resultText: string
+    }
+  }
+  ```
+- **Actions**:
+  - Updates iteration status
+  - Stores cost metrics
+  - Enables chat input
+  - Triggers cache invalidation
+
+**4. Error Events**
+- **Type**: `EVENT_ERROR`
+- **Triggers**: Validation failures, tool errors, SDK issues
+- **Payload**: Error message, stack trace, recoverable flag
+- **UI**: Error alert with context-specific message
+
+**5. Event Flow Implementation**
+- **Backend Emission**:
+  ```typescript
+  // Location: apps/backend/services/agent.service.ts
+  await this.eventService.emitTaskEvent({
+    taskId,
+    iterationId,
+    type: event.type,
+    subtype: event.subtype,
+    payload: event.data,
+    timestamp: event.timestamp
+  });
+  ```
+
+- **Frontend Reception**:
+  ```typescript
+  // Location: apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts
+  eventSource.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    handleTaskEvent(data);
+  };
+  ```
 
 ### Cross-Component Data Flow
 
@@ -1027,6 +1718,82 @@ graph TD
     style START fill:#f99,stroke:#333,stroke-width:2px
     style RESOLVED fill:#9f9,stroke:#333,stroke-width:2px
 ```
+
+#### Diagnostic Steps
+
+**1. Check Agent Running**
+- **How to Check**:
+  - Look at `apps/backend/services/agent.service.ts` logs
+  - Check if `runningAgents` Map contains the task ID
+  - Verify agent process is active in system
+- **Common Issues**:
+  - Agent crashed without cleanup
+  - Concurrent execution attempt blocked
+  - Agent stuck in processing state
+- **Fix**: Restart agent service or manually clear running agents map
+
+**2. Validate Workspace**
+- **Location**: `apps/backend/services/workspace.service.ts`
+- **Checks**:
+  ```bash
+  # Check workspace directory exists
+  ls -la data/workspaces/[task-id]
+  
+  # Verify permissions
+  ls -la data/workspaces/[task-id]/.git
+  ```
+- **Common Issues**:
+  - Workspace deleted or corrupted
+  - Permission issues
+  - Git repository not initialized
+- **Fix**: Delete workspace directory and let system recreate
+
+**3. Verify Event Flow**
+- **Frontend Check**:
+  - Browser DevTools > Network > EventStream
+  - Look for `/api/v1/tasks/[id]/events` connection
+  - Verify events arriving
+- **Backend Check**:
+  - Check `apps/backend/services/event.service.ts` logs
+  - Verify SSE clients connected
+- **Common Issues**:
+  - SSE connection dropped
+  - Proxy/firewall blocking
+  - Client timeout
+- **Fix**: Refresh page to reconnect SSE
+
+**4. Test Tool Execution**
+- **Manual Test**:
+  ```typescript
+  // In agent code, check allowed tools
+  sdkOptions.allowedTools // Should include needed tools
+  ```
+- **Permission Check**:
+  - Verify tool in allowed list
+  - Check workspace directory access
+  - Validate tool parameters
+- **Common Issues**:
+  - Tool not in allowed list
+  - Workspace path issues
+  - Tool timeout
+- **Fix**: Update agent configuration or permissions
+
+**5. Check Logs**
+- **Backend Logs**:
+  ```bash
+  # Agent service logs
+  grep "agent.service" logs/app.log
+  
+  # Event service logs  
+  grep "event.service" logs/app.log
+  
+  # Error traces
+  grep "ERROR" logs/app.log | grep agent
+  ```
+- **Frontend Console**:
+  - Check for WebSocket errors
+  - Look for failed API calls
+  - Verify React Query cache state
 
 ### System Health Monitoring
 

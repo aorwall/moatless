@@ -324,7 +324,70 @@ graph LR
 
 ### Server Lifecycle Management
 
-The server lifecycle is carefully orchestrated to ensure reliable operation:
+The server lifecycle is carefully orchestrated to ensure reliable operation through the `PreviewEnvironmentService` class located at `apps/backend/services/preview-environment.service.ts`.
+
+#### Lifecycle States and Transitions
+
+The preview server progresses through several states during its lifecycle:
+
+1. **Idle State**: The initial state where no server process exists
+   - No resources allocated
+   - Ready to accept start requests
+   - Implementation: `PreviewEnvironmentService.servers` Map is empty for the task
+
+2. **Starting State**: Server initialization begins
+   - Triggered by: `PreviewEnvironmentService.startServer(taskId, workspaceDir)`
+   - Framework detection initiated via `detectFramework()` 
+   - Port allocation requested through `allocatePort()`
+   - Inspector script injection performed
+   - Child process spawned using Node.js `spawn()`
+   - Implementation details in `ServerHandler.start()` method
+
+3. **Detecting State**: Waiting for server to become ready
+   - Monitor process stdout/stderr for port binding messages
+   - Pattern matching against framework-specific ready indicators
+   - Timeout handler set (default 30 seconds)
+   - Health check polling begins
+   - Implementation: `ServerHandler.waitForPort()` method
+
+4. **Running State**: Server is operational
+   - Port successfully detected and verified
+   - Health checks running every 5 seconds
+   - Log streaming active via file tailing
+   - Process metrics collected
+   - Implementation: `ServerHandler` maintains process reference and metadata
+
+5. **Failed State**: Server failed to start or crashed
+   - Timeout exceeded without detecting port
+   - Process exited with non-zero code
+   - Dependencies missing or build errors
+   - Resources cleaned up via `ServerHandler.cleanup()`
+   - Error details stored for diagnostics
+
+6. **Stopping State**: Graceful shutdown initiated
+   - Triggered by: `PreviewEnvironmentService.stopServer(taskId)`
+   - SIGTERM sent to process group
+   - 5-second grace period for cleanup
+   - SIGKILL sent if process doesn't exit
+   - Port released back to pool
+
+7. **Restarting State**: Server restart requested
+   - Current process stopped gracefully
+   - Configuration preserved
+   - New process started with same settings
+   - Useful for applying configuration changes
+
+8. **Crashed State**: Unexpected process termination
+   - Detected via process 'exit' event
+   - Exit code and signal captured
+   - Automatic recovery attempted (up to 3 times)
+   - Implementation: `ServerHandler` exit event handler
+
+9. **Recovering State**: Attempting automatic recovery
+   - Analyze crash reason from logs
+   - Clean up orphaned resources
+   - Restart with exponential backoff
+   - Track retry count to prevent infinite loops
 
 ```mermaid
 stateDiagram-v2
@@ -358,9 +421,67 @@ stateDiagram-v2
     end note
 ```
 
+#### Key Implementation Files
+
+- **Main Service**: `apps/backend/services/preview-environment.service.ts`
+  - `PreviewEnvironmentService` class orchestrates all preview operations
+  - `ServerHandler` inner class manages individual server processes
+  - `startServer()`, `stopServer()`, `restartServer()` methods
+  - Process lifecycle event handlers
+
+- **State Management**: `apps/backend/services/preview-environment.service.ts`
+  - `servers: Map<string, ServerHandler>` tracks active servers
+  - `metadata` directory stores process recovery information
+  - Health check intervals and retry logic
+
+- **Process Management**: `apps/backend/services/preview-environment.service.ts`
+  - Child process spawning with proper environment setup
+  - Process group management for clean shutdown
+  - Signal handling (SIGTERM, SIGKILL)
+  - Stdout/stderr stream processing
+
 ### Port Allocation Strategy
 
-Dynamic port allocation prevents conflicts and ensures scalability:
+Dynamic port allocation prevents conflicts and ensures scalability. The port allocation logic is implemented in `apps/backend/services/preview-environment.service.ts` within the `allocatePort()` method.
+
+#### Port Allocation Process
+
+1. **Allocation Request Initiated**
+   - Triggered when starting a new preview server
+   - Called from `PreviewEnvironmentService.startServer()`
+   - Checks if command contains placeholder like `{PORT}`
+
+2. **Command Analysis**
+   - **Port in Command**: If the start command contains `{PORT}` placeholder
+     - System will dynamically allocate a port
+     - Replace placeholder with allocated port number
+     - Example: `vite --port {PORT}` becomes `vite --port 3001`
+   - **No Port Specified**: If command doesn't specify port
+     - Let the framework choose its default port
+     - Detect the port from server output later
+
+3. **Dynamic Port Request**
+   - Implementation: `allocatePort()` method
+   - Creates a temporary server to find available port
+   - Uses Node.js net module: `server.listen(0)`
+   - OS assigns random available port
+   - Port number extracted and server closed
+
+4. **Port Registry Management**
+   - Active ports tracked in `activePorts` Set
+   - Prevents allocation of already-used ports
+   - Released when server stops
+   - Persisted in metadata for recovery
+
+5. **Port Substitution**
+   - Replace `{PORT}` in command string
+   - Pass port via environment variables
+   - Update framework configuration if needed
+
+6. **Port Reservation**
+   - Add to active ports registry
+   - Store in server metadata
+   - Used for health checks and connections
 
 ```mermaid
 graph TD
@@ -390,9 +511,117 @@ graph TD
     BL -.->|Exclude| DYN
 ```
 
+#### Implementation Details
+
+```typescript
+// From apps/backend/services/preview-environment.service.ts
+private async allocatePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.listen(0, () => {
+      const address = server.address();
+      if (address && typeof address !== 'string') {
+        const port = address.port;
+        server.close(() => resolve(port));
+      }
+    });
+  });
+}
+```
+
+#### Port Conflict Resolution
+
+1. **Detection**: EADDRINUSE error when binding
+2. **Resolution**: Automatically retry with new port
+3. **Blacklist**: Mark failed ports as unavailable
+4. **Fallback**: Use port range scanning if needed
+
+#### Key Files
+
+- **Port Allocation**: `apps/backend/services/preview-environment.service.ts`
+  - `allocatePort()` method for dynamic allocation
+  - `activePorts` Set for tracking
+  - Port substitution in command strings
+
+- **Port Detection**: `apps/backend/services/preview-environment.service.ts`
+  - `waitForPort()` monitors server output
+  - Regex patterns for different frameworks
+  - Timeout handling for detection failures
+
 ### Process Recovery Mechanism
 
-The system can recover from crashes and restore preview environments:
+The system can recover from crashes and restore preview environments. This is crucial for maintaining preview servers across system restarts, crashes, or unexpected shutdowns. The recovery logic is implemented in `apps/backend/services/preview-environment.service.ts`.
+
+#### Recovery Process Overview
+
+When the preview service starts, it automatically attempts to recover any previously running preview servers. This ensures that long-running preview sessions aren't lost due to backend restarts.
+
+##### 1. Service Initialization
+- **Trigger**: PreviewEnvironmentService constructor or init method
+- **Location**: `apps/backend/services/preview-environment.service.ts`
+- **Actions**:
+  1. Create metadata directory if not exists (`data/preview-servers/`)
+  2. Scan directory for `.json` metadata files
+  3. Each file represents a previously running server
+
+##### 2. Metadata File Structure
+Each running server saves metadata to `data/preview-servers/[taskId].json`:
+```json
+{
+  "taskId": "task-123",
+  "pid": 12345,
+  "port": 3001,
+  "framework": "vite",
+  "workspaceDir": "/path/to/workspace",
+  "startCommand": "npm run dev",
+  "startedAt": "2024-01-15T10:30:00Z",
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
+```
+
+##### 3. Process Validation
+For each metadata file found:
+1. **Check Process Existence**
+   - Use `process.kill(pid, 0)` to test if process exists
+   - No signal sent, just checks if process is alive
+   - Handles permission errors gracefully
+
+2. **Process Still Alive**
+   - Create new `ServerHandler` instance
+   - Attach to existing process using saved PID
+   - Restore output streams and monitoring
+   - Add to active servers map
+   - Resume health checks and log streaming
+
+3. **Process Dead**
+   - Delete stale metadata file
+   - Clean up any allocated resources
+   - Log recovery failure for debugging
+   - Port automatically freed by OS
+
+##### 4. Handler Restoration
+When reattaching to a live process:
+```typescript
+// From ServerHandler class
+private async restoreFromMetadata(metadata: ServerMetadata) {
+  this.process = { pid: metadata.pid } as ChildProcess;
+  this.port = metadata.port;
+  this.framework = metadata.framework;
+  
+  // Resume health monitoring
+  this.startHealthCheck();
+  
+  // Resume log file monitoring
+  this.watchLogFile(metadata.taskId);
+}
+```
+
+##### 5. Recovery Completion
+- Mark service as ready for new requests
+- Log recovery statistics
+- Emit recovery events for monitoring
 
 ```mermaid
 sequenceDiagram
@@ -422,9 +651,102 @@ sequenceDiagram
     PES->>PES: Mark Recovery Complete
 ```
 
+#### Orphaned Process Handling
+
+The system also handles orphaned processes that may be running without metadata:
+
+1. **Port Scanning**: Check common development ports (3000-3010)
+2. **Process Identification**: Match process command lines
+3. **Adoption**: Create metadata for orphaned processes
+4. **Cleanup**: Kill unrecognized development servers
+
+#### Recovery Edge Cases
+
+1. **PID Reuse**: Validate process command matches expected pattern
+2. **Port Conflicts**: Handle cases where port is now used by another process
+3. **Workspace Changes**: Verify workspace directory still exists
+4. **Permission Issues**: Handle cases where process is owned by different user
+
+#### Implementation Files
+
+- **Recovery Logic**: `apps/backend/services/preview-environment.service.ts`
+  - `recoverServers()` method scans and restores
+  - `ServerHandler.restoreFromMetadata()` reattaches to process
+  - Metadata file management
+
+- **Metadata Storage**: `data/preview-servers/`
+  - JSON files with server state
+  - Cleaned up on successful shutdown
+  - Used for crash recovery
+
+- **Process Utilities**: `apps/backend/utils/process.utils.ts`
+  - Process existence checking
+  - Safe signal sending
+  - Command line parsing
+
 ### Script Injection System
 
-The injection system adapts to different frameworks and build tools to ensure inspector capabilities are available:
+The injection system adapts to different frameworks and build tools to ensure inspector capabilities are available. The implementation is primarily in `apps/backend/services/preview-environment.service.ts` within the `injectInspector()` method.
+
+#### Injection Strategy Overview
+
+The system selects an appropriate injection strategy based on the detected framework. Each strategy ensures the inspector script loads without breaking the application.
+
+##### 1. HTML Injection (Vite, CRA, Static Sites)
+**Implementation**: Direct modification of `index.html`
+- **File Location**: `[workspace]/index.html` or `[workspace]/public/index.html`
+- **Process**:
+  1. Read existing HTML file
+  2. Find closing `</body>` tag
+  3. Insert script tag before it
+  4. Write modified HTML back
+- **Script Tag**: `<script src="/.moatless/inspector.js"></script>`
+- **Advantages**: Simple, works with hot reload
+- **Limitations**: Only works for HTML-based apps
+
+##### 2. Middleware Injection (Next.js, Express)
+**Implementation**: Custom middleware file
+- **File Location**: `[workspace]/middleware.ts` or custom middleware
+- **Process**:
+  1. Create middleware that injects script
+  2. Configure framework to use middleware
+  3. Serve inspector script on special route
+- **Example**:
+  ```typescript
+  // middleware.ts
+  export function middleware(request: Request) {
+    if (request.url.includes('/.moatless/inspector.js')) {
+      return new Response(inspectorScript, {
+        headers: { 'Content-Type': 'application/javascript' }
+      });
+    }
+  }
+  ```
+
+##### 3. Plugin Injection (Vite, Webpack)
+**Implementation**: Build tool plugin
+- **Process**:
+  1. Create plugin configuration
+  2. Hook into HTML transformation
+  3. Inject script during build
+- **Vite Example**:
+  ```javascript
+  // vite-plugin-inspector.js
+  export default {
+    name: 'moatless-inspector',
+    transformIndexHtml(html) {
+      return html.replace('</body>', '<script src="/.moatless/inspector.js"></script></body>');
+    }
+  }
+  ```
+
+##### 4. Proxy Injection (Fallback)
+**Implementation**: Reverse proxy with response modification
+- **Process**:
+  1. Start proxy server on different port
+  2. Proxy requests to actual dev server
+  3. Modify HTML responses to include script
+- **Use Cases**: When other methods fail or for custom setups
 
 ```mermaid
 graph TD
@@ -471,6 +793,102 @@ graph TD
     IE --> FW
     IE --> PM
 ```
+
+#### Inspector Script Details
+
+The inspector script (`/.moatless/inspector.js`) provides debugging capabilities:
+
+##### Core Features
+1. **Console Interception**
+   ```javascript
+   // Capture all console methods
+   ['log', 'warn', 'error', 'info', 'debug'].forEach(method => {
+     const original = console[method];
+     console[method] = (...args) => {
+       original.apply(console, args);
+       window.parent.postMessage({
+         type: 'CONSOLE_LOG',
+         level: method,
+         args: serializeArgs(args),
+         timestamp: Date.now(),
+         stack: new Error().stack
+       }, '*');
+     };
+   });
+   ```
+
+2. **DOM Inspection**
+   ```javascript
+   // Element selection handler
+   document.addEventListener('click', (e) => {
+     if (!inspectorMode) return;
+     e.preventDefault();
+     e.stopPropagation();
+     
+     const element = e.target;
+     const data = {
+       tagName: element.tagName,
+       id: element.id,
+       className: element.className,
+       attributes: getAttributes(element),
+       computedStyle: getComputedStyle(element),
+       rect: element.getBoundingClientRect()
+     };
+     
+     window.parent.postMessage({
+       type: 'DOM_ELEMENT',
+       data
+     }, '*');
+   });
+   ```
+
+3. **Error Capture**
+   ```javascript
+   window.addEventListener('error', (event) => {
+     window.parent.postMessage({
+       type: 'ERROR',
+       message: event.message,
+       filename: event.filename,
+       line: event.lineno,
+       column: event.colno,
+       stack: event.error?.stack
+     }, '*');
+   });
+   ```
+
+#### Injection File Management
+
+The system manages injected files carefully:
+
+1. **File Creation**: `apps/backend/services/preview-environment.service.ts`
+   - Creates `.moatless` directory in workspace
+   - Writes inspector.js with minified content
+   - Sets appropriate file permissions
+
+2. **File Serving**: Development servers serve the file
+   - Most dev servers serve static files from root
+   - Special handling for restrictive frameworks
+
+3. **Cleanup**: Files removed when preview stops
+   - Prevents cluttering user workspace
+   - Restores original files if modified
+
+#### Implementation Files
+
+- **Main Implementation**: `apps/backend/services/preview-environment.service.ts`
+  - `injectInspector()` method orchestrates injection
+  - `generateInspectorScript()` creates the script content
+  - Strategy selection based on framework
+
+- **Framework Configs**: `packages/shared/constants/preview-config.ts`
+  - Injection strategies per framework
+  - File paths and patterns
+  - Script templates
+
+- **Type Definitions**: `packages/shared/types/preview-environment.ts`
+  - `InjectionStrategy` enum
+  - `InspectorConfig` interface
+  - Message type definitions
 
 #### Injection Strategy by Framework
 
@@ -595,7 +1013,84 @@ graph LR
 
 #### Server Start Flow
 
-The server start process involves multiple coordinated steps:
+The server start process involves multiple coordinated steps across several components. Here's what happens when a preview server is started:
+
+##### 1. API Request Reception
+- **Entry Point**: `apps/backend/routes/preview.ts` - POST `/api/preview/start`
+- **Validation**: Request body validated for required `taskId` and `workspaceDir`
+- **Service Call**: Routes to `PreviewEnvironmentService.startServer()`
+
+##### 2. Framework Detection Phase
+- **Service Method**: `apps/backend/services/repository.service.ts` - `detectFramework()`
+- **Process**:
+  1. Read workspace `package.json` file
+  2. Analyze dependencies for framework indicators
+  3. Check for framework-specific config files
+  4. Return configuration including:
+     - Framework type (vite, nextjs, etc.)
+     - Start command template
+     - Port binding pattern regex
+     - Injection strategy
+
+##### 3. Port Allocation Phase  
+- **Service Method**: `apps/backend/services/preview-environment.service.ts` - `allocatePort()`
+- **Process**:
+  1. Check if start command contains `{PORT}` placeholder
+  2. Create temporary server on port 0 (OS assigns free port)
+  3. Extract assigned port number
+  4. Close temporary server
+  5. Add port to active ports registry
+  6. Replace `{PORT}` in command with allocated port
+
+##### 4. Inspector Script Injection
+- **Service Method**: `apps/backend/services/preview-environment.service.ts` - `injectInspector()`
+- **Process**:
+  1. Select injection strategy based on framework
+  2. For HTML injection (Vite, CRA):
+     - Modify `index.html` to include inspector script
+  3. For middleware injection (Next.js):
+     - Add custom middleware file
+  4. For plugin injection:
+     - Modify framework config to load inspector
+  5. Create inspector script file in workspace
+
+##### 5. Server Process Creation
+- **Class**: `ServerHandler` in `apps/backend/services/preview-environment.service.ts`
+- **Process**:
+  1. Create new ServerHandler instance with configuration
+  2. Set up process environment variables
+  3. Spawn child process using Node.js `spawn()`
+  4. Configure stdio streams for output capture
+  5. Set up event handlers for process lifecycle
+
+##### 6. Server Ready Detection
+- **Method**: `ServerHandler.waitForPort()` 
+- **Process**:
+  1. Monitor process stdout/stderr streams
+  2. Apply framework-specific regex patterns
+  3. Extract port number when pattern matches
+  4. Set up 30-second timeout for detection
+  5. Start health check polling once port detected
+
+##### 7. Metadata Persistence
+- **Location**: `data/preview-servers/[taskId].json`
+- **Contents**:
+  - Process ID for recovery
+  - Allocated port number
+  - Framework configuration
+  - Start timestamp
+  - Workspace directory
+
+##### 8. Response to Client
+- **Response Format**:
+  ```json
+  {
+    "port": 3001,
+    "url": "http://localhost:3001",
+    "pid": 12345,
+    "framework": "vite"
+  }
+  ```
 
 ```mermaid
 sequenceDiagram
@@ -632,7 +1127,80 @@ sequenceDiagram
     PES-->>API: {port, url, pid}
 ```
 
+##### Key Implementation Files
+
+- **API Routes**: `apps/backend/routes/preview.ts`
+  - POST `/api/preview/start` endpoint
+  - Request validation and response formatting
+
+- **Main Service**: `apps/backend/services/preview-environment.service.ts`
+  - `startServer()` orchestrates entire flow
+  - `ServerHandler` class manages process lifecycle
+  - `allocatePort()` handles dynamic port assignment
+  - `injectInspector()` adds debugging capabilities
+
+- **Framework Detection**: `apps/backend/services/repository.service.ts`
+  - `detectFramework()` analyzes project structure
+  - Returns framework-specific configuration
+
+- **Type Definitions**: `packages/shared/types/preview-environment.ts`
+  - `PreviewServerConfig` interface
+  - `PreviewServerStatus` type
+  - `FrameworkType` enum
+
 #### Framework Detection Logic
+
+The framework detection system automatically identifies the web framework being used and configures the preview environment accordingly. This logic is implemented across multiple files:
+
+- **Backend Service**: `apps/backend/services/repository.service.ts` - `detectFramework()` method
+- **Frontend Hook**: `apps/frontend/src/features/repositories/hooks/use-detect-framework.ts`
+- **API Endpoint**: `apps/backend/routes/repositories.ts` - `/detect-framework` route
+
+##### Detection Process Steps
+
+1. **Start Detection**
+   - Initiated when creating a repository or starting preview
+   - Scans workspace directory for framework indicators
+   - Returns framework type and suggested configuration
+
+2. **Package.json Analysis**
+   - **File Check**: First verify if `package.json` exists
+   - **Parse Contents**: Read and parse JSON safely
+   - **Extract Dependencies**: Check both `dependencies` and `devDependencies`
+   - Implementation: `RepositoryService.detectFramework()`
+
+3. **Dependency Checking**
+   - **Vite Detection**: Look for `vite` in dependencies
+     - Also check for `@vitejs/plugin-react`
+     - Identifies Vite-based React projects
+   - **Next.js Detection**: Look for `next` package
+     - Check for `next.config.js` as confirmation
+     - Detect App Router vs Pages Router
+   - **Create React App**: Look for `react-scripts`
+     - Check for `public/index.html` structure
+   - **Remix Detection**: Look for `@remix-run/node`
+     - Check for `remix.config.js`
+   - **SvelteKit Detection**: Look for `@sveltejs/kit`
+     - Check for `svelte.config.js`
+
+4. **Configuration File Checks**
+   - Scan for framework-specific config files
+   - `vite.config.ts/js` for Vite
+   - `next.config.js` for Next.js
+   - `remix.config.js` for Remix
+   - Fall back to file structure analysis
+
+5. **Structure Analysis** 
+   - If no package.json, analyze directory structure
+   - Look for `index.html` in root (static sites)
+   - Check for `src` directory patterns
+   - Identify build output directories
+
+6. **Framework Configuration**
+   - Return appropriate start command
+   - Set build command if applicable
+   - Configure port strategy
+   - Set injection method
 
 ```mermaid
 graph TD
@@ -687,11 +1255,97 @@ graph TD
     DET --> GR
 ```
 
+##### Implementation Example
+
+```typescript
+// From apps/backend/services/repository.service.ts
+async detectFramework(workspaceDir: string): Promise<FrameworkConfig> {
+  const packageJsonPath = path.join(workspaceDir, 'package.json');
+  
+  if (await fileExists(packageJsonPath)) {
+    const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
+    const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+    
+    if (deps.vite) {
+      return {
+        type: 'vite',
+        startCommand: 'npm run dev',
+        buildCommand: 'npm run build',
+        readyPattern: /Local:.*http/,
+        injectionStrategy: 'html'
+      };
+    }
+    
+    if (deps.next) {
+      return {
+        type: 'nextjs', 
+        startCommand: 'npm run dev',
+        buildCommand: 'npm run build',
+        readyPattern: /ready on.*http/i,
+        injectionStrategy: 'middleware'
+      };
+    }
+    // ... more framework checks
+  }
+}
+```
+
+##### Key Implementation Files
+
+- **Backend Detection**: `apps/backend/services/repository.service.ts`
+  - `detectFramework()` method with full detection logic
+  - Returns `FrameworkConfig` with commands and patterns
+
+- **Frontend Integration**: `apps/frontend/src/features/repositories/hooks/use-detect-framework.ts`
+  - React Query hook for framework detection
+  - Caches results for performance
+
+- **API Layer**: `apps/backend/routes/repositories.ts`
+  - POST `/api/repositories/detect-framework` endpoint
+  - Validates request and calls service method
+
+- **Type Definitions**: `packages/shared/types/repository.ts`
+  - `FrameworkType` enum
+  - `FrameworkConfig` interface
+  - Shared between frontend and backend
+
 ## Frontend Implementation
 
 ### Component Architecture
 
-The frontend implementation follows a modular architecture that separates UI components, state management, and communication logic:
+The frontend implementation follows a modular architecture that separates UI components, state management, and communication logic. The preview system is organized as a feature module with clear separation of concerns.
+
+#### Feature Organization Structure
+
+The preview feature is located at `apps/frontend/src/features/preview/` with the following structure:
+
+1. **API Layer** (`api/`)
+   - `preview-api.ts`: HTTP client methods for server control
+   - Handles start, stop, restart, and status requests
+   - Integrates with React Query for caching
+
+2. **Components** (`components/`)
+   - `preview.tsx`: Main preview container component
+   - `preview-toolbar.tsx`: Control buttons and status display
+   - `preview-frame.tsx`: Iframe wrapper with message handling
+   - `console-viewer.tsx`: Real-time console log display
+   - `dom-inspector.tsx`: Element selection and property viewer
+
+3. **Hooks** (`hooks/`)
+   - `use-preview-server.ts`: Server lifecycle management
+   - `use-preview-logs.ts`: SSE connection for log streaming
+   - `use-message-bridge.ts`: PostMessage communication
+   - `use-inspector.ts`: DOM inspection state
+
+4. **State Store** (`stores/`)
+   - `preview-store.ts`: Zustand store for preview state
+   - Manages server status, logs, and UI state
+   - Provides actions for state updates
+
+5. **Utilities** (`utils/`)
+   - `message-validator.ts`: PostMessage security
+   - `log-formatter.ts`: Console log formatting
+   - `port-utils.ts`: URL construction helpers
 
 ```mermaid
 graph TD
@@ -737,6 +1391,61 @@ graph TD
     QC --> HOOKS
 ```
 
+#### Key Component Responsibilities
+
+**Preview Container** (`apps/frontend/src/features/preview/components/preview.tsx`)
+- Orchestrates all preview sub-components
+- Manages preview server lifecycle
+- Handles error boundaries and loading states
+- Coordinates message passing between components
+
+**Preview Toolbar** (`apps/frontend/src/features/preview/components/preview-toolbar.tsx`)
+- Start/stop/restart server controls
+- Display server status (starting, running, stopped)
+- Show current URL and framework type
+- Toggle inspector mode
+- Full-screen preview option
+
+**Preview Frame** (`apps/frontend/src/features/preview/components/preview-frame.tsx`)
+- Renders application in sandboxed iframe
+- Injects inspector script on load
+- Handles PostMessage communication
+- Manages iframe lifecycle and reloads
+
+**Console Viewer** (`apps/frontend/src/features/preview/components/console-viewer.tsx`)
+- Displays captured console output
+- Filters by log level (log, warn, error)
+- Virtualized list for performance
+- Clear and export functionality
+
+**DOM Inspector** (`apps/frontend/src/features/preview/components/dom-inspector.tsx`) 
+- Shows selected element properties
+- Displays computed styles
+- Shows element hierarchy
+- Allows property editing
+
+#### Implementation Files
+
+- **Main Components**: `apps/frontend/src/features/preview/components/`
+  - `preview.tsx`: Container component
+  - `preview-toolbar.tsx`: Control interface
+  - `preview-frame.tsx`: Iframe wrapper
+
+- **State Management**: `apps/frontend/src/features/preview/stores/preview-store.ts`
+  - Zustand store with TypeScript
+  - Actions for server control
+  - Selectors for derived state
+
+- **API Integration**: `apps/frontend/src/features/preview/api/`
+  - React Query hooks for server management
+  - SSE client for log streaming
+  - Type-safe API methods
+
+- **Message Handling**: `apps/frontend/src/features/preview/utils/message-bridge.ts`
+  - PostMessage wrapper with type safety
+  - Origin validation
+  - Message queuing for reliability
+
 ### State Management Architecture
 
 The preview system uses a hybrid state management approach:
@@ -775,7 +1484,81 @@ graph LR
 
 ### Message Communication Flow
 
-The message system enables bidirectional communication between the parent window and preview iframe:
+The message system enables bidirectional communication between the parent window and preview iframe. This is implemented through a secure PostMessage bridge with structured message protocols.
+
+#### Message Bridge Architecture
+
+The message bridge consists of several components working together:
+
+1. **Parent Window Side** (`apps/frontend/src/features/preview/utils/message-bridge.ts`)
+   - Message event listener with origin validation
+   - Handler registry for different message types
+   - Outbound message queue for reliability
+   - Type-safe message interfaces
+
+2. **Inspector Script** (`apps/backend/services/preview-environment.service.ts` - injected script)
+   - Loaded into preview iframe on startup
+   - Intercepts console methods
+   - Handles DOM event listeners
+   - Sends structured messages to parent
+
+3. **Message Types**
+   - `INSPECTOR_READY`: Script loaded and initialized
+   - `CONSOLE_LOG`: Console method calls with arguments
+   - `DOM_ELEMENT`: Selected element information
+   - `ERROR`: Runtime errors in preview
+   - `TOGGLE_INSPECTOR`: Enable/disable inspection mode
+
+#### Communication Flow Steps
+
+##### Initialization Phase
+1. **Handler Registration**: Parent window sets up message listeners
+   - Implementation: `MessageBridge.initialize()`
+   - Validates message origin matches preview URL
+   - Routes messages to appropriate handlers
+
+2. **Inspector Loading**: Preview iframe loads inspector script
+   - Script injected via HTML modification or middleware
+   - Establishes global hooks for console and DOM
+
+3. **Ready Signal**: Inspector confirms initialization
+   - Sends `INSPECTOR_READY` message to parent
+   - Parent enables preview controls
+
+##### Console Capture Flow
+1. **Method Interception**: Inspector overrides console methods
+   ```javascript
+   const originalLog = console.log;
+   console.log = (...args) => {
+     originalLog.apply(console, args);
+     postMessage({ type: 'CONSOLE_LOG', level: 'log', args }, '*');
+   };
+   ```
+
+2. **Message Transmission**: Structured data sent to parent
+   - Arguments serialized safely
+   - Timestamp and stack trace included
+   - Handles circular references
+
+3. **Parent Processing**: Message bridge receives and processes
+   - Deserializes arguments for display
+   - Updates console viewer component
+   - Stores in preview store
+
+##### DOM Inspection Flow
+1. **Mode Toggle**: User clicks inspect button
+   - Parent sends `TOGGLE_INSPECTOR` message
+   - Inspector adds/removes event listeners
+
+2. **Element Selection**: User clicks element in preview
+   - Click event captured and prevented
+   - Element information extracted
+   - Computed styles calculated
+
+3. **Data Transmission**: Element data sent to parent
+   - Tag name, attributes, dimensions
+   - Computed styles object
+   - Parent hierarchy path
 
 ```mermaid
 sequenceDiagram
@@ -804,6 +1587,30 @@ sequenceDiagram
     IS->>MB: postMessage(element)
     MB->>PW: Update Selected
 ```
+
+#### Security Considerations
+
+1. **Origin Validation**: All messages validated against expected origin
+2. **Message Structure**: Strict typing prevents injection attacks
+3. **Sanitization**: User data sanitized before display
+4. **Sandboxing**: Iframe runs with restricted permissions
+
+#### Implementation Files
+
+- **Message Bridge**: `apps/frontend/src/features/preview/utils/message-bridge.ts`
+  - `MessageBridge` class with type-safe handlers
+  - Origin validation and error handling
+  - Message queuing for reliability
+
+- **Inspector Script**: Generated by `apps/backend/services/preview-environment.service.ts`
+  - Console method interception
+  - DOM event handling
+  - PostMessage communication
+
+- **Type Definitions**: `packages/shared/types/preview-environment.ts`
+  - `PreviewMessage` union type
+  - Individual message type interfaces
+  - Shared between frontend and inspector
 
 ### Real-time Updates Architecture
 

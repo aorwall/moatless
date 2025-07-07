@@ -87,6 +87,37 @@ interface SystemEvent extends BaseEvent {
 
 The Event system orchestrates real-time communication through a sophisticated multi-layered architecture that ensures reliable, ordered delivery of updates across the application.
 
+#### Event Processing Flow
+
+The event system processes updates through several distinct stages, each implemented in specific modules:
+
+1. **Event Generation** (Backend Services)
+   - **Agent Service** (`apps/backend/services/agents/`) - Emits events when AI agents perform actions like code generation, file modifications, or tool executions
+   - **Task Service** (`apps/backend/services/task.service.ts`) - Generates events for task lifecycle changes, status updates, and iteration results
+   - **Workspace Service** (`apps/backend/services/workspace.service.ts`) - Produces events when workspace files change, git operations occur, or server states update
+   - **Preview Service** (`apps/backend/services/preview.service.ts`) - Creates events for preview server lifecycle, hot reloads, and build status
+
+2. **Event Processing Core** (`apps/backend/services/event.service.ts`)
+   - **Event Bus** - Central dispatcher that receives all events and manages distribution
+   - **Event Enricher** - Adds metadata like timestamps, sequence numbers, and correlation IDs
+   - **Event Filter** - Applies routing rules and permission checks before delivery
+   - **Event Cache** - Maintains recent events for recovery and debugging
+
+3. **Delivery Infrastructure** (`apps/backend/utils/sse-manager.ts`)
+   - **SSE Manager** - Manages Server-Sent Event connections and handles streaming protocol
+   - **Connection Manager** - Tracks active connections, manages lifecycles, and handles cleanup
+   - **Health Monitor** - Sends periodic heartbeats and detects stale connections
+
+4. **Frontend Reception** (`apps/frontend/src/features/tasks/hooks/`)
+   - **Event Parser** (`use-task-sse-connection.ts`) - Parses NDJSON format and validates event structure
+   - **Event Router** - Distributes events to appropriate subscribers based on type and filters
+   - **Event Handlers** - Process events and trigger UI updates
+
+5. **UI Integration**
+   - **React Query** (`apps/frontend/src/lib/api/query-client.ts`) - Invalidates caches based on event types
+   - **State Updates** - Direct component state modifications for real-time feedback
+   - **UI Components** - Final rendering of updated data in the interface
+
 ```mermaid
 graph TB
     subgraph "Event Sources"
@@ -162,7 +193,47 @@ graph TB
 
 ### Event Flow Architecture
 
-The event system implements a sophisticated pipeline that transforms service-level operations into UI updates:
+The event system implements a sophisticated pipeline that transforms service-level operations into UI updates. Here's what happens at each stage:
+
+#### Event Lifecycle Stages
+
+1. **Event Creation** (`apps/backend/services/*.service.ts`)
+   - Services generate events when state changes occur
+   - Example: When an agent modifies a file, the workspace service creates a `WORKSPACE_FILE_CHANGE` event
+   - Events are created with minimal data - just the essential payload
+
+2. **Event Enrichment** (`apps/backend/services/event.service.ts#enrichEvent`)
+   - System adds metadata to raw events:
+     - Unique event ID (UUID v4)
+     - Timestamp with millisecond precision
+     - Sequence number for ordering
+     - Service source identifier
+     - Correlation IDs for request tracing
+
+3. **Event Filtering** (`apps/backend/services/event.service.ts#filterEvent`)
+   - Applies business rules to determine event routing:
+     - Permission checks based on user context
+     - Rate limiting to prevent spam
+     - Content filtering for sensitive data
+     - Event type validation
+
+4. **Event Routing** (`apps/backend/services/event.service.ts#routeEvent`)
+   - Determines which streams receive the event:
+     - Task-specific events go to task streams
+     - System-wide events go to global stream
+     - Administrative events go to admin stream
+   - Multiple streams can receive the same event
+
+5. **Event Delivery** (`apps/backend/utils/sse-manager.ts#sendEvent`)
+   - Serializes events to NDJSON format
+   - Writes to active SSE connections
+   - Handles connection failures gracefully
+   - Buffers events for disconnected clients
+
+6. **Event Processing** (`apps/frontend/src/features/tasks/hooks/use-task-event-subscription.ts`)
+   - Frontend receives and parses events
+   - Triggers appropriate handlers
+   - Updates UI through React Query or direct state changes
 
 ```mermaid
 graph LR
@@ -203,7 +274,67 @@ graph LR
 
 ### Connection Management Architecture
 
-The system manages SSE connections through a sophisticated state machine that ensures reliability:
+The system manages SSE connections through a sophisticated state machine that ensures reliability. Each state transition is carefully orchestrated to maintain continuous event delivery:
+
+#### Connection States and Transitions
+
+1. **Disconnected State** (Initial)
+   - Implementation: `apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts#connect`
+   - No active connection exists
+   - Waiting for explicit connection request or auto-reconnect timer
+
+2. **Connecting State**
+   - Creates new EventSource instance
+   - Establishes TCP connection to server
+   - Timeout: 30 seconds before failing
+
+3. **Handshaking State**
+   - Implementation: `apps/backend/routes/events.routes.ts#handleSSEConnection`
+   - Server validates request headers
+   - Sets up SSE-specific response headers
+   - Establishes streaming response
+
+4. **Authenticating State**
+   - Validates optional authentication tokens
+   - Assigns connection ID
+   - Registers with connection pool
+
+5. **Connected State** (Active)
+   - Implementation: `apps/backend/utils/sse-manager.ts#registerConnection`
+   - Connection ready to receive events
+   - Heartbeat monitoring active
+   - Sub-states handle event processing:
+     - **Idle**: Waiting for events
+     - **Receiving**: Event data arriving
+     - **Processing**: Parsing NDJSON payload
+     - **Dispatching**: Routing to subscribers
+
+6. **Streaming State**
+   - Actively transmitting events
+   - Buffer management active
+   - Monitors write pressure
+
+7. **Heartbeat State**
+   - Implementation: `apps/backend/utils/sse-manager.ts#startHeartbeat`
+   - Sends ping every 30 seconds
+   - Expects pong within 5 seconds
+   - Prevents proxy timeouts
+
+8. **Stale State**
+   - Heartbeat timeout detected
+   - Connection possibly dead
+   - Triggers automatic recovery
+
+9. **Reconnecting State**
+   - Implementation: `apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts#reconnect`
+   - Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+   - Preserves event buffer
+   - Maintains subscription state
+
+10. **Failed State**
+    - Permanent failure detected
+    - Authentication errors
+    - Maximum retries exceeded
 
 ```mermaid
 stateDiagram-v2
@@ -243,7 +374,54 @@ stateDiagram-v2
 
 ### Event Processing Pipeline
 
-The backend implements a sophisticated event processing pipeline that ensures reliable delivery and proper ordering:
+The backend implements a sophisticated event processing pipeline that ensures reliable delivery and proper ordering. Here's a detailed walkthrough of each stage:
+
+#### Event Source Integration
+
+Events originate from three primary sources, each handled differently:
+
+1. **Service-Emitted Events** (`apps/backend/services/*.service.ts`)
+   - Direct method calls to EventService.emit()
+   - Example: `taskService.updateStatus()` emits `TASK_STATUS_CHANGE`
+   - Synchronous emission with immediate processing
+
+2. **Background Job Events** (`apps/backend/services/agents/`)
+   - Asynchronous operations emit progress events
+   - Example: Code generation jobs emit `AGENT_PROGRESS` events
+   - Queued for processing to avoid blocking
+
+3. **System Events** (`apps/backend/app.ts`)
+   - Infrastructure-level events (startup, shutdown, errors)
+   - Health monitoring events
+   - Configuration change notifications
+
+#### Processing Stages
+
+**Enrichment Stage** (`apps/backend/services/event.service.ts#enrichEvent`):
+1. **Generate Event ID**: Creates UUID v4 for unique identification
+2. **Add Timestamp**: Captures event creation time with microsecond precision
+3. **Assign Sequence**: Increments global counter for ordering guarantees
+4. **Add Context**: Attaches request ID, user context, and service metadata
+
+**Validation Stage** (`apps/backend/services/event.service.ts#validateEvent`):
+1. **Schema Validation**: Ensures event conforms to TypeScript interfaces
+2. **Permission Check**: Verifies user can receive this event type
+3. **Rate Limiting**: Prevents event flooding (100 events/second per connection)
+
+**Distribution Stage** (`apps/backend/services/event.service.ts#distributeEvent`):
+1. **Task Channel**: Routes task-specific events to subscribed connections
+2. **Global Channel**: Broadcasts system-wide events to all connections
+3. **Admin Channel**: Sends monitoring events to administrative users
+
+**Persistence Stage** (`apps/backend/services/event.service.ts#persistEvent`):
+1. **Check Rules**: Determines if event needs persistence
+2. **Write Storage**: Saves to file system in NDJSON format
+3. **Update Cache**: Maintains in-memory buffer for quick access
+
+**Delivery Mechanisms**:
+- **SSE Connections**: Primary real-time delivery via `apps/backend/utils/sse-manager.ts`
+- **WebSocket Fallback**: Alternative for environments blocking SSE
+- **Polling Endpoint**: Last resort for restrictive networks
 
 ```mermaid
 graph TB
@@ -363,7 +541,77 @@ classDiagram
 
 ### SSE Connection Management
 
-The SSE Manager handles the complexity of maintaining persistent connections:
+The SSE Manager handles the complexity of maintaining persistent connections through a well-defined lifecycle:
+
+#### Connection Lifecycle Details
+
+1. **New Connection** (`apps/backend/routes/events.routes.ts#streamEvents`)
+   - HTTP request arrives at `/api/v1/events/stream/:type`
+   - Headers validated for SSE compatibility
+   - Response headers set: `Content-Type: text/event-stream`
+
+2. **Registration** (`apps/backend/utils/sse-manager.ts#registerConnection`)
+   - Generates unique connection ID
+   - Creates connection metadata object
+   - Adds to appropriate connection pool
+
+3. **Authentication** (`apps/backend/utils/sse-manager.ts#authenticateConnection`)
+   - Optional token validation
+   - User context extraction
+   - Permission scope determination
+
+4. **Subscription** (`apps/backend/utils/sse-manager.ts#subscribeConnection`)
+   - Registers event type filters
+   - Sets up task-specific subscriptions
+   - Configures delivery preferences
+
+5. **Event Streaming** (`apps/backend/utils/sse-manager.ts#streamToConnection`)
+   - Writes events in NDJSON format
+   - Manages write buffer pressure
+   - Handles backpressure gracefully
+
+6. **Connection Closure** (`apps/backend/utils/sse-manager.ts#closeConnection`)
+   - Removes from connection pools
+   - Cleans up subscriptions
+   - Logs connection metrics
+
+#### Connection Pool Management
+
+The system maintains three separate connection pools for different use cases:
+
+- **Global Pool** (`apps/backend/utils/sse-manager.ts#globalPool`)
+  - All application-wide events
+  - Default for new connections
+  - Broadcasts system notifications
+
+- **Task Pool** (`apps/backend/utils/sse-manager.ts#taskPool`)
+  - Task-specific event streams
+  - Filtered by task ID
+  - Higher priority delivery
+
+- **Admin Pool** (`apps/backend/utils/sse-manager.ts#adminPool`)
+  - System monitoring events
+  - Debug information
+  - Performance metrics
+
+#### Health Monitoring Implementation
+
+The health system ensures connections remain active:
+
+1. **Ping Scheduler** (`apps/backend/utils/sse-manager.ts#schedulePing`)
+   - Runs every 30 seconds
+   - Sends `:ping\n\n` to all connections
+   - Tracks last activity time
+
+2. **Health Check** (`apps/backend/utils/sse-manager.ts#checkHealth`)
+   - Identifies stale connections (no activity > 60s)
+   - Validates socket state
+   - Monitors memory usage
+
+3. **Cleanup Process** (`apps/backend/utils/sse-manager.ts#cleanupStale`)
+   - Closes dead connections
+   - Frees associated resources
+   - Updates connection metrics
 
 ```mermaid
 graph LR
@@ -461,7 +709,102 @@ graph TB
 
 ### Event Reception Architecture
 
-The frontend implements a sophisticated event reception and distribution system:
+The frontend implements a sophisticated event reception and distribution system that processes real-time updates through multiple layers:
+
+#### Reception Layer Details
+
+1. **SSE Connection** (`apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts`)
+   - Creates EventSource instance with proper URL construction
+   - Handles connection lifecycle (open, message, error events)
+   - Implements automatic reconnection with exponential backoff
+   - Example connection: `new EventSource('/api/v1/events/stream/task/123')`
+
+2. **NDJSON Parser** (`apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts#parseEvent`)
+   - Parses newline-delimited JSON format
+   - Handles malformed data gracefully
+   - Validates JSON structure before processing
+   - Extracts event type and payload
+
+3. **Event Validator** (`apps/frontend/src/lib/utils/event-validator.ts`)
+   - Validates event against TypeScript interfaces
+   - Ensures required fields are present
+   - Type guards for event discrimination
+   - Logs validation errors for debugging
+
+#### Processing Layer Implementation
+
+1. **Event Router** (`apps/frontend/src/features/tasks/providers/task-event-provider.tsx`)
+   - Central dispatcher for all incoming events
+   - Routes based on event type and metadata
+   - Maintains routing table for efficiency
+   - Handles wildcard subscriptions
+
+2. **Event Filter** (`apps/frontend/src/features/tasks/hooks/use-event-filter.ts`)
+   - Applies user-defined filters
+   - Filters by event type, severity, source
+   - Implements debouncing for high-frequency events
+   - Preserves filter state across reconnections
+
+3. **Event Buffer** (`apps/frontend/src/features/tasks/utils/event-buffer.ts`)
+   - Circular buffer for recent events
+   - Configurable size (default: 1000 events)
+   - Enables replay after reconnection
+   - Provides event history for debugging
+
+#### Distribution Layer Architecture
+
+**Subscription Manager** manages three types of subscriptions:
+
+1. **Task Subscriptions** (`apps/frontend/src/features/tasks/hooks/use-task-event-subscription.ts`)
+   - Subscribes to events for specific tasks
+   - Filters by task ID automatically
+   - Unsubscribes on component unmount
+   - Example: `useTaskEventSubscription(taskId, handleEvent)`
+
+2. **Type Subscriptions** (`apps/frontend/src/features/tasks/hooks/use-event-type-subscription.ts`)
+   - Subscribes to specific event types globally
+   - Useful for cross-cutting concerns
+   - Example: `useEventTypeSubscription('ERROR', handleError)`
+
+3. **Global Subscriptions** (`apps/frontend/src/features/tasks/providers/global-event-provider.tsx`)
+   - Receives all events regardless of type
+   - Used for logging and monitoring
+   - Provides event stream context to entire app
+
+#### UI Update Mechanisms
+
+1. **Event Handlers** (`apps/frontend/src/features/tasks/handlers/`)
+   - Type-specific handler functions
+   - Transform events into UI actions
+   - Handle side effects (notifications, logging)
+
+2. **Cache Invalidator** (`apps/frontend/src/features/tasks/utils/cache-invalidation.ts`)
+   - Maps event types to React Query keys
+   - Intelligently invalidates affected queries
+   - Prevents unnecessary refetches
+   - Example: `TASK_STATUS_CHANGE` invalidates `['tasks', taskId]`
+
+3. **State Updater** (`apps/frontend/src/features/tasks/stores/`)
+   - Direct state updates for immediate feedback
+   - Updates Zustand stores for global state
+   - Triggers re-renders efficiently
+
+#### Component Integration Examples
+
+- **Task Components** (`apps/frontend/src/features/tasks/components/`)
+  - Task viewer subscribes to iteration events
+  - Updates progress in real-time
+  - Shows live agent output
+
+- **Sidebar** (`apps/frontend/src/features/navigation/components/sidebar.tsx`)
+  - Updates task counts on status changes
+  - Shows active task indicators
+  - Reflects workspace changes
+
+- **Notifications** (`apps/frontend/src/features/notifications/`)
+  - Displays toast notifications for errors
+  - Shows success messages for completions
+  - Provides action buttons for quick responses
 
 ```mermaid
 graph TB
@@ -679,7 +1022,64 @@ graph TB
 
 ### End-to-End Event Journey
 
-The complete event flow demonstrates the sophistication of the real-time architecture:
+The complete event flow demonstrates the sophistication of the real-time architecture. Here's a detailed walkthrough of what happens when a user action triggers an event:
+
+#### Step-by-Step Event Flow
+
+1. **User Interaction** (`apps/frontend/src/features/tasks/components/`)
+   - User clicks "Run Task" button in the UI
+   - Component calls mutation hook
+   - HTTP request sent to backend API
+
+2. **API Processing** (`apps/backend/routes/tasks.routes.ts`)
+   - Route handler receives POST request
+   - Validates request parameters
+   - Calls TaskService to execute action
+
+3. **Event Emission** (`apps/backend/services/task.service.ts`)
+   - Service performs business logic
+   - Creates event object with type and payload
+   - Calls `eventService.emit(event)`
+
+4. **Event Processing Phase**
+   - **ID Generation**: UUID v4 created for tracking
+   - **Timestamping**: Current time captured with microsecond precision
+   - **Sequencing**: Global counter incremented atomically
+   - **Schema Validation**: Event structure verified against TypeScript interface
+
+5. **Event Bus Distribution** (`apps/backend/services/event.service.ts`)
+   - Event published to internal event bus
+   - All subscribers notified synchronously
+   - Routing rules applied based on event type
+
+6. **Channel Routing** (`apps/backend/utils/sse-manager.ts`)
+   - SSE Manager receives event from bus
+   - Determines target connections:
+     - Global stream for system-wide events
+     - Task stream for task-specific events
+   - Filters connections by subscription criteria
+
+7. **Connection Delivery**
+   - Each connection receives event independently
+   - NDJSON format: `{"type":"TASK_STATUS","data":{...}}\n`
+   - Write buffer managed to prevent overflow
+   - Failed writes trigger reconnection
+
+8. **Frontend Reception** (`apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts`)
+   - EventSource receives message event
+   - Raw data extracted from event
+   - NDJSON parsed to JavaScript object
+
+9. **Frontend Processing**
+   - **Validation**: Event structure verified
+   - **Cache Invalidation**: React Query keys invalidated
+   - **State Updates**: Component state modified
+   - **UI Rendering**: React re-renders affected components
+
+10. **User Feedback**
+    - Visual changes appear immediately
+    - Progress indicators update
+    - Success/error messages displayed
 
 ```mermaid
 sequenceDiagram
@@ -781,7 +1181,55 @@ graph TB
 
 ### Connection Recovery Flow
 
-The system handles connection failures gracefully with automatic recovery:
+The system handles connection failures gracefully with automatic recovery. Here's how each stage ensures no events are lost:
+
+#### Recovery Process Details
+
+1. **Connection Disruption Detection**
+   - Implementation: `apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts#handleError`
+   - Triggers: Network failure, server restart, proxy timeout
+   - Detection time: < 100ms via EventSource error event
+
+2. **Buffering Stage** (`apps/frontend/src/features/tasks/utils/event-buffer.ts`)
+   - **Collecting**: All new events stored in circular buffer
+   - **Buffer Management**: 
+     - Default size: 1000 events
+     - Memory limit: 10MB
+     - Oldest events dropped when full
+   - **Persistence**: Critical events saved to IndexedDB
+
+3. **Reconnection Process** (`apps/frontend/src/features/tasks/hooks/use-task-sse-connection.ts#reconnect`)
+   - **Initial Attempt**: Immediate reconnection try
+   - **Backoff Strategy**:
+     - 1st retry: 1 second delay
+     - 2nd retry: 2 seconds
+     - 3rd retry: 4 seconds
+     - Max delay: 30 seconds
+   - **Connection Validation**: Waits for first event before declaring success
+
+4. **Recovery Handshake** (`apps/backend/routes/events.routes.ts#handleReconnect`)
+   - **Send Last Sequence**: Client sends last received sequence number
+   - **Server Validation**: Checks if events are still in cache
+   - **Gap Detection**: Identifies missing events by sequence
+
+5. **Event Replay** (`apps/backend/utils/sse-manager.ts#replayEvents`)
+   - **Missed Events**: Server sends all events after last sequence
+   - **Order Preservation**: Events sent in original order
+   - **Duplicate Prevention**: Client filters by event ID
+
+6. **State Synchronization**
+   - **Cache Refresh**: React Query refetches active queries
+   - **UI Update**: Components re-render with latest state
+   - **Notification**: User informed of successful reconnection
+
+#### Buffer Management Implementation
+
+The buffering system ensures events aren't lost during disconnections:
+
+- **Circular Buffer**: Fixed-size array with head/tail pointers
+- **Priority Levels**: Critical events never dropped
+- **Compression**: Events compressed after 30 seconds
+- **Persistence**: IndexedDB for long-term storage
 
 ```mermaid
 stateDiagram-v2
@@ -878,7 +1326,79 @@ graph TB
 
 ### Cross-System Event Flows
 
-Events enable complex cross-system interactions:
+Events enable complex cross-system interactions. Here are three critical flows that demonstrate the power of the event-driven architecture:
+
+#### Code Generation Flow
+
+This flow shows how file modifications propagate through the system:
+
+1. **Agent Executes Tool** (`apps/backend/services/agents/tools/`)
+   - Agent calls file write tool
+   - Tool modifies workspace file
+   - Emits `TOOL_EXECUTION` event with details
+
+2. **Event Processing** (`apps/backend/services/event.service.ts`)
+   - Event enriched with agent context
+   - Routed to task-specific stream
+   - Also sent to global stream for monitoring
+
+3. **Workspace Notification** (`apps/backend/services/workspace.service.ts`)
+   - Workspace service receives tool event
+   - Detects file system change
+   - Emits `WORKSPACE_FILE_CHANGE` event
+
+4. **UI Updates** (`apps/frontend/src/features/tasks/components/`)
+   - File tree component receives workspace event
+   - Updates file listing immediately
+   - Shows modified indicator on changed files
+
+#### Error Recovery Flow
+
+Demonstrates graceful error handling across services:
+
+1. **Agent Encounters Error** (`apps/backend/services/agents/`)
+   - Code execution fails
+   - Agent catches exception
+   - Emits `AGENT_ERROR` event with stack trace
+
+2. **Task Service Response** (`apps/backend/services/task.service.ts`)
+   - Receives error event
+   - Updates iteration status to 'failed'
+   - Emits `TASK_ITERATION_FAILED` event
+
+3. **UI Error Display** (`apps/frontend/src/features/tasks/components/task-viewer.tsx`)
+   - Shows error banner with details
+   - Highlights failed iteration
+   - Enables retry button
+
+4. **Recovery Actions**
+   - User can view error details
+   - Retry button triggers new iteration
+   - Previous attempts preserved for debugging
+
+#### Preview Update Flow
+
+Shows real-time preview synchronization:
+
+1. **Server Startup** (`apps/backend/services/preview.service.ts`)
+   - Preview server launches
+   - Port assigned dynamically
+   - Emits `SERVER_STARTED` event with URL
+
+2. **UI Preview Enable** (`apps/frontend/src/features/preview/components/`)
+   - Preview component receives server event
+   - Iframe loads preview URL
+   - Loading indicator shown
+
+3. **File Change Detection** (`apps/backend/services/workspace.service.ts`)
+   - File watcher detects changes
+   - Emits `WORKSPACE_FILE_CHANGE` event
+   - Includes changed file paths
+
+4. **Hot Reload Trigger** (`apps/frontend/src/features/preview/hooks/use-preview-hot-reload.ts`)
+   - Receives file change event
+   - Sends reload command to iframe
+   - Preview updates without full refresh
 
 ```mermaid
 sequenceDiagram
@@ -911,7 +1431,73 @@ sequenceDiagram
 
 ### Configuration Architecture
 
-The Event system supports flexible configuration at multiple levels:
+The Event system supports flexible configuration at multiple levels, each serving different purposes:
+
+#### Configuration Layers
+
+1. **Environment Variables** (`apps/backend/.env`)
+   - `SSE_MAX_CONNECTIONS=1000` - Maximum concurrent connections
+   - `SSE_BUFFER_SIZE=100` - Event buffer size per connection
+   - `SSE_PING_INTERVAL=30000` - Heartbeat interval in milliseconds
+   - `EVENT_PERSISTENCE_DIR=./data/events` - Event storage location
+
+2. **Feature Flags** (`apps/frontend/src/lib/config/features.ts`)
+   - `ENABLE_EVENT_DEBUGGING` - Show event debug panel
+   - `USE_WEBSOCKET_FALLBACK` - Enable WebSocket when SSE fails
+   - `ENABLE_EVENT_REPLAY` - Allow event history replay
+
+3. **Runtime Configuration** (`apps/backend/config/event.config.ts`)
+   - Connection timeouts
+   - Retry strategies
+   - Rate limiting rules
+   - Cache policies
+
+4. **Dynamic Configuration** (`apps/backend/services/config.service.ts`)
+   - Hot-reloadable settings
+   - Per-user overrides
+   - A/B testing parameters
+
+#### Backend Configuration Details
+
+- **Connection Limits** (`apps/backend/utils/sse-manager.ts#connectionLimits`)
+  - Per-IP connection limit: 10
+  - Global connection pool: 1000
+  - Task-specific connections: 100 per task
+
+- **Buffer Sizes** (`apps/backend/utils/event-buffer.ts`)
+  - Memory buffer: 1000 events
+  - Disk buffer: 10,000 events
+  - Compression threshold: 100 events
+
+- **Timeouts** (`apps/backend/config/timeouts.ts`)
+  - Connection timeout: 30 seconds
+  - Idle timeout: 5 minutes
+  - Reconnection timeout: 60 seconds
+
+- **Persistence Rules** (`apps/backend/services/event-persistence.ts`)
+  - Result events: Always persist
+  - Error events: Always persist
+  - Tool events: Memory only
+  - Message events: Persist if flagged
+
+#### Frontend Configuration Details
+
+- **Reconnection Strategy** (`apps/frontend/src/features/tasks/config/sse.config.ts`)
+  - Max retries: 10
+  - Backoff multiplier: 2
+  - Max delay: 30 seconds
+  - Jitter: ±10%
+
+- **Cache Strategy** (`apps/frontend/src/lib/api/cache-config.ts`)
+  - Event cache size: 500 events
+  - Cache TTL: 5 minutes
+  - Stale-while-revalidate: 30 seconds
+
+- **Debug Options** (`apps/frontend/src/lib/debug/event-debug.ts`)
+  - Console logging
+  - Event inspector panel
+  - Network timing
+  - Sequence validation
 
 ```mermaid
 graph TB
