@@ -55,34 +55,41 @@ The Preview Environment system operates through several layers of abstraction th
 ```mermaid
 graph TD
     subgraph "Core Abstractions"
-        PE[Preview Environment]
+        PE[Preview Environment Service]
         SH[Server Handler]
-        IS[Injection Strategy]
-        MB[Message Bridge]
-        LS[Log Stream]
+        IS[Script Injection]
+        FD[Framework Detection]
+        PM[Process Management]
     end
     
-    subgraph "Concrete Implementations"
-        VH[Vite Handler]
-        NH[Next.js Handler]
-        CH[CRA Handler]
+    subgraph "Injection Methods"
         HI[HTML Injection]
         MI[Middleware Injection]
         PI[Plugin Injection]
     end
     
+    subgraph "Framework Support"
+        VF[Vite Framework]
+        NF[Next.js Framework]
+        CF[CRA Framework]
+        WF[Webpack Framework]
+        UF[Unknown Framework]
+    end
+    
     PE --> SH
     PE --> IS
-    PE --> MB
-    PE --> LS
-    
-    SH --> VH
-    SH --> NH
-    SH --> CH
+    PE --> FD
+    PE --> PM
     
     IS --> HI
     IS --> MI
     IS --> PI
+    
+    FD --> VF
+    FD --> NF
+    FD --> CF
+    FD --> WF
+    FD --> UF
 ```
 
 ### Design Decisions
@@ -885,10 +892,10 @@ The system manages injected files carefully:
   - File paths and patterns
   - Script templates
 
-- **Type Definitions**: `packages/shared/types/preview-environment.ts`
-  - `InjectionStrategy` enum
-  - `InspectorConfig` interface
-  - Message type definitions
+- **Type Definitions**: 
+  - `packages/shared/types/preview-environment.ts`: Backend metadata types
+  - `packages/shared/types/repository.ts`: Framework and injection types  
+  - `apps/frontend/src/features/preview/types.ts`: Frontend component types
 
 #### Injection Strategy by Framework
 
@@ -1129,9 +1136,12 @@ sequenceDiagram
 
 ##### Key Implementation Files
 
-- **API Routes**: `apps/backend/routes/preview.ts`
-  - POST `/api/preview/start` endpoint
-  - Request validation and response formatting
+- **API Routes**: Server management endpoints (check backend routes)
+  - POST `/server/start` endpoint  
+  - POST `/server/stop` endpoint
+  - POST `/server/restart` endpoint
+  - GET `/server/status` endpoint
+  - GET `/server/logs` endpoint (SSE)
 
 - **Main Service**: `apps/backend/services/preview-environment.service.ts`
   - `startServer()` orchestrates entire flow
@@ -1144,17 +1154,17 @@ sequenceDiagram
   - Returns framework-specific configuration
 
 - **Type Definitions**: `packages/shared/types/preview-environment.ts`
-  - `PreviewServerConfig` interface
-  - `PreviewServerStatus` type
-  - `FrameworkType` enum
+  - `PreviewEnvironmentMetadata` interface
+  - `PreviewEnvironmentOptions` interface
+  - `ProcessValidation` interface
 
 #### Framework Detection Logic
 
-The framework detection system automatically identifies the web framework being used and configures the preview environment accordingly. This logic is implemented across multiple files:
+The framework detection system automatically identifies the web framework being used and configures the preview environment accordingly. This logic is implemented in:
 
-- **Backend Service**: `apps/backend/services/repository.service.ts` - `detectFramework()` method
-- **Frontend Hook**: `apps/frontend/src/features/repositories/hooks/use-detect-framework.ts`
-- **API Endpoint**: `apps/backend/routes/repositories.ts` - `/detect-framework` route
+- **Backend Service**: `apps/backend/services/preview-environment.service.ts` - `detectFramework()` method (lines 646-716)
+- **Repository Service**: `apps/backend/services/repository.service.ts` - May contain additional framework detection logic
+- **Type Definitions**: Framework types are defined in `packages/shared/types/repository.ts`
 
 ##### Detection Process Steps
 
@@ -1292,22 +1302,20 @@ async detectFramework(workspaceDir: string): Promise<FrameworkConfig> {
 
 ##### Key Implementation Files
 
-- **Backend Detection**: `apps/backend/services/repository.service.ts`
-  - `detectFramework()` method with full detection logic
-  - Returns `FrameworkConfig` with commands and patterns
+- **Main Detection**: `apps/backend/services/preview-environment.service.ts`
+  - `detectFramework()` method (lines 646-716) with detection logic
+  - Returns `FrameworkDetection` interface with type, version, and config files
+  - Used internally by preview service for injection strategy
 
-- **Frontend Integration**: `apps/frontend/src/features/repositories/hooks/use-detect-framework.ts`
-  - React Query hook for framework detection
-  - Caches results for performance
-
-- **API Layer**: `apps/backend/routes/repositories.ts`
-  - POST `/api/repositories/detect-framework` endpoint
-  - Validates request and calls service method
+- **Script Injection Strategy**: `apps/backend/services/preview-environment.service.ts`
+  - `getScriptInjectionStrategy()` method (lines 1096-1133)
+  - Maps framework types to injection methods
+  - Returns `ScriptInjectionStrategy` for each framework
 
 - **Type Definitions**: `packages/shared/types/repository.ts`
-  - `FrameworkType` enum
-  - `FrameworkConfig` interface
-  - Shared between frontend and backend
+  - Framework-related types and configurations
+  - `ScriptInjectionStrategy` interface
+  - Shared between frontend and backend services
 
 ## Frontend Implementation
 
@@ -1320,32 +1328,29 @@ The frontend implementation follows a modular architecture that separates UI com
 The preview feature is located at `apps/frontend/src/features/preview/` with the following structure:
 
 1. **API Layer** (`api/`)
-   - `preview-api.ts`: HTTP client methods for server control
-   - Handles start, stop, restart, and status requests
+   - `server.ts`: HTTP client methods for server control
+   - Handles start, stop, restart, status, and logs requests
    - Integrates with React Query for caching
 
 2. **Components** (`components/`)
    - `preview.tsx`: Main preview container component
-   - `preview-toolbar.tsx`: Control buttons and status display
-   - `preview-frame.tsx`: Iframe wrapper with message handling
-   - `console-viewer.tsx`: Real-time console log display
-   - `dom-inspector.tsx`: Element selection and property viewer
+   - `inspector-panel.tsx`: Element inspection and property viewer
+   - Additional UI components for preview functionality
 
 3. **Hooks** (`hooks/`)
-   - `use-preview-server.ts`: Server lifecycle management
-   - `use-preview-logs.ts`: SSE connection for log streaming
-   - `use-message-bridge.ts`: PostMessage communication
+   - `use-server.ts`: Server lifecycle management (start, stop, restart, status, logs)
+   - `use-preview.ts`: Preview context and state management
+   - `use-preview-connection.ts`: Message bridge and PostMessage communication
    - `use-inspector.ts`: DOM inspection state
 
-4. **State Store** (`stores/`)
-   - `preview-store.ts`: Zustand store for preview state
-   - Manages server status, logs, and UI state
-   - Provides actions for state updates
+4. **Types** (`types.ts`)
+   - `ElementInfo`: Information about selected DOM elements
+   - `PreviewConfig`: Preview configuration settings
+   - `PreviewProps`: Component prop types
 
-5. **Utilities** (`utils/`)
-   - `message-validator.ts`: PostMessage security
-   - `log-formatter.ts`: Console log formatting
-   - `port-utils.ts`: URL construction helpers
+5. **Exports** (`index.ts`)
+   - Centralized exports for all preview features
+   - Exposes API, components, hooks, and types
 
 ```mermaid
 graph TD
@@ -1394,57 +1399,55 @@ graph TD
 #### Key Component Responsibilities
 
 **Preview Container** (`apps/frontend/src/features/preview/components/preview.tsx`)
-- Orchestrates all preview sub-components
-- Manages preview server lifecycle
-- Handles error boundaries and loading states
+- Main preview component that integrates all functionality
+- Manages iframe for preview display
+- Coordinates with PreviewProvider context
+- Handles loading and error states
+
+**Inspector Panel** (`apps/frontend/src/features/preview/components/inspector-panel.tsx`)
+- Displays selected DOM element information
+- Shows element properties and attributes
+- Provides interactive element inspection
+- Manages inspector UI state
+
+**Preview Provider** (`apps/frontend/src/features/preview/hooks/use-preview.tsx`)
+- Context provider for preview state management
+- Manages server connection and status
 - Coordinates message passing between components
+- Handles preview configuration
 
-**Preview Toolbar** (`apps/frontend/src/features/preview/components/preview-toolbar.tsx`)
-- Start/stop/restart server controls
-- Display server status (starting, running, stopped)
-- Show current URL and framework type
-- Toggle inspector mode
-- Full-screen preview option
+**Server Hooks** (`apps/frontend/src/features/preview/hooks/use-server.ts`)
+- `useStartServer`: Starts preview server
+- `useStopServer`: Stops preview server
+- `useRestartServer`: Restarts preview server
+- `useServerStatus`: Monitors server status
+- `useServerLogs`: Streams server logs
 
-**Preview Frame** (`apps/frontend/src/features/preview/components/preview-frame.tsx`)
-- Renders application in sandboxed iframe
-- Injects inspector script on load
-- Handles PostMessage communication
-- Manages iframe lifecycle and reloads
-
-**Console Viewer** (`apps/frontend/src/features/preview/components/console-viewer.tsx`)
-- Displays captured console output
-- Filters by log level (log, warn, error)
-- Virtualized list for performance
-- Clear and export functionality
-
-**DOM Inspector** (`apps/frontend/src/features/preview/components/dom-inspector.tsx`) 
-- Shows selected element properties
-- Displays computed styles
-- Shows element hierarchy
-- Allows property editing
+**Preview Connection** (`apps/frontend/src/features/preview/hooks/use-preview-connection.ts`)
+- Manages PostMessage communication with iframe
+- Handles inspector script messages
+- Coordinates DOM selection events
+- Manages console log capture
 
 #### Implementation Files
 
 - **Main Components**: `apps/frontend/src/features/preview/components/`
-  - `preview.tsx`: Container component
-  - `preview-toolbar.tsx`: Control interface
-  - `preview-frame.tsx`: Iframe wrapper
+  - `preview.tsx`: Main container component
+  - `inspector-panel.tsx`: DOM inspection interface
 
-- **State Management**: `apps/frontend/src/features/preview/stores/preview-store.ts`
-  - Zustand store with TypeScript
-  - Actions for server control
-  - Selectors for derived state
+- **Hooks**: `apps/frontend/src/features/preview/hooks/`
+  - `use-server.ts`: Server management hooks
+  - `use-preview.ts`: Preview context provider
+  - `use-preview-connection.ts`: Message bridge implementation
+  - `use-inspector.ts`: DOM inspection logic
 
 - **API Integration**: `apps/frontend/src/features/preview/api/`
-  - React Query hooks for server management
-  - SSE client for log streaming
-  - Type-safe API methods
+  - `server.ts`: HTTP API client with React Query integration
+  - Type-safe methods for all server operations
 
-- **Message Handling**: `apps/frontend/src/features/preview/utils/message-bridge.ts`
-  - PostMessage wrapper with type safety
-  - Origin validation
-  - Message queuing for reliability
+- **Type Definitions**: `apps/frontend/src/features/preview/types.ts`
+  - Component prop types and data interfaces
+  - Shared types for preview functionality
 
 ### State Management Architecture
 
@@ -1484,7 +1487,7 @@ graph LR
 
 ### Message Communication Flow
 
-The message system enables bidirectional communication between the parent window and preview iframe. This is implemented through a secure PostMessage bridge with structured message protocols.
+The message system enables bidirectional communication between the parent window and preview iframe. This is implemented through a secure PostMessage bridge with structured message protocols, including script health monitoring via periodic heartbeat messages.
 
 #### Message Bridge Architecture
 
@@ -1502,12 +1505,16 @@ The message bridge consists of several components working together:
    - Handles DOM event listeners
    - Sends structured messages to parent
 
-3. **Message Types**
-   - `INSPECTOR_READY`: Script loaded and initialized
-   - `CONSOLE_LOG`: Console method calls with arguments
-   - `DOM_ELEMENT`: Selected element information
-   - `ERROR`: Runtime errors in preview
-   - `TOGGLE_INSPECTOR`: Enable/disable inspection mode
+3. **Message Types** (from inspector script)
+   - `INSPECTOR_SCRIPT_LOADED`: Script loaded and initialized
+   - `console`: Console method calls with level and message
+   - `ELEMENT_CLICKED`: Selected element information
+   - `NETWORK_REQUEST`: Network activity tracking
+   - `SCROLL_POSITION`: Scroll position updates
+   - `ROUTE_CHANGE`: Navigation events
+   - `TOGGLE_SELECTOR`: Enable/disable inspection mode
+   - `SELECTOR_STATE_RESPONSE`: Current selector state
+   - `HEARTBEAT`: Periodic health check messages (every 5 seconds)
 
 #### Communication Flow Steps
 
@@ -1522,7 +1529,8 @@ The message bridge consists of several components working together:
    - Establishes global hooks for console and DOM
 
 3. **Ready Signal**: Inspector confirms initialization
-   - Sends `INSPECTOR_READY` message to parent
+   - Sends `INSPECTOR_SCRIPT_LOADED` message to parent
+   - Includes version payload
    - Parent enables preview controls
 
 ##### Console Capture Flow
@@ -1531,7 +1539,13 @@ The message bridge consists of several components working together:
    const originalLog = console.log;
    console.log = (...args) => {
      originalLog.apply(console, args);
-     postMessage({ type: 'CONSOLE_LOG', level: 'log', args }, '*');
+     sendToParent({ 
+       type: 'console', 
+       level: 'log', 
+       message: args.map(a => String(a)).join(' '),
+       args,
+       source: 'preview-iframe'
+     });
    };
    ```
 
@@ -1546,19 +1560,20 @@ The message bridge consists of several components working together:
    - Stores in preview store
 
 ##### DOM Inspection Flow
-1. **Mode Toggle**: User clicks inspect button
-   - Parent sends `TOGGLE_INSPECTOR` message
-   - Inspector adds/removes event listeners
+1. **Mode Toggle**: User activates inspection mode
+   - Parent sends `TOGGLE_SELECTOR` message with payload
+   - Inspector toggles overlay.toggle() based on state
+   - Updates cursor and event listeners
 
 2. **Element Selection**: User clicks element in preview
    - Click event captured and prevented
+   - Element marked with data attributes
    - Element information extracted
-   - Computed styles calculated
 
 3. **Data Transmission**: Element data sent to parent
-   - Tag name, attributes, dimensions
-   - Computed styles object
-   - Parent hierarchy path
+   - Message type: `ELEMENT_CLICKED`
+   - Includes tagName, attrs, text, and rect
+   - Supports multi-select with meta/ctrl key
 
 ```mermaid
 sequenceDiagram
@@ -1571,22 +1586,40 @@ sequenceDiagram
     Note over PW,APP: Initialization
     PW->>MB: Register Handlers
     IF->>IS: Load Inspector
-    IS->>MB: Ready Signal
+    IS->>MB: INSPECTOR_SCRIPT_LOADED
     
     Note over PW,APP: Console Capture
     APP->>IS: console.log()
     IS->>IS: Intercept Call
-    IS->>MB: postMessage(console)
+    IS->>MB: postMessage({type: 'console'})
     MB->>PW: Handle Console Event
     
     Note over PW,APP: DOM Inspection
     PW->>MB: Enable Inspector
-    MB->>IS: postMessage(toggle)
+    MB->>IS: postMessage({type: 'TOGGLE_SELECTOR'})
     IS->>IS: Activate Inspector
     APP->>IS: Click Element
-    IS->>MB: postMessage(element)
+    IS->>MB: postMessage({type: 'ELEMENT_CLICKED'})
     MB->>PW: Update Selected
 ```
+
+##### Script Health Monitoring
+The preview system includes real-time monitoring of the inspector script health status:
+
+1. **Health States**:
+   - `not-injected`: Script has not been injected into the preview
+   - `injected-not-reachable`: Script was injected but is not responding
+   - `injected-reachable`: Script is active and communicating
+
+2. **Heartbeat Mechanism**:
+   - Inspector script sends `HEARTBEAT` messages every 5 seconds
+   - Frontend tracks last heartbeat timestamp
+   - Status marked as "not reachable" if no heartbeat for 10 seconds
+
+3. **Visual Indicator**:
+   - Located in the server control popup
+   - Shows current script health with appropriate icon and color
+   - Provides tooltip with detailed status description
 
 #### Security Considerations
 
@@ -1597,20 +1630,21 @@ sequenceDiagram
 
 #### Implementation Files
 
-- **Message Bridge**: `apps/frontend/src/features/preview/utils/message-bridge.ts`
-  - `MessageBridge` class with type-safe handlers
+- **Message Bridge**: `apps/frontend/src/features/preview/hooks/use-preview-connection.ts`
+  - Hook-based message handling implementation
   - Origin validation and error handling
-  - Message queuing for reliability
+  - Coordinates with preview context
 
 - **Inspector Script**: Generated by `apps/backend/services/preview-environment.service.ts`
   - Console method interception
   - DOM event handling
   - PostMessage communication
+  - Embedded directly in `getPreviewInspectorScript()` method
 
-- **Type Definitions**: `packages/shared/types/preview-environment.ts`
-  - `PreviewMessage` union type
-  - Individual message type interfaces
-  - Shared between frontend and inspector
+- **Type Definitions**: `apps/frontend/src/features/preview/types.ts`
+  - Frontend message and element types
+  - Component prop interfaces
+  - Preview configuration types
 
 ### Real-time Updates Architecture
 

@@ -12,9 +12,11 @@ import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
 import { PreviewToolbar } from './preview-toolbar'
+import { ScriptHealthIndicator } from './script-health-indicator'
 
 export function Preview({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const params = useParams({ from: '/tasks/$taskId' })
   const startServer = useStartServer()
   const restartServer = useRestartServer()
@@ -25,10 +27,14 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     isLoaded,
     error,
     selectedElement,
+    scriptHealthStatus,
+    lastHeartbeat,
     setConfig,
     setLoaded,
     setError,
     setDisplayPath,
+    setScriptHealthStatus,
+    updateHeartbeat,
   } = usePreviewStore()
 
   const { isConnected } = usePreviewConnection(config.url)
@@ -37,6 +43,32 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
   useEffect(() => {
     setConfig(config)
   }, [config, setConfig])
+
+  // Monitor heartbeat and update script health status
+  useEffect(() => {
+    // Clear any existing timeout
+    if (heartbeatTimeoutRef.current) {
+      clearTimeout(heartbeatTimeoutRef.current)
+    }
+
+    // If we have a recent heartbeat, set status to reachable
+    if (lastHeartbeat && Date.now() - lastHeartbeat < 10000) {
+      setScriptHealthStatus('injected-reachable')
+    }
+
+    // Set a timeout to mark script as not reachable if no heartbeat in 10 seconds
+    heartbeatTimeoutRef.current = setTimeout(() => {
+      if (scriptHealthStatus === 'injected-reachable') {
+        setScriptHealthStatus('injected-not-reachable')
+      }
+    }, 10000)
+
+    return () => {
+      if (heartbeatTimeoutRef.current) {
+        clearTimeout(heartbeatTimeoutRef.current)
+      }
+    }
+  }, [lastHeartbeat, scriptHealthStatus, setScriptHealthStatus])
 
   // Handle messages from the injected script
   useEffect(() => {
@@ -87,6 +119,13 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
 
         case 'INSPECTOR_SCRIPT_LOADED':
           console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
+          setScriptHealthStatus('injected-reachable')
+          updateHeartbeat()
+          break
+
+        case 'HEARTBEAT':
+          // Update heartbeat timestamp
+          updateHeartbeat()
           break
 
         default:
@@ -97,7 +136,7 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onElementSelected, setDisplayPath])
+  }, [onElementSelected, setDisplayPath, setScriptHealthStatus, updateHeartbeat])
 
   // Function to toggle the element selector in the iframe
   const toggleSelector = useCallback((enabled: boolean) => {
@@ -131,11 +170,15 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
   const handleIframeLoad = useCallback(() => {
     setLoaded(true)
     setError(null)
+    
+    // Reset script health status when iframe loads
+    // If script is injected, we'll receive INSPECTOR_SCRIPT_LOADED message
+    setScriptHealthStatus('not-injected')
 
     // Script injection is now handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
-  }, [setLoaded, setError])
+  }, [setLoaded, setError, setScriptHealthStatus])
 
   const handleIframeError = useCallback(() => {
     setError('Failed to load preview')

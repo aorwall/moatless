@@ -11,4 +11,4 @@ export {
   useStartServer,
   useStopServer,
 } from './hooks/use-server'
-export type { ElementInfo, PreviewConfig, PreviewProps } from './types'
+export type { ElementInfo, PreviewConfig, PreviewProps, ScriptHealthStatus } from './types'

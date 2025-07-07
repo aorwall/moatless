@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { ElementInfo, PreviewConfig } from '../types'
+import type { ElementInfo, PreviewConfig, ScriptHealthStatus } from '../types'
 
 interface PreviewStore {
   // Configuration
@@ -16,6 +16,10 @@ interface PreviewStore {
   selectedElement: ElementInfo | null
   error: string | null
   isConnected: boolean
+  
+  // Script Health
+  scriptHealthStatus: ScriptHealthStatus
+  lastHeartbeat: number | null
 
   // Actions
   setConfig: (config: PreviewConfig) => void
@@ -27,6 +31,8 @@ interface PreviewStore {
   setError: (error: string | null) => void
   setConnected: (connected: boolean) => void
   setLoaded: (loaded: boolean) => void
+  setScriptHealthStatus: (status: ScriptHealthStatus) => void
+  updateHeartbeat: () => void
   reset: () => void
 }
 
@@ -39,6 +45,8 @@ const initialState = {
   selectedElement: null,
   error: null,
   isConnected: false,
+  scriptHealthStatus: 'not-injected' as ScriptHealthStatus,
+  lastHeartbeat: null,
 }
 
 export const usePreviewStore = create<PreviewStore>()(
@@ -101,6 +109,17 @@ export const usePreviewStore = create<PreviewStore>()(
         if (loaded) {
           state.error = null
         }
+      }),
+
+    setScriptHealthStatus: (status) =>
+      set((state) => {
+        state.scriptHealthStatus = status
+      }),
+
+    updateHeartbeat: () =>
+      set((state) => {
+        state.lastHeartbeat = Date.now()
+        state.scriptHealthStatus = 'injected-reachable'
       }),
 
     reset: () => set(() => ({ ...initialState })),

@@ -1076,6 +1076,11 @@ export class PreviewEnvironmentService {
           internalLog.log('[Preview Inspector] Sending SCRIPT_LOADED message...');
           sendToParent({ type: 'INSPECTOR_SCRIPT_LOADED', payload: { version: '2.0.0-server' } });
           
+          // Start sending heartbeat messages every 5 seconds
+          setInterval(() => {
+            sendToParent({ type: 'HEARTBEAT', payload: { timestamp: Date.now() } });
+          }, 5000);
+          
           internalLog.log('[Preview Inspector] Bootstrap complete!');
           
           // Test console hooking - this should appear in the parent console

@@ -22,6 +22,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { usePreviewStore } from '../stores/preview-store'
+import { ScriptHealthIndicator } from './script-health-indicator'
 
 interface PreviewToolbarProps {
   onReload: () => void
@@ -29,7 +30,7 @@ interface PreviewToolbarProps {
 
 export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const params = useParams({ from: '/tasks/$taskId' })
-  const { config, currentPath, displayPath, isInspectorActive, navigateToPath, toggleInspector } =
+  const { config, currentPath, displayPath, isInspectorActive, scriptHealthStatus, navigateToPath, toggleInspector } =
     usePreviewStore()
 
   const [pathInput, setPathInput] = useState(displayPath)
@@ -157,6 +158,9 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
                     </span>
                   </div>
                 )}
+                <div className="pt-2 border-t">
+                  <ScriptHealthIndicator status={scriptHealthStatus} className="justify-start" />
+                </div>
               </div>
 
               <div className="flex flex-col gap-2">

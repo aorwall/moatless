@@ -47,6 +47,8 @@ export interface PreviewProps {
   className?: string
 }
 
+export type ScriptHealthStatus = 'not-injected' | 'injected-not-reachable' | 'injected-reachable'
+
 export interface PreviewState {
   isInspectorMode: boolean
   currentPath: string
@@ -54,4 +56,6 @@ export interface PreviewState {
   error: string | null
   selectedElement: ElementInfo | null
   isConnected: boolean
+  scriptHealthStatus: ScriptHealthStatus
+  lastHeartbeat: number | null
 }
