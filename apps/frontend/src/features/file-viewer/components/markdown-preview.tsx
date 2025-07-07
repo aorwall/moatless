@@ -13,6 +13,7 @@ interface MarkdownPreviewProps {
 export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
+  const renderingRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const isDark =
@@ -29,30 +30,57 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
   }, [theme])
 
   useEffect(() => {
+    // Clear previous rendering set when content changes
+    renderingRef.current.clear()
+    
     if (containerRef.current) {
       const mermaidElements = containerRef.current.querySelectorAll('.language-mermaid')
       const promises: Promise<void>[] = []
 
       mermaidElements.forEach((element, index) => {
         const graphDefinition = element.textContent || ''
-        const graphId = `mermaid-${Date.now()}-${index}`
+        const elementId = `mermaid-${index}`
+        
+        // Skip if already rendering
+        if (renderingRef.current.has(elementId)) {
+          return
+        }
+        
+        renderingRef.current.add(elementId)
+        const graphId = `mermaid-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`
 
         const promise = mermaid
           .render(graphId, graphDefinition)
           .then(({ svg }) => {
-            element.innerHTML = svg
-            element.classList.remove('language-mermaid')
-            element.classList.add('mermaid-rendered')
+            // Only update if element is still in DOM
+            if (element.parentNode) {
+              element.innerHTML = svg
+              element.classList.remove('language-mermaid')
+              element.classList.add('mermaid-rendered')
+            }
           })
           .catch((error) => {
             console.error('Mermaid rendering error:', error)
-            element.innerHTML = `<pre class="text-destructive">Error rendering diagram: ${error.message}</pre>`
+            // Only update if element is still in DOM
+            if (element.parentNode) {
+              element.innerHTML = `<pre class="text-destructive">Error rendering diagram: ${error.message}</pre>`
+              element.classList.remove('language-mermaid')
+              element.classList.add('mermaid-error')
+            }
+          })
+          .finally(() => {
+            renderingRef.current.delete(elementId)
           })
 
         promises.push(promise)
       })
 
       Promise.all(promises).catch(console.error)
+    }
+    
+    // Cleanup function
+    return () => {
+      renderingRef.current.clear()
     }
   }, [content])
 
