@@ -27,6 +27,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   taskStatus?: string
   lastIterationHasError?: boolean
 
+
   // Callbacks
   onSendMessage?: (
     taskId: string,
@@ -191,6 +192,14 @@ export function ChatInput({
       setSelectedTemplateId(templates[0].id)
     }
   }, [showRepositorySelector, mode, templates, selectedTemplateId])
+  
+  // Reset message and files when taskId changes
+  useEffect(() => {
+    if (taskId) {
+      setMessage('')
+      setUploadedFiles([])
+    }
+  }, [taskId])
 
   const handleSendMessage = () => {
     // If running, stop the agent instead of sending message
