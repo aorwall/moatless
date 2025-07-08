@@ -116,9 +116,6 @@ importers:
       pino:
         specifier: ^9.7.0
         version: 9.7.0
-      valibot:
-        specifier: ^1.0.0
-        version: 1.1.0(typescript@5.8.3)
       ws:
         specifier: ^8.18.2
         version: 8.18.2
@@ -8616,6 +8613,7 @@ snapshots:
   valibot@1.1.0(typescript@5.8.3):
     optionalDependencies:
       typescript: 5.8.3
+    optional: true
 
   vfile-message@4.0.2:
     dependencies:
