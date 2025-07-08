@@ -12,6 +12,9 @@ export interface PreviewEnvironmentMetadata {
   portPlaceholder?: string
   // Used to validate the process is still the same one we started
   processStartTime?: number
+  // Proxy configuration if using proxy injection
+  proxyPort?: number
+  proxyUrl?: string
 }
 
 /**

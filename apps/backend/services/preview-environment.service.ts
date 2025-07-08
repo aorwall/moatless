@@ -10,8 +10,10 @@ import type {
 } from '@moatless/shared/types/preview-environment'
 import type { ScriptInjectionStrategy } from '@moatless/shared/types/repository'
 import type { ServerStatus } from '@moatless/shared/types/workspace'
+import type { Logger } from 'pino'
 import { logger } from '../utils/logger.js'
 import { ServerHandler } from '../workspaces/server-handler.js'
+import { PreviewProxyService, createPreviewProxy } from './preview-proxy.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
@@ -23,6 +25,7 @@ interface FrameworkDetection {
 
 export class PreviewEnvironmentService {
   private runningServers: Map<string, ServerHandler> = new Map()
+  private runningProxies: Map<string, PreviewProxyService> = new Map()
   private readonly previewEnvironmentsPath: string
 
   constructor(
@@ -145,11 +148,23 @@ export class PreviewEnvironmentService {
     })
 
     try {
-      // Setup script injection before starting the server
-      await this.setupScriptInjection(taskId, workspacePath)
-
-      // Start the server
+      // Start the server first
       const result = await handler.start()
+
+      // Setup proxy for script injection if configured
+      const useProxy = await this.shouldUseProxy(taskId, workspacePath)
+      let proxyUrl: string | undefined
+      
+      if (useProxy) {
+        const proxyService = await this.setupProxyInjection(taskId, result.port)
+        if (proxyService) {
+          this.runningProxies.set(taskId, proxyService)
+          proxyUrl = proxyService.getProxyUrl()
+        }
+      } else {
+        // Fallback to HTML injection for backward compatibility
+        await this.setupScriptInjection(taskId, workspacePath)
+      }
 
       // Store the handler
       this.runningServers.set(taskId, handler)
@@ -165,6 +180,8 @@ export class PreviewEnvironmentService {
         logFile: result.log_file,
         portPlaceholder: environment.codeExecution.serverPortPlaceholder,
         processStartTime: Date.now(),
+        proxyUrl,
+        proxyPort: proxyUrl ? parseInt(proxyUrl.split(':').pop() || '0') : undefined,
       }
 
       await this.savePreviewEnvironmentMetadata(taskId, metadata)
@@ -177,7 +194,7 @@ export class PreviewEnvironmentService {
       return {
         running: true,
         configured: true,
-        url: `http://localhost:${result.port}`,
+        url: proxyUrl || `http://localhost:${result.port}`,
         pid: result.pid,
         uptimeSeconds: 0,
       }
@@ -215,7 +232,14 @@ export class PreviewEnvironmentService {
         this.runningServers.delete(taskId)
         await this.deletePreviewEnvironmentMetadata(taskId)
 
-        // Cleanup injected scripts
+        // Stop proxy if running
+        const proxy = this.runningProxies.get(taskId)
+        if (proxy) {
+          await proxy.stop()
+          this.runningProxies.delete(taskId)
+        }
+
+        // Cleanup injected scripts (for backward compatibility)
         const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
         await this.cleanupScriptInjection(taskId, workspace.getWorkspacePath())
 
@@ -227,6 +251,17 @@ export class PreviewEnvironmentService {
       // Force cleanup
       this.runningServers.delete(taskId)
       await this.deletePreviewEnvironmentMetadata(taskId)
+
+      // Stop proxy if running
+      const proxy = this.runningProxies.get(taskId)
+      if (proxy) {
+        try {
+          await proxy.stop()
+        } catch (proxyError) {
+          previewLogger.error('Failed to stop proxy during error handling', proxyError as Error)
+        }
+        this.runningProxies.delete(taskId)
+      }
 
       try {
         // Attempt cleanup even if stop failed
@@ -559,13 +594,21 @@ export class PreviewEnvironmentService {
    */
   async stopAllServers(): Promise<void> {
     const taskIds = Array.from(this.runningServers.keys())
-    logger.info('Stopping all preview environment servers', { count: taskIds.length })
+    const proxyTaskIds = Array.from(this.runningProxies.keys())
+    const allTaskIds = [...new Set([...taskIds, ...proxyTaskIds])]
+    
+    logger.info('Stopping all preview environment servers', { 
+      servers: taskIds.length,
+      proxies: proxyTaskIds.length,
+      total: allTaskIds.length 
+    })
 
-    // Stop servers (which includes cleanup)
-    const stopPromises = taskIds.map((taskId) => this.stopServer(taskId))
+    // Stop servers (which includes cleanup and proxy stopping)
+    const stopPromises = allTaskIds.map((taskId) => this.stopServer(taskId))
     await Promise.allSettled(stopPromises)
 
     this.runningServers.clear()
+    this.runningProxies.clear()
   }
 
   /**
@@ -713,6 +756,78 @@ export class PreviewEnvironmentService {
     }
 
     return { type: 'unknown', configFiles }
+  }
+
+  /**
+   * Check if we should use proxy based on configuration
+   */
+  private async shouldUseProxy(taskId: string, _workspacePath: string): Promise<boolean> {
+    try {
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const previewConfig = workspace.environmentConfig.previewConfig
+      
+      // Check if proxy method is explicitly configured
+      if (previewConfig?.injectionStrategy?.method === 'proxy') {
+        return true
+      }
+      
+      // Default to proxy for new environments
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Setup proxy server for script injection
+   */
+  private async setupProxyInjection(taskId: string, targetPort: number): Promise<PreviewProxyService | null> {
+    const previewLogger = logger.child({ taskId, operation: 'setupProxyInjection' })
+    
+    try {
+      const targetUrl = `http://localhost:${targetPort}`
+      const scriptContent = this.getPreviewInspectorScript()
+      
+      // Try to find an available port starting from targetPort + 1000
+      let proxyPort = targetPort + 1000
+      let attempts = 0
+      let proxyService: PreviewProxyService | null = null
+      
+      while (attempts < 10 && !proxyService) {
+        try {
+          proxyService = createPreviewProxy(
+            targetUrl,
+            scriptContent,
+            previewLogger as unknown as Logger,
+            proxyPort
+          )
+          
+          await proxyService.start()
+          break
+        } catch (error: any) {
+          if (error.code === 'EADDRINUSE') {
+            proxyPort++
+            attempts++
+          } else {
+            throw error
+          }
+        }
+      }
+      
+      if (!proxyService) {
+        throw new Error('Failed to find available port for proxy after 10 attempts')
+      }
+      
+      previewLogger.info('Preview proxy server started', {
+        targetUrl,
+        proxyUrl: proxyService.getProxyUrl()
+      })
+      
+      return proxyService
+    } catch (error) {
+      previewLogger.error('Failed to setup proxy injection', error as Error)
+      return null
+    }
   }
 
   /**
@@ -1100,40 +1215,12 @@ export class PreviewEnvironmentService {
    * Determine script injection strategy based on framework
    */
   private getScriptInjectionStrategy(framework: FrameworkDetection): ScriptInjectionStrategy {
-    switch (framework.type) {
-      case 'vite':
-        return {
-          method: 'html-injection', // Vite serves index.html that we can modify
-          config: {
-            indexPath: 'index.html',
-            insertLocation: 'head',
-          },
-        }
-
-      case 'nextjs':
-        return {
-          method: 'middleware', // Next.js can use middleware to inject scripts
-          config: {
-            middleware: 'api',
-          },
-        }
-
-      case 'cra':
-        return {
-          method: 'html-injection', // CRA uses public/index.html
-          config: {
-            indexPath: 'public/index.html',
-            insertLocation: 'head',
-          },
-        }
-
-      default:
-        return {
-          method: 'html-injection', // Generic HTML injection as fallback
-          config: {
-            insertLocation: 'head',
-          },
-        }
+    // Default to proxy method for all frameworks
+    return {
+      method: 'proxy',
+      config: {
+        framework: framework.type,
+      },
     }
   }
 

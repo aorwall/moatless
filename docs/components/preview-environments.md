@@ -747,13 +747,84 @@ The system selects an appropriate injection strategy based on the detected frame
   }
   ```
 
-##### 4. Proxy Injection (Fallback)
-**Implementation**: Reverse proxy with response modification
+##### 4. Proxy Injection (Default for New Environments)
+**Implementation**: Reverse proxy with on-the-fly response modification
+- **File Location**: No files modified - injection happens in memory
 - **Process**:
-  1. Start proxy server on different port
-  2. Proxy requests to actual dev server
-  3. Modify HTML responses to include script
-- **Use Cases**: When other methods fail or for custom setups
+  1. Start proxy server on different port (dev server port + 1000)
+  2. Proxy all requests to actual dev server
+  3. Intercept HTML responses and inject script before `</body>` tag
+  4. Pass through all other responses unchanged
+- **Advantages**: 
+  - No files modified on disk - prevents accidental commits
+  - Works universally across all frameworks
+  - Transparent to the development server
+  - Easy to enable/disable without cleanup
+- **Implementation**: `apps/backend/services/preview-proxy.service.ts`
+- **Use Cases**: Default method for all environments to avoid file modification
+
+#### Proxy Injection Implementation Details
+
+The proxy injection system provides a universal, non-invasive method for script injection that works across all frameworks without modifying any files on disk.
+
+##### Architecture
+
+```mermaid
+graph LR
+    subgraph "Client Browser"
+        B[Browser]
+    end
+    
+    subgraph "Proxy Layer"
+        P[Preview Proxy :9001]
+        I[Inspector Script]
+    end
+    
+    subgraph "Dev Server"
+        D[Dev Server :3001]
+        A[Application]
+    end
+    
+    B -->|Request| P
+    P -->|Forward| D
+    D -->|Response| P
+    P -->|Modified HTML| B
+    P -.->|Inject| I
+```
+
+##### Key Components
+
+1. **PreviewProxyService** (`preview-proxy.service.ts`)
+   - HTTP proxy server implementation
+   - Response interception and modification
+   - Port management and lifecycle
+
+2. **Request Handling**
+   ```typescript
+   // All requests proxied to dev server
+   GET /api/data → localhost:3001/api/data
+   GET /style.css → localhost:3001/style.css
+   GET /index.html → localhost:3001/index.html (modified)
+   ```
+
+3. **HTML Response Modification**
+   - Detects `Content-Type: text/html`
+   - Buffers complete response
+   - Injects script before `</body>` tag
+   - Updates content-length header
+
+4. **Non-HTML Pass-through**
+   - CSS, JS, images, etc. passed unchanged
+   - Maintains streaming for large files
+   - Preserves all headers
+
+##### Benefits Over File Modification
+
+1. **No Git Conflicts**: Files remain pristine
+2. **Framework Agnostic**: Works with any HTML response
+3. **Easy Cleanup**: Just stop the proxy
+4. **Live Updates**: Script changes take effect immediately
+5. **Security**: Script isolated from source code
 
 ```mermaid
 graph TD
