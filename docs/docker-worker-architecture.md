@@ -2,59 +2,42 @@
 
 ## Overview
 
-This document describes the architecture for running AI agents asynchronously in Docker containers while maintaining real-time event streaming to the frontend. The solution enables complete isolation of agent execution, better resource management, and scalability while preserving the existing event-driven architecture.
+This document describes the architecture for running the backend service in a "Docker Worker Mode" where the backend can be deployed inside a Docker container to execute agent tasks. This approach leverages the existing `LocalWorkspace` functionality within Docker containers, providing isolation and scalability while maintaining simplicity.
 
 ## Current Architecture
 
-Currently, agents run directly within the backend process:
+Currently, the system supports two workspace types:
+- **LocalWorkspace**: Executes agents directly on the host machine using git worktrees
+- **DockerWorkspace**: Creates Docker containers for code execution but doesn't support agent execution
+
+## Simplified Docker Worker Mode
+
+Instead of implementing a complex worker orchestration system, we can run the entire backend service in a Docker container with a "worker mode" flag. This approach:
+
+1. **Reuses existing code**: Uses `LocalWorkspace` inside the container
+2. **Simplifies deployment**: Single Docker image for both main backend and workers
+3. **Maintains compatibility**: No changes to event streaming or frontend
+4. **Enables scaling**: Launch multiple worker containers as needed
 
 ```mermaid
 graph TB
-    subgraph "Backend Process"
-        AS[AgentService]
-        ES[EventService]
+    subgraph "Main Backend (Host)"
+        AS1[AgentService]
+        ES1[EventService]
         SSE[SSE Manager]
         
-        AS -->|emits events| ES
-        ES -->|publishes| SSE
+        AS1 -->|delegates to| WS[WorkerService]
     end
     
-    subgraph "Frontend"
-        ESP[EventSource Provider]
-        UI[React UI]
+    subgraph "Worker Container"
+        BE[Backend in Worker Mode]
+        AS2[AgentService]
+        LW[LocalWorkspace]
+        ES2[EventService]
         
-        SSE -->|streams| ESP
-        ESP -->|updates| UI
-    end
-```
-
-## Proposed Docker Worker Architecture
-
-The new architecture introduces Docker workers for agent execution based on repository configuration:
-
-```mermaid
-graph TB
-    subgraph "Main Backend"
-        AS[AgentService]
-        DWM[Docker Worker Manager]
-        ES[EventService]
-        SSE[SSE Manager]
-        EF[Event Forwarder]
-        
-        AS -->|checks repo config| RC[Repository Config]
-        RC -->|type: docker| DWM
-        RC -->|type: local| AS
-        EF -->|emits events| ES
-        ES -->|publishes| SSE
-    end
-    
-    subgraph "Docker Worker Container"
-        WS[Worker Service]
-        AG[Agent Instance]
-        EC[Event Client]
-        
-        WS -->|runs| AG
-        AG -->|generates events| EC
+        BE -->|runs| AS2
+        AS2 -->|uses| LW
+        AS2 -->|emits| ES2
     end
     
     subgraph "Frontend"
@@ -65,664 +48,326 @@ graph TB
         ESP -->|updates| UI
     end
     
-    DWM -->|launches| WS
-    EC -->|forwards events| EF
+    WS -->|HTTP API| BE
+    ES2 -->|forwards events| ES1
 ```
 
-## Architecture Components
+## Implementation Approach
 
-### 1. Repository-Based Agent Execution
+### 1. Backend Worker Mode
 
-Agent execution mode is determined by the repository's `codeExecution.type` configuration:
+Add a new environment variable to run the backend in "worker mode":
 
 ```typescript
-interface RepositoryConfig {
-  id: string
-  name: string
-  path: string
-  codeExecution: {
-    type: 'local' | 'docker'  // Determines agent execution mode
-    image?: string            // Docker image for agent execution
-    envVars?: Record<string, string>
-    volumes?: string[]
-    // ... other settings
-  }
+// Environment configuration
+interface WorkerModeConfig {
+  WORKER_MODE: boolean           // Enable worker mode
+  WORKER_API_URL: string        // Main backend API URL
+  WORKER_API_KEY: string        // Authentication key
+  WORKSPACE_DIR: string         // Local directory for workspaces
 }
 ```
 
-### 2. Docker Worker Manager
+### 2. Worker Mode Startup
 
-The Docker Worker Manager orchestrates agent execution in containers:
+When `WORKER_MODE=true`, the backend:
+1. Starts with limited services (no SSE, no UI routes)
+2. Registers itself with the main backend
+3. Polls for or receives agent execution tasks
+4. Uses `LocalWorkspace` to execute agents
+5. Forwards events to the main backend
 
 ```typescript
-interface DockerWorkerManager {
-  // Launch a worker container for agent execution
-  launchWorker(config: WorkerConfig): Promise<WorkerInstance>
-  
-  // Monitor worker status
-  getWorkerStatus(workerId: string): Promise<WorkerStatus>
-  
-  // Stop a running worker
-  stopWorker(workerId: string): Promise<void>
-  
-  // Clean up completed workers
-  cleanupWorkers(): Promise<void>
-}
-
-interface WorkerConfig {
-  taskId: string
-  iterationNumber: number
-  agentType: string
-  message: string
-  workspaceConfig: WorkspaceConfig
-  eventForwardingUrl: string
-  resumeSessionId?: string
-  model?: string
-  dockerImage?: string
-}
-
-interface WorkerInstance {
-  containerId: string
-  workerId: string
-  status: 'starting' | 'running' | 'completed' | 'failed'
-  startTime: Date
-  logs: string[]
+// apps/backend/index.ts
+if (process.env.WORKER_MODE === 'true') {
+  await startWorkerMode({
+    apiUrl: process.env.WORKER_API_URL!,
+    apiKey: process.env.WORKER_API_KEY!,
+    workspaceDir: process.env.WORKSPACE_DIR || '/workspace'
+  })
+} else {
+  await startMainBackend()
 }
 ```
 
-### 3. Worker Container
+### 3. Docker Image Configuration
 
-Each worker container runs a lightweight Node.js service:
+Use the existing backend Docker image with environment-based configuration:
 
 ```dockerfile
-# Dockerfile.worker
+# Dockerfile (existing backend)
 FROM node:20-slim
 
 WORKDIR /app
 
-# Install Claude Code SDK and dependencies
-COPY worker/package*.json ./
-RUN npm ci --only=production
+# Install git and other dependencies for LocalWorkspace
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy worker service code
-COPY worker/src ./src
+# Copy and install dependencies
+COPY package*.json ./
+RUN pnpm install --frozen-lockfile
 
-# Set up non-root user
-RUN useradd -m -s /bin/bash worker
-USER worker
+# Copy application code
+COPY . .
 
-ENTRYPOINT ["node", "src/index.js"]
+# Build the application
+RUN pnpm build
+
+# Create workspace directory
+RUN mkdir -p /workspace && chmod 777 /workspace
+
+EXPOSE 8000
+
+# Start in normal or worker mode based on environment
+CMD ["node", "dist/index.js"]
 ```
 
-Worker service implementation:
+### 4. Worker Mode Implementation
 
 ```typescript
-// worker/src/index.ts
-import { ClaudeCodeAgent } from './agents/claude-code-agent.js'
-import { EventForwarder } from './event-forwarder.js'
-
-interface WorkerConfig {
-  taskId: string
-  iterationNumber: number
-  agentType: string
-  message: string
-  workspaceDir: string
-  eventEndpoint: string
-  resumeSessionId?: string
-  model?: string
-}
-
-async function main() {
-  const config: WorkerConfig = JSON.parse(process.env.WORKER_CONFIG!)
+// apps/backend/worker-mode.ts
+export async function startWorkerMode(config: WorkerModeConfig) {
+  const logger = createLogger('worker')
   
-  // Initialize event forwarder
-  const eventForwarder = new EventForwarder(config.eventEndpoint)
+  // Initialize minimal services
+  const eventForwarder = new RemoteEventService(config.apiUrl, config.apiKey)
+  const storage = new RemoteStorageBackend(config.apiUrl, config.apiKey)
   
-  // Create agent instance
-  const agent = createAgent(config.agentType, config.taskId, { 
-    model: config.model 
+  // Create workspace service with local workspaces only
+  const workspaceService = new WorkspaceService(storage, eventForwarder)
+  
+  // Create agent service
+  const agentService = new AgentService(
+    storage,
+    eventForwarder,
+    workspaceService
+  )
+  
+  // Start HTTP server for receiving tasks
+  const app = new Hono()
+  
+  app.post('/execute-agent', async (c) => {
+    const { taskId, message, iteration, agentType, resumeSessionId, model } = await c.req.json()
+    
+    try {
+      // Execute agent using LocalWorkspace
+      await agentService.executeAgent(
+        taskId,
+        message,
+        iteration,
+        agentType,
+        resumeSessionId,
+        model
+      )
+      
+      return c.json({ success: true })
+    } catch (error) {
+      logger.error('Agent execution failed', error)
+      return c.json({ success: false, error: error.message }, 500)
+    }
   })
   
-  // Run agent and forward events
-  try {
-    for await (const event of agent.run(config.message, {
-      workspaceDir: config.workspaceDir,
-      iterationNumber: config.iterationNumber,
-      resume: config.resumeSessionId
-    })) {
-      await eventForwarder.sendEvent(event)
-    }
-    
-    // Signal completion
-    await eventForwarder.sendCompletion()
-    process.exit(0)
-  } catch (error) {
-    await eventForwarder.sendError(error)
-    process.exit(1)
-  }
+  app.get('/health', (c) => c.json({ status: 'ok', mode: 'worker' }))
+  
+  const port = process.env.PORT || 8001
+  logger.info(`Worker mode started on port ${port}`)
+  
+  return serve({
+    fetch: app.fetch,
+    port
+  })
 }
-
-main().catch(console.error)
 ```
 
-### 4. Event Communication Architecture
+### 5. Event Forwarding
 
-The event forwarding system is designed to be extensible, starting with HTTP-based forwarding:
+In worker mode, events are forwarded to the main backend:
 
 ```typescript
-// Interface for event forwarding (enables future implementations)
-export interface EventForwarder {
-  sendEvent(event: Event): Promise<void>
-  sendCompletion(): Promise<void>
-  sendError(error: Error): Promise<void>
-}
-
-// HTTP-based implementation (default)
-export class HttpEventForwarder implements EventForwarder {
-  constructor(private endpoint: string) {}
+// apps/backend/services/remote-event.service.ts
+export class RemoteEventService implements EventService {
+  constructor(
+    private apiUrl: string,
+    private apiKey: string
+  ) {}
   
-  async sendEvent(event: Event): Promise<void> {
-    await fetch(`${this.endpoint}/worker/events`, {
+  async emitEvent(event: Event): Promise<void> {
+    await fetch(`${this.apiUrl}/api/v1/worker/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
       body: JSON.stringify(event)
     })
   }
   
-  async sendCompletion(): Promise<void> {
-    await fetch(`${this.endpoint}/worker/complete`, {
-      method: 'POST'
-    })
-  }
-  
-  async sendError(error: Error): Promise<void> {
-    await fetch(`${this.endpoint}/worker/error`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: error.message,
-        stack: error.stack
-      })
-    })
-  }
-}
-
-// Factory for creating event forwarders (enables extensibility)
-export function createEventForwarder(type: string, config: any): EventForwarder {
-  switch (type) {
-    case 'http':
-      return new HttpEventForwarder(config.endpoint)
-    // Future: case 'websocket': return new WebSocketEventForwarder(config)
-    // Future: case 'redis': return new RedisEventForwarder(config)
-    default:
-      throw new Error(`Unknown forwarder type: ${type}`)
-  }
+  // Other EventService methods...
 }
 ```
 
-### 5. Backend Integration
+### 6. Main Backend Worker Integration
 
-Modify the AgentService to use Docker workers based on repository configuration:
+The main backend manages worker containers:
 
 ```typescript
-// apps/backend/services/agent.service.ts
-export class AgentService {
-  constructor(
-    private storage: StorageBackend,
-    private eventService: EventService,
-    private workspaceService: WorkspaceService,
-    private repositoryService: RepositoryService,
-    private dockerWorkerManager: DockerWorkerManager
-  ) {}
+// apps/backend/services/worker.service.ts
+export class WorkerService {
+  private docker: Docker
+  private workers = new Map<string, WorkerInfo>()
   
-  async executeAgent(
-    taskId: string,
-    message: string,
-    iteration: TaskIteration,
-    agentType: string = 'claude-code',
-    resumeSessionId?: string,
-    model?: string
-  ): Promise<void> {
-    // Get repository configuration
-    const task = await this.storage.getTask(taskId)
-    const repository = await this.repositoryService.getRepository(task.repositoryId)
-    
-    // Execute based on repository configuration
-    if (repository.codeExecution.type === 'docker') {
-      await this.executeAgentInDocker(
-        taskId, 
-        message, 
-        iteration, 
-        agentType, 
-        resumeSessionId,
-        model,
-        repository
-      )
-    } else {
-      // Existing in-process execution for 'local' type
-      await this.processAgentExecution(/* ... */)
-    }
-  }
-  
-  private async executeAgentInDocker(
+  async executeAgentInWorker(
     taskId: string,
     message: string,
     iteration: TaskIteration,
     agentType: string,
-    resumeSessionId: string | undefined,
-    model: string | undefined,
-    repository: RepositoryConfig
+    resumeSessionId?: string,
+    model?: string
   ): Promise<void> {
-    const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+    // Find or create a worker container
+    const worker = await this.getOrCreateWorker()
     
-    // Launch worker container
-    const worker = await this.dockerWorkerManager.launchWorker({
-      taskId,
-      iterationNumber: iteration.iterationNumber,
-      agentType,
-      message,
-      workspaceConfig: {
-        path: workspace.getWorkspacePath(),
-        type: workspace.getType()
+    // Send execution request to worker
+    const response = await fetch(`http://${worker.host}:${worker.port}/execute-agent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${worker.apiKey}`
       },
-      eventForwardingUrl: `http://host.docker.internal:${process.env.PORT || 8000}/api/v1`,
-      resumeSessionId,
-      model,
-      dockerImage: repository.codeExecution.image
+      body: JSON.stringify({
+        taskId,
+        message,
+        iteration,
+        agentType,
+        resumeSessionId,
+        model
+      })
     })
     
-    // Track running worker
-    this.runningWorkers.set(taskId, worker)
-    
-    // Monitor worker status
-    this.monitorWorker(worker, taskId, iteration)
-  }
-}
-```
-
-### 6. Worker Event Endpoints
-
-Add new endpoints for worker event forwarding:
-
-```typescript
-// apps/backend/routes/worker.ts
-export async function registerWorkerRoutes(app: Hono) {
-  // Receive events from workers
-  app.post('/events', async (request, reply) => {
-    const event = request.body as Event
-    
-    // Forward to event service
-    await app.services.event.emitEvent(event)
-    
-    return { success: true }
-  })
-  
-  // Handle worker completion
-  app.post('/complete', async (request, reply) => {
-    const { taskId, workerId } = request.body as { taskId: string; workerId: string }
-    
-    // Update task status
-    await app.services.dockerWorker.handleWorkerCompletion(workerId)
-    
-    return { success: true }
-  })
-  
-  // Handle worker errors
-  app.post('/error', async (request, reply) => {
-    const { taskId, workerId, message, stack } = request.body as {
-      taskId: string
-      workerId: string
-      message: string
-      stack?: string
+    if (!response.ok) {
+      throw new Error(`Worker execution failed: ${await response.text()}`)
     }
-    
-    // Handle error
-    await app.services.dockerWorker.handleWorkerError(workerId, message, stack)
-    
-    return { success: true }
-  })
-}
-```
-
-## Docker Worker Implementation
-
-### Container Lifecycle Management
-
-```typescript
-// apps/backend/services/docker-worker-manager.ts
-import Docker from 'dockerode'
-
-export class DockerWorkerManager {
-  private docker: Docker
-  private workers: Map<string, WorkerInstance> = new Map()
-  
-  constructor() {
-    this.docker = new Docker()
   }
   
-  async launchWorker(config: WorkerConfig): Promise<WorkerInstance> {
-    const workerId = `worker-${config.taskId}-${Date.now()}`
+  private async getOrCreateWorker(): Promise<WorkerInfo> {
+    // Simple round-robin or least-loaded selection
+    const availableWorker = this.findAvailableWorker()
+    if (availableWorker) return availableWorker
     
-    // Use custom image if specified, otherwise default
-    const imageName = config.dockerImage || 'moatless/agent-worker:latest'
+    // Create new worker container
+    return this.createWorkerContainer()
+  }
+  
+  private async createWorkerContainer(): Promise<WorkerInfo> {
+    const workerId = `worker-${Date.now()}`
+    const apiKey = generateApiKey()
     
-    // Create container
     const container = await this.docker.createContainer({
-      Image: imageName,
+      Image: 'moatless/backend:latest',
       name: workerId,
       Env: [
-        `WORKER_CONFIG=${JSON.stringify(config)}`,
-        `NODE_ENV=production`
+        'WORKER_MODE=true',
+        `WORKER_API_URL=http://host.docker.internal:${process.env.PORT || 8000}`,
+        `WORKER_API_KEY=${apiKey}`,
+        'WORKSPACE_DIR=/workspace'
       ],
       HostConfig: {
-        // Mount workspace directory
-        Binds: [`${config.workspaceConfig.path}:/workspace:rw`],
-        // Resource limits
-        Memory: 2 * 1024 * 1024 * 1024, // 2GB
-        CpuShares: 1024,
-        // Network mode to access host
+        AutoRemove: true,
         NetworkMode: 'bridge',
         ExtraHosts: ['host.docker.internal:host-gateway']
-      },
-      Labels: {
-        'moatless.type': 'agent-worker',
-        'moatless.task': config.taskId,
-        'moatless.iteration': String(config.iterationNumber)
       }
     })
     
-    // Start container
     await container.start()
     
-    const worker: WorkerInstance = {
+    const info = {
+      id: workerId,
       containerId: container.id,
-      workerId,
-      status: 'running',
-      startTime: new Date(),
-      logs: []
+      host: workerId,
+      port: 8001,
+      apiKey,
+      tasksExecuted: 0
     }
     
-    this.workers.set(workerId, worker)
-    
-    // Monitor container
-    this.monitorContainer(container, worker)
-    
-    return worker
-  }
-  
-  private async monitorContainer(
-    container: Docker.Container, 
-    worker: WorkerInstance
-  ): Promise<void> {
-    // Stream logs
-    const logStream = await container.logs({
-      stdout: true,
-      stderr: true,
-      follow: true
-    })
-    
-    logStream.on('data', (chunk) => {
-      worker.logs.push(chunk.toString())
-    })
-    
-    // Monitor container status
-    const checkInterval = setInterval(async () => {
-      try {
-        const info = await container.inspect()
-        if (!info.State.Running) {
-          worker.status = info.State.ExitCode === 0 ? 'completed' : 'failed'
-          clearInterval(checkInterval)
-          
-          // Clean up after delay
-          setTimeout(() => this.cleanupWorker(worker.workerId), 60000)
-        }
-      } catch (error) {
-        clearInterval(checkInterval)
-        worker.status = 'failed'
-      }
-    }, 5000)
-  }
-  
-  async stopWorker(workerId: string): Promise<void> {
-    const worker = this.workers.get(workerId)
-    if (!worker) return
-    
-    try {
-      const container = this.docker.getContainer(worker.containerId)
-      await container.stop({ t: 10 })
-      await container.remove()
-    } catch (error) {
-      logger.error('Failed to stop worker', error as Error, { workerId })
-    }
-    
-    this.workers.delete(workerId)
-  }
-  
-  private async cleanupWorker(workerId: string): Promise<void> {
-    const worker = this.workers.get(workerId)
-    if (!worker) return
-    
-    try {
-      const container = this.docker.getContainer(worker.containerId)
-      await container.remove()
-    } catch (error) {
-      // Container may already be removed
-    }
-    
-    this.workers.delete(workerId)
+    this.workers.set(workerId, info)
+    return info
   }
 }
 ```
 
-## Worker Builder
+## Implementation Steps
 
-The `worker-builder` service in the docker-compose file is used to **build the Docker image for the agent workers**. Here's what it does:
+### Phase 1: Worker Mode Foundation
 
-```yaml
-worker-builder:
-  build:
-    context: ./worker
-    dockerfile: Dockerfile
-  image: moatless/agent-worker:latest
-```
+1. **Add Worker Mode to Backend**
+   - Create `worker-mode.ts` with minimal service initialization
+   - Add environment variable checks in `index.ts`
+   - Implement `RemoteEventService` for event forwarding
+   - Add worker health endpoint
 
-**Purpose:**
-1. **Builds the worker image** from the worker directory source code
-2. **Tags it** as `moatless/agent-worker:latest` for use by the backend
-3. **Ensures the image exists** before the backend tries to launch workers
-4. **Allows local development** without pushing to a registry
+2. **Update Docker Configuration**
+   - Ensure Dockerfile includes git and workspace directory
+   - Add worker mode environment variables
+   - Test container can run in worker mode
 
-**Benefits:**
-- No need for a Docker registry in development
-- Automatically rebuilds when worker code changes
-- Ensures the backend has access to the latest worker image
-- Simplifies the development workflow
+### Phase 2: Worker Management
 
-## Security Considerations
+3. **Create Worker Service**
+   - Implement `WorkerService` in main backend
+   - Add Docker container management
+   - Implement worker selection logic
+   - Add worker health monitoring
 
-### Container Isolation
+4. **Update Agent Service**
+   - Add logic to detect when to use workers
+   - Implement task delegation to workers
+   - Handle worker failures gracefully
 
-- Run containers with non-root user
-- Use read-only root filesystem where possible
-- Limit container capabilities
-- Network isolation between workers
+### Phase 3: Integration & Testing
 
-### Resource Limits
+5. **Add Worker Endpoints**
+   - Create `/api/v1/worker/events` endpoint
+   - Add authentication middleware
+   - Test event forwarding
 
-```yaml
-# docker-compose.yml for workers
-services:
-  agent-worker:
-    image: moatless/agent-worker:latest
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-```
+6. **Docker Compose Setup**
+   ```yaml
+   version: '3.8'
+   services:
+     backend:
+       build: .
+       environment:
+         - WORKER_MODE=false
+       ports:
+         - "8000:8000"
+       volumes:
+         - /var/run/docker.sock:/var/run/docker.sock
+     
+     worker-1:
+       build: .
+       environment:
+         - WORKER_MODE=true
+         - WORKER_API_URL=http://backend:8000
+         - WORKER_API_KEY=dev-key-123
+       depends_on:
+         - backend
+   ```
 
-## Error Handling and Recovery
+## Benefits of This Approach
 
-### Worker Failure Recovery
+1. **Simplicity**: No need for separate worker codebase or complex orchestration
+2. **Reusability**: Uses existing `LocalWorkspace` and agent code
+3. **Flexibility**: Can run workers on same machine or distributed
+4. **Compatibility**: No changes to frontend or event streaming
+5. **Scalability**: Easy to add more worker containers
 
-```typescript
-export class WorkerFailureHandler {
-  async handleWorkerFailure(
-    workerId: string, 
-    error: Error
-  ): Promise<void> {
-    const worker = this.workers.get(workerId)
-    if (!worker) return
-    
-    // Log failure
-    logger.error('Worker failed', error, {
-      workerId,
-      taskId: worker.config.taskId,
-      duration: Date.now() - worker.startTime.getTime()
-    })
-    
-    // Update task status
-    await this.updateTaskStatus(worker.config.taskId, 'error', error)
-    
-    // Clean up container
-    await this.cleanupFailedWorker(workerId)
-    
-    // Notify event service
-    await this.eventService.emitEvent({
-      type: EventType.ERROR,
-      taskId: worker.config.taskId,
-      payload: {
-        message: `Worker failed: ${error.message}`,
-        workerId
-      }
-    })
-  }
-}
-```
+## Configuration Examples
 
-### Connection Resilience
+### Repository Configuration
 
-```typescript
-export class ResilientEventForwarder implements EventForwarder {
-  private retryCount = 0
-  private maxRetries = 3
-  
-  async sendEvent(event: Event): Promise<void> {
-    try {
-      await this.attemptSend(event)
-      this.retryCount = 0
-    } catch (error) {
-      if (this.retryCount < this.maxRetries) {
-        this.retryCount++
-        await this.delay(Math.pow(2, this.retryCount) * 1000)
-        return this.sendEvent(event)
-      }
-      
-      // Store failed events locally
-      await this.storeFailedEvent(event)
-      throw error
-    }
-  }
-}
-```
-
-## Deployment Strategies
-
-### Docker Compose Development
-
-```yaml
-version: '3.8'
-
-services:
-  backend:
-    build: ./apps/backend
-    environment:
-      - WORKER_IMAGE=moatless/agent-worker:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./workspaces:/workspaces
-    networks:
-      - moatless
-      
-  worker-builder:
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
-    image: moatless/agent-worker:latest
-    
-networks:
-  moatless:
-    driver: bridge
-```
-
-### Kubernetes Production
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: agent-worker-{{ .TaskID }}
-spec:
-  template:
-    spec:
-      containers:
-      - name: agent-worker
-        image: moatless/agent-worker:latest
-        env:
-        - name: WORKER_CONFIG
-          value: "{{ .WorkerConfig }}"
-        resources:
-          limits:
-            memory: "2Gi"
-            cpu: "1"
-          requests:
-            memory: "512Mi"
-            cpu: "0.5"
-        volumeMounts:
-        - name: workspace
-          mountPath: /workspace
-      volumes:
-      - name: workspace
-        persistentVolumeClaim:
-          claimName: workspace-{{ .TaskID }}
-      restartPolicy: Never
-  backoffLimit: 3
-```
-
-## Best Practices
-
-### 1. Worker Configuration
-
-- Keep worker images minimal
-- Use specific version tags, not `latest`
-- Set appropriate resource limits
-- Implement graceful shutdown
-
-### 2. Event Handling
-
-- Validate all events before forwarding
-- Implement event deduplication
-- Handle out-of-order events
-- Keep event payloads small
-
-### 3. Security
-
-- Scan worker images for vulnerabilities
-- Implement network policies
-- Use least privilege principle
-- Isolate worker containers
-
-### 4. Repository Configuration
-
-Configure repositories for Docker execution:
+Repositories can specify whether to use workers:
 
 ```json
 {
@@ -730,48 +375,111 @@ Configure repositories for Docker execution:
   "name": "my-project",
   "path": "/repos/my-project",
   "codeExecution": {
-    "type": "docker",
-    "image": "node:20-slim",
-    "setupCommands": "npm install",
-    "envVars": {
-      "NODE_ENV": "development"
+    "type": "local",
+    "useWorkers": true,  // New flag to use worker containers
+    "workerImage": "moatless/backend:latest",
+    "workerResources": {
+      "memory": "2G",
+      "cpu": "1"
     }
   }
 }
 ```
 
+### Environment Variables
+
+```bash
+# Main Backend
+PORT=8000
+WORKER_MODE=false
+ENABLE_WORKERS=true
+WORKER_POOL_SIZE=3
+
+# Worker Container
+PORT=8001
+WORKER_MODE=true
+WORKER_API_URL=http://main-backend:8000
+WORKER_API_KEY=secure-key-here
+WORKSPACE_DIR=/workspace
+```
+
+## Security Considerations
+
+1. **API Key Authentication**: Worker containers authenticate with main backend
+2. **Network Isolation**: Workers can only communicate with main backend
+3. **Resource Limits**: Prevent runaway containers
+4. **No Direct Database Access**: Workers only use remote storage
+
+## Next Steps
+
+### Required Code Changes
+
+1. **Create `worker-mode.ts`**
+   - Minimal service initialization
+   - HTTP server for task execution
+   - Health endpoint
+
+2. **Create `RemoteEventService`**
+   - Implements `EventService` interface
+   - Forwards events via HTTP
+
+3. **Create `RemoteStorageBackend`**
+   - Implements `StorageBackend` interface
+   - Proxies storage calls to main backend
+
+4. **Update `index.ts`**
+   - Check `WORKER_MODE` environment variable
+   - Route to appropriate startup function
+
+5. **Create `WorkerService`**
+   - Manages Docker containers
+   - Delegates tasks to workers
+   - Monitors worker health
+
+6. **Update `AgentService`**
+   - Check repository config for `useWorkers`
+   - Delegate to `WorkerService` when needed
+
+### Testing Plan
+
+1. **Unit Tests**
+   - Test worker mode initialization
+   - Test event forwarding
+   - Test task delegation
+
+2. **Integration Tests**
+   - Test full flow with Docker
+   - Test worker failure scenarios
+   - Test concurrent executions
+
+3. **Performance Tests**
+   - Measure overhead of worker mode
+   - Test scaling with multiple workers
+   - Monitor resource usage
+
 ## Future Enhancements
 
-### 1. Authentication & Authorization
-- Add JWT-based authentication for worker requests
-- Implement role-based access control
-- Add API key management for workers
+1. **Worker Pooling**: Pre-warm containers for faster task execution
+2. **Load Balancing**: Distribute tasks based on worker metrics
+3. **Auto-scaling**: Scale workers based on queue depth
+4. **Persistent Workspaces**: Mount persistent volumes for workspace reuse
+5. **GPU Support**: For ML/AI workloads that need acceleration
 
-### 2. Alternative Communication Patterns
-- **WebSocket**: For bidirectional real-time communication
-- **Message Queue**: Redis Streams or RabbitMQ for high-volume scenarios
-- **gRPC**: For efficient binary protocol communication
+## Migration Path
 
-### 3. Monitoring and Observability
-- Worker metrics collection (execution time, resource usage)
-- Distributed tracing for event flow
-- Log aggregation from all workers
-- Performance dashboards
-
-### 4. Advanced Features
-- Worker pooling for faster startup
-- GPU support for AI workloads
-- Distributed execution across multiple nodes
-- Auto-scaling based on workload
+1. **Phase 1**: Implement worker mode without changing existing behavior
+2. **Phase 2**: Test with select repositories using `useWorkers` flag
+3. **Phase 3**: Gradually migrate all Docker-based repositories
+4. **Phase 4**: Deprecate complex `DockerWorkspace` implementation
 
 ## Conclusion
 
-The Docker worker architecture provides:
+This simplified Docker worker architecture:
 
-1. **Flexible Execution**: Repository-based configuration for local or Docker execution
-2. **Isolation**: Complete isolation of agent execution when using Docker
-3. **Scalability**: Easy horizontal scaling of workers
-4. **Reliability**: Failure isolation and recovery
-5. **Extensibility**: Pluggable event forwarding architecture
+1. **Leverages existing code**: Uses `LocalWorkspace` inside containers
+2. **Maintains simplicity**: Single codebase, environment-based behavior
+3. **Enables scalability**: Easy to add more worker containers
+4. **Preserves compatibility**: No changes to frontend or APIs
+5. **Reduces complexity**: No need for separate worker implementation
 
-This architecture maintains the existing event streaming capabilities while adding the benefits of containerized execution, making the system more robust and scalable for AI agent workloads.
+By running the backend in "worker mode" inside Docker containers, we achieve isolation and scalability without the complexity of a full worker orchestration system.
