@@ -8,7 +8,9 @@ import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace } from '../workspaces/base.js'
 import type { EventService } from './event.service.js'
+import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
+import type { WorkerService } from './worker.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class AgentService {
@@ -18,12 +20,59 @@ export class AgentService {
     private storage: StorageBackend,
     private eventService: EventService,
     private workspaceService: WorkspaceService,
+    private repositoryService?: RepositoryService | null,
+    private workerService?: WorkerService,
   ) {}
 
   /**
    * Execute an agent for a task
    */
   async executeAgent(
+    taskId: string,
+    message: string,
+    iteration: TaskIteration,
+    agentType: string = 'claude-code',
+    resumeSessionId?: string,
+    model?: string,
+  ): Promise<void> {
+    // Get task and repository config
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new CriticalError('Task not found', taskId, iteration)
+    }
+
+    const repository = this.repositoryService
+      ? await this.repositoryService.getRepositoryById(task.repositoryId)
+      : await this.storage.getRepository(task.repositoryId)
+
+    // Check if we should use workers
+    const useWorkers =
+      process.env.ENABLE_WORKERS === 'true' &&
+      repository?.codeExecution?.useWorkers &&
+      this.workerService
+
+    if (useWorkers && this.workerService) {
+      // Delegate to worker
+      await this.workerService.executeAgentInWorker(
+        taskId,
+        message,
+        iteration,
+        agentType,
+        resumeSessionId,
+        model,
+        repository,
+      )
+      return
+    }
+
+    // Execute locally as before
+    await this.processAgentExecution(taskId, message, iteration, agentType, resumeSessionId, model)
+  }
+
+  /**
+   * Process agent execution locally (original implementation)
+   */
+  private async processAgentExecution(
     taskId: string,
     message: string,
     iteration: TaskIteration,
@@ -90,14 +139,7 @@ export class AgentService {
       }
 
       // Execute agent in background
-      await this.processAgentExecution(
-        agent,
-        message,
-        taskId,
-        iteration,
-        workspace,
-        resumeSessionId,
-      )
+      await this.runAgentExecution(agent, message, taskId, iteration, workspace, resumeSessionId)
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
@@ -179,7 +221,7 @@ export class AgentService {
   /**
    * Process agent execution and handle events
    */
-  private async processAgentExecution(
+  private async runAgentExecution(
     agent: BaseAgent,
     message: string,
     taskId: string,
@@ -433,6 +475,8 @@ export function createAgentService(
   storage: StorageBackend,
   eventService: EventService,
   workspaceService: WorkspaceService,
+  repositoryService?: RepositoryService | null,
+  workerService?: WorkerService,
 ): AgentService {
-  return new AgentService(storage, eventService, workspaceService)
+  return new AgentService(storage, eventService, workspaceService, repositoryService, workerService)
 }

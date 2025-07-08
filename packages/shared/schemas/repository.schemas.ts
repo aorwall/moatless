@@ -26,6 +26,15 @@ export const CodeExecutionSchema = z.object({
   envVars: z.record(z.string()).optional(),
   volumes: z.array(z.string()).optional(),
   ports: z.record(z.number()).optional(),
+  // New worker configuration
+  useWorkers: z.boolean().optional(),
+  workerImage: z.string().optional(),
+  workerResources: z
+    .object({
+      memory: z.string(),
+      cpu: z.string(),
+    })
+    .optional(),
 })
 
 // Repository schemas - merged repository fields directly into RepositoryConfig

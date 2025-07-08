@@ -4,6 +4,7 @@ import { config } from 'dotenv'
 import { createApp } from './app.js'
 import { createLogger } from './utils/logger.js'
 import { sseManager } from './utils/sse-manager.js'
+import { startWorkerMode } from './worker-mode.js'
 
 config() // Load environment variables
 
@@ -14,6 +15,22 @@ let server: ServerType | null = null
 let appServices: Awaited<ReturnType<typeof createApp>> | null = null
 
 const start = async () => {
+  // Check if running in worker mode
+  if (process.env.WORKER_MODE === 'true') {
+    const workerConfig = {
+      apiUrl: process.env.WORKER_API_URL || 'http://localhost:8000',
+      apiKey: process.env.WORKER_API_KEY || '',
+      workspaceDir: process.env.WORKSPACE_DIR || '/workspace',
+    }
+
+    if (!workerConfig.apiKey) {
+      throw new Error('WORKER_API_KEY is required in worker mode')
+    }
+
+    await startWorkerMode(workerConfig)
+    return
+  }
+
   try {
     const appWithServices = await createApp()
     appServices = appWithServices

@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./apps/backend
+    ports:
+      - "8000:8000"
+    environment:
+      - WORKER_MODE=false
+      - ENABLE_WORKERS=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+    
+  # Example pre-configured worker
+  worker-1:
+    build: ./apps/backend
+    environment:
+      - WORKER_MODE=true
+      - WORKER_API_URL=http://backend:8000
+      - WORKER_API_KEY=dev-worker-key-123
+      - WORKSPACE_DIR=/workspace
+      - PORT=8001
+    depends_on:
+      - backend
+    volumes:
+      - worker1-workspace:/workspace
+    
+volumes:
+  worker1-workspace:
