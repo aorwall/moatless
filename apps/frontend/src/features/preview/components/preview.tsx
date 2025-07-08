@@ -12,7 +12,6 @@ import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
 import { PreviewToolbar } from './preview-toolbar'
-import { ScriptHealthIndicator } from './script-health-indicator'
 
 export function Preview({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
