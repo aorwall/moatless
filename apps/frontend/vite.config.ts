@@ -16,10 +16,17 @@ export default defineConfig({
     })
   ],
   server: {
-    port: 3001
+    port: 3001,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      }
+    }
   },
   build: {
     outDir: 'dist',
     sourcemap: true
-  }
+  },
+  appType: 'spa'
 })
