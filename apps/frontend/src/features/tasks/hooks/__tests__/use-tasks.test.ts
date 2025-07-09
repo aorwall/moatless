@@ -1,4 +1,3 @@
-import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 import { renderHook, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,7 +11,6 @@ import {
   createMockServerStatus,
   createMockTask,
   createMockTaskWithIterations,
-  createMockWorkspaceStatus,
 } from '@/test-utils/factories'
 import { createWrapper } from '@/test-utils/render'
 
@@ -24,7 +22,6 @@ import {
   useTaskEvents,
   useTaskGitDiff,
   useTasksList,
-  useTaskWorkspaceStatus,
 } from '../use-tasks'
 import {
   useServerStatus,
@@ -285,59 +282,6 @@ describe('Task Hooks', () => {
     })
   })
 
-  describe('useTaskWorkspaceStatus', () => {
-    it('fetches workspace status', async () => {
-      const mockStatus = createMockWorkspaceStatus({
-        status: WorkspaceStatus.IDLE,
-      })
-      vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(mockStatus)
-
-      const { result } = renderHook(() => useTaskWorkspaceStatus('task-123'), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => {
-        expect(result.current.isSuccess).toBe(true)
-      })
-
-      expect(result.current.data).toEqual(mockStatus)
-    })
-
-    it('refetches frequently when workspace is running or setting up', async () => {
-      const runningStatus = createMockWorkspaceStatus({
-        status: WorkspaceStatus.RUNNING,
-      })
-      vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(runningStatus)
-
-      renderHook(() => useTaskWorkspaceStatus('task-123'), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => {
-        expect(tasksApi.getTaskWorkspaceStatus).toHaveBeenCalled()
-      })
-
-      // The refetch interval should be 1 second for running/setting_up states
-      // This is configured in the hook but hard to test the actual interval
-    })
-
-    it('refetches less frequently when workspace is idle', async () => {
-      const idleStatus = createMockWorkspaceStatus({
-        status: WorkspaceStatus.IDLE,
-      })
-      vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue(idleStatus)
-
-      renderHook(() => useTaskWorkspaceStatus('task-123'), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => {
-        expect(tasksApi.getTaskWorkspaceStatus).toHaveBeenCalledTimes(1)
-      })
-
-      // The refetch interval should be 5 seconds for idle states
-    })
-  })
 
   describe('useServerStatus', () => {
     it('fetches server status', async () => {

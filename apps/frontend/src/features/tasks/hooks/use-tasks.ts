@@ -2,7 +2,6 @@ import type {
   CreateTaskRequest,
   MergeTaskResponse,
   SimpleTaskResponse,
-  WorkspaceStatusResponse,
 } from '@moatless/shared/types/api'
 import type { Event } from '@moatless/shared/types/event'
 import type { FileSearchResponse } from '@moatless/shared/types/repository'
@@ -192,20 +191,6 @@ export function useTaskFileSearch(
   })
 }
 
-export function useTaskWorkspaceStatus(
-  taskId: string,
-  options?: Omit<UseQueryOptions<WorkspaceStatusResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskWorkspaceStatus(taskId),
-    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
-    enabled: !!taskId,
-    refetchInterval: (_query) => {
-      return false
-    },
-    ...options,
-  })
-}
 
 export function useMergeTask(
   taskId: string,

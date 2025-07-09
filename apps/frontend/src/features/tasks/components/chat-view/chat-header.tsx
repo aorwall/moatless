@@ -1,4 +1,3 @@
-import { useParams } from '@tanstack/react-router'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -6,7 +5,6 @@ import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import {
   useCloseTask,
   useMergeTask,
-  useTaskWorkspaceStatus,
 } from '@/features/tasks/hooks/use-tasks'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
@@ -20,12 +18,12 @@ import {
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function ChatHeader() {
-  const params = useParams({ from: '/tasks/$taskId' })
   const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
   const { data: repositories } = useRepositoriesList()
-  const { data: workspaceStatus, isLoading: isLoadingWorkspace } = useTaskWorkspaceStatus(
-    params.taskId,
-  )
+  
+  // Get git sync status from the last iteration
+  const lastIteration = iterations?.[iterations.length - 1]
+  const gitSyncStatus = lastIteration?.gitSyncStatus
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
@@ -53,13 +51,13 @@ export function ChatHeader() {
 
   const handleMerge = () => {
     if (taskId && status) {
-      if (!workspaceStatus?.gitStatus?.hasUnmergedCommits) {
+      if (!gitSyncStatus?.commitsAhead || gitSyncStatus.commitsAhead === 0) {
         toast.warning('No unmerged commits to merge', {
           description: 'All commits have already been merged.',
         })
         return
       }
-      if (workspaceStatus?.gitStatus?.hasConflicts) {
+      if (gitSyncStatus?.status === 'diverged') {
         toast.warning('Cannot merge: conflicts detected', {
           description: 'Please resolve conflicts before merging.',
         })
@@ -103,51 +101,36 @@ export function ChatHeader() {
                 {statusConfig.icon}
                 <span>{status}</span>
               </div>
-              {workspaceStatus?.gitStatus ? (
+              {gitSyncStatus && (
                 <>
-                  {workspaceStatus.gitStatus.hasUnmergedCommits && (
+                  {gitSyncStatus.commitsAhead > 0 && (
                     <>
                       <span>•</span>
                       <span className="text-status-info">
-                        {workspaceStatus.gitStatus.commitsAhead} ahead
+                        {gitSyncStatus.commitsAhead} ahead
                       </span>
                     </>
                   )}
-                  {workspaceStatus.gitStatus.isBehindBase && (
+                  {gitSyncStatus.commitsBehind > 0 && (
                     <>
                       <span>•</span>
                       <span className="text-status-warning">
-                        {workspaceStatus.gitStatus.commitsBehind} behind
+                        {gitSyncStatus.commitsBehind} behind
                       </span>
                     </>
                   )}
-                  {workspaceStatus.gitStatus.hasConflicts && (
+                  {gitSyncStatus.status === 'diverged' && (
                     <>
                       <span>•</span>
                       <span className="text-status-error">has conflicts</span>
                     </>
                   )}
-                  {workspaceStatus.gitStatus.hasUncommittedChanges && (
+                  {gitSyncStatus.hasUncommittedChanges && (
                     <>
                       <span>•</span>
                       <span className="text-status-warning">
                         uncommitted changes
                       </span>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  {workspaceStatus?.hasUnmergedCommits && (
-                    <>
-                      <span>•</span>
-                      <span className="text-status-info">unmerged commits</span>
-                    </>
-                  )}
-                  {workspaceStatus?.isBehindBase && (
-                    <>
-                      <span>•</span>
-                      <span className="text-status-warning">behind main</span>
                     </>
                   )}
                 </>
@@ -166,9 +149,9 @@ export function ChatHeader() {
                     onClick={handleMerge}
                     disabled={
                       mergeTask.isPending ||
-                      isLoadingWorkspace ||
-                      !workspaceStatus?.gitStatus?.hasUnmergedCommits ||
-                      workspaceStatus?.gitStatus?.hasConflicts ||
+                      !gitSyncStatus?.commitsAhead ||
+                      gitSyncStatus.commitsAhead === 0 ||
+                      gitSyncStatus.status === 'diverged' ||
                       status === 'running' ||
                       status === 'error'
                     }
@@ -179,15 +162,11 @@ export function ChatHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {!workspaceStatus?.gitStatus?.hasUnmergedCommits ? (
-                    <p>Cannot merge: workspace has uncommitted changes</p>
+                  {!gitSyncStatus?.commitsAhead || gitSyncStatus.commitsAhead === 0 ? (
+                    <p>No unmerged commits to merge</p>
                   ) : status === 'running' ? (
                     <p>Cannot merge: agent is running</p>
-                  ) : isLoadingWorkspace ? (
-                    <p>Checking status...</p>
-                  ) : !workspaceStatus?.hasUnmergedCommits ? (
-                    <p>No unmerged commits to merge</p>
-                  ) : workspaceStatus?.gitStatus?.hasConflicts ? (
+                  ) : gitSyncStatus.status === 'diverged' ? (
                     <p>Cannot merge: conflicts detected</p>
                   ) : (
                     <p>Merge workspace changes to the main branch</p>
