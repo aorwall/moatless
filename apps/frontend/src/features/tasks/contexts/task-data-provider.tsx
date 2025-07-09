@@ -140,9 +140,9 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       isComplete: taskPrimitives?.isComplete ?? false,
       runningStartTime: taskPrimitives?.runningStartTime,
 
-      // Loading & error states
-      isLoading: taskQuery.isLoading || workspaceQuery.isLoading || gitDiffQuery.isLoading,
-      error: taskQuery.error || workspaceQuery.error || gitDiffQuery.error || null,
+      // Loading & error states - only block on core task data
+      isLoading: taskQuery.isLoading,
+      error: taskQuery.error || null,
     }),
     [
       taskId,
@@ -150,11 +150,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       workspacePrimitives,
       gitDiffQuery.data,
       taskQuery.isLoading,
-      workspaceQuery.isLoading,
-      gitDiffQuery.isLoading,
       taskQuery.error,
-      workspaceQuery.error,
-      gitDiffQuery.error,
     ],
   )
 
@@ -184,6 +180,34 @@ export function useWorkspaceStatus() {
   return { workspaceStatus, workspaceReady, workspaceHasChanges }
 }
 
+export function useWorkspaceStatusWithLoading() {
+  const { taskId } = useTaskData()
+  const workspaceQuery = useQuery({
+    queryKey: queryKeys.taskWorkspaceStatus(taskId),
+    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
+    enabled: !!taskId && !taskId.startsWith('temp-'),
+    refetchInterval: (query) => {
+      const data = query.state.data as WorkspaceStatusResponse | undefined
+      const status = data?.status
+      // Only poll when in transitional states
+      if (status === 'setting_up' || status === 'running') {
+        return 3000 // 3 seconds for transitional states
+      }
+      return false // Stop polling when stable
+    },
+    staleTime: 2000, // Consider data stale after 2 seconds
+  })
+
+  const workspace = workspaceQuery.data
+  return {
+    workspaceStatus: workspace?.status,
+    workspaceReady: workspace?.status === 'idle' || workspace?.status === 'running',
+    workspaceHasChanges: workspace?.hasUncommittedChanges || workspace?.hasUnmergedCommits || false,
+    isLoading: workspaceQuery.isLoading,
+    error: workspaceQuery.error,
+  }
+}
+
 export function useTaskIterations() {
   const { iterations } = useTaskData()
   return iterations
@@ -192,6 +216,23 @@ export function useTaskIterations() {
 export function useGitDiff() {
   const { gitDiff } = useTaskData()
   return gitDiff
+}
+
+export function useGitDiffWithLoading() {
+  const { taskId } = useTaskData()
+  const gitDiffQuery = useQuery({
+    queryKey: queryKeys.taskGitDiff(taskId),
+    queryFn: () => tasksApi.getTaskGitDiff(taskId),
+    enabled: !!taskId && !taskId.startsWith('temp-'),
+    staleTime: 10 * 60 * 1000, // 10 minutes - git diff doesn't change frequently
+    retry: false, // Don't retry on failure
+  })
+
+  return {
+    gitDiff: gitDiffQuery.data,
+    isLoading: gitDiffQuery.isLoading,
+    error: gitDiffQuery.error,
+  }
 }
 
 export function useTaskDuration() {

@@ -28,6 +28,7 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
 export {
   TaskDataProvider,
   useGitDiff,
+  useGitDiffWithLoading,
   useTaskData,
   useTaskDuration,
   useTaskIterations,
@@ -35,6 +36,7 @@ export {
   useTaskMetadata,
   useTaskStatus,
   useWorkspaceStatus,
+  useWorkspaceStatusWithLoading,
 } from './task-data-provider'
 export {
   TaskEventsProvider,

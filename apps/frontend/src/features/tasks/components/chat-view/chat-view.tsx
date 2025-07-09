@@ -47,7 +47,7 @@ function ChatViewComponent() {
     }
   }, [])
 
-  // Get workspace status from context
+  // Get workspace status from context (doesn't block loading)
   const { workspaceHasChanges } = useWorkspaceStatus()
 
   // Fetch commands to check if commit command exists
