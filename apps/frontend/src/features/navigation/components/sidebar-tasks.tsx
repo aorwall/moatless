@@ -6,7 +6,6 @@ import { useGlobalEventStream } from '@/features/events'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
-import { useGitSyncStatus } from '@/features/tasks/hooks/use-git-sync-status'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
@@ -58,8 +57,9 @@ function SidebarTaskItem({
   const statusConfig = getTaskStatusConfig(task.status)
   const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
   
-  // Only fetch git sync status for open tasks
-  const { data: gitSyncStatus } = useGitSyncStatus(task.taskId, task.status === 'open')
+  // Get git sync status from the last iteration
+  const lastIteration = task.iterations?.[task.iterations.length - 1]
+  const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
   const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
 
   return (
