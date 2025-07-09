@@ -157,18 +157,6 @@ function TaskPageComponent() {
                   >
                     Preview
                   </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'px-3 py-1 rounded text-sm font-medium transition-colors',
-                      rightPanelView === 'server'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                    onClick={() => setRightPanelView('server')}
-                  >
-                    Server
-                  </button>
                 </div>
               </div>
             </Tabs>
@@ -202,24 +190,6 @@ function TaskPageComponent() {
               <TabsContent value="preview" className="h-full mt-0">
                 <ErrorBoundary componentName="Preview">
                   <Preview config={{ url: serverStatus?.url || '' }} serverStatus={serverStatus} />
-                </ErrorBoundary>
-              </TabsContent>
-              <TabsContent value="server" className="h-full mt-0">
-                <ErrorBoundary componentName="Server Status">
-                  <div className="p-4">
-                    <h3 className="text-lg font-medium mb-4">Server Status</h3>
-                    {serverStatus ? (
-                      <div className="space-y-2">
-                        <div>Status: {serverStatus.running ? 'Running' : 'Stopped'}</div>
-                        <div>Configured: {serverStatus.configured ? 'Yes' : 'No'}</div>
-                        {serverStatus.url && <div>URL: {serverStatus.url}</div>}
-                        {serverStatus.pid && <div>PID: {serverStatus.pid}</div>}
-                        <div>Uptime: {serverStatus.uptimeSeconds}s</div>
-                      </div>
-                    ) : (
-                      <div>Loading server status...</div>
-                    )}
-                  </div>
                 </ErrorBoundary>
               </TabsContent>
             </Tabs>
