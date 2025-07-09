@@ -23,7 +23,8 @@ const uploadResponseSchema = z.object({
 export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: string) {
   // Get the upload directory from env or use default
   const getUploadDir = () => {
-    return process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')
+    const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data')
+    return process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
   }
 
   // Upload file endpoint
