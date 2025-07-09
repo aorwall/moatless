@@ -1,3 +1,4 @@
+import type { Task } from '@moatless/shared/types/task'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -6,7 +7,7 @@ import {
   useCloseTask,
   useMergeTask,
 } from '@/features/tasks/hooks/use-tasks'
-import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
+import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
@@ -23,7 +24,7 @@ export function ChatHeader() {
   
   // Get git sync status from the last iteration
   const lastIteration = iterations?.[iterations.length - 1]
-  const gitSyncStatus = lastIteration?.gitSyncStatus
+  const gitSyncStatus = status === 'open' ? lastIteration?.gitSyncStatus : null
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
@@ -84,8 +85,8 @@ export function ChatHeader() {
   // Get task title (first line of initial message or agent type)
   const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
 
-  // Get status config
-  const statusConfig = getTaskStatusConfig(status)
+  // Create task object for TaskStatusIcon  
+  const task = { status, iterations } as Pick<Task, 'status' | 'iterations'>
 
   return (
     <div className="h-[58px] px-4 py-2 border-b flex items-center">
@@ -97,10 +98,7 @@ export function ChatHeader() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="truncate">{repositoryName}</span>
               <span>•</span>
-              <div className={`flex items-center gap-1 ${statusConfig.color}`}>
-                {statusConfig.icon}
-                <span>{status}</span>
-              </div>
+              <TaskStatusIcon task={task} />
               {gitSyncStatus && (
                 <>
                   {gitSyncStatus.commitsAhead > 0 && (

@@ -8,7 +8,7 @@ import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
-import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
+import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { queryKeys } from '@/lib/api/query-keys'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -54,10 +54,9 @@ function SidebarTaskItem({
   task: any // Using any to match existing code style
   repositoryName: string 
 }) {
-  const statusConfig = getTaskStatusConfig(task.status)
   const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
   
-  // Get git sync status from the last iteration
+  // Get git sync status from the last iteration for tooltip
   const lastIteration = task.iterations?.[task.iterations.length - 1]
   const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
   const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
@@ -70,14 +69,14 @@ function SidebarTaskItem({
             <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
               <div className="flex w-full items-center gap-2 min-w-0">
                 <div className="flex items-center gap-1">
-                  {task.status === 'open' && gitSyncConfig ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className={`flex items-center ${gitSyncConfig.color}`}>
-                          {gitSyncConfig.icon}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="text-xs">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div>
+                        <TaskStatusIcon task={task} showText={false} />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="text-xs">
+                      {task.status === 'open' && gitSyncConfig ? (
                         <div>
                           <p className="font-medium">{gitSyncConfig.tooltip}</p>
                           {gitSyncStatus && (
@@ -86,20 +85,13 @@ function SidebarTaskItem({
                             </p>
                           )}
                         </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className={`flex items-center ${statusConfig.color}`}>
-                          {statusConfig.icon}
+                      ) : (
+                        <div>
+                          <p className="font-medium">{task.status}</p>
                         </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="text-xs">
-                        {statusConfig.tooltip}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                   <span className="font-medium text-sm truncate leading-tight">
