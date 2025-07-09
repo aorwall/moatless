@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@hono/zod-validator':
+        specifier: ^0.4.1
+        version: 0.4.1(hono@4.8.3)(zod@3.25.61)
+      zod-openapi:
+        specifier: ^4.0.0
+        version: 4.0.0(zod@3.25.61)
     devDependencies:
       '@biomejs/biome':
         specifier: 2.0.0-beta.6
@@ -95,6 +102,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.0
         version: 1.15.0(hono@4.8.3)
+      '@hono/zod-validator':
+        specifier: ^0.4.1
+        version: 0.4.1(hono@4.8.3)(zod@3.25.61)
       '@moatless/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -109,7 +119,7 @@ importers:
         version: 4.8.3
       hono-openapi:
         specifier: ^0.4.8
-        version: 0.4.8(hono@4.8.3)(openapi-types@12.1.3)(valibot@1.1.0(typescript@5.8.3))(zod@3.25.61)
+        version: 0.4.8(@hono/zod-validator@0.4.1(hono@4.8.3)(zod@3.25.61))(hono@4.8.3)(openapi-types@12.1.3)(valibot@1.1.0(typescript@5.8.3))(zod-openapi@4.0.0(zod@3.25.61))(zod@3.25.61)
       ignore:
         specifier: ^7.0.5
         version: 7.0.5
@@ -122,6 +132,9 @@ importers:
       zod:
         specifier: ^3.25.61
         version: 3.25.61
+      zod-openapi:
+        specifier: ^4.0.0
+        version: 4.0.0(zod@3.25.61)
     devDependencies:
       '@hono/vite-dev-server':
         specifier: ^0.16.0
@@ -886,6 +899,12 @@ packages:
         optional: true
       wrangler:
         optional: true
+
+  '@hono/zod-validator@0.4.1':
+    resolution: {integrity: sha512-I8LyfeJfvVmC5hPjZ2Iij7RjexlgSBT7QJudZ4JvNPLxn0JQ3sqclz2zydlwISAnw21D2n4LQ0nfZdoiv9fQQA==}
+    peerDependencies:
+      hono: '>=3.9.0'
+      zod: ^3.19.1
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -4459,6 +4478,12 @@ packages:
     resolution: {integrity: sha512-AyeEbWOu/TAXdxlV9wmGcR0+yh2j3vYPGOECcIj2S7MkrLyC7ne+oye2BKTItt0ii2PHk4cDy+95+LshzbXnGg==}
     engines: {node: '>=12.20'}
 
+  zod-openapi@4.0.0:
+    resolution: {integrity: sha512-X/YT3VTYMon10rdTGApBIMPpSm17l/sxyVz3cao9M6ynv348ctYi62TDwdnDO+Po1YxA0KiguIW1gIGVRRGqvA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.21.4
+
   zod@3.25.61:
     resolution: {integrity: sha512-fzfJgUw78LTNnHujj9re1Ov/JJQkRZZGDMcYqSx7Hp4rPOkKywaFHq0S6GoHeXs0wGNE/sIOutkXgnwzrVOGCQ==}
 
@@ -5036,6 +5061,11 @@ snapshots:
       '@hono/node-server': 1.15.0(hono@4.8.3)
       hono: 4.8.3
       minimatch: 9.0.5
+
+  '@hono/zod-validator@0.4.1(hono@4.8.3)(zod@3.25.61)':
+    dependencies:
+      hono: 4.8.3
+      zod: 3.25.61
 
   '@iconify/types@2.0.0': {}
 
@@ -7013,14 +7043,16 @@ snapshots:
 
   highlightjs-vue@1.0.0: {}
 
-  hono-openapi@0.4.8(hono@4.8.3)(openapi-types@12.1.3)(valibot@1.1.0(typescript@5.8.3))(zod@3.25.61):
+  hono-openapi@0.4.8(@hono/zod-validator@0.4.1(hono@4.8.3)(zod@3.25.61))(hono@4.8.3)(openapi-types@12.1.3)(valibot@1.1.0(typescript@5.8.3))(zod-openapi@4.0.0(zod@3.25.61))(zod@3.25.61):
     dependencies:
       json-schema-walker: 2.0.0
       openapi-types: 12.1.3
     optionalDependencies:
+      '@hono/zod-validator': 0.4.1(hono@4.8.3)(zod@3.25.61)
       hono: 4.8.3
       valibot: 1.1.0(typescript@5.8.3)
       zod: 3.25.61
+      zod-openapi: 4.0.0(zod@3.25.61)
 
   hono@4.8.3: {}
 
@@ -8823,6 +8855,10 @@ snapshots:
       yargs-parser: 21.1.1
 
   yocto-queue@1.2.1: {}
+
+  zod-openapi@4.0.0(zod@3.25.61):
+    dependencies:
+      zod: 3.25.61
 
   zod@3.25.61: {}
 
