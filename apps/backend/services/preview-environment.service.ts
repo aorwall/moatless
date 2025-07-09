@@ -217,7 +217,7 @@ export class PreviewEnvironmentService {
       try {
         logs = await handler.getLogs(50)
       } catch (logError) {
-        previewLogger.debug('Could not retrieve server logs', logError as Error)
+        previewLogger.debug('Could not retrieve server logs', { error: logError instanceof Error ? logError.message : String(logError) })
       }
 
       // Save error metadata to disk for later retrieval
