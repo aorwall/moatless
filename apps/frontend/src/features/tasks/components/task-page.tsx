@@ -189,7 +189,7 @@ function TaskPageComponent() {
               <TabsContent value="files" className="h-full mt-0">
                 <ErrorBoundary componentName="File Tree">
                   <div className="flex h-full min-w-0">
-                    <div className="w-80 border-r border-border flex-shrink-0">
+                    <div className="w-80 border-r border-border flex-shrink-0 h-full overflow-hidden">
                       <FileTree taskId={taskId} onFileSelect={setSelectedFile} />
                     </div>
                     <div className="flex-1 min-w-0 overflow-hidden">

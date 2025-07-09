@@ -53,7 +53,7 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
   }
 
   return (
-    <SidebarContent>
+    <SidebarContent className="h-full overflow-y-auto">
       <SidebarGroup>
         <SidebarGroupLabel>Files</SidebarGroupLabel>
         <SidebarGroupContent>
