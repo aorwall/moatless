@@ -70,17 +70,7 @@ function SidebarTaskItem({
             <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
               <div className="flex w-full items-center gap-2 min-w-0">
                 <div className="flex items-center gap-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className={`flex items-center ${statusConfig.color}`}>
-                        {statusConfig.icon}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="text-xs">
-                      {statusConfig.tooltip}
-                    </TooltipContent>
-                  </Tooltip>
-                  {task.status === 'open' && gitSyncConfig && (
+                  {task.status === 'open' && gitSyncConfig ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className={`flex items-center ${gitSyncConfig.color}`}>
@@ -96,6 +86,17 @@ function SidebarTaskItem({
                             </p>
                           )}
                         </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className={`flex items-center ${statusConfig.color}`}>
+                          {statusConfig.icon}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        {statusConfig.tooltip}
                       </TooltipContent>
                     </Tooltip>
                   )}
