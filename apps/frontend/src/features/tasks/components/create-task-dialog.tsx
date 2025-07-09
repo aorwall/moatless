@@ -132,7 +132,6 @@ export function CreateTaskDialog({ open, onOpenChange }: CreateTaskDialogProps) 
             onCreateVibeTask={handleCreateVibeTask}
             isLoading={createTask.isPending || createVibeTask.isPending}
             className="w-full"
-            minHeight="200px"
             maxHeight="500px"
           />
         </div>
