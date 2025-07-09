@@ -1,13 +1,18 @@
-import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/shared/constants'
+import { CLAUDE_MODELS, type ClaudeModel } from '@moatless/shared/constants'
 import type { UploadFileResponse } from '@moatless/shared/types/api'
 import type { Task } from '@moatless/shared/types/task'
 import { useEffect, useState } from 'react'
-import { useRepositoriesList, useBranches } from '@/features/repositories/hooks/use-repositories'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
-import { useTemplatesList } from '@/features/templates'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
 import { ChatForm } from './chat-form'
+import {
+  GenericSelector,
+  useRepositorySelector,
+  useBranchSelector,
+  useTemplateSelector,
+  useModelSelector
+} from './selectors'
 
 export type ChatInputMode = 'code' | 'vibe'
 
@@ -78,63 +83,34 @@ export function ChatInput({
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
-  const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | undefined>(() => {
-    // Load last selected repository from localStorage
-    if (typeof window !== 'undefined' && !taskId && mode === 'code') {
-      return localStorage.getItem('lastSelectedRepositoryId') || undefined
-    }
-    return undefined
-  })
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(() => {
-    // Load last selected template from localStorage
-    if (typeof window !== 'undefined' && !taskId && mode === 'vibe') {
-      return localStorage.getItem('lastSelectedTemplateId') || undefined
-    }
-    return undefined
-  })
   const [runningDuration, setRunningDuration] = useState<string>('')
   const [resumeConversation, setResumeConversation] = useState(true)
-  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(() => {
-    // Load last selected model from localStorage
+  
+  // Initialize model selector with saved value
+  const initialModel = (() => {
     if (typeof window !== 'undefined') {
       const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
       return savedModel && Object.values(CLAUDE_MODELS).includes(savedModel)
         ? savedModel
-        : DEFAULT_CLAUDE_MODEL
+        : undefined
     }
-    return DEFAULT_CLAUDE_MODEL
-  })
-  const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
+    return undefined
+  })()
+  
+  const modelSelector = useModelSelector(initialModel)
+  const repoSelector = useRepositorySelector(showRepositorySelector && mode === 'code')
+  const branchSelector = useBranchSelector(repoSelector.value, showRepositorySelector && mode === 'code')
+  const templateSelector = useTemplateSelector(showRepositorySelector && mode === 'vibe')
 
   // Stop agent mutation - only initialize if we have a taskId
   const stopAgent = useStopAgent(taskId || '')
-
-  // Repository data (only needed for homepage in code mode)
-  const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList({
-    enabled: showRepositorySelector && mode === 'code',
-  })
-
-  // Branch data (only needed for homepage when repository is selected in code mode)
-  const { data: branchesData, isLoading: branchesLoading } = useBranches(
-    selectedRepositoryId || '',
-    {
-      enabled: showRepositorySelector && mode === 'code' && !!selectedRepositoryId,
-    }
-  )
-  const branches = branchesData?.branches || []
-
-  // Template data (only needed for homepage in vibe mode)
-  const { data: templatesData, isLoading: templatesLoading } = useTemplatesList({
-    enabled: showRepositorySelector && mode === 'vibe',
-  })
-  const templates = templatesData?.templates || []
 
   const isTaskContext = !!taskId
   const isPending = isLoading
   const isRunning = taskStatus === 'running'
   
   // Extract repositoryId from task if available
-  const effectiveRepositoryId = isTaskContext ? task?.repositoryId : selectedRepositoryId
+  const effectiveRepositoryId = isTaskContext ? task?.repositoryId : repoSelector.value
 
   // Update running duration every second
   useEffect(() => {
@@ -156,42 +132,62 @@ export function ChatInput({
     return () => clearInterval(interval)
   }, [isRunning, task?.iterations])
 
+  // Initialize repository from localStorage if in code mode
+  useEffect(() => {
+    if (!taskId && mode === 'code' && typeof window !== 'undefined') {
+      const savedRepoId = localStorage.getItem('lastSelectedRepositoryId')
+      if (savedRepoId && !repoSelector.value) {
+        repoSelector.onChange(savedRepoId)
+      }
+    }
+  }, [taskId, mode])
+  
+  // Initialize template from localStorage if in vibe mode
+  useEffect(() => {
+    if (!taskId && mode === 'vibe' && typeof window !== 'undefined') {
+      const savedTemplateId = localStorage.getItem('lastSelectedTemplateId')
+      if (savedTemplateId && !templateSelector.value) {
+        templateSelector.onChange(savedTemplateId)
+      }
+    }
+  }, [taskId, mode])
+  
   // Save selected repository to localStorage
   useEffect(() => {
-    if (selectedRepositoryId && !taskId && mode === 'code') {
-      localStorage.setItem('lastSelectedRepositoryId', selectedRepositoryId)
+    if (repoSelector.value && !taskId && mode === 'code') {
+      localStorage.setItem('lastSelectedRepositoryId', repoSelector.value)
     }
-  }, [selectedRepositoryId, taskId, mode])
+  }, [repoSelector.value, taskId, mode])
 
   // Save selected template to localStorage
   useEffect(() => {
-    if (selectedTemplateId && !taskId && mode === 'vibe') {
-      localStorage.setItem('lastSelectedTemplateId', selectedTemplateId)
+    if (templateSelector.value && !taskId && mode === 'vibe') {
+      localStorage.setItem('lastSelectedTemplateId', templateSelector.value)
     }
-  }, [selectedTemplateId, taskId, mode])
+  }, [templateSelector.value, taskId, mode])
 
   // Save selected model to localStorage
   useEffect(() => {
-    localStorage.setItem('lastSelectedModel', selectedModel)
-  }, [selectedModel])
-
-  // Auto-select first branch when branches are loaded or reset when repository changes
-  useEffect(() => {
-    if (showRepositorySelector && mode === 'code' && selectedRepositoryId) {
-      if (branches.length > 0 && !selectedBranch) {
-        setSelectedBranch(branches[0]) // Select the first branch (should be main/master)
-      }
-    } else {
-      setSelectedBranch(undefined) // Reset branch when no repository
+    if (modelSelector.value) {
+      localStorage.setItem('lastSelectedModel', modelSelector.value)
     }
-  }, [showRepositorySelector, mode, selectedRepositoryId, branches, selectedBranch])
+  }, [modelSelector.value])
+
+  // Auto-select first branch when branches are loaded
+  useEffect(() => {
+    if (showRepositorySelector && mode === 'code' && repoSelector.value) {
+      if (branchSelector.items.length > 0 && !branchSelector.value) {
+        branchSelector.onChange(branchSelector.items[0].id) // Select the first branch
+      }
+    }
+  }, [showRepositorySelector, mode, repoSelector.value, branchSelector.items])
 
   // Auto-select first template when templates are loaded
   useEffect(() => {
-    if (showRepositorySelector && mode === 'vibe' && templates.length > 0 && !selectedTemplateId) {
-      setSelectedTemplateId(templates[0].id)
+    if (showRepositorySelector && mode === 'vibe' && templateSelector.items.length > 0 && !templateSelector.value) {
+      templateSelector.onChange(templateSelector.items[0].id)
     }
-  }, [showRepositorySelector, mode, templates, selectedTemplateId])
+  }, [showRepositorySelector, mode, templateSelector.items])
   
   // Reset message and files when taskId changes
   useEffect(() => {
@@ -227,16 +223,16 @@ export function ChatInput({
           message.trim(),
           clearMessage,
           resumeConversation,
-          selectedModel,
+          modelSelector.value as ClaudeModel,
           filePaths,
         )
       }
-    } else if (mode === 'code' && selectedRepositoryId && onCreateTask && !isPending) {
+    } else if (mode === 'code' && repoSelector.value && onCreateTask && !isPending) {
       // Code mode - create task with uploaded files and selected branch
-      onCreateTask(message.trim(), selectedRepositoryId, clearMessage, selectedModel, uploadedFiles, selectedBranch)
-    } else if (mode === 'vibe' && selectedTemplateId && onCreateVibeTask && !isPending) {
+      onCreateTask(message.trim(), repoSelector.value, clearMessage, modelSelector.value as ClaudeModel, uploadedFiles, branchSelector.value)
+    } else if (mode === 'vibe' && templateSelector.value && onCreateVibeTask && !isPending) {
       // Vibe mode - create vibe task with template
-      onCreateVibeTask(message.trim(), selectedTemplateId, clearMessage, selectedModel, uploadedFiles)
+      onCreateVibeTask(message.trim(), templateSelector.value, clearMessage, modelSelector.value as ClaudeModel, uploadedFiles)
     }
   }
 
@@ -282,8 +278,8 @@ export function ChatInput({
     (!isRunning && !message.trim()) ||
     (isTaskContext && (taskStatus === 'completed' || taskStatus === 'failed')) ||
     !(isTaskContext || 
-      (mode === 'code' && selectedRepositoryId) || 
-      (mode === 'vibe' && selectedTemplateId)
+      (mode === 'code' && repoSelector.value) || 
+      (mode === 'vibe' && templateSelector.value)
     )
 
   return (
@@ -323,41 +319,28 @@ export function ChatInput({
         <ChatForm
           message={message}
           onMessageChange={setMessage}
-          sendMessage={handleSendMessage}
-          textareaDisabled={isTextareaDisabled}
-          sendDisabled={isSendDisabled}
+          onSubmit={handleSendMessage}
+          disabled={isTextareaDisabled || isSendDisabled}
           placeholder={getPlaceholderText()}
           repositoryId={effectiveRepositoryId}
           taskId={taskId}
           isTaskContext={isTaskContext}
           buttonText={getButtonText()}
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-          isRunning={isRunning}
-          isLoading={isPending}
-          mode={mode}
-          // Repository selector props (code mode)
-          showRepositorySelector={showRepositorySelector && mode === 'code'}
-          repositories={repositories}
-          selectedRepositoryId={selectedRepositoryId}
-          onRepositoryChange={setSelectedRepositoryId}
-          repositoriesLoading={repositoriesLoading}
-          // Branch selector props (code mode)
-          showBranchSelector={showRepositorySelector && mode === 'code'}
-          branches={branches}
-          selectedBranch={selectedBranch}
-          onBranchChange={setSelectedBranch}
-          branchesLoading={branchesLoading}
-          // Template selector props (vibe mode)
-          showTemplateSelector={showRepositorySelector && mode === 'vibe'}
-          templates={templates}
-          selectedTemplateId={selectedTemplateId}
-          onTemplateChange={setSelectedTemplateId}
-          templatesLoading={templatesLoading}
+          running={isRunning}
+          loading={isPending}
           maxHeight={maxHeight}
-          // File upload props
-          uploadedFiles={uploadedFiles}
+          files={uploadedFiles}
           onFilesChange={setUploadedFiles}
+          selectors={[
+            ...(showRepositorySelector && mode === 'code' ? [
+              <GenericSelector key="repo" {...repoSelector} />,
+              <GenericSelector key="branch" {...branchSelector} />
+            ] : []),
+            ...(showRepositorySelector && mode === 'vibe' ? [
+              <GenericSelector key="template" {...templateSelector} />
+            ] : []),
+            <GenericSelector key="model" {...modelSelector} />
+          ]}
         />
       </div>
     </div>

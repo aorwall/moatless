@@ -394,7 +394,7 @@ function ChatViewComponent() {
         <ChatInput
           data-testid="task-chat-input"
           taskId={params.taskId}
-          task={iterations ? ({ iterations, repositoryId } as Task) : undefined}
+          task={iterations ? ({ iterations, repositoryId } as unknown as Task) : undefined}
           taskStatus={status}
           lastIterationHasError={lastIterationHasError || false}
           onSendMessage={handleSendMessage}

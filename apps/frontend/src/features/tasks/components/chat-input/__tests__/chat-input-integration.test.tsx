@@ -1,6 +1,42 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ChatInput } from '../index'
+
+// Mock the API hooks
+vi.mock('@/features/repositories/hooks/use-repositories', () => ({
+  useRepositoriesList: vi.fn(() => ({ data: [], isLoading: false })),
+  useBranches: vi.fn(() => ({ data: { branches: [] }, isLoading: false })),
+  useSearchFiles: vi.fn(() => ({ data: null, isLoading: false, error: null }))
+}))
+
+vi.mock('@/features/templates', () => ({
+  useTemplatesList: vi.fn(() => ({ data: { templates: [] }, isLoading: false }))
+}))
+
+vi.mock('@/features/tasks/hooks/use-tasks', () => ({
+  useStopAgent: vi.fn(() => ({ mutate: vi.fn() })),
+  useTaskFileSearch: vi.fn(() => ({ data: null, isLoading: false, error: null }))
+}))
+
+vi.mock('@/features/uploads/hooks/use-upload', () => ({
+  useUploadFile: vi.fn(() => ({ mutate: vi.fn(), isPending: false }))
+}))
+
+// Helper to render with providers
+const renderWithProviders = (component: React.ReactElement) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false }
+    }
+  })
+  
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {component}
+    </QueryClientProvider>
+  )
+}
 
 describe('ChatInput integration', () => {
   it('should pass repositoryId from task prop to underlying components', () => {
@@ -11,7 +47,7 @@ describe('ChatInput integration', () => {
       repositoryId,
     }
     
-    const { container } = render(
+    const { container } = renderWithProviders(
       <ChatInput
         taskId={taskId}
         task={task as any}
@@ -32,7 +68,7 @@ describe('ChatInput integration', () => {
   it('should work without task prop when repositoryId is not provided', () => {
     const taskId = 'task-123'
     
-    const { container } = render(
+    const { container } = renderWithProviders(
       <ChatInput
         taskId={taskId}
         taskStatus="open"

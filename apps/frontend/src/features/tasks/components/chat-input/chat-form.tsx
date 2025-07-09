@@ -1,20 +1,9 @@
-import { CLAUDE_MODEL_DISPLAY_NAMES, CLAUDE_MODELS, type ClaudeModel } from '@moatless/shared/constants'
 import type { UploadFileResponse } from '@moatless/shared/types/api'
-import type { RepositoryResponse } from '@moatless/shared/types/repository'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
-import type { RepositoryTemplate } from '@/features/templates'
-import type { ChatInputMode } from '@/features/tasks/components/chat-input'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { Button } from '@/lib/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/components/ui/select'
 import { Textarea } from '@/lib/components/ui/textarea'
 import {
   Tooltip,
@@ -25,79 +14,47 @@ import {
 import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete'
 
 interface ChatFormProps {
+  // Core functionality
   message: string
   onMessageChange: (message: string) => void
-  sendMessage: () => void
-  textareaDisabled?: boolean
-  sendDisabled?: boolean
+  onSubmit: () => void
+  
+  // UI configuration
   placeholder?: string
-  repositoryId?: string
-  taskId?: string
-  isTaskContext: boolean
-  buttonText: string
-  selectedModel: ClaudeModel
-  onModelChange: (model: ClaudeModel) => void
-  isRunning?: boolean
-  isLoading?: boolean
-  mode?: ChatInputMode
-  // Repository selector props (code mode)
-  showRepositorySelector?: boolean
-  repositories?: RepositoryResponse[]
-  selectedRepositoryId?: string
-  onRepositoryChange?: (repositoryId: string) => void
-  repositoriesLoading?: boolean
-  // Branch selector props (code mode)
-  showBranchSelector?: boolean
-  branches?: string[]
-  selectedBranch?: string
-  onBranchChange?: (branch: string) => void
-  branchesLoading?: boolean
-  // Template selector props (vibe mode)
-  showTemplateSelector?: boolean
-  templates?: RepositoryTemplate[]
-  selectedTemplateId?: string
-  onTemplateChange?: (templateId: string) => void
-  templatesLoading?: boolean
+  buttonText?: string
+  disabled?: boolean
+  loading?: boolean
+  running?: boolean
   maxHeight?: string
-  uploadedFiles?: UploadFileResponse[]
+  
+  // Context
+  taskId?: string
+  repositoryId?: string
+  isTaskContext?: boolean
+  
+  // Composable selectors
+  selectors?: React.ReactNode[]
+  
+  // File upload
+  files?: UploadFileResponse[]
   onFilesChange?: (files: UploadFileResponse[]) => void
 }
 
 export function ChatForm({
   message,
   onMessageChange,
-  sendMessage,
-  textareaDisabled = false,
-  sendDisabled = false,
-  placeholder,
-  repositoryId,
-  taskId,
-  isTaskContext,
-  buttonText,
-  selectedModel,
-  onModelChange,
-  isRunning = false,
-  isLoading = false,
-  // Repository selector props (code mode)
-  showRepositorySelector = false,
-  repositories,
-  selectedRepositoryId,
-  onRepositoryChange,
-  repositoriesLoading = false,
-  // Branch selector props (code mode)
-  showBranchSelector = false,
-  branches,
-  selectedBranch,
-  onBranchChange,
-  branchesLoading = false,
-  // Template selector props (vibe mode)
-  showTemplateSelector = false,
-  templates,
-  selectedTemplateId,
-  onTemplateChange,
-  templatesLoading = false,
+  onSubmit,
+  placeholder = 'Type a message...',
+  buttonText = 'Send',
+  disabled = false,
+  loading = false,
+  running = false,
   maxHeight = '200px',
-  uploadedFiles = [],
+  taskId,
+  repositoryId,
+  isTaskContext = false,
+  selectors = [],
+  files = [],
   onFilesChange,
 }: ChatFormProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -127,7 +84,7 @@ export function ChatForm({
   const uploadFile = useUploadFile({
     onSuccess: (data) => {
       if (onFilesChange) {
-        onFilesChange([...uploadedFiles, data])
+        onFilesChange([...files, data])
       }
     },
     onError: (error) => {
@@ -147,7 +104,7 @@ export function ChatForm({
       uploadFile.mutate(file, {
         onSuccess: (data) => {
           if (onFilesChange) {
-            onFilesChange([...uploadedFiles, data])
+            onFilesChange([...files, data])
           }
         },
       })
@@ -158,7 +115,7 @@ export function ChatForm({
 
   const removeFile = (id: string) => {
     if (onFilesChange) {
-      onFilesChange(uploadedFiles.filter((f) => f.id !== id))
+      onFilesChange(files.filter((f) => f.id !== id))
     }
   }
 
@@ -200,9 +157,9 @@ export function ChatForm({
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey && !isAutocompleteOpen && !sendDisabled) {
+    if (e.key === 'Enter' && !e.shiftKey && !isAutocompleteOpen && !disabled) {
       e.preventDefault()
-      sendMessage()
+      onSubmit()
     }
   }
 
@@ -246,7 +203,7 @@ export function ChatForm({
           uploadFile.mutate(file, {
             onSuccess: (data) => {
               if (onFilesChange) {
-                onFilesChange([...uploadedFiles, data])
+                onFilesChange([...files, data])
               }
             },
           })
@@ -258,8 +215,8 @@ export function ChatForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sendDisabled) {
-      sendMessage()
+    if (!disabled) {
+      onSubmit()
     }
   }
 
@@ -280,7 +237,7 @@ export function ChatForm({
             onPaste={handlePaste}
             className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto"
             style={{ minHeight: '40px', maxHeight }}
-            disabled={textareaDisabled}
+            disabled={disabled}
           />
           {isAutocompleteOpen && (
             <FileAutocomplete
@@ -295,9 +252,9 @@ export function ChatForm({
         </div>
       </div>
       {/* Uploaded files display */}
-      {uploadedFiles.length > 0 && (
+      {files.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
-          {uploadedFiles.map((file) => {
+          {files.map((file) => {
             const isImage = file.mimeType.startsWith('image/')
             // Use the upload endpoint to get the image
             const imageUrl = isImage ? `/api/v1/uploads/${file.id}/${file.filename}` : null
@@ -328,75 +285,9 @@ export function ChatForm({
         </div>
       )}
       <div className="flex items-center justify-between gap-2">
-        {/* Left side - Repository, Branch and Model selectors */}
+        {/* Left side - Composable selectors */}
         <div className="flex items-center gap-2">
-          {showRepositorySelector && onRepositoryChange && (
-            <Select
-              value={selectedRepositoryId}
-              onValueChange={onRepositoryChange}
-              disabled={repositoriesLoading}
-            >
-              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[180px]">
-                <SelectValue placeholder="Select repository" />
-              </SelectTrigger>
-              <SelectContent>
-                {repositories?.map((repo) => (
-                  <SelectItem key={repo.id} value={repo.id} className="text-xs">
-                    {repo.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {showBranchSelector && onBranchChange && selectedRepositoryId && (
-            <Select
-              value={selectedBranch}
-              onValueChange={onBranchChange}
-              disabled={branchesLoading}
-            >
-              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[140px]">
-                <SelectValue placeholder={branchesLoading ? "Loading..." : "Select branch"} />
-              </SelectTrigger>
-              <SelectContent>
-                {branches?.map((branch) => (
-                  <SelectItem key={branch} value={branch} className="text-xs">
-                    {branch}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {showTemplateSelector && onTemplateChange && (
-            <Select
-              value={selectedTemplateId}
-              onValueChange={onTemplateChange}
-              disabled={templatesLoading}
-            >
-              <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[180px]">
-                <SelectValue placeholder={templatesLoading ? "Loading..." : "Select template"} />
-              </SelectTrigger>
-              <SelectContent>
-                {templates?.map((template) => (
-                  <SelectItem key={template.id} value={template.id} className="text-xs">
-                    {template.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select value={selectedModel} onValueChange={onModelChange}>
-            <SelectTrigger size="sm" className="h-6 px-2 text-xs w-[130px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={CLAUDE_MODELS.OPUS_4} className="text-xs">
-                {CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4]}
-              </SelectItem>
-              <SelectItem value={CLAUDE_MODELS.SONNET_4} className="text-xs">
-                {CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4]}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          {selectors}
         </div>
 
         {/* Right side - Upload and Send buttons */}
@@ -429,13 +320,13 @@ export function ChatForm({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {isRunning ? (
+          {running ? (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type="submit"
-                    disabled={sendDisabled}
+                    disabled={disabled}
                     size="sm"
                     className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-muted-foreground/30 text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-muted-foreground/10 hover:border-muted-foreground/40"
                   >
@@ -451,11 +342,11 @@ export function ChatForm({
           ) : (
             <Button
               type="submit"
-              disabled={sendDisabled}
+              disabled={disabled}
               size="icon"
               className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
             >
-              {isLoading ? (
+              {loading ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <ArrowUp className="h-5 w-5" />
