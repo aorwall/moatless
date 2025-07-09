@@ -221,6 +221,41 @@ export function ChatForm({
     textarea.style.height = `${newHeight}px`
   }
 
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    // Check for image in clipboard
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault() // Prevent default paste behavior for images
+        
+        const blob = item.getAsFile()
+        if (blob) {
+          // Generate a filename based on timestamp
+          const timestamp = new Date().getTime()
+          const extension = blob.type.split('/')[1] || 'png'
+          const filename = `pasted-image-${timestamp}.${extension}`
+          
+          // Create a File object from the blob
+          const file = new File([blob], filename, { type: blob.type })
+          
+          // Upload the file using existing upload functionality
+          uploadFile.mutate(file, {
+            onSuccess: (data) => {
+              if (onFilesChange) {
+                onFilesChange([...uploadedFiles, data])
+              }
+            },
+          })
+        }
+        break // Only handle the first image
+      }
+    }
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!sendDisabled) {
@@ -242,6 +277,7 @@ export function ChatForm({
             value={message}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto"
             style={{ minHeight: '40px', maxHeight }}
             disabled={textareaDisabled}
