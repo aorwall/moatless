@@ -6,12 +6,7 @@ import {
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-} from '@/lib/components/ui/sidebar'
+import { cn } from '@/lib/utils'
 import { useFileList } from '../api/use-file-list'
 import type { FileTreeNode } from '../types/file-tree'
 import { buildTreeStructure } from '../utils/file-tree-utils'
@@ -49,22 +44,20 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto w-full flex flex-col">
-      <div className="flex-1 p-2">
-        <div className="mb-2">
-          <h3 className="text-sm font-medium text-muted-foreground px-2">Files</h3>
-        </div>
-        <div className="w-full">
-          <SidebarMenu className="w-full">
-            {tree.map((item) => (
-              <TreeNode
-                key={item.path}
-                item={item}
-                selectedPath={selectedPath}
-                onFileSelect={handleFileSelect}
-              />
-            ))}
-          </SidebarMenu>
+    <div className="h-full w-full flex flex-col">
+      <div className="p-3 border-b flex-shrink-0">
+        <h3 className="text-sm font-medium">Files</h3>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <div className="min-w-max">
+          {tree.map((item) => (
+            <TreeNode
+              key={item.path}
+              item={item}
+              selectedPath={selectedPath}
+              onFileSelect={handleFileSelect}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -82,31 +75,33 @@ function TreeNode({
 }) {
   if (item.type === 'file') {
     return (
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          isActive={selectedPath === item.path}
+      <div>
+        <button
           onClick={() => onFileSelect(item.path)}
-          className="data-[active=true]:bg-accent"
+          className={cn(
+            "w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap",
+            selectedPath === item.path && "bg-accent"
+          )}
         >
           <File className="h-4 w-4 flex-shrink-0" />
-          <span className="truncate">{item.name}</span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
+          <span className="text-left">{item.name}</span>
+        </button>
+      </div>
     )
   }
 
   return (
-    <SidebarMenuItem>
-      <Collapsible className="group/collapsible [&[data-state=open]>button>svg:first-child]:rotate-90">
+    <div>
+      <Collapsible>
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton>
-            <ChevronRight className="transition-transform h-4 w-4 flex-shrink-0" />
+          <button className="w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap">
+            <ChevronRight className="h-4 w-4 flex-shrink-0 transition-transform data-[state=open]:rotate-90" />
             <Folder className="h-4 w-4 flex-shrink-0" />
-            <span className="truncate">{item.name}</span>
-          </SidebarMenuButton>
+            <span className="text-left">{item.name}</span>
+          </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <SidebarMenuSub>
+          <div className="pl-4">
             {item.children?.map((subItem) => (
               <TreeNode
                 key={subItem.path}
@@ -115,9 +110,9 @@ function TreeNode({
                 onFileSelect={onFileSelect}
               />
             ))}
-          </SidebarMenuSub>
+          </div>
         </CollapsibleContent>
       </Collapsible>
-    </SidebarMenuItem>
+    </div>
   )
 }

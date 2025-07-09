@@ -188,14 +188,15 @@ function TaskPageComponent() {
               </TabsContent>
               <TabsContent value="files" className="h-full mt-0">
                 <ErrorBoundary componentName="File Tree">
-                  <div className="flex h-full min-w-0">
-                    <div className="w-80 border-r border-border flex-shrink-0 h-full overflow-hidden">
+                  <ResizablePanelGroup direction="horizontal" className="h-full">
+                    <ResizablePanel defaultSize={25} minSize={15} maxSize={50}>
                       <FileTree taskId={taskId} onFileSelect={setSelectedFile} />
-                    </div>
-                    <div className="flex-1 min-w-0 overflow-hidden">
+                    </ResizablePanel>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel defaultSize={75}>
                       <FileViewer taskId={taskId} filePath={selectedFile} />
-                    </div>
-                  </div>
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
                 </ErrorBoundary>
               </TabsContent>
               <TabsContent value="preview" className="h-full mt-0">
