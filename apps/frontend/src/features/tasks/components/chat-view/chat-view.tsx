@@ -1,7 +1,7 @@
 import { EventType } from '@moatless/shared/types/event'
 import type { Task, TaskIteration } from '@moatless/shared/types/task'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, Clock, DollarSign, GitCommit, MessageSquare } from 'lucide-react'
+import { AlertCircle, ArrowDown, Clock, DollarSign, GitCommit, MessageSquare } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -39,6 +39,13 @@ function ChatViewComponent() {
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
+
+  // Handle scroll to bottom button click
+  const scrollToBottom = useCallback(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [])
 
   // Get workspace status from context
   const { workspaceHasChanges } = useWorkspaceStatus()
@@ -226,7 +233,7 @@ function ChatViewComponent() {
   return (
     <div className="h-full flex flex-col">
       <ChatHeader />
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden relative">
         <ScrollArea className="h-full w-full" ref={scrollRef}>
           <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">
             {iterations?.map((iteration: TaskIteration, index: number) => {
@@ -357,6 +364,21 @@ function ChatViewComponent() {
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
+        
+        {/* Scroll to bottom indicator */}
+        {!isAtBottom && (
+          <div className="absolute bottom-4 right-4 z-10">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={scrollToBottom}
+              className="shadow-lg bg-background/80 backdrop-blur-sm border-border/50 hover:bg-background/90 flex items-center gap-2"
+            >
+              <ArrowDown className="h-4 w-4" />
+              Scroll to bottom
+            </Button>
+          </div>
+        )}
       </div>
       <ErrorBoundary
         componentName="Chat Input"
