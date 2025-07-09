@@ -17,6 +17,10 @@ export interface PreviewEnvironmentMetadata {
   proxyUrl?: string
   // Environment variables used to start the server
   envVars?: Record<string, string>
+  // Error information for failed startups
+  error?: string
+  logs?: string
+  failed?: boolean
 }
 
 /**

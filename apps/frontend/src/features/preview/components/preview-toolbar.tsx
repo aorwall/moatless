@@ -10,6 +10,7 @@ import {
   Square,
 } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import {
   useRestartServer,
   useServerStatus,
@@ -43,9 +44,48 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
 
   // Server management hooks
   const { data: serverStatus } = useServerStatus(params.taskId)
-  const startServer = useStartServer()
-  const stopServer = useStopServer()
-  const restartServer = useRestartServer()
+  const startServer = useStartServer({
+    onSuccess: (data) => {
+      if (data.running) {
+        toast.success('Preview environment server started successfully')
+      } else if (data.error) {
+        toast.error('Failed to start preview environment server', {
+          description: data.error,
+        })
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to start preview environment server', {
+        description: error.message,
+      })
+    },
+  })
+  const stopServer = useStopServer({
+    onSuccess: () => {
+      toast.success('Preview environment server stopped')
+    },
+    onError: (error) => {
+      toast.error('Failed to stop preview environment server', {
+        description: error.message,
+      })
+    },
+  })
+  const restartServer = useRestartServer({
+    onSuccess: (data) => {
+      if (data.running) {
+        toast.success('Preview environment server restarted successfully')
+      } else if (data.error) {
+        toast.error('Failed to restart preview environment server', {
+          description: data.error,
+        })
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to restart preview environment server', {
+        description: error.message,
+      })
+    },
+  })
 
   const handlePathSubmit = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -83,13 +123,17 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const getServerStatusColor = () => {
     if (!serverStatus) return 'text-muted-foreground'
     if (serverStatus.running) return 'text-status-success'
-    return 'text-status-error'
+    if (serverStatus.error) return 'text-status-error'
+    return 'text-muted-foreground'
   }
 
   const getServerStatusText = () => {
     if (!serverStatus) return 'Unknown'
     if (serverStatus.running) {
       return 'Running'
+    }
+    if (serverStatus.error) {
+      return 'Failed'
     }
     return 'Stopped'
   }
@@ -156,6 +200,22 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
                       {Math.floor(serverStatus.uptimeSeconds / 60)}m{' '}
                       {serverStatus.uptimeSeconds % 60}s
                     </span>
+                  </div>
+                )}
+                {serverStatus?.error && (
+                  <div className="text-sm text-status-error space-y-1">
+                    <div className="font-medium">Error:</div>
+                    <div className="text-xs bg-muted p-2 rounded text-foreground font-mono whitespace-pre-wrap">
+                      {serverStatus.error}
+                    </div>
+                    {serverStatus.logs && (
+                      <>
+                        <div className="font-medium">Logs:</div>
+                        <div className="text-xs bg-muted p-2 rounded text-foreground font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                          {serverStatus.logs}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 <div className="pt-2 border-t">

@@ -39,6 +39,15 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
       await queryClient.refetchQueries({
         queryKey: queryKeys.taskServerStatus(taskId),
       })
+      
+      // Show success or error toast based on server status
+      if (data.running) {
+        // Success case - server started successfully
+      } else if (data.error) {
+        // Failed case - show error details in toast
+        // Don't throw an error since this is an expected state now
+      }
+      
       options?.onSuccess?.(data, taskId, context)
     },
     ...options,

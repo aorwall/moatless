@@ -171,7 +171,7 @@ export class PreviewEnvironmentService {
       // Store the handler
       this.runningServers.set(taskId, handler)
 
-      // Save metadata to disk
+      // Save metadata to disk (successful startup, clear any previous error state)
       const metadata: PreviewEnvironmentMetadata = {
         taskId,
         pid: result.pid,
@@ -185,6 +185,9 @@ export class PreviewEnvironmentService {
         proxyUrl,
         proxyPort: proxyUrl ? parseInt(proxyUrl.split(':').pop() || '0') : undefined,
         envVars: environment.codeExecution.envVars,
+        failed: false, // Explicitly mark as not failed
+        error: undefined, // Clear any previous error
+        logs: undefined, // Clear any previous error logs
       }
 
       await this.savePreviewEnvironmentMetadata(taskId, metadata)
@@ -202,8 +205,48 @@ export class PreviewEnvironmentService {
         uptimeSeconds: 0,
       }
     } catch (error) {
-      previewLogger.error('Failed to start preview environment server', error as Error)
-      throw error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      previewLogger.error('Failed to start preview environment server', { 
+        error: errorMessage,
+        command: serverCommand,
+        workspacePath
+      })
+
+      // Try to get server logs for better error context
+      let logs = ''
+      try {
+        logs = await handler.getLogs(50)
+      } catch (logError) {
+        previewLogger.debug('Could not retrieve server logs', logError as Error)
+      }
+
+      // Save error metadata to disk for later retrieval
+      const errorMetadata: PreviewEnvironmentMetadata = {
+        taskId,
+        pid: -1, // No valid PID for failed startup
+        port: -1, // No valid port for failed startup
+        startTime: new Date(),
+        command: serverCommand,
+        workspacePath,
+        logFile: '',
+        portPlaceholder: environment.codeExecution.serverPortPlaceholder,
+        processStartTime: Date.now(),
+        envVars: environment.codeExecution.envVars,
+        failed: true,
+        error: errorMessage,
+        logs: logs || 'No logs available'
+      }
+
+      await this.savePreviewEnvironmentMetadata(taskId, errorMetadata)
+
+      // Return failed state instead of throwing
+      return {
+        running: false,
+        configured: true,
+        uptimeSeconds: 0,
+        error: errorMessage,
+        logs: logs || 'No logs available'
+      }
     }
   }
 
@@ -350,6 +393,17 @@ export class PreviewEnvironmentService {
     // Check for orphaned server via metadata
     const metadata = await this.loadPreviewEnvironmentMetadata(taskId)
     if (metadata) {
+      // Check if this is error metadata from a failed startup
+      if (metadata.failed) {
+        return {
+          running: false,
+          configured,
+          uptimeSeconds: 0,
+          error: metadata.error,
+          logs: metadata.logs,
+        } as ServerStatus
+      }
+
       const validation = await this.validateProcess(metadata.pid, metadata.command)
       if (validation.exists && validation.isCorrectProcess) {
         // Process is still running, recover it

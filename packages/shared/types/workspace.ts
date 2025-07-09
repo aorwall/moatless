@@ -64,6 +64,9 @@ export interface ServerStatus {
   url?: string
   pid?: number
   uptimeSeconds: number
+  error?: string
+  logs?: string
+  responsive?: boolean
 }
 
 export interface WorkspaceFileSearchResult {
