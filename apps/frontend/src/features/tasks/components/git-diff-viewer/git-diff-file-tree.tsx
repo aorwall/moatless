@@ -1,5 +1,5 @@
 import { FileTreeItem } from '@/features/file-viewer'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import type { FileTreeNode } from '@/features/file-viewer'
 import { buildTreeStructure } from '@/features/file-viewer'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
@@ -45,7 +45,7 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
     })
   }
 
-  const renderNode = (node: FileTreeNode, level = 0): JSX.Element => {
+  const renderNode = (node: FileTreeNode, level = 0): React.JSX.Element => {
     const isExpanded = expandedPaths.has(node.path)
     const fileKey = fileKeyMap.get(node.path)
     const isSelected = fileKey === selectedFileKey
