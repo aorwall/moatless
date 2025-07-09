@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { type ChangeData, Diff, type FileData, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 import 'prism-color-variables/variables.css'
@@ -10,10 +10,12 @@ import {
 } from '@/features/tasks/contexts/task-providers'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
 import './github-diff.css'
 import './prism-theme.css'
 import { tokenizeHunks } from './syntax-highlighter'
+import { GitDiffFileTree } from './git-diff-file-tree'
 
 interface GitDiffViewerProps {
   className?: string
@@ -26,9 +28,10 @@ interface FileDiffProps {
   file: ParsedFile
   isExpanded: boolean
   onToggle: () => void
+  fileKey: string
 }
 
-function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
+function FileDiff({ file, isExpanded, onToggle, fileKey }: FileDiffProps) {
   const { oldRevision, newRevision, type, hunks, oldPath, newPath } = file
   const filePath = newPath || oldPath || newRevision || oldRevision
 
@@ -57,7 +60,7 @@ function FileDiff({ file, isExpanded, onToggle }: FileDiffProps) {
   }, [hunks, filePath, isExpanded])
 
   return (
-    <div className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden">
+    <div className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden" data-file-key={fileKey}>
       {/* File Header */}
       <button
         type="button"
@@ -112,6 +115,8 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
   // Use specialized hook that only returns loading/error state
   const { isLoading, error } = useTaskLoadingError()
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
+  const [selectedFileKey, setSelectedFileKey] = useState<string>()
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   const parsedFiles = useMemo<ParsedFile[]>(() => {
     if (!gitDiff?.diff) return []
@@ -139,6 +144,17 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       }
       return next
     })
+  }
+
+  const handleFileSelect = (fileKey: string) => {
+    setSelectedFileKey(fileKey)
+    // Scroll to the selected file
+    if (scrollAreaRef.current) {
+      const fileElement = scrollAreaRef.current.querySelector(`[data-file-key="${fileKey}"]`)
+      if (fileElement) {
+        fileElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
   }
 
   // Calculate total stats from parsed files
@@ -198,33 +214,58 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
   }
 
   return (
-    <ScrollArea className={cn('h-full overflow-auto p-4', className)}>
-      {/* Summary Stats */}
-      {gitDiff && parsedFiles.length > 0 && (
-        <div className="mb-4 text-sm text-muted-foreground">
-          Showing {parsedFiles.length} changed files with{' '}
-          <span className="text-status-success font-medium">
-            {totalStats.totalAdditions} additions
-          </span>{' '}
-          and{' '}
-          <span className="text-status-error font-medium">
-            {totalStats.totalDeletions} deletions
-          </span>
-        </div>
-      )}
-
-      {/* File Diffs */}
-      {parsedFiles.map((file) => {
-        const fileKey = `${file.oldPath || file.oldRevision}-${file.newPath || file.newRevision}`
-        return (
-          <FileDiff
-            key={fileKey}
-            file={file}
-            isExpanded={expandedFiles.has(fileKey)}
-            onToggle={() => toggleFileExpansion(fileKey)}
+    <ResizablePanelGroup direction="horizontal" className={cn('h-full', className)}>
+      {/* Left Panel - File Tree */}
+      <ResizablePanel defaultSize={25} minSize={15} maxSize={40}>
+        <div className="h-full border-r border-border">
+          <div className="p-3 border-b border-border">
+            <h3 className="text-sm font-medium">Changed Files</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              {parsedFiles.length} files changed
+            </p>
+          </div>
+          <GitDiffFileTree 
+            files={parsedFiles}
+            onFileSelect={handleFileSelect}
+            selectedFileKey={selectedFileKey}
           />
-        )
-      })}
-    </ScrollArea>
+        </div>
+      </ResizablePanel>
+
+      <ResizableHandle withHandle />
+
+      {/* Right Panel - Diffs */}
+      <ResizablePanel defaultSize={75}>
+        <ScrollArea className="h-full overflow-auto p-4" ref={scrollAreaRef}>
+          {/* Summary Stats */}
+          {gitDiff && parsedFiles.length > 0 && (
+            <div className="mb-4 text-sm text-muted-foreground">
+              Showing {parsedFiles.length} changed files with{' '}
+              <span className="text-status-success font-medium">
+                {totalStats.totalAdditions} additions
+              </span>{' '}
+              and{' '}
+              <span className="text-status-error font-medium">
+                {totalStats.totalDeletions} deletions
+              </span>
+            </div>
+          )}
+
+          {/* File Diffs */}
+          {parsedFiles.map((file) => {
+            const fileKey = `${file.oldPath || file.oldRevision}-${file.newPath || file.newRevision}`
+            return (
+              <FileDiff
+                key={fileKey}
+                file={file}
+                fileKey={fileKey}
+                isExpanded={expandedFiles.has(fileKey)}
+                onToggle={() => toggleFileExpansion(fileKey)}
+              />
+            )
+          })}
+        </ScrollArea>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   )
 }
