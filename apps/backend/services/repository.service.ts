@@ -109,12 +109,12 @@ export class RepositoryService {
       throw new RepositoryNotFoundError(repoId)
     }
 
-    // Check if repository is in use by any tasks
+    // Check if repository is in use by any open or running tasks
     const tasks = await this.storage.list('tasks/')
     for (const taskKey of tasks) {
       const taskId = taskKey.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
-      if (task && task.repositoryId === repoId) {
+      if (task && task.repositoryId === repoId && (task.status === 'open' || task.status === 'running')) {
         throw new ValidationError(
           `Cannot delete repository ${repoId} - it is in use by task ${taskId}`,
           { repositoryId: repoId, taskId },
