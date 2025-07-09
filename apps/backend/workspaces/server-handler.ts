@@ -30,11 +30,13 @@ export class ServerHandler {
     private workspacePath: string,
     private serverCommand: string,
     private portPlaceholder = '{PORT}',
+    private envVars: Record<string, string> = {},
   ) {
     this.logger.info('ServerHandler initialized with:', {
       workspacePath,
       serverCommand,
       portPlaceholder,
+      envVars: Object.keys(envVars),
     })
   }
 
@@ -81,12 +83,19 @@ export class ServerHandler {
     const logStream = await fs.open(this.logFile, 'a')
 
     try {
+      // Merge environment variables with current process environment
+      const processEnv = {
+        ...process.env,
+        ...this.envVars,
+      }
+
       // Start the process
       this.process = spawn(command, [], {
         cwd: this.workspacePath,
         shell: true,
         detached: process.platform !== 'win32',
         stdio: ['ignore', logStream.fd, logStream.fd],
+        env: processEnv,
       })
 
       this.pid = this.process.pid

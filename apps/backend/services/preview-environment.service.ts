@@ -75,6 +75,7 @@ export class PreviewEnvironmentService {
                 metadata.workspacePath,
                 metadata.command,
                 metadata.portPlaceholder,
+                metadata.envVars || {},
               )
 
               // Restore the handler's state
@@ -139,6 +140,7 @@ export class PreviewEnvironmentService {
       workspacePath,
       serverCommand,
       environment.codeExecution.serverPortPlaceholder,
+      environment.codeExecution.envVars || {},
     )
 
     previewLogger.info('Starting preview environment server', {
@@ -182,6 +184,7 @@ export class PreviewEnvironmentService {
         processStartTime: Date.now(),
         proxyUrl,
         proxyPort: proxyUrl ? parseInt(proxyUrl.split(':').pop() || '0') : undefined,
+        envVars: environment.codeExecution.envVars,
       }
 
       await this.savePreviewEnvironmentMetadata(taskId, metadata)
@@ -354,6 +357,7 @@ export class PreviewEnvironmentService {
           metadata.workspacePath,
           metadata.command,
           metadata.portPlaceholder,
+          metadata.envVars || {},
         )
 
         this.restoreServerHandler(handler, metadata)

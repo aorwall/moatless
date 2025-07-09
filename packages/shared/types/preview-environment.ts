@@ -15,6 +15,8 @@ export interface PreviewEnvironmentMetadata {
   // Proxy configuration if using proxy injection
   proxyPort?: number
   proxyUrl?: string
+  // Environment variables used to start the server
+  envVars?: Record<string, string>
 }
 
 /**
