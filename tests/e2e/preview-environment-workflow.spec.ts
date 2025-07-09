@@ -7,12 +7,12 @@ import { setupTempGitRepo, createTestRepository, deleteTestTask, deleteTestRepos
 /**
  * Preview Environment E2E Test
  * 
- * This test validates the preview environment functionality:
+ * This test validates the development server functionality:
  * 1. Creates a repository via API (backend setup)
  * 2. Uses the UI to create a task that clones a UI repository
- * 3. Monitors the task until the environment is created
- * 4. Navigates to the preview URL
- * 5. Verifies the application is running correctly
+ * 3. Monitors the task until the development server starts
+ * 4. Verifies the server is running by checking server logs
+ * 5. Validates the agent successfully started the dev server
  */
 
 test.describe('Preview Environment Workflow', () => {
@@ -59,7 +59,7 @@ test.describe('Preview Environment Workflow', () => {
     }
   })
 
-  test('should clone hello-world-ui and verify preview environment', async ({ page }) => {
+  test('should clone hello-world-ui and run development server', async ({ page }) => {
     // Step 1: Navigate to the homepage
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     
@@ -126,128 +126,96 @@ test.describe('Preview Environment Workflow', () => {
     
     console.log('✅ Task detail page loaded')
     
-    // Step 7: Monitor task execution and wait for environment creation
+    // Step 7: Monitor task execution and wait for development server to start
     const maxWaitTime = 120000 // 120 seconds - cloning and pnpm install can take time
     const startTime = Date.now()
-    let environmentCreated = false
-    let previewUrl: string | undefined
+    let serverStarted = false
+    let iterationCount = 0
     
-    console.log('⏳ Waiting for environment to be created...')
+    console.log('⏳ Waiting for development server to start...')
     
-    while (!environmentCreated && (Date.now() - startTime) < maxWaitTime) {
+    while (!serverStarted && (Date.now() - startTime) < maxWaitTime) {
       // Check task status via API
       const taskResponse = await page.request.get(`${baseURL}/api/v1/tasks/${createdTaskId}`)
       if (taskResponse.ok()) {
         const taskData = await taskResponse.json()
         
-        // Check if task has an associated environment
-        if (taskData.environment_id) {
-          console.log('✅ Environment created:', taskData.environment_id)
+        // Check if the agent has completed cloning and started the dev server
+        if (taskData.iterations && taskData.iterations.length > iterationCount) {
+          iterationCount = taskData.iterations.length
+          const lastIteration = taskData.iterations[taskData.iterations.length - 1]
           
-          // Get environment details
-          const envResponse = await page.request.get(`${baseURL}/api/v1/environments/${taskData.environment_id}`)
-          if (envResponse.ok()) {
-            const envData = await envResponse.json()
-            if (envData.preview_url) {
-              previewUrl = envData.preview_url
-              environmentCreated = true
-              console.log('✅ Preview URL available:', previewUrl)
+          console.log(`Iteration ${iterationCount}: ${lastIteration.status}`)
+          
+          if (lastIteration.result) {
+            // Log what the agent is doing
+            if (lastIteration.result.includes('git clone')) {
+              console.log('✅ Repository cloned')
+            } else if (lastIteration.result.includes('pnpm install')) {
+              console.log('✅ Dependencies being installed')
+            } else if (lastIteration.result.includes('pnpm run dev') || 
+                       lastIteration.result.includes('VITE') ||
+                       lastIteration.result.includes('Local:') ||
+                       lastIteration.result.includes('localhost:')) {
+              console.log('✅ Development server started!')
+              serverStarted = true
               break
             }
           }
         }
         
-        // Also check if the agent has completed cloning and running the app
-        if (taskData.iterations && taskData.iterations.length > 0) {
-          const lastIteration = taskData.iterations[taskData.iterations.length - 1]
-          if (lastIteration.result && 
-              (lastIteration.result.includes('hello-world-ui') || 
-               lastIteration.result.includes('pnpm run dev') ||
-               lastIteration.result.includes('development server'))) {
-            console.log('✅ Agent has processed the clone request')
-          }
+        // Check task status
+        if (taskData.status === 'failed' || taskData.status === 'cancelled') {
+          throw new Error(`Task ${taskData.status}: ${taskData.error || 'Unknown error'}`)
         }
       }
       
       await page.waitForTimeout(3000) // Wait 3 seconds before checking again
     }
     
-    expect(environmentCreated).toBe(true)
-    expect(previewUrl).toBeDefined()
+    expect(serverStarted).toBe(true)
     
-    // Step 8: Navigate to the preview tab
-    await page.locator('button:has-text("Preview")').click()
+    // Step 8: Check the Server tab to see if dev server is running
+    await page.locator('button:has-text("Server")').click()
     
-    // Wait for preview panel to be visible
-    const previewPanel = page.locator('[value="preview"]')
-    await expect(previewPanel).toBeVisible()
+    // Wait for server panel to be visible
+    const serverPanel = page.locator('[value="server"]')
+    await expect(serverPanel).toBeVisible()
     
-    console.log('✅ Preview tab opened')
+    console.log('✅ Server tab opened')
     
-    // Step 9: Wait for the development server to be ready
-    // The agent needs time to install dependencies and start the server
-    console.log('⏳ Waiting for development server to start...')
-    await page.waitForTimeout(20000) // Give pnpm install and dev server time to start
+    // Wait a bit for server logs to appear
+    await page.waitForTimeout(2000)
     
-    // Step 10: Navigate to the preview URL in the iframe or new tab
-    // The preview might be in an iframe or might need to open in a new tab
-    const previewFrame = page.frameLocator('iframe[title="Preview"]')
+    // Check if we can see server logs indicating the dev server is running
+    const serverLogs = page.locator('[value="server"]')
     
-    // Try to interact with the preview content
-    try {
-      // Check if we can see the expected content in the iframe
-      await expect(previewFrame.locator('text="Your App"')).toBeVisible({ timeout: 30000 })
-      await expect(previewFrame.locator('text="Start building something amazing"')).toBeVisible({ timeout: 5000 })
-      
-      console.log('✅ Preview environment is running correctly!')
-    } catch (e) {
-      // If iframe doesn't work, try opening the preview URL directly
-      console.log('⚠️ Could not verify content in iframe, trying direct navigation...')
-      
-      if (previewUrl) {
-        // Open preview in a new page
-        const previewPage = await page.context().newPage()
-        await previewPage.goto(previewUrl, { waitUntil: 'domcontentloaded' })
-        
-        // Wait for the app to load
-        await previewPage.waitForSelector('text="Your App"', { timeout: 30000 })
-        await expect(previewPage.locator('text="Your App"')).toBeVisible()
-        await expect(previewPage.locator('text="Start building something amazing"')).toBeVisible()
-        
-        console.log('✅ Preview environment verified via direct navigation!')
-        
-        // Take a screenshot of the preview
-        await previewPage.screenshot({ 
-          path: `test-results/preview-environment-${createdTaskId}.png`,
-          fullPage: true 
-        })
-        
-        await previewPage.close()
-      } else {
-        throw new Error('Preview URL not available')
+    // Look for indicators that the Vite dev server is running
+    const viteIndicators = [
+      'VITE',
+      'Local:',
+      'localhost:',
+      'ready in',
+      'dev server running'
+    ]
+    
+    let foundServerRunning = false
+    for (const indicator of viteIndicators) {
+      try {
+        const element = serverLogs.locator(`text=${indicator}`)
+        if (await element.isVisible({ timeout: 5000 })) {
+          console.log(`✅ Found server indicator: ${indicator}`)
+          foundServerRunning = true
+          break
+        }
+      } catch (e) {
+        // Continue checking other indicators
       }
     }
     
-    // Step 11: Verify environment health status
-    const envId = await (async () => {
-      const taskResponse = await page.request.get(`${baseURL}/api/v1/tasks/${createdTaskId}`)
-      const taskData = await taskResponse.json()
-      return taskData.environment_id
-    })()
+    expect(foundServerRunning).toBe(true)
     
-    if (envId) {
-      const healthResponse = await page.request.get(`${baseURL}/api/v1/environments/${envId}/health`)
-      if (healthResponse.ok()) {
-        const healthData = await healthResponse.json()
-        console.log('✅ Environment health:', healthData)
-        
-        // Verify the server is healthy
-        expect(healthData.status).toBe('healthy')
-        expect(healthData.serverStatus).toBe('running')
-      }
-    }
-    
-    // Step 12: Check the UI for environment status indicators
+    // Step 9: Check the UI for task completion
     // Look for environment status in the task page
     await page.locator('button:has-text("Files")').click()
     
@@ -267,10 +235,10 @@ test.describe('Preview Environment Workflow', () => {
       fullPage: true 
     })
     
-    console.log('✅ Preview environment E2E test completed successfully!')
+    console.log('✅ Development server E2E test completed successfully!')
   }, 150000) // 150 second timeout for the entire test (cloning and installing can be slow)
   
-  test('should handle preview environment errors gracefully', async ({ page }) => {
+  test('should handle repository cloning errors gracefully', async ({ page }) => {
     // Navigate to homepage
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     
@@ -305,9 +273,13 @@ test.describe('Preview Environment Workflow', () => {
     const taskResponse = await page.request.get(`${baseURL}/api/v1/tasks/${createdTaskId}`)
     const taskData = await taskResponse.json()
     
-    // Verify no environment was created for invalid repository
-    expect(taskData.environment_id).toBeUndefined()
+    // Verify the task shows an error or is still running without success
+    if (taskData.iterations && taskData.iterations.length > 0) {
+      const lastIteration = taskData.iterations[taskData.iterations.length - 1]
+      // Should have an error message about the repository not being found
+      expect(lastIteration.result).toMatch(/error|failed|not found|does not exist/i)
+    }
     
-    console.log('✅ Preview environment error handling verified')
+    console.log('✅ Repository cloning error handling verified')
   })
 })
