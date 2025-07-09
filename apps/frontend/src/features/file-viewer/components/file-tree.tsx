@@ -7,10 +7,6 @@ import {
 } from '@/lib/components/ui/collapsible'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import {
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -53,11 +49,13 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
   }
 
   return (
-    <SidebarContent className="h-full overflow-y-auto w-full">
-      <SidebarGroup>
-        <SidebarGroupLabel>Files</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <SidebarMenu>
+    <div className="h-full overflow-y-auto w-full flex flex-col">
+      <div className="flex-1 p-2">
+        <div className="mb-2">
+          <h3 className="text-sm font-medium text-muted-foreground px-2">Files</h3>
+        </div>
+        <div className="w-full">
+          <SidebarMenu className="w-full">
             {tree.map((item) => (
               <TreeNode
                 key={item.path}
@@ -67,9 +65,9 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
               />
             ))}
           </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    </SidebarContent>
+        </div>
+      </div>
+    </div>
   )
 }
 
