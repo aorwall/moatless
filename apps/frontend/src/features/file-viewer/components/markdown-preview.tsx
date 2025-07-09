@@ -61,45 +61,84 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           .then(({ svg }) => {
             // Only update if element is still in DOM
             if (element.parentNode) {
-              // Create a wrapper div with the SVG and an expand button
-              const wrapper = document.createElement('div')
-              wrapper.className = 'relative group cursor-pointer transition-all hover:opacity-90'
-              wrapper.innerHTML = `
-                ${svg}
-                <div class="absolute inset-0 bg-foreground/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
-                <button 
-                  class="absolute top-2 right-2 p-2 bg-background/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border pointer-events-auto"
-                  aria-label="Expand diagram"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m21 21-6-6m6 6v-4.8m0 4.8h-4.8"/>
-                    <path d="M3 16.2V21m0 0h4.8M3 21l6-6"/>
-                    <path d="M21 7.8V3m0 0h-4.8M21 3l-6 6"/>
-                    <path d="M3 7.8V3m0 0h4.8M3 3l6 6"/>
-                  </svg>
-                </button>
-              `
-              
-              // Add click handler to the wrapper
-              wrapper.addEventListener('click', (e) => {
-                e.preventDefault()
-                setExpandedDiagram({ svg, definition: graphDefinition })
-              })
-              
-              // Replace the pre element content with the wrapper
-              element.innerHTML = ''
-              element.appendChild(wrapper)
-              element.classList.remove('language-mermaid')
-              element.classList.add('mermaid-rendered')
+              try {
+                // Create a wrapper div with the SVG and an expand button
+                const wrapper = document.createElement('div')
+                wrapper.className = 'relative group cursor-pointer transition-all hover:opacity-90'
+                wrapper.innerHTML = `
+                  ${svg}
+                  <div class="absolute inset-0 bg-foreground/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+                  <button 
+                    class="absolute top-2 right-2 p-2 bg-background/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border pointer-events-auto"
+                    aria-label="Expand diagram"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="m21 21-6-6m6 6v-4.8m0 4.8h-4.8"/>
+                      <path d="M3 16.2V21m0 0h4.8M3 21l6-6"/>
+                      <path d="M21 7.8V3m0 0h-4.8M21 3l-6 6"/>
+                      <path d="M3 7.8V3m0 0h4.8M3 3l6 6"/>
+                    </svg>
+                  </button>
+                `
+                
+                // Add click handler to the wrapper
+                wrapper.addEventListener('click', (e) => {
+                  e.preventDefault()
+                  setExpandedDiagram({ svg, definition: graphDefinition })
+                })
+                
+                // Replace the pre element content with the wrapper
+                element.innerHTML = ''
+                element.appendChild(wrapper)
+                element.classList.remove('language-mermaid')
+                element.classList.add('mermaid-rendered')
+              } catch (domError) {
+                // Handle DOM manipulation errors
+                console.error('Error updating DOM for mermaid diagram:', domError)
+                throw domError
+              }
             }
           })
           .catch((error) => {
             console.error('Mermaid rendering error:', error)
             // Only update if element is still in DOM
             if (element.parentNode) {
-              element.innerHTML = `<pre class="text-destructive">Error rendering diagram: ${error.message}</pre>`
-              element.classList.remove('language-mermaid')
-              element.classList.add('mermaid-error')
+              try {
+                // Create a more user-friendly error display
+                const errorWrapper = document.createElement('div')
+                errorWrapper.className = 'border border-destructive/20 rounded-lg p-4 bg-destructive/5 my-4'
+                errorWrapper.innerHTML = `
+                  <div class="flex items-start gap-3">
+                    <div class="flex-shrink-0 mt-0.5">
+                      <svg class="w-5 h-5 text-destructive" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <h4 class="text-sm font-medium text-destructive mb-1">Mermaid Diagram Error</h4>
+                      <p class="text-sm text-muted-foreground mb-2">${error.message}</p>
+                      <details class="mt-2">
+                        <summary class="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                          Show diagram source
+                        </summary>
+                        <pre class="mt-2 text-xs bg-muted/50 p-2 rounded border overflow-x-auto"><code>${graphDefinition}</code></pre>
+                      </details>
+                    </div>
+                  </div>
+                `
+                
+                // Replace the pre element content with the error wrapper
+                element.innerHTML = ''
+                element.appendChild(errorWrapper)
+                element.classList.remove('language-mermaid')
+                element.classList.add('mermaid-error')
+              } catch (domError) {
+                // Fallback to basic error display if DOM manipulation fails
+                console.error('Error creating error UI for mermaid diagram:', domError)
+                element.innerHTML = `<div class="text-destructive p-2 border border-destructive/20 rounded">Error rendering diagram: ${error.message}</div>`
+                element.classList.remove('language-mermaid')
+                element.classList.add('mermaid-error')
+              }
             }
           })
           .finally(() => {

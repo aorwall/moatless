@@ -186,11 +186,17 @@ INVALID SYNTAX HERE
         expect(mermaid.render).toHaveBeenCalled()
       })
 
-      // Check error message is displayed
+      // Check error message is displayed with improved UI
       await waitFor(() => {
-        const errorElement = screen.getByText(/Error rendering diagram:/)
-        expect(errorElement).toBeInTheDocument()
-        expect(errorElement).toHaveTextContent('Parse error on line 2')
+        const errorTitle = screen.getByText('Mermaid Diagram Error')
+        expect(errorTitle).toBeInTheDocument()
+        
+        const errorMessage = screen.getByText(/Parse error on line 2/)
+        expect(errorMessage).toBeInTheDocument()
+        
+        // Check for expandable source code
+        const showSourceButton = screen.getByText('Show diagram source')
+        expect(showSourceButton).toBeInTheDocument()
       })
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -222,13 +228,13 @@ INVALID 2
 
       // Wait for mermaid processing to complete
       await waitFor(() => {
-        const errorElements = document.querySelectorAll('.text-destructive')
+        const errorElements = document.querySelectorAll('.mermaid-error')
         expect(errorElements.length).toBeGreaterThan(0)
       })
 
-      // Check that errors are displayed (may only show one due to React's error boundary)
-      const errorText = screen.getByText(/Error rendering diagram:/)
-      expect(errorText).toBeInTheDocument()
+      // Check that errors are displayed with improved UI
+      const errorTitle = screen.getByText('Mermaid Diagram Error')
+      expect(errorTitle).toBeInTheDocument()
 
       consoleErrorSpy.mockRestore()
     })
@@ -253,11 +259,52 @@ graph TD
         expect(mermaid.render).toHaveBeenCalled()
       })
 
-      // Error should be caught and displayed
+      // Error should be caught and displayed with improved UI
       await waitFor(() => {
-        const errorElement = screen.getByText(/Error rendering diagram:/)
-        expect(errorElement).toHaveTextContent('Mermaid not initialized properly')
+        const errorTitle = screen.getByText('Mermaid Diagram Error')
+        expect(errorTitle).toBeInTheDocument()
+        
+        const errorMessage = screen.getByText('Mermaid not initialized properly')
+        expect(errorMessage).toBeInTheDocument()
       })
+
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('should show diagram source when expanded', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Mock mermaid.render to reject with syntax error
+      vi.mocked(mermaid.render).mockRejectedValueOnce(
+        new Error('Syntax error in text mermaid version 11.7.0')
+      )
+
+      const content = `
+\`\`\`mermaid
+graph TD
+    INVALID --> SYNTAX
+\`\`\`
+`
+      const { container } = render(<MarkdownPreview content={content} />)
+
+      await waitFor(() => {
+        expect(mermaid.render).toHaveBeenCalled()
+      })
+
+      // Wait for error to be displayed
+      await waitFor(() => {
+        const errorTitle = screen.getByText('Mermaid Diagram Error')
+        expect(errorTitle).toBeInTheDocument()
+      })
+
+      // Check that source code is hidden initially but expandable
+      const showSourceButton = screen.getByText('Show diagram source')
+      expect(showSourceButton).toBeInTheDocument()
+      
+      // Check that source code contains the original diagram definition
+      const sourceCode = container.querySelector('pre code')
+      expect(sourceCode).toBeInTheDocument()
+      expect(sourceCode?.textContent).toContain('INVALID --> SYNTAX')
 
       consoleErrorSpy.mockRestore()
     })
