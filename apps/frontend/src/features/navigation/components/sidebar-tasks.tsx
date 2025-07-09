@@ -1,14 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useGlobalEventStream } from '@/features/events'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useGitSyncStatus } from '@/features/tasks/hooks/use-git-sync-status'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { queryKeys } from '@/lib/api/query-keys'
+import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -133,6 +136,7 @@ function SidebarTaskItem({
 export function SidebarTasks() {
   const queryClient = useQueryClient()
   const { subscribeToAll } = useGlobalEventStream()
+  const [createTaskOpen, setCreateTaskOpen] = useState(false)
 
   // Fetch all non-closed tasks
   const {
@@ -207,30 +211,81 @@ export function SidebarTasks() {
 
   if (isLoadingTasks) {
     return (
-      <SidebarGroup>
-        <SidebarGroupLabel>Tasks</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <SidebarTasksSkeleton />
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <TooltipProvider>
+        <SidebarGroup>
+          <div className="flex items-center justify-between px-2">
+            <SidebarGroupLabel className="px-0">Tasks</SidebarGroupLabel>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => setCreateTaskOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Create new task</TooltipContent>
+            </Tooltip>
+          </div>
+          <SidebarGroupContent>
+            <SidebarTasksSkeleton />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <CreateTaskDialog open={createTaskOpen} onOpenChange={setCreateTaskOpen} />
+      </TooltipProvider>
     )
   }
 
   if (tasksError) {
     return (
-      <SidebarGroup>
-        <SidebarGroupLabel>Tasks</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <div className="px-3 py-2 text-sm text-destructive">Failed to load tasks</div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <TooltipProvider>
+        <SidebarGroup>
+          <div className="flex items-center justify-between px-2">
+            <SidebarGroupLabel className="px-0">Tasks</SidebarGroupLabel>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => setCreateTaskOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Create new task</TooltipContent>
+            </Tooltip>
+          </div>
+          <SidebarGroupContent>
+            <div className="px-3 py-2 text-sm text-destructive">Failed to load tasks</div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <CreateTaskDialog open={createTaskOpen} onOpenChange={setCreateTaskOpen} />
+      </TooltipProvider>
     )
   }
 
   return (
     <TooltipProvider>
       <SidebarGroup>
-        <SidebarGroupLabel>Tasks</SidebarGroupLabel>
+        <div className="flex items-center justify-between px-2">
+          <SidebarGroupLabel className="px-0">Tasks</SidebarGroupLabel>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setCreateTaskOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Create new task</TooltipContent>
+          </Tooltip>
+        </div>
         <SidebarGroupContent>
           {sortedTasks.length > 0 ? (
             <SidebarMenu>
@@ -250,6 +305,7 @@ export function SidebarTasks() {
           )}
         </SidebarGroupContent>
       </SidebarGroup>
+      <CreateTaskDialog open={createTaskOpen} onOpenChange={setCreateTaskOpen} />
     </TooltipProvider>
   )
 }
