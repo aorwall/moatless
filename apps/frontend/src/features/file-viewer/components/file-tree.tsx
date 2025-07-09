@@ -90,8 +90,8 @@ function TreeNode({
           onClick={() => onFileSelect(item.path)}
           className="data-[active=true]:bg-accent"
         >
-          <File className="h-4 w-4" />
-          {item.name}
+          <File className="h-4 w-4 flex-shrink-0" />
+          <span className="truncate">{item.name}</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
     )
@@ -102,9 +102,9 @@ function TreeNode({
       <Collapsible className="group/collapsible [&[data-state=open]>button>svg:first-child]:rotate-90">
         <CollapsibleTrigger asChild>
           <SidebarMenuButton>
-            <ChevronRight className="transition-transform h-4 w-4" />
-            <Folder className="h-4 w-4" />
-            {item.name}
+            <ChevronRight className="transition-transform h-4 w-4 flex-shrink-0" />
+            <Folder className="h-4 w-4 flex-shrink-0" />
+            <span className="truncate">{item.name}</span>
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>
