@@ -268,10 +268,7 @@ export function ChatInput({
     return 'Describe your coding task or feature... (use @ to reference files)'
   }
 
-  // Always allow editing the textarea
-  const isTextareaDisabled = false
-
-  // But disable sending based on conditions
+  // Disable sending based on conditions
   // Allow clicking when running (to stop), but disable for other states
   const isSendDisabled =
     isPending ||
@@ -320,7 +317,7 @@ export function ChatInput({
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSendMessage}
-          disabled={isTextareaDisabled || isSendDisabled}
+          disabled={isSendDisabled}
           placeholder={getPlaceholderText()}
           repositoryId={effectiveRepositoryId}
           taskId={taskId}
