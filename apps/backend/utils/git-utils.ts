@@ -71,44 +71,11 @@ export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Pr
   }
 }
 
-export async function getGitDiffString(
-  repoPath: string,
-  baseBranch?: string,
-): Promise<[string, string]> {
+/**
+ * Get untracked files and create diffs for them
+ */
+async function getUntrackedFilesDiff(repoPath: string): Promise<string> {
   try {
-    // Fetch latest changes from remote before comparing
-    await fetchBaseBranch(repoPath, baseBranch)
-
-    // Get the current branch
-    const currentBranch = await getCurrentBranch(repoPath)
-
-    // Get the base branch (default to main)
-    const base = baseBranch || (await detectBaseBranch(repoPath))
-
-    let compareBase = base
-
-    // For worktrees, we want to compare against the merge base (initial commit)
-    // This ensures we see all changes made on the branch even after merging to main
-    try {
-      const mergeBase = await getMergeBase(repoPath, base, currentBranch)
-      compareBase = mergeBase
-    } catch {
-      // If we can't find merge base, fall back to comparing against the base branch
-      compareBase = base
-    }
-
-    // Using 'git diff compareBase' shows the complete difference between
-    // the merge base and the current working directory state, which includes:
-    // 1. All commits made on the current branch since it diverged
-    // 2. All staged changes
-    // 3. All unstaged changes
-    const { stdout: diffOutput } = await execAsync(`git diff ${compareBase}`, {
-      cwd: repoPath,
-      timeout: 30000,
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-    })
-
-    // Get untracked files and create diffs for them
     const { stdout: untrackedOutput } = await execAsync(
       'git ls-files --others --exclude-standard',
       {
@@ -157,131 +124,133 @@ export async function getGitDiffString(
       }
     }
 
+    return untrackedDiffs
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Get the best reference to compare against (origin/base > local base > merge base)
+ * This ensures we always compare against the most up-to-date base when possible
+ */
+export async function getBestCompareReference(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<{ reference: string; type: 'origin' | 'local' | 'merge-base' }> {
+  const base = baseBranch || (await detectBaseBranch(repoPath))
+  const currentBranch = await getCurrentBranch(repoPath)
+  const originBranch = `origin/${base}`
+
+  // First, try to use origin/base if it exists
+  try {
+    await execAsync(`git rev-parse --verify ${originBranch}`, {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    return { reference: originBranch, type: 'origin' }
+  } catch {
+    // Origin branch doesn't exist, continue to local options
+  }
+
+  // For worktrees, try to get merge base for complete diff
+  try {
+    const mergeBase = await getMergeBase(repoPath, base, currentBranch)
+    return { reference: mergeBase, type: 'merge-base' }
+  } catch {
+    // Fall back to local base branch
+    return { reference: base, type: 'local' }
+  }
+}
+
+/**
+ * Check if origin remote exists and optionally fetch from it
+ */
+export async function checkAndFetchOrigin(
+  repoPath: string,
+  baseBranch?: string,
+  shouldFetch: boolean = true,
+): Promise<boolean> {
+  try {
+    await execAsync('git remote get-url origin', {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    
+    if (shouldFetch) {
+      const base = baseBranch || (await detectBaseBranch(repoPath))
+      try {
+        await execAsync(`git fetch origin ${base}`, {
+          cwd: repoPath,
+          timeout: 30000,
+        })
+      } catch (error) {
+        logger.warn(`Failed to fetch origin/${base}`, { 
+          error: error instanceof Error ? error.message : String(error) 
+        })
+      }
+    }
+    
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function getGitDiffString(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<[string, string]> {
+  try {
+    // Check if origin exists and fetch if available
+    await checkAndFetchOrigin(repoPath, baseBranch, true)
+
+    // Get the best reference to compare against (prioritizes origin/base)
+    const { reference: compareBase, type } = await getBestCompareReference(repoPath, baseBranch)
+    
+    logger.debug('Using compare reference for git diff', { compareBase, type })
+
+    // Using 'git diff compareBase' shows the complete difference between
+    // the compare base and the current working directory state, which includes:
+    // 1. All commits made on the current branch since it diverged
+    // 2. All staged changes
+    // 3. All unstaged changes
+    const { stdout: diffOutput } = await execAsync(`git diff ${compareBase}`, {
+      cwd: repoPath,
+      timeout: 30000,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+    })
+
+    // Get untracked files and create diffs for them
+    const untrackedDiffs = await getUntrackedFilesDiff(repoPath)
+
     // Combine regular diff with untracked files diff
     const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
 
     return [combinedDiff, compareBase]
   } catch (error) {
-    // Try with master if main fails
+    // Try with master as fallback if no baseBranch was specified
     if (!baseBranch) {
       try {
-        const currentBranch = await getCurrentBranch(repoPath)
-        let compareBase = 'master'
-
-        try {
-          const mergeBase = await getMergeBase(repoPath, 'master', currentBranch)
-          compareBase = mergeBase
-        } catch {
-          // Fall back to master if merge base fails
-          compareBase = 'master'
-        }
-
-        const { stdout: diffOutput } = await execAsync(`git diff ${compareBase}`, {
+        const { reference: fallbackCompare } = await getBestCompareReference(repoPath, 'master')
+        const { stdout: diffOutput } = await execAsync(`git diff ${fallbackCompare}`, {
           cwd: repoPath,
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024,
         })
 
-        // Get untracked files for fallback too
-        const { stdout: untrackedOutput } = await execAsync(
-          'git ls-files --others --exclude-standard',
-          {
-            cwd: repoPath,
-            timeout: 10000,
-          },
-        )
-
-        const untrackedFiles = untrackedOutput
-          .trim()
-          .split('\n')
-          .filter((line) => line.trim())
-
-        let untrackedDiffs = ''
-        for (const filename of untrackedFiles) {
-          if (filename) {
-            try {
-              const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
-                cwd: repoPath,
-                timeout: 5000,
-                maxBuffer: 1024 * 1024,
-              })
-
-              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
-              untrackedDiffs += `new file mode 100644\n`
-              untrackedDiffs += `index 0000000..0000000\n`
-              untrackedDiffs += `--- /dev/null\n`
-              untrackedDiffs += `+++ b/${filename}\n`
-
-              const lines = fileContent.split('\n')
-              if (lines.length > 0) {
-                untrackedDiffs += `@@ -0,0 +1,${lines.length} @@\n`
-                for (const line of lines) {
-                  untrackedDiffs += `+${line}\n`
-                }
-              }
-            } catch {
-              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
-              untrackedDiffs += `new file mode 100644\n`
-              untrackedDiffs += `Binary file\n`
-            }
-          }
-        }
-
+        const untrackedDiffs = await getUntrackedFilesDiff(repoPath)
         const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
-        return [combinedDiff, compareBase]
+        return [combinedDiff, fallbackCompare]
       } catch {
-        // Fall back to showing uncommitted changes only
+        // Final fallback: show only uncommitted changes
         const { stdout: diffOutput } = await execAsync('git diff', {
           cwd: repoPath,
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024,
         })
 
-        // Still include untracked files in the fallback
-        const { stdout: untrackedOutput } = await execAsync(
-          'git ls-files --others --exclude-standard',
-          {
-            cwd: repoPath,
-            timeout: 10000,
-          },
-        )
-
-        const untrackedFiles = untrackedOutput
-          .trim()
-          .split('\n')
-          .filter((line) => line.trim())
-
-        let untrackedDiffs = ''
-        for (const filename of untrackedFiles) {
-          if (filename) {
-            try {
-              const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
-                cwd: repoPath,
-                timeout: 5000,
-                maxBuffer: 1024 * 1024,
-              })
-
-              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
-              untrackedDiffs += `new file mode 100644\n`
-              untrackedDiffs += `index 0000000..0000000\n`
-              untrackedDiffs += `--- /dev/null\n`
-              untrackedDiffs += `+++ b/${filename}\n`
-
-              const lines = fileContent.split('\n')
-              if (lines.length > 0) {
-                untrackedDiffs += `@@ -0,0 +1,${lines.length} @@\n`
-                for (const line of lines) {
-                  untrackedDiffs += `+${line}\n`
-                }
-              }
-            } catch {
-              untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
-              untrackedDiffs += `new file mode 100644\n`
-              untrackedDiffs += `Binary file\n`
-            }
-          }
-        }
-
+        const untrackedDiffs = await getUntrackedFilesDiff(repoPath)
         const combinedDiff = diffOutput + (untrackedDiffs ? `\n${untrackedDiffs}` : '')
         return [combinedDiff, 'HEAD']
       }
@@ -608,8 +577,8 @@ export async function getComprehensiveGitStatus(
   providedBaseBranch?: string,
 ): Promise<GitStatus> {
   try {
-    // Fetch latest changes from remote before status checks
-    await fetchBaseBranch(repoPath, providedBaseBranch)
+    // Check if origin exists and fetch if available
+    await checkAndFetchOrigin(repoPath, providedBaseBranch, true)
 
     // Get current branch
     const currentBranch = await getCurrentBranch(repoPath)
@@ -618,9 +587,10 @@ export async function getComprehensiveGitStatus(
     const baseBranch = providedBaseBranch || (await detectBaseBranch(repoPath))
 
     // Get all the git information in parallel for efficiency
+    // Use origin commit counts if available, otherwise fall back to local
     const [uncommittedChanges, commitCounts, conflicts] = await Promise.all([
       hasUncommittedChanges(repoPath),
-      getCommitCounts(repoPath, baseBranch),
+      getOriginCommitCounts(repoPath, baseBranch),
       checkForConflicts(repoPath, baseBranch),
     ])
 
@@ -879,17 +849,8 @@ export async function getOriginSyncStatus(
     // Detect base branch if not provided
     const base = baseBranch || (await detectBaseBranch(repoPath))
     
-    // Check if origin exists
-    let originExists = false
-    try {
-      await execAsync('git remote get-url origin', {
-        cwd: repoPath,
-        timeout: 5000,
-      })
-      originExists = true
-    } catch {
-      // No origin remote
-    }
+    // Check if origin exists and fetch if available
+    const originExists = await checkAndFetchOrigin(repoPath, base, true)
 
     if (!originExists) {
       const hasChanges = await hasUncommittedChanges(repoPath)
@@ -902,16 +863,6 @@ export async function getOriginSyncStatus(
         baseBranch: base,
         originExists: false,
       }
-    }
-
-    // Fetch latest changes from origin
-    try {
-      await execAsync(`git fetch origin ${base}`, {
-        cwd: repoPath,
-        timeout: 30000,
-      })
-    } catch (error) {
-      logger.warn(`Failed to fetch origin/${base}`, { error: error instanceof Error ? error.message : String(error) })
     }
 
     // Check for uncommitted changes first

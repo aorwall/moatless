@@ -377,6 +377,15 @@ Git worktrees provide workspace isolation through separate working directories w
    - System automatically creates new branch if conflict detected
    - Branch tracking ensures proper upstream relationships
 
+5. **Git Comparison Strategy** (`apps/backend/utils/git-utils.ts`)
+   - **Priority Order**: Always compares against the most up-to-date reference
+     1. `origin/base` (e.g., `origin/main`) - when remote exists and is fetched
+     2. Merge base between current branch and base - for complete worktree diffs
+     3. Local base branch (e.g., `main`) - fallback when origin unavailable
+   - **Automatic Fetching**: System fetches from origin before comparisons when possible
+   - **Consistent Behavior**: Both git diff and git status use the same comparison logic
+   - **Shared Utilities**: `getBestCompareReference()` and `checkAndFetchOrigin()` ensure DRY code
+
 **Key Benefits:**
 - **Shared Git Objects**: Efficient disk usage through object sharing
 - **Independent Branches**: Each workspace has its own branch
