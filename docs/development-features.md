@@ -109,21 +109,6 @@ Located at `src/lib/components/error-boundary.tsx`, the unified error boundary s
 </ErrorBoundary>
 ```
 
-### Benefits for Development
-
-1. **Faster Bug Reporting**: Errors automatically generate detailed task reports
-2. **Context Preservation**: Full stack traces and component context captured
-3. **Seamless Workflow**: No need to manually copy error messages or reproduce steps
-4. **Collaborative Debugging**: Tasks can be assigned to team members with complete context
-5. **Error Tracking**: All errors become trackable tasks in the system
-
-### Security Considerations
-
-- Task creation is **opt-in only** via localStorage flags
-- Repository ID must be explicitly set by the developer
-- No sensitive information is automatically included in error reports
-- Debug mode is intended for development environments only
-
 ### Troubleshooting
 
 **Task creation button not showing:**
@@ -142,13 +127,3 @@ Located at `src/lib/components/error-boundary.tsx`, the unified error boundary s
 - `src/features/tasks/components/create-task-dialog.tsx` - Task creation dialog
 - `src/features/tasks/components/chat-input/index.tsx` - Chat input with repository selection
 - `src/routes/__root.tsx` - Root-level error boundary setup
-
-## Future Enhancements
-
-Potential improvements to the development features:
-
-1. **Error Categorization**: Automatically tag errors by type (validation, runtime, network)
-2. **Error Deduplication**: Group similar errors to avoid duplicate tasks
-3. **Integration with Error Tracking**: Connect with services like Sentry or LogRocket
-4. **Developer Console**: Dedicated debug panel for development features
-5. **Error Statistics**: Track error frequency and resolution rates
