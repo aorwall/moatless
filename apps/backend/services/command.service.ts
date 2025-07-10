@@ -104,6 +104,10 @@ export class CommandService {
       name: request.name,
       description: request.description,
       prompt: request.prompt,
+      conditions: request.conditions,
+      icon: request.icon,
+      variant: request.variant,
+      active: request.active,
     }
 
     commandsFile.commands[request.name] = command
