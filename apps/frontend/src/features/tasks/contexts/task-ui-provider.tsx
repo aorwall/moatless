@@ -3,7 +3,18 @@ import { createContext, type ReactNode, useContext, useMemo, useState } from 're
 
 type PanelView = 'events' | 'diff' | 'files' | 'preview' | 'server'
 
-interface TaskUIContextValue {
+interface ChatState {
+  scrollPosition?: number
+  isAtBottom: boolean
+}
+
+interface GitDiffState {
+  expandedFiles: Set<string>
+  selectedFileKey?: string
+  expandedPaths: Set<string>
+}
+
+interface TaskUIState {
   // Panel and layout state
   rightPanelView: PanelView
   selectedIteration: TaskIteration | undefined
@@ -11,50 +22,101 @@ interface TaskUIContextValue {
     left: number
     right: number
   }
-
-  // File viewer state
   selectedFile: string
+  
+  // Chat state
+  chatState: ChatState
+  
+  // Git diff state
+  gitDiffState: GitDiffState
+}
 
-  // Actions
+interface TaskUIContextValue {
+  // Current task's state
+  currentState: TaskUIState
+  
+  // Actions that automatically scope to current task
   setRightPanelView: (view: PanelView) => void
   setSelectedIteration: (iteration?: TaskIteration) => void
   setPanelSizes: (sizes: { left: number; right: number }) => void
   setSelectedFile: (file: string) => void
+  updateChatState: (updates: Partial<ChatState>) => void
+  updateGitDiffState: (updates: Partial<GitDiffState>) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
 
 interface TaskUIProviderProps {
+  taskId: string
   children: ReactNode
 }
 
-/**
- * TaskUIProvider manages pure UI state with no server dependencies.
- * This provider never causes re-renders due to data changes.
- */
-export function TaskUIProvider({ children }: TaskUIProviderProps) {
-  // UI state - all local, no server data
-  const [rightPanelView, setRightPanelView] = useState<PanelView>('events')
-  const [selectedIteration, setSelectedIteration] = useState<TaskIteration>()
-  const [selectedFile, setSelectedFile] = useState<string>('')
-  const [panelSizes, setPanelSizes] = useState({
-    left: 60,
-    right: 40,
-  })
+function getDefaultTaskUIState(): TaskUIState {
+  return {
+    rightPanelView: 'events',
+    selectedIteration: undefined,
+    panelSizes: {
+      left: 60,
+      right: 40,
+    },
+    selectedFile: '',
+    chatState: {
+      isAtBottom: true,
+    },
+    gitDiffState: {
+      expandedFiles: new Set(),
+      expandedPaths: new Set(),
+    },
+  }
+}
 
-  // Context value is stable since it only contains local state
+/**
+ * TaskUIProvider manages pure UI state with complete task isolation.
+ * Each task has its own UI state that persists when switching between tasks.
+ */
+export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
+  // Map of taskId -> TaskUIState for complete isolation
+  const [taskStates, setTaskStates] = useState<Map<string, TaskUIState>>(new Map())
+  
+  // Get current task's state or default
+  const currentState = taskStates.get(taskId) || getDefaultTaskUIState()
+  
+  // Update current task's state
+  const updateTaskState = (updates: Partial<TaskUIState>) => {
+    setTaskStates(prev => new Map(prev).set(taskId, { ...currentState, ...updates }))
+  }
+  
+  // All actions are automatically scoped to current task
+  const setRightPanelView = (view: PanelView) => 
+    updateTaskState({ rightPanelView: view })
+    
+  const setSelectedIteration = (iteration?: TaskIteration) =>
+    updateTaskState({ selectedIteration: iteration })
+    
+  const setPanelSizes = (sizes: { left: number; right: number }) =>
+    updateTaskState({ panelSizes: sizes })
+    
+  const setSelectedFile = (file: string) =>
+    updateTaskState({ selectedFile: file })
+    
+  const updateChatState = (updates: Partial<ChatState>) =>
+    updateTaskState({ chatState: { ...currentState.chatState, ...updates } })
+    
+  const updateGitDiffState = (updates: Partial<GitDiffState>) =>
+    updateTaskState({ gitDiffState: { ...currentState.gitDiffState, ...updates } })
+
+  // Context value is stable since it only contains current task state
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
-      rightPanelView,
-      selectedIteration,
-      panelSizes,
-      selectedFile,
+      currentState,
       setRightPanelView,
       setSelectedIteration,
       setPanelSizes,
       setSelectedFile,
+      updateChatState,
+      updateGitDiffState,
     }),
-    [rightPanelView, selectedIteration, panelSizes, selectedFile],
+    [currentState],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
@@ -74,21 +136,31 @@ export function useTaskUI() {
 
 // Specialized hooks for specific UI state
 export function usePanelView() {
-  const { rightPanelView, setRightPanelView } = useTaskUI()
-  return { rightPanelView, setRightPanelView }
+  const { currentState, setRightPanelView } = useTaskUI()
+  return { rightPanelView: currentState.rightPanelView, setRightPanelView }
 }
 
 export function useSelectedIteration() {
-  const { selectedIteration, setSelectedIteration } = useTaskUI()
-  return { selectedIteration, setSelectedIteration }
+  const { currentState, setSelectedIteration } = useTaskUI()
+  return { selectedIteration: currentState.selectedIteration, setSelectedIteration }
 }
 
 export function usePanelSizes() {
-  const { panelSizes, setPanelSizes } = useTaskUI()
-  return { panelSizes, setPanelSizes }
+  const { currentState, setPanelSizes } = useTaskUI()
+  return { panelSizes: currentState.panelSizes, setPanelSizes }
 }
 
 export function useSelectedFile() {
-  const { selectedFile, setSelectedFile } = useTaskUI()
-  return { selectedFile, setSelectedFile }
+  const { currentState, setSelectedFile } = useTaskUI()
+  return { selectedFile: currentState.selectedFile, setSelectedFile }
+}
+
+export function useChatState() {
+  const { currentState, updateChatState } = useTaskUI()
+  return { chatState: currentState.chatState, updateChatState }
+}
+
+export function useGitDiffState() {
+  const { currentState, updateGitDiffState } = useTaskUI()
+  return { gitDiffState: currentState.gitDiffState, updateGitDiffState }
 }

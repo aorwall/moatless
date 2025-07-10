@@ -14,7 +14,7 @@ interface TaskProvidersProps {
  */
 export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
-    <TaskUIProvider>
+    <TaskUIProvider taskId={taskId}>
       <TaskDataProvider taskId={taskId}>
         <TaskEventsProvider taskId={taskId}>
           {children}
@@ -47,6 +47,8 @@ export {
 } from './task-events-provider'
 export {
   TaskUIProvider,
+  useChatState,
+  useGitDiffState,
   usePanelSizes,
   usePanelView,
   useSelectedFile,

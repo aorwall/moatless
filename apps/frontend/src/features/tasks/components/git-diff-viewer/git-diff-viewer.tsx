@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef } from 'react'
 import { type ChangeData, Diff, type FileData, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 import 'prism-color-variables/variables.css'
@@ -7,6 +7,7 @@ import 'prism-color-variables/variables.css'
 import {
   useGitDiffWithLoading,
 } from '@/features/tasks/contexts/task-providers'
+import { useGitDiffState } from '@/features/tasks/contexts/task-ui-provider'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -111,8 +112,8 @@ function FileDiff({ file, isExpanded, onToggle, fileKey }: FileDiffProps) {
 
 export function GitDiffViewer({ className }: GitDiffViewerProps) {
   const { gitDiff, isLoading, error } = useGitDiffWithLoading()
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
-  const [selectedFileKey, setSelectedFileKey] = useState<string>()
+  const { gitDiffState, updateGitDiffState } = useGitDiffState()
+  const { expandedFiles, selectedFileKey } = gitDiffState
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   const parsedFiles = useMemo<ParsedFile[]>(() => {
@@ -132,24 +133,22 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
       const allFileKeys = new Set(
         parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
       )
-      setExpandedFiles(allFileKeys)
+      updateGitDiffState({ expandedFiles: allFileKeys })
     }
-  }, [parsedFiles])
+  }, [parsedFiles, updateGitDiffState])
 
   const toggleFileExpansion = (fileKey: string) => {
-    setExpandedFiles((prev) => {
-      const next = new Set(prev)
-      if (next.has(fileKey)) {
-        next.delete(fileKey)
-      } else {
-        next.add(fileKey)
-      }
-      return next
-    })
+    const next = new Set(expandedFiles)
+    if (next.has(fileKey)) {
+      next.delete(fileKey)
+    } else {
+      next.add(fileKey)
+    }
+    updateGitDiffState({ expandedFiles: next })
   }
 
   const handleFileSelect = (fileKey: string) => {
-    setSelectedFileKey(fileKey)
+    updateGitDiffState({ selectedFileKey: fileKey })
     // Scroll to the selected file
     if (scrollAreaRef.current) {
       const fileElement = scrollAreaRef.current.querySelector(`[data-file-key="${fileKey}"]`)

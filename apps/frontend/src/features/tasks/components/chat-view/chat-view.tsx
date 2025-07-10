@@ -10,18 +10,18 @@ import {
   DollarSign, 
   MessageSquare
 } from 'lucide-react'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import {
   useEventStream,
-  useSelectedIteration,
   useStreamingStatus,
   useTaskData,
   useWorkspaceStatus,
 } from '@/features/tasks/contexts/task-providers'
+import { useChatState, useSelectedIteration } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -45,9 +45,10 @@ function ChatViewComponent() {
   const { isStreaming } = useStreamingStatus()
   const { setSelectedIteration } = useSelectedIteration()
   const { scrollRef } = useAutoScroll()
+  const { chatState, updateChatState } = useChatState()
 
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [isAtBottom, setIsAtBottom] = useState(true)
+  const { isAtBottom } = chatState
 
   // Handle scroll to bottom button click
   const scrollToBottom = useCallback(() => {
@@ -109,8 +110,8 @@ function ChatViewComponent() {
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
-    setIsAtBottom(checkIfAtBottom())
-  }, [checkIfAtBottom])
+    updateChatState({ isAtBottom: checkIfAtBottom() })
+  }, [checkIfAtBottom, updateChatState])
 
   useEffect(() => {
     const scrollArea = scrollRef.current

@@ -1,9 +1,10 @@
 import { FileTreeItem } from '@/features/file-viewer'
-import React, { useState } from 'react'
+import React from 'react'
 import type { FileTreeNode } from '@/features/file-viewer'
 import { buildTreeStructure } from '@/features/file-viewer'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import type { FileData } from 'react-diff-view'
+import { useGitDiffState } from '@/features/tasks/contexts/task-ui-provider'
 
 interface GitDiffFileTreeProps {
   files: FileData[]
@@ -12,7 +13,8 @@ interface GitDiffFileTreeProps {
 }
 
 export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDiffFileTreeProps) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
+  const { gitDiffState, updateGitDiffState } = useGitDiffState()
+  const { expandedPaths } = gitDiffState
 
   // Extract file paths from the parsed diff files
   const filePaths = files.map((file) => {
@@ -34,15 +36,13 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
   })
 
   const toggleExpanded = (path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
+    const next = new Set(expandedPaths)
+    if (next.has(path)) {
+      next.delete(path)
+    } else {
+      next.add(path)
+    }
+    updateGitDiffState({ expandedPaths: next })
   }
 
   const renderNode = (node: FileTreeNode, level = 0): React.JSX.Element => {
@@ -74,21 +74,23 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
   }
 
   // Auto-expand all directories initially
-  if (expandedPaths.size === 0 && tree.length > 0) {
-    const allDirectories = new Set<string>()
-    const collectDirectories = (nodes: FileTreeNode[]) => {
-      nodes.forEach((node) => {
-        if (node.type === 'directory') {
-          allDirectories.add(node.path)
-          if (node.children) {
-            collectDirectories(node.children)
+  React.useEffect(() => {
+    if (expandedPaths.size === 0 && tree.length > 0) {
+      const allDirectories = new Set<string>()
+      const collectDirectories = (nodes: FileTreeNode[]) => {
+        nodes.forEach((node) => {
+          if (node.type === 'directory') {
+            allDirectories.add(node.path)
+            if (node.children) {
+              collectDirectories(node.children)
+            }
           }
-        }
-      })
+        })
+      }
+      collectDirectories(tree)
+      updateGitDiffState({ expandedPaths: allDirectories })
     }
-    collectDirectories(tree)
-    setExpandedPaths(allDirectories)
-  }
+  }, [tree, expandedPaths.size, updateGitDiffState])
 
   return (
     <ScrollArea className="h-full">
