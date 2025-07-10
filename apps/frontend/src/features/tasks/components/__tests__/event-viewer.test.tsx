@@ -222,22 +222,19 @@ describe('EventViewer', () => {
         })
     })
 
-    it('scrolls to bottom on first visit', () => {
-      // Skip this test as it depends on module-level state that's hard to reset
-      // The functionality is tested in integration tests
-      expect(true).toBe(true)
+    it.skip('scrolls to bottom on first visit - FIXME: Module state reset needed (TASK-001)', () => {
+      // This test depends on module-level state that's hard to reset
+      // Need to refactor visitedTasks to be testable
     })
 
-    it('does not auto-scroll on subsequent visits to same task', () => {
-      // Skip this test as it depends on module-level state that's hard to reset
-      // The functionality is tested in integration tests
-      expect(true).toBe(true)
+    it.skip('does not auto-scroll on subsequent visits to same task - FIXME: Module state reset needed (TASK-001)', () => {
+      // This test depends on module-level state that's hard to reset
+      // Need to refactor visitedTasks to be testable
     })
 
-    it('auto-scrolls when new events arrive if at bottom', () => {
-      // Skip this test as it's flaky due to timing issues with useEffect
-      // The functionality is tested in integration tests
-      expect(true).toBe(true)
+    it.skip('auto-scrolls when new events arrive if at bottom - FIXME: useEffect timing issues (TASK-002)', () => {
+      // This test has timing issues with useEffect
+      // Need to use proper async testing utilities
     })
 
     it('does not auto-scroll when not at bottom', async () => {

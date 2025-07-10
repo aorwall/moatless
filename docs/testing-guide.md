@@ -52,6 +52,40 @@ This project uses a layered testing strategy that balances coverage, speed, and 
 3. **Contract Tests** - Verify component interfaces and dependency contracts
 4. **E2E Tests** - Test complete user journeys (planned)
 
+### Test Organization Standards
+
+#### File Structure
+Maintain consistent test organization across all features:
+
+```
+feature/
+├── __tests__/
+│   ├── feature-integration.test.tsx    # Route/page integration tests
+│   └── feature-data-fetching.test.tsx  # Data flow tests
+├── components/
+│   ├── __tests__/
+│   │   ├── main-component.test.tsx     # Primary components
+│   │   └── sub-component.test.tsx      # Child components
+│   └── sub-components/
+│       └── __tests__/
+│           └── specific-component.test.tsx
+├── hooks/
+│   └── __tests__/
+│       └── use-feature.test.ts         # Custom hooks
+├── utils/
+│   └── __tests__/
+│       └── feature-utils.test.ts       # Utility functions
+└── contexts/
+    └── __tests__/
+        └── feature-context.test.tsx    # Context providers
+```
+
+#### Test Coverage Requirements
+- **Core Components**: Missing tests are technical debt
+- **Context Providers**: Must have tests for data flow
+- **Custom Hooks**: All hooks require test coverage
+- **Utility Functions**: 100% coverage expected
+
 ### Strategic Mocking Philosophy
 
 The key principle: **Mock at the boundaries, test the behavior**.
@@ -326,6 +360,71 @@ vi.mock('@/features/tasks/components/git-diff-viewer');
 // Now you're just testing mocks!
 ```
 
+### Common Testing Anti-patterns to Avoid
+
+#### ❌ Tests That Always Pass
+```typescript
+// BAD: Placeholder tests that provide no value
+it('should auto-scroll on first visit', () => {
+  expect(true).toBe(true); // This tests nothing!
+});
+
+// GOOD: Either implement the test properly or remove it
+it('should auto-scroll on first visit', () => {
+  const { container } = render(<EventViewer />);
+  const scrollArea = container.querySelector('[data-testid="scroll-area"]');
+  
+  expect(scrollArea.scrollTop).toBe(scrollArea.scrollHeight);
+});
+```
+
+#### ❌ Skipped Tests Without Explanation
+```typescript
+// BAD: Skipped with vague reasoning
+it.skip('should handle file search', () => {
+  // "flaky timing issues"
+});
+
+// GOOD: Document why and include ticket number
+it.skip('should handle file search - FIXME: Mock file system needed (TASK-123)', () => {
+  // Test implementation pending mock setup
+});
+```
+
+#### ❌ Incomplete Mock Data
+```typescript
+// BAD: Mock missing required fields causes runtime errors
+const mockTask = {
+  id: 'task-1',
+  name: 'Test'
+  // Missing: status, iterations, timestamps, etc.
+};
+
+// GOOD: Use complete factories with all required fields
+const mockTask = createMockTaskWithIterations({
+  taskId: 'task-1',
+  status: 'running'
+}, 2);
+```
+
+#### ❌ Inconsistent Assertions
+```typescript
+// BAD: Only checking element presence
+it('renders task list', () => {
+  render(<TaskList />);
+  expect(screen.getByTestId('task-list')).toBeInTheDocument();
+});
+
+// GOOD: Test behavior and data display
+it('renders task list with correct data', () => {
+  const tasks = [createMockTask({ title: 'Task 1' })];
+  render(<TaskList tasks={tasks} />);
+  
+  expect(screen.getByText('Task 1')).toBeInTheDocument();
+  expect(screen.getAllByRole('listitem')).toHaveLength(1);
+});
+```
+
 #### Don't Mock Simple Components
 ```typescript
 // ❌ BAD: Mocking simple UI components
@@ -534,10 +633,28 @@ pnpm test:ui
 
 ## Coverage Requirements
 
-- Components: 80% coverage
-- Hooks: 90% coverage
-- Utilities: 95% coverage
-- API functions: 85% coverage
+### Minimum Coverage by Type
+- **Components**: 80% coverage (critical paths: 90%)
+- **Hooks**: 90% coverage
+- **Utilities**: 95% coverage  
+- **API functions**: 85% coverage
+- **Context Providers**: 85% coverage
+- **Route Components**: 75% coverage (focus on integration)
+
+### Critical Path Definition
+Critical paths include:
+- User authentication flows
+- Data submission (create/update operations)
+- Real-time features (SSE, WebSocket connections)
+- Error recovery mechanisms
+- Core business logic
+
+### Coverage Exceptions
+Acceptable reasons for lower coverage:
+- Third-party library wrappers
+- Development-only code
+- Deprecated code pending removal
+- Generated code
 
 ## Common Testing Scenarios
 
@@ -711,6 +828,66 @@ describe('TaskDetail Route - Integration Tests', () => {
    }));
    ```
 
+## Test Maintenance
+
+### Managing Test Debt
+
+1. **Track Skipped Tests**
+   ```typescript
+   // Create a test debt file
+   // __tests__/test-debt.md
+   ## Skipped Tests
+   - [ ] chat-input-file-search.test.tsx - File search integration (TASK-456)
+   - [ ] event-viewer.test.tsx - Auto-scroll behavior (TASK-457)
+   ```
+
+2. **Regular Test Audits**
+   - Review skipped tests monthly
+   - Remove obsolete tests
+   - Update mock data to match API changes
+   - Consolidate duplicate test patterns
+
+3. **Test Flakiness Resolution**
+   ```typescript
+   // Instead of skipping flaky tests
+   it.skip('flaky test', () => {});
+   
+   // Fix the root cause
+   it('fixed test', async () => {
+     // Use waitFor instead of setTimeout
+     await waitFor(() => {
+       expect(element).toBeVisible();
+     }, { timeout: 5000 });
+   });
+   ```
+
+### Test Organization Best Practices
+
+1. **Group Related Tests**
+   ```typescript
+   describe('TaskViewer', () => {
+     describe('Rendering', () => {
+       it('displays task title', () => {});
+       it('shows iteration count', () => {});
+     });
+     
+     describe('Interactions', () => {
+       it('handles iteration selection', () => {});
+       it('expands/collapses sections', () => {});
+     });
+     
+     describe('Error Handling', () => {
+       it('shows error message on failure', () => {});
+       it('provides retry option', () => {});
+     });
+   });
+   ```
+
+2. **Consistent Naming**
+   - Use descriptive test names
+   - Follow "should [do something] when [condition]" pattern
+   - Group by feature/behavior, not implementation
+
 ## Best Practices
 
 ### 1. Test Data Factories
@@ -767,7 +944,69 @@ it('renders large datasets efficiently', () => {
 });
 ```
 
-### 5. Contract Testing
+### 5. Component Test Pattern
+
+Organize component tests consistently:
+
+```typescript
+describe('ComponentName', () => {
+  describe('Rendering', () => {
+    it('renders with default props', () => {});
+    it('renders with custom props', () => {});
+    it('handles missing data gracefully', () => {});
+  });
+  
+  describe('User Interactions', () => {
+    it('handles click events', () => {});
+    it('processes form submissions', () => {});
+    it('responds to keyboard navigation', () => {});
+  });
+  
+  describe('Props & State', () => {
+    it('updates when props change', () => {});
+    it('maintains internal state correctly', () => {});
+  });
+  
+  describe('Error Handling', () => {
+    it('displays error message on API failure', () => {});
+    it('provides retry mechanism', () => {});
+  });
+  
+  describe('Accessibility', () => {
+    it('has proper ARIA labels', () => {});
+    it('supports keyboard navigation', () => {});
+  });
+});
+```
+
+### 6. Hook Test Pattern
+
+Structure hook tests for clarity:
+
+```typescript
+describe('useHookName', () => {
+  describe('Initial State', () => {
+    it('returns default values', () => {});
+  });
+  
+  describe('State Updates', () => {
+    it('updates state when action is called', () => {});
+    it('handles concurrent updates', () => {});
+  });
+  
+  describe('Side Effects', () => {
+    it('fetches data on mount', () => {});
+    it('cleans up on unmount', () => {});
+  });
+  
+  describe('Error Scenarios', () => {
+    it('handles network errors', () => {});
+    it('provides error recovery', () => {});
+  });
+});
+```
+
+### 7. Contract Testing
 
 ```typescript
 // Verify component interfaces don't break
@@ -787,6 +1026,53 @@ describe('Component Contracts', () => {
     
     // Verify TaskViewer receives the data it needs
     expect(screen.getByText(taskData.iterations[0].initial_message)).toBeInTheDocument();
+  });
+});
+```
+
+### 8. Context Provider Testing
+
+Test context providers properly:
+
+```typescript
+import { renderHook } from '@testing-library/react';
+import { TaskDataProvider, useTaskData } from '../contexts/task-data-provider';
+
+describe('TaskDataProvider', () => {
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <TaskDataProvider taskId="test-123">
+      {children}
+    </TaskDataProvider>
+  );
+
+  it('provides task data to children', () => {
+    const { result } = renderHook(() => useTaskData(), { wrapper });
+    
+    expect(result.current.taskId).toBe('test-123');
+    expect(result.current.task).toBeDefined();
+  });
+
+  it('handles loading states', () => {
+    vi.mocked(useTask).mockReturnValue({
+      isLoading: true,
+      data: undefined,
+      error: null
+    });
+
+    const { result } = renderHook(() => useTaskData(), { wrapper });
+    expect(result.current.isLoading).toBe(true);
+  });
+
+  it('propagates errors correctly', () => {
+    const error = new Error('Failed to load');
+    vi.mocked(useTask).mockReturnValue({
+      isLoading: false,
+      data: undefined,
+      error
+    });
+
+    const { result } = renderHook(() => useTaskData(), { wrapper });
+    expect(result.current.error).toBe(error);
   });
 });
 ```
