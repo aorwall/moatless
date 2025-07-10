@@ -384,8 +384,8 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
           <div className="space-y-2">
             <Label htmlFor="icon">Icon</Label>
             <Select
-              value={formData.icon || ''}
-              onValueChange={(value) => setFormData({ ...formData, icon: value })}
+              value={formData.icon || 'none'}
+              onValueChange={(value) => setFormData({ ...formData, icon: value === 'none' ? '' : value })}
             >
               <SelectTrigger id="icon">
                 <SelectValue placeholder="Select an icon (optional)">
@@ -401,7 +401,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No icon</SelectItem>
+                <SelectItem value="none">No icon</SelectItem>
                 <SelectItem value="GitCommit">
                   <div className="flex items-center gap-2">
                     <LucideIcons.GitCommit className="h-4 w-4" />
