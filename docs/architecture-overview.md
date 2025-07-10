@@ -60,20 +60,28 @@ graph TB
 - **Routing**: TanStack Router (file-based)
 - **State Management**: React Query (TanStack Query)
 - **Styling**: Tailwind CSS v4
-- **UI Components**: Shadcn/ui
+- **UI Components**: Shadcn/ui (New York style, client-side only)
 - **Real-time Updates**: Server-Sent Events (SSE)
 
 ### Backend
 - **Framework**: Hono (lightweight web framework)
-- **Runtime**: Node.js with TypeScript
+- **Runtime**: Node.js with TypeScript (requires >=22.16.x)
 - **Architecture**: Service-oriented with dependency injection
 - **Real-time**: Server-Sent Events
 - **Storage**: File system-based
+
+### Build & Development
+- **TypeScript**: ES2023 target with NodeNext modules
+- **Monorepo Tool**: Turborepo (with intelligent caching)
+- **Package Manager**: pnpm 10.7.1 (enforced version)
+- **Code Quality**: Biome (linting + formatting)
+- **Testing**: Vitest with tiered test strategy
 
 ### Monorepo Structure
 - **Tool**: Turborepo
 - **Package Manager**: pnpm workspaces
 - **Shared Code**: `@moatless/shared` package
+- **Build Order**: Shared packages build before apps (dependency graph)
 
 ## Core Components
 
@@ -332,9 +340,12 @@ pnpm biome:check
 ```
 
 ### Testing Strategy
-- Unit tests for services and components
-- Integration tests for API routes
-- E2E tests for critical user flows
+- **Test Runner**: Vitest with parallel execution using worker threads
+- **Test Tiers**: Tests organized by speed (fast <200ms, moderate 200ms-2s, slow >2s)
+- **Turbo Caching**: Test results cached for unchanged code
+- **Coverage**: Unit tests for services and components
+- **Integration**: API route testing with strategic mocking
+- **E2E**: Playwright for critical user flows
 
 **Documentation**: [Testing Guide](./testing-guide.md)
 
