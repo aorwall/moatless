@@ -152,6 +152,7 @@ export function useUniversalFileAutocomplete({
           break
         case 'Escape':
           e.preventDefault()
+          e.stopPropagation()
           setState((prev) => ({ ...prev, isOpen: false }))
           break
         case 'Tab':
