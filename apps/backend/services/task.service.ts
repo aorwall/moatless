@@ -273,6 +273,22 @@ export class TaskService {
     return tasks.slice(offset, offset + limit)
   }
 
+  async sendCommand(
+    taskId: string,
+    commandName: string,
+    resume = true,
+    model?: string,
+    filePaths?: string[],
+  ): Promise<void> {
+    const command = await this.commandService.getCommand(commandName)
+    if (!command) {
+      throw new ValidationError(`Command '${commandName}' not found`, 'commandName')
+    }
+
+    // Use the command's prompt as the message
+    await this.sendMessage(taskId, command.prompt, resume, model, undefined, filePaths, commandName)
+  }
+
   async sendMessage(
     taskId: string,
     message: string,
@@ -283,17 +299,6 @@ export class TaskService {
     commandName?: string,
   ): Promise<void> {
     const metadata = await this.getTask(taskId)
-
-    // If commandName is provided, get the command prompt
-    let finalMessage = message
-    if (commandName) {
-      const command = await this.commandService.getCommand(commandName)
-      if (command) {
-        finalMessage = command.prompt
-      } else {
-        logger.warn('Command not found, using original message', { commandName })
-      }
-    }
 
     // Update metadata
     const now = new Date()
@@ -379,7 +384,7 @@ export class TaskService {
 
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
+      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })

@@ -455,6 +455,68 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })
 
+  // Send command to task
+  app.post(
+    `${prefix}/:taskId/commands`,
+    describeRoute({
+      description: 'Send a command to a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Command parameters',
+        content: {
+          'application/json': {
+            schema: resolver(z.object({
+              commandName: z.string(),
+              resume: z.boolean().optional().default(true),
+              model: z.string().optional(),
+              filePaths: z.array(z.string()).optional(),
+            })) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Command sent successfully',
+          content: {
+            'application/json': {
+              schema: resolver(SendMessageResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task or command not found',
+        },
+      },
+    }),
+    async (c) => {
+    const services = c.get('services')
+    const { task: taskService } = services
+    
+    const taskId = c.req.param('taskId')
+    if (!taskId) {
+      throw new HTTPException(400, { message: 'Task ID is required' })
+    }
+    
+    const body = await c.req.json()
+    const { commandName, resume, model, filePaths } = body
+
+    await taskService.sendCommand(taskId, commandName, resume, model, filePaths)
+    return c.json({ status: 'sent', timestamp: new Date().toISOString() })
+  })
+
   // Get task events without pagination
   app.get(
     `${prefix}/:taskId/events`,

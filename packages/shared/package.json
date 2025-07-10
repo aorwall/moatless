@@ -49,13 +49,16 @@
   },
   "scripts": {
     "build": "tsc",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "zod": "^3.25.61"
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "^1.0.33",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.3"
   }
 }

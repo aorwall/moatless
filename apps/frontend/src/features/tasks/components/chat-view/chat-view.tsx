@@ -1,7 +1,15 @@
 import { EventType } from '@moatless/shared/types/event'
+import type { Command } from '@moatless/shared/types/command'
 import type { Task, TaskIteration } from '@moatless/shared/types/task'
+import { filterAvailableCommands } from '@moatless/shared/utils/command-conditions'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, ArrowDown, Clock, DollarSign, GitCommit, MessageSquare } from 'lucide-react'
+import { 
+  AlertCircle, 
+  ArrowDown, 
+  Clock, 
+  DollarSign, 
+  MessageSquare
+} from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -26,6 +34,7 @@ import { ChatInput } from '../chat-input'
 import { TaskMinifiedLastEventsDisplay } from '../event-viewer'
 import { ChatHeader } from './chat-header'
 import { ChatViewSkeleton } from './chat-view-skeleton'
+import { CommandButtons } from './command-buttons'
 
 function ChatViewComponent() {
   const params = useParams({ from: '/tasks/$taskId' })
@@ -230,6 +239,32 @@ function ChatViewComponent() {
   const lastIterationHasError =
     lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
 
+  // Filter available commands based on current context
+  const availableCommands = useMemo(() => {
+    if (!commands || status === 'running') return []
+    
+    const context = {
+      task: { status, iterations, repositoryId } as Task,
+      lastIteration: lastIteration || undefined,
+      workspaceHasChanges,
+    }
+    
+    return filterAvailableCommands(commands, context)
+  }, [commands, status, iterations, lastIteration, workspaceHasChanges, repositoryId])
+
+  // Handle command click
+  const handleCommandClick = useCallback((command: Command) => {
+    handleSendMessage(
+      params.taskId,
+      command.prompt,
+      () => {},
+      true,
+      undefined,
+      undefined,
+      command.name,
+    )
+  }, [params.taskId, handleSendMessage])
+
   return (
     <div className="h-full flex flex-col">
       <ChatHeader />
@@ -333,33 +368,14 @@ function ChatViewComponent() {
               </div>
             )}
 
-            {/* Show commit button when task is not running and there are uncommitted changes */}
-            {!isTaskRunning &&
-              workspaceHasChanges &&
-              commands?.some((cmd) => cmd.name === 'commit') && (
-                <div className="flex justify-center py-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      handleSendMessage(
-                        params.taskId,
-                        'commit the relevant changes',
-                        () => {},
-                        true,
-                        undefined,
-                        undefined,
-                        'commit',
-                      )
-                    }}
-                    disabled={sendMessage.isPending}
-                    className="flex items-center gap-2"
-                  >
-                    <GitCommit className="h-4 w-4" />
-                    Commit Changes
-                  </Button>
-                </div>
-              )}
+            {/* Show available command buttons */}
+            {!isTaskRunning && (
+              <CommandButtons 
+                commands={availableCommands}
+                onCommandClick={handleCommandClick}
+                disabled={sendMessage.isPending}
+              />
+            )}
 
             <div ref={bottomRef} />
           </div>

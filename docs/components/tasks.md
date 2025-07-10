@@ -831,3 +831,209 @@ graph TB
     style GS fill:#66bb6a,stroke:#333,stroke-width:3px
     style EB fill:#42a5f5,stroke:#333,stroke-width:2px
 ```
+
+### Command System
+
+The task system includes a context-aware command system that displays relevant actions based on the current workspace and task state.
+
+#### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Command System Flow"
+        CMD[Command Service]
+        CC[Command Conditions]
+        CB[Command Buttons]
+        CV[Chat View]
+        TS[Task Service]
+    end
+    
+    subgraph "Command Execution"
+        CE1[User Clicks Command]
+        CE2[Send Command Prompt]
+        CE3[Execute as Message]
+        CE4[AI Processes Command]
+    end
+    
+    CMD -->|Provides Commands| CC
+    CC -->|Filters Available| CB
+    CB -->|Displays in| CV
+    CV -->|Executes via| TS
+    
+    CE1 --> CE2
+    CE2 --> CE3
+    CE3 --> CE4
+    
+    style CMD fill:#f9f,stroke:#333,stroke-width:2px
+    style CC fill:#bbf,stroke:#333,stroke-width:2px
+```
+
+#### Command Structure
+
+Commands are defined in `packages/shared/schemas/command.schemas.ts` with the following structure:
+
+```typescript
+interface Command {
+  name: string          // Unique identifier (alphanumeric, hyphens, underscores)
+  description: string   // Display text on button
+  prompt: string       // Message sent to AI agent
+  active?: boolean     // Whether command is enabled/visible (defaults to true)
+  conditions?: {       // Visibility conditions
+    // Git status conditions
+    requiresUncommittedChanges?: boolean
+    requiresCommittedChanges?: boolean
+    requiresBehindMain?: boolean
+    requiresAheadOfMain?: boolean
+    requiresDiverged?: boolean
+    
+    // Task status conditions
+    requiresTaskNotRunning?: boolean
+    requiresLastIterationError?: boolean
+    requiresLastIterationSuccess?: boolean
+    
+    // Allowed statuses
+    allowedGitSyncStatuses?: GitSyncStatus[]
+    allowedTaskStatuses?: TaskStatus[]
+  }
+  icon?: string        // Lucide icon name (e.g., 'GitCommit')
+  variant?: string     // Button variant ('default', 'outline', 'secondary', 'ghost', 'destructive')
+}
+```
+
+#### Default Commands
+
+The system includes five default commands (`apps/backend/services/command.service.ts`):
+
+1. **commit** - Git commit changes
+   - Icon: GitCommit
+   - Condition: Requires uncommitted changes
+   - Prompt: "commit the changes"
+
+2. **continue** - Continue after error
+   - Icon: Play
+   - Variant: default
+   - Condition: Requires last iteration error
+   - Prompt: "continue"
+
+3. **create-pr** - Create pull request
+   - Icon: GitPullRequest
+   - Condition: Requires branch ahead of main
+   - Prompt: "create a pull request"
+
+4. **merge-to-main** - Merge to main branch
+   - Icon: GitMerge
+   - Condition: Requires committed changes
+   - Prompt: "merge the changes to main"
+
+5. **sync-with-main** - Sync with main branch
+   - Icon: GitBranch
+   - Condition: Requires branch behind or diverged
+   - Prompt: "sync with main"
+
+#### Command Filtering Logic
+
+Commands are dynamically filtered based on context using the `isCommandAvailable()` function (`packages/shared/utils/command-conditions.ts`):
+
+```typescript
+function isCommandAvailable(command: Command, context: CommandAvailabilityContext): boolean {
+  // Context includes:
+  // - task: Current task metadata
+  // - lastIteration: Most recent iteration
+  // - workspaceHasChanges: Git status
+  
+  // Filtering logic checks each condition
+  // Returns true only if ALL conditions pass
+}
+```
+
+The filtering process:
+1. Checks if command is active (inactive commands are immediately filtered out)
+2. Checks task running status
+3. Validates git status requirements
+4. Verifies iteration status conditions
+5. Matches allowed status lists
+
+#### API Integration
+
+Commands are executed through the task messaging system:
+
+**Endpoint**: `POST /api/tasks/{taskId}/command`
+
+**Request Body**:
+```json
+{
+  "commandName": "commit",
+  "resume": true,
+  "model": "claude-3-sonnet", // optional
+  "filePaths": ["src/file.ts"] // optional
+}
+```
+
+**Processing Flow**:
+1. Route handler validates command exists (`apps/backend/routes/tasks.ts`)
+2. Task service looks up command by name (`apps/backend/services/task.service.ts`)
+3. Command prompt is sent as a regular message
+4. AI agent processes the command prompt
+5. Execution continues normally with streaming response
+
+#### UI Integration
+
+Commands are displayed using the `CommandButtons` component (`apps/frontend/src/features/tasks/components/chat-view/command-buttons.tsx`):
+
+```typescript
+<CommandButtons 
+  commands={availableCommands}
+  onCommandClick={handleCommandClick}
+  disabled={isLoading}
+/>
+```
+
+**Component Features**:
+- Renders a button for each available command
+- Maps icon names to Lucide React components
+- Applies variant styling from command definition
+- Disables all buttons during task execution
+- Hides entirely when no commands are available
+- Centers buttons with responsive wrap layout
+
+**Icon Mapping**:
+```typescript
+const iconMap = {
+  'GitCommit': GitCommit,
+  'GitBranch': GitBranch,
+  'GitMerge': GitMerge,
+  'GitPullRequest': GitPullRequest,
+  'Play': Play,
+  default: MessageSquare
+}
+```
+
+#### Chat View Integration
+
+In the chat view (`apps/frontend/src/features/tasks/components/chat-view/chat-view.tsx`), commands are:
+
+1. Fetched when task data loads
+2. Filtered based on current context
+3. Displayed below chat messages when task is not running
+4. Hidden during active task execution
+5. Re-evaluated after each iteration completes
+
+The integration ensures commands are always contextually relevant and help guide users through common workflows.
+
+#### Testing
+
+The command system includes comprehensive tests:
+
+- **Unit Tests**: Command filtering logic (`packages/shared/utils/__tests__/command-conditions.test.ts`)
+- **Component Tests**: Button rendering and interactions (`apps/frontend/src/features/tasks/components/chat-view/__tests__/command-buttons.test.tsx`)
+- **Integration Tests**: Chat view command display (`apps/frontend/src/features/tasks/components/chat-view/__tests__/chat-view-commands.test.tsx`)
+
+#### Extensibility
+
+The command system is designed for easy extension:
+
+1. **Adding Commands**: Create new commands via API or configuration
+2. **Custom Conditions**: Extend condition types in schema
+3. **Dynamic Icons**: Support for any Lucide icon by name
+4. **Custom Styling**: Use variant system for visual hierarchy
+5. **Complex Prompts**: Commands can include detailed instructions for AI
