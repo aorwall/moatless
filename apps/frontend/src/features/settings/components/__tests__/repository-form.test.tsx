@@ -20,8 +20,8 @@ describe('RepositoryForm', () => {
       expect(screen.getByText('Create New Repository')).toBeInTheDocument()
       expect(screen.getByLabelText(/Name/)).toHaveValue('')
       expect(screen.getByLabelText(/Description/)).toHaveValue('')
-      expect(screen.getByLabelText(/Repository Type/)).toHaveTextContent('Local')
-      expect(screen.getByLabelText(/Execution Type/)).toHaveTextContent('Local')
+      expect(screen.getByRole('combobox', { name: /repository type/i })).toHaveTextContent('Local')
+      expect(screen.getByRole('combobox', { name: /code execution type/i })).toHaveTextContent('Local')
     })
 
     it('should validate required fields', async () => {
@@ -35,8 +35,8 @@ describe('RepositoryForm', () => {
         expect(mockOnSubmit).not.toHaveBeenCalled()
       })
 
-      // Check for validation errors
-      expect(screen.queryByText(/required/i)).toBeInTheDocument()
+      // Check for validation errors - Zod default message
+      expect(screen.getByText('Required')).toBeInTheDocument()
     })
 
     it('should submit valid local environment', async () => {
@@ -74,7 +74,7 @@ describe('RepositoryForm', () => {
       render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
       // Switch to GitHub repository
-      fireEvent.click(screen.getByLabelText(/Repository Type/))
+      fireEvent.click(screen.getByRole('combobox', { name: /repository type/i }))
       fireEvent.click(screen.getByText('GitHub'))
 
       // GitHub-specific fields should appear
@@ -117,7 +117,7 @@ describe('RepositoryForm', () => {
       })
 
       // Switch to Docker execution
-      fireEvent.click(screen.getByLabelText(/Execution Type/))
+      fireEvent.click(screen.getByRole('combobox', { name: /code execution type/i }))
       fireEvent.click(screen.getByText('Docker'))
 
       // Docker-specific fields should appear
@@ -257,7 +257,7 @@ describe('RepositoryForm', () => {
       fireEvent.click(screen.getByText('Create Repository'))
 
       await waitFor(() => {
-        expect(screen.queryByText(/required/i)).toBeInTheDocument()
+        expect(screen.getByText('Required')).toBeInTheDocument()
       })
 
       // Start typing in name field
@@ -267,7 +267,7 @@ describe('RepositoryForm', () => {
 
       // Error should be cleared
       await waitFor(() => {
-        expect(screen.queryByText(/required/i)).not.toBeInTheDocument()
+        expect(screen.queryByText('Required')).not.toBeInTheDocument()
       })
     })
 
@@ -282,7 +282,7 @@ describe('RepositoryForm', () => {
       })
 
       // Should show validation error for missing required fields
-      expect(screen.queryByText(/required/i)).toBeInTheDocument()
+      expect(screen.getByText('Required')).toBeInTheDocument()
     })
   })
 })

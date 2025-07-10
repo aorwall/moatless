@@ -171,6 +171,6 @@ describe('ToolCallEvent', () => {
     render(<ToolCallEvent event={event} />)
 
     const resultContainer = screen.getByText('Test result').closest('div')
-    expect(resultContainer).toHaveClass('bg-zinc-800', 'dark:bg-zinc-900')
+    expect(resultContainer).toHaveClass('text-xs', 'bg-background', 'border', 'rounded', 'p-3', 'overflow-x-auto')
   })
 })

@@ -11,7 +11,7 @@ interface LSToolCallProps {
 
 export function LSToolCall({ input, name }: LSToolCallProps): ReactNode {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="ls-tool-call">
       <div className="flex items-center gap-2">
         <FolderOpen className="h-3.5 w-3.5 text-status-info" />
         <span className="font-medium text-foreground">{name}</span>

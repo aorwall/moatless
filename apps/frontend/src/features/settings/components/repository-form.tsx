@@ -160,7 +160,7 @@ export function RepositoryForm({
           const path = err.path.join('.')
           if (path === 'name') {
             newErrors.name = err.message
-          } else if (path === 'repository.path') {
+          } else if (path === 'path') {
             newErrors.localPath = err.message
           } else if (path === 'repository.repoId') {
             newErrors.githubRepoId = err.message
