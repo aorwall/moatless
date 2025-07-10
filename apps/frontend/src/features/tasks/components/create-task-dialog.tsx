@@ -12,16 +12,19 @@ import { getErrorMessage } from '@/lib/utils/error'
 interface CreateTaskDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  defaultRepositoryId?: string
+  defaultMessage?: string
+  defaultMode?: ChatInputMode
 }
 
-export function CreateTaskDialog({ open, onOpenChange }: CreateTaskDialogProps) {
-  const [mode, setMode] = useState<ChatInputMode>(() => {
-    // Load last mode from localStorage
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem('lastViewMode') as ChatInputMode) || 'code'
-    }
-    return 'code'
-  })
+export function CreateTaskDialog({ 
+  open, 
+  onOpenChange, 
+  defaultRepositoryId, 
+  defaultMessage,
+  defaultMode = 'code'
+}: CreateTaskDialogProps) {
+  const [mode, setMode] = useState<ChatInputMode>(defaultMode)
 
   const createTask = useCreateTask({
     onSuccess: () => {
@@ -106,12 +109,8 @@ export function CreateTaskDialog({ open, onOpenChange }: CreateTaskDialogProps) 
     )
   }
 
-  // Save mode to localStorage when it changes
   const handleModeChange = (newMode: ChatInputMode) => {
     setMode(newMode)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('lastViewMode', newMode)
-    }
   }
 
   return (
@@ -133,6 +132,8 @@ export function CreateTaskDialog({ open, onOpenChange }: CreateTaskDialogProps) 
             isLoading={createTask.isPending || createVibeTask.isPending}
             className="w-full"
             maxHeight="500px"
+            defaultRepositoryId={defaultRepositoryId}
+            defaultMessage={defaultMessage}
           />
         </div>
       </DialogContent>

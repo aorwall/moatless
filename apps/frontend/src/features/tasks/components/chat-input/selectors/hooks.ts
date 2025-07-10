@@ -4,8 +4,8 @@ import { useRepositoriesList, useBranches } from '@/features/repositories/hooks/
 import { useTemplatesList } from '@/features/templates'
 
 // Repository selector hook
-export function useRepositorySelector(enabled = true) {
-  const [selected, setSelected] = useState("")
+export function useRepositorySelector(enabled = true, initialValue = "") {
+  const [selected, setSelected] = useState(initialValue)
   const { data, isLoading } = useRepositoriesList({ enabled })
   
   const items = data?.map(repo => ({

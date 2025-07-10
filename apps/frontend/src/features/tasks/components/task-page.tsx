@@ -1,5 +1,3 @@
-import { useParams } from '@tanstack/react-router'
-import React, { useEffect } from 'react'
 import { FileTree, FileViewer } from '@/features/file-viewer'
 import { Preview, useServerStatus } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -7,11 +5,14 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Tabs, TabsContent } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import { useParams } from '@tanstack/react-router'
+import React, { useEffect } from 'react'
 import {
-  usePanelSizes,
-  usePanelView,
-  useSelectedFile,
-  useTaskData,
+    usePanelSizes,
+    usePanelView,
+    useSelectedFile,
+    useTaskData,
+    useTaskMetadata,
 } from '../contexts/task-providers'
 import { ChatView } from './chat-view'
 import { EventViewer } from './event-viewer'
@@ -23,6 +24,7 @@ function TaskPageComponent() {
 
   // Use specialized hooks that only cause re-renders when specific data changes
   const { isLoading, error } = useTaskData() // Only re-renders on loading/error changes
+  const task = useTaskMetadata() // Get task metadata for repository ID
   const { rightPanelView, setRightPanelView } = usePanelView() // Only re-renders on panel view changes
   const { panelSizes, setPanelSizes } = usePanelSizes() // Only re-renders on panel size changes
   const { selectedFile, setSelectedFile } = useSelectedFile() // Only re-renders on file selection changes
@@ -83,7 +85,11 @@ function TaskPageComponent() {
           }}
           className="flex flex-col"
         >
-          <ErrorBoundary componentName="Chat View">
+          <ErrorBoundary 
+            componentName="Chat View"
+            enableTaskCreation={true}
+            repositoryId={task?.repositoryId}
+          >
             <ChatView />
           </ErrorBoundary>
         </ResizablePanel>

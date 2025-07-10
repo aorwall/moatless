@@ -61,6 +61,10 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
 
   // Textarea configuration
   maxHeight?: string
+  
+  // Default values
+  defaultRepositoryId?: string
+  defaultMessage?: string
 }
 
 export function ChatInput({
@@ -79,9 +83,11 @@ export function ChatInput({
   isLoading = false,
   className = '',
   maxHeight = '200px',
+  defaultRepositoryId,
+  defaultMessage,
   ...divProps
 }: ChatInputProps) {
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [runningDuration, setRunningDuration] = useState<string>('')
   const [resumeConversation, setResumeConversation] = useState(true)
@@ -98,7 +104,17 @@ export function ChatInput({
   })()
   
   const modelSelector = useModelSelector(initialModel)
-  const repoSelector = useRepositorySelector(showRepositorySelector && mode === 'code')
+  
+  // Determine initial repository value
+  const initialRepositoryId = (() => {
+    if (defaultRepositoryId) return defaultRepositoryId
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lastSelectedRepositoryId') || ''
+    }
+    return ''
+  })()
+  
+  const repoSelector = useRepositorySelector(showRepositorySelector && mode === 'code', initialRepositoryId)
   const branchSelector = useBranchSelector(repoSelector.value, showRepositorySelector && mode === 'code')
   const templateSelector = useTemplateSelector(showRepositorySelector && mode === 'vibe')
 
@@ -132,15 +148,6 @@ export function ChatInput({
     return () => clearInterval(interval)
   }, [isRunning, task?.iterations])
 
-  // Initialize repository from localStorage if in code mode
-  useEffect(() => {
-    if (!taskId && mode === 'code' && typeof window !== 'undefined') {
-      const savedRepoId = localStorage.getItem('lastSelectedRepositoryId')
-      if (savedRepoId && !repoSelector.value) {
-        repoSelector.onChange(savedRepoId)
-      }
-    }
-  }, [taskId, mode])
   
   // Initialize template from localStorage if in vibe mode
   useEffect(() => {
