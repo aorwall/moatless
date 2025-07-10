@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, FileIcon, Loader2 } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { type ChangeData, Diff, type FileData, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 import 'prism-color-variables/variables.css'
@@ -119,17 +119,22 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     if (!gitDiff?.diff) return []
     try {
       const files = parseDiff(gitDiff.diff) as ParsedFile[]
-      // Auto-expand all files by default
-      const allFileKeys = new Set(
-        files.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
-      )
-      setExpandedFiles(allFileKeys)
       return files
     } catch (error) {
       console.error('Failed to parse git diff:', error)
       return []
     }
   }, [gitDiff?.diff])
+
+  // Auto-expand all files when parsedFiles changes
+  React.useEffect(() => {
+    if (parsedFiles.length > 0) {
+      const allFileKeys = new Set(
+        parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
+      )
+      setExpandedFiles(allFileKeys)
+    }
+  }, [parsedFiles])
 
   const toggleFileExpansion = (fileKey: string) => {
     setExpandedFiles((prev) => {
