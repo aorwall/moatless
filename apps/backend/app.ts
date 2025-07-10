@@ -6,7 +6,8 @@ import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
 import { errorHandler } from './middleware/error-handler.js'
 import { requestId } from './middleware/request-id.js'
-import { logger } from './middleware/logger.js'
+import { logger as loggerMiddleware } from './middleware/logger.js'
+import { logger } from './utils/logger.js'
 import { registerRoutes } from './routes/index.js'
 import { setupServices, type Services } from './services/index.js'
 
@@ -27,7 +28,7 @@ export async function createApp(): Promise<Hono<AppBindings>> {
   app.use('*', requestId)
 
   // Logger middleware
-  app.use('*', logger)
+  app.use('*', loggerMiddleware)
 
   // Security headers
   app.use('*', secureHeaders())
@@ -90,25 +91,22 @@ export async function createApp(): Promise<Hono<AppBindings>> {
     }))
     
     // SPA fallback for non-API routes
-    app.get('*', (c) => {
+    app.get('*', async (c) => {
       // Skip API routes
       if (c.req.path.startsWith('/api') || c.req.path.startsWith('/health')) {
         return c.notFound()
       }
       
-      return c.html(`<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Moatless Swarm UI</title>
-    <script type="module" crossorigin src="/assets/index.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index.css">
-</head>
-<body>
-    <div id="root"></div>
-</body>
-</html>`)
+      // Serve the actual built index.html
+      const fs = await import('node:fs/promises')
+      const indexPath = path.join(staticPath, 'index.html')
+      try {
+        const indexHtml = await fs.readFile(indexPath, 'utf-8')
+        return c.html(indexHtml)
+      } catch (error) {
+        logger.error('Failed to read index.html', error)
+        return c.notFound()
+      }
     })
   } else {
     // In development mode, return 404 for unknown routes
