@@ -7,7 +7,7 @@ import type {
 } from '@moatless/shared/types/command'
 import type { StorageBackend } from './storage.js'
 
-const COMMANDS_FILE = 'commands.json'
+const COMMANDS_FILE = 'commands'
 
 const DEFAULT_COMMANDS: CommandsFile = {
   commands: {
