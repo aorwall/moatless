@@ -941,17 +941,18 @@ function isCommandAvailable(command: Command, context: CommandAvailabilityContex
   // - lastIteration: Most recent iteration
   // - workspaceHasChanges: Git status
   
-  // Filtering logic checks each condition
-  // Returns true only if ALL conditions pass
+  // Filtering logic:
+  // - Git conditions use OR logic (any git condition satisfied passes)
+  // - Non-git conditions use AND logic (all must be satisfied)
 }
 ```
 
 The filtering process:
 1. Checks if command is active (inactive commands are immediately filtered out)
-2. Checks task running status
-3. Validates git status requirements
-4. Verifies iteration status conditions
-5. Matches allowed status lists
+2. Checks task running status (AND logic with other conditions)
+3. Validates git status requirements (OR logic - any git condition satisfied passes)
+4. Verifies iteration status conditions (AND logic with other conditions)
+5. Matches allowed status lists (AND logic with other conditions)
 
 #### API Integration
 

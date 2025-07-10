@@ -396,5 +396,242 @@ describe('Command Conditions', () => {
       expect(available).toHaveLength(1)
       expect(available[0].name).toBe('active-command')
     })
+
+    it('should return command when only one git status condition is set and satisfied', () => {
+      // Test that a command with just requiresUncommittedChanges works
+      const commitCommand: Command = {
+        name: 'commit',
+        description: 'Commit changes',
+        prompt: 'commit',
+        conditions: {
+          requiresUncommittedChanges: true,
+          // Note: NOT setting other git conditions like requiresAheadOfMain, etc.
+        },
+      }
+
+      // Context with uncommitted changes but various git sync statuses
+      const contextWithChanges = {
+        workspaceHasChanges: true,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: true,
+            commitsAhead: 0,
+            commitsBehind: 0,
+            currentBranch: 'main',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      const contextBehindWithChanges = {
+        workspaceHasChanges: true,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'behind' as const,
+            hasUncommittedChanges: true,
+            commitsAhead: 0,
+            commitsBehind: 3,
+            currentBranch: 'feature',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      const contextWithoutChanges = {
+        workspaceHasChanges: false,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: false,
+            commitsAhead: 0,
+            commitsBehind: 0,
+            currentBranch: 'main',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      // Command should be available when there are uncommitted changes
+      expect(isCommandAvailable(commitCommand, contextWithChanges)).toBe(true)
+      expect(isCommandAvailable(commitCommand, contextBehindWithChanges)).toBe(true)
+      
+      // Command should NOT be available when there are no uncommitted changes
+      expect(isCommandAvailable(commitCommand, contextWithoutChanges)).toBe(false)
+
+      // Test with requiresAheadOfMain only
+      const prCommand: Command = {
+        name: 'create-pr',
+        description: 'Create PR',
+        prompt: 'create pr',
+        conditions: {
+          requiresAheadOfMain: true,
+          // Not setting other conditions
+        },
+      }
+
+      const contextAhead = {
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'ahead' as const,
+            hasUncommittedChanges: false,
+            commitsAhead: 2,
+            commitsBehind: 0,
+            currentBranch: 'feature',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      const contextNotAhead = {
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: false,
+            commitsAhead: 0,
+            commitsBehind: 0,
+            currentBranch: 'main',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      // Command should be available when branch is ahead
+      expect(isCommandAvailable(prCommand, contextAhead)).toBe(true)
+      
+      // Command should NOT be available when branch is not ahead
+      expect(isCommandAvailable(prCommand, contextNotAhead)).toBe(false)
+    })
+
+    it('should use OR logic for multiple git status conditions', () => {
+      // Command with multiple git conditions - ANY one should make it available
+      const flexibleCommand: Command = {
+        name: 'flexible',
+        description: 'Flexible command',
+        prompt: 'flexible command',
+        conditions: {
+          requiresUncommittedChanges: true,
+          requiresAheadOfMain: true,
+          requiresBehindMain: true,
+        },
+      }
+
+      // Context 1: Has uncommitted changes but not ahead/behind
+      const contextUncommitted = {
+        workspaceHasChanges: true,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: true,
+            commitsAhead: 0,
+            commitsBehind: 0,
+            currentBranch: 'main',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      // Context 2: Is ahead but no uncommitted changes
+      const contextAhead = {
+        workspaceHasChanges: false,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'ahead' as const,
+            hasUncommittedChanges: false,
+            commitsAhead: 2,
+            commitsBehind: 0,
+            currentBranch: 'feature',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      // Context 3: Is behind but no uncommitted changes
+      const contextBehind = {
+        workspaceHasChanges: false,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'behind' as const,
+            hasUncommittedChanges: false,
+            commitsAhead: 0,
+            commitsBehind: 3,
+            currentBranch: 'feature',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      // Context 4: None of the conditions are met
+      const contextNone = {
+        workspaceHasChanges: false,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: false,
+            commitsAhead: 0,
+            commitsBehind: 0,
+            currentBranch: 'main',
+            baseBranch: 'main',
+          },
+        } as TaskIteration,
+      }
+
+      // Command should be available when ANY git condition is satisfied
+      expect(isCommandAvailable(flexibleCommand, contextUncommitted)).toBe(true) // uncommitted changes
+      expect(isCommandAvailable(flexibleCommand, contextAhead)).toBe(true) // ahead of main
+      expect(isCommandAvailable(flexibleCommand, contextBehind)).toBe(true) // behind main
+      
+      // Command should NOT be available when NO git conditions are satisfied
+      expect(isCommandAvailable(flexibleCommand, contextNone)).toBe(false)
+    })
+
+    it('should still require non-git conditions to be satisfied along with git OR conditions', () => {
+      // Command with git conditions (OR) AND task condition (AND)
+      const command: Command = {
+        name: 'mixed',
+        description: 'Mixed conditions',
+        prompt: 'mixed',
+        conditions: {
+          requiresUncommittedChanges: true,
+          requiresAheadOfMain: true,
+          requiresTaskNotRunning: true, // This is a task condition, not git
+        },
+      }
+
+      const runningTask = { status: 'running' } as Task
+      const openTask = { status: 'open' } as Task
+
+      const contextWithChanges = {
+        workspaceHasChanges: true,
+        task: openTask,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: true,
+            commitsAhead: 0,
+            commitsBehind: 0,
+          },
+        } as TaskIteration,
+      }
+
+      const contextWithChangesButRunning = {
+        workspaceHasChanges: true,
+        task: runningTask,
+        lastIteration: {
+          gitSyncStatus: {
+            status: 'synced' as const,
+            hasUncommittedChanges: true,
+            commitsAhead: 0,
+            commitsBehind: 0,
+          },
+        } as TaskIteration,
+      }
+
+      // Should be available when git condition is satisfied AND task condition is satisfied
+      expect(isCommandAvailable(command, contextWithChanges)).toBe(true)
+      
+      // Should NOT be available when git condition is satisfied but task condition fails
+      expect(isCommandAvailable(command, contextWithChangesButRunning)).toBe(false)
+    })
   })
 })

@@ -25,11 +25,6 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
     return false
   }
 
-  // Check uncommitted changes
-  if (conditions.requiresUncommittedChanges && !workspaceHasChanges) {
-    return false
-  }
-
   // Check last iteration error
   if (conditions.requiresLastIterationError) {
     if (!lastIteration || (lastIteration.status !== 'error' && lastIteration.status !== 'failed')) {
@@ -44,31 +39,56 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
     }
   }
 
-  // Check git sync status
-  const gitSyncStatus = lastIteration?.gitSyncStatus
-  if (gitSyncStatus) {
-    // Check specific conditions
-    if (conditions.requiresCommittedChanges && !gitSyncStatus.hasUncommittedChanges && gitSyncStatus.commitsAhead === 0) {
-      return false
+  // Check git status conditions (OR logic - any one satisfied means condition passes)
+  const hasGitConditions = conditions.requiresUncommittedChanges ||
+    conditions.requiresCommittedChanges ||
+    conditions.requiresBehindMain ||
+    conditions.requiresAheadOfMain ||
+    conditions.requiresDiverged ||
+    (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0)
+
+  if (hasGitConditions) {
+    let gitConditionSatisfied = false
+
+    // Check uncommitted changes
+    if (conditions.requiresUncommittedChanges && workspaceHasChanges) {
+      gitConditionSatisfied = true
     }
 
-    if (conditions.requiresAheadOfMain && gitSyncStatus.commitsAhead === 0) {
-      return false
-    }
-
-    if (conditions.requiresBehindMain && gitSyncStatus.commitsBehind === 0) {
-      return false
-    }
-
-    if (conditions.requiresDiverged && gitSyncStatus.status !== 'diverged') {
-      return false
-    }
-
-    // Check allowed git sync statuses
-    if (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0) {
-      if (!conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status)) {
-        return false
+    // Check git sync status based conditions
+    const gitSyncStatus = lastIteration?.gitSyncStatus
+    if (gitSyncStatus && !gitConditionSatisfied) {
+      // Check committed changes (has commits ahead or no uncommitted changes)
+      if (conditions.requiresCommittedChanges && (!gitSyncStatus.hasUncommittedChanges || gitSyncStatus.commitsAhead > 0)) {
+        gitConditionSatisfied = true
       }
+
+      // Check ahead of main
+      if (conditions.requiresAheadOfMain && gitSyncStatus.commitsAhead > 0) {
+        gitConditionSatisfied = true
+      }
+
+      // Check behind main
+      if (conditions.requiresBehindMain && gitSyncStatus.commitsBehind > 0) {
+        gitConditionSatisfied = true
+      }
+
+      // Check diverged
+      if (conditions.requiresDiverged && gitSyncStatus.status === 'diverged') {
+        gitConditionSatisfied = true
+      }
+
+      // Check allowed git sync statuses
+      if (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0) {
+        if (conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status)) {
+          gitConditionSatisfied = true
+        }
+      }
+    }
+
+    // If git conditions were specified but none were satisfied, command is not available
+    if (!gitConditionSatisfied) {
+      return false
     }
   }
 
