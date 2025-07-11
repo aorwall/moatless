@@ -1244,7 +1244,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         const diffResult = await services.workspace.getGitDiffDetailed(taskId)
 
         // If we got a detailed response, use it
-        if (typeof diffResult === 'object' && 'files' in diffResult) {
+        if (typeof diffResult === 'object' && diffResult && 'files' in diffResult) {
           const detailed = diffResult as any
           return c.json({
             diff: detailed.diffString,
