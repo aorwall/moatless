@@ -344,6 +344,29 @@ export class WorkspaceService {
     return workspace.getGitDiff()
   }
 
+  async getGitDiffDetailed(taskId: string): Promise<unknown> {
+    if (!(await this.canAccessGit(taskId))) {
+      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
+    }
+    const workspace = await this.getOrCreateWorkspace(taskId)
+
+    // Check if workspace has getGitDiffDetailed method (LocalWorkspace)
+    if ('getGitDiffDetailed' in workspace && typeof workspace.getGitDiffDetailed === 'function') {
+      return workspace.getGitDiffDetailed()
+    }
+
+    // Fallback to simple diff string for other workspace types
+    const diffString = await workspace.getGitDiff()
+    return {
+      files: [],
+      totalChanges: 0,
+      totalAdditions: 0,
+      totalDeletions: 0,
+      diffString: diffString as string,
+      compareBase: 'HEAD',
+    }
+  }
+
   async cleanupWorkspace(taskId: string): Promise<void> {
     const workspaceLogger = logger.child({ taskId })
 

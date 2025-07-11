@@ -1241,11 +1241,26 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const diff = await services.workspace.getGitDiff(taskId)
+        const diffResult = await services.workspace.getGitDiffDetailed(taskId)
+
+        // If we got a detailed response, use it
+        if (typeof diffResult === 'object' && 'files' in diffResult) {
+          const detailed = diffResult as any
+          return c.json({
+            diff: detailed.diffString,
+            files: detailed.files.map((f: any) => f.filename),
+            hasChanges: detailed.files.length > 0,
+            // Include the detailed response as additional data
+            detailed: detailed,
+          })
+        }
+
+        // Fallback to simple diff string
+        const diff = diffResult as string
         return c.json({
           diff,
-          files: [], // TODO: Parse diff to extract file list
-          hasChanges: (diff as string).length > 0,
+          files: [],
+          hasChanges: diff.length > 0,
         })
       } catch (error) {
         if (error instanceof TaskNotFoundError) {

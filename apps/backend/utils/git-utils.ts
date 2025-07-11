@@ -8,10 +8,14 @@ import { logger } from './logger.js'
 const execAsync = promisify(exec)
 
 export interface GitDiffFile {
-  status: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed'
   filename: string
-  additions?: number
-  deletions?: number
+  oldFilename?: string // For renamed files
+  additions: number
+  deletions: number
+  oldContent?: string
+  newContent?: string
+  isStaged: boolean
 }
 
 export interface GitDiffResponse {
@@ -19,6 +23,8 @@ export interface GitDiffResponse {
   totalChanges: number
   totalAdditions: number
   totalDeletions: number
+  diffString: string
+  compareBase: string
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
@@ -974,5 +980,182 @@ export async function getOriginCommitCounts(
     })
     // Fall back to local branch comparison
     return getCommitCounts(repoPath, baseBranch)
+  }
+}
+
+/**
+ * Get detailed git diff with file contents and staging information
+ */
+export async function getGitDiffDetailed(
+  repoPath: string,
+  baseBranch?: string,
+): Promise<GitDiffResponse> {
+  try {
+    // Get the basic diff string and compare base
+    const [diffString, compareBase] = await getGitDiffString(repoPath, baseBranch)
+
+    // Get staging status for files
+    const { staged, untracked } = await getGitStatus(repoPath)
+    const stagedSet = new Set(staged)
+
+    // Parse the diff to extract file information
+    const files: GitDiffFile[] = []
+    let totalAdditions = 0
+    let totalDeletions = 0
+
+    // Split diff into file chunks
+    const diffChunks = diffString.split(/\ndiff --git /).filter((chunk) => chunk.trim())
+
+    for (const chunk of diffChunks) {
+      const lines = chunk.split('\n')
+      if (lines.length === 0) continue
+
+      // Parse file names from the diff header
+      const fileMatch = lines[0].match(/a\/(.+) b\/(.+)/)
+      if (!fileMatch) continue
+
+      const oldFileName = fileMatch[1]
+      const newFileName = fileMatch[2]
+      const filename = newFileName
+
+      // Determine file status
+      let status: GitDiffFile['status'] = 'modified'
+      let isNewFile = false
+      let isDeletedFile = false
+      let isRenamedFile = false
+
+      // Check for file status indicators in the diff
+      for (const line of lines.slice(1, 5)) {
+        if (line.includes('new file mode')) {
+          status = 'added'
+          isNewFile = true
+          break
+        } else if (line.includes('deleted file mode')) {
+          status = 'deleted'
+          isDeletedFile = true
+          break
+        } else if (line.includes('rename from') || line.includes('rename to')) {
+          status = 'renamed'
+          isRenamedFile = true
+          break
+        }
+      }
+
+      // Count additions and deletions
+      let additions = 0
+      let deletions = 0
+      const addedLines: string[] = []
+      const removedLines: string[] = []
+
+      for (const line of lines) {
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          additions++
+          addedLines.push(line.substring(1))
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          deletions++
+          removedLines.push(line.substring(1))
+        }
+      }
+
+      totalAdditions += additions
+      totalDeletions += deletions
+
+      // Get file contents for new and deleted files
+      let oldContent: string | undefined
+      let newContent: string | undefined
+
+      if (isNewFile || isDeletedFile) {
+        try {
+          if (isNewFile) {
+            // For new files, try to read current content
+            const filePath = path.join(repoPath, filename)
+            try {
+              newContent = await fs.readFile(filePath, 'utf-8')
+            } catch {
+              // If can't read, use the added lines from diff
+              newContent = addedLines.join('\n')
+            }
+          } else if (isDeletedFile) {
+            // For deleted files, get content from git
+            try {
+              const { stdout } = await execAsync(`git show ${compareBase}:"${filename}"`, {
+                cwd: repoPath,
+                timeout: 5000,
+                maxBuffer: 1024 * 1024, // 1MB
+              })
+              oldContent = stdout
+            } catch {
+              // If can't get from git, use the removed lines from diff
+              oldContent = removedLines.join('\n')
+            }
+          }
+        } catch (error) {
+          logger.debug('Error getting file content for diff', {
+            filename,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+
+      // Check if file is staged
+      const isStaged = stagedSet.has(filename)
+
+      const diffFile: GitDiffFile = {
+        status,
+        filename,
+        oldFilename: isRenamedFile && oldFileName !== newFileName ? oldFileName : undefined,
+        additions,
+        deletions,
+        oldContent,
+        newContent,
+        isStaged,
+      }
+
+      files.push(diffFile)
+    }
+
+    // Handle untracked files that weren't in the diff
+    for (const untrackedFile of untracked) {
+      // Check if we already have this file in our list
+      if (!files.some((f) => f.filename === untrackedFile)) {
+        try {
+          const filePath = path.join(repoPath, untrackedFile)
+          const content = await fs.readFile(filePath, 'utf-8')
+          // Count lines the same way git does - split by newline and count non-empty result
+          // If file ends with newline, split gives an extra empty string at the end
+          const splitLines = content.split('\n')
+          const lines = content.endsWith('\n') ? splitLines.length - 1 : splitLines.length
+
+          files.push({
+            status: 'added',
+            filename: untrackedFile,
+            additions: lines,
+            deletions: 0,
+            newContent: content,
+            isStaged: false,
+          })
+
+          totalAdditions += lines
+        } catch (error) {
+          logger.debug('Error reading untracked file', {
+            filename: untrackedFile,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+
+    return {
+      files,
+      totalChanges: files.length,
+      totalAdditions,
+      totalDeletions,
+      diffString,
+      compareBase,
+    }
+  } catch (error) {
+    throw new Error(
+      `Failed to get detailed git diff: ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
 }

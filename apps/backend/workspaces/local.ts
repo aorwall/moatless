@@ -406,6 +406,19 @@ export class LocalWorkspace extends BaseWorkspace {
     return diffString
   }
 
+  async getGitDiffDetailed(): Promise<import('../utils/git-utils.js').GitDiffResponse> {
+    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+      throw new WorkspaceError(
+        `Workspace path does not exist: ${this.workspacePath}`,
+        this.taskId,
+        400,
+      )
+    }
+
+    const { getGitDiffDetailed } = await import('../utils/git-utils.js')
+    return getGitDiffDetailed(this.workspacePath, this.originalBranch)
+  }
+
   async runCommand(command: string, timeout?: number): Promise<CommandResult> {
     const startTime = Date.now()
 
