@@ -250,7 +250,6 @@ exit 1
         type: 'local',
         setupCommands: 'echo "Environment ready"',
         serverCommand,
-        serverPortPlaceholder: '{PORT}',
       },
     }
 

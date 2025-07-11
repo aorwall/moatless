@@ -131,7 +131,6 @@ process.on('SIGTERM', () => {
         type: 'local',
         setupCommands: 'echo "Repository ready for server"',
         serverCommand: 'node server.js {PORT}',
-        serverPortPlaceholder: '{PORT}',
       },
     }
 
@@ -350,7 +349,6 @@ process.exit(1);
       codeExecution: {
         type: 'local',
         serverCommand: 'node bad-server.js {PORT}',
-        serverPortPlaceholder: '{PORT}',
       },
     }
 
@@ -442,7 +440,6 @@ process.on('SIGTERM', () => {
       codeExecution: {
         type: 'local',
         serverCommand: 'node tracking-server.js {PORT}',
-        serverPortPlaceholder: '{PORT}',
       },
     }
 
@@ -575,7 +572,6 @@ process.on('SIGTERM', () => {
       codeExecution: {
         type: 'local',
         serverCommand: 'node persistent-server.js {PORT}',
-        serverPortPlaceholder: '{PORT}',
       },
     }
 
@@ -729,7 +725,6 @@ process.on('SIGTERM', () => {
             codeExecution: {
               type: 'local',
               serverCommand: 'node singleton-server.js {PORT}',
-              serverPortPlaceholder: '{PORT}',
             },
           },
         })
@@ -826,7 +821,6 @@ server.listen(port, () => {
             codeExecution: {
               type: 'local',
               serverCommand: 'node orphan-server.js {PORT}',
-              serverPortPlaceholder: '{PORT}',
             },
           },
         })

@@ -436,7 +436,6 @@ process.on('SIGTERM', () => {
         type: 'local',
         setupCommands: 'echo "Environment ready"',
         serverCommand,
-        serverPortPlaceholder: '{PORT}',
       },
     }
 

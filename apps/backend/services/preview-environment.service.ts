@@ -74,7 +74,6 @@ export class PreviewEnvironmentService {
               const handler = new ServerHandler(
                 metadata.workspacePath,
                 metadata.command,
-                metadata.portPlaceholder,
                 metadata.envVars || {},
               )
 
@@ -139,7 +138,6 @@ export class PreviewEnvironmentService {
     const handler = new ServerHandler(
       workspacePath,
       serverCommand,
-      environment.codeExecution.serverPortPlaceholder,
       environment.codeExecution.envVars || {},
     )
 
@@ -180,7 +178,6 @@ export class PreviewEnvironmentService {
         command: serverCommand,
         workspacePath,
         logFile: result.log_file,
-        portPlaceholder: environment.codeExecution.serverPortPlaceholder,
         processStartTime: Date.now(),
         proxyUrl,
         proxyPort: proxyUrl ? parseInt(proxyUrl.split(':').pop() || '0') : undefined,
@@ -231,7 +228,6 @@ export class PreviewEnvironmentService {
         command: serverCommand,
         workspacePath,
         logFile: '',
-        portPlaceholder: environment.codeExecution.serverPortPlaceholder,
         processStartTime: Date.now(),
         envVars: environment.codeExecution.envVars,
         failed: true,
@@ -412,7 +408,6 @@ export class PreviewEnvironmentService {
         const handler = new ServerHandler(
           metadata.workspacePath,
           metadata.command,
-          metadata.portPlaceholder,
           metadata.envVars || {},
         )
 

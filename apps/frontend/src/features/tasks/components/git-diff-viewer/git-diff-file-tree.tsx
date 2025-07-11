@@ -16,10 +16,12 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
   const { expandedPaths } = gitDiffState
 
   // Extract file paths from the parsed diff files
-  const filePaths = files.map((file) => {
-    const path = file.newPath || file.oldPath || ''
-    return path
-  }).filter(Boolean)
+  const filePaths = files
+    .map((file) => {
+      const path = file.newPath || file.oldPath || ''
+      return path
+    })
+    .filter(Boolean)
 
   // Build tree structure
   const tree = buildTreeStructure(filePaths)
@@ -64,9 +66,7 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
           }}
         />
         {isExpanded && node.children && (
-          <div>
-            {node.children.map((child) => renderNode(child, level + 1))}
-          </div>
+          <div>{node.children.map((child) => renderNode(child, level + 1))}</div>
         )}
       </div>
     )
@@ -93,9 +93,7 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
 
   return (
     <ScrollArea className="h-full">
-      <div className="p-2">
-        {tree.map((node) => renderNode(node))}
-      </div>
+      <div className="p-2">{tree.map((node) => renderNode(node))}</div>
     </ScrollArea>
   )
 }

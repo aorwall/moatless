@@ -25,17 +25,17 @@ export class ServerHandler {
   private startTime?: number
   private originalRequestedPort?: number
   private logger = createTaskLogger('server-handler')
+  private readonly portPlaceholder = '{PORT}'
 
   constructor(
     private workspacePath: string,
     private serverCommand: string,
-    private portPlaceholder = '{PORT}',
     private envVars: Record<string, string> = {},
   ) {
     this.logger.info('ServerHandler initialized with:', {
       workspacePath,
       serverCommand,
-      portPlaceholder,
+      portPlaceholder: this.portPlaceholder,
       envVars: Object.keys(envVars),
     })
   }

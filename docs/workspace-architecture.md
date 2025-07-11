@@ -53,8 +53,7 @@ interface RepositoryConfig {
   codeExecution: {
     type: 'local' | 'docker'       // Execution environment type
     setupCommands?: string         // Commands run during workspace setup
-    serverCommand?: string         // Command to start dev server
-    serverPortPlaceholder?: string // Placeholder for dynamic port assignment
+    serverCommand?: string         // Command to start dev server (use {PORT} for dynamic port)
     
     // Docker-specific settings
     image?: string                 // Docker image to use

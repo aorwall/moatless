@@ -21,7 +21,6 @@ export const CodeExecutionSchema = z.object({
   type: z.enum(['local', 'docker']),
   setupCommands: z.string().optional(),
   serverCommand: z.string().optional(),
-  serverPortPlaceholder: z.string().optional(),
   serverLogFile: z.string().optional(),
   image: z.string().optional(),
   envVars: z.record(z.string()).optional(),

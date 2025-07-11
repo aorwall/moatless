@@ -421,7 +421,6 @@ interface PreviewEnvironmentMetadata {
   command: string
   workspacePath: string
   logFile: string
-  portPlaceholder?: string
   processStartTime?: number
 }
 ```
