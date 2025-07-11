@@ -5,6 +5,7 @@ export interface TaskIteration {
   status: 'active' | 'completed' | 'error' | 'failed'
   messageCount: number
   costUsd: number
+  contextTokens?: number
   initialMessage?: string
   commandName?: string
   result?: string

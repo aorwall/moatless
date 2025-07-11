@@ -242,6 +242,12 @@ export class AgentService {
           }
         }
 
+        // Update contextTokens if provided in the event
+        if (event.contextTokens !== undefined) {
+          iteration.contextTokens = event.contextTokens
+          agentLogger.debug('Updated context tokens', { contextTokens: event.contextTokens })
+        }
+
         if (event.type === EventType.RESULT) {
           const resultPayload = event.payload as SDKResultMessage
 
