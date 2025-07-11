@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["apps/**/*", "packages/**/*", "bin/**/*"]
+    "includes": ["apps/**/*", "packages/**/*", "bin/**/*", ".lintstagedrc.json"]
   },
   "formatter": {
     "enabled": true,
