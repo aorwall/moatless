@@ -336,7 +336,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
             type: 'number',
             minimum: 1,
             maximum: 100,
-            default: 20,
+            default: 100,
           },
         },
         {
@@ -383,7 +383,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     const validatedQuery = TaskListQuerySchema.parse(queryParams)
     const { limit, offset, status } = validatedQuery
     
-    const tasks = await taskService.listTasks(limit, offset, status)
+    const { tasks, total } = await taskService.listTasks(limit, offset, status)
 
     const response: TaskListResponse = {
       tasks: tasks,
@@ -391,7 +391,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       pagination: {
         limit,
         offset,
-        total: tasks.length, // Note: This is simplified, real implementation would need total count
+        total,
       },
     }
     return c.json(response)

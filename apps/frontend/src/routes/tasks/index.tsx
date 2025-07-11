@@ -1,23 +1,37 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
+import { z } from 'zod'
 import { useGlobalEventStream } from '@/features/events'
 import { TaskList } from '@/features/tasks/components/task-list'
 import { TaskListSkeleton } from '@/features/tasks/components/task-skeletons'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { Pagination, PaginationInfo } from '@/lib/components/ui/pagination'
+
+const tasksSearchSchema = z.object({
+  page: z.number().min(1).optional().default(1),
+  limit: z.number().min(1).max(100).optional().default(20),
+  status: z.enum(['open', 'running', 'error', 'merged', 'closed']).optional(),
+})
 
 export const Route = createFileRoute('/tasks/')({
   component: TasksIndex,
+  validateSearch: (search) => tasksSearchSchema.parse(search),
 })
 
 function TasksIndex() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate({ from: '/tasks' })
   const { subscribeToAll } = useGlobalEventStream()
+  const searchParams = Route.useSearch()
+  
+  const { page = 1, limit = 20, status } = searchParams
+  const offset = (page - 1) * limit
 
-  // Fetch all tasks
-  const { data: tasks, isLoading, error } = useTasksList()
+  // Fetch tasks with pagination
+  const { data, isLoading, error } = useTasksList({ limit, offset, status })
 
   // Subscribe to global events to invalidate the task list when relevant events occur
   useEffect(() => {
@@ -36,6 +50,18 @@ function TasksIndex() {
     })
   }, [subscribeToAll, queryClient])
 
+  const handlePageChange = (newPage: number) => {
+    navigate({
+      search: (prev) => ({ ...prev, page: newPage }),
+    })
+  }
+
+  const totalPages = data?.pagination?.total 
+    ? Math.ceil(data.pagination.total / limit)
+    : 0
+
+  const totalItems = data?.pagination?.total || 0
+
   return (
     <div className="container mx-auto px-6 py-8">
       <div className="mx-auto max-w-4xl">
@@ -50,7 +76,23 @@ function TasksIndex() {
         ) : isLoading ? (
           <TaskListSkeleton />
         ) : (
-          <TaskList tasks={tasks || []} loading={false} />
+          <>
+            <TaskList tasks={data?.tasks || []} loading={false} />
+            {totalPages > 1 && (
+              <div className="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+                <PaginationInfo
+                  currentPage={page}
+                  pageSize={limit}
+                  totalItems={totalItems}
+                />
+                <Pagination
+                  currentPage={page}
+                  totalPages={totalPages}
+                  onPageChange={handlePageChange}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

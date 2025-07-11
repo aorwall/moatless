@@ -131,18 +131,22 @@ export function SidebarTasks() {
   const { subscribeToAll } = useGlobalEventStream()
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
 
-  // Fetch all non-closed tasks
+  // Fetch all non-closed tasks with a higher limit to ensure we get all active tasks
   const {
-    data: tasks,
+    data,
     isLoading: isLoadingTasks,
     error: tasksError,
   } = useTasksList(
-    {},
+    {
+      limit: 100, // Increase limit to ensure we get all active tasks
+    },
     {
       // Remove polling since we're using global event stream
       refetchInterval: false,
     },
   )
+  
+  const tasks = data?.tasks
 
   // Subscribe to global events to invalidate the task list when relevant events occur
   useEffect(() => {
@@ -170,6 +174,10 @@ export function SidebarTasks() {
   const { data: repositories } = useRepositoriesList()
 
   // Filter out closed tasks and sort by last_message_at, with open/running tasks first
+  // NOTE: This approach has a limitation - we're fetching up to 100 tasks from the backend
+  // and then filtering/sorting on the client. If there are many closed/merged tasks,
+  // some open tasks might not appear. A better solution would be to support status
+  // filtering on the backend to exclude closed tasks.
   const sortedTasks =
     tasks
       ?.filter((task) => task.status !== 'closed') // Filter out closed tasks

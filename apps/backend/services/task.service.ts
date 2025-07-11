@@ -251,7 +251,7 @@ export class TaskService {
     return task
   }
 
-  async listTasks(limit = 50, offset = 0, status?: string): Promise<Task[]> {
+  async listTasks(limit = 50, offset = 0, status?: string): Promise<{ tasks: Task[]; total: number }> {
     const taskKeys = await this.storage.list('tasks/')
     const tasks: Task[] = []
 
@@ -269,8 +269,13 @@ export class TaskService {
     // Sort by last message time (most recent first)
     tasks.sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
 
+    // Store total count before pagination
+    const total = tasks.length
+
     // Apply pagination
-    return tasks.slice(offset, offset + limit)
+    const paginatedTasks = tasks.slice(offset, offset + limit)
+
+    return { tasks: paginatedTasks, total }
   }
 
   async sendCommand(

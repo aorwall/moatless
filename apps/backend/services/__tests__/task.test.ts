@@ -303,8 +303,9 @@ describe('TaskService', () => {
 
       const result = await taskService.listTasks(5, 0)
 
-      expect(result).toHaveLength(5)
-      expect(result[0].taskId).toBe('task-0') // Most recent first
+      expect(result.tasks).toHaveLength(5)
+      expect(result.total).toBe(10)
+      expect(result.tasks[0].taskId).toBe('task-0') // Most recent first
     })
   })
 

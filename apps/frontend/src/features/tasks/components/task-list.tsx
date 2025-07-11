@@ -72,9 +72,10 @@ function TaskRow({
         <Link
           to="/tasks/$taskId"
           params={{ taskId: task.taskId }}
-          className="block hover:text-primary truncate"
+          className="block hover:text-primary"
+          title={taskTitle}
         >
-          {taskTitle}
+          <span className="line-clamp-1">{taskTitle}</span>
         </Link>
       </TableCell>
       <TableCell className="text-muted-foreground">{repositoryName}</TableCell>
@@ -100,13 +101,12 @@ function TaskRow({
           </TooltipContent>
         </Tooltip>
       </TableCell>
-      <TableCell>
+      <TableCell className="w-10">
         {task.status === 'open' && gitSyncConfig ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md ${gitSyncConfig.bgColor} ${gitSyncConfig.color}`}>
+              <div className={`inline-flex items-center justify-center ${gitSyncConfig.color}`}>
                 {gitSyncConfig.icon}
-                <span className="text-xs font-medium">{gitSyncConfig.tooltip}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
@@ -182,11 +182,19 @@ export function TaskList({ tasks, loading }: TaskListProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[35%]">Task</TableHead>
+              <TableHead className="w-[45%]">Task</TableHead>
               <TableHead>Environment</TableHead>
               <TableHead>Last Activity</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Git Sync</TableHead>
+              <TableHead className="w-10">
+                <Tooltip>
+                  <TooltipTrigger>
+                    <span className="sr-only">Git Sync Status</span>
+                    <span aria-hidden="true">Git</span>
+                  </TooltipTrigger>
+                  <TooltipContent>Git Sync Status</TooltipContent>
+                </Tooltip>
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>

@@ -71,7 +71,11 @@ describe('Task Hooks', () => {
         createMockTask({ taskId: 'task-1' }),
         createMockTask({ taskId: 'task-2' }),
       ]
-      vi.mocked(tasksApi.listTasks).mockResolvedValue(mockTasks)
+      vi.mocked(tasksApi.listTasks).mockResolvedValue({
+        tasks: mockTasks,
+        items: mockTasks,
+        pagination: { limit: 20, offset: 0, total: 2 }
+      })
 
       const { result } = renderHook(() => useTasksList(), {
         wrapper: createWrapper(),
@@ -81,13 +85,21 @@ describe('Task Hooks', () => {
         expect(result.current.isSuccess).toBe(true)
       })
 
-      expect(result.current.data).toEqual(mockTasks)
+      expect(result.current.data).toEqual({
+        tasks: mockTasks,
+        items: mockTasks,
+        pagination: { limit: 20, offset: 0, total: 2 }
+      })
       expect(tasksApi.listTasks).toHaveBeenCalledWith(undefined)
     })
 
     it('fetches tasks with filters', async () => {
       const filters = { activeOnly: true, limit: 10, offset: 0 }
-      vi.mocked(tasksApi.listTasks).mockResolvedValue([])
+      vi.mocked(tasksApi.listTasks).mockResolvedValue({
+        tasks: [],
+        items: [],
+        pagination: { limit: 10, offset: 0, total: 0 }
+      })
 
       renderHook(() => useTasksList(filters), {
         wrapper: createWrapper(),

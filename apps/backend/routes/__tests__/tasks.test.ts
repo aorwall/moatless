@@ -258,7 +258,7 @@ describe('Task Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce(mockTasks)
+      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({ tasks: mockTasks, total: mockTasks.length })
 
       const response = await app.fetch(new Request('http://localhost/api/v1/tasks?limit=10&offset=0', {
         method: 'GET',
@@ -295,7 +295,7 @@ describe('Task Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce(mockTasks)
+      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({ tasks: mockTasks, total: mockTasks.length })
 
       const response = await app.fetch(new Request('http://localhost/api/v1/tasks?status=running', {
         method: 'GET',

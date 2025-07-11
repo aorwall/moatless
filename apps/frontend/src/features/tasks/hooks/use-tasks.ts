@@ -2,6 +2,7 @@ import type {
   CreateTaskRequest,
   MergeTaskResponse,
   SimpleTaskResponse,
+  TaskListResponse,
 } from '@moatless/shared/types/api'
 import type { Event } from '@moatless/shared/types/event'
 import type { FileSearchResponse } from '@moatless/shared/types/repository'
@@ -32,7 +33,7 @@ export function useTasksList(
     limit?: number
     offset?: number
   },
-  options?: Omit<UseQueryOptions<Array<Task>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<TaskListResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasksList(params),

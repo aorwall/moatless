@@ -31,7 +31,11 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     // Setup initial data
     const initialTask = createMockTaskWithIterations({ taskId: taskId }, 1)
     vi.mocked(tasksApi.getTask).mockResolvedValue(initialTask)
-    vi.mocked(tasksApi.listTasks).mockResolvedValue([initialTask])
+    vi.mocked(tasksApi.listTasks).mockResolvedValue({
+      tasks: [initialTask],
+      items: [initialTask],
+      pagination: { limit: 20, offset: 0, total: 1 }
+    })
 
     // Render hooks to establish initial cache
     const { result: taskResult } = renderHook(() => useTask(taskId), {
@@ -55,7 +59,11 @@ describe('Task Viewer Integration - Query Invalidation', () => {
       createMockAgentTriggerResponse({ taskId: taskId }),
     )
     vi.mocked(tasksApi.getTask).mockResolvedValue(updatedTask)
-    vi.mocked(tasksApi.listTasks).mockResolvedValue([updatedTask])
+    vi.mocked(tasksApi.listTasks).mockResolvedValue({
+      tasks: [updatedTask],
+      items: [updatedTask],
+      pagination: { limit: 20, offset: 0, total: 1 }
+    })
 
     // Get the query client to spy on invalidations
     const client = wrapper({ children: null }).props.client

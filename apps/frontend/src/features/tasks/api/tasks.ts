@@ -25,13 +25,13 @@ export const tasksApi = {
     status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
     limit?: number
     offset?: number
-  }): Promise<Array<Task>> {
+  }): Promise<TaskListResponse> {
     const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
       status: params?.status || (params?.activeOnly ? 'active' : undefined),
       limit: params?.limit,
       offset: params?.offset,
     })
-    return response.tasks
+    return response
   },
 
   async getTask(taskId: string): Promise<Task> {
