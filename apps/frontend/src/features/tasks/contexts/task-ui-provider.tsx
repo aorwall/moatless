@@ -1,5 +1,5 @@
 import type { TaskIteration } from '@moatless/shared/types/task'
-import { createContext, type ReactNode, useContext, useMemo, useState } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
 type PanelView = 'events' | 'diff' | 'files' | 'preview' | 'server'
 
@@ -81,31 +81,62 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   // Get current task's state or default
   const currentState = taskStates.get(taskId) || getDefaultTaskUIState()
   
-  // Update current task's state
-  const updateTaskState = (updates: Partial<TaskUIState>) => {
-    setTaskStates(prev => new Map(prev).set(taskId, { ...currentState, ...updates }))
-  }
-  
-  // All actions are automatically scoped to current task
-  const setRightPanelView = (view: PanelView) => 
-    updateTaskState({ rightPanelView: view })
+  // All actions are automatically scoped to current task using useCallback
+  const setRightPanelView = useCallback((view: PanelView) => {
+    setTaskStates(prev => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, rightPanelView: view })
+      return newMap
+    })
+  }, [taskId])
     
-  const setSelectedIteration = (iteration?: TaskIteration) =>
-    updateTaskState({ selectedIteration: iteration })
+  const setSelectedIteration = useCallback((iteration?: TaskIteration) => {
+    setTaskStates(prev => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, selectedIteration: iteration })
+      return newMap
+    })
+  }, [taskId])
     
-  const setPanelSizes = (sizes: { left: number; right: number }) =>
-    updateTaskState({ panelSizes: sizes })
+  const setPanelSizes = useCallback((sizes: { left: number; right: number }) => {
+    setTaskStates(prev => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, panelSizes: sizes })
+      return newMap
+    })
+  }, [taskId])
     
-  const setSelectedFile = (file: string) =>
-    updateTaskState({ selectedFile: file })
+  const setSelectedFile = useCallback((file: string) => {
+    setTaskStates(prev => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, selectedFile: file })
+      return newMap
+    })
+  }, [taskId])
     
-  const updateChatState = (updates: Partial<ChatState>) =>
-    updateTaskState({ chatState: { ...currentState.chatState, ...updates } })
+  const updateChatState = useCallback((updates: Partial<ChatState>) => {
+    setTaskStates(prev => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, chatState: { ...state.chatState, ...updates } })
+      return newMap
+    })
+  }, [taskId])
     
-  const updateGitDiffState = (updates: Partial<GitDiffState>) =>
-    updateTaskState({ gitDiffState: { ...currentState.gitDiffState, ...updates } })
+  const updateGitDiffState = useCallback((updates: Partial<GitDiffState>) => {
+    setTaskStates(prev => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, gitDiffState: { ...state.gitDiffState, ...updates } })
+      return newMap
+    })
+  }, [taskId])
 
-  // Context value is stable since it only contains current task state
+  // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
       currentState,
@@ -116,7 +147,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       updateChatState,
       updateGitDiffState,
     }),
-    [currentState],
+    [currentState, setRightPanelView, setSelectedIteration, setPanelSizes, setSelectedFile, updateChatState, updateGitDiffState],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>

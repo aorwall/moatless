@@ -1,6 +1,6 @@
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
 import { Progress } from '@/lib/components/ui/progress.tsx'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
@@ -36,21 +36,16 @@ export function MinifiedLastEventsDisplay({
   runningStartTime,
   latestContextTokens,
 }: MinifiedLastThreeEventsDisplayProps) {
-  const [displayedEvents, setDisplayedEvents] = useState<Array<Event | MergedEvent>>([])
   const [runningDuration, setRunningDuration] = useState<string>('')
 
-  // Filter and update displayed events
-  useEffect(() => {
-    // Filter to only include message and tool events
-    const filteredEvents = events.filter(isMessageOrToolEvent)
-
-    // Take the last 3 events
-    const lastThree = filteredEvents.slice(-3)
-
-    setDisplayedEvents(lastThree)
+  // Derive displayed events directly from props
+  const displayedEvents = useMemo(() => {
+    return events
+      .filter(isMessageOrToolEvent)
+      .slice(-3)
   }, [events])
 
-  // Update running duration every second (like chat input)
+  // Update running duration every second (this is a legitimate use of useEffect for timers)
   useEffect(() => {
     if (!isRunning || !runningStartTime) {
       setRunningDuration('')

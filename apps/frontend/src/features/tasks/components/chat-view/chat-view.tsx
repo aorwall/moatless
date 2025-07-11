@@ -10,7 +10,7 @@ import {
   DollarSign, 
   MessageSquare
 } from 'lucide-react'
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
@@ -21,7 +21,7 @@ import {
   useTaskData,
   useWorkspaceStatus,
 } from '@/features/tasks/contexts/task-providers'
-import { useChatState, useSelectedIteration } from '@/features/tasks/contexts/task-ui-provider'
+import { useSelectedIteration } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -45,10 +45,17 @@ function ChatViewComponent() {
   const { isStreaming } = useStreamingStatus()
   const { setSelectedIteration } = useSelectedIteration()
   const { scrollRef } = useAutoScroll()
-  const { chatState, updateChatState } = useChatState()
-
   const bottomRef = useRef<HTMLDivElement>(null)
-  const { isAtBottom } = chatState
+  
+  // Derive isAtBottom state from scroll position
+  const [scrollTop, setScrollTop] = useState(0)
+  const [scrollHeight, setScrollHeight] = useState(0)
+  const [clientHeight, setClientHeight] = useState(0)
+  
+  // Calculate if at bottom based on scroll values
+  const isAtBottom = useMemo(() => {
+    return scrollHeight - scrollTop - clientHeight < 50
+  }, [scrollTop, scrollHeight, clientHeight])
 
   // Handle scroll to bottom button click
   const scrollToBottom = useCallback(() => {
@@ -95,24 +102,7 @@ function ChatViewComponent() {
     )
   }
 
-  // Check if user is at the bottom of the scroll area
-  const checkIfAtBottom = useCallback(() => {
-    const scrollArea = scrollRef.current
-    if (!scrollArea) return false
-
-    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
-    if (!viewport) return false
-
-    const { scrollTop, scrollHeight, clientHeight } = viewport
-    // Consider "at bottom" if within 50px of the bottom
-    return scrollHeight - scrollTop - clientHeight < 50
-  }, [scrollRef])
-
-  // Handle scroll events to track if user is at bottom
-  const handleScroll = useCallback(() => {
-    updateChatState({ isAtBottom: checkIfAtBottom() })
-  }, [checkIfAtBottom, updateChatState])
-
+  // Throttled scroll handler to update scroll values
   useEffect(() => {
     const scrollArea = scrollRef.current
     if (!scrollArea) return
@@ -120,9 +110,39 @@ function ChatViewComponent() {
     const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
     if (!viewport) return
 
+    let rafId: number | null = null
+    
+    const handleScroll = () => {
+      if (rafId) return
+      
+      rafId = requestAnimationFrame(() => {
+        setScrollTop(viewport.scrollTop)
+        setScrollHeight(viewport.scrollHeight)
+        setClientHeight(viewport.clientHeight)
+        rafId = null
+      })
+    }
+
+    // Initial values
+    setScrollTop(viewport.scrollTop)
+    setScrollHeight(viewport.scrollHeight)
+    setClientHeight(viewport.clientHeight)
+
     viewport.addEventListener('scroll', handleScroll)
-    return () => viewport.removeEventListener('scroll', handleScroll)
-  }, [handleScroll, scrollRef])
+    
+    // Also observe for size changes
+    const resizeObserver = new ResizeObserver(() => {
+      setScrollHeight(viewport.scrollHeight)
+      setClientHeight(viewport.clientHeight)
+    })
+    resizeObserver.observe(viewport)
+    
+    return () => {
+      viewport.removeEventListener('scroll', handleScroll)
+      resizeObserver.disconnect()
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [scrollRef])
 
   useEffect(() => {
     // Scroll to bottom when component mounts (initial load)
