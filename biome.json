@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["server/**/*", "shared/**/*", "bin/**/*", "client/src/**/*"]
+    "includes": ["apps/**/*", "packages/**/*", "bin/**/*"]
   },
   "formatter": {
     "enabled": true,
@@ -37,7 +37,9 @@
         "useImportType": "error"
       },
       "correctness": {
-        "noUnusedImports": "error"
+        "noUnusedImports": "error",
+        "useExhaustiveDependencies": "error",
+        "useHookAtTopLevel": "error"
       },
       "complexity": {
         "noBannedTypes": "error"
@@ -59,7 +61,7 @@
   },
   "overrides": [
     {
-      "includes": ["client/src/routeTree.gen.ts"],
+      "includes": ["apps/frontend/src/routeTree.gen.ts"],
       "linter": {
         "enabled": false
       },
