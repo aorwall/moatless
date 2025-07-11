@@ -24,7 +24,7 @@ export function updateTaskInLists(
     // Only process queries that contain 'list' in their key (task list queries)
     if (query.queryKey.includes('list')) {
       const data = query.state.data as Task[] | undefined
-      if (data) {
+      if (data && Array.isArray(data)) {
         const updatedTasks = data.map((task) =>
           task.taskId === taskId ? { ...task, ...updates } : task,
         )
@@ -50,7 +50,7 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
     // Only process queries that contain 'list' in their key (task list queries)
     if (query.queryKey.includes('list')) {
       const data = query.state.data as Task[] | undefined
-      if (data) {
+      if (data && Array.isArray(data)) {
         const updatedTasks = data.filter((task) => task.taskId !== taskId)
         queryClient.setQueryData(query.queryKey, updatedTasks)
       }
