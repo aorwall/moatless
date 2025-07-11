@@ -8,7 +8,7 @@ describe('Graceful Shutdown', () => {
 
   beforeEach(async () => {
     appWithServices = await createApp()
-    
+
     // Mock ReadableStreamDefaultController
     mockController = {
       enqueue: vi.fn(),
@@ -37,7 +37,7 @@ describe('Graceful Shutdown', () => {
       // Verify connections were closed
       expect(sseManager.getConnectionCount('task-1')).toBe(0)
       expect(sseManager.getConnectionCount('task-2')).toBe(0)
-      
+
       // Verify close event was sent
       expect(mockController.enqueue).toHaveBeenCalled()
       expect(mockController.close).toHaveBeenCalled()
@@ -56,7 +56,7 @@ describe('Graceful Shutdown', () => {
 
       // Verify connections were closed
       expect(sseManager.getGlobalConnectionCount()).toBe(0)
-      
+
       // Verify close event was sent and connections closed
       expect(mockController.enqueue).toHaveBeenCalled()
       expect(mockController.close).toHaveBeenCalled()
@@ -69,7 +69,9 @@ describe('Graceful Shutdown', () => {
           throw new Error('Enqueue error')
         }),
         close: vi.fn(),
-      }
+        desiredSize: null,
+        error: vi.fn(),
+      } as unknown as ReadableStreamDefaultController
 
       // Add connection with error-throwing controller
       sseManager.connect('task-error', errorController)
