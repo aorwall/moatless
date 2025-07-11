@@ -14,7 +14,7 @@
     },
     "type:check": {
       "inputs": ["**/*.ts", "**/*.tsx", "tsconfig.json"],
-      "outputs": ["*.tsbuildinfo"],
+      "outputs": [],
       "env": ["VITE_API_BASE_URL"]
     },
     "biome:check": {
