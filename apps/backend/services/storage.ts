@@ -1,10 +1,9 @@
 import { promises as fs } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import type { Event, Task, Workspace } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { fromJSON, toJSON } from '@moatless/shared/utils/validation'
-import { logger } from '../utils/index.js'
+import { getDataDir, logger } from '../utils/index.js'
 
 export interface StorageBackend {
   // Generic storage methods
@@ -136,12 +135,8 @@ export class FileStorage implements StorageBackend {
   }
 }
 
-function getDefaultDataDir(): string {
-  return path.join(os.homedir(), '.moatless')
-}
-
 export async function createStorageService(): Promise<StorageBackend> {
-  const dataDir = process.env.DATA_DIR || getDefaultDataDir()
+  const dataDir = getDataDir()
 
   // Ensure the data directory exists
   await fs.mkdir(dataDir, { recursive: true })

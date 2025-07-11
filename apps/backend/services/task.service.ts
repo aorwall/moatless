@@ -6,6 +6,7 @@ import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
 import { EventType } from '@moatless/shared/types/event'
 import { RepositoryTemplate } from '@moatless/shared/types/repository'
 import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
+import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
@@ -180,7 +181,7 @@ export class TaskService {
     }
 
     // Create a directory for cloning the template
-    const dataDir = process.env.DATA_DIR || './data'
+    const dataDir = getDataDir()
     const templatesDir = path.join(dataDir, 'templates')
     const templateRepoDir = path.join(templatesDir, template.id)
 

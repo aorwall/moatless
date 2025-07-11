@@ -1,6 +1,7 @@
 // File system and repository utilities
 
 export * from './async-utils.js'
+export * from './data-dir.js'
 export * from './docker-utils.js'
 export * from './file-search.js'
 export * from './git-utils.js'

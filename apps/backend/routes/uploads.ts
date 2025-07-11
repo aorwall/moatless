@@ -7,6 +7,7 @@ import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
+import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 
 // Response schemas
@@ -23,7 +24,7 @@ const uploadResponseSchema = z.object({
 export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: string) {
   // Get the upload directory from env or use default
   const getUploadDir = () => {
-    const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data')
+    const dataDir = getDataDir()
     return process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
   }
 
