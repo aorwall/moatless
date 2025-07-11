@@ -428,48 +428,14 @@ export class WorkspaceService {
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
     // Check if workspace has getGitStatus method (LocalWorkspace)
-    let gitStatus:
-      | { hasUnmergedCommits?: boolean; isBehindBase?: boolean; hasUncommittedChanges?: boolean }
-      | undefined
+    let gitStatus: any
     if ('getGitStatus' in workspace && typeof workspace.getGitStatus === 'function') {
       gitStatus = await workspace.getGitStatus()
     }
 
-    // Check if workspace has getOriginSyncStatus method (LocalWorkspace)
-    let gitSyncStatus: any
-    if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
-      try {
-        gitSyncStatus = await workspace.getOriginSyncStatus()
-      } catch (error) {
-        // Log error but continue without sync status
-        logger.warn('Failed to get origin sync status', {
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-
-    // For backward compatibility, also get individual values
-    let hasUnmergedCommits = gitStatus?.hasUnmergedCommits ?? false
-    let isBehindBase = gitStatus?.isBehindBase ?? false
-
-    // If gitStatus is not available, fall back to individual methods
-    if (!gitStatus) {
-      if ('hasUnmergedCommits' in workspace && typeof workspace.hasUnmergedCommits === 'function') {
-        hasUnmergedCommits = await workspace.hasUnmergedCommits()
-      }
-      if ('isBehindBase' in workspace && typeof workspace.isBehindBase === 'function') {
-        isBehindBase = await workspace.isBehindBase()
-      }
-    }
-
     return {
       status: workspace.getStatus(),
-      hasUncommittedChanges:
-        gitStatus?.hasUncommittedChanges ?? (await workspace.hasUncommittedChanges()),
-      hasUnmergedCommits,
-      isBehindBase,
       gitStatus,
-      gitSyncStatus,
       backgroundTaskCount,
     }
   }

@@ -21,6 +21,7 @@ interface TaskDataContextValue {
   workspaceStatus: string | undefined
   workspaceReady: boolean
   workspaceHasChanges: boolean
+  workspaceGitStatus: WorkspaceStatusResponse['gitStatus'] | undefined
 
   // Derived flags for components (stable primitives)
   canExecute: boolean
@@ -110,7 +111,9 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     return {
       status: workspace.status,
       isReady: workspace.status === 'idle' || workspace.status === 'running',
-      hasChanges: workspace.hasUncommittedChanges || workspace.hasUnmergedCommits || false,
+      hasChanges:
+        workspace.gitStatus?.hasUncommittedChanges || workspace.gitStatus?.hasConflicts || false,
+      gitStatus: workspace.gitStatus,
     }
   }, [workspaceQuery.data])
 
@@ -132,6 +135,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       workspaceStatus: workspacePrimitives?.status,
       workspaceReady: workspacePrimitives?.isReady ?? false,
       workspaceHasChanges: workspacePrimitives?.hasChanges ?? false,
+      workspaceGitStatus: workspacePrimitives?.gitStatus,
 
       // Derived flags (stable primitives)
       canExecute: taskPrimitives?.canExecute ?? false,
@@ -201,7 +205,8 @@ export function useWorkspaceStatusWithLoading() {
   return {
     workspaceStatus: workspace?.status,
     workspaceReady: workspace?.status === 'idle' || workspace?.status === 'running',
-    workspaceHasChanges: workspace?.hasUncommittedChanges || workspace?.hasUnmergedCommits || false,
+    workspaceHasChanges:
+      workspace?.gitStatus?.hasUncommittedChanges || workspace?.gitStatus?.hasConflicts || false,
     isLoading: workspaceQuery.isLoading,
     error: workspaceQuery.error,
   }

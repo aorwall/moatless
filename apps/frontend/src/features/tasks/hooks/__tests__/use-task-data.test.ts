@@ -42,9 +42,17 @@ describe('useTaskData', () => {
     }
     const mockWorkspaceStatus = {
       status: WorkspaceStatus.IDLE,
-      hasUncommittedChanges: false,
-      hasUnmergedCommits: false,
-      isBehindBase: false,
+      backgroundTaskCount: 0,
+      gitStatus: {
+        currentBranch: 'test-branch',
+        baseBranch: 'main',
+        hasUncommittedChanges: false,
+        hasConflicts: false,
+        status: 'synced' as const,
+        commitsAhead: 0,
+        commitsBehind: 0,
+        originExists: true,
+      },
     }
 
     // Setup mock responses
@@ -100,9 +108,17 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({
       status: WorkspaceStatus.IDLE,
-      hasUncommittedChanges: false,
-      hasUnmergedCommits: false,
-      isBehindBase: false,
+      gitStatus: {
+        currentBranch: 'test-branch',
+        baseBranch: 'main',
+        hasUncommittedChanges: false,
+        hasConflicts: false,
+        status: 'synced' as const,
+        commitsAhead: 0,
+        commitsBehind: 0,
+        originExists: true,
+      },
+      backgroundTaskCount: 0,
     })
 
     // Render the hook

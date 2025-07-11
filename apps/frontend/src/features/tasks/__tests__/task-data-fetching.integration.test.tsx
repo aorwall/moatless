@@ -104,9 +104,17 @@ describe('Task Data Fetching Integration', () => {
 
     const mockWorkspaceStatus = {
       status: WorkspaceStatus.IDLE,
-      hasUncommittedChanges: true,
-      hasUnmergedCommits: false,
-      isBehindBase: false,
+      backgroundTaskCount: 0,
+      gitStatus: {
+        currentBranch: 'test-branch',
+        baseBranch: 'main',
+        hasUncommittedChanges: true,
+        hasConflicts: false,
+        status: 'synced' as const,
+        commitsAhead: 0,
+        commitsBehind: 0,
+        originExists: true,
+      },
     }
 
     // Setup API mocks with tracking
@@ -198,9 +206,17 @@ describe('Task Data Fetching Integration', () => {
       apiCallTracker.getTaskWorkspaceStatus++
       return {
         status: WorkspaceStatus.IDLE,
-        hasUncommittedChanges: false,
-        hasUnmergedCommits: false,
-        isBehindBase: false,
+        backgroundTaskCount: 0,
+        gitStatus: {
+          currentBranch: 'test-branch',
+          baseBranch: 'main',
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          status: 'synced' as const,
+          commitsAhead: 0,
+          commitsBehind: 0,
+          originExists: true,
+        },
       }
     })
 

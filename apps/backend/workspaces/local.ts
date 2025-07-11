@@ -525,17 +525,45 @@ export class LocalWorkspace extends BaseWorkspace {
         currentBranch: 'unknown',
         baseBranch: 'main',
         hasUncommittedChanges: false,
-        hasUnmergedCommits: false,
-        isBehindBase: false,
         hasConflicts: false,
+        status: 'synced',
         commitsAhead: 0,
         commitsBehind: 0,
+        originExists: false,
       }
     }
 
-    // Import the function from git-utils
-    const { getComprehensiveGitStatus } = await import('../utils/git-utils.js')
-    return getComprehensiveGitStatus(this.workspacePath, this.originalBranch)
+    try {
+      // Import the functions from git-utils
+      const { getOriginSyncStatus, checkForConflicts } = await import('../utils/git-utils.js')
+      const [syncStatus, hasConflicts] = await Promise.all([
+        getOriginSyncStatus(this.workspacePath, this.originalBranch),
+        checkForConflicts(this.workspacePath, this.originalBranch),
+      ])
+
+      return {
+        currentBranch: syncStatus.currentBranch,
+        baseBranch: syncStatus.baseBranch,
+        hasUncommittedChanges: syncStatus.hasUncommittedChanges,
+        hasConflicts,
+        status: syncStatus.status,
+        commitsAhead: syncStatus.commitsAhead,
+        commitsBehind: syncStatus.commitsBehind,
+        originExists: syncStatus.originExists,
+      }
+    } catch (error) {
+      // Fall back to defaults on error
+      return {
+        currentBranch: 'unknown',
+        baseBranch: 'main',
+        hasUncommittedChanges: false,
+        hasConflicts: false,
+        status: 'error',
+        commitsAhead: 0,
+        commitsBehind: 0,
+        originExists: false,
+      }
+    }
   }
 
   async getOriginSyncStatus(): Promise<import('../utils/git-utils.js').GitSyncStatusInfo> {

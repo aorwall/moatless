@@ -4,7 +4,7 @@ import {
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
   type EventListResponse,
-  GitSyncStatusInfoSchema,
+  GitStatusSchema,
   MergeTaskResponseSchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
@@ -1234,7 +1234,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
           description: 'Git sync status',
           content: {
             'application/json': {
-              schema: resolver(GitSyncStatusInfoSchema) as any,
+              schema: resolver(GitStatusSchema) as any,
             },
           },
         },
@@ -1258,20 +1258,21 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       }
 
       try {
-        // Get workspace status which now includes git sync status
+        // Get workspace status which now includes unified git status
         const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
 
-        if ((workspaceStatus as any).gitSyncStatus) {
-          return c.json((workspaceStatus as any).gitSyncStatus)
+        if ((workspaceStatus as any).gitStatus) {
+          return c.json((workspaceStatus as any).gitStatus)
         } else {
-          // If git sync status is not available, return a default response
+          // If git status is not available, return a default response
           return c.json({
+            currentBranch: 'unknown',
+            baseBranch: 'main',
+            hasUncommittedChanges: false,
+            hasConflicts: false,
             status: 'error',
             commitsAhead: 0,
             commitsBehind: 0,
-            hasUncommittedChanges: false,
-            currentBranch: 'unknown',
-            baseBranch: 'main',
             originExists: false,
           })
         }

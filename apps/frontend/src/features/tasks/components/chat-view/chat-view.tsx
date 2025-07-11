@@ -285,6 +285,7 @@ function ChatViewComponent() {
   // Check if last iteration has an error
   const lastIterationHasError =
     lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
+
   return (
     <div className="h-full flex flex-col">
       <ChatHeader />

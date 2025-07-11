@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { GitStatus } from '@moatless/shared/types/api'
+import type { GitStatus, GitSyncStatus } from '@moatless/shared/types/api'
 import { logger } from './logger.js'
 
 const execAsync = promisify(exec)
@@ -581,7 +581,7 @@ export async function getComprehensiveGitStatus(
 ): Promise<GitStatus> {
   try {
     // Check if origin exists and fetch if available
-    await checkAndFetchOrigin(repoPath, providedBaseBranch, true)
+    const originExists = await checkAndFetchOrigin(repoPath, providedBaseBranch, true)
 
     // Get current branch
     const currentBranch = await getCurrentBranch(repoPath)
@@ -597,15 +597,29 @@ export async function getComprehensiveGitStatus(
       checkForConflicts(repoPath, baseBranch),
     ])
 
+    // Determine sync status
+    let status: GitSyncStatus
+    if (uncommittedChanges) {
+      status = 'uncommitted_changes'
+    } else if (commitCounts.ahead > 0 && commitCounts.behind > 0) {
+      status = 'diverged'
+    } else if (commitCounts.ahead > 0) {
+      status = 'ahead'
+    } else if (commitCounts.behind > 0) {
+      status = 'behind'
+    } else {
+      status = 'synced'
+    }
+
     return {
       currentBranch,
       baseBranch,
       hasUncommittedChanges: uncommittedChanges,
-      hasUnmergedCommits: commitCounts.ahead > 0,
-      isBehindBase: commitCounts.behind > 0,
       hasConflicts: conflicts,
+      status,
       commitsAhead: commitCounts.ahead,
       commitsBehind: commitCounts.behind,
+      originExists,
     }
   } catch (_error) {
     // Return safe defaults if git operations fail
@@ -613,11 +627,11 @@ export async function getComprehensiveGitStatus(
       currentBranch: 'unknown',
       baseBranch: 'main',
       hasUncommittedChanges: false,
-      hasUnmergedCommits: false,
-      isBehindBase: false,
       hasConflicts: false,
+      status: 'error',
       commitsAhead: 0,
       commitsBehind: 0,
+      originExists: false,
     }
   }
 }
@@ -832,14 +846,6 @@ export async function removeGitWorktree(
     )
   }
 }
-
-export type GitSyncStatus =
-  | 'synced'
-  | 'ahead'
-  | 'behind'
-  | 'diverged'
-  | 'uncommitted_changes'
-  | 'error'
 
 export interface GitSyncStatusInfo {
   status: GitSyncStatus

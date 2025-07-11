@@ -121,19 +121,6 @@ export const ServerLogsResponseSchema = z.object({
 })
 export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 
-// Git Status Schema
-export const GitStatusSchema = z.object({
-  currentBranch: z.string(),
-  baseBranch: z.string(),
-  hasUncommittedChanges: z.boolean(),
-  hasUnmergedCommits: z.boolean(),
-  isBehindBase: z.boolean(),
-  hasConflicts: z.boolean(),
-  commitsAhead: z.number(),
-  commitsBehind: z.number(),
-})
-export type GitStatus = z.infer<typeof GitStatusSchema>
-
 // Git Sync Status with Origin
 export const GitSyncStatusSchema = z.enum([
   'synced',
@@ -145,25 +132,24 @@ export const GitSyncStatusSchema = z.enum([
 ])
 export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 
-export const GitSyncStatusInfoSchema = z.object({
+// Git Status Schema
+export const GitStatusSchema = z.object({
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  hasUncommittedChanges: z.boolean(),
+  hasConflicts: z.boolean(),
   status: GitSyncStatusSchema,
   commitsAhead: z.number(),
   commitsBehind: z.number(),
-  hasUncommittedChanges: z.boolean(),
-  currentBranch: z.string(),
-  baseBranch: z.string(),
   originExists: z.boolean(),
 })
-export type GitSyncStatusInfo = z.infer<typeof GitSyncStatusInfoSchema>
+export type GitStatus = z.infer<typeof GitStatusSchema>
 
 // Workspace Status Response
 export const WorkspaceStatusResponseSchema = z.object({
   status: z.nativeEnum(WorkspaceStatus),
-  hasUncommittedChanges: z.boolean(),
-  hasUnmergedCommits: z.boolean(),
-  isBehindBase: z.boolean(),
   gitStatus: GitStatusSchema.optional(),
-  gitSyncStatus: GitSyncStatusInfoSchema.optional(),
+  backgroundTaskCount: z.number(),
 })
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 
