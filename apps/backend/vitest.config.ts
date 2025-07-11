@@ -28,6 +28,21 @@ export default defineConfig({
         singleFork: true,
       },
     },
+
+    // Coverage configuration
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        'node_modules/',
+        'test/',
+        '**/*.test.ts',
+        '**/__tests__/**',
+        '**/types/**',
+        '**/*.d.ts',
+        'dist/',
+      ],
+    },
   },
 
   resolve: {

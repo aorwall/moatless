@@ -12,6 +12,8 @@
     "test:unit": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*' --exclude='**/server-lifecycle*'",
     "test:integration": "USE_CONSOLE_LOGGING=true vitest run --include='**/routes/**/*.test.ts' --exclude='**/*e2e*'",
     "test:all": "USE_CONSOLE_LOGGING=true vitest run",
+    "test:coverage": "USE_CONSOLE_LOGGING=true vitest run --coverage --exclude='**/*e2e*'",
+    "test:fast": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*' --exclude='**/server-lifecycle*' --exclude='**/routes/**/*.test.ts'",
     "type:check": "tsc --noEmit"
   },
   "dependencies": {
