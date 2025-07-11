@@ -932,7 +932,7 @@ The system includes five default commands (`apps/backend/services/command.servic
 
 #### Command Filtering Logic
 
-Commands are dynamically filtered based on context using the `isCommandAvailable()` function (`packages/shared/utils/command-conditions.ts`):
+Commands are dynamically filtered based on context using the backend `getAvailableCommands()` method (`apps/backend/services/task.service.ts`):
 
 ```typescript
 function isCommandAvailable(command: Command, context: CommandAvailabilityContext): boolean {
@@ -1025,7 +1025,7 @@ The integration ensures commands are always contextually relevant and help guide
 
 The command system includes comprehensive tests:
 
-- **Unit Tests**: Command filtering logic (`packages/shared/utils/__tests__/command-conditions.test.ts`)
+- **Unit Tests**: Command filtering logic via backend API (`apps/backend/utils/command-conditions.ts`)
 - **Component Tests**: Button rendering and interactions (`apps/frontend/src/features/tasks/components/chat-view/__tests__/command-buttons.test.tsx`)
 - **Integration Tests**: Chat view command display (`apps/frontend/src/features/tasks/components/chat-view/__tests__/chat-view-commands.test.tsx`)
 

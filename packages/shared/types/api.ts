@@ -121,6 +121,22 @@ export const ServerLogsResponseSchema = z.object({
 })
 export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 
+// Task Commands Response
+export const TaskCommandsResponseSchema = z.object({
+  commands: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      prompt: z.string(),
+      conditions: z.any().optional(),
+      icon: z.string().optional(),
+      variant: z.string().optional(),
+      active: z.boolean().optional(),
+    }),
+  ),
+})
+export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>
+
 // Git Sync Status with Origin
 export const GitSyncStatusSchema = z.enum([
   'synced',

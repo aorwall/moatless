@@ -3,9 +3,11 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { TaskNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
 import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
+import type { Command } from '@moatless/shared/types/command'
 import { EventType } from '@moatless/shared/types/event'
 import { RepositoryTemplate } from '@moatless/shared/types/repository'
 import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
+import { filterAvailableCommands } from '../utils/command-conditions.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
@@ -464,6 +466,32 @@ export class TaskService {
     })
 
     logger.info('Task closed successfully', { taskId })
+  }
+
+  async getAvailableCommands(taskId: string): Promise<Command[]> {
+    const task = await this.getTask(taskId)
+
+    // Get all commands
+    const allCommands = await this.commandService.listCommands()
+
+    // Get workspace status to check for uncommitted changes
+    const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
+    const workspaceHasChanges = (workspaceStatus as any).gitStatus?.hasUncommittedChanges || false
+
+    // Get last iteration
+    const lastIteration =
+      task.iterations && task.iterations.length > 0
+        ? task.iterations[task.iterations.length - 1]
+        : undefined
+
+    // Filter commands based on current context
+    const context = {
+      task,
+      lastIteration,
+      workspaceHasChanges,
+    }
+
+    return filterAvailableCommands(allCommands, context)
   }
 
   private async pathExists(filePath: string): Promise<boolean> {

@@ -2,6 +2,7 @@ import type {
   CreateTaskRequest,
   MergeTaskResponse,
   SimpleTaskResponse,
+  TaskCommandsResponse,
   TaskListResponse,
 } from '@moatless/shared/types/api'
 import type { Event } from '@moatless/shared/types/event'
@@ -188,6 +189,18 @@ export function useTaskFileSearch(
     queryFn: () => tasksApi.searchTaskFiles(taskId, { query, repositoryId }),
     enabled: !!taskId && !!repositoryId && query.length >= 3,
     staleTime: 30 * 1000, // 30 seconds
+    ...options,
+  })
+}
+
+export function useTaskCommands(
+  taskId: string,
+  options?: Omit<UseQueryOptions<TaskCommandsResponse>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.taskCommands(taskId),
+    queryFn: () => tasksApi.getTaskCommands(taskId),
+    enabled: !!taskId,
     ...options,
   })
 }

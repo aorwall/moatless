@@ -1,14 +1,12 @@
 import type { Command } from '@moatless/shared/types/command'
 import { EventType } from '@moatless/shared/types/event'
 import type { Task, TaskIteration } from '@moatless/shared/types/task'
-import { filterAvailableCommands } from '@moatless/shared/utils/command-conditions'
 import { useParams } from '@tanstack/react-router'
 import { AlertCircle, ArrowDown, Clock, DollarSign, MessageSquare } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
-import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import {
   useEventStream,
   useStreamingStatus,
@@ -17,7 +15,7 @@ import {
 } from '@/features/tasks/contexts/task-providers'
 import { useSelectedIteration } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
-import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
+import { useSendMessage, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { Alert, AlertDescription } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
@@ -58,11 +56,11 @@ function ChatViewComponent() {
     }
   }, [])
 
-  // Get workspace status from context (doesn't block loading)
-  const { workspaceHasChanges } = useWorkspaceStatus()
+  // Get workspace status from context (doesn't block loading) - no longer needed for command filtering
+  const {} = useWorkspaceStatus()
 
-  // Fetch commands to check if commit command exists
-  const { data: commands } = useCommandsList({
+  // Fetch available commands for this task
+  const { data: commandsData } = useTaskCommands(params.taskId, {
     enabled: !!params.taskId && status !== 'running',
   })
 
@@ -180,18 +178,11 @@ function ChatViewComponent() {
     return counts
   }, [events, isStreaming])
 
-  // Filter available commands based on current context - must be before any early returns
+  // Get available commands from the API response - must be before any early returns
   const availableCommands = useMemo(() => {
-    if (!commands || status === 'running') return []
-
-    const context = {
-      task: { status, iterations, repositoryId } as Task,
-      lastIteration: lastIteration || undefined,
-      workspaceHasChanges,
-    }
-
-    return filterAvailableCommands(commands, context)
-  }, [commands, status, iterations, lastIteration, workspaceHasChanges, repositoryId])
+    if (!commandsData || status === 'running') return []
+    return commandsData.commands
+  }, [commandsData, status])
 
   // Handle command click - must be before any early returns
   const handleCommandClick = useCallback(
@@ -391,7 +382,7 @@ function ChatViewComponent() {
             {/* Show available command buttons */}
             {!isTaskRunning && (
               <CommandButtons
-                commands={availableCommands}
+                commands={availableCommands as Command[]}
                 onCommandClick={handleCommandClick}
                 disabled={sendMessage.isPending}
               />

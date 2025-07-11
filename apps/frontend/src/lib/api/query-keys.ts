@@ -26,6 +26,7 @@ export const queryKeys = {
       [...queryKeys.tasks.detail(id), 'files', { path, recursive }] as const,
     fileContent: (id: string, filePath: string) =>
       [...queryKeys.tasks.detail(id), 'file', filePath] as const,
+    commands: (id: string) => [...queryKeys.tasks.detail(id), 'commands'] as const,
   },
 
   // Legacy keys for backward compatibility during migration
@@ -45,6 +46,7 @@ export const queryKeys = {
     queryKeys.tasks.fileList(taskId, path, recursive),
   taskFileContent: (taskId: string, filePath: string) =>
     queryKeys.tasks.fileContent(taskId, filePath),
+  taskCommands: (taskId: string) => queryKeys.tasks.commands(taskId),
 
   agents: () => [...queryKeys.all, 'agents'] as const,
   agentsList: () => [...queryKeys.agents(), 'list'] as const,

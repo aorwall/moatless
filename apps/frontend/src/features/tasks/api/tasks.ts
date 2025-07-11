@@ -4,6 +4,7 @@ import type {
   MergeTaskResponse,
   SimpleTaskResponse,
   StopAgentResponse,
+  TaskCommandsResponse,
   TaskListResponse,
   WorkspaceStatusResponse,
 } from '@moatless/shared/types/api'
@@ -93,6 +94,10 @@ export const tasksApi = {
 
   async getTaskWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     return await apiClient.get<WorkspaceStatusResponse>(`/api/v1/tasks/${taskId}/workspace-status`)
+  },
+
+  async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {
+    return await apiClient.get<TaskCommandsResponse>(`/api/v1/tasks/${taskId}/commands`)
   },
 
   async mergeTask(

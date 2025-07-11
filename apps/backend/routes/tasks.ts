@@ -11,6 +11,7 @@ import {
   ServerLogsResponseSchema,
   SimpleTaskResponseSchema,
   StopAgentResponseSchema,
+  TaskCommandsResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
   WorkspaceStatusResponseSchema,
@@ -468,6 +469,53 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       await taskService.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName)
       return c.json({ status: 'sent', timestamp: new Date().toISOString() })
+    },
+  )
+
+  // Get available commands for task
+  app.get(
+    `${prefix}/:taskId/commands`,
+    describeRoute({
+      description: 'Get available commands for a task based on current context',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of available commands',
+          content: {
+            'application/json': {
+              schema: resolver(TaskCommandsResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { task: taskService } = services
+
+      const taskId = c.req.param('taskId')
+      if (!taskId) {
+        throw new HTTPException(400, { message: 'Task ID is required' })
+      }
+
+      const commands = await taskService.getAvailableCommands(taskId)
+      return c.json({ commands })
     },
   )
 
