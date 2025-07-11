@@ -48,7 +48,8 @@ export class AgentService {
     // Check if we should use workers
     const useWorkers =
       process.env.ENABLE_WORKERS === 'true' &&
-      repository?.codeExecution?.useWorkers &&
+      repository?.codeExecution?.workspaceType === 'docker' &&
+      repository?.codeExecution?.workerImage &&
       this.workerService
 
     if (useWorkers && this.workerService) {

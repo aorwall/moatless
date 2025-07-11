@@ -41,8 +41,12 @@ export class WorkspaceService {
     let workspacePath: string | undefined
     workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
 
+    // Determine workspace type from repository config or global default
+    const globalDefaultWorkspaceType = process.env.DEFAULT_WORKSPACE_TYPE || 'local'
+    const workspaceType = repository.codeExecution.workspaceType || globalDefaultWorkspaceType
+
     let workspace: BaseWorkspace
-    if (repository.codeExecution.type === 'docker') {
+    if (workspaceType === 'docker') {
       workspace = new DockerWorkspace(taskId, repository, this.eventService, workspacePath!)
     } else {
       workspace = new LocalWorkspace(
