@@ -7,7 +7,8 @@ describe('App Setup', () => {
   let app: Hono<AppBindings>
 
   beforeEach(async () => {
-    app = await createApp()
+    const { app: honoApp } = await createApp()
+    app = honoApp
   })
 
   afterEach(async () => {

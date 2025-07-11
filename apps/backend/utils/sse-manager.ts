@@ -176,6 +176,50 @@ export class SSEConnectionManager {
       },
     }
   }
+
+  // Graceful shutdown - close all connections
+  async gracefulShutdown(): Promise<void> {
+    console.log('Starting SSE connection manager graceful shutdown...')
+
+    // Close all task-specific connections
+    for (const [taskId, connections] of this.connections.entries()) {
+      console.log(`Closing ${connections.size} connections for task ${taskId}`)
+      for (const connection of connections) {
+        try {
+          // Send a close event to notify clients
+          const encoder = new TextEncoder()
+          connection.controller.enqueue(
+            encoder.encode(`event: close\ndata: {"reason": "server_shutdown"}\n\n`),
+          )
+          // Close the connection
+          connection.controller.close()
+        } catch (error) {
+          console.error(`Error closing SSE connection ${connection.id}:`, error)
+        }
+      }
+      connections.clear()
+    }
+    this.connections.clear()
+
+    // Close all global connections
+    console.log(`Closing ${this.globalConnections.size} global connections`)
+    for (const [connectionId, connection] of this.globalConnections.entries()) {
+      try {
+        // Send a close event to notify clients
+        const encoder = new TextEncoder()
+        connection.controller.enqueue(
+          encoder.encode(`event: close\ndata: {"reason": "server_shutdown"}\n\n`),
+        )
+        // Close the connection
+        connection.controller.close()
+      } catch (error) {
+        console.error(`Error closing global SSE connection ${connectionId}:`, error)
+      }
+    }
+    this.globalConnections.clear()
+
+    console.log('SSE connection manager graceful shutdown completed')
+  }
 }
 
 export const sseManager = new SSEConnectionManager()

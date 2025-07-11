@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
 import { type AppBindings, createApp } from '../app.js'
-import { type Services, setupServices } from '../services/index.js'
+import type { Services } from '../services/index.js'
 
 /**
  * Enhanced app type for testing with HTTP request simulation
@@ -36,8 +36,7 @@ export interface TestResponse {
  * Creates a test app with enhanced functionality
  */
 export async function build(): Promise<TestApp> {
-  const app = await createApp()
-  const services = await setupServices()
+  const { app, services } = await createApp()
 
   // Create enhanced app with test utilities
   const testApp = app as any as TestApp
@@ -67,7 +66,7 @@ export async function build(): Promise<TestApp> {
 
     // Convert Headers to plain object
     const headers: Record<string, string> = {}
-    response.headers.forEach((value, key) => {
+    response.headers.forEach((value: string, key: string) => {
       headers[key] = value
     })
 

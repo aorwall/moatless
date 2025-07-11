@@ -1,15 +1,23 @@
+import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
 import { createApp } from './app.js'
 import { createLogger } from './utils/logger.js'
+import { sseManager } from './utils/sse-manager.js'
 
 config() // Load environment variables
 
 const logger = createLogger()
 
+// Global references to allow cleanup
+let server: ServerType | null = null
+let appServices: Awaited<ReturnType<typeof createApp>> | null = null
+
 const start = async () => {
   try {
-    const app = await createApp()
+    const appWithServices = await createApp()
+    appServices = appWithServices
+    const { app } = appWithServices
 
     const port = parseInt(process.env.PORT || '8000', 10)
     const host = process.env.HOST || '0.0.0.0'
@@ -19,11 +27,25 @@ const start = async () => {
       logger.info(`Received ${signal}, starting graceful shutdown...`)
 
       try {
-        // Get services from the app context - we can't access them from Hono app directly
-        // For now, just log that we're shutting down
-        logger.info('Shutting down services...')
+        // 1. Stop accepting new connections
+        if (server) {
+          logger.info('Stopping HTTP server...')
+          server.close()
+        }
 
-        // TODO: Implement proper service shutdown when we can access services from Hono app
+        // 2. Close SSE connections
+        logger.info('Closing SSE connections...')
+        await sseManager.gracefulShutdown()
+
+        // 3. Shutdown preview environments
+        if (appServices?.services.previewEnvironment) {
+          logger.info('Shutting down preview environments...')
+          await appServices.services.previewEnvironment.gracefulShutdown()
+        }
+
+        // 4. Wait a bit for any pending operations
+        logger.info('Waiting for pending operations...')
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
         logger.info('Graceful shutdown completed')
         process.exit(0)
@@ -50,7 +72,7 @@ const start = async () => {
       gracefulShutdown('UNCAUGHT_EXCEPTION')
     })
 
-    serve({
+    server = serve({
       fetch: app.fetch,
       port,
       hostname: host,

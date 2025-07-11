@@ -21,7 +21,12 @@ export type AppBindings = {
   }
 }
 
-export async function createApp(): Promise<Hono<AppBindings>> {
+export interface AppWithServices {
+  app: Hono<AppBindings>
+  services: Services
+}
+
+export async function createApp(): Promise<AppWithServices> {
   const app = new Hono<AppBindings>()
 
   // Request ID middleware (must be first)
@@ -120,5 +125,5 @@ export async function createApp(): Promise<Hono<AppBindings>> {
     })
   }
 
-  return app
+  return { app, services }
 }
