@@ -78,8 +78,11 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   // Map of taskId -> TaskUIState for complete isolation
   const [taskStates, setTaskStates] = useState<Map<string, TaskUIState>>(new Map())
   
-  // Get current task's state or default
-  const currentState = taskStates.get(taskId) || getDefaultTaskUIState()
+  // Get current task's state or default - memoize to prevent changes on every render
+  const currentState = useMemo(
+    () => taskStates.get(taskId) || getDefaultTaskUIState(),
+    [taskStates, taskId]
+  )
   
   // All actions are automatically scoped to current task using useCallback
   const setRightPanelView = useCallback((view: PanelView) => {
@@ -147,7 +150,9 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       updateChatState,
       updateGitDiffState,
     }),
-    [currentState, setRightPanelView, setSelectedIteration, setPanelSizes, setSelectedFile, updateChatState, updateGitDiffState],
+    // Only re-create when taskId or currentState changes
+    // All callbacks are stable because they only depend on taskId
+    [currentState, taskId],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
