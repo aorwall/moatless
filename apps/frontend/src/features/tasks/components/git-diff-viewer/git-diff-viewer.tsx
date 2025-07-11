@@ -127,15 +127,19 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     }
   }, [gitDiff?.diff])
 
-  // Auto-expand all files when parsedFiles changes
+  // Derive all file keys from parsed files
+  const allFileKeys = useMemo(() => {
+    return new Set(
+      parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`)
+    )
+  }, [parsedFiles])
+
+  // Auto-expand files only when new files are detected (avoid re-expanding on every change)
   React.useEffect(() => {
-    if (parsedFiles.length > 0) {
-      const allFileKeys = new Set(
-        parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
-      )
+    if (parsedFiles.length > 0 && expandedFiles.size === 0) {
       updateGitDiffState({ expandedFiles: allFileKeys })
     }
-  }, [parsedFiles, updateGitDiffState])
+  }, [parsedFiles.length, expandedFiles.size, allFileKeys, updateGitDiffState])
 
   const toggleFileExpansion = (fileKey: string) => {
     const next = new Set(expandedFiles)
