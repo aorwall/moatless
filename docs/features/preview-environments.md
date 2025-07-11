@@ -818,14 +818,6 @@ graph LR
    - Maintains streaming for large files
    - Preserves all headers
 
-##### Benefits Over File Modification
-
-1. **No Git Conflicts**: Files remain pristine
-2. **Framework Agnostic**: Works with any HTML response
-3. **Easy Cleanup**: Just stop the proxy
-4. **Live Updates**: Script changes take effect immediately
-5. **Security**: Script isolated from source code
-
 ```mermaid
 graph TD
     subgraph "Framework Detection"

@@ -64,13 +64,6 @@ The application uses a unique **Tri-Context Pattern** to optimize performance by
 - **Update frequency**: Medium - user interactions only
 - **Used by**: UI control components, layout managers
 
-### Benefits of Tri-Context Pattern
-
-1. **Selective Re-renders**: Components only re-render when their specific data changes
-2. **Performance Isolation**: High-frequency event updates don't affect stable UI
-3. **Clear Separation of Concerns**: Easy to reason about data flow
-4. **Optimized Subscriptions**: Components subscribe only to needed data
-
 ## Task Lifecycle
 
 ### Task States
@@ -240,13 +233,6 @@ GlobalEventStreamProvider (Single SSE Connection)
 - Each TaskEventsProvider filters for its specific taskId
 - Task list pages can also subscribe to see status changes
 - If user has 10 task tabs open, still only 1 SSE connection
-
-**Benefits of This Architecture:**
-- Single SSE connection for entire app
-- Task pages don't manage their own connections
-- Automatic event routing to correct task contexts
-- Centralized connection error handling
-- Easy to add app-wide event handling (notifications, etc.)
 
 ### Event-Driven Query Invalidation
 

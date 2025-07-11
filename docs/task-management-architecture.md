@@ -442,24 +442,6 @@ describe('Task Page Flow', () => {
 })
 ```
 
-## Benefits
-
-1. **Surgical Re-renders**: Only components using changed data re-render
-2. **No Page Reloads**: Cache invalidation preserves component state
-3. **Real-time Updates**: Instant event processing with proper sequencing
-4. **Stable Performance**: Primitive extraction prevents unnecessary re-renders
-5. **Clean Separation**: Focused providers with clear responsibilities
-6. **Type Safety**: Strong TypeScript interfaces throughout
-7. **Testability**: Provider pattern enables comprehensive testing
-
-## Runtime Metrics Pattern
-
-For runtime metrics like duration and context tokens that need to update frequently:
-
-1. **Provider supplies stable start time**: TaskDataProvider computes and provides `runningStartTime` based on running state and iterations
-2. **Display components handle duration updates**: Components that need live duration updates use local state and intervals
-3. **Context tokens from TaskEventsProvider**: A specialized hook `useLatestContextTokens()` computes the latest context tokens from events
-
 ### Duration Handling
 TaskDataProvider now provides runningStartTime directly:
 ```typescript
@@ -534,15 +516,6 @@ This pattern respects the existing provider hierarchy:
 - **TaskDataProvider**: Manages task metadata, iterations, and workspace status
 - **TaskEventsProvider**: Manages event stream and exposes derived data hooks
 - **Display Components**: Handle frequent UI updates locally
-
-### Benefits
-
-- **Maintains Provider Boundaries**: Each provider focuses on its core responsibility
-- **No Cross-Provider Dependencies**: TaskDataProvider doesn't need events access
-- **Minimal Re-renders**: Only components using these specific values re-render
-- **Clean Separation**: Data computation happens where the data lives
-- **Performance Optimized**: Duration updates happen in leaf components only
-- **Type Safe**: Leverages existing TypeScript interfaces
 
 ## Task Isolation Patterns
 

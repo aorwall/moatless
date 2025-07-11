@@ -668,25 +668,6 @@ function TaskDetail({ taskId }: { taskId: string }) {
 }
 ```
 
-## Benefits
-
-### User Experience
-- **Graceful Degradation**: Users can continue using other parts of the app
-- **Clear Messaging**: User-friendly error explanations
-- **Recovery Options**: Users can retry failed operations
-- **Non-Blocking**: Errors don't crash the entire application
-
-### Developer Experience
-- **Better Debugging**: Rich error context and stack traces
-- **Consistent Handling**: Standardized error patterns
-- **Easy Monitoring**: Centralized error tracking
-- **Testing Support**: Mockable error scenarios
-
-### System Reliability
-- **Fault Isolation**: Errors are contained to specific components
-- **Automatic Recovery**: Self-healing for transient issues
-- **Performance Protection**: Failed components don't impact others
-
 ## Best Practices
 
 ### Do's
@@ -703,13 +684,3 @@ function TaskDetail({ taskId }: { taskId: string }) {
 - Don't ignore error boundaries in testing
 - Don't create too many nested error boundaries
 - Don't forget to clean up resources in error states
-
-## Related Patterns
-- [React Query Patterns](./react-query.md) - API error handling
-- [Event-Driven Architecture](./event-driven.md) - Error event propagation
-- [Optimistic UI Updates](./optimistic-updates.md) - Error rollback strategies
-
-## Further Reading
-- [React Error Boundaries](https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary)
-- [Error Handling Best Practices](https://kentcdodds.com/blog/use-react-error-boundary-to-handle-errors-in-react)
-- [Resilient Error Handling](https://web.dev/resilient-search-experiences/)

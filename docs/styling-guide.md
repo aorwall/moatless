@@ -216,8 +216,8 @@ All components using `bg-primary` or `text-primary` will automatically update.
 #### ✅ Level 1: Use shadcn/ui Directly
 
 ```tsx
-import { Button } from '@/lib/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Button } from '@/lib/features/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/lib/features/ui/card'
 
 export function TaskCard({ task, onComplete }) {
   return (
@@ -244,9 +244,9 @@ export function TaskCard({ task, onComplete }) {
 #### ✅ Level 2: Compose for Features
 
 ```tsx
-import { Badge } from '@/lib/components/ui/badge'
-import { Button } from '@/lib/components/ui/button'
-import { Card } from '@/lib/components/ui/card'
+import { Badge } from '@/lib/features/ui/badge'
+import { Button } from '@/lib/features/ui/button'
+import { Card } from '@/lib/features/ui/card'
 
 export function MetricCard({ title, value, change, trend, onViewDetails }) {
   return (
@@ -361,7 +361,7 @@ export function BrandHero({ title, subtitle, cta }) {
 
 ### Loading States
 ```tsx
-import { Skeleton } from '@/lib/components/ui/skeleton'
+import { Skeleton } from '@/lib/features/ui/skeleton'
 
 export function TaskCardSkeleton() {
   return (
@@ -394,7 +394,7 @@ export function EmptyTaskList() {
 
 ### Error States
 ```tsx
-import { Alert, AlertDescription } from '@/lib/components/ui/alert'
+import { Alert, AlertDescription } from '@/lib/features/ui/alert'
 
 export function ErrorMessage({ error }) {
   return (

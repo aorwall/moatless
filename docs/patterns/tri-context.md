@@ -89,35 +89,6 @@ function TaskPanel() {
 }
 ```
 
-## Benefits
-
-### Performance
-- **Selective Re-renders**: Components only update when their data changes
-- **Reduced Render Cycles**: High-frequency event updates don't affect stable UI
-- **Better Responsiveness**: UI remains snappy even with heavy data flow
-
-### Developer Experience
-- **Clear Separation**: Easy to understand what data comes from where
-- **Easier Testing**: Can mock individual contexts
-- **Better Debugging**: Isolated state makes issues easier to trace
-
-### Scalability
-- **Handles Growth**: Performance doesn't degrade with more data
-- **Flexible**: Easy to add new contexts for new concerns
-- **Maintainable**: Changes to one context don't affect others
-
-## Trade-offs
-
-### Complexity
-- More boilerplate code (3 contexts vs 1)
-- Need to understand which context to use
-- More providers in component tree
-
-### When NOT to Use
-- Simple components with minimal data
-- No real-time updates
-- All data changes together
-
 ## Real-World Example
 
 From `apps/frontend/src/features/tasks/contexts/`:
@@ -165,20 +136,3 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
   );
 }
 ```
-
-## Performance Metrics
-
-In production usage:
-- **60% reduction** in unnecessary re-renders
-- **40% improvement** in UI responsiveness during heavy event streaming
-- **Better user experience** with complex task views
-
-## Related Patterns
-- [Smart Cache Invalidation](./cache-invalidation.md) - Works with tri-context for data updates
-- [SSE Connection Management](./sse-management.md) - Powers the events context
-- [React Query Patterns](./react-query.md) - Used in data context
-
-## Further Reading
-- [Task Management Architecture](../components/tasks.md)
-- [Frontend Task Architecture](../frontend-task-architecture.md)
-- React's [Context Performance Guide](https://react.dev/reference/react/useContext#optimizing-re-renders-when-passing-objects-and-functions)

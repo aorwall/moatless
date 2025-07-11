@@ -381,13 +381,3 @@ if (process.env.NODE_ENV === 'development') {
   };
 }
 ```
-
-## Related Patterns
-- [Event-Driven Architecture](./event-driven.md) - Backend event system
-- [Tri-Context Pattern](./tri-context.md) - Separates SSE updates from UI
-- [Smart Cache Invalidation](./cache-invalidation.md) - Updates cache based on SSE events
-
-## Further Reading
-- [Event Architecture Documentation](../event-architecture.md)
-- [MDN: Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
-- [SSE vs WebSockets](https://ably.com/topic/server-sent-events-vs-websockets)

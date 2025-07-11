@@ -284,27 +284,3 @@ export const queryClient = new QueryClient({
   },
 });
 ```
-
-## Performance Benefits
-
-- **Reduced Network Requests**: Smart caching eliminates redundant fetches
-- **Instant Navigation**: Prefetching makes page transitions feel instant
-- **Optimistic UI**: Users see immediate feedback
-- **Background Updates**: Stale data updates seamlessly
-
-## Common Pitfalls
-
-1. **Over-invalidation**: Invalidating too broadly causes unnecessary refetches
-2. **Under-invalidation**: Not invalidating related data causes inconsistencies
-3. **Memory Leaks**: Not setting `gcTime` can cause memory issues
-4. **Race Conditions**: Not canceling queries can cause state issues
-
-## Related Patterns
-- [Tri-Context Pattern](./tri-context.md) - Uses React Query in data context
-- [Smart Cache Invalidation](./cache-invalidation.md) - Advanced invalidation strategies
-- [Optimistic UI Updates](./optimistic-updates.md) - UX patterns with React Query
-
-## Further Reading
-- [API Integration Patterns](../guides/api-integration.md)
-- [TanStack Query Docs](https://tanstack.com/query/latest)
-- [Query Key Factory Pattern](https://tkdodo.eu/blog/effective-react-query-keys)

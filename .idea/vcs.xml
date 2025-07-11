@@ -2,5 +2,8 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/apps/backend/data/templates/hello-world-ui" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/apps/backend/data/templates/hello-world-ui/data/templates/hello-world-ui-workspace-89c30097-2a40-4819-a096-c487d22a4649" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/data/templates/hello-world-ui" vcs="Git" />
   </component>
 </project>

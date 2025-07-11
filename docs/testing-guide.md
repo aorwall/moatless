@@ -220,15 +220,6 @@ it('displays task data through component hierarchy', () => {
 });
 ```
 
-### Benefits of Strategic Mocking
-
-#### Integration Testing Catches:
-- **Interface Mismatches**: When component props change
-- **Data Flow Issues**: When context or props aren't passed correctly
-- **Breaking Changes**: When child components break parent functionality
-- **Performance Issues**: When components don't handle large datasets
-- **User Experience Issues**: When interactions don't work as expected
-
 #### Example: Real Bug Caught by Integration Test
 ```typescript
 // This integration test would catch the bug:

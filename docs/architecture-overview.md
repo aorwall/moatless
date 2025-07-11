@@ -2,15 +2,6 @@
 
 ## Quick Navigation
 
-| Core Components | Development Guides | Architecture Docs |
-|----------------|-------------------|------------------|
-| [📋 Tasks](#1-tasks---the-core-unit-of-work) | [🔌 API Reference](./api-reference.md) | [🏗️ System Architecture](#system-architecture) |
-| [📡 Events](#2-events---real-time-communication) | [🧪 Testing Guide](./testing-guide.md) | [💾 Service Layer](#service-layer-architecture) |
-| [📦 Repositories](#3-repositories---codebase-configuration) | [🎨 Styling Guide](./styling-guide.md) | [🔄 Data Flow](#data-flow-patterns) |
-| [🏭 Workspaces](#4-workspaces---isolated-execution) | [🔀 Git Operations](./git-operations-guide.md) | [🛡️ Security](#security-considerations) |
-| [👁️ Preview](#5-preview-environments---live-testing) | [📚 All Guides](#development-guides) | [⚡ Performance](#performance-optimizations) |
-| [🤖 Agents](#6-agents---ai-task-processors) | [📖 Improvement Plan](./documentation-improvement-plan.md) | [🚀 Deployment](#deployment-considerations) |
-
 ## Introduction
 
 Moatless Swarm UI is a web application that enables AI agents to safely execute code modifications in isolated environments. This document provides a high-level overview of the system architecture and references detailed documentation for specific components.
@@ -136,7 +127,7 @@ Repositories define how codebases are accessed and executed within the system.
 - Custom execution commands
 - Preview environment configuration
 
-📖 **[Repository Architecture Documentation](./components/repositories.md)**
+📖 **[Repository Architecture Documentation](features/repositories.md)**
 
 ### 4. Workspaces - Isolated Execution
 Workspaces provide safe, isolated environments for code modifications.
@@ -170,7 +161,7 @@ Preview environments allow testing changes in real-time with development servers
 - Live reload integration
 - DOM inspection capabilities
 
-📖 **[Preview Environment Documentation](./components/preview-environments.md)**
+📖 **[Preview Environment Documentation](features/preview-environments.md)**
 
 ### 6. Agents - AI Task Processors
 Agents are the AI models that process tasks and generate code modifications.
@@ -187,7 +178,7 @@ Agents are the AI models that process tasks and generate code modifications.
 - Streaming responses
 - Error recovery
 
-📖 **[Agent Architecture Documentation](./components/agents.md)**
+📖 **[Agent Architecture Documentation](features/agents.md)**
 
 ### Frontend Architecture
 The frontend implements sophisticated patterns for performance and developer experience.

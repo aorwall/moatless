@@ -520,12 +520,6 @@ it('displays task data through component hierarchy', () => {
 - Always test loading states, error states, and edge cases
 - Use contract tests to verify component interfaces
 
-#### Benefits of Strategic Mocking
-- **Catches Integration Bugs**: Real component interactions reveal interface mismatches
-- **Detects Breaking Changes**: Changes to child components break parent tests
-- **Validates Data Flow**: Ensures props and context flow correctly through component tree
-- **Tests User Experience**: Closer to how users actually interact with the application
-
 ### Comprehensive Testing Guide
 For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).
 

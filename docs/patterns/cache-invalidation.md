@@ -260,38 +260,6 @@ export function useBackgroundRefetch() {
 }
 ```
 
-## Benefits
-
-### Performance
-- **Reduced Network Requests**: Only refetch what changed
-- **Faster UI Updates**: Optimistic updates provide instant feedback
-- **Efficient Batching**: Multiple invalidations grouped together
-
-### Data Consistency
-- **Automatic Synchronization**: Events ensure all related data updates
-- **Conflict Resolution**: Proper sequencing prevents race conditions
-- **Rollback Support**: Failed optimistic updates revert cleanly
-
-### Developer Experience
-- **Declarative**: Define relationships once, invalidation happens automatically
-- **Predictable**: Clear rules for when cache updates occur
-- **Debuggable**: Rich logging shows invalidation reasons
-
-## Trade-offs
-
-### Complexity
-- More sophisticated cache management code
-- Need to understand query key hierarchies
-- Event-driven logic can be harder to debug
-
-### Memory Usage
-- Keeping track of pending invalidations
-- More cache entries with granular keys
-
-### Timing Sensitivity
-- Event ordering matters for consistency
-- Debouncing can delay some updates
-
 ## Real-World Example
 
 ```typescript
@@ -356,20 +324,3 @@ export function TaskEventProcessor() {
 3. **Race Conditions**: Events arriving out of order
 4. **Memory Leaks**: Not cleaning up event listeners
 5. **Timing Issues**: Invalidating before data is ready
-
-## Performance Metrics
-
-In production:
-- **Cache Hit Rate**: 85-95% for well-structured keys
-- **Invalidation Efficiency**: 60% reduction in unnecessary refetches
-- **UI Responsiveness**: Sub-100ms updates with optimistic patterns
-
-## Related Patterns
-- [React Query Patterns](./react-query.md) - Uses this invalidation strategy
-- [Event-Driven Architecture](./event-driven.md) - Provides the events
-- [Optimistic UI Updates](./optimistic-updates.md) - Builds on this pattern
-
-## Further Reading
-- [React Query Invalidation Guide](https://tanstack.com/query/latest/docs/react/guides/query-invalidation)
-- [Event Sourcing Patterns](https://martinfowler.com/eaaDev/EventSourcing.html)
-- [Cache Invalidation Strategies](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html)

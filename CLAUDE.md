@@ -675,7 +675,7 @@ vi.mock('@/features/tasks/hooks/use-tasks');
 vi.mock('@/features/tasks/hooks/use-task-sse-connection');
 
 // ✅ Mock complex UI libraries
-vi.mock('@/lib/components/ui/resizable');
+vi.mock('@/lib/features/ui/resizable');
 
 // ❌ Don't mock feature components - test integration!
 // vi.mock('@/features/tasks/components/task-viewer');
@@ -702,12 +702,6 @@ it('displays task data through component hierarchy', () => {
 - Always test loading states, error states, and edge cases
 - Use contract tests to verify component interfaces
 - **Note**: `any` types are allowed in test files (`**/*.test.ts`, `**/*.test.tsx`, `**/__tests__/**/*`)
-
-#### Benefits of Strategic Mocking
-- **Catches Integration Bugs**: Real component interactions reveal interface mismatches
-- **Detects Breaking Changes**: Changes to child components break parent tests
-- **Validates Data Flow**: Ensures props and context flow correctly through component tree
-- **Tests User Experience**: Closer to how users actually interact with the application
 
 ### Comprehensive Testing Guide
 For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).

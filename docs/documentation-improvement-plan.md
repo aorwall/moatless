@@ -347,7 +347,7 @@ describe('Documentation Structure', () => {
 ```yaml
 Documentation Structure:
   /docs
-    /components          # Individual component deep-dives
+    /features          # Individual component deep-dives
       tasks.md
       events.md
       repositories.md

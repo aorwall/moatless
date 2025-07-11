@@ -10,7 +10,6 @@ This directory contains documentation for architectural patterns used across mul
 
 ### Real-time Patterns
 - [SSE Connection Management](./sse-management.md) - Server-sent events architecture
-- [Optimistic UI Updates](./optimistic-updates.md) - Immediate feedback for user actions
 
 ### State Management Patterns
 - [React Query Patterns](./react-query.md) - Server state management best practices
@@ -22,21 +21,3 @@ This directory contains documentation for architectural patterns used across mul
 
 ### Testing Patterns
 - [Strategic Mocking](./strategic-mocking.md) - Balanced testing approach
-
-## When to Use These Patterns
-
-Each pattern documentation includes:
-- **Problem**: What challenge the pattern solves
-- **Solution**: How the pattern addresses the problem
-- **Implementation**: Code examples and usage guidelines
-- **Trade-offs**: Benefits and limitations
-- **Examples**: Real usage in the codebase
-
-## Contributing New Patterns
-
-When documenting a new pattern:
-1. Ensure it's used in at least 2 different components
-2. Follow the pattern documentation template
-3. Include concrete examples from the codebase
-4. Document both benefits and trade-offs
-5. Add to this index with appropriate categorization

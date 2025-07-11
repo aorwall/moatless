@@ -64,7 +64,7 @@ const MOCKING_RULES: MockingRule[] = [
   {
     pattern: /^@\/features\/.*\/components/,
     strategy: MockingStrategy.NEVER_MOCK,
-    reason: 'Feature components should be tested with real integrations'
+    reason: 'Feature features should be tested with real integrations'
   },
   
   // Contract test for contexts
@@ -106,7 +106,7 @@ function setupUnitTestMocks() {
   }));
   
   // Mock complex UI libraries
-  vi.mock('@/lib/components/ui/resizable', () => ({
+  vi.mock('@/lib/features/ui/resizable', () => ({
     ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => 
       <div data-testid="resizable-panel-group">{children}</div>,
     ResizablePanel: ({ children }: { children: React.ReactNode }) => 
@@ -149,7 +149,7 @@ function setupIntegrationTestMocks() {
   
   // Keep most UI components real for integration testing
   // Only mock the most complex ones
-  vi.mock('@/lib/components/ui/resizable', () => ({
+  vi.mock('@/lib/features/ui/resizable', () => ({
     ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => 
       <div data-testid="resizable-panel-group">{children}</div>,
     ResizablePanel: ({ children }: { children: React.ReactNode }) => 
@@ -352,7 +352,7 @@ describe('TaskDetail Integration', () => {
     });
   });
   
-  it('should handle loading and error states across components', async () => {
+  it('should handle loading and error states across features', async () => {
     vi.mocked(useTask).mockReturnValue({
       data: null,
       isLoading: true,
@@ -455,37 +455,6 @@ export function expectComponentIntegration(
 }
 ```
 
-## Benefits
-
-### Reliable Testing
-- **Catches Integration Bugs**: Real component interactions reveal interface issues
-- **Reflects User Experience**: Tests closer to actual user interactions
-- **Maintainable**: Less brittle than over-mocked tests
-- **Performance**: Balanced between speed and accuracy
-
-### Developer Productivity
-- **Faster Debugging**: Easier to identify real vs. test-only issues
-- **Consistent Strategy**: Clear rules for what to mock
-- **Refactoring Safety**: Tests catch breaking changes in component interfaces
-- **Confidence**: Higher trust in test results
-
-### Code Quality
-- **Better Architecture**: Forces well-designed component interfaces
-- **Documentation**: Tests serve as integration examples
-- **Coverage**: More meaningful coverage metrics
-
-## Trade-offs
-
-### Test Complexity
-- More setup required for integration tests
-- Harder to isolate specific failures
-- May need more sophisticated test data setup
-
-### Performance Impact
-- Integration tests run slower than pure unit tests
-- More memory usage for real component trees
-- Potential for test pollution between tests
-
 ## Best Practices
 
 ### Do's
@@ -522,13 +491,3 @@ function shouldMock(dependency: string): boolean {
   return false; // Default to real
 }
 ```
-
-## Related Patterns
-- [React Query Patterns](./react-query.md) - API mocking strategies
-- [Error Handling Patterns](./error-handling.md) - Testing error scenarios
-- [Tri-Context Pattern](./tri-context.md) - Context mocking approaches
-
-## Further Reading
-- [Testing Library Philosophy](https://testing-library.com/docs/guiding-principles/)
-- [Contract Testing](https://martinfowler.com/bliki/ContractTest.html)
-- [Test Doubles](https://martinfowler.com/bliki/TestDouble.html)

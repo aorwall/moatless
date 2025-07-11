@@ -291,20 +291,6 @@ export function TaskUIProvider({ taskId, children }) {
 }
 ```
 
-## Trade-offs
-
-### Benefits
-- **Performance**: Eliminates unnecessary renders and effect executions
-- **Simplicity**: More straightforward data flow without effect chains
-- **Predictability**: Values update synchronously during render
-- **Debugging**: Easier to trace value origins and updates
-- **No cleanup**: No effect cleanup functions to manage
-
-### Limitations
-- **Memory**: `useMemo` still uses memory for cached values
-- **Complexity**: Very complex calculations might need different patterns
-- **Learning curve**: Requires thinking differently about React data flow
-
 ## When to Use Effects
 
 Effects are still appropriate for:
@@ -546,14 +532,3 @@ const useInitialExpandedPaths = (tree: FileTreeNode[]) => {
   }, [tree])
 }
 ```
-
-## Summary of Refactoring Benefits
-
-1. **ChatView scroll state**: Reduces re-renders from every scroll event to only when isAtBottom changes
-2. **GitDiffViewer auto-expand**: Eliminates effect and potential race conditions
-3. **ChatForm initial resize**: Removes problematic ref dependency and simplifies code
-4. **ChatForm dropdown position**: Calculates position synchronously without extra state
-5. **MinifiedLastEventsDisplay filtering**: Eliminates unnecessary state and effect
-6. **GitDiffFileTree auto-expand**: Provides predictable initial state without effects
-
-These refactors would improve performance, reduce complexity, and make the code more maintainable.
