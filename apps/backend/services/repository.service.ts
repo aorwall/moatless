@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { RepositoryNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
-import { 
+import {
   FRAMEWORK_DEFAULT_COMMANDS,
   PACKAGE_MANAGER_FILES,
 } from '@moatless/shared/constants/preview-config'
@@ -25,8 +25,7 @@ export class RepositoryService {
     await this.validateRepository(request)
 
     // Auto-detect framework for local repositories if not provided
-    let previewConfig = request.previewConfig
-
+    const previewConfig = request.previewConfig
 
     // Set serverCommand from preview config if available and not already set
     let serverCommand = request.codeExecution.serverCommand
@@ -114,7 +113,11 @@ export class RepositoryService {
     for (const taskKey of tasks) {
       const taskId = taskKey.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
-      if (task && task.repositoryId === repoId && (task.status === 'open' || task.status === 'running')) {
+      if (
+        task &&
+        task.repositoryId === repoId &&
+        (task.status === 'open' || task.status === 'running')
+      ) {
         throw new ValidationError(
           `Cannot delete repository ${repoId} - it is in use by task ${taskId}`,
           { repositoryId: repoId, taskId },
@@ -190,14 +193,14 @@ export class RepositoryService {
       return uniqueBranches.sort((a, b) => {
         const isMainA = a === 'main' || a === 'master'
         const isMainB = b === 'main' || b === 'master'
-        
+
         if (isMainA && !isMainB) return -1
         if (!isMainA && isMainB) return 1
         if (isMainA && isMainB) {
           // Both are main branches, prefer 'main' over 'master'
           return a === 'main' ? -1 : 1
         }
-        
+
         return a.localeCompare(b)
       })
     } catch {
@@ -334,7 +337,8 @@ export class RepositoryService {
 
       // Detect framework based on dependencies
       if (deps.vite) {
-        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('vite')
+        const serverCommand =
+          this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('vite')
         return {
           framework: 'vite',
           frameworkVersion: deps.vite,
@@ -350,7 +354,8 @@ export class RepositoryService {
       }
 
       if (deps.next) {
-        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start']) || getDefaultCommand('nextjs')
+        const serverCommand =
+          this.detectServerCommand(scripts, ['dev', 'start']) || getDefaultCommand('nextjs')
         return {
           framework: 'nextjs',
           frameworkVersion: deps.next,
@@ -365,7 +370,8 @@ export class RepositoryService {
       }
 
       if (deps['react-scripts']) {
-        const serverCommand = this.detectServerCommand(scripts, ['start', 'dev']) || getDefaultCommand('cra')
+        const serverCommand =
+          this.detectServerCommand(scripts, ['start', 'dev']) || getDefaultCommand('cra')
         return {
           framework: 'cra',
           frameworkVersion: deps['react-scripts'],
@@ -381,7 +387,9 @@ export class RepositoryService {
       }
 
       if (deps.webpack) {
-        const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('webpack')
+        const serverCommand =
+          this.detectServerCommand(scripts, ['dev', 'start', 'serve']) ||
+          getDefaultCommand('webpack')
         return {
           framework: 'webpack',
           frameworkVersion: deps.webpack,
@@ -394,7 +402,8 @@ export class RepositoryService {
       }
 
       // Unknown framework, try to detect start command
-      const serverCommand = this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('unknown')
+      const serverCommand =
+        this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('unknown')
       return {
         framework: 'unknown',
         serverStartCommand: serverCommand,
@@ -443,8 +452,6 @@ export class RepositoryService {
   }
 }
 
-export function createRepositoryService(
-  storage: StorageBackend,
-): RepositoryService {
+export function createRepositoryService(storage: StorageBackend): RepositoryService {
   return new RepositoryService(storage)
 }

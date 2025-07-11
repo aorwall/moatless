@@ -1,6 +1,6 @@
 /**
  * Command availability filtering logic
- * 
+ *
  * To enable debug logging:
  * 1. Set DEBUG_COMMAND_FILTERING = true below
  * 2. Open browser console to see detailed logs of command filtering decisions
@@ -35,45 +35,50 @@ function checkTaskConditions(conditions: any, task?: any): boolean {
     debugLog('Task is running but command requires not running', { taskStatus: task.status })
     return false
   }
-  
+
   if (conditions.allowedTaskStatuses?.length > 0 && task) {
     const allowed = conditions.allowedTaskStatuses.includes(task.status)
-    debugLog('Checking allowed task statuses', { 
-      allowed: conditions.allowedTaskStatuses, 
-      current: task.status, 
-      result: allowed 
+    debugLog('Checking allowed task statuses', {
+      allowed: conditions.allowedTaskStatuses,
+      current: task.status,
+      result: allowed,
     })
     return allowed
   }
-  
+
   return true
 }
 
 function checkIterationConditions(conditions: any, lastIteration?: any): boolean {
   if (conditions.requiresLastIterationError) {
-    const hasError = lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
-    debugLog('Checking for iteration error', { 
-      required: true, 
-      iterationStatus: lastIteration?.status, 
-      result: hasError 
+    const hasError =
+      lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
+    debugLog('Checking for iteration error', {
+      required: true,
+      iterationStatus: lastIteration?.status,
+      result: hasError,
     })
     return hasError
   }
-  
+
   if (conditions.requiresLastIterationSuccess) {
     const hasSuccess = lastIteration && lastIteration.status === 'completed'
-    debugLog('Checking for iteration success', { 
-      required: true, 
-      iterationStatus: lastIteration?.status, 
-      result: hasSuccess 
+    debugLog('Checking for iteration success', {
+      required: true,
+      iterationStatus: lastIteration?.status,
+      result: hasSuccess,
     })
     return hasSuccess
   }
-  
+
   return true
 }
 
-function checkGitConditions(conditions: any, workspaceHasChanges?: boolean, gitSyncStatus?: any): boolean {
+function checkGitConditions(
+  conditions: any,
+  workspaceHasChanges?: boolean,
+  gitSyncStatus?: any,
+): boolean {
   debugLog('Checking git conditions', {
     workspaceHasChanges,
     gitSyncStatus,
@@ -83,8 +88,8 @@ function checkGitConditions(conditions: any, workspaceHasChanges?: boolean, gitS
       requiresAheadOfMain: conditions.requiresAheadOfMain,
       requiresBehindMain: conditions.requiresBehindMain,
       requiresDiverged: conditions.requiresDiverged,
-      allowedGitSyncStatuses: conditions.allowedGitSyncStatuses
-    }
+      allowedGitSyncStatuses: conditions.allowedGitSyncStatuses,
+    },
   })
 
   // List of git condition checkers - any one returning true means condition is satisfied (OR logic)
@@ -92,18 +97,25 @@ function checkGitConditions(conditions: any, workspaceHasChanges?: boolean, gitS
     () => {
       const result = conditions.requiresUncommittedChanges && workspaceHasChanges
       if (conditions.requiresUncommittedChanges) {
-        debugLog('Uncommitted changes check', { required: true, hasChanges: workspaceHasChanges, result })
+        debugLog('Uncommitted changes check', {
+          required: true,
+          hasChanges: workspaceHasChanges,
+          result,
+        })
       }
       return result
     },
     () => {
-      const result = conditions.requiresCommittedChanges && gitSyncStatus && (!gitSyncStatus.hasUncommittedChanges || gitSyncStatus.commitsAhead > 0)
+      const result =
+        conditions.requiresCommittedChanges &&
+        gitSyncStatus &&
+        (!gitSyncStatus.hasUncommittedChanges || gitSyncStatus.commitsAhead > 0)
       if (conditions.requiresCommittedChanges) {
-        debugLog('Committed changes check', { 
-          required: true, 
+        debugLog('Committed changes check', {
+          required: true,
           hasUncommitted: gitSyncStatus?.hasUncommittedChanges,
           commitsAhead: gitSyncStatus?.commitsAhead,
-          result 
+          result,
         })
       }
       return result
@@ -111,14 +123,22 @@ function checkGitConditions(conditions: any, workspaceHasChanges?: boolean, gitS
     () => {
       const result = conditions.requiresAheadOfMain && gitSyncStatus?.commitsAhead > 0
       if (conditions.requiresAheadOfMain) {
-        debugLog('Ahead of main check', { required: true, commitsAhead: gitSyncStatus?.commitsAhead, result })
+        debugLog('Ahead of main check', {
+          required: true,
+          commitsAhead: gitSyncStatus?.commitsAhead,
+          result,
+        })
       }
       return result
     },
     () => {
       const result = conditions.requiresBehindMain && gitSyncStatus?.commitsBehind > 0
       if (conditions.requiresBehindMain) {
-        debugLog('Behind main check', { required: true, commitsBehind: gitSyncStatus?.commitsBehind, result })
+        debugLog('Behind main check', {
+          required: true,
+          commitsBehind: gitSyncStatus?.commitsBehind,
+          result,
+        })
       }
       return result
     },
@@ -130,19 +150,22 @@ function checkGitConditions(conditions: any, workspaceHasChanges?: boolean, gitS
       return result
     },
     () => {
-      const result = conditions.allowedGitSyncStatuses?.length > 0 && gitSyncStatus && conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status)
+      const result =
+        conditions.allowedGitSyncStatuses?.length > 0 &&
+        gitSyncStatus &&
+        conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status)
       if (conditions.allowedGitSyncStatuses?.length > 0) {
-        debugLog('Allowed git statuses check', { 
+        debugLog('Allowed git statuses check', {
           allowed: conditions.allowedGitSyncStatuses,
           current: gitSyncStatus?.status,
-          result 
+          result,
         })
       }
       return result
-    }
+    },
   ]
-  
-  const anyPassed = gitChecks.some(check => check())
+
+  const anyPassed = gitChecks.some((check) => check())
   debugLog('Git conditions result (OR logic)', { anyPassed })
   return anyPassed
 }
@@ -154,13 +177,13 @@ function hasAnyGitConditions(conditions: any): boolean {
     conditions.requiresBehindMain ||
     conditions.requiresAheadOfMain ||
     conditions.requiresDiverged ||
-    (conditions.allowedGitSyncStatuses?.length > 0)
+    conditions.allowedGitSyncStatuses?.length > 0
   )
 }
 
 export function isCommandAvailable(command: Command, context: CommandAvailabilityContext): boolean {
   debugLog(`Evaluating command: ${command.name}`)
-  
+
   // Quick exits
   if (command.active === false) {
     debugLog(`Command ${command.name} is inactive`)
@@ -181,7 +204,7 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
     debugLog(`Command ${command.name} failed task conditions`)
     return false
   }
-  
+
   const iterationConditionsPassed = checkIterationConditions(conditions, lastIteration)
   if (!iterationConditionsPassed) {
     debugLog(`Command ${command.name} failed iteration conditions`)
@@ -199,11 +222,14 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
   return true
 }
 
-export function filterAvailableCommands(commands: Command[], context: CommandAvailabilityContext): Command[] {
+export function filterAvailableCommands(
+  commands: Command[],
+  context: CommandAvailabilityContext,
+): Command[] {
   debugLog(`Filtering ${commands.length} commands`, { context })
-  const available = commands.filter(command => isCommandAvailable(command, context))
-  debugLog(`Found ${available.length} available commands`, { 
-    availableCommands: available.map(c => c.name) 
+  const available = commands.filter((command) => isCommandAvailable(command, context))
+  debugLog(`Found ${available.length} available commands`, {
+    availableCommands: available.map((c) => c.name),
   })
   return available
 }

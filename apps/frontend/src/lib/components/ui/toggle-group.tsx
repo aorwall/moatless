@@ -1,6 +1,6 @@
-import * as React from 'react'
 import * as ToggleGroupPrimitive from '@radix-ui/react-toggle-group'
 import { cva, type VariantProps } from 'class-variance-authority'
+import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -10,8 +10,7 @@ const toggleGroupVariants = cva(
     variants: {
       variant: {
         default: 'bg-transparent',
-        outline:
-          'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground',
+        outline: 'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground',
       },
       size: {
         default: 'h-10 px-3',
@@ -23,7 +22,7 @@ const toggleGroupVariants = cva(
       variant: 'default',
       size: 'default',
     },
-  }
+  },
 )
 
 const ToggleGroup = React.forwardRef<

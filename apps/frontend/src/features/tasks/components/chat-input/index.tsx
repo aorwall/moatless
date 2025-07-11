@@ -8,10 +8,10 @@ import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import { ChatForm } from './chat-form'
 import {
   GenericSelector,
-  useRepositorySelector,
   useBranchSelector,
+  useModelSelector,
+  useRepositorySelector,
   useTemplateSelector,
-  useModelSelector
 } from './selectors'
 
 export type ChatInputMode = 'code' | 'vibe'
@@ -31,7 +31,6 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
   // Task status for conditional behavior
   taskStatus?: string
   lastIterationHasError?: boolean
-
 
   // Callbacks
   onSendMessage?: (
@@ -61,7 +60,7 @@ interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
 
   // Textarea configuration
   maxHeight?: string
-  
+
   // Default values
   defaultRepositoryId?: string
   defaultMessage?: string
@@ -91,7 +90,7 @@ export function ChatInput({
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [runningDuration, setRunningDuration] = useState<string>('')
   const [resumeConversation, setResumeConversation] = useState(true)
-  
+
   // Initialize model selector with saved value
   const initialModel = (() => {
     if (typeof window !== 'undefined') {
@@ -102,9 +101,9 @@ export function ChatInput({
     }
     return undefined
   })()
-  
+
   const modelSelector = useModelSelector(initialModel)
-  
+
   // Determine initial repository value
   const initialRepositoryId = (() => {
     if (defaultRepositoryId) return defaultRepositoryId
@@ -113,9 +112,15 @@ export function ChatInput({
     }
     return ''
   })()
-  
-  const repoSelector = useRepositorySelector(showRepositorySelector && mode === 'code', initialRepositoryId)
-  const branchSelector = useBranchSelector(repoSelector.value, showRepositorySelector && mode === 'code')
+
+  const repoSelector = useRepositorySelector(
+    showRepositorySelector && mode === 'code',
+    initialRepositoryId,
+  )
+  const branchSelector = useBranchSelector(
+    repoSelector.value,
+    showRepositorySelector && mode === 'code',
+  )
   const templateSelector = useTemplateSelector(showRepositorySelector && mode === 'vibe')
 
   // Stop agent mutation - only initialize if we have a taskId
@@ -124,7 +129,7 @@ export function ChatInput({
   const isTaskContext = !!taskId
   const isPending = isLoading
   const isRunning = taskStatus === 'running'
-  
+
   // Extract repositoryId from task if available
   const effectiveRepositoryId = isTaskContext ? task?.repositoryId : repoSelector.value
 
@@ -148,7 +153,6 @@ export function ChatInput({
     return () => clearInterval(interval)
   }, [isRunning, task?.iterations])
 
-  
   // Initialize template from localStorage if in vibe mode
   useEffect(() => {
     if (!taskId && mode === 'vibe' && typeof window !== 'undefined') {
@@ -158,7 +162,7 @@ export function ChatInput({
       }
     }
   }, [taskId, mode, templateSelector.value, templateSelector.onChange])
-  
+
   // Save selected repository to localStorage
   useEffect(() => {
     if (repoSelector.value && !taskId && mode === 'code') {
@@ -187,15 +191,33 @@ export function ChatInput({
         branchSelector.onChange(branchSelector.items[0].id) // Select the first branch
       }
     }
-  }, [showRepositorySelector, mode, repoSelector.value, branchSelector.items, branchSelector.value, branchSelector.onChange])
+  }, [
+    showRepositorySelector,
+    mode,
+    repoSelector.value,
+    branchSelector.items,
+    branchSelector.value,
+    branchSelector.onChange,
+  ])
 
   // Auto-select first template when templates are loaded
   useEffect(() => {
-    if (showRepositorySelector && mode === 'vibe' && templateSelector.items.length > 0 && !templateSelector.value) {
+    if (
+      showRepositorySelector &&
+      mode === 'vibe' &&
+      templateSelector.items.length > 0 &&
+      !templateSelector.value
+    ) {
       templateSelector.onChange(templateSelector.items[0].id)
     }
-  }, [showRepositorySelector, mode, templateSelector.items, templateSelector.value, templateSelector.onChange])
-  
+  }, [
+    showRepositorySelector,
+    mode,
+    templateSelector.items,
+    templateSelector.value,
+    templateSelector.onChange,
+  ])
+
   // Reset message and files when taskId changes
   useEffect(() => {
     if (taskId) {
@@ -236,10 +258,23 @@ export function ChatInput({
       }
     } else if (mode === 'code' && repoSelector.value && onCreateTask && !isPending) {
       // Code mode - create task with uploaded files and selected branch
-      onCreateTask(message.trim(), repoSelector.value, clearMessage, modelSelector.value as ClaudeModel, uploadedFiles, branchSelector.value)
+      onCreateTask(
+        message.trim(),
+        repoSelector.value,
+        clearMessage,
+        modelSelector.value as ClaudeModel,
+        uploadedFiles,
+        branchSelector.value,
+      )
     } else if (mode === 'vibe' && templateSelector.value && onCreateVibeTask && !isPending) {
       // Vibe mode - create vibe task with template
-      onCreateVibeTask(message.trim(), templateSelector.value, clearMessage, modelSelector.value as ClaudeModel, uploadedFiles)
+      onCreateVibeTask(
+        message.trim(),
+        templateSelector.value,
+        clearMessage,
+        modelSelector.value as ClaudeModel,
+        uploadedFiles,
+      )
     }
   }
 
@@ -281,8 +316,9 @@ export function ChatInput({
     isPending ||
     (!isRunning && !message.trim()) ||
     (isTaskContext && (taskStatus === 'completed' || taskStatus === 'failed')) ||
-    !(isTaskContext || 
-      (mode === 'code' && repoSelector.value) || 
+    !(
+      isTaskContext ||
+      (mode === 'code' && repoSelector.value) ||
       (mode === 'vibe' && templateSelector.value)
     )
 
@@ -299,9 +335,7 @@ export function ChatInput({
           <div className="px-4 py-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
             <div className="flex items-start gap-3">
               <div className="flex-1">
-                <p className="text-sm text-status-warning font-medium">
-                  Previous iteration failed
-                </p>
+                <p className="text-sm text-status-warning font-medium">Previous iteration failed</p>
                 <p className="text-sm text-status-warning mt-1">
                   You can choose to start fresh without context from the previous conversation.
                 </p>
@@ -336,14 +370,16 @@ export function ChatInput({
           files={uploadedFiles}
           onFilesChange={setUploadedFiles}
           selectors={[
-            ...(showRepositorySelector && mode === 'code' ? [
-              <GenericSelector key="repo" {...repoSelector} />,
-              <GenericSelector key="branch" {...branchSelector} />
-            ] : []),
-            ...(showRepositorySelector && mode === 'vibe' ? [
-              <GenericSelector key="template" {...templateSelector} />
-            ] : []),
-            <GenericSelector key="model" {...modelSelector} />
+            ...(showRepositorySelector && mode === 'code'
+              ? [
+                  <GenericSelector key="repo" {...repoSelector} />,
+                  <GenericSelector key="branch" {...branchSelector} />,
+                ]
+              : []),
+            ...(showRepositorySelector && mode === 'vibe'
+              ? [<GenericSelector key="template" {...templateSelector} />]
+              : []),
+            <GenericSelector key="model" {...modelSelector} />,
           ]}
         />
       </div>

@@ -80,11 +80,7 @@ function ServerLogsViewerSkeleton() {
   return (
     <div className="h-full w-full bg-background border rounded-md p-4 space-y-2">
       {skeletonWidths.map((width) => (
-        <Skeleton
-          key={`skeleton-width-${width}`}
-          className="h-4"
-          style={{ width: `${width}%` }}
-        />
+        <Skeleton key={`skeleton-width-${width}`} className="h-4" style={{ width: `${width}%` }} />
       ))}
     </div>
   )

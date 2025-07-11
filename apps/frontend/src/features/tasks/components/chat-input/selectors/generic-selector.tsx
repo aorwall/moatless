@@ -1,4 +1,3 @@
-import { cn } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -6,6 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
+import { cn } from '@/lib/utils'
 
 // Common props all selectors share
 export interface BaseSelectorProps {
@@ -29,17 +29,13 @@ export function GenericSelector({
   disabled,
   placeholder,
   items,
-  width = "w-[180px]",
-  className
+  width = 'w-[180px]',
+  className,
 }: GenericSelectorProps) {
   return (
-    <Select
-      value={value}
-      onValueChange={onChange}
-      disabled={disabled || loading}
-    >
-      <SelectTrigger size="sm" className={cn("h-6 px-2 text-xs", width, className)}>
-        <SelectValue placeholder={loading ? "Loading..." : placeholder} />
+    <Select value={value} onValueChange={onChange} disabled={disabled || loading}>
+      <SelectTrigger size="sm" className={cn('h-6 px-2 text-xs', width, className)}>
+        <SelectValue placeholder={loading ? 'Loading...' : placeholder} />
       </SelectTrigger>
       <SelectContent>
         {items.map((item) => (

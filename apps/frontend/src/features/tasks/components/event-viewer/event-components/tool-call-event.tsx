@@ -1,8 +1,4 @@
-import {
-  isToolResultContent,
-  isToolUseContent,
-  type ToolUseContent,
-} from '@moatless/shared'
+import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/shared'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'

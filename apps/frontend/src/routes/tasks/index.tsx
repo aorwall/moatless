@@ -26,7 +26,7 @@ function TasksIndex() {
   const navigate = useNavigate({ from: '/tasks' })
   const { subscribeToAll } = useGlobalEventStream()
   const searchParams = Route.useSearch()
-  
+
   const { page = 1, limit = 20, status } = searchParams
   const offset = (page - 1) * limit
 
@@ -38,13 +38,14 @@ function TasksIndex() {
     console.log('[TasksIndex] Setting up global subscription')
     return subscribeToAll((event) => {
       // Invalidate task list on relevant events
-      if (event.subType && (
-        event.subType === 'task:created' ||
-        event.subType === 'task:updated' ||
-        event.subType === 'task:statusChanged' ||
-        event.subType === 'iteration:created' ||
-        event.subType === 'iteration:updated'
-      )) {
+      if (
+        event.subType &&
+        (event.subType === 'task:created' ||
+          event.subType === 'task:updated' ||
+          event.subType === 'task:statusChanged' ||
+          event.subType === 'iteration:created' ||
+          event.subType === 'iteration:updated')
+      ) {
         queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
       }
     })
@@ -56,9 +57,7 @@ function TasksIndex() {
     })
   }
 
-  const totalPages = data?.pagination?.total 
-    ? Math.ceil(data.pagination.total / limit)
-    : 0
+  const totalPages = data?.pagination?.total ? Math.ceil(data.pagination.total / limit) : 0
 
   const totalItems = data?.pagination?.total || 0
 
@@ -80,11 +79,7 @@ function TasksIndex() {
             <TaskList tasks={data?.tasks || []} loading={false} />
             {totalPages > 1 && (
               <div className="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-                <PaginationInfo
-                  currentPage={page}
-                  pageSize={limit}
-                  totalItems={totalItems}
-                />
+                <PaginationInfo currentPage={page} pageSize={limit} totalItems={totalItems} />
                 <Pagination
                   currentPage={page}
                   totalPages={totalPages}

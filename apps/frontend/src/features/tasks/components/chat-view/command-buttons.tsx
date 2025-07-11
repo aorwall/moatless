@@ -1,12 +1,5 @@
 import type { Command } from '@moatless/shared/types/command'
-import { 
-  GitBranch,
-  GitCommit, 
-  GitMerge,
-  GitPullRequest,
-  MessageSquare,
-  Play
-} from 'lucide-react'
+import { GitBranch, GitCommit, GitMerge, GitPullRequest, MessageSquare, Play } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 
 interface CommandButtonsProps {
@@ -22,12 +15,18 @@ export function CommandButtons({ commands, onCommandClick, disabled }: CommandBu
 
   const getCommandIcon = (iconName?: string) => {
     switch (iconName) {
-      case 'GitCommit': return GitCommit
-      case 'GitBranch': return GitBranch
-      case 'GitMerge': return GitMerge
-      case 'GitPullRequest': return GitPullRequest
-      case 'Play': return Play
-      default: return MessageSquare
+      case 'GitCommit':
+        return GitCommit
+      case 'GitBranch':
+        return GitBranch
+      case 'GitMerge':
+        return GitMerge
+      case 'GitPullRequest':
+        return GitPullRequest
+      case 'Play':
+        return Play
+      default:
+        return MessageSquare
     }
   }
 

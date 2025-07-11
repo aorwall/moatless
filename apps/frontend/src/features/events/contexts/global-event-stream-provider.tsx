@@ -1,5 +1,4 @@
-import type { Event } from '@moatless/shared/types/event'
-import { EventType } from '@moatless/shared/types/event'
+import type { Event, EventType } from '@moatless/shared/types/event'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -58,18 +57,17 @@ export function GlobalEventStreamProvider({
 
       // Use smart invalidation mapping
       const invalidationKeys = getInvalidationKeys(event)
-      
+
       if (invalidationKeys.length > 0) {
-        
         // Use queueMicrotask to ensure state updates complete before invalidation
         queueMicrotask(() => {
           // Invalidate each affected query
-          invalidationKeys.forEach(keyFunction => {
+          invalidationKeys.forEach((keyFunction) => {
             queryClient.invalidateQueries({
               queryKey: keyFunction(event.taskId),
             })
           })
-          
+
           // Always invalidate task lists for status-affecting events
           if (shouldInvalidateTaskList(event)) {
             queryClient.invalidateQueries({
@@ -104,18 +102,20 @@ export function GlobalEventStreamProvider({
       const taskHandlers = taskHandlersRef.current.get(event.taskId)
       const typeHandlers = typeHandlersRef.current.get(event.type)
       const globalHandlers = allHandlersRef.current.size
-      
+
       // Log event details and subscribers that will receive it
       const subscribers = [
         taskHandlers ? `task:${taskHandlers.size}` : null,
         typeHandlers ? `type:${typeHandlers.size}` : null,
-        globalHandlers > 0 ? `global:${globalHandlers}` : null
-      ].filter(Boolean).join(', ')
-      
+        globalHandlers > 0 ? `global:${globalHandlers}` : null,
+      ]
+        .filter(Boolean)
+        .join(', ')
+
       console.log(
-        `[GlobalEventStream] Event: type=${event.type}, subType=${event.subType || 'none'}, taskId=${event.taskId}, subscribers=[${subscribers || 'none'}]`
+        `[GlobalEventStream] Event: type=${event.type}, subType=${event.subType || 'none'}, taskId=${event.taskId}, subscribers=[${subscribers || 'none'}]`,
       )
-      
+
       if (taskHandlers) {
         taskHandlers.forEach((handler) => handler(event))
       }
@@ -131,13 +131,13 @@ export function GlobalEventStreamProvider({
 
   const connect = useCallback(() => {
     if (!enabled) return
-    
+
     // Prevent concurrent connections
     if (isConnectingRef.current) {
       console.log('[GlobalEventStream] Connection already in progress, skipping')
       return
     }
-    
+
     // Clean up any existing connection first
     if (abortControllerRef.current) {
       console.log('[GlobalEventStream] Cleaning up existing connection before reconnecting')
@@ -149,7 +149,7 @@ export function GlobalEventStreamProvider({
       abortControllerRef.current = null
       setIsConnected(false)
     }
-    
+
     // Clear any pending reconnect
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
@@ -158,22 +158,22 @@ export function GlobalEventStreamProvider({
 
     console.log('[GlobalEventStream] Starting new connection...')
     isConnectingRef.current = true
-    
+
     try {
       const params = new URLSearchParams()
       if (types?.length) params.append('types', types.join(','))
 
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
       const url = `${baseUrl}/api/v1/events/stream?${params.toString()}`
-      
+
       // Use fetch with ReadableStream to handle NDJSON format
       const abortController = new AbortController()
       abortControllerRef.current = abortController
-      
+
       fetch(url, {
         method: 'GET',
         headers: {
-          'Accept': 'text/plain',
+          Accept: 'text/plain',
           'Cache-Control': 'no-cache',
         },
         credentials: 'include',
@@ -201,7 +201,7 @@ export function GlobalEventStreamProvider({
           try {
             while (true) {
               const { done, value } = await reader.read()
-              
+
               if (done) {
                 console.log('[GlobalEventStream] Stream ended')
                 break
@@ -226,7 +226,12 @@ export function GlobalEventStreamProvider({
 
                     handleEvent(data as Event)
                   } catch (error) {
-                    console.error('[GlobalEventStream] Failed to parse line:', error, 'Raw line:', line)
+                    console.error(
+                      '[GlobalEventStream] Failed to parse line:',
+                      error,
+                      'Raw line:',
+                      line,
+                    )
                   }
                 }
               }
@@ -243,7 +248,7 @@ export function GlobalEventStreamProvider({
           console.error('[GlobalEventStream] Connection error:', error)
           setIsConnected(false)
           isConnectingRef.current = false
-          
+
           // Only reconnect if the connection wasn't manually aborted
           if (!abortController.signal.aborted && error.name !== 'AbortError') {
             setConnectionError(error instanceof Error ? error : new Error('Connection failed'))
@@ -261,7 +266,6 @@ export function GlobalEventStreamProvider({
             console.log('[GlobalEventStream] Connection aborted, not reconnecting')
           }
         })
-
     } catch (error) {
       console.error('[GlobalEventStream] Failed to create connection:', error)
       setConnectionError(error instanceof Error ? error : new Error('Failed to connect'))
@@ -272,7 +276,7 @@ export function GlobalEventStreamProvider({
 
   const disconnect = useCallback(() => {
     console.log('[GlobalEventStream] Disconnecting...')
-    
+
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = undefined
@@ -288,7 +292,7 @@ export function GlobalEventStreamProvider({
       setIsConnected(false)
       console.log('[GlobalEventStream] Disconnected')
     }
-    
+
     isConnectingRef.current = false
   }, [])
 
@@ -298,7 +302,9 @@ export function GlobalEventStreamProvider({
       taskHandlersRef.current.set(taskId, new Set())
     }
     taskHandlersRef.current.get(taskId)!.add(handler)
-    console.log(`[GlobalEventStream] Subscribed to task: ${taskId}, total handlers: ${taskHandlersRef.current.get(taskId)!.size}`)
+    console.log(
+      `[GlobalEventStream] Subscribed to task: ${taskId}, total handlers: ${taskHandlersRef.current.get(taskId)!.size}`,
+    )
 
     return () => {
       const handlers = taskHandlersRef.current.get(taskId)
@@ -307,17 +313,23 @@ export function GlobalEventStreamProvider({
         if (handlers.size === 0) {
           taskHandlersRef.current.delete(taskId)
         }
-        console.log(`[GlobalEventStream] Unsubscribed from task: ${taskId}, remaining handlers: ${handlers.size}`)
+        console.log(
+          `[GlobalEventStream] Unsubscribed from task: ${taskId}, remaining handlers: ${handlers.size}`,
+        )
       }
     }
   }, [])
 
   const subscribeToAll = useCallback((handler: (event: Event) => void) => {
     allHandlersRef.current.add(handler)
-    console.log(`[GlobalEventStream] Subscribed to all events, total handlers: ${allHandlersRef.current.size}`)
+    console.log(
+      `[GlobalEventStream] Subscribed to all events, total handlers: ${allHandlersRef.current.size}`,
+    )
     return () => {
       allHandlersRef.current.delete(handler)
-      console.log(`[GlobalEventStream] Unsubscribed from all events, remaining handlers: ${allHandlersRef.current.size}`)
+      console.log(
+        `[GlobalEventStream] Unsubscribed from all events, remaining handlers: ${allHandlersRef.current.size}`,
+      )
     }
   }, [])
 
@@ -326,7 +338,9 @@ export function GlobalEventStreamProvider({
       typeHandlersRef.current.set(type, new Set())
     }
     typeHandlersRef.current.get(type)!.add(handler)
-    console.log(`[GlobalEventStream] Subscribed to type: ${type}, total handlers: ${typeHandlersRef.current.get(type)!.size}`)
+    console.log(
+      `[GlobalEventStream] Subscribed to type: ${type}, total handlers: ${typeHandlersRef.current.get(type)!.size}`,
+    )
 
     return () => {
       const handlers = typeHandlersRef.current.get(type)
@@ -335,7 +349,9 @@ export function GlobalEventStreamProvider({
         if (handlers.size === 0) {
           typeHandlersRef.current.delete(type)
         }
-        console.log(`[GlobalEventStream] Unsubscribed from type: ${type}, remaining handlers: ${handlers.size}`)
+        console.log(
+          `[GlobalEventStream] Unsubscribed from type: ${type}, remaining handlers: ${handlers.size}`,
+        )
       }
     }
   }, [])
@@ -343,14 +359,14 @@ export function GlobalEventStreamProvider({
   // Connection lifecycle - connect once when mounted
   useEffect(() => {
     let isMounted = true
-    
+
     // Small delay to handle React StrictMode double-mount
     const timer = setTimeout(() => {
       if (isMounted) {
         connect()
       }
     }, 10)
-    
+
     // Cleanup on unmount
     return () => {
       isMounted = false

@@ -1,14 +1,17 @@
-import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/shared/types/command'
+import type {
+  Command,
+  CreateCommandRequest,
+  UpdateCommandRequest,
+} from '@moatless/shared/types/command'
 import { useNavigate } from '@tanstack/react-router'
+import * as LucideIcons from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'
-import * as LucideIcons from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { Checkbox } from '@/lib/components/ui/checkbox'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
-import { Textarea } from '@/lib/components/ui/textarea'
-import { Checkbox } from '@/lib/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -16,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
+import { Textarea } from '@/lib/components/ui/textarea'
 
 interface CommandFormProps {
   command?: Command
@@ -36,7 +40,9 @@ type FormData = {
     requiresTaskNotRunning?: boolean
     requiresLastIterationError?: boolean
     requiresLastIterationSuccess?: boolean
-    allowedGitSyncStatuses?: Array<'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'>
+    allowedGitSyncStatuses?: Array<
+      'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
+    >
     allowedTaskStatuses?: Array<'open' | 'running' | 'error' | 'merged' | 'closed'>
   }
   icon?: string
@@ -186,9 +192,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
       <Card>
         <CardHeader>
           <CardTitle>Conditions</CardTitle>
-          <CardDescription>
-            Define when this command should be available
-          </CardDescription>
+          <CardDescription>Define when this command should be available</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
@@ -250,10 +254,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     })
                   }
                 />
-                <Label
-                  htmlFor="requiresBehindMain"
-                  className="text-sm font-normal cursor-pointer"
-                >
+                <Label htmlFor="requiresBehindMain" className="text-sm font-normal cursor-pointer">
                   Requires branch behind main
                 </Label>
               </div>
@@ -271,10 +272,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     })
                   }
                 />
-                <Label
-                  htmlFor="requiresAheadOfMain"
-                  className="text-sm font-normal cursor-pointer"
-                >
+                <Label htmlFor="requiresAheadOfMain" className="text-sm font-normal cursor-pointer">
                   Requires branch ahead of main
                 </Label>
               </div>
@@ -292,10 +290,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     })
                   }
                 />
-                <Label
-                  htmlFor="requiresDiverged"
-                  className="text-sm font-normal cursor-pointer"
-                >
+                <Label htmlFor="requiresDiverged" className="text-sm font-normal cursor-pointer">
                   Requires branch diverged from main
                 </Label>
               </div>
@@ -376,16 +371,16 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
       <Card>
         <CardHeader>
           <CardTitle>UI Customization</CardTitle>
-          <CardDescription>
-            Customize how this command appears in the interface
-          </CardDescription>
+          <CardDescription>Customize how this command appears in the interface</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="icon">Icon</Label>
             <Select
               value={formData.icon || 'none'}
-              onValueChange={(value) => setFormData({ ...formData, icon: value === 'none' ? '' : value })}
+              onValueChange={(value) =>
+                setFormData({ ...formData, icon: value === 'none' ? '' : value })
+              }
             >
               <SelectTrigger id="icon">
                 <SelectValue placeholder="Select an icon (optional)">

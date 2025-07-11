@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
-import React from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
+import { describe, expect, it, vi } from 'vitest'
 import { ChatForm } from '../chat-form'
 import { GenericSelector } from '../selectors'
 
@@ -11,55 +11,51 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useSearchFiles: vi.fn(() => ({
     data: null,
     isLoading: false,
-    error: null
-  }))
+    error: null,
+  })),
 }))
 
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
   useTaskFileSearch: vi.fn(() => ({
     data: null,
     isLoading: false,
-    error: null
-  }))
+    error: null,
+  })),
 }))
 
 vi.mock('@/features/uploads/hooks/use-upload', () => ({
   useUploadFile: vi.fn(() => ({
     mutate: vi.fn(),
-    isPending: false
-  }))
+    isPending: false,
+  })),
 }))
 
 // Helper to render with providers
 const renderWithProviders = (component: React.ReactElement) => {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false }
-    }
+      queries: { retry: false },
+    },
   })
-  
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {component}
-    </QueryClientProvider>
-  )
+
+  return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
 }
 
 describe('Refactored ChatForm', () => {
   it('renders with selectors', () => {
     const onSubmit = vi.fn()
     const onMessageChange = vi.fn()
-    
+
     const modelItems = [
       { id: 'model1', label: 'Model 1' },
-      { id: 'model2', label: 'Model 2' }
+      { id: 'model2', label: 'Model 2' },
     ]
-    
+
     const repoItems = [
       { id: 'repo1', label: 'Repo 1' },
-      { id: 'repo2', label: 'Repo 2' }
+      { id: 'repo2', label: 'Repo 2' },
     ]
-    
+
     renderWithProviders(
       <ChatForm
         message=""
@@ -68,45 +64,45 @@ describe('Refactored ChatForm', () => {
         placeholder="Type a message..."
         buttonText="Send"
         selectors={[
-          <GenericSelector 
+          <GenericSelector
             key="repo"
             value=""
             onChange={() => {}}
             placeholder="Select repository"
             items={repoItems}
           />,
-          <GenericSelector 
+          <GenericSelector
             key="model"
             value="model1"
             onChange={() => {}}
             placeholder="Select model"
             items={modelItems}
-          />
+          />,
         ]}
-      />
+      />,
     )
-    
+
     // Check that selectors are rendered
     expect(screen.getByText('Select repository')).toBeInTheDocument()
     // Use getAllByText since select components render the value multiple times
     expect(screen.getAllByText('Model 1')).toHaveLength(2)
-    
+
     // Check that the textarea is rendered
     expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
-    
+
     // Check that the send button is rendered
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
   })
-  
+
   it('handles message input and submission', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     const onMessageChange = vi.fn()
-    
+
     // Create a controlled component wrapper
     function TestWrapper() {
       const [message, setMessage] = React.useState('')
-      
+
       return (
         <ChatForm
           message={message}
@@ -121,37 +117,32 @@ describe('Refactored ChatForm', () => {
         />
       )
     }
-    
+
     renderWithProviders(<TestWrapper />)
-    
+
     const textarea = screen.getByPlaceholderText('Type a message...')
-    
+
     // Type a message
     await user.type(textarea, 'Hello world')
-    
+
     // Check that onChange was called
     expect(onMessageChange).toHaveBeenCalled()
-    
+
     // Submit with Enter key
     await user.keyboard('{Enter}')
-    
+
     // Check that onSubmit was called
     expect(onSubmit).toHaveBeenCalled()
   })
-  
+
   it('accepts empty selectors array', () => {
     const onSubmit = vi.fn()
     const onMessageChange = vi.fn()
-    
+
     render(
-      <ChatForm
-        message=""
-        onMessageChange={onMessageChange}
-        onSubmit={onSubmit}
-        selectors={[]}
-      />
+      <ChatForm message="" onMessageChange={onMessageChange} onSubmit={onSubmit} selectors={[]} />,
     )
-    
+
     // Should render without selectors
     expect(screen.getByRole('textbox')).toBeInTheDocument()
   })

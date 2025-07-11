@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { logger } from '../utils/index.js'
 import type { Event, Task, Workspace } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { fromJSON, toJSON } from '@moatless/shared/utils/validation'
+import { logger } from '../utils/index.js'
 
 export interface StorageBackend {
   // Generic storage methods

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { isCommandAvailable, filterAvailableCommands } from '../command-conditions.js'
+import { describe, expect, it } from 'vitest'
 import type { Command } from '../../types/command.js'
 import type { Task, TaskIteration } from '../../types/task.js'
+import { filterAvailableCommands, isCommandAvailable } from '../command-conditions.js'
 
 describe('Command Conditions', () => {
   describe('isCommandAvailable', () => {
@@ -455,7 +455,7 @@ describe('Command Conditions', () => {
       // Command should be available when there are uncommitted changes
       expect(isCommandAvailable(commitCommand, contextWithChanges)).toBe(true)
       expect(isCommandAvailable(commitCommand, contextBehindWithChanges)).toBe(true)
-      
+
       // Command should NOT be available when there are no uncommitted changes
       expect(isCommandAvailable(commitCommand, contextWithoutChanges)).toBe(false)
 
@@ -498,7 +498,7 @@ describe('Command Conditions', () => {
 
       // Command should be available when branch is ahead
       expect(isCommandAvailable(prCommand, contextAhead)).toBe(true)
-      
+
       // Command should NOT be available when branch is not ahead
       expect(isCommandAvailable(prCommand, contextNotAhead)).toBe(false)
     })
@@ -580,7 +580,7 @@ describe('Command Conditions', () => {
       expect(isCommandAvailable(flexibleCommand, contextUncommitted)).toBe(true) // uncommitted changes
       expect(isCommandAvailable(flexibleCommand, contextAhead)).toBe(true) // ahead of main
       expect(isCommandAvailable(flexibleCommand, contextBehind)).toBe(true) // behind main
-      
+
       // Command should NOT be available when NO git conditions are satisfied
       expect(isCommandAvailable(flexibleCommand, contextNone)).toBe(false)
     })
@@ -629,7 +629,7 @@ describe('Command Conditions', () => {
 
       // Should be available when git condition is satisfied AND task condition is satisfied
       expect(isCommandAvailable(command, contextWithChanges)).toBe(true)
-      
+
       // Should NOT be available when git condition is satisfied but task condition fails
       expect(isCommandAvailable(command, contextWithChangesButRunning)).toBe(false)
     })

@@ -1,14 +1,12 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { TaskCard } from '../task-card'
-import { createMockTask } from '@/test-utils/factories'
 import type { Task } from '@moatless/shared/types/task'
+import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockTask } from '@/test-utils/factories'
+import { TaskCard } from '../task-card'
 
 // Mock dependencies
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, to, params }: any) => (
-    <a href={`${to}/${params?.taskId}`}>{children}</a>
-  ),
+  Link: ({ children, to, params }: any) => <a href={`${to}/${params?.taskId}`}>{children}</a>,
 }))
 
 describe('TaskCard', () => {
@@ -69,7 +67,7 @@ describe('TaskCard', () => {
       // Non-error tasks should not have reduced opacity
       const runningTask = createMockTask({ status: 'running' })
       rerender(<TaskCard task={runningTask} />)
-      
+
       const normalCard = screen.getByRole('link').querySelector('.opacity-75')
       expect(normalCard).not.toBeInTheDocument()
     })
@@ -115,7 +113,7 @@ describe('TaskCard', () => {
       const link = screen.getByRole('link')
       // The card component uses data-slot attribute
       const card = link.querySelector('[data-slot="card"]')
-      
+
       // Card should be inside the link
       expect(card).toBeInTheDocument()
       expect(link).toContainElement(card as HTMLElement)
@@ -197,7 +195,7 @@ describe('TaskCard', () => {
 
       allStatuses.forEach((status) => {
         const task = createMockTask({ status })
-        
+
         expect(() => {
           const { unmount } = render(<TaskCard task={task} />)
           unmount()

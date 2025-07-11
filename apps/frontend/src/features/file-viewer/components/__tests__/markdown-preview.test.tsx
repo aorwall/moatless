@@ -1,6 +1,6 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import mermaid from 'mermaid'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarkdownPreview } from '../markdown-preview'
 
 // Mock mermaid module
@@ -19,7 +19,7 @@ vi.mock('@/lib/components/theme-provider', () => ({
 
 // Mock Dialog components
 vi.mock('@/lib/components/ui/dialog', () => ({
-  Dialog: ({ children, open }: any) => open ? <div data-testid="dialog">{children}</div> : null,
+  Dialog: ({ children, open }: any) => (open ? <div data-testid="dialog">{children}</div> : null),
   DialogContent: ({ children }: any) => <div data-testid="dialog-content">{children}</div>,
   DialogHeader: ({ children }: any) => <div>{children}</div>,
   DialogTitle: ({ children }: any) => <h2>{children}</h2>,
@@ -29,7 +29,7 @@ describe('MarkdownPreview', () => {
   beforeEach(() => {
     // Reset all mocks before each test
     vi.clearAllMocks()
-    
+
     // Reset mermaid render implementation to default success
     vi.mocked(mermaid.render).mockImplementation((id, graphDefinition) => {
       return Promise.resolve({
@@ -53,7 +53,7 @@ describe('MarkdownPreview', () => {
     it('should render headings', () => {
       render(<MarkdownPreview content="# Heading 1" />)
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Heading 1')
-      
+
       // Test level 2 heading separately
       const { container } = render(<MarkdownPreview content="## Heading 2" />)
       const h2 = container.querySelector('h2')
@@ -111,7 +111,7 @@ graph TD
       await waitFor(() => {
         expect(mermaid.render).toHaveBeenCalledWith(
           expect.stringMatching(/^mermaid-\d+-0-[a-z0-9]+$/),
-          expect.stringContaining('graph TD')
+          expect.stringContaining('graph TD'),
         )
       })
 
@@ -145,17 +145,17 @@ sequenceDiagram
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(2)
       })
-      
+
       // Check that both diagrams were rendered by looking at the arguments
       const calls = vi.mocked(mermaid.render).mock.calls
-      const graphDefinitions = calls.map(call => call[1])
-      expect(graphDefinitions.some(def => def.includes('A[First] --> B[Diagram]'))).toBe(true)
-      expect(graphDefinitions.some(def => def.includes('Alice->>Bob: Hello'))).toBe(true)
+      const graphDefinitions = calls.map((call) => call[1])
+      expect(graphDefinitions.some((def) => def.includes('A[First] --> B[Diagram]'))).toBe(true)
+      expect(graphDefinitions.some((def) => def.includes('Alice->>Bob: Hello'))).toBe(true)
     })
 
     it('should initialize mermaid with correct theme', () => {
       render(<MarkdownPreview content="# Test" />)
-      
+
       expect(mermaid.initialize).toHaveBeenCalledWith({
         theme: 'default',
         startOnLoad: false,
@@ -169,10 +169,10 @@ sequenceDiagram
   describe('Mermaid Diagram Rendering - Fail States', () => {
     it('should handle mermaid syntax errors gracefully', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      
+
       // Mock mermaid.render to reject with syntax error
       vi.mocked(mermaid.render).mockRejectedValueOnce(
-        new Error('Parse error on line 2: Expecting "GRAPH", got "INVALID"')
+        new Error('Parse error on line 2: Expecting "GRAPH", got "INVALID"'),
       )
 
       const content = `
@@ -190,26 +190,23 @@ INVALID SYNTAX HERE
       await waitFor(() => {
         const errorTitle = screen.getByText('Mermaid Diagram Error')
         expect(errorTitle).toBeInTheDocument()
-        
+
         const errorMessage = screen.getByText(/Parse error on line 2/)
         expect(errorMessage).toBeInTheDocument()
-        
+
         // Check for expandable source code
         const showSourceButton = screen.getByText('Show diagram source')
         expect(showSourceButton).toBeInTheDocument()
       })
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Mermaid rendering error:',
-        expect.any(Error)
-      )
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Mermaid rendering error:', expect.any(Error))
 
       consoleErrorSpy.mockRestore()
     })
 
     it('should handle multiple failing diagrams', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      
+
       // Mock all mermaid.render calls to fail
       vi.mocked(mermaid.render)
         .mockRejectedValueOnce(new Error('Error in diagram 1'))
@@ -241,11 +238,9 @@ INVALID 2
 
     it('should handle mermaid initialization errors', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      
+
       // Mock mermaid.render to reject (async error)
-      vi.mocked(mermaid.render).mockRejectedValueOnce(
-        new Error('Mermaid not initialized properly')
-      )
+      vi.mocked(mermaid.render).mockRejectedValueOnce(new Error('Mermaid not initialized properly'))
 
       const content = `
 \`\`\`mermaid
@@ -263,7 +258,7 @@ graph TD
       await waitFor(() => {
         const errorTitle = screen.getByText('Mermaid Diagram Error')
         expect(errorTitle).toBeInTheDocument()
-        
+
         const errorMessage = screen.getByText('Mermaid not initialized properly')
         expect(errorMessage).toBeInTheDocument()
       })
@@ -273,10 +268,10 @@ graph TD
 
     it('should show diagram source when expanded', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      
+
       // Mock mermaid.render to reject with syntax error
       vi.mocked(mermaid.render).mockRejectedValueOnce(
-        new Error('Syntax error in text mermaid version 11.7.0')
+        new Error('Syntax error in text mermaid version 11.7.0'),
       )
 
       const content = `
@@ -300,7 +295,7 @@ graph TD
       // Check that source code is hidden initially but expandable
       const showSourceButton = screen.getByText('Show diagram source')
       expect(showSourceButton).toBeInTheDocument()
-      
+
       // Check that source code contains the original diagram definition
       const sourceCode = container.querySelector('pre code')
       expect(sourceCode).toBeInTheDocument()
@@ -319,7 +314,7 @@ graph TD
       await waitFor(() => {
         expect(mermaid.render).toHaveBeenCalledWith(
           expect.any(String),
-          '' // Empty content
+          '', // Empty content
         )
       })
     })
@@ -381,23 +376,23 @@ graph TD
   describe('Theme Support', () => {
     it('should use dark theme when theme is dark', () => {
       mockUseTheme.mockReturnValue({ theme: 'dark' })
-      
+
       render(<MarkdownPreview content="# Test" />)
-      
+
       expect(mermaid.initialize).toHaveBeenCalledWith(
         expect.objectContaining({
           theme: 'dark',
-        })
+        }),
       )
     })
 
     it('should use dark theme when system prefers dark', () => {
       mockUseTheme.mockReturnValue({ theme: 'system' })
-      
+
       // Mock matchMedia to return dark preference
       Object.defineProperty(window, 'matchMedia', {
         writable: true,
-        value: vi.fn().mockImplementation(query => ({
+        value: vi.fn().mockImplementation((query) => ({
           matches: query === '(prefers-color-scheme: dark)',
           media: query,
           onchange: null,
@@ -408,13 +403,13 @@ graph TD
           dispatchEvent: vi.fn(),
         })),
       })
-      
+
       render(<MarkdownPreview content="# Test" />)
-      
+
       expect(mermaid.initialize).toHaveBeenCalledWith(
         expect.objectContaining({
           theme: 'dark',
-        })
+        }),
       )
     })
   })
@@ -513,7 +508,7 @@ print("hello")
 
     it('should handle null or undefined content', () => {
       const { rerender } = render(<MarkdownPreview content="" />)
-      
+
       // Should not crash with null/undefined
       rerender(<MarkdownPreview content={null as any} />)
       rerender(<MarkdownPreview content={undefined as any} />)
@@ -539,7 +534,7 @@ graph TD
       // Check that the diagram has a clickable wrapper
       const wrapper = document.querySelector('.relative.group.cursor-pointer')
       expect(wrapper).toBeInTheDocument()
-      
+
       // Check for the expand button
       const expandButton = screen.getByLabelText('Expand diagram')
       expect(expandButton).toBeInTheDocument()

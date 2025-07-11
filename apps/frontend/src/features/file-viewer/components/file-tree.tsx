@@ -79,8 +79,8 @@ function TreeNode({
         <button
           onClick={() => onFileSelect(item.path)}
           className={cn(
-            "w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap",
-            selectedPath === item.path && "bg-accent"
+            'w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap',
+            selectedPath === item.path && 'bg-accent',
           )}
         >
           <File className="h-4 w-4 flex-shrink-0" />

@@ -1,15 +1,9 @@
-import { EventType } from '@moatless/shared/types/event'
 import type { Command } from '@moatless/shared/types/command'
+import { EventType } from '@moatless/shared/types/event'
 import type { Task, TaskIteration } from '@moatless/shared/types/task'
 import { filterAvailableCommands } from '@moatless/shared/utils/command-conditions'
 import { useParams } from '@tanstack/react-router'
-import { 
-  AlertCircle, 
-  ArrowDown, 
-  Clock, 
-  DollarSign, 
-  MessageSquare
-} from 'lucide-react'
+import { AlertCircle, ArrowDown, Clock, DollarSign, MessageSquare } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -46,12 +40,12 @@ function ChatViewComponent() {
   const { setSelectedIteration } = useSelectedIteration()
   const { scrollRef } = useAutoScroll()
   const bottomRef = useRef<HTMLDivElement>(null)
-  
+
   // Derive isAtBottom state from scroll position
   const [scrollTop, setScrollTop] = useState(0)
   const [scrollHeight, setScrollHeight] = useState(0)
   const [clientHeight, setClientHeight] = useState(0)
-  
+
   // Calculate if at bottom based on scroll values
   const isAtBottom = useMemo(() => {
     return scrollHeight - scrollTop - clientHeight < 50
@@ -83,24 +77,27 @@ function ChatViewComponent() {
   })
 
   // Handle sending message to task - wrapped in useCallback for stable reference
-  const handleSendMessage = useCallback((
-    _taskId: string,
-    message: string,
-    clearMessage: () => void,
-    resume?: boolean,
-    model?: string,
-    filePaths?: string[],
-    commandName?: string,
-  ) => {
-    sendMessage.mutate(
-      { message, resume, model, filePaths, commandName },
-      {
-        onSuccess: () => {
-          clearMessage()
+  const handleSendMessage = useCallback(
+    (
+      _taskId: string,
+      message: string,
+      clearMessage: () => void,
+      resume?: boolean,
+      model?: string,
+      filePaths?: string[],
+      commandName?: string,
+    ) => {
+      sendMessage.mutate(
+        { message, resume, model, filePaths, commandName },
+        {
+          onSuccess: () => {
+            clearMessage()
+          },
         },
-      },
-    )
-  }, [sendMessage])
+      )
+    },
+    [sendMessage],
+  )
 
   // Throttled scroll handler to update scroll values
   useEffect(() => {
@@ -111,10 +108,10 @@ function ChatViewComponent() {
     if (!viewport) return
 
     let rafId: number | null = null
-    
+
     const handleScroll = () => {
       if (rafId) return
-      
+
       rafId = requestAnimationFrame(() => {
         setScrollTop(viewport.scrollTop)
         setScrollHeight(viewport.scrollHeight)
@@ -129,14 +126,14 @@ function ChatViewComponent() {
     setClientHeight(viewport.clientHeight)
 
     viewport.addEventListener('scroll', handleScroll)
-    
+
     // Also observe for size changes
     const resizeObserver = new ResizeObserver(() => {
       setScrollHeight(viewport.scrollHeight)
       setClientHeight(viewport.clientHeight)
     })
     resizeObserver.observe(viewport)
-    
+
     return () => {
       viewport.removeEventListener('scroll', handleScroll)
       resizeObserver.disconnect()
@@ -186,13 +183,13 @@ function ChatViewComponent() {
   // Filter available commands based on current context - must be before any early returns
   const availableCommands = useMemo(() => {
     if (!commands || status === 'running') return []
-    
+
     const context = {
       task: { status, iterations, repositoryId } as Task,
       lastIteration: lastIteration || undefined,
       workspaceHasChanges,
     }
-    
+
     return filterAvailableCommands(commands, context)
   }, [commands, status, iterations, lastIteration, workspaceHasChanges, repositoryId])
 
@@ -284,7 +281,6 @@ function ChatViewComponent() {
   }
 
   const isTaskRunning = status === 'running'
-
 
   // Check if last iteration has an error
   const lastIterationHasError =
@@ -388,14 +384,13 @@ function ChatViewComponent() {
             {/* Show last three events when task is running */}
             {isTaskRunning && (
               <div className="mb-4">
-
                 <TaskMinifiedLastEventsDisplay />
               </div>
             )}
 
             {/* Show available command buttons */}
             {!isTaskRunning && (
-              <CommandButtons 
+              <CommandButtons
                 commands={availableCommands}
                 onCommandClick={handleCommandClick}
                 disabled={sendMessage.isPending}
@@ -405,7 +400,7 @@ function ChatViewComponent() {
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
-        
+
         {/* Scroll to bottom indicator */}
         {!isAtBottom && (
           <div className="absolute bottom-4 right-4 z-10">

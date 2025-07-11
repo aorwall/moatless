@@ -13,7 +13,7 @@ import type { ServerStatus } from '@moatless/shared/types/workspace'
 import type { Logger } from 'pino'
 import { logger } from '../utils/logger.js'
 import { ServerHandler } from '../workspaces/server-handler.js'
-import { PreviewProxyService, createPreviewProxy } from './preview-proxy.service.js'
+import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
@@ -156,7 +156,7 @@ export class PreviewEnvironmentService {
       // Setup proxy for script injection if configured
       const useProxy = await this.shouldUseProxy(taskId, workspacePath)
       let proxyUrl: string | undefined
-      
+
       if (useProxy) {
         const proxyService = await this.setupProxyInjection(taskId, result.port)
         if (proxyService) {
@@ -206,10 +206,10 @@ export class PreviewEnvironmentService {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      previewLogger.error('Failed to start preview environment server', { 
+      previewLogger.error('Failed to start preview environment server', {
         error: errorMessage,
         command: serverCommand,
-        workspacePath
+        workspacePath,
       })
 
       // Try to get server logs for better error context
@@ -217,7 +217,9 @@ export class PreviewEnvironmentService {
       try {
         logs = await handler.getLogs(50)
       } catch (logError) {
-        previewLogger.debug('Could not retrieve server logs', { error: logError instanceof Error ? logError.message : String(logError) })
+        previewLogger.debug('Could not retrieve server logs', {
+          error: logError instanceof Error ? logError.message : String(logError),
+        })
       }
 
       // Save error metadata to disk for later retrieval
@@ -234,7 +236,7 @@ export class PreviewEnvironmentService {
         envVars: environment.codeExecution.envVars,
         failed: true,
         error: errorMessage,
-        logs: logs || 'No logs available'
+        logs: logs || 'No logs available',
       }
 
       await this.savePreviewEnvironmentMetadata(taskId, errorMetadata)
@@ -245,7 +247,7 @@ export class PreviewEnvironmentService {
         configured: true,
         uptimeSeconds: 0,
         error: errorMessage,
-        logs: logs || 'No logs available'
+        logs: logs || 'No logs available',
       }
     }
   }
@@ -654,11 +656,11 @@ export class PreviewEnvironmentService {
     const taskIds = Array.from(this.runningServers.keys())
     const proxyTaskIds = Array.from(this.runningProxies.keys())
     const allTaskIds = [...new Set([...taskIds, ...proxyTaskIds])]
-    
-    logger.info('Stopping all preview environment servers', { 
+
+    logger.info('Stopping all preview environment servers', {
       servers: taskIds.length,
       proxies: proxyTaskIds.length,
-      total: allTaskIds.length 
+      total: allTaskIds.length,
     })
 
     // Stop servers (which includes cleanup and proxy stopping)
@@ -823,12 +825,12 @@ export class PreviewEnvironmentService {
     try {
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
       const previewConfig = workspace.environmentConfig.previewConfig
-      
+
       // Check if proxy method is explicitly configured
       if (previewConfig?.injectionStrategy?.method === 'proxy') {
         return true
       }
-      
+
       // Default to proxy for new environments
       return true
     } catch {
@@ -839,27 +841,30 @@ export class PreviewEnvironmentService {
   /**
    * Setup proxy server for script injection
    */
-  private async setupProxyInjection(taskId: string, targetPort: number): Promise<PreviewProxyService | null> {
+  private async setupProxyInjection(
+    taskId: string,
+    targetPort: number,
+  ): Promise<PreviewProxyService | null> {
     const previewLogger = logger.child({ taskId, operation: 'setupProxyInjection' })
-    
+
     try {
       const targetUrl = `http://localhost:${targetPort}`
       const scriptContent = this.getPreviewInspectorScript()
-      
+
       // Try to find an available port starting from targetPort + 1000
       let proxyPort = targetPort + 1000
       let attempts = 0
       let proxyService: PreviewProxyService | null = null
-      
+
       while (attempts < 10 && !proxyService) {
         try {
           proxyService = createPreviewProxy(
             targetUrl,
             scriptContent,
             previewLogger as unknown as Logger,
-            proxyPort
+            proxyPort,
           )
-          
+
           await proxyService.start()
           break
         } catch (error: any) {
@@ -871,16 +876,16 @@ export class PreviewEnvironmentService {
           }
         }
       }
-      
+
       if (!proxyService) {
         throw new Error('Failed to find available port for proxy after 10 attempts')
       }
-      
+
       previewLogger.info('Preview proxy server started', {
         targetUrl,
-        proxyUrl: proxyService.getProxyUrl()
+        proxyUrl: proxyService.getProxyUrl(),
       })
-      
+
       return proxyService
     } catch (error) {
       previewLogger.error('Failed to setup proxy injection', error as Error)

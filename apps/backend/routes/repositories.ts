@@ -1,9 +1,3 @@
-import type { Hono } from 'hono'
-import { HTTPException } from 'hono/http-exception'
-import { describeRoute } from 'hono-openapi'
-import { resolver } from 'hono-openapi/zod'
-import { z } from 'zod'
-import type { AppBindings } from '../app.js'
 import { RepositoryNotFoundError } from '@moatless/shared/constants/errors'
 import {
   CreateRepositorySchema,
@@ -11,6 +5,12 @@ import {
   UpdateRepositorySchema,
 } from '@moatless/shared/schemas/repository.schemas'
 import type { RepositoryList } from '@moatless/shared/types/repository'
+import type { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
+import { z } from 'zod'
+import type { AppBindings } from '../app.js'
 
 // Response schemas
 const repositoryResponseSchema = z.object({
@@ -36,11 +36,13 @@ const setupResponseSchema = z.object({
 })
 
 const fileSearchResultSchema = z.object({
-  files: z.array(z.object({
-    path: z.string(),
-    type: z.string(),
-    size: z.number().optional(),
-  })),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      type: z.string(),
+      size: z.number().optional(),
+    }),
+  ),
 })
 
 const branchesResponseSchema = z.object({
@@ -59,7 +61,6 @@ const previewConfigResponseSchema = z.object({
 })
 
 export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: string) {
-
   // Create repository
   app.post(
     prefix,
@@ -88,15 +89,16 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const body = await c.req.json()
-    const validatedBody = CreateRepositorySchema.parse(body)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    const repository = await repositoryService.createRepository(validatedBody)
-    return c.json(repository)
-  })
+      const body = await c.req.json()
+      const validatedBody = CreateRepositorySchema.parse(body)
+
+      const repository = await repositoryService.createRepository(validatedBody)
+      return c.json(repository)
+    },
+  )
 
   // List repositories
   app.get(
@@ -115,12 +117,13 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositories = await repositoryService.listRepositories()
-    return c.json({ repositories } as RepositoryList)
-  })
+      const services = c.get('services')
+      const { repository: repositoryService } = services
+
+      const repositories = await repositoryService.listRepositories()
+      return c.json({ repositories } as RepositoryList)
+    },
+  )
 
   // Get repository by ID
   app.get(
@@ -156,22 +159,23 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    const repository = await repositoryService.getRepositoryById(repositoryId)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
 
-    return c.json(repository)
-  })
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      return c.json(repository)
+    },
+  )
 
   // Update repository
   app.put(
@@ -215,20 +219,21 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    const body = await c.req.json()
-    const validatedBody = UpdateRepositorySchema.parse(body)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    const repository = await repositoryService.updateRepository(repositoryId, validatedBody)
-    return c.json(repository)
-  })
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
+
+      const body = await c.req.json()
+      const validatedBody = UpdateRepositorySchema.parse(body)
+
+      const repository = await repositoryService.updateRepository(repositoryId, validatedBody)
+      return c.json(repository)
+    },
+  )
 
   // Delete repository
   app.delete(
@@ -259,17 +264,18 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    await repositoryService.deleteRepository(repositoryId)
-    return c.body(null, 204)
-  })
+      const services = c.get('services')
+      const { repository: repositoryService } = services
+
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
+
+      await repositoryService.deleteRepository(repositoryId)
+      return c.body(null, 204)
+    },
+  )
 
   // Run setup script
   app.post(
@@ -305,27 +311,28 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    const repository = await repositoryService.getRepositoryById(repositoryId)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
 
-    // For now, just return a mock success response
-    // In a real implementation, this would use workspace service to run the setup commands
-    return c.json({
-      success: true,
-      output: 'Setup completed successfully',
-    })
-  })
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      // For now, just return a mock success response
+      // In a real implementation, this would use workspace service to run the setup commands
+      return c.json({
+        success: true,
+        output: 'Setup completed successfully',
+      })
+    },
+  )
 
   // Search files in repository
   app.post(
@@ -369,27 +376,28 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    const body = await c.req.json()
-    const validatedBody = FileSearchSchema.parse(body)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    const repository = await repositoryService.getRepositoryById(repositoryId)
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
 
-    // File search is only supported for repositories with a path
+      const body = await c.req.json()
+      const validatedBody = FileSearchSchema.parse(body)
 
-    const results = await repositoryService.searchFiles(repositoryId, validatedBody)
-    return c.json(results)
-  })
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      // File search is only supported for repositories with a path
+
+      const results = await repositoryService.searchFiles(repositoryId, validatedBody)
+      return c.json(results)
+    },
+  )
 
   // Get git branches
   app.get(
@@ -425,23 +433,24 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    const repository = await repositoryService.getRepositoryById(repositoryId)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
 
-    const branches = await repositoryService.getBranches(repository.path)
-    return c.json({ branches })
-  })
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      const branches = await repositoryService.getBranches(repository.path)
+      return c.json({ branches })
+    },
+  )
 
   // Detect framework
   app.post(
@@ -477,21 +486,22 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-    
-    const repository = await repositoryService.getRepositoryById(repositoryId)
+      const services = c.get('services')
+      const { repository: repositoryService } = services
 
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
 
-    const previewConfig = await repositoryService.detectFramework(repository.path)
-    return c.json({ previewConfig })
-  })
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      const previewConfig = await repositoryService.detectFramework(repository.path)
+      return c.json({ previewConfig })
+    },
+  )
 }

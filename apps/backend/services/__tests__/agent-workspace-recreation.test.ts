@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CriticalError } from '@moatless/shared/constants/errors'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LocalWorkspace } from '../../workspaces/local.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'

@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
-import { createApp, type AppBindings } from '../app.js'
-import { setupServices, type Services } from '../services/index.js'
+import { type AppBindings, createApp } from '../app.js'
+import { type Services, setupServices } from '../services/index.js'
 
 /**
  * Enhanced app type for testing with HTTP request simulation
@@ -38,15 +38,15 @@ export interface TestResponse {
 export async function build(): Promise<TestApp> {
   const app = await createApp()
   const services = await setupServices()
-  
+
   // Create enhanced app with test utilities
   const testApp = app as any as TestApp
   testApp.services = services
-  
+
   // Add inject method that maps to app.fetch()
   testApp.inject = async (options: RequestOptions): Promise<TestResponse> => {
     const url = new URL(options.url, 'http://localhost:3000')
-    
+
     const requestInit: RequestInit = {
       method: options.method,
       headers: {
@@ -54,47 +54,51 @@ export async function build(): Promise<TestApp> {
         ...options.headers,
       },
     }
-    
-    if (options.payload && (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')) {
+
+    if (
+      options.payload &&
+      (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')
+    ) {
       requestInit.body = JSON.stringify(options.payload)
     }
-    
+
     const request = new Request(url.toString(), requestInit)
     const response = await app.fetch(request)
-    
+
     // Convert Headers to plain object
     const headers: Record<string, string> = {}
     response.headers.forEach((value, key) => {
       headers[key] = value
     })
-    
+
     return {
       statusCode: response.status,
       body: await response.text(),
       headers,
     }
   }
-  
+
   // Add listen method for tests that need a real server
   testApp.listen = async (options: { port: number; host?: string }): Promise<void> => {
     const { serve } = await import('@hono/node-server')
-    
+
     // Start a real HTTP server for E2E tests
     const server = serve({
       fetch: app.fetch,
       port: options.port,
       hostname: options.host || 'localhost',
     })
-    
+
     // Store server reference for cleanup and address access
     testApp.server = {
-      address: () => ({ port: options.port })
+      address: () => ({ port: options.port }),
     }
-    
+
     // Store the server instance for cleanup
+
     ;(testApp as any)._httpServer = server
   }
-  
+
   // Add close method for test cleanup
   testApp.close = async (): Promise<void> => {
     // Close HTTP server if it exists
@@ -103,13 +107,13 @@ export async function build(): Promise<TestApp> {
       delete (testApp as any)._httpServer
       delete testApp.server
     }
-    
+
     // Cleanup services if they have cleanup methods
     // Note: PreviewEnvironmentService doesn't have a cleanup method
     // Services should clean up automatically on process exit
-    
+
     // Note: This is mainly for test compatibility
   }
-  
+
   return testApp
 }

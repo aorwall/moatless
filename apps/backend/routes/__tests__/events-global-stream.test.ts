@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Event } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
 import type { Task } from '@moatless/shared/types/task'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 import { sseManager } from '../../utils/sse-manager.js'
 
@@ -90,8 +90,7 @@ describe('Global Event Stream', () => {
     vi.clearAllMocks()
   })
 
-  afterEach(async () => {
-  })
+  afterEach(async () => {})
 
   describe('GET /api/v1/events/stream', () => {
     it.skip('should establish SSE connection and set proper headers', async () => {
@@ -125,7 +124,6 @@ describe('Global Event Stream', () => {
       )
     })
 
-
     it.skip('should ignore unknown parameters', async () => {
       // Skip: app.inject() waits for response to complete, which never happens with SSE
       // Test that unknown parameters are ignored
@@ -140,7 +138,6 @@ describe('Global Event Stream', () => {
         expect.any(Object),
       )
     })
-
 
     it.skip('should subscribe to all events', async () => {
       // Skip: app.inject() waits for response to complete, which never happens with SSE
@@ -180,7 +177,6 @@ describe('Global Event Stream', () => {
     })
   })
 
-
   describe('GET /api/v1/events/stream/status', () => {
     it('should return connection statistics with event counts', async () => {
       vi.mocked(sseManager.getAllConnectionStats).mockReturnValue({
@@ -218,7 +214,6 @@ describe('Global Event Stream', () => {
       })
     })
   })
-
 })
 
 describe('Event Service Global Channel Integration', () => {
@@ -230,8 +225,7 @@ describe('Event Service Global Channel Integration', () => {
     eventService = app.services.event
   })
 
-  afterEach(async () => {
-  })
+  afterEach(async () => {})
 
   it('should emit events to both task-specific and global channels', async () => {
     // Spy on the EventEmitter's emit method via the prototype

@@ -87,9 +87,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     const isRunning = task.status === 'running'
     const iterations = task.iterations || []
     const lastIteration = iterations.length > 0 ? iterations[iterations.length - 1] : null
-    const runningStartTime = isRunning && lastIteration?.startTime 
-      ? new Date(lastIteration.startTime) 
-      : undefined
+    const runningStartTime =
+      isRunning && lastIteration?.startTime ? new Date(lastIteration.startTime) : undefined
 
     return {
       status: task.status,

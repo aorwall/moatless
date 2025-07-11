@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '@moatless/shared/types/event'
 import type { Event } from '@moatless/shared/types/index'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
 

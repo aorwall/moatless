@@ -5,11 +5,11 @@ import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
 import { errorHandler } from './middleware/error-handler.js'
-import { requestId } from './middleware/request-id.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
-import { logger } from './utils/logger.js'
+import { requestId } from './middleware/request-id.js'
 import { registerRoutes } from './routes/index.js'
-import { setupServices, type Services } from './services/index.js'
+import { type Services, setupServices } from './services/index.js'
+import { logger } from './utils/logger.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -34,22 +34,24 @@ export async function createApp(): Promise<Hono<AppBindings>> {
   app.use('*', secureHeaders())
 
   // CORS
-  app.use('*', cors({
-    origin: (origin) => {
-      // In development, allow all localhost origins
-      if (process.env.NODE_ENV !== 'production' && origin) {
-        const url = new URL(origin)
-        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-          return origin
+  app.use(
+    '*',
+    cors({
+      origin: (origin) => {
+        // In development, allow all localhost origins
+        if (process.env.NODE_ENV !== 'production' && origin) {
+          const url = new URL(origin)
+          if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+            return origin
+          }
         }
-      }
 
-      // In production or for non-localhost origins, use configured origin
-      return process.env.CORS_ORIGIN || origin || '*'
-    },
-    credentials: true,
-  }))
-
+        // In production or for non-localhost origins, use configured origin
+        return process.env.CORS_ORIGIN || origin || '*'
+      },
+      credentials: true,
+    }),
+  )
 
   // Error handling middleware
   app.onError(errorHandler)
@@ -77,26 +79,29 @@ export async function createApp(): Promise<Hono<AppBindings>> {
   if (process.env.NODE_ENV === 'production') {
     // Serve static files
     const staticPath = path.join(__dirname, '../../frontend/dist')
-    app.use('/*', serveStatic({
-      root: staticPath,
-      getContent: async (path: string) => {
-        try {
-          const fs = await import('node:fs/promises')
-          const content = await fs.readFile(path)
-          return content
-        } catch {
-          return null
-        }
-      }
-    }))
-    
+    app.use(
+      '/*',
+      serveStatic({
+        root: staticPath,
+        getContent: async (path: string) => {
+          try {
+            const fs = await import('node:fs/promises')
+            const content = await fs.readFile(path)
+            return content
+          } catch {
+            return null
+          }
+        },
+      }),
+    )
+
     // SPA fallback for non-API routes
     app.get('*', async (c) => {
       // Skip API routes
       if (c.req.path.startsWith('/api') || c.req.path.startsWith('/health')) {
         return c.notFound()
       }
-      
+
       // Serve the actual built index.html
       const fs = await import('node:fs/promises')
       const indexPath = path.join(staticPath, 'index.html')

@@ -177,9 +177,11 @@ describe('EventList Integration - Tool Calls', () => {
     expect(screen.getByText('Read')).toBeInTheDocument()
 
     // Should show the file path as part of the cat command
-    expect(screen.getByText((content, element) => {
-      return element?.tagName === 'CODE' && content.includes('App.tsx')
-    })).toBeInTheDocument()
+    expect(
+      screen.getByText((content, element) => {
+        return element?.tagName === 'CODE' && content.includes('App.tsx')
+      }),
+    ).toBeInTheDocument()
   })
 
   it('should render regular text messages without tool call styling', () => {

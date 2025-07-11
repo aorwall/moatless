@@ -16,7 +16,7 @@ interface PreviewStore {
   selectedElement: ElementInfo | null
   error: string | null
   isConnected: boolean
-  
+
   // Script Health
   scriptHealthStatus: ScriptHealthStatus
   lastHeartbeat: number | null

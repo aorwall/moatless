@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
 import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
 import { CreateVibeTaskRequestSchema } from '@moatless/shared/types/api'
+import { describe, expect, it } from 'vitest'
 
 describe('CreateVibeTaskRequest validation', () => {
   it('should validate a valid vibe task request', () => {

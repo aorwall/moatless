@@ -1,8 +1,4 @@
-import {
-  isToolResultContent,
-  isToolUseContent,
-  type ToolUseContent,
-} from '@moatless/shared'
+import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/shared'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import {
   Bot,
@@ -61,18 +57,30 @@ function getToolSummary(toolContent: ToolUseContent): string {
   // Provide concise summaries based on tool type
   switch (toolName) {
     case 'Read':
-      return input.file_path && typeof input.file_path === 'string' ? truncateText(input.file_path, 40) : ''
+      return input.file_path && typeof input.file_path === 'string'
+        ? truncateText(input.file_path, 40)
+        : ''
     case 'Write':
-      return input.file_path && typeof input.file_path === 'string' ? truncateText(input.file_path, 40) : ''
+      return input.file_path && typeof input.file_path === 'string'
+        ? truncateText(input.file_path, 40)
+        : ''
     case 'Edit':
     case 'MultiEdit':
-      return input.file_path && typeof input.file_path === 'string' ? truncateText(input.file_path, 40) : ''
+      return input.file_path && typeof input.file_path === 'string'
+        ? truncateText(input.file_path, 40)
+        : ''
     case 'Grep':
-      return input.pattern && typeof input.pattern === 'string' ? `"${truncateText(input.pattern, 30)}"` : ''
+      return input.pattern && typeof input.pattern === 'string'
+        ? `"${truncateText(input.pattern, 30)}"`
+        : ''
     case 'Glob':
-      return input.pattern && typeof input.pattern === 'string' ? `"${truncateText(input.pattern, 30)}"` : ''
+      return input.pattern && typeof input.pattern === 'string'
+        ? `"${truncateText(input.pattern, 30)}"`
+        : ''
     case 'Bash':
-      return input.command && typeof input.command === 'string' ? truncateText(input.command, 50) : ''
+      return input.command && typeof input.command === 'string'
+        ? truncateText(input.command, 50)
+        : ''
     case 'WebFetch':
       return input.url && typeof input.url === 'string' ? truncateText(input.url, 40) : ''
     case 'TodoWrite':
@@ -82,9 +90,11 @@ function getToolSummary(toolContent: ToolUseContent): string {
     case 'LS':
       return input.path && typeof input.path === 'string' ? truncateText(input.path, 40) : ''
     case 'Task':
-      return input.description && typeof input.description === 'string' ? truncateText(input.description, 40) : ''
+      return input.description && typeof input.description === 'string'
+        ? truncateText(input.description, 40)
+        : ''
     default:
-      return (input.description && typeof input.description === 'string') ? input.description : ''
+      return input.description && typeof input.description === 'string' ? input.description : ''
   }
 }
 

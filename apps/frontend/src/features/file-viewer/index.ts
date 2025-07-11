@@ -11,8 +11,8 @@ export { FileTreeSkeleton } from './components/file-tree-skeleton'
 export { FileViewer } from './components/file-viewer'
 export { FileViewerSkeleton } from './components/file-viewer-skeleton'
 export { MarkdownPreview } from './components/markdown-preview'
-export { PreviewModeToggle } from './components/preview-mode-toggle'
 export type { PreviewMode } from './components/preview-mode-toggle'
+export { PreviewModeToggle } from './components/preview-mode-toggle'
 export { useFileTreeState } from './hooks/use-file-tree-state'
 
 // Types

@@ -1,8 +1,8 @@
-export { GenericSelector } from './generic-selector'
 export type { BaseSelectorProps, GenericSelectorProps } from './generic-selector'
+export { GenericSelector } from './generic-selector'
 export {
-  useRepositorySelector,
   useBranchSelector,
+  useModelSelector,
+  useRepositorySelector,
   useTemplateSelector,
-  useModelSelector
 } from './hooks'

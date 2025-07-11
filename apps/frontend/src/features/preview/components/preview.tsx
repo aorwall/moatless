@@ -169,7 +169,7 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
   const handleIframeLoad = useCallback(() => {
     setLoaded(true)
     setError(null)
-    
+
     // Reset script health status when iframe loads
     // If script is injected, we'll receive INSPECTOR_SCRIPT_LOADED message
     setScriptHealthStatus('not-injected')

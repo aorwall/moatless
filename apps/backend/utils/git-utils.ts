@@ -53,13 +53,13 @@ export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Pr
   try {
     const base = baseBranch || (await detectBaseBranch(repoPath))
     const currentBranch = await getCurrentBranch(repoPath)
-    
+
     // If we're on the base branch, just log and skip
     if (currentBranch === base) {
       logger.info(`Skipping fetch: currently on ${base} branch`, { repoPath, branch: base })
       return
     }
-    
+
     // Fetch the latest changes from origin for the base branch
     await execAsync(`git fetch origin ${base}:${base}`, {
       cwd: repoPath,
@@ -67,7 +67,10 @@ export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Pr
     })
   } catch (error) {
     // Log the error but continue - fetch failure is not critical
-    logger.warn(`Failed to fetch ${baseBranch || 'main'} branch: ${error instanceof Error ? error.message : String(error)}`, { repoPath, baseBranch })
+    logger.warn(
+      `Failed to fetch ${baseBranch || 'main'} branch: ${error instanceof Error ? error.message : String(error)}`,
+      { repoPath, baseBranch },
+    )
   }
 }
 
@@ -176,7 +179,7 @@ export async function checkAndFetchOrigin(
       cwd: repoPath,
       timeout: 5000,
     })
-    
+
     if (shouldFetch) {
       const base = baseBranch || (await detectBaseBranch(repoPath))
       try {
@@ -185,12 +188,12 @@ export async function checkAndFetchOrigin(
           timeout: 30000,
         })
       } catch (error) {
-        logger.warn(`Failed to fetch origin/${base}`, { 
-          error: error instanceof Error ? error.message : String(error) 
+        logger.warn(`Failed to fetch origin/${base}`, {
+          error: error instanceof Error ? error.message : String(error),
         })
       }
     }
-    
+
     return true
   } catch {
     return false
@@ -207,7 +210,7 @@ export async function getGitDiffString(
 
     // Get the best reference to compare against (prioritizes origin/base)
     const { reference: compareBase, type } = await getBestCompareReference(repoPath, baseBranch)
-    
+
     logger.debug('Using compare reference for git diff', { compareBase, type })
 
     // Using 'git diff compareBase' shows the complete difference between
@@ -619,7 +622,6 @@ export async function getComprehensiveGitStatus(
   }
 }
 
-
 export async function pruneWorktrees(repoPath: string): Promise<void> {
   try {
     // Prune worktree information for deleted worktrees
@@ -639,13 +641,13 @@ export async function isGitWorktree(workspacePath: string): Promise<boolean> {
     // In a worktree, .git is a file (not a directory) containing the path to the real git directory
     const gitPath = path.join(workspacePath, '.git')
     const stat = await fs.stat(gitPath)
-    
+
     if (stat.isFile()) {
       // Read the .git file to confirm it's a worktree
       const content = await fs.readFile(gitPath, 'utf-8')
       return content.startsWith('gitdir:')
     }
-    
+
     return false
   } catch {
     // If any error occurs (file doesn't exist, etc.), it's not a worktree
@@ -728,10 +730,10 @@ export async function isBranchCheckedOut(repoPath: string, branchName: string): 
       cwd: repoPath,
       timeout: 10000,
     })
-    
+
     const lines = stdout.trim().split('\n')
     let currentBranch = ''
-    
+
     for (const line of lines) {
       if (line.startsWith('branch ')) {
         currentBranch = line.substring(7).trim()
@@ -740,7 +742,7 @@ export async function isBranchCheckedOut(repoPath: string, branchName: string): 
         }
       }
     }
-    
+
     return false
   } catch (error) {
     logger.debug('Failed to check if branch is checked out', { error, branchName })
@@ -758,20 +760,25 @@ export async function createGitWorktree(
     if (branchName) {
       // Check if the branch is already checked out
       const isCheckedOut = await isBranchCheckedOut(repoPath, branchName)
-      
+
       if (isCheckedOut) {
         // Branch is already checked out, create a new branch based on it
         if (!newBranchName) {
-          throw new Error(`Branch '${branchName}' is already checked out and no new branch name provided`)
+          throw new Error(
+            `Branch '${branchName}' is already checked out and no new branch name provided`,
+          )
         }
-        logger.debug('Branch already checked out, creating new branch from it', { 
-          originalBranch: branchName, 
-          newBranch: newBranchName 
+        logger.debug('Branch already checked out, creating new branch from it', {
+          originalBranch: branchName,
+          newBranch: newBranchName,
         })
-        await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`, {
-          cwd: repoPath,
-          timeout: 30000,
-        })
+        await execAsync(
+          `git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`,
+          {
+            cwd: repoPath,
+            timeout: 30000,
+          },
+        )
       } else {
         // Create worktree from existing branch (no -b flag)
         logger.debug('Using existing branch for worktree', { branch: branchName })
@@ -809,7 +816,10 @@ export async function createGitWorktree(
   }
 }
 
-export async function removeGitWorktree(workspacePath: string, force: boolean = false): Promise<void> {
+export async function removeGitWorktree(
+  workspacePath: string,
+  force: boolean = false,
+): Promise<void> {
   try {
     const forceFlag = force ? '--force' : ''
     await execAsync(`git worktree remove ${forceFlag} "${workspacePath}"`, {
@@ -823,7 +833,13 @@ export async function removeGitWorktree(workspacePath: string, force: boolean = 
   }
 }
 
-export type GitSyncStatus = 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
+export type GitSyncStatus =
+  | 'synced'
+  | 'ahead'
+  | 'behind'
+  | 'diverged'
+  | 'uncommitted_changes'
+  | 'error'
 
 export interface GitSyncStatusInfo {
   status: GitSyncStatus
@@ -845,10 +861,10 @@ export async function getOriginSyncStatus(
   try {
     // Get current branch
     const currentBranch = await getCurrentBranch(repoPath)
-    
+
     // Detect base branch if not provided
     const base = baseBranch || (await detectBaseBranch(repoPath))
-    
+
     // Check if origin exists and fetch if available
     const originExists = await checkAndFetchOrigin(repoPath, base, true)
 
@@ -867,10 +883,10 @@ export async function getOriginSyncStatus(
 
     // Check for uncommitted changes first
     const hasChanges = await hasUncommittedChanges(repoPath)
-    
+
     // Get commit counts relative to origin/base
     const { ahead, behind } = await getOriginCommitCounts(repoPath, base)
-    
+
     // Determine sync status
     let status: GitSyncStatus
     if (hasChanges) {
@@ -899,7 +915,7 @@ export async function getOriginSyncStatus(
     const hasChanges = await hasUncommittedChanges(repoPath).catch(() => false)
     const currentBranch = await getCurrentBranch(repoPath).catch(() => 'unknown')
     const base = baseBranch || 'main'
-    
+
     return {
       status: 'error',
       commitsAhead: 0,
@@ -944,11 +960,11 @@ export async function getOriginCommitCounts(
       .trim()
       .split('\t')
       .map((n) => parseInt(n, 10))
-      
+
     return { ahead, behind }
   } catch (error) {
-    logger.warn('Failed to get origin commit counts, falling back to local', { 
-      error: error instanceof Error ? error.message : String(error) 
+    logger.warn('Failed to get origin commit counts, falling back to local', {
+      error: error instanceof Error ? error.message : String(error),
     })
     // Fall back to local branch comparison
     return getCommitCounts(repoPath, baseBranch)

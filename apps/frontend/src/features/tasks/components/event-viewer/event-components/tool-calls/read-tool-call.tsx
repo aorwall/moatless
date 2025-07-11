@@ -28,7 +28,9 @@ export function ReadToolCall({ input, name }: ReadToolCallProps): ReactNode {
       <div className="bg-background border rounded-lg p-3 font-mono text-sm">
         <div className="flex items-start gap-2">
           <span className="text-status-success select-none">$</span>
-          <code className="text-foreground break-all whitespace-pre-wrap">cat {input.filePath}</code>
+          <code className="text-foreground break-all whitespace-pre-wrap">
+            cat {input.filePath}
+          </code>
         </div>
       </div>
     </div>

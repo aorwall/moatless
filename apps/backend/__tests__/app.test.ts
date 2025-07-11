@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createApp } from '../app.js'
 import type { Hono } from 'hono'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AppBindings } from '../app.js'
+import { createApp } from '../app.js'
 
 describe('App Setup', () => {
   let app: Hono<AppBindings>
@@ -35,7 +35,7 @@ describe('App Setup', () => {
 
       expect(response.status).toBe(200)
 
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body).toHaveProperty('message', 'Moatless API')
       expect(body).toHaveProperty('version', '1.0.0')
       expect(body).toHaveProperty('endpoints')

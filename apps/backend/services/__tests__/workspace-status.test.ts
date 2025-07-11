@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import type { Task } from '@moatless/shared/types/task'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventService } from '../event.service.js'
 import type { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'

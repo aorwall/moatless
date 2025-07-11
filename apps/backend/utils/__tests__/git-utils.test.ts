@@ -86,7 +86,6 @@ describe('git-utils with real git commands', () => {
     repo.cleanup()
   })
 
-
   describe('getCurrentBranch', () => {
     it('should return the current branch name', async () => {
       repo.init()
@@ -503,7 +502,7 @@ describe('git-utils with real git commands', () => {
 
     it('should return false for non-git directories', async () => {
       const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'non-git-'))
-      
+
       try {
         const isWorktree = await isGitWorktree(nonGitDir)
         expect(isWorktree).toBe(false)
@@ -583,11 +582,11 @@ describe('git-utils with real git commands', () => {
       expect(await isGitWorktree(worktreePath)).toBe(true)
       const branches = await getBranchList(repo.path)
       // getBranchList might include branch prefix indicators, so check if any branch contains the name
-      expect(branches.some(b => b.includes(branchName))).toBe(true)
+      expect(branches.some((b) => b.includes(branchName))).toBe(true)
 
       // Simulate cleanup process
       repo.exec(`git worktree remove --force "${worktreePath}"`)
-      
+
       // Try to delete branch
       try {
         repo.exec(`git branch -D "${branchName}"`)
@@ -601,7 +600,7 @@ describe('git-utils with real git commands', () => {
       // Verify cleanup
       const worktreeList = repo.exec('git worktree list')
       expect(worktreeList).not.toContain(worktreePath)
-      
+
       // Verify directory is gone
       expect(fs.existsSync(worktreePath)).toBe(false)
     })

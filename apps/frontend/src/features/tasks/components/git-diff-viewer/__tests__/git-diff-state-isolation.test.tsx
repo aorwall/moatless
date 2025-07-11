@@ -1,6 +1,6 @@
-import { render, screen, act } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import React from 'react'
+import { describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider, useGitDiffState } from '@/features/tasks/contexts/task-ui-provider'
 
 // Mock scroll functionality
@@ -61,74 +61,50 @@ function GitDiffTestComponent() {
       <div data-testid="expanded-paths-list">
         {Array.from(gitDiffState.expandedPaths).join(',')}
       </div>
-      
-      <button
-        data-testid="expand-file-1"
-        onClick={() => handleExpandFile('src/file1.ts')}
-      >
+
+      <button data-testid="expand-file-1" onClick={() => handleExpandFile('src/file1.ts')}>
         Toggle File 1
       </button>
-      
-      <button
-        data-testid="expand-file-2"
-        onClick={() => handleExpandFile('src/file2.ts')}
-      >
+
+      <button data-testid="expand-file-2" onClick={() => handleExpandFile('src/file2.ts')}>
         Toggle File 2
       </button>
-      
-      <button
-        data-testid="expand-file-3"
-        onClick={() => handleExpandFile('tests/file3.test.ts')}
-      >
+
+      <button data-testid="expand-file-3" onClick={() => handleExpandFile('tests/file3.test.ts')}>
         Toggle File 3
       </button>
-      
-      <button
-        data-testid="select-file-1"
-        onClick={() => handleSelectFile('src/file1.ts')}
-      >
+
+      <button data-testid="select-file-1" onClick={() => handleSelectFile('src/file1.ts')}>
         Select File 1
       </button>
-      
-      <button
-        data-testid="select-file-2"
-        onClick={() => handleSelectFile('src/file2.ts')}
-      >
+
+      <button data-testid="select-file-2" onClick={() => handleSelectFile('src/file2.ts')}>
         Select File 2
       </button>
-      
-      <button
-        data-testid="expand-path-src"
-        onClick={() => handleExpandPath('src/')}
-      >
+
+      <button data-testid="expand-path-src" onClick={() => handleExpandPath('src/')}>
         Toggle Src Path
       </button>
-      
-      <button
-        data-testid="expand-path-tests"
-        onClick={() => handleExpandPath('tests/')}
-      >
+
+      <button data-testid="expand-path-tests" onClick={() => handleExpandPath('tests/')}>
         Toggle Tests Path
       </button>
-      
+
       <button
         data-testid="expand-path-components"
         onClick={() => handleExpandPath('src/components/')}
       >
         Toggle Components Path
       </button>
-      
+
       <button
         data-testid="bulk-expand-files"
         onClick={() => handleBulkExpandFiles(['file1.ts', 'file2.ts', 'file3.ts', 'file4.ts'])}
       >
         Bulk Expand Files
       </button>
-      
-      <button
-        data-testid="reset-state"
-        onClick={handleResetState}
-      >
+
+      <button data-testid="reset-state" onClick={handleResetState}>
         Reset State
       </button>
     </div>
@@ -142,28 +118,19 @@ function MultiTaskGitDiffTest() {
   return (
     <div>
       <div data-testid="current-task-id">{currentTaskId}</div>
-      
-      <button 
-        data-testid="switch-to-git-task-1" 
-        onClick={() => setCurrentTaskId('git-task-1')}
-      >
+
+      <button data-testid="switch-to-git-task-1" onClick={() => setCurrentTaskId('git-task-1')}>
         Switch to Git Task 1
       </button>
-      
-      <button 
-        data-testid="switch-to-git-task-2" 
-        onClick={() => setCurrentTaskId('git-task-2')}
-      >
+
+      <button data-testid="switch-to-git-task-2" onClick={() => setCurrentTaskId('git-task-2')}>
         Switch to Git Task 2
       </button>
-      
-      <button 
-        data-testid="switch-to-git-task-3" 
-        onClick={() => setCurrentTaskId('git-task-3')}
-      >
+
+      <button data-testid="switch-to-git-task-3" onClick={() => setCurrentTaskId('git-task-3')}>
         Switch to Git Task 3
       </button>
-      
+
       <TaskUIProvider taskId={currentTaskId}>
         <GitDiffTestComponent />
       </TaskUIProvider>
@@ -176,7 +143,7 @@ describe('Git Diff State Isolation', () => {
     render(
       <TaskUIProvider taskId="new-git-task">
         <GitDiffTestComponent />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0')
@@ -190,7 +157,7 @@ describe('Git Diff State Isolation', () => {
     render(
       <TaskUIProvider taskId="single-git-task">
         <GitDiffTestComponent />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     // Expand some files one by one
@@ -232,19 +199,19 @@ describe('Git Diff State Isolation', () => {
 
     // Task 1: Expand some files and select one
     expect(screen.getByTestId('current-task-id')).toHaveTextContent('git-task-1')
-    
+
     act(() => {
       screen.getByTestId('expand-file-1').click()
     })
-    
+
     act(() => {
       screen.getByTestId('expand-file-2').click()
     })
-    
+
     act(() => {
       screen.getByTestId('select-file-1').click()
     })
-    
+
     act(() => {
       screen.getByTestId('expand-path-src').click()
     })

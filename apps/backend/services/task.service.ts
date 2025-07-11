@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { TaskNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
-import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
 import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
-import { RepositoryTemplate } from '@moatless/shared/types/repository'
 import { EventType } from '@moatless/shared/types/event'
+import { RepositoryTemplate } from '@moatless/shared/types/repository'
+import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/shared/types/task'
 import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
@@ -169,12 +169,12 @@ export class TaskService {
           injectionStrategy: {
             method: 'html-injection',
           },
-        }
+        },
       ),
     ]
 
     // Find the template
-    const template = templates.find(t => t.id === params.templateId)
+    const template = templates.find((t) => t.id === params.templateId)
     if (!template) {
       throw new ValidationError(`Template with id ${params.templateId} not found`, 'templateId')
     }
@@ -183,10 +183,10 @@ export class TaskService {
     const dataDir = process.env.DATA_DIR || './data'
     const templatesDir = path.join(dataDir, 'templates')
     const templateRepoDir = path.join(templatesDir, template.id)
-    
+
     // Ensure templates directory exists
     await fs.mkdir(templatesDir, { recursive: true })
-    
+
     // Clone or update the template repository if it doesn't exist
     if (!(await this.pathExists(templateRepoDir))) {
       logger.info('Cloning template repository', {
@@ -194,17 +194,17 @@ export class TaskService {
         gitUrl: template.gitUrl,
         targetDir: templateRepoDir,
       })
-      
+
       const { exec } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execAsync = promisify(exec)
-      
+
       await execAsync(`git clone ${template.gitUrl} ${template.id}`, {
         cwd: templatesDir,
         timeout: 30000, // 30 seconds for clone
       })
     }
-    
+
     // Create a new repository from the template
     const repository = await this.repositoryService.createRepository({
       name: params.repositoryName,
@@ -251,7 +251,11 @@ export class TaskService {
     return task
   }
 
-  async listTasks(limit = 50, offset = 0, status?: string): Promise<{ tasks: Task[]; total: number }> {
+  async listTasks(
+    limit = 50,
+    offset = 0,
+    status?: string,
+  ): Promise<{ tasks: Task[]; total: number }> {
     const taskKeys = await this.storage.list('tasks/')
     const tasks: Task[] = []
 
@@ -366,7 +370,7 @@ export class TaskService {
     metadata.status = 'running'
 
     await this.storage.saveTask(metadata)
-    
+
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
@@ -375,12 +379,12 @@ export class TaskService {
       payload: {
         status: 'running',
         previousStatus,
-        iterationNumber
+        iterationNumber,
       },
       eventId: randomUUID(),
       timestamp: now,
       agentType: metadata.agentType,
-      isError: false
+      isError: false,
     })
 
     // Pass the full iteration object with task reference
@@ -441,7 +445,7 @@ export class TaskService {
     const previousStatus = task.status
     task.status = 'closed'
     await this.storage.saveTask(task)
-    
+
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
@@ -449,12 +453,12 @@ export class TaskService {
       subType: 'task:statusChanged',
       payload: {
         status: 'closed',
-        previousStatus
+        previousStatus,
       },
       eventId: randomUUID(),
       timestamp: new Date(),
       agentType: task.agentType,
-      isError: false
+      isError: false,
     })
 
     logger.info('Task closed successfully', { taskId })
@@ -478,5 +482,12 @@ export function createTaskService(
   commandService: CommandService,
   repositoryService: RepositoryService,
 ): TaskService {
-  return new TaskService(storage, eventService, workspaceService, agentService, commandService, repositoryService)
+  return new TaskService(
+    storage,
+    eventService,
+    workspaceService,
+    agentService,
+    commandService,
+    repositoryService,
+  )
 }

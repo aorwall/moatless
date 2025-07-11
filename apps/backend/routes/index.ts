@@ -52,7 +52,7 @@ export async function registerRoutes(app: Hono<AppBindings>) {
           events: `${API_PREFIX}/events`,
         },
       })
-    }
+    },
   )
 
   // Register API route groups with prefixes

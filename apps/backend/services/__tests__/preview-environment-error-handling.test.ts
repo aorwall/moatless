@@ -1,13 +1,13 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
   CreateRepositoryRequest,
   CreateTaskRequest,
   RepositoryConfig,
   ServerStatus,
 } from '@moatless/shared/types/index'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 
 /**
@@ -77,7 +77,7 @@ describe('Preview Environment Error Handling', () => {
     // Create a repository with an invalid server command
     const repository = await createRepository(
       'Invalid Command Test',
-      'invalid-command-that-does-not-exist {PORT}'
+      'invalid-command-that-does-not-exist {PORT}',
     )
     const task = await createTask(repository.id)
 
@@ -101,7 +101,7 @@ describe('Preview Environment Error Handling', () => {
     // Verify error details are captured
     expect(serverStatus.error).toBeDefined()
     expect(serverStatus.error).toContain('Failed to start server')
-    
+
     // Should have some error message about the invalid command
     expect(serverStatus.error).toMatch(/command.*(not found|doesn't exist|invalid)/i)
 
@@ -124,10 +124,7 @@ exit 1
     await fs.writeFile(scriptPath, failingScript)
     await fs.chmod(scriptPath, 0o755)
 
-    const repository = await createRepository(
-      'Failing Server Test',
-      `${scriptPath} {PORT}`
-    )
+    const repository = await createRepository('Failing Server Test', `${scriptPath} {PORT}`)
     const task = await createTask(repository.id)
 
     // Wait for workspace setup
@@ -173,10 +170,7 @@ exit 1
 
     await fs.writeFile(path.join(tempDir, 'package.json'), packageJsonContent)
 
-    const repository = await createRepository(
-      'NPM Command Error Test',
-      'pnpm start:frontend'
-    )
+    const repository = await createRepository('NPM Command Error Test', 'pnpm start:frontend')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup
@@ -212,10 +206,7 @@ exit 1
 
   it('should return correct server status after failed startup', async () => {
     // Test that subsequent status checks work correctly after a failed startup
-    const repository = await createRepository(
-      'Status After Failure Test',
-      'nonexistent-command'
-    )
+    const repository = await createRepository('Status After Failure Test', 'nonexistent-command')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup

@@ -1,6 +1,6 @@
-import { queryKeys } from '@/lib/api/query-keys'
-import { EventType } from '@moatless/shared/types/event'
 import type { Event } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/shared/types/event'
+import { queryKeys } from '@/lib/api/query-keys'
 
 export const STATUS_AFFECTING_EVENTS = [
   EventType.RESULT,
@@ -13,41 +13,16 @@ export const STATUS_AFFECTING_EVENTS = [
 const tasksAllKey = (_id: string) => queryKeys.tasks.all
 
 export const EVENT_INVALIDATION_MAP = {
-  [EventType.START]: [
-    queryKeys.task,
-    queryKeys.taskWorkspaceStatus,
-  ],
-  [EventType.STOP]: [
-    queryKeys.task,
-    queryKeys.taskWorkspaceStatus,
-    queryKeys.taskServerStatus,
-  ],
-  [EventType.RESULT]: [
-    queryKeys.task,
-    queryKeys.taskGitDiff,
-    tasksAllKey,
-  ],
-  [EventType.ERROR]: [
-    queryKeys.task,
-  ],
-  [EventType.WORKSPACE]: [
-    queryKeys.taskWorkspaceStatus,
-    queryKeys.taskGitDiff,
-  ],
-  [EventType.SERVER]: [
-    queryKeys.taskServerStatus,
-  ],
+  [EventType.START]: [queryKeys.task, queryKeys.taskWorkspaceStatus],
+  [EventType.STOP]: [queryKeys.task, queryKeys.taskWorkspaceStatus, queryKeys.taskServerStatus],
+  [EventType.RESULT]: [queryKeys.task, queryKeys.taskGitDiff, tasksAllKey],
+  [EventType.ERROR]: [queryKeys.task],
+  [EventType.WORKSPACE]: [queryKeys.taskWorkspaceStatus, queryKeys.taskGitDiff],
+  [EventType.SERVER]: [queryKeys.taskServerStatus],
   [EventType.MESSAGE]: [],
-  [EventType.INPUT]: [
-    queryKeys.task,
-    tasksAllKey,
-  ],
-  [EventType.TOOL]: [
-    queryKeys.taskEvents,
-  ],
-  [EventType.COMPLETION]: [
-    queryKeys.task,
-  ],
+  [EventType.INPUT]: [queryKeys.task, tasksAllKey],
+  [EventType.TOOL]: [queryKeys.taskEvents],
+  [EventType.COMPLETION]: [queryKeys.task],
 } as const
 
 export type InvalidationKeyFunction = (id: string) => readonly unknown[]

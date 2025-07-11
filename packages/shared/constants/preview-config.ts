@@ -40,7 +40,8 @@ export const INJECTION_METHOD_OPTIONS = [
     value: 'proxy',
     label: 'Proxy',
     description: 'Uses a proxy server to inject scripts into responses',
-    details: 'Routes traffic through a proxy that modifies HTML responses to include preview scripts.',
+    details:
+      'Routes traffic through a proxy that modifies HTML responses to include preview scripts.',
     requirements: 'Proxy server configuration',
     pros: ['No application changes', 'Works with any server', 'Easy to enable/disable'],
     cons: ['Additional network layer', 'Potential latency', 'Complex routing'],
@@ -57,7 +58,7 @@ export const INJECTION_METHOD_OPTIONS = [
 ] as const
 
 // Note: The system always uses random available ports for actual server binding.
-// The serverPort in preview config is only used if the serverStartCommand 
+// The serverPort in preview config is only used if the serverStartCommand
 // contains a port placeholder (like {PORT}) that gets replaced.
 
 // Default server commands for different frameworks (with PORT placeholder)

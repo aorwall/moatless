@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '@moatless/shared/types/task'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
 import type { EventService } from '../event.service.js'

@@ -1,9 +1,9 @@
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
 import { Progress } from '@/lib/components/ui/progress.tsx'
-import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedLastThreeEventsDisplayProps {
@@ -40,9 +40,7 @@ export function MinifiedLastEventsDisplay({
 
   // Derive displayed events directly from props
   const displayedEvents = useMemo(() => {
-    return events
-      .filter(isMessageOrToolEvent)
-      .slice(-3)
+    return events.filter(isMessageOrToolEvent).slice(-3)
   }, [events])
 
   // Update running duration every second (this is a legitimate use of useEffect for timers)
@@ -99,27 +97,21 @@ export function MinifiedLastEventsDisplay({
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                 <span className="text-xs font-medium text-foreground">Running</span>
               </div>
-              
+
               {runningStartTime && runningDuration && (
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-mono font-medium text-foreground">
-                    {runningDuration}
-                  </span>
+                  <span className="font-mono font-medium text-foreground">{runningDuration}</span>
                 </div>
               )}
-              
+
               {latestContextTokens && (
                 <div className="flex flex-col gap-1 text-xs">
                   <span className="font-mono font-medium text-foreground">
-                    {latestContextTokens > 1000 
+                    {latestContextTokens > 1000
                       ? `${Math.round(latestContextTokens / 1000)}k tokens`
-                      : `${latestContextTokens.toLocaleString()} tokens`
-                    }
+                      : `${latestContextTokens.toLocaleString()} tokens`}
                   </span>
-                  <Progress 
-                    value={(latestContextTokens / 200000) * 100} 
-                    className="w-full h-1.5" 
-                  />
+                  <Progress value={(latestContextTokens / 200000) * 100} className="w-full h-1.5" />
                 </div>
               )}
             </div>

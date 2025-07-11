@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import http from 'node:http'
 import type { Logger } from 'pino'
-import { PreviewProxyService, createPreviewProxy } from '../preview-proxy.service.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPreviewProxy, PreviewProxyService } from '../preview-proxy.service.js'
 
 describe('PreviewProxyService', () => {
   let mockTargetServer: http.Server
   let targetPort: number
   let proxyService: PreviewProxyService
   const testScriptContent = '/* Test Inspector Script */'
-  
+
   // Create a mock logger
   const mockLogger: Logger = {
     child: () => mockLogger,
@@ -68,7 +68,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${targetPort}`,
         testScriptContent,
         mockLogger,
-        9500
+        9500,
       )
 
       expect(proxy).toBeInstanceOf(PreviewProxyService)
@@ -82,7 +82,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${targetPort}`,
         testScriptContent,
         mockLogger,
-        9501
+        9501,
       )
 
       // Start proxy
@@ -107,7 +107,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${targetPort}`,
         testScriptContent,
         mockLogger,
-        9502
+        9502,
       )
 
       await proxyService.start()
@@ -121,7 +121,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${targetPort}`,
         testScriptContent,
         mockLogger,
-        9503
+        9503,
       )
       await proxyService.start()
     })
@@ -171,7 +171,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${noBodyPort}`,
         testScriptContent,
         mockLogger,
-        9504
+        9504,
       )
 
       await noBodyProxy.start()
@@ -195,7 +195,7 @@ describe('PreviewProxyService', () => {
         'http://localhost:99999',
         testScriptContent,
         mockLogger,
-        9505
+        9505,
       )
       await proxyService.start()
 
@@ -210,7 +210,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${targetPort}`,
         testScriptContent,
         mockLogger,
-        9506
+        9506,
       )
       await proxyService.start()
 
@@ -232,7 +232,7 @@ describe('PreviewProxyService', () => {
         `http://localhost:${targetPort}`,
         testScriptContent,
         mockLogger,
-        9507
+        9507,
       )
       await proxyService.start()
     })
@@ -249,7 +249,7 @@ describe('PreviewProxyService', () => {
 
       const response = await fetch(`http://localhost:9507/with-script.html`)
       const html = await response.text()
-      
+
       // Should inject before closing body tag
       expect(html).toMatch(/<script>.*Test Inspector Script.*<\/script><\/body>/)
       expect(html).toContain('<script>existing</script>')

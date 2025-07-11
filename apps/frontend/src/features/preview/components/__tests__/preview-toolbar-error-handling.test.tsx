@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { toast } from 'sonner'
 import type { ServerStatus } from '@moatless/shared/types/workspace'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { toast } from 'sonner'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PreviewToolbar } from '../preview-toolbar'
 
 // Mock dependencies
@@ -96,11 +96,7 @@ describe('PreviewToolbar Error Handling', () => {
   })
 
   const renderWithQuery = (component: React.ReactElement) => {
-    return render(
-      <QueryClientProvider client={queryClient}>
-        {component}
-      </QueryClientProvider>
-    )
+    return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
   }
 
   it('should display failed status when server has error', () => {
@@ -156,8 +152,8 @@ describe('PreviewToolbar Error Handling', () => {
       isPending: false,
     }
 
-    mockUseServerStatus.mockReturnValue({ 
-      data: { running: false, configured: true, uptimeSeconds: 0 } 
+    mockUseServerStatus.mockReturnValue({
+      data: { running: false, configured: true, uptimeSeconds: 0 },
     })
     mockUseStartServer.mockReturnValue(startServerMock)
     mockUseStopServer.mockReturnValue({ mutate: vi.fn(), isPending: false })
@@ -184,12 +180,9 @@ describe('PreviewToolbar Error Handling', () => {
     onSuccessCallback(failedServerStatus)
 
     // Verify error toast was called
-    expect(toast.error).toHaveBeenCalledWith(
-      'Failed to start preview environment server',
-      {
-        description: 'Failed to start server: Command not found',
-      }
-    )
+    expect(toast.error).toHaveBeenCalledWith('Failed to start preview environment server', {
+      description: 'Failed to start server: Command not found',
+    })
   })
 
   it('should show success toast when server starts successfully', async () => {
@@ -199,8 +192,8 @@ describe('PreviewToolbar Error Handling', () => {
       isPending: false,
     }
 
-    mockUseServerStatus.mockReturnValue({ 
-      data: { running: false, configured: true, uptimeSeconds: 0 } 
+    mockUseServerStatus.mockReturnValue({
+      data: { running: false, configured: true, uptimeSeconds: 0 },
     })
     mockUseStartServer.mockReturnValue(startServerMock)
     mockUseStopServer.mockReturnValue({ mutate: vi.fn(), isPending: false })
@@ -235,8 +228,8 @@ describe('PreviewToolbar Error Handling', () => {
       isPending: false,
     }
 
-    mockUseServerStatus.mockReturnValue({ 
-      data: { running: false, configured: true, uptimeSeconds: 0 } 
+    mockUseServerStatus.mockReturnValue({
+      data: { running: false, configured: true, uptimeSeconds: 0 },
     })
     mockUseStartServer.mockReturnValue(startServerMock)
     mockUseStopServer.mockReturnValue({ mutate: vi.fn(), isPending: false })
@@ -251,12 +244,9 @@ describe('PreviewToolbar Error Handling', () => {
     onErrorCallback(error)
 
     // Verify error toast was called
-    expect(toast.error).toHaveBeenCalledWith(
-      'Failed to start preview environment server',
-      {
-        description: 'Network error',
-      }
-    )
+    expect(toast.error).toHaveBeenCalledWith('Failed to start preview environment server', {
+      description: 'Network error',
+    })
   })
 
   it('should apply correct status colors for failed state', () => {

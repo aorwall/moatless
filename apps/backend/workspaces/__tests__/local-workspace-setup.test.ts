@@ -1,8 +1,8 @@
 // import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import type { RepositoryConfig } from '@moatless/shared/types/repository'
 // import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import type { EventService } from '../../services/event.service.js'
 import { LocalWorkspace } from '../local.js'
 

@@ -1,15 +1,12 @@
+import { CommandNotFoundError } from '@moatless/shared/constants/errors'
+import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/shared/schemas/command.schemas'
+import type { CommandList } from '@moatless/shared/types/command'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
-import { CommandNotFoundError } from '@moatless/shared/constants/errors'
-import {
-  CreateCommandSchema,
-  UpdateCommandSchema,
-} from '@moatless/shared/schemas/command.schemas'
-import type { CommandList } from '@moatless/shared/types/command'
 
 // Response schemas
 const commandResponseSchema = z.object({
@@ -29,9 +26,7 @@ const deleteResponseSchema = z.object({
   status: z.literal('deleted'),
 })
 
-
 export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: string) {
-
   // Create command
   app.post(
     prefix,
@@ -60,15 +55,16 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
-    
-    const body = await c.req.json()
-    const validatedBody = CreateCommandSchema.parse(body)
+      const services = c.get('services')
+      const { command: commandService } = services
 
-    const command = await commandService.createCommand(validatedBody)
-    return c.json(command)
-  })
+      const body = await c.req.json()
+      const validatedBody = CreateCommandSchema.parse(body)
+
+      const command = await commandService.createCommand(validatedBody)
+      return c.json(command)
+    },
+  )
 
   // List commands
   app.get(
@@ -87,12 +83,13 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
-    
-    const commands = await commandService.listCommands()
-    return c.json({ commands } as CommandList)
-  })
+      const services = c.get('services')
+      const { command: commandService } = services
+
+      const commands = await commandService.listCommands()
+      return c.json({ commands } as CommandList)
+    },
+  )
 
   // Get command by name
   app.get(
@@ -128,22 +125,23 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
-    
-    const commandName = c.req.param('commandName')
-    if (!commandName) {
-      throw new HTTPException(400, { message: 'Command name is required' })
-    }
-    
-    const command = await commandService.getCommand(commandName)
+      const services = c.get('services')
+      const { command: commandService } = services
 
-    if (!command) {
-      throw new CommandNotFoundError(commandName)
-    }
+      const commandName = c.req.param('commandName')
+      if (!commandName) {
+        throw new HTTPException(400, { message: 'Command name is required' })
+      }
 
-    return c.json(command)
-  })
+      const command = await commandService.getCommand(commandName)
+
+      if (!command) {
+        throw new CommandNotFoundError(commandName)
+      }
+
+      return c.json(command)
+    },
+  )
 
   // Update command
   app.put(
@@ -187,20 +185,21 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
-    
-    const commandName = c.req.param('commandName')
-    if (!commandName) {
-      throw new HTTPException(400, { message: 'Command name is required' })
-    }
-    
-    const body = await c.req.json()
-    const validatedBody = UpdateCommandSchema.parse(body)
+      const services = c.get('services')
+      const { command: commandService } = services
 
-    const updatedCommand = await commandService.updateCommand(commandName, validatedBody)
-    return c.json(updatedCommand)
-  })
+      const commandName = c.req.param('commandName')
+      if (!commandName) {
+        throw new HTTPException(400, { message: 'Command name is required' })
+      }
+
+      const body = await c.req.json()
+      const validatedBody = UpdateCommandSchema.parse(body)
+
+      const updatedCommand = await commandService.updateCommand(commandName, validatedBody)
+      return c.json(updatedCommand)
+    },
+  )
 
   // Delete command
   app.delete(
@@ -236,15 +235,16 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
       },
     }),
     async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
-    
-    const commandName = c.req.param('commandName')
-    if (!commandName) {
-      throw new HTTPException(400, { message: 'Command name is required' })
-    }
+      const services = c.get('services')
+      const { command: commandService } = services
 
-    await commandService.deleteCommand(commandName)
-    return c.json({ status: 'deleted' })
-  })
+      const commandName = c.req.param('commandName')
+      if (!commandName) {
+        throw new HTTPException(400, { message: 'Command name is required' })
+      }
+
+      await commandService.deleteCommand(commandName)
+      return c.json({ status: 'deleted' })
+    },
+  )
 }

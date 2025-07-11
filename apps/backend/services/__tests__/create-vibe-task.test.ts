@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
 import type { EventService } from '../event.service.js'
@@ -181,7 +181,7 @@ describe('TaskService - createVibeTask', () => {
       }
 
       await expect(taskService.createVibeTask(request)).rejects.toThrow(
-        'Template with id unknown-template not found'
+        'Template with id unknown-template not found',
       )
 
       // Verify no repository was created
@@ -230,7 +230,7 @@ describe('TaskService - createVibeTask', () => {
             serverStartCommand: 'npm run dev',
             serverPort: 3000,
           }),
-        })
+        }),
       )
     })
 
@@ -274,7 +274,7 @@ describe('TaskService - createVibeTask', () => {
       expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
         taskId,
         'repo-123',
-        undefined
+        undefined,
       )
     })
   })

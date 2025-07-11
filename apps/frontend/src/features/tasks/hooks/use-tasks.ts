@@ -192,7 +192,6 @@ export function useTaskFileSearch(
   })
 }
 
-
 export function useMergeTask(
   taskId: string,
   options?: UseMutationOptions<
@@ -203,11 +202,7 @@ export function useMergeTask(
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<
-    MergeTaskResponse,
-    Error,
-    { targetBranch?: string; commitMessage?: string }
-  >({
+  return useMutation<MergeTaskResponse, Error, { targetBranch?: string; commitMessage?: string }>({
     mutationKey: ['tasks', taskId, 'merge'],
     mutationFn: ({ targetBranch, commitMessage }) =>
       tasksApi.mergeTask(taskId, { targetBranch, commitMessage }),
@@ -232,7 +227,12 @@ export function useMergeTask(
     },
     onError: (err, variables, context) => {
       // Rollback on error
-      if (context && typeof context === 'object' && 'previousTask' in context && context.previousTask) {
+      if (
+        context &&
+        typeof context === 'object' &&
+        'previousTask' in context &&
+        context.previousTask
+      ) {
         queryClient.setQueryData(queryKeys.task(taskId), context.previousTask)
         updateTaskInLists(queryClient, taskId, context.previousTask)
       }
@@ -279,7 +279,12 @@ export function useCloseTask(
     },
     onError: (err, _, context) => {
       // Rollback on error
-      if (context && typeof context === 'object' && 'previousTask' in context && context.previousTask) {
+      if (
+        context &&
+        typeof context === 'object' &&
+        'previousTask' in context &&
+        context.previousTask
+      ) {
         queryClient.setQueryData(queryKeys.task(taskId), context.previousTask)
         updateTaskInLists(queryClient, taskId, context.previousTask)
       }

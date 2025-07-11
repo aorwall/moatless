@@ -43,7 +43,7 @@ export function Pagination({
       const rightItemCount = 3 + 2 * siblingCount
       const rightRange = Array.from(
         { length: rightItemCount },
-        (_, i) => totalPages - rightItemCount + i + 1
+        (_, i) => totalPages - rightItemCount + i + 1,
       )
       return [1, 'dots', ...rightRange]
     }
@@ -51,7 +51,7 @@ export function Pagination({
     if (shouldShowLeftDots && shouldShowRightDots) {
       const middleRange = Array.from(
         { length: rightSiblingIndex - leftSiblingIndex + 1 },
-        (_, i) => leftSiblingIndex + i
+        (_, i) => leftSiblingIndex + i,
       )
       return [1, 'dots', ...middleRange, 'dots', totalPages]
     }
@@ -62,10 +62,7 @@ export function Pagination({
   const paginationRange = generatePaginationRange()
 
   return (
-    <nav
-      className={cn('flex items-center gap-2', className)}
-      aria-label="Pagination"
-    >
+    <nav className={cn('flex items-center gap-2', className)} aria-label="Pagination">
       <Button
         variant="outline"
         size="sm"
@@ -82,10 +79,7 @@ export function Pagination({
           {paginationRange.map((pageNumber, index) => {
             if (pageNumber === 'dots') {
               return (
-                <div
-                  key={`dots-${index}`}
-                  className="flex size-9 items-center justify-center"
-                >
+                <div key={`dots-${index}`} className="flex size-9 items-center justify-center">
                   <MoreHorizontal className="size-4 text-muted-foreground" />
                 </div>
               )

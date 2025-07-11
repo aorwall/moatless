@@ -34,7 +34,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     vi.mocked(tasksApi.listTasks).mockResolvedValue({
       tasks: [initialTask],
       items: [initialTask],
-      pagination: { limit: 20, offset: 0, total: 1 }
+      pagination: { limit: 20, offset: 0, total: 1 },
     })
 
     // Render hooks to establish initial cache
@@ -62,7 +62,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     vi.mocked(tasksApi.listTasks).mockResolvedValue({
       tasks: [updatedTask],
       items: [updatedTask],
-      pagination: { limit: 20, offset: 0, total: 1 }
+      pagination: { limit: 20, offset: 0, total: 1 },
     })
 
     // Get the query client to spy on invalidations
@@ -85,7 +85,7 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.tasksList(),
     })
-    
+
     // Task-specific queries are now invalidated by events, not mutations
     expect(spyInvalidate).not.toHaveBeenCalledWith({
       queryKey: queryKeys.task(taskId),
@@ -104,5 +104,4 @@ describe('Task Viewer Integration - Query Invalidation', () => {
       expect(taskResult.current.data).toEqual(updatedTask)
     })
   })
-
 })

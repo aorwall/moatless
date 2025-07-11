@@ -1,5 +1,5 @@
-import { config } from 'dotenv'
 import { serve } from '@hono/node-server'
+import { config } from 'dotenv'
 import { createApp } from './app.js'
 import { createLogger } from './utils/logger.js'
 

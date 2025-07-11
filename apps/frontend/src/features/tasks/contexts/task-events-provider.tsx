@@ -1,14 +1,6 @@
 import type { Event } from '@moatless/shared/types/event'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
 import {
   getInvalidationKeys,
   shouldInvalidateTaskList,

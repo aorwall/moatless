@@ -2,12 +2,9 @@ import type { Task } from '@moatless/shared/types/task'
 import { GitMerge, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
-import {
-  useCloseTask,
-  useMergeTask,
-} from '@/features/tasks/hooks/use-tasks'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
+import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
@@ -21,7 +18,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 export function ChatHeader() {
   const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
   const { data: repositories } = useRepositoriesList()
-  
+
   // Get git sync status from the last iteration
   const lastIteration = iterations?.[iterations.length - 1]
   const gitSyncStatus = status === 'open' ? lastIteration?.gitSyncStatus : null
@@ -85,7 +82,7 @@ export function ChatHeader() {
   // Get task title (first line of initial message or agent type)
   const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
 
-  // Create task object for TaskStatusIcon  
+  // Create task object for TaskStatusIcon
   const task = { status, iterations } as Pick<Task, 'status' | 'iterations'>
 
   return (
@@ -104,9 +101,7 @@ export function ChatHeader() {
                   {gitSyncStatus.commitsAhead > 0 && (
                     <>
                       <span>•</span>
-                      <span className="text-status-info">
-                        {gitSyncStatus.commitsAhead} ahead
-                      </span>
+                      <span className="text-status-info">{gitSyncStatus.commitsAhead} ahead</span>
                     </>
                   )}
                   {gitSyncStatus.commitsBehind > 0 && (
@@ -126,9 +121,7 @@ export function ChatHeader() {
                   {gitSyncStatus.hasUncommittedChanges && (
                     <>
                       <span>•</span>
-                      <span className="text-status-warning">
-                        uncommitted changes
-                      </span>
+                      <span className="text-status-warning">uncommitted changes</span>
                     </>
                   )}
                 </>

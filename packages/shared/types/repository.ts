@@ -8,10 +8,7 @@ export type {
   UpdateRepositoryRequest,
 } from '../schemas/repository.schemas.js'
 
-import type {
-  RepositoryConfig as Repo,
-  PreviewConfig,
-} from '../schemas/repository.schemas.js'
+import type { PreviewConfig, RepositoryConfig as Repo } from '../schemas/repository.schemas.js'
 
 export interface RepositoryVariable {
   key: string
@@ -77,7 +74,7 @@ export class RepositoryTemplate {
     name: string,
     gitUrl: string = 'https://github.com/aorwall/hello-world-ui.git',
     setupCommand?: string,
-    previewConfig?: PreviewConfig
+    previewConfig?: PreviewConfig,
   ) {
     this.id = id
     this.name = name

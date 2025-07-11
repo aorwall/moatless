@@ -107,8 +107,7 @@ export const Route = createRootRoute({
   component: () => (
     <>
       <HeadContent />
-      <ErrorBoundary 
-      >
+      <ErrorBoundary>
         <Layout>
           <Outlet />
         </Layout>

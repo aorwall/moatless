@@ -18,7 +18,7 @@ interface ChatFormProps {
   message: string
   onMessageChange: (message: string) => void
   onSubmit: () => void
-  
+
   // UI configuration
   placeholder?: string
   buttonText?: string
@@ -26,15 +26,15 @@ interface ChatFormProps {
   loading?: boolean
   running?: boolean
   maxHeight?: string
-  
+
   // Context
   taskId?: string
   repositoryId?: string
   isTaskContext?: boolean
-  
+
   // Composable selectors
   selectors?: React.ReactNode[]
-  
+
   // File upload
   files?: UploadFileResponse[]
   onFilesChange?: (files: UploadFileResponse[]) => void
@@ -185,20 +185,20 @@ export function ChatForm({
     // Check for image in clipboard
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
-      
+
       if (item.type.indexOf('image') !== -1) {
         e.preventDefault() // Prevent default paste behavior for images
-        
+
         const blob = item.getAsFile()
         if (blob) {
           // Generate a filename based on timestamp
           const timestamp = new Date().getTime()
           const extension = blob.type.split('/')[1] || 'png'
           const filename = `pasted-image-${timestamp}.${extension}`
-          
+
           // Create a File object from the blob
           const file = new File([blob], filename, { type: blob.type })
-          
+
           // Upload the file using existing upload functionality
           uploadFile.mutate(file, {
             onSuccess: (data) => {
@@ -286,9 +286,7 @@ export function ChatForm({
       )}
       <div className="flex items-center justify-between gap-2">
         {/* Left side - Composable selectors */}
-        <div className="flex items-center gap-2">
-          {selectors}
-        </div>
+        <div className="flex items-center gap-2">{selectors}</div>
 
         {/* Right side - Upload and Send buttons */}
         <div className="flex items-center gap-2">

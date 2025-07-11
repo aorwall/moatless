@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { createGitWorktree, isGitRepository } from '../utils/index.js'
 import {
   RepositoryNotFoundError,
   TaskNotFoundError,
@@ -9,6 +8,7 @@ import {
 import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import { createGitWorktree, isGitRepository } from '../utils/index.js'
 
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
@@ -43,11 +43,7 @@ export class WorkspaceService {
 
     // Create workspace path for local repositories
     let workspacePath: string | undefined
-    workspacePath = await this.createWorkspaceRepository(
-      repository,
-      taskId,
-      branchName,
-    )
+    workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
 
     let workspace: BaseWorkspace
     if (repository.codeExecution.type === 'docker') {
@@ -360,7 +356,7 @@ export class WorkspaceService {
       // Get workspace details before cleanup for logging
       const workspacePath = workspace.getWorkspacePath()
       const workspaceStatus = workspace.getStatus()
-      
+
       workspaceLogger.info('Initiating workspace teardown', {
         workspaceType: workspace.type,
         workspacePath,
@@ -371,7 +367,7 @@ export class WorkspaceService {
       await workspace.teardown(true) // Force cleanup
 
       const teardownTime = Date.now() - startTime
-      workspaceLogger.info('Workspace teardown completed', { 
+      workspaceLogger.info('Workspace teardown completed', {
         teardownTimeMs: teardownTime,
         workspacePath,
       })
@@ -440,13 +436,15 @@ export class WorkspaceService {
     }
 
     // Check if workspace has getOriginSyncStatus method (LocalWorkspace)
-    let gitSyncStatus: any = undefined
+    let gitSyncStatus: any
     if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
       try {
         gitSyncStatus = await workspace.getOriginSyncStatus()
       } catch (error) {
         // Log error but continue without sync status
-        logger.warn('Failed to get origin sync status', { error: error instanceof Error ? error.message : String(error) })
+        logger.warn('Failed to get origin sync status', {
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
     }
 

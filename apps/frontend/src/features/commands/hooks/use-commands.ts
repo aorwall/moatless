@@ -1,4 +1,8 @@
-import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/shared/types/command'
+import type {
+  Command,
+  CreateCommandRequest,
+  UpdateCommandRequest,
+} from '@moatless/shared/types/command'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { commandsApi } from '@/features/commands/api/commands'

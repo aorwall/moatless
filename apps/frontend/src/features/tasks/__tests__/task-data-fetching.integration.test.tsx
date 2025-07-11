@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '@moatless/shared/types/event'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import { render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { createMockTask, createMockTaskEvent } from '@/test-utils/mocks'

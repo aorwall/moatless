@@ -14,17 +14,21 @@ describe('SSE Routes (Deprecated)', () => {
 
   describe('Task-specific SSE endpoints (removed)', () => {
     it('should return 404 for removed task stream endpoint', async () => {
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/any-task/stream', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/any-task/stream', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(404)
     })
 
     it('should return 404 for removed task stream status endpoint', async () => {
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/any-task/stream/status', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/any-task/stream/status', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(404)
     })

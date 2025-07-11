@@ -1,6 +1,6 @@
-import { render, screen, act } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import React from 'react'
+import { describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider, useTaskUI } from '@/features/tasks/contexts/task-ui-provider'
 
 // Mock scroll functionality
@@ -12,33 +12,44 @@ Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
 
 // Comprehensive test component that uses all UI state features
 function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
-  const { currentState, setRightPanelView, setSelectedIteration, setPanelSizes, setSelectedFile, updateChatState, updateGitDiffState } = useTaskUI()
+  const {
+    currentState,
+    setRightPanelView,
+    setSelectedIteration,
+    setPanelSizes,
+    setSelectedFile,
+    updateChatState,
+    updateGitDiffState,
+  } = useTaskUI()
 
   const handleComplexStateUpdate = () => {
     // Simulate a complex workflow with multiple state updates
-    updateChatState({ 
-      isAtBottom: false, 
-      scrollPosition: parseInt(taskName.slice(-1)) * 100 
+    updateChatState({
+      isAtBottom: false,
+      scrollPosition: parseInt(taskName.slice(-1)) * 100,
     })
-    
+
     updateGitDiffState({
       expandedFiles: new Set([`${taskName}-file1.ts`, `${taskName}-file2.ts`]),
       selectedFileKey: `${taskName}-file1.ts`,
-      expandedPaths: new Set([`${taskName}/src/`, `${taskName}/tests/`])
+      expandedPaths: new Set([`${taskName}/src/`, `${taskName}/tests/`]),
     })
-    
+
     setRightPanelView('diff')
     setSelectedFile(`${taskName}/selected.ts`)
     setSelectedIteration({ iterationNumber: parseInt(taskName.slice(-1)) } as any)
-    setPanelSizes({ left: 30 + parseInt(taskName.slice(-1)) * 10, right: 70 - parseInt(taskName.slice(-1)) * 10 })
+    setPanelSizes({
+      left: 30 + parseInt(taskName.slice(-1)) * 10,
+      right: 70 - parseInt(taskName.slice(-1)) * 10,
+    })
   }
 
   const handleResetState = () => {
     updateChatState({ isAtBottom: true, scrollPosition: 0 })
-    updateGitDiffState({ 
-      expandedFiles: new Set(), 
-      selectedFileKey: undefined, 
-      expandedPaths: new Set() 
+    updateGitDiffState({
+      expandedFiles: new Set(),
+      selectedFileKey: undefined,
+      expandedPaths: new Set(),
     })
     setRightPanelView('events')
     setSelectedFile('')
@@ -49,7 +60,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
   return (
     <div data-testid={`task-${taskName}`}>
       <div data-testid={`${taskName}-task-name`}>{taskName}</div>
-      
+
       {/* Chat State */}
       <div data-testid={`${taskName}-chat-is-at-bottom`}>
         {currentState.chatState.isAtBottom.toString()}
@@ -57,7 +68,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
       <div data-testid={`${taskName}-chat-scroll-position`}>
         {currentState.chatState.scrollPosition || 0}
       </div>
-      
+
       {/* Git Diff State */}
       <div data-testid={`${taskName}-expanded-files-count`}>
         {currentState.gitDiffState.expandedFiles.size}
@@ -74,32 +85,22 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
       <div data-testid={`${taskName}-expanded-paths`}>
         {Array.from(currentState.gitDiffState.expandedPaths).join(',')}
       </div>
-      
+
       {/* Panel State */}
-      <div data-testid={`${taskName}-panel-view`}>
-        {currentState.rightPanelView}
-      </div>
-      <div data-testid={`${taskName}-selected-file`}>
-        {currentState.selectedFile || 'none'}
-      </div>
+      <div data-testid={`${taskName}-panel-view`}>{currentState.rightPanelView}</div>
+      <div data-testid={`${taskName}-selected-file`}>{currentState.selectedFile || 'none'}</div>
       <div data-testid={`${taskName}-selected-iteration`}>
         {currentState.selectedIteration?.iterationNumber || 'none'}
       </div>
       <div data-testid={`${taskName}-panel-sizes`}>
         {currentState.panelSizes.left},{currentState.panelSizes.right}
       </div>
-      
-      <button
-        data-testid={`${taskName}-complex-update`}
-        onClick={handleComplexStateUpdate}
-      >
+
+      <button data-testid={`${taskName}-complex-update`} onClick={handleComplexStateUpdate}>
         Complex Update
       </button>
-      
-      <button
-        data-testid={`${taskName}-reset-state`}
-        onClick={handleResetState}
-      >
+
+      <button data-testid={`${taskName}-reset-state`} onClick={handleResetState}>
         Reset State
       </button>
     </div>
@@ -113,7 +114,7 @@ function TaskSwitchingTest() {
 
   const switchToTask = (taskId: string) => {
     setCurrentTaskId(taskId)
-    setTaskHistory(prev => [...prev, taskId])
+    setTaskHistory((prev) => [...prev, taskId])
   }
 
   return (
@@ -121,7 +122,7 @@ function TaskSwitchingTest() {
       <div data-testid="current-task-id">{currentTaskId}</div>
       <div data-testid="task-history">{taskHistory.join(' -> ')}</div>
       <div data-testid="task-switch-count">{taskHistory.length - 1}</div>
-      
+
       <button data-testid="switch-to-task1" onClick={() => switchToTask('task1')}>
         Task 1
       </button>
@@ -137,7 +138,7 @@ function TaskSwitchingTest() {
       <button data-testid="switch-to-task5" onClick={() => switchToTask('task5')}>
         Task 5
       </button>
-      
+
       <TaskUIProvider taskId={currentTaskId}>
         <ComprehensiveTaskComponent taskName={currentTaskId} />
       </TaskUIProvider>
@@ -207,16 +208,28 @@ describe('Task Switching Behavior', () => {
     })
 
     expect(screen.getByTestId('current-task-id')).toHaveTextContent('task1')
-    expect(screen.getByTestId('task1-chat-is-at-bottom').textContent).toBe(task1State.chatIsAtBottom)
-    expect(screen.getByTestId('task1-chat-scroll-position').textContent).toBe(task1State.chatScrollPosition)
-    expect(screen.getByTestId('task1-expanded-files-count').textContent).toBe(task1State.expandedFilesCount)
+    expect(screen.getByTestId('task1-chat-is-at-bottom').textContent).toBe(
+      task1State.chatIsAtBottom,
+    )
+    expect(screen.getByTestId('task1-chat-scroll-position').textContent).toBe(
+      task1State.chatScrollPosition,
+    )
+    expect(screen.getByTestId('task1-expanded-files-count').textContent).toBe(
+      task1State.expandedFilesCount,
+    )
     expect(screen.getByTestId('task1-expanded-files').textContent).toBe(task1State.expandedFiles)
-    expect(screen.getByTestId('task1-selected-file-key').textContent).toBe(task1State.selectedFileKey)
-    expect(screen.getByTestId('task1-expanded-paths-count').textContent).toBe(task1State.expandedPathsCount)
+    expect(screen.getByTestId('task1-selected-file-key').textContent).toBe(
+      task1State.selectedFileKey,
+    )
+    expect(screen.getByTestId('task1-expanded-paths-count').textContent).toBe(
+      task1State.expandedPathsCount,
+    )
     expect(screen.getByTestId('task1-expanded-paths').textContent).toBe(task1State.expandedPaths)
     expect(screen.getByTestId('task1-panel-view').textContent).toBe(task1State.panelView)
     expect(screen.getByTestId('task1-selected-file').textContent).toBe(task1State.selectedFile)
-    expect(screen.getByTestId('task1-selected-iteration').textContent).toBe(task1State.selectedIteration)
+    expect(screen.getByTestId('task1-selected-iteration').textContent).toBe(
+      task1State.selectedIteration,
+    )
     expect(screen.getByTestId('task1-panel-sizes').textContent).toBe(task1State.panelSizes)
 
     // Switch back to Task 2 (should restore its state)
@@ -224,11 +237,19 @@ describe('Task Switching Behavior', () => {
       screen.getByTestId('switch-to-task2').click()
     })
 
-    expect(screen.getByTestId('task2-chat-is-at-bottom').textContent).toBe(task2State.chatIsAtBottom)
-    expect(screen.getByTestId('task2-chat-scroll-position').textContent).toBe(task2State.chatScrollPosition)
-    expect(screen.getByTestId('task2-expanded-files-count').textContent).toBe(task2State.expandedFilesCount)
+    expect(screen.getByTestId('task2-chat-is-at-bottom').textContent).toBe(
+      task2State.chatIsAtBottom,
+    )
+    expect(screen.getByTestId('task2-chat-scroll-position').textContent).toBe(
+      task2State.chatScrollPosition,
+    )
+    expect(screen.getByTestId('task2-expanded-files-count').textContent).toBe(
+      task2State.expandedFilesCount,
+    )
     expect(screen.getByTestId('task2-panel-view').textContent).toBe(task2State.panelView)
-    expect(screen.getByTestId('task2-selected-iteration').textContent).toBe(task2State.selectedIteration)
+    expect(screen.getByTestId('task2-selected-iteration').textContent).toBe(
+      task2State.selectedIteration,
+    )
   })
 
   it('should handle rapid task switching without state corruption', () => {
@@ -251,8 +272,19 @@ describe('Task Switching Behavior', () => {
     }
 
     // Rapidly switch between tasks multiple times
-    const switchSequence = ['task1', 'task3', 'task5', 'task2', 'task4', 'task1', 'task5', 'task3', 'task2', 'task4']
-    
+    const switchSequence = [
+      'task1',
+      'task3',
+      'task5',
+      'task2',
+      'task4',
+      'task1',
+      'task5',
+      'task3',
+      'task2',
+      'task4',
+    ]
+
     for (const taskId of switchSequence) {
       act(() => {
         screen.getByTestId(`switch-to-${taskId}`).click()
@@ -260,12 +292,15 @@ describe('Task Switching Behavior', () => {
 
       // Verify state is preserved
       expect(screen.getByTestId('current-task-id')).toHaveTextContent(taskId)
-      expect(screen.getByTestId(`${taskId}-chat-scroll-position`).textContent)
-        .toBe(taskStates[taskId].chatScrollPosition)
-      expect(screen.getByTestId(`${taskId}-expanded-files`).textContent)
-        .toBe(taskStates[taskId].expandedFiles)
-      expect(screen.getByTestId(`${taskId}-selected-iteration`).textContent)
-        .toBe(taskStates[taskId].selectedIteration)
+      expect(screen.getByTestId(`${taskId}-chat-scroll-position`).textContent).toBe(
+        taskStates[taskId].chatScrollPosition,
+      )
+      expect(screen.getByTestId(`${taskId}-expanded-files`).textContent).toBe(
+        taskStates[taskId].expandedFiles,
+      )
+      expect(screen.getByTestId(`${taskId}-selected-iteration`).textContent).toBe(
+        taskStates[taskId].selectedIteration,
+      )
     }
 
     // Verify we completed the switching sequence
@@ -373,14 +408,18 @@ describe('Task Switching Behavior', () => {
       } else if (step.action === 'verify') {
         const expected = expectedStates[step.task]
         if (expected) {
-          expect(screen.getByTestId(`${step.task}-chat-is-at-bottom`))
-            .toHaveTextContent(expected.chatIsAtBottom)
-          expect(screen.getByTestId(`${step.task}-expanded-files-count`))
-            .toHaveTextContent(expected.expandedFilesCount)
-          expect(screen.getByTestId(`${step.task}-panel-view`))
-            .toHaveTextContent(expected.panelView)
-          expect(screen.getByTestId(`${step.task}-selected-iteration`))
-            .toHaveTextContent(expected.selectedIteration)
+          expect(screen.getByTestId(`${step.task}-chat-is-at-bottom`)).toHaveTextContent(
+            expected.chatIsAtBottom,
+          )
+          expect(screen.getByTestId(`${step.task}-expanded-files-count`)).toHaveTextContent(
+            expected.expandedFilesCount,
+          )
+          expect(screen.getByTestId(`${step.task}-panel-view`)).toHaveTextContent(
+            expected.panelView,
+          )
+          expect(screen.getByTestId(`${step.task}-selected-iteration`)).toHaveTextContent(
+            expected.selectedIteration,
+          )
         }
       }
     }
@@ -391,14 +430,16 @@ describe('Task Switching Behavior', () => {
         screen.getByTestId(`switch-to-${taskId}`).click()
       })
 
-      expect(screen.getByTestId(`${taskId}-chat-is-at-bottom`))
-        .toHaveTextContent(expected.chatIsAtBottom)
-      expect(screen.getByTestId(`${taskId}-expanded-files-count`))
-        .toHaveTextContent(expected.expandedFilesCount)
-      expect(screen.getByTestId(`${taskId}-panel-view`))
-        .toHaveTextContent(expected.panelView)
-      expect(screen.getByTestId(`${taskId}-selected-iteration`))
-        .toHaveTextContent(expected.selectedIteration)
+      expect(screen.getByTestId(`${taskId}-chat-is-at-bottom`)).toHaveTextContent(
+        expected.chatIsAtBottom,
+      )
+      expect(screen.getByTestId(`${taskId}-expanded-files-count`)).toHaveTextContent(
+        expected.expandedFilesCount,
+      )
+      expect(screen.getByTestId(`${taskId}-panel-view`)).toHaveTextContent(expected.panelView)
+      expect(screen.getByTestId(`${taskId}-selected-iteration`)).toHaveTextContent(
+        expected.selectedIteration,
+      )
     }
   })
 

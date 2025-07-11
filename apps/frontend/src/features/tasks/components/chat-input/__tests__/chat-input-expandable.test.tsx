@@ -1,7 +1,7 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ChatInput } from '../index'
 
 // Mock dependencies
@@ -66,11 +66,7 @@ const renderWithProviders = (component: React.ReactElement) => {
     },
   })
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {component}
-    </QueryClientProvider>
-  )
+  return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
 }
 
 vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({
@@ -259,7 +255,9 @@ describe('ChatInput - Expandable Textarea', () => {
 
   describe('Integration with different contexts', () => {
     it('should work in task context with custom maxHeight', () => {
-      renderWithProviders(<ChatInput taskId="task-123" maxHeight="150px" placeholder="Type a new request..." />)
+      renderWithProviders(
+        <ChatInput taskId="task-123" maxHeight="150px" placeholder="Type a new request..." />,
+      )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -268,7 +266,9 @@ describe('ChatInput - Expandable Textarea', () => {
     })
 
     it('should work in homepage context with custom maxHeight', () => {
-      renderWithProviders(<ChatInput showRepositorySelector={true} showTitle={true} maxHeight="300px" />)
+      renderWithProviders(
+        <ChatInput showRepositorySelector={true} showTitle={true} maxHeight="300px" />,
+      )
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
       const textareaStyles = window.getComputedStyle(textarea)

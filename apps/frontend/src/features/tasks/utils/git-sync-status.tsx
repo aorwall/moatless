@@ -1,12 +1,5 @@
 import type { GitSyncStatus } from '@moatless/shared/types/api'
-import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  FileWarning,
-  GitBranch,
-  XCircle,
-} from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, FileWarning, GitBranch, XCircle } from 'lucide-react'
 
 export interface GitSyncStatusConfig {
   icon: React.ReactNode
@@ -69,18 +62,18 @@ export function formatGitSyncDetails(info: {
   hasUncommittedChanges?: boolean
 }): string {
   const parts: string[] = []
-  
+
   if (info.commitsAhead && info.commitsAhead > 0) {
     parts.push(`${info.commitsAhead} commit${info.commitsAhead > 1 ? 's' : ''} ahead`)
   }
-  
+
   if (info.commitsBehind && info.commitsBehind > 0) {
     parts.push(`${info.commitsBehind} commit${info.commitsBehind > 1 ? 's' : ''} behind`)
   }
-  
+
   if (info.hasUncommittedChanges) {
     parts.push('uncommitted changes')
   }
-  
+
   return parts.join(', ')
 }

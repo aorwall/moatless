@@ -135,7 +135,14 @@ export const GitStatusSchema = z.object({
 export type GitStatus = z.infer<typeof GitStatusSchema>
 
 // Git Sync Status with Origin
-export const GitSyncStatusSchema = z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error'])
+export const GitSyncStatusSchema = z.enum([
+  'synced',
+  'ahead',
+  'behind',
+  'diverged',
+  'uncommitted_changes',
+  'error',
+])
 export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 
 export const GitSyncStatusInfoSchema = z.object({

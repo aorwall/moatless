@@ -1,5 +1,9 @@
 import { isToolUseContent } from '@moatless/shared'
-import type { Event, MessageEvent as MessageEventType, ResultEvent as ResultEventType } from '@moatless/shared/types/event'
+import type {
+  Event,
+  MessageEvent as MessageEventType,
+  ResultEvent as ResultEventType,
+} from '@moatless/shared/types/event'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 
@@ -77,9 +81,7 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
     return (
       <div className="text-sm text-muted-foreground">
         <div className="bg-status-error/10 border border-status-error/20 rounded-lg p-3">
-          <p className="text-status-error font-medium mb-2">
-            Failed to render {event.type} event
-          </p>
+          <p className="text-status-error font-medium mb-2">Failed to render {event.type} event</p>
           <p className="text-xs text-status-error">
             {error instanceof Error ? error.message : 'Unknown error'}
           </p>

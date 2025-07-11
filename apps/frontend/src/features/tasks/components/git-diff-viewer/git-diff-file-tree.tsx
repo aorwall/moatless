@@ -1,10 +1,9 @@
-import { FileTreeItem } from '@/features/file-viewer'
 import React from 'react'
-import type { FileTreeNode } from '@/features/file-viewer'
-import { buildTreeStructure } from '@/features/file-viewer'
-import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import type { FileData } from 'react-diff-view'
+import type { FileTreeNode } from '@/features/file-viewer'
+import { buildTreeStructure, FileTreeItem } from '@/features/file-viewer'
 import { useGitDiffState } from '@/features/tasks/contexts/task-ui-provider'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
 
 interface GitDiffFileTreeProps {
   files: FileData[]

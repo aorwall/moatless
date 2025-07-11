@@ -168,8 +168,6 @@ export class CommandService {
   }
 }
 
-export function createCommandService(
-  storage: StorageBackend,
-): CommandService {
+export function createCommandService(storage: StorageBackend): CommandService {
   return new CommandService(storage)
 }

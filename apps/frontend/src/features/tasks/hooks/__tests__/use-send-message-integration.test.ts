@@ -94,7 +94,15 @@ describe('useSendMessage Integration Test', () => {
     })
 
     // Verify API calls
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Test message', undefined, undefined, undefined, undefined, undefined)
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(
+      taskId,
+      'Test message',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    )
     // In event-driven architecture, explicit refetch calls are reduced
     // Initial call + immediate refetch after message
     expect(tasksApi.getTask).toHaveBeenCalledTimes(2)
@@ -128,8 +136,24 @@ describe('useSendMessage Integration Test', () => {
     await expect(Promise.all([promise1, promise2])).resolves.toBeDefined()
 
     // Both messages should have been sent
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'First message', undefined, undefined, undefined, undefined, undefined)
-    expect(tasksApi.sendMessage).toHaveBeenCalledWith(taskId, 'Second message', undefined, undefined, undefined, undefined, undefined)
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(
+      taskId,
+      'First message',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    )
+    expect(tasksApi.sendMessage).toHaveBeenCalledWith(
+      taskId,
+      'Second message',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    )
   })
 
   it('should properly handle errors and not invalidate on failure', async () => {
@@ -180,7 +204,7 @@ describe('useSendMessage Integration Test', () => {
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.tasksList(),
     })
-    
+
     // Task-specific queries should NOT be invalidated by mutations
     expect(spyInvalidate).not.toHaveBeenCalledWith({
       queryKey: queryKeys.task(taskId),

@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '@moatless/shared/types/task'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
 describe('Task Routes', () => {
@@ -33,20 +33,22 @@ describe('Task Routes', () => {
         iterations: [],
       })
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agentType: 'claude-code',
-          repositoryId: 'test-env',
-          message: 'Hello world',
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            agentType: 'claude-code',
+            repositoryId: 'test-env',
+            message: 'Hello world',
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.taskId).toBe(mockTaskId)
       expect(body.status).toBe('open')
 
@@ -77,18 +79,20 @@ describe('Task Routes', () => {
         iterations: [],
       })
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agentType: 'claude-code',
-          repositoryId: 'test-env',
-          message: 'Test message', // Required field
-          start: false,
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            agentType: 'claude-code',
+            repositoryId: 'test-env',
+            message: 'Test message', // Required field
+            start: false,
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(200)
 
@@ -129,38 +133,42 @@ describe('Task Routes', () => {
         ],
       })
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agentType: 'claude-code',
-          repositoryId: 'test-env',
-          message: 'Hello world',
-          start: true,
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            agentType: 'claude-code',
+            repositoryId: 'test-env',
+            message: 'Hello world',
+            start: true,
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.taskId).toBe(mockTaskId)
       expect(body.status).toBe('running')
     })
 
     it('should validate request body', async () => {
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          // Missing required fields
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            // Missing required fields
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(400)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.error).toBeDefined()
       expect(body.error.code).toBe('VALIDATION_ERROR')
     })
@@ -174,20 +182,22 @@ describe('Task Routes', () => {
         new EnvironmentNotFoundError('non-existent'),
       )
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agentType: 'claude-code',
-          repositoryId: 'non-existent',
-          message: 'Hello world',
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            agentType: 'claude-code',
+            repositoryId: 'non-existent',
+            message: 'Hello world',
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(404)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.error.code).toBe('ENVIRONMENT_NOT_FOUND')
     })
   })
@@ -208,12 +218,14 @@ describe('Task Routes', () => {
 
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(mockTask)
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/test-123', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(200)
-      const task = await response.json() as any
+      const task = (await response.json()) as any
       expect(task.taskId).toBe('test-123')
       expect(task.agentType).toBe('claude-code')
     })
@@ -221,12 +233,14 @@ describe('Task Routes', () => {
     it('should return 404 for non-existent task', async () => {
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/non-existent-id', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/non-existent-id', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(404)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.error.code).toBe('TASK_NOT_FOUND')
     })
   })
@@ -258,14 +272,19 @@ describe('Task Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({ tasks: mockTasks, total: mockTasks.length })
+      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({
+        tasks: mockTasks,
+        total: mockTasks.length,
+      })
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks?limit=10&offset=0', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks?limit=10&offset=0', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.tasks).toHaveLength(2)
       expect(body.pagination).toBeDefined()
       expect(body.pagination.limit).toBe(10)
@@ -295,14 +314,19 @@ describe('Task Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({ tasks: mockTasks, total: mockTasks.length })
+      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({
+        tasks: mockTasks,
+        total: mockTasks.length,
+      })
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks?status=running', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks?status=running', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.tasks).toHaveLength(1)
       expect(body.tasks[0].status).toBe('running')
     })
@@ -312,32 +336,36 @@ describe('Task Routes', () => {
     it('should send a message to task', async () => {
       vi.spyOn(app.services.task, 'sendMessage').mockResolvedValueOnce()
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/test-123/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: 'Test message',
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: 'Test message',
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.status).toBe('sent')
       expect(body.timestamp).toBeDefined()
     })
 
     it('should validate message body', async () => {
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/test-123/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: '', // Empty message
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: '', // Empty message
+          }),
         }),
-      }))
+      )
 
       expect(response.status).toBe(400)
     })
@@ -374,12 +402,14 @@ describe('Task Routes', () => {
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(mockTask as Task)
       vi.spyOn(app.services.event, 'getEvents').mockResolvedValueOnce(mockEvents as any)
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/test-123/events?limit=10', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123/events?limit=10', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.events).toHaveLength(2)
       expect(body.items).toHaveLength(2)
     })
@@ -387,9 +417,11 @@ describe('Task Routes', () => {
     it('should return 404 if task does not exist', async () => {
       vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/non-existent/events', {
-        method: 'GET',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/non-existent/events', {
+          method: 'GET',
+        }),
+      )
 
       expect(response.status).toBe(404)
     })
@@ -399,12 +431,14 @@ describe('Task Routes', () => {
     it('should delete a task', async () => {
       vi.spyOn(app.services.task, 'deleteTask').mockResolvedValueOnce()
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/test-123', {
-        method: 'DELETE',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123', {
+          method: 'DELETE',
+        }),
+      )
 
       expect(response.status).toBe(200)
-      const body = await response.json() as any
+      const body = (await response.json()) as any
       expect(body.status).toBe('deleted')
     })
 
@@ -415,9 +449,11 @@ describe('Task Routes', () => {
         message: 'Task not found',
       })
 
-      const response = await app.fetch(new Request('http://localhost/api/v1/tasks/non-existent', {
-        method: 'DELETE',
-      }))
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/non-existent', {
+          method: 'DELETE',
+        }),
+      )
 
       expect(response.status).toBe(500) // Default error handler returns 500
     })

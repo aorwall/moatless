@@ -73,10 +73,7 @@ export class SSEConnectionManager {
   }
 
   // Global connection methods
-  connectGlobal(
-    connectionId: string,
-    controller: ReadableStreamDefaultController,
-  ): void {
+  connectGlobal(connectionId: string, controller: ReadableStreamDefaultController): void {
     const connection: GlobalSSEConnection = {
       id: connectionId,
       controller,
@@ -133,7 +130,7 @@ export class SSEConnectionManager {
     if (!connections) {
       return { connectionCount: 0, totalEvents: 0 }
     }
-    
+
     const totalEvents = Array.from(connections).reduce((sum, conn) => sum + conn.eventCount, 0)
     return {
       connectionCount: connections.size,
@@ -159,17 +156,17 @@ export class SSEConnectionManager {
   } {
     const globalStats = this.getGlobalConnectionDetails()
     const taskStats: Record<string, { connectionCount: number; totalEvents: number }> = {}
-    
+
     let totalConnections = globalStats.connectionCount
     let totalEvents = globalStats.totalEvents
-    
+
     for (const taskId of this.connections.keys()) {
       const details = this.getTaskConnectionDetails(taskId)
       taskStats[taskId] = details
       totalConnections += details.connectionCount
       totalEvents += details.totalEvents
     }
-    
+
     return {
       global: globalStats,
       tasks: taskStats,

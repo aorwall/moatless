@@ -4,10 +4,10 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { useTheme } from '@/lib/components/theme-provider'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { useFileContent } from '../api/use-file-content'
-import { getLanguageFromPath, getFileExtension } from '../utils/file-tree-utils'
+import { getFileExtension, getLanguageFromPath } from '../utils/file-tree-utils'
 import { FileViewerSkeleton } from './file-viewer-skeleton'
 import { MarkdownPreview } from './markdown-preview'
-import { PreviewModeToggle, type PreviewMode } from './preview-mode-toggle'
+import { type PreviewMode, PreviewModeToggle } from './preview-mode-toggle'
 
 interface FileViewerProps {
   taskId: string
@@ -19,7 +19,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
   const { theme } = useTheme()
   const language = getLanguageFromPath(filePath)
   const fileExtension = getFileExtension(filePath).toLowerCase()
-  
+
   // Determine if file supports preview mode
   const supportsPreview = fileExtension === 'md' || fileExtension === 'markdown'
   const [previewMode, setPreviewMode] = useState<PreviewMode>('code')

@@ -11,25 +11,31 @@ export const CommandNameSchema = z
   )
 
 // Command condition schemas
-export const CommandConditionsSchema = z.object({
-  // Git status conditions
-  requiresUncommittedChanges: z.boolean().optional(),
-  requiresCommittedChanges: z.boolean().optional(),
-  requiresBehindMain: z.boolean().optional(),
-  requiresAheadOfMain: z.boolean().optional(),
-  requiresDiverged: z.boolean().optional(),
-  
-  // Task status conditions  
-  requiresTaskNotRunning: z.boolean().optional(),
-  requiresLastIterationError: z.boolean().optional(),
-  requiresLastIterationSuccess: z.boolean().optional(),
-  
-  // Git sync status values
-  allowedGitSyncStatuses: z.array(z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error'])).optional(),
-  
-  // Task status values
-  allowedTaskStatuses: z.array(z.enum(['open', 'running', 'error', 'merged', 'closed'])).optional(),
-}).optional()
+export const CommandConditionsSchema = z
+  .object({
+    // Git status conditions
+    requiresUncommittedChanges: z.boolean().optional(),
+    requiresCommittedChanges: z.boolean().optional(),
+    requiresBehindMain: z.boolean().optional(),
+    requiresAheadOfMain: z.boolean().optional(),
+    requiresDiverged: z.boolean().optional(),
+
+    // Task status conditions
+    requiresTaskNotRunning: z.boolean().optional(),
+    requiresLastIterationError: z.boolean().optional(),
+    requiresLastIterationSuccess: z.boolean().optional(),
+
+    // Git sync status values
+    allowedGitSyncStatuses: z
+      .array(z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']))
+      .optional(),
+
+    // Task status values
+    allowedTaskStatuses: z
+      .array(z.enum(['open', 'running', 'error', 'merged', 'closed']))
+      .optional(),
+  })
+  .optional()
 
 // Command schemas
 export const CommandSchema = z.object({

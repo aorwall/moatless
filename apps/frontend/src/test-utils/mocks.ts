@@ -205,7 +205,7 @@ export function createMockStoreHook<T>(initialState: T) {
 }
 
 // Re-export factories for convenience
-export { createMockTask, createMockEvent as createMockTaskEvent } from './factories'
+export { createMockEvent as createMockTaskEvent, createMockTask } from './factories'
 
 // Type helper for mocked functions
 export type Mocked<T> = T extends (...args: unknown[]) => unknown

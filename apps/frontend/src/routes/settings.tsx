@@ -1,4 +1,7 @@
-import type { PermissionMode, UpdateClaudeCodeSettingsRequest } from '@moatless/shared/types/claude-code'
+import type {
+  PermissionMode,
+  UpdateClaudeCodeSettingsRequest,
+} from '@moatless/shared/types/claude-code'
 import { createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'

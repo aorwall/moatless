@@ -1,9 +1,9 @@
+import { isToolResultContent, isToolUseContent } from '@moatless/shared'
 import type {
   ClaudeCodeSDKMessage,
   SDKAssistantMessage,
   SDKUserMessage,
 } from '@moatless/shared/types/claude'
-import { isToolResultContent, isToolUseContent } from '@moatless/shared'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 
 export interface MergedEvent extends Event {

@@ -23,10 +23,10 @@ interface TaskUIState {
     right: number
   }
   selectedFile: string
-  
+
   // Chat state
   chatState: ChatState
-  
+
   // Git diff state
   gitDiffState: GitDiffState
 }
@@ -34,7 +34,7 @@ interface TaskUIState {
 interface TaskUIContextValue {
   // Current task's state
   currentState: TaskUIState
-  
+
   // Actions that automatically scope to current task
   setRightPanelView: (view: PanelView) => void
   setSelectedIteration: (iteration?: TaskIteration) => void
@@ -77,67 +77,85 @@ function getDefaultTaskUIState(): TaskUIState {
 export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   // Map of taskId -> TaskUIState for complete isolation
   const [taskStates, setTaskStates] = useState<Map<string, TaskUIState>>(new Map())
-  
+
   // Get current task's state or default - memoize to prevent changes on every render
   const currentState = useMemo(
     () => taskStates.get(taskId) || getDefaultTaskUIState(),
-    [taskStates, taskId]
+    [taskStates, taskId],
   )
-  
+
   // All actions are automatically scoped to current task using useCallback
-  const setRightPanelView = useCallback((view: PanelView) => {
-    setTaskStates(prev => {
-      const newMap = new Map(prev)
-      const state = newMap.get(taskId) || getDefaultTaskUIState()
-      newMap.set(taskId, { ...state, rightPanelView: view })
-      return newMap
-    })
-  }, [taskId])
-    
-  const setSelectedIteration = useCallback((iteration?: TaskIteration) => {
-    setTaskStates(prev => {
-      const newMap = new Map(prev)
-      const state = newMap.get(taskId) || getDefaultTaskUIState()
-      newMap.set(taskId, { ...state, selectedIteration: iteration })
-      return newMap
-    })
-  }, [taskId])
-    
-  const setPanelSizes = useCallback((sizes: { left: number; right: number }) => {
-    setTaskStates(prev => {
-      const newMap = new Map(prev)
-      const state = newMap.get(taskId) || getDefaultTaskUIState()
-      newMap.set(taskId, { ...state, panelSizes: sizes })
-      return newMap
-    })
-  }, [taskId])
-    
-  const setSelectedFile = useCallback((file: string) => {
-    setTaskStates(prev => {
-      const newMap = new Map(prev)
-      const state = newMap.get(taskId) || getDefaultTaskUIState()
-      newMap.set(taskId, { ...state, selectedFile: file })
-      return newMap
-    })
-  }, [taskId])
-    
-  const updateChatState = useCallback((updates: Partial<ChatState>) => {
-    setTaskStates(prev => {
-      const newMap = new Map(prev)
-      const state = newMap.get(taskId) || getDefaultTaskUIState()
-      newMap.set(taskId, { ...state, chatState: { ...state.chatState, ...updates } })
-      return newMap
-    })
-  }, [taskId])
-    
-  const updateGitDiffState = useCallback((updates: Partial<GitDiffState>) => {
-    setTaskStates(prev => {
-      const newMap = new Map(prev)
-      const state = newMap.get(taskId) || getDefaultTaskUIState()
-      newMap.set(taskId, { ...state, gitDiffState: { ...state.gitDiffState, ...updates } })
-      return newMap
-    })
-  }, [taskId])
+  const setRightPanelView = useCallback(
+    (view: PanelView) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, rightPanelView: view })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
+  const setSelectedIteration = useCallback(
+    (iteration?: TaskIteration) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, selectedIteration: iteration })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
+  const setPanelSizes = useCallback(
+    (sizes: { left: number; right: number }) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, panelSizes: sizes })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
+  const setSelectedFile = useCallback(
+    (file: string) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, selectedFile: file })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
+  const updateChatState = useCallback(
+    (updates: Partial<ChatState>) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, chatState: { ...state.chatState, ...updates } })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
+  const updateGitDiffState = useCallback(
+    (updates: Partial<GitDiffState>) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, gitDiffState: { ...state.gitDiffState, ...updates } })
+        return newMap
+      })
+    },
+    [taskId],
+  )
 
   // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
@@ -151,7 +169,15 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       updateGitDiffState,
     }),
     // Include all dependencies - callbacks are stable
-    [currentState, setRightPanelView, setSelectedIteration, setPanelSizes, setSelectedFile, updateChatState, updateGitDiffState],
+    [
+      currentState,
+      setRightPanelView,
+      setSelectedIteration,
+      setPanelSizes,
+      setSelectedFile,
+      updateChatState,
+      updateGitDiffState,
+    ],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>

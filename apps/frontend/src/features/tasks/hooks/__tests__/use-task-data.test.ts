@@ -98,11 +98,11 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTask).mockRejectedValue(mockError)
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
-    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({ 
+    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({
       status: WorkspaceStatus.IDLE,
       hasUncommittedChanges: false,
       hasUnmergedCommits: false,
-      isBehindBase: false
+      isBehindBase: false,
     })
 
     // Render the hook

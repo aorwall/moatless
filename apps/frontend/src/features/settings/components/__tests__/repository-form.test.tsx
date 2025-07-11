@@ -21,7 +21,9 @@ describe('RepositoryForm', () => {
       expect(screen.getByLabelText(/Name/)).toHaveValue('')
       expect(screen.getByLabelText(/Description/)).toHaveValue('')
       expect(screen.getByRole('combobox', { name: /repository type/i })).toHaveTextContent('Local')
-      expect(screen.getByRole('combobox', { name: /code execution type/i })).toHaveTextContent('Local')
+      expect(screen.getByRole('combobox', { name: /code execution type/i })).toHaveTextContent(
+        'Local',
+      )
     })
 
     it('should validate required fields', async () => {
@@ -188,11 +190,8 @@ describe('RepositoryForm', () => {
       expect(screen.getByText('Edit Repository')).toBeInTheDocument()
       expect(screen.getByLabelText(/Name/)).toHaveValue(mockRepository.name)
       expect(screen.getByLabelText(/Description/)).toHaveValue(mockRepository.description)
-      expect(screen.getByLabelText(/Local Path/)).toHaveValue(
-        mockRepository.path,
-      )
+      expect(screen.getByLabelText(/Local Path/)).toHaveValue(mockRepository.path)
     })
-
 
     it('should submit updated data', async () => {
       const mockRepository = createMockRepository()

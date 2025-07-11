@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
   CreateRepositoryRequest,
   CreateTaskRequest,
@@ -9,6 +8,7 @@ import type {
   RepositoryConfig,
   Task,
 } from '@moatless/shared/types/index'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 import { logger } from '../../utils/logger.js'
 
@@ -140,7 +140,6 @@ describe('Complete Workflow E2E Test', () => {
       url: '/api/v1/repositories',
       payload: createRepositoryRequest,
     })
-
 
     expect(createRepoResponse.statusCode).toBe(200)
     const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)

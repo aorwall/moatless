@@ -3,7 +3,10 @@ import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useDeleteTask } from '@/features/tasks/hooks/use-tasks'
-import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
+import {
+  formatGitSyncDetails,
+  getGitSyncStatusConfig,
+} from '@/features/tasks/utils/git-sync-status'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -47,20 +50,21 @@ function getRelativeTime(date: Date | string): string {
 }
 
 // Component for individual task row with git sync status
-function TaskRow({ 
-  task, 
-  repositoryName, 
+function TaskRow({
+  task,
+  repositoryName,
   onDelete,
-  isDeleting = false
-}: { 
+  isDeleting = false,
+}: {
   task: Task
   repositoryName: string
   onDelete: (taskId: string, event: React.MouseEvent) => void
   isDeleting?: boolean
 }) {
   const statusConfig = getTaskStatusConfig(task.status)
-  const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || `Task ${task.taskId.slice(0, 8)}`
-  
+  const taskTitle =
+    task.iterations?.[0]?.initialMessage?.split('\n')[0] || `Task ${task.taskId.slice(0, 8)}`
+
   // Get git sync status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
   const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null

@@ -172,9 +172,7 @@ function SetupOutputSheet({
                 <div
                   key={`command-${index}-${command.command.slice(0, 20)}`}
                   className={`rounded-lg border ${
-                    command.success
-                      ? 'border-status-success/20'
-                      : 'border-status-error/20'
+                    command.success ? 'border-status-success/20' : 'border-status-error/20'
                   } p-4 space-y-2`}
                 >
                   <div className="flex items-start justify-between gap-2">

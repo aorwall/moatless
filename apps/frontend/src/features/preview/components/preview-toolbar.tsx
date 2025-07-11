@@ -31,8 +31,15 @@ interface PreviewToolbarProps {
 
 export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const params = useParams({ from: '/tasks/$taskId' })
-  const { config, currentPath, displayPath, isInspectorActive, scriptHealthStatus, navigateToPath, toggleInspector } =
-    usePreviewStore()
+  const {
+    config,
+    currentPath,
+    displayPath,
+    isInspectorActive,
+    scriptHealthStatus,
+    navigateToPath,
+    toggleInspector,
+  } = usePreviewStore()
 
   const [pathInput, setPathInput] = useState(displayPath)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
@@ -40,7 +47,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   // Reset pathInput when displayPath changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when displayPath changes
   const [lastDisplayPath, setLastDisplayPath] = useState(displayPath)
-  
+
   if (displayPath !== lastDisplayPath) {
     setPathInput(displayPath)
     setLastDisplayPath(displayPath)

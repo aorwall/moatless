@@ -80,10 +80,10 @@ export class LocalWorkspace extends BaseWorkspace {
     // Use existing workspace path if provided
     if (existingWorkspacePath) {
       this.workspacePath = existingWorkspacePath
-      
+
       // For existing workspaces, immediately try to detect branch info
       if (repositoryConfig.useGitWorktrees) {
-        this.detectBranchInfoSync(existingWorkspacePath);
+        this.detectBranchInfoSync(existingWorkspacePath)
       }
     }
 
@@ -97,27 +97,27 @@ export class LocalWorkspace extends BaseWorkspace {
       detectedBranch: this.branch,
     })
   }
-  
+
   private detectBranchInfoSync(workspacePath: string): void {
     // Try to extract branch info from workspace path pattern
     // Pattern: <repo-name>-workspace-<task-id>
     if (workspacePath.includes('-workspace-')) {
-      const match = workspacePath.match(/workspace-([a-f0-9-]+)$/);
+      const match = workspacePath.match(/workspace-([a-f0-9-]+)$/)
       if (match) {
-        const extractedTaskId = match[1];
+        const extractedTaskId = match[1]
         // Set the branch based on the expected pattern
-        this.branch = `workspace-${extractedTaskId}`;
+        this.branch = `workspace-${extractedTaskId}`
         // Since this appears to be a created workspace, set original branch
-        this.originalBranch = this.originalBranch || 'main';
+        this.originalBranch = this.originalBranch || 'main'
         this.logger.debug('Detected branch info from workspace path', {
           workspacePath,
           branch: this.branch,
           originalBranch: this.originalBranch,
-        });
+        })
       }
     }
   }
-  
+
   private async detectBranchFromWorktree(): Promise<string | undefined> {
     try {
       return await getCurrentBranch(this.workspacePath)
@@ -187,21 +187,21 @@ export class LocalWorkspace extends BaseWorkspace {
       try {
         this.branch = await getCurrentBranch(this.workspacePath)
         this.logger.debug('Detected existing worktree branch', { branch: this.branch })
-        
+
         // Also try to detect original branch from worktree name if not set
         if (!this.originalBranch && this.workspacePath.includes('-workspace-')) {
           // Try to extract task ID from workspace path to reconstruct branch name
-          const match = this.workspacePath.match(/workspace-([a-f0-9-]+)$/);
+          const match = this.workspacePath.match(/workspace-([a-f0-9-]+)$/)
           if (match) {
-            const extractedTaskId = match[1];
-            const reconstructedBranch = `workspace-${extractedTaskId}`;
+            const extractedTaskId = match[1]
+            const reconstructedBranch = `workspace-${extractedTaskId}`
             if (this.branch === reconstructedBranch) {
               // This appears to be a created branch, not original
-              this.originalBranch = 'main'; // Default to main as original
+              this.originalBranch = 'main' // Default to main as original
               this.logger.debug('Detected this is a created workspace branch', {
                 branch: this.branch,
                 originalBranch: this.originalBranch,
-              });
+              })
             }
           }
         }
@@ -331,23 +331,23 @@ export class LocalWorkspace extends BaseWorkspace {
         // Check if this is actually a git worktree
         const { isGitWorktree } = await import('../utils/git-utils.js')
         const isWorktree = await isGitWorktree(this.workspacePath)
-        
+
         if (isWorktree) {
           this.logger.info('Removing git worktree', {
             workspacePath: this.workspacePath,
             repositoryPath: this.repositoryConfig.path,
           })
-          
+
           // Simply run git worktree remove from the main repository
           await execAsync(`git worktree remove --force "${this.workspacePath}"`, {
             cwd: this.repositoryConfig.path,
             timeout: 10000,
           })
-          
+
           this.logger.info('Git worktree removed successfully')
-          
+
           // If we created a branch for this worktree, try to delete it
-          const branchToDelete = this.branch || await this.detectBranchFromWorktree()
+          const branchToDelete = this.branch || (await this.detectBranchFromWorktree())
           if (!this.branchName && branchToDelete) {
             try {
               await execAsync(`git branch -D "${branchToDelete}"`, {
@@ -362,11 +362,10 @@ export class LocalWorkspace extends BaseWorkspace {
               })
             }
           }
-          
+
           // Run prune to clean up any stale entries
           const { pruneWorktrees } = await import('../utils/git-utils.js')
           await pruneWorktrees(this.repositoryConfig.path)
-          
         } else {
           this.logger.debug('Workspace is not a git worktree, skipping removal', {
             workspacePath: this.workspacePath,
@@ -750,7 +749,6 @@ export class LocalWorkspace extends BaseWorkspace {
   isWorkspacePathSet(): boolean {
     return !!this.workspacePath
   }
-
 
   private async pathExists(filePath: string): Promise<boolean> {
     try {

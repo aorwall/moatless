@@ -36,7 +36,11 @@ export interface InternalServerError extends ApiResponseError {
   }
 }
 
-export type TypedApiError = ApiValidationError | NotFoundError | InternalServerError | ApiResponseError
+export type TypedApiError =
+  | ApiValidationError
+  | NotFoundError
+  | InternalServerError
+  | ApiResponseError
 
 // Type guard functions
 export function isValidationError(error: ApiResponseError): error is ApiValidationError {

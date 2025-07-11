@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import type { BaseAgent } from '../services/agents/base-agent.js'
 import { CriticalError } from '@moatless/shared/constants/errors'
 import type { SDKResultMessage } from '@moatless/shared/types/claude'
 import { EventType, type TaskIteration } from '@moatless/shared/types/index'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import type { BaseAgent } from '../services/agents/base-agent.js'
 import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace } from '../workspaces/base.js'
@@ -108,7 +108,7 @@ export class AgentService {
         const previousStatus = task.status
         task.status = 'open'
         await this.storage.saveTask(task)
-        
+
         // Emit status change event
         await this.eventService.emitEvent({
           taskId,
@@ -116,12 +116,12 @@ export class AgentService {
           subType: 'task:statusChanged',
           payload: {
             status: 'open',
-            previousStatus
+            previousStatus,
           },
           eventId: randomUUID(),
           timestamp: new Date(),
           agentType: task.agentType,
-          isError: false
+          isError: false,
         })
       }
     }
@@ -275,7 +275,6 @@ export class AgentService {
             if ('result' in resultPayload) {
               iteration.result = resultPayload.result
             }
-
           } else {
             // Handle successful result
             iteration.status = 'completed'
@@ -293,7 +292,10 @@ export class AgentService {
 
           // Capture git sync status when iteration completes
           try {
-            if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
+            if (
+              'getOriginSyncStatus' in workspace &&
+              typeof workspace.getOriginSyncStatus === 'function'
+            ) {
               iteration.gitSyncStatus = await workspace.getOriginSyncStatus()
               agentLogger.debug('Captured git sync status for iteration', {
                 syncStatus: iteration.gitSyncStatus?.status,
@@ -349,7 +351,10 @@ export class AgentService {
 
       // Capture git sync status even for failed iterations
       try {
-        if ('getOriginSyncStatus' in workspace && typeof workspace.getOriginSyncStatus === 'function') {
+        if (
+          'getOriginSyncStatus' in workspace &&
+          typeof workspace.getOriginSyncStatus === 'function'
+        ) {
           iteration.gitSyncStatus = await workspace.getOriginSyncStatus()
           agentLogger.debug('Captured git sync status for failed iteration', {
             syncStatus: iteration.gitSyncStatus?.status,

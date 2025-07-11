@@ -17,12 +17,12 @@ interface CreateTaskDialogProps {
   defaultMode?: ChatInputMode
 }
 
-export function CreateTaskDialog({ 
-  open, 
-  onOpenChange, 
-  defaultRepositoryId, 
+export function CreateTaskDialog({
+  open,
+  onOpenChange,
+  defaultRepositoryId,
   defaultMessage,
-  defaultMode = 'code'
+  defaultMode = 'code',
 }: CreateTaskDialogProps) {
   const [mode, setMode] = useState<ChatInputMode>(defaultMode)
 
@@ -121,7 +121,7 @@ export function CreateTaskDialog({
           <div className="flex justify-center">
             <ViewToggle mode={mode} onModeChange={handleModeChange} />
           </div>
-          
+
           {/* Chat Input */}
           <ChatInput
             showRepositorySelector={true}

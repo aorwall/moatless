@@ -1,7 +1,7 @@
 import type { ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
 import type { Event, MessageEvent } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { mergeToolEvents } from '../merge-tool-events'
 

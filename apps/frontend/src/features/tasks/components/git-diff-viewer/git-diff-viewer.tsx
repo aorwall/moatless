@@ -4,18 +4,16 @@ import { type ChangeData, Diff, type FileData, Hunk, parseDiff } from 'react-dif
 import 'react-diff-view/style/index.css'
 import 'prism-color-variables/variables.css'
 
-import {
-  useGitDiffWithLoading,
-} from '@/features/tasks/contexts/task-providers'
+import { useGitDiffWithLoading } from '@/features/tasks/contexts/task-providers'
 import { useGitDiffState } from '@/features/tasks/contexts/task-ui-provider'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import './github-diff.css'
 import './prism-theme.css'
-import { tokenizeHunks } from './syntax-highlighter'
 import { GitDiffFileTree } from './git-diff-file-tree'
+import { tokenizeHunks } from './syntax-highlighter'
 
 interface GitDiffViewerProps {
   className?: string
@@ -60,7 +58,10 @@ function FileDiff({ file, isExpanded, onToggle, fileKey }: FileDiffProps) {
   }, [hunks, filePath, isExpanded])
 
   return (
-    <div className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden" data-file-key={fileKey}>
+    <div
+      className="github-diff-file border border-border rounded-lg mb-4 overflow-hidden"
+      data-file-key={fileKey}
+    >
       {/* File Header */}
       <button
         type="button"
@@ -97,7 +98,9 @@ function FileDiff({ file, isExpanded, onToggle, fileKey }: FileDiffProps) {
             renderToken={(token, defaultRender) => {
               // Handle prism tokens with className for syntax highlighting
               if ((token as any).type === 'prism' && (token as any).className) {
-                return <span className={(token as any).className}>{(token as any).value || ''}</span>
+                return (
+                  <span className={(token as any).className}>{(token as any).value || ''}</span>
+                )
               }
               return defaultRender(token, 0)
             }}
@@ -130,7 +133,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
   // Derive all file keys from parsed files
   const allFileKeys = useMemo(() => {
     return new Set(
-      parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`)
+      parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
     )
   }, [parsedFiles])
 
@@ -225,11 +228,9 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
         <div className="h-full border-r border-border">
           <div className="p-3 border-b border-border">
             <h3 className="text-sm font-medium">Changed Files</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              {parsedFiles.length} files changed
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">{parsedFiles.length} files changed</p>
           </div>
-          <GitDiffFileTree 
+          <GitDiffFileTree
             files={parsedFiles}
             onFileSelect={handleFileSelect}
             selectedFileKey={selectedFileKey}

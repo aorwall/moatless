@@ -6,9 +6,12 @@ import { useGlobalEventStream } from '@/features/events'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
-import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import { formatGitSyncDetails, getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
+import { useTasksList } from '@/features/tasks/hooks/use-tasks'
+import {
+  formatGitSyncDetails,
+  getGitSyncStatusConfig,
+} from '@/features/tasks/utils/git-sync-status'
 import { queryKeys } from '@/lib/api/query-keys'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -47,15 +50,15 @@ function getRelativeTime(date: Date | string): string {
 }
 
 // Component for rendering individual task item with git sync status
-function SidebarTaskItem({ 
-  task, 
-  repositoryName 
-}: { 
+function SidebarTaskItem({
+  task,
+  repositoryName,
+}: {
   task: any // Using any to match existing code style
-  repositoryName: string 
+  repositoryName: string
 }) {
   const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
-  
+
   // Get git sync status from the last iteration for tooltip
   const lastIteration = task.iterations?.[task.iterations.length - 1]
   const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
@@ -94,9 +97,7 @@ function SidebarTaskItem({
                   </Tooltip>
                 </div>
                 <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-                  <span className="font-medium text-sm truncate leading-tight">
-                    {taskTitle}
-                  </span>
+                  <span className="font-medium text-sm truncate leading-tight">{taskTitle}</span>
                   <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
                     <span className="truncate">{repositoryName}</span>
                     <span className="shrink-0">
@@ -111,13 +112,10 @@ function SidebarTaskItem({
         <TooltipContent side="right" className="max-w-xs">
           <div className="space-y-1">
             <p className="font-medium text-sm break-words">
-              {taskTitle.length > 150
-                ? `${taskTitle.substring(0, 150)}...`
-                : taskTitle}
+              {taskTitle.length > 150 ? `${taskTitle.substring(0, 150)}...` : taskTitle}
             </p>
             <p className="text-xs text-muted-foreground">
-              {repositoryName} •{' '}
-              {getRelativeTime(task.lastMessageAt || task.createdAt)}
+              {repositoryName} • {getRelativeTime(task.lastMessageAt || task.createdAt)}
             </p>
           </div>
         </TooltipContent>
@@ -145,7 +143,7 @@ export function SidebarTasks() {
       refetchInterval: false,
     },
   )
-  
+
   const tasks = data?.tasks
 
   // Subscribe to global events to invalidate the task list when relevant events occur
@@ -153,13 +151,14 @@ export function SidebarTasks() {
     console.log('[SidebarTasks] Setting up global subscription')
     const unsubscribe = subscribeToAll((event) => {
       // Invalidate task list on relevant events
-      if (event.subType && (
-        event.subType === 'task:created' ||
-        event.subType === 'task:updated' ||
-        event.subType === 'task:statusChanged' ||
-        event.subType === 'iteration:created' ||
-        event.subType === 'iteration:updated'
-      )) {
+      if (
+        event.subType &&
+        (event.subType === 'task:created' ||
+          event.subType === 'task:updated' ||
+          event.subType === 'task:statusChanged' ||
+          event.subType === 'iteration:created' ||
+          event.subType === 'iteration:updated')
+      ) {
         queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
       }
     })
@@ -293,11 +292,7 @@ export function SidebarTasks() {
               {sortedTasks.map((task) => {
                 const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
                 return (
-                  <SidebarTaskItem 
-                    key={task.taskId} 
-                    task={task} 
-                    repositoryName={repositoryName} 
-                  />
+                  <SidebarTaskItem key={task.taskId} task={task} repositoryName={repositoryName} />
                 )
               })}
             </SidebarMenu>

@@ -1,8 +1,9 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { tasksApi } from '@/features/tasks/api/tasks'
 import { serverApi } from '@/features/preview/api/server'
+import { useServerStatus, useStartServer, useStopServer } from '@/features/preview/hooks/use-server'
+import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   createMockAgentTriggerResponse,
@@ -13,7 +14,6 @@ import {
   createMockTaskWithIterations,
 } from '@/test-utils/factories'
 import { createWrapper } from '@/test-utils/render'
-
 import {
   useCreateTask,
   useSendMessage,
@@ -23,11 +23,6 @@ import {
   useTaskGitDiff,
   useTasksList,
 } from '../use-tasks'
-import {
-  useServerStatus,
-  useStartServer,
-  useStopServer,
-} from '@/features/preview/hooks/use-server'
 
 // Mock the tasks API
 vi.mock('@/features/tasks/api/tasks', () => ({
@@ -51,7 +46,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => vi.fn()),
 }))
 
-// Mock the preview server API  
+// Mock the preview server API
 vi.mock('@/features/preview/api/server', () => ({
   serverApi: {
     getServerStatus: vi.fn(),
@@ -67,14 +62,11 @@ describe('Task Hooks', () => {
 
   describe('useTasksList', () => {
     it('fetches tasks list', async () => {
-      const mockTasks = [
-        createMockTask({ taskId: 'task-1' }),
-        createMockTask({ taskId: 'task-2' }),
-      ]
+      const mockTasks = [createMockTask({ taskId: 'task-1' }), createMockTask({ taskId: 'task-2' })]
       vi.mocked(tasksApi.listTasks).mockResolvedValue({
         tasks: mockTasks,
         items: mockTasks,
-        pagination: { limit: 20, offset: 0, total: 2 }
+        pagination: { limit: 20, offset: 0, total: 2 },
       })
 
       const { result } = renderHook(() => useTasksList(), {
@@ -88,7 +80,7 @@ describe('Task Hooks', () => {
       expect(result.current.data).toEqual({
         tasks: mockTasks,
         items: mockTasks,
-        pagination: { limit: 20, offset: 0, total: 2 }
+        pagination: { limit: 20, offset: 0, total: 2 },
       })
       expect(tasksApi.listTasks).toHaveBeenCalledWith(undefined)
     })
@@ -98,7 +90,7 @@ describe('Task Hooks', () => {
       vi.mocked(tasksApi.listTasks).mockResolvedValue({
         tasks: [],
         items: [],
-        pagination: { limit: 10, offset: 0, total: 0 }
+        pagination: { limit: 10, offset: 0, total: 0 },
       })
 
       renderHook(() => useTasksList(filters), {
@@ -293,7 +285,6 @@ describe('Task Hooks', () => {
       expect(result.current.data).toEqual(mockDiff)
     })
   })
-
 
   describe('useServerStatus', () => {
     it('fetches server status', async () => {

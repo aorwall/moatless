@@ -5,7 +5,6 @@ import type {
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
 
-
 // Code execution factories
 export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {
   return {
@@ -49,7 +48,6 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
     ...overrides,
   }
 }
-
 
 // Request factories
 export function createMockCreateRepositoryRequest(

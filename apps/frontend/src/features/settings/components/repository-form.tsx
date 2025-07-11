@@ -1,4 +1,7 @@
-import { CreateRepositorySchema, UpdateRepositorySchema } from '@moatless/shared/schemas/repository.schemas'
+import {
+  CreateRepositorySchema,
+  UpdateRepositorySchema,
+} from '@moatless/shared/schemas/repository.schemas'
 import type {
   CodeExecution,
   CreateRepositoryRequest,
@@ -174,7 +177,6 @@ export function RepositoryForm({
       throw error
     }
   }
-
 
   const createCodeExecution = (): CodeExecution => {
     if (formData.codeExecutionType === 'local') {

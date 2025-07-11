@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Event } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 import { sseManager } from '../../utils/sse-manager.js'
 
@@ -118,7 +118,7 @@ describe('Global Event Stream Backend Flow', () => {
         enqueue: vi.fn(),
         close: vi.fn(),
         error: vi.fn(),
-        desiredSize: 1
+        desiredSize: 1,
       } as any
       const connectionId = 'test-connection-123'
 

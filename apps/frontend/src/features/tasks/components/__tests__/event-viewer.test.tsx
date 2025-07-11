@@ -177,7 +177,7 @@ describe('EventViewer', () => {
 
     it('updates when new events arrive', () => {
       const initialEvents = createMockEventList(3)
-      
+
       mockUseTaskEvents.mockReturnValue({
         events: initialEvents,
         isStreaming: true,

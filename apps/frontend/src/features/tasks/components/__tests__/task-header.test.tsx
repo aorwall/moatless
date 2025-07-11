@@ -1,15 +1,15 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { toast } from 'sonner'
-import { TaskHeader } from '../task-header'
-import { useStopAgent } from '../../hooks/use-tasks'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useServerStatus, useStartServer, useStopServer } from '@/features/preview'
 import {
   useStreamingStatus,
   useTaskData,
   useTaskStatus,
 } from '@/features/tasks/contexts/task-providers'
+import { useStopAgent } from '../../hooks/use-tasks'
+import { TaskHeader } from '../task-header'
 
 // Mock dependencies
 vi.mock('@tanstack/react-router', () => ({
@@ -60,10 +60,7 @@ describe('TaskHeader', () => {
     vi.mocked(useTaskData).mockReturnValue({
       agentType: 'claude-code',
       createdAt: '2025-01-01T00:00:00Z',
-      iterations: [
-        { costUsd: 0.01 },
-        { costUsd: 0.02 },
-      ],
+      iterations: [{ costUsd: 0.01 }, { costUsd: 0.02 }],
     } as any)
 
     vi.mocked(useStreamingStatus).mockReturnValue({
@@ -117,11 +114,11 @@ describe('TaskHeader', () => {
       statuses.forEach((status) => {
         vi.mocked(useTaskStatus).mockReturnValue({ status } as any)
         const { rerender } = render(<TaskHeader />)
-        
+
         const badge = screen.getByText(status)
         expect(badge).toBeInTheDocument()
         expect(badge.className).toContain('capitalize')
-        
+
         rerender(<TaskHeader />)
       })
     })
@@ -130,11 +127,7 @@ describe('TaskHeader', () => {
       vi.mocked(useTaskData).mockReturnValue({
         agentType: 'claude-code',
         createdAt: '2025-01-01T00:00:00Z',
-        iterations: [
-          { costUsd: 0.123 },
-          { costUsd: 0.456 },
-          { costUsd: 0.789 },
-        ],
+        iterations: [{ costUsd: 0.123 }, { costUsd: 0.456 }, { costUsd: 0.789 }],
       } as any)
 
       render(<TaskHeader />)
@@ -168,7 +161,7 @@ describe('TaskHeader', () => {
 
     it('shows toast on successful agent stop', async () => {
       const user = userEvent.setup()
-      
+
       // Mock the onSuccess callback
       vi.mocked(useStopAgent).mockImplementation((_taskId, options) => {
         return {
@@ -191,7 +184,7 @@ describe('TaskHeader', () => {
     it('shows toast on agent stop error', async () => {
       const user = userEvent.setup()
       const error = new Error('Network error')
-      
+
       vi.mocked(useStopAgent).mockImplementation((_taskId, options) => {
         return {
           mutate: () => {
@@ -247,7 +240,7 @@ describe('TaskHeader', () => {
 
     it('handles start server action', async () => {
       const user = userEvent.setup()
-      
+
       vi.mocked(useServerStatus).mockReturnValue({
         data: { configured: true, running: false },
         isLoading: false,

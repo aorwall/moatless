@@ -25,7 +25,7 @@ function TaskCreationFallback({
   const formatErrorForTask = () => {
     const stackTrace = error.stack || 'No stack trace available'
     const errorMessage = error.message || 'Unknown error occurred'
-    
+
     return `Fix this error in ${componentName}:
 
 Error: ${errorMessage}
@@ -52,47 +52,42 @@ Please investigate and fix this issue.`
           <div className="text-sm text-muted-foreground">
             <strong>Error:</strong> {error.message}
           </div>
-          
+
           <div className="flex flex-col sm:flex-row gap-2">
-            <Button 
-              onClick={reset}
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-2"
-            >
+            <Button onClick={reset} variant="outline" size="sm" className="flex items-center gap-2">
               <RotateCcw className="h-4 w-4" />
               Try Again
             </Button>
-            
-            <Button 
-                onClick={() => setShowCreateTask(true)}
-                variant="default"
-                size="sm"
-                className="flex items-center gap-2"
-                >
-                <Plus className="h-4 w-4" />
-                Create Task to Fix
-                </Button>
+
+            <Button
+              onClick={() => setShowCreateTask(true)}
+              variant="default"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Create Task to Fix
+            </Button>
           </div>
-          
-        <details className="text-xs">
+
+          <details className="text-xs">
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-            Stack trace (development only)
+              Stack trace (development only)
             </summary>
             <pre className="mt-2 whitespace-pre-wrap bg-muted p-2 rounded text-xs overflow-auto max-h-48">
-            {error.stack}
+              {error.stack}
             </pre>
-        </details>
+          </details>
         </CardContent>
       </Card>
 
-    <CreateTaskDialog
+      <CreateTaskDialog
         open={showCreateTask}
         onOpenChange={setShowCreateTask}
         defaultRepositoryId={repositoryId}
         defaultMessage={formatErrorForTask()}
         defaultMode="code"
-    />
+      />
     </>
   )
 }
@@ -150,7 +145,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     return null
   }
-  
+
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
     console.error(
       `Error caught by ${this.props.componentName || 'ErrorBoundary'}:`,
@@ -172,9 +167,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   render() {
-
     // Check if debug mode is enabled and repository ID is available
-    const isDebugMode = typeof window !== 'undefined' && localStorage.getItem('moatlessDebugMode') === 'true'
+    const isDebugMode =
+      typeof window !== 'undefined' && localStorage.getItem('moatlessDebugMode') === 'true'
 
     if (this.state.hasError && this.state.error) {
       // Isolate mode - render nothing to prevent cascading failures

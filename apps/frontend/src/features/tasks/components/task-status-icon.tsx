@@ -10,7 +10,7 @@ interface TaskStatusIconProps {
 
 export function TaskStatusIcon({ task, showText = true, className = '' }: TaskStatusIconProps) {
   const statusConfig = getTaskStatusConfig(task.status)
-  
+
   // Get git sync status from the last iteration for open tasks
   const lastIteration = task.iterations?.[task.iterations.length - 1]
   const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null

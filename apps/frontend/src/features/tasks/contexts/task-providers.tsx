@@ -16,9 +16,7 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
     <TaskUIProvider taskId={taskId}>
       <TaskDataProvider taskId={taskId}>
-        <TaskEventsProvider taskId={taskId}>
-          {children}
-        </TaskEventsProvider>
+        <TaskEventsProvider taskId={taskId}>{children}</TaskEventsProvider>
       </TaskDataProvider>
     </TaskUIProvider>
   )
@@ -41,9 +39,9 @@ export {
 export {
   TaskEventsProvider,
   useEventStream,
+  useLatestContextTokens,
   useStreamingStatus,
   useTaskEvents,
-  useLatestContextTokens,
 } from './task-events-provider'
 export {
   TaskUIProvider,
