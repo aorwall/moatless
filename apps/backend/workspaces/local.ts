@@ -15,8 +15,9 @@ import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { searchFilesInDirectoryNew } from '../utils/file-search.js'
 import {
+  type GitDiffResponse,
   getCurrentBranch,
-  getGitDiffString,
+  getGitDiffDetailed,
   hasUncommittedChanges,
   isGitRepository,
 } from '../utils/git-utils.js'
@@ -393,7 +394,7 @@ export class LocalWorkspace extends BaseWorkspace {
     return await searchFilesInDirectoryNew(this.workspacePath, request)
   }
 
-  async getGitDiff(): Promise<string> {
+  async getGitDiff(): Promise<GitDiffResponse> {
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
@@ -402,20 +403,6 @@ export class LocalWorkspace extends BaseWorkspace {
       )
     }
 
-    const [diffString] = await getGitDiffString(this.workspacePath, this.originalBranch)
-    return diffString
-  }
-
-  async getGitDiffDetailed(): Promise<import('../utils/git-utils.js').GitDiffResponse> {
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
-      throw new WorkspaceError(
-        `Workspace path does not exist: ${this.workspacePath}`,
-        this.taskId,
-        400,
-      )
-    }
-
-    const { getGitDiffDetailed } = await import('../utils/git-utils.js')
     return getGitDiffDetailed(this.workspacePath, this.originalBranch)
   }
 

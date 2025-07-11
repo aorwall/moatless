@@ -1,6 +1,7 @@
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import type { CommandResult, Workspace, WorkspaceStatus } from '@moatless/shared/types/workspace'
 import type { EventService } from '../services/event.service.js'
+import type { GitDiffResponse } from '../utils/git-utils.js'
 
 export interface FileSearchRequest {
   query: string
@@ -66,7 +67,7 @@ export abstract class BaseWorkspace {
   /**
    * Get git diff for the workspace
    */
-  abstract getGitDiff(): Promise<string>
+  abstract getGitDiff(): Promise<GitDiffResponse>
 
   /**
    * Run a command in the workspace

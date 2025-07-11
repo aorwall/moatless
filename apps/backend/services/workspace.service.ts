@@ -8,8 +8,8 @@ import {
 import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import type { GitDiffResponse } from '../utils/git-utils.js'
 import { createGitWorktree, isGitRepository } from '../utils/index.js'
-
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
@@ -336,35 +336,12 @@ export class WorkspaceService {
     await workspace.writeFile(filePath, content)
   }
 
-  async getGitDiff(taskId: string): Promise<unknown> {
+  async getGitDiff(taskId: string): Promise<GitDiffResponse> {
     if (!(await this.canAccessGit(taskId))) {
       throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.getGitDiff()
-  }
-
-  async getGitDiffDetailed(taskId: string): Promise<unknown> {
-    if (!(await this.canAccessGit(taskId))) {
-      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-
-    // Check if workspace has getGitDiffDetailed method (LocalWorkspace)
-    if ('getGitDiffDetailed' in workspace && typeof workspace.getGitDiffDetailed === 'function') {
-      return workspace.getGitDiffDetailed()
-    }
-
-    // Fallback to simple diff string for other workspace types
-    const diffString = await workspace.getGitDiff()
-    return {
-      files: [],
-      totalChanges: 0,
-      totalAdditions: 0,
-      totalDeletions: 0,
-      diffString: diffString as string,
-      compareBase: 'HEAD',
-    }
   }
 
   async cleanupWorkspace(taskId: string): Promise<void> {

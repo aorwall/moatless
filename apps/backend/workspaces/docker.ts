@@ -11,6 +11,7 @@ import {
 } from '@moatless/shared/types/workspace'
 import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
+import type { GitDiffResponse } from '../utils/git-utils.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 import { LocalWorkspace } from './local.js'
 
@@ -243,7 +244,7 @@ export class DockerWorkspace extends BaseWorkspace {
     return this.localWorkspace.searchFiles(request)
   }
 
-  async getGitDiff(): Promise<string> {
+  async getGitDiff(): Promise<GitDiffResponse> {
     // Delegate to LocalWorkspace for git operations on host
     return this.localWorkspace.getGitDiff()
   }

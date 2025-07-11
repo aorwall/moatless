@@ -68,9 +68,22 @@ describe('Workspace Endpoints', () => {
       totalFound: 1,
       query: 'test',
     })
-    vi.spyOn(app.services.workspace, 'getGitDiff').mockResolvedValue(
-      'diff --git a/file1.ts b/file1.ts',
-    )
+    vi.spyOn(app.services.workspace, 'getGitDiff').mockResolvedValue({
+      files: [
+        {
+          status: 'modified' as const,
+          filename: 'file1.ts',
+          additions: 5,
+          deletions: 2,
+          isStaged: false,
+        },
+      ],
+      totalChanges: 1,
+      totalAdditions: 5,
+      totalDeletions: 2,
+      diffString: 'diff --git a/file1.ts b/file1.ts',
+      compareBase: 'main',
+    })
     vi.spyOn(app.services.workspace, 'runCommand').mockResolvedValue({
       command: 'echo test',
       output: 'test',
@@ -268,8 +281,24 @@ describe('Workspace Endpoints', () => {
       const result = (await response.json()) as any
       expect(result).toEqual({
         diff: 'diff --git a/file1.ts b/file1.ts',
-        files: [],
+        files: ['file1.ts'],
         hasChanges: true,
+        detailed: {
+          files: [
+            {
+              status: 'modified',
+              filename: 'file1.ts',
+              additions: 5,
+              deletions: 2,
+              isStaged: false,
+            },
+          ],
+          totalChanges: 1,
+          totalAdditions: 5,
+          totalDeletions: 2,
+          diffString: 'diff --git a/file1.ts b/file1.ts',
+          compareBase: 'main',
+        },
       })
     })
   })
