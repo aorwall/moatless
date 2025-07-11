@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
-import { vi } from 'vitest'
-import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from '@tanstack/react-router'
+import { render, screen } from '@testing-library/react'
+import React from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// Remove MemoryRouter import - not needed
 
 // Test to verify React hooks violations are fixed
 describe('ChatView Hooks Violations Regression Tests', () => {
@@ -95,17 +96,15 @@ describe('ChatView Hooks Violations Regression Tests', () => {
 
     const ChatView = React.lazy(() =>
       import('../chat-view').then((module) => ({
-        default: React.memo(module.default),
-      }))
+        default: module.ChatView,
+      })),
     )
 
     const TestWrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/tasks/test-task']}>
-          <React.Suspense fallback={<div>Loading...</div>}>
-            {children}
-          </React.Suspense>
-        </MemoryRouter>
+        <div>
+          <React.Suspense fallback={<div>Loading...</div>}>{children}</React.Suspense>
+        </div>
       </QueryClientProvider>
     )
 
@@ -113,14 +112,14 @@ describe('ChatView Hooks Violations Regression Tests', () => {
     const { rerender } = render(
       <TestWrapper>
         <ChatView />
-      </TestWrapper>
+      </TestWrapper>,
     )
 
     // Re-render to ensure hooks are called in consistent order
     rerender(
       <TestWrapper>
         <ChatView />
-      </TestWrapper>
+      </TestWrapper>,
     )
 
     // The component should render without throwing React hooks violations
@@ -136,7 +135,7 @@ describe('ChatView Hooks Violations Regression Tests', () => {
 
     const TestComponent = () => {
       renderSpy()
-      
+
       // Mock the hooks that were fixed
       const availableCommands = React.useMemo(() => {
         return [] // Simulating the fixed availableCommands calculation
@@ -149,9 +148,7 @@ describe('ChatView Hooks Violations Regression Tests', () => {
       return (
         <div data-testid="test-component">
           Commands: {availableCommands.length}
-          <button onClick={() => handleCommandClick({ name: 'test' })}>
-            Test Command
-          </button>
+          <button onClick={() => handleCommandClick({ name: 'test' })}>Test Command</button>
         </div>
       )
     }
@@ -180,19 +177,19 @@ describe('ChatView Hooks Violations Regression Tests', () => {
     }
 
     const { rerender } = render(<TestComponent externalValue="initial" />)
-    
+
     expect(effectCallCount).toBe(1)
     expect(screen.getByTestId('value')).toHaveTextContent('initial')
 
     // Change external value - effect should run
     rerender(<TestComponent externalValue="updated" />)
-    
+
     expect(effectCallCount).toBe(2)
     expect(screen.getByTestId('value')).toHaveTextContent('updated')
 
     // Same value - effect should not run again
     rerender(<TestComponent externalValue="updated" />)
-    
+
     expect(effectCallCount).toBe(2) // No additional call
   })
 })

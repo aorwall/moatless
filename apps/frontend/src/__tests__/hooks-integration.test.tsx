@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
-import { vi, afterEach } from 'vitest'
 import React from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Integration test to verify no hooks violations in real components
 describe('Hooks Integration - Real Components', () => {
@@ -73,7 +73,7 @@ describe('Hooks Integration - Real Components', () => {
     )
 
     const { getByTestId } = render(<TestComponent />)
-    
+
     // If this doesn't throw, the hooks order is correct
     expect(getByTestId('provider-content')).toBeInTheDocument()
   })
@@ -83,9 +83,7 @@ describe('Hooks Integration - Real Components', () => {
     const { PreviewToolbar } = await import('@/features/preview/components/preview-toolbar')
 
     // This should render without throwing React hooks violations
-    const TestComponent = () => (
-      <PreviewToolbar />
-    )
+    const TestComponent = () => <PreviewToolbar onReload={() => {}} />
 
     // If this doesn't throw React hooks errors, the fix is working
     expect(() => render(<TestComponent />)).not.toThrow()
@@ -103,7 +101,7 @@ describe('Hooks Integration - Real Components', () => {
       const memoValue = React.useMemo(() => state * 2, [state])
 
       hookCallOrder.push('useCallback')
-      const callback = React.useCallback(() => setState(prev => prev + 1), [])
+      const callback = React.useCallback(() => setState((prev) => prev + 1), [])
 
       hookCallOrder.push('useEffect')
       React.useEffect(() => {
@@ -150,11 +148,11 @@ describe('Hooks Integration - Real Components', () => {
 
       const TaskEventsSimulator = ({ isConnected }: { isConnected: boolean }) => {
         renderCount++
-        
+
         // Simulate the fixed pattern from task-events-provider.tsx
         const globalStream = { isConnected, connectionError: null }
         const isStreaming = globalStream.isConnected
-        const streamingError = globalStream.connectionError?.message || null
+        const streamingError = (globalStream.connectionError as Error | null)?.message || null
 
         return (
           <div data-testid="streaming-status">

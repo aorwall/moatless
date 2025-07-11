@@ -1,13 +1,13 @@
-import { render, screen, act } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import React from 'react'
+import { describe, expect, it } from 'vitest'
 import {
   TaskUIProvider,
-  useTaskUI,
   useChatState,
-  useGitDiffState,  
+  useGitDiffState,
   usePanelView,
   useSelectedIteration,
+  useTaskUI,
 } from '../task-ui-provider'
 
 // Test component that uses all hooks
@@ -27,32 +27,31 @@ function TestComponent({ taskId }: { taskId: string }) {
       <div data-testid="expanded-paths-count">{gitDiffState.expandedPaths.size}</div>
       <div data-testid="panel-view">{rightPanelView}</div>
       <div data-testid="selected-iteration">{selectedIteration?.iterationNumber || 'none'}</div>
-      
+
       <button
         data-testid="update-chat-state"
         onClick={() => updateChatState({ isAtBottom: false, scrollPosition: 100 })}
       >
         Update Chat State
       </button>
-      
+
       <button
         data-testid="update-git-diff-state"
-        onClick={() => updateGitDiffState({ 
-          expandedFiles: new Set(['file1.ts', 'file2.ts']),
-          selectedFileKey: 'file1.ts',
-          expandedPaths: new Set(['src/', 'src/components/'])
-        })}
+        onClick={() =>
+          updateGitDiffState({
+            expandedFiles: new Set(['file1.ts', 'file2.ts']),
+            selectedFileKey: 'file1.ts',
+            expandedPaths: new Set(['src/', 'src/components/']),
+          })
+        }
       >
         Update Git Diff State
       </button>
-      
-      <button
-        data-testid="update-panel-view"
-        onClick={() => setRightPanelView('diff')}
-      >
+
+      <button data-testid="update-panel-view" onClick={() => setRightPanelView('diff')}>
         Update Panel View
       </button>
-      
+
       <button
         data-testid="update-iteration"
         onClick={() => setSelectedIteration({ iterationNumber: 2 } as any)}
@@ -68,7 +67,7 @@ describe('TaskUIProvider', () => {
     render(
       <TaskUIProvider taskId="task-1">
         <TestComponent taskId="task-1" />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true')
@@ -84,7 +83,7 @@ describe('TaskUIProvider', () => {
     render(
       <TaskUIProvider taskId="task-1">
         <TestComponent taskId="task-1" />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     act(() => {
@@ -99,7 +98,7 @@ describe('TaskUIProvider', () => {
     render(
       <TaskUIProvider taskId="task-1">
         <TestComponent taskId="task-1" />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     act(() => {
@@ -115,7 +114,7 @@ describe('TaskUIProvider', () => {
     render(
       <TaskUIProvider taskId="task-1">
         <TestComponent taskId="task-1" />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     act(() => {
@@ -162,7 +161,7 @@ describe('TaskUIProvider State Isolation', () => {
         <button data-testid="switch-to-task-2" onClick={() => setCurrentTaskId('task-2')}>
           Task 2
         </button>
-        
+
         <TaskUIProvider taskId={currentTaskId}>
           <TestComponent taskId={currentTaskId} />
         </TaskUIProvider>

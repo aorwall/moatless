@@ -1,11 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { ChatView } from '../chat-view'
-import { useCommandsList } from '@/features/commands/hooks/use-commands'
-import { useTaskData, useWorkspaceStatus, useEventStream, useStreamingStatus, useSelectedIteration } from '@/features/tasks/contexts/task-providers'
-import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import type { Command } from '@moatless/shared/types/command'
 import type { TaskIteration } from '@moatless/shared/types/task'
+import { render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useCommandsList } from '@/features/commands/hooks/use-commands'
+import {
+  useEventStream,
+  useSelectedIteration,
+  useStreamingStatus,
+  useTaskData,
+  useWorkspaceStatus,
+} from '@/features/tasks/contexts/task-providers'
+import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
+import { ChatView } from '../chat-view'
 
 // Mock all dependencies
 vi.mock('@/features/commands/hooks/use-commands')
@@ -34,13 +40,13 @@ vi.mock('../../chat-input', () => ({
 
 describe('ChatView Commands Integration', () => {
   const mockSendMessage = vi.fn()
-  
+
   beforeEach(() => {
     vi.clearAllMocks()
-    
+
     // Mock scrollIntoView
     Element.prototype.scrollIntoView = vi.fn()
-    
+
     // Default mocks
     vi.mocked(useTaskData).mockReturnValue({
       taskId: 'test-task-id',
@@ -49,28 +55,28 @@ describe('ChatView Commands Integration', () => {
       repositoryId: 'test-repo',
       isLoading: false,
     } as any)
-    
+
     vi.mocked(useEventStream).mockReturnValue({
       events: [],
     } as any)
-    
+
     vi.mocked(useStreamingStatus).mockReturnValue({
       isStreaming: false,
     } as any)
-    
+
     vi.mocked(useSelectedIteration).mockReturnValue({
       setSelectedIteration: vi.fn(),
     } as any)
-    
+
     vi.mocked(useSendMessage).mockReturnValue({
       mutate: mockSendMessage,
       isPending: false,
     } as any)
-    
+
     vi.mocked(useWorkspaceStatus).mockReturnValue({
       workspaceHasChanges: false,
     } as any)
-    
+
     vi.mocked(useCommandsList).mockReturnValue({
       data: [],
       isLoading: false,
@@ -89,18 +95,18 @@ describe('ChatView Commands Integration', () => {
         },
         icon: 'GitCommit',
       }
-      
+
       vi.mocked(useWorkspaceStatus).mockReturnValue({
         workspaceHasChanges: true,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: [commitCommand],
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.getByText('Commit changes')).toBeInTheDocument()
       })
@@ -115,18 +121,18 @@ describe('ChatView Commands Integration', () => {
           requiresUncommittedChanges: true,
         },
       }
-      
+
       vi.mocked(useWorkspaceStatus).mockReturnValue({
         workspaceHasChanges: false,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: [commitCommand],
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.queryByText('Commit changes')).not.toBeInTheDocument()
       })
@@ -147,7 +153,7 @@ describe('ChatView Commands Integration', () => {
           prompt: 'continue',
         },
       ]
-      
+
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
         status: 'running',
@@ -155,14 +161,14 @@ describe('ChatView Commands Integration', () => {
         repositoryId: 'test-repo',
         isLoading: false,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: commands,
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.queryByText('Commit changes')).not.toBeInTheDocument()
         expect(screen.queryByText('Continue')).not.toBeInTheDocument()
@@ -179,7 +185,7 @@ describe('ChatView Commands Integration', () => {
         },
         icon: 'Play',
       }
-      
+
       const errorIteration: TaskIteration = {
         iterationNumber: 1,
         status: 'error',
@@ -188,7 +194,7 @@ describe('ChatView Commands Integration', () => {
         messageCount: 1,
         costUsd: 0.01,
       } as TaskIteration
-      
+
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
         status: 'error',
@@ -196,14 +202,14 @@ describe('ChatView Commands Integration', () => {
         repositoryId: 'test-repo',
         isLoading: false,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: [continueCommand],
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.getByText('Continue after error')).toBeInTheDocument()
       })
@@ -222,7 +228,7 @@ describe('ChatView Commands Integration', () => {
         },
         icon: 'GitPullRequest',
       }
-      
+
       const aheadIteration: TaskIteration = {
         iterationNumber: 1,
         status: 'completed',
@@ -238,7 +244,7 @@ describe('ChatView Commands Integration', () => {
           baseBranch: 'main',
         },
       } as TaskIteration
-      
+
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
         status: 'open',
@@ -246,14 +252,14 @@ describe('ChatView Commands Integration', () => {
         repositoryId: 'test-repo',
         isLoading: false,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: [createPrCommand],
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.getByText('Create pull request')).toBeInTheDocument()
       })
@@ -270,7 +276,7 @@ describe('ChatView Commands Integration', () => {
         },
         icon: 'GitBranch',
       }
-      
+
       const behindIteration: TaskIteration = {
         iterationNumber: 1,
         status: 'completed',
@@ -286,7 +292,7 @@ describe('ChatView Commands Integration', () => {
           baseBranch: 'main',
         },
       } as TaskIteration
-      
+
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
         status: 'open',
@@ -294,14 +300,14 @@ describe('ChatView Commands Integration', () => {
         repositoryId: 'test-repo',
         isLoading: false,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: [syncCommand],
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.getByText('Sync with main')).toBeInTheDocument()
       })
@@ -333,11 +339,11 @@ describe('ChatView Commands Integration', () => {
           prompt: 'always',
         },
       ]
-      
+
       vi.mocked(useWorkspaceStatus).mockReturnValue({
         workspaceHasChanges: true,
       } as any)
-      
+
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
         status: 'open',
@@ -353,14 +359,14 @@ describe('ChatView Commands Integration', () => {
         repositoryId: 'test-repo',
         isLoading: false,
       } as any)
-      
+
       vi.mocked(useCommandsList).mockReturnValue({
         data: commands,
         isLoading: false,
       } as any)
-      
+
       render(<ChatView />)
-      
+
       await waitFor(() => {
         expect(screen.getByText('Commit changes')).toBeInTheDocument()
         expect(screen.queryByText('Continue after error')).not.toBeInTheDocument()

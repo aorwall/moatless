@@ -1,6 +1,6 @@
-import { render, act } from '@testing-library/react'
-import { vi } from 'vitest'
+import { render } from '@testing-library/react'
 import React from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Stress tests to detect infinite loops and excessive re-renders
 describe('Infinite Loop Detection Tests', () => {
@@ -48,15 +48,15 @@ describe('Infinite Loop Detection Tests', () => {
 
     const InfiniteLoopDetector = () => {
       renderCount++
-      
+
       if (renderCount > maxAllowedRenders) {
         throw new Error(`Infinite loop detected! Component rendered ${renderCount} times`)
       }
 
       // Simulate the patterns from ChatView that were fixed
-      const [scrollTop, setScrollTop] = React.useState(0)
-      const [scrollHeight, setScrollHeight] = React.useState(0)
-      const [clientHeight, setClientHeight] = React.useState(0)
+      const [scrollTop] = React.useState(0)
+      const [scrollHeight] = React.useState(0)
+      const [clientHeight] = React.useState(0)
 
       // This should be stable and not cause infinite loops
       const isAtBottom = React.useMemo(() => {
@@ -72,21 +72,18 @@ describe('Infinite Loop Detection Tests', () => {
         console.log('Command clicked:', command)
       }, []) // Fixed: stable callback
 
-      const handleSendMessage = React.useCallback((
-        taskId: string,
-        message: string,
-        clearMessage: () => void
-      ) => {
-        clearMessage()
-      }, []) // Fixed: stable callback
+      const handleSendMessage = React.useCallback(
+        (_taskId: string, _message: string, clearMessage: () => void) => {
+          clearMessage()
+        },
+        [],
+      ) // Fixed: stable callback
 
       return (
         <div data-testid="chat-view">
           <div>At bottom: {isAtBottom.toString()}</div>
           <div>Commands: {availableCommands.length}</div>
-          <button onClick={() => handleCommandClick({ name: 'test' })}>
-            Test Command
-          </button>
+          <button onClick={() => handleCommandClick({ name: 'test' })}>Test Command</button>
           <button onClick={() => handleSendMessage('test', 'message', () => {})}>
             Send Message
           </button>
@@ -96,10 +93,10 @@ describe('Infinite Loop Detection Tests', () => {
 
     // This should render without infinite loops
     const { getByTestId } = render(<InfiniteLoopDetector />)
-    
+
     expect(getByTestId('chat-view')).toBeInTheDocument()
     expect(renderCount).toBeLessThan(maxAllowedRenders)
-    
+
     // Should be reasonable number of renders (initial + any necessary updates)
     expect(renderCount).toBeLessThanOrEqual(5)
   })
@@ -110,7 +107,7 @@ describe('Infinite Loop Detection Tests', () => {
 
     const TaskEventsSimulator = ({ globalStreamConnected }: { globalStreamConnected: boolean }) => {
       renderCount++
-      
+
       if (renderCount > maxAllowedRenders) {
         throw new Error(`TaskEvents infinite loop detected! Rendered ${renderCount} times`)
       }
@@ -118,19 +115,22 @@ describe('Infinite Loop Detection Tests', () => {
       // Simulate the fixed pattern from task-events-provider.tsx
       const globalStream = {
         isConnected: globalStreamConnected,
-        connectionError: null
+        connectionError: null,
       }
 
       // Direct derivation should NOT cause infinite loops
       const isStreaming = globalStream.isConnected
-      const streamingError = globalStream.connectionError?.message || null
+      const streamingError = (globalStream.connectionError as Error | null)?.message || null
 
       // This memoization should be stable
-      const contextValue = React.useMemo(() => ({
-        events: [],
-        isStreaming,
-        streamingError,
-      }), [isStreaming, streamingError])
+      const contextValue = React.useMemo(
+        () => ({
+          events: [],
+          isStreaming,
+          streamingError,
+        }),
+        [isStreaming, streamingError],
+      )
 
       return (
         <div data-testid="task-events">
@@ -142,7 +142,7 @@ describe('Infinite Loop Detection Tests', () => {
 
     // Render with initial props
     const { rerender, getByTestId } = render(<TaskEventsSimulator globalStreamConnected={false} />)
-    
+
     expect(getByTestId('task-events')).toBeInTheDocument()
     expect(renderCount).toBe(1)
 
@@ -164,7 +164,7 @@ describe('Infinite Loop Detection Tests', () => {
 
     const EffectStressTest = ({ externalValue }: { externalValue: string }) => {
       renderCount++
-      
+
       if (renderCount > maxAllowedRenders) {
         throw new Error(`Effect stress test failed! Rendered ${renderCount} times`)
       }
@@ -174,7 +174,7 @@ describe('Infinite Loop Detection Tests', () => {
       // This effect should have complete dependencies and not cause infinite loops
       React.useEffect(() => {
         effectCount++
-        
+
         if (effectCount > 5) {
           throw new Error(`Effect infinite loop detected! Effect ran ${effectCount} times`)
         }
@@ -200,7 +200,7 @@ describe('Infinite Loop Detection Tests', () => {
     }
 
     const { rerender, getByTestId } = render(<EffectStressTest externalValue="initial" />)
-    
+
     expect(getByTestId('effect-test')).toBeInTheDocument()
 
     // Change external value
@@ -220,13 +220,13 @@ describe('Infinite Loop Detection Tests', () => {
         if (!isActive) return
 
         subscriptionCount++
-        
+
         // Simulate a subscription that needs cleanup
         const subscription = {
           id: subscriptionCount,
           unsubscribe: () => {
             cleanupCount++
-          }
+          },
         }
 
         return () => {
@@ -238,7 +238,7 @@ describe('Infinite Loop Detection Tests', () => {
     }
 
     const { rerender, unmount } = render(<MemoryLeakDetector isActive={false} />)
-    
+
     expect(subscriptionCount).toBe(0)
     expect(cleanupCount).toBe(0)
 
@@ -272,7 +272,7 @@ describe('Infinite Loop Detection Tests', () => {
     const CallbackStabilityTest = ({ data }: { data: string[] }) => {
       // Use a stable function reference
       const processData = React.useCallback((items: string[]) => {
-        return items.map(item => item.toUpperCase())
+        return items.map((item) => item.toUpperCase())
       }, [])
 
       // Store reference to check stability
@@ -294,7 +294,7 @@ describe('Infinite Loop Detection Tests', () => {
     }
 
     const { rerender } = render(<CallbackStabilityTest data={['a', 'b']} />)
-    
+
     expect(memoizationCount).toBe(1)
 
     // Same data - memo should not recompute excessively

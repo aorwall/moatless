@@ -1,6 +1,6 @@
-import { render, screen, act } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import React from 'react'
+import { describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider, useChatState } from '@/features/tasks/contexts/task-ui-provider'
 
 // Mock scroll functionality
@@ -26,9 +26,9 @@ function ChatScrollTestComponent() {
   const handleScroll = (newPosition: number) => {
     setScrollPosition(newPosition)
     const isAtBottom = newPosition > 800 // Simulate "at bottom" logic
-    updateChatState({ 
+    updateChatState({
       isAtBottom: isAtBottom, // use actual value
-      scrollPosition: newPosition 
+      scrollPosition: newPosition,
     })
   }
 
@@ -37,32 +37,20 @@ function ChatScrollTestComponent() {
       <div data-testid="chat-is-at-bottom">{chatState.isAtBottom.toString()}</div>
       <div data-testid="chat-scroll-position">{chatState.scrollPosition || 0}</div>
       <div data-testid="current-scroll">{scrollPosition}</div>
-      
-      <button
-        data-testid="scroll-to-top"
-        onClick={() => handleScroll(0)}
-      >
+
+      <button data-testid="scroll-to-top" onClick={() => handleScroll(0)}>
         Scroll to Top
       </button>
-      
-      <button
-        data-testid="scroll-to-middle"
-        onClick={() => handleScroll(500)}
-      >
+
+      <button data-testid="scroll-to-middle" onClick={() => handleScroll(500)}>
         Scroll to Middle
       </button>
-      
-      <button
-        data-testid="scroll-to-bottom"
-        onClick={() => handleScroll(1000)}
-      >
+
+      <button data-testid="scroll-to-bottom" onClick={() => handleScroll(1000)}>
         Scroll to Bottom
       </button>
-      
-      <button
-        data-testid="mark-at-bottom"
-        onClick={() => updateChatState({ isAtBottom: true })}
-      >
+
+      <button data-testid="mark-at-bottom" onClick={() => updateChatState({ isAtBottom: true })}>
         Mark At Bottom
       </button>
     </div>
@@ -76,28 +64,19 @@ function MultiTaskChatTest() {
   return (
     <div>
       <div data-testid="current-task-id">{currentTaskId}</div>
-      
-      <button 
-        data-testid="switch-to-task-1" 
-        onClick={() => setCurrentTaskId('chat-task-1')}
-      >
+
+      <button data-testid="switch-to-task-1" onClick={() => setCurrentTaskId('chat-task-1')}>
         Switch to Task 1
       </button>
-      
-      <button 
-        data-testid="switch-to-task-2" 
-        onClick={() => setCurrentTaskId('chat-task-2')}
-      >
+
+      <button data-testid="switch-to-task-2" onClick={() => setCurrentTaskId('chat-task-2')}>
         Switch to Task 2
       </button>
-      
-      <button 
-        data-testid="switch-to-task-3" 
-        onClick={() => setCurrentTaskId('chat-task-3')}
-      >
+
+      <button data-testid="switch-to-task-3" onClick={() => setCurrentTaskId('chat-task-3')}>
         Switch to Task 3
       </button>
-      
+
       <TaskUIProvider taskId={currentTaskId}>
         <ChatScrollTestComponent />
       </TaskUIProvider>
@@ -110,7 +89,7 @@ describe('Chat State Isolation', () => {
     render(
       <TaskUIProvider taskId="new-chat-task">
         <ChatScrollTestComponent />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true')
@@ -121,7 +100,7 @@ describe('Chat State Isolation', () => {
     render(
       <TaskUIProvider taskId="single-chat-task">
         <ChatScrollTestComponent />
-      </TaskUIProvider>
+      </TaskUIProvider>,
     )
 
     // Initial state
@@ -149,7 +128,7 @@ describe('Chat State Isolation', () => {
 
     // Task 1: Scroll to middle (500 < 800, so not at bottom)
     expect(screen.getByTestId('current-task-id')).toHaveTextContent('chat-task-1')
-    
+
     act(() => {
       screen.getByTestId('scroll-to-middle').click()
     })
@@ -253,7 +232,9 @@ describe('Chat State Isolation', () => {
     })
 
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent(task1FinalState.isAtBottom!)
-    expect(screen.getByTestId('chat-scroll-position')).toHaveTextContent(task1FinalState.scrollPosition!)
+    expect(screen.getByTestId('chat-scroll-position')).toHaveTextContent(
+      task1FinalState.scrollPosition!,
+    )
 
     // Switch back and verify Task 2 state preserved
     act(() => {
@@ -261,7 +242,9 @@ describe('Chat State Isolation', () => {
     })
 
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent(task2FinalState.isAtBottom!)
-    expect(screen.getByTestId('chat-scroll-position')).toHaveTextContent(task2FinalState.scrollPosition!)
+    expect(screen.getByTestId('chat-scroll-position')).toHaveTextContent(
+      task2FinalState.scrollPosition!,
+    )
   })
 
   it('should handle rapid task switching without state corruption', () => {
@@ -269,7 +252,7 @@ describe('Chat State Isolation', () => {
 
     // Set up initial different states for each task step by step
     expect(screen.getByTestId('current-task-id')).toHaveTextContent('chat-task-1')
-    
+
     act(() => {
       screen.getByTestId('scroll-to-middle').click() // Task 1: 500
     })
@@ -279,7 +262,7 @@ describe('Chat State Isolation', () => {
       screen.getByTestId('switch-to-task-2').click()
     })
     expect(screen.getByTestId('current-task-id')).toHaveTextContent('chat-task-2')
-    
+
     act(() => {
       screen.getByTestId('scroll-to-bottom').click() // Task 2: 1000
     })
@@ -289,7 +272,7 @@ describe('Chat State Isolation', () => {
       screen.getByTestId('switch-to-task-3').click()
     })
     expect(screen.getByTestId('current-task-id')).toHaveTextContent('chat-task-3')
-    
+
     act(() => {
       screen.getByTestId('scroll-to-top').click() // Task 3: 0
     })

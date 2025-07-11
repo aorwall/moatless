@@ -1,6 +1,6 @@
-import { render, screen, act } from '@testing-library/react'
-import { vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import React from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Test the derived state patterns to verify they work correctly without useEffect
 describe('Derived State Patterns - Regression Tests', () => {
@@ -13,14 +13,14 @@ describe('Derived State Patterns - Regression Tests', () => {
       let renderCount = 0
 
       // Mock global stream that changes
-      const mockGlobalStream = {
+      const mockGlobalStream: { isConnected: boolean; connectionError: Error | null } = {
         isConnected: false,
         connectionError: null,
       }
 
       const TestComponent = () => {
         renderCount++
-        
+
         // This simulates the fixed pattern in task-events-provider.tsx
         const isStreaming = mockGlobalStream.isConnected
         const streamingError = mockGlobalStream.connectionError?.message || null
@@ -34,7 +34,7 @@ describe('Derived State Patterns - Regression Tests', () => {
       }
 
       const { rerender } = render(<TestComponent />)
-      
+
       expect(screen.getByTestId('streaming')).toHaveTextContent('false')
       expect(screen.getByTestId('error')).toHaveTextContent('no-error')
       expect(renderCount).toBe(1)
@@ -57,10 +57,10 @@ describe('Derived State Patterns - Regression Tests', () => {
 
       const TestComponent = ({ displayPath }: { displayPath: string }) => {
         renderCount++
-        
+
         const [pathInput, setPathInput] = React.useState(displayPath)
         const [lastDisplayPath, setLastDisplayPath] = React.useState(displayPath)
-        
+
         // This simulates the fixed pattern in preview-toolbar.tsx
         if (displayPath !== lastDisplayPath) {
           setPathInput(displayPath)
@@ -70,10 +70,7 @@ describe('Derived State Patterns - Regression Tests', () => {
         return (
           <div>
             <div data-testid="path-input">{pathInput}</div>
-            <button 
-              data-testid="update-input"
-              onClick={() => setPathInput('user-modified')}
-            >
+            <button data-testid="update-input" onClick={() => setPathInput('user-modified')}>
               Modify Input
             </button>
           </div>
@@ -81,19 +78,19 @@ describe('Derived State Patterns - Regression Tests', () => {
       }
 
       const { rerender } = render(<TestComponent displayPath="/initial" />)
-      
+
       expect(screen.getByTestId('path-input')).toHaveTextContent('/initial')
 
       // User modifies the input
       act(() => {
         screen.getByTestId('update-input').click()
       })
-      
+
       expect(screen.getByTestId('path-input')).toHaveTextContent('user-modified')
 
       // External navigation changes displayPath - should reset pathInput
       rerender(<TestComponent displayPath="/new-path" />)
-      
+
       expect(screen.getByTestId('path-input')).toHaveTextContent('/new-path')
     })
   })
@@ -103,11 +100,13 @@ describe('Derived State Patterns - Regression Tests', () => {
       let renderCount = 0
       let effectCount = 0
 
-      const TestComponent = ({ globalStream }: { 
-        globalStream: { isConnected: boolean; connectionError: Error | null } 
+      const TestComponent = ({
+        globalStream,
+      }: {
+        globalStream: { isConnected: boolean; connectionError: Error | null }
       }) => {
         renderCount++
-        
+
         // GOOD: Derive directly (no useEffect)
         const isStreaming = globalStream.isConnected
         const streamingError = globalStream.connectionError?.message || null
@@ -130,13 +129,17 @@ describe('Derived State Patterns - Regression Tests', () => {
 
       const initialStream = { isConnected: false, connectionError: null }
       const { rerender } = render(<TestComponent globalStream={initialStream} />)
-      
+
       expect(renderCount).toBe(1)
       expect(effectCount).toBe(1)
 
       // Change props multiple times
       rerender(<TestComponent globalStream={{ isConnected: true, connectionError: null }} />)
-      rerender(<TestComponent globalStream={{ isConnected: true, connectionError: new Error('failed') }} />)
+      rerender(
+        <TestComponent
+          globalStream={{ isConnected: true, connectionError: new Error('failed') }}
+        />,
+      )
       rerender(<TestComponent globalStream={{ isConnected: false, connectionError: null }} />)
 
       // Should render for each prop change, but effect should only run once
@@ -180,7 +183,7 @@ describe('Derived State Patterns - Regression Tests', () => {
       )
 
       const { rerender } = render(<TestWrapper isConnected={false} />)
-      
+
       // Initial render
       expect(goodRenderCount).toBe(1)
       expect(badRenderCount).toBe(1)
@@ -193,7 +196,7 @@ describe('Derived State Patterns - Regression Tests', () => {
 
       // Good component: 1 render per prop change
       expect(goodRenderCount).toBe(2)
-      
+
       // Bad component: extra render from useEffect setState
       expect(badRenderCount).toBe(3) // Initial + prop change + effect setState
       expect(badEffectCount).toBe(2)

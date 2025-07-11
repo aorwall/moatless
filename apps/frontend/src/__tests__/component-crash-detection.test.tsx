@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
-import { vi } from 'vitest'
-import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
+import React from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Test actual components to ensure they don't crash with hooks errors
 describe('Component Crash Detection Tests', () => {
@@ -141,21 +141,19 @@ describe('Component Crash Detection Tests', () => {
 
     const TestWrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>
-        <React.Suspense fallback={<div>Loading...</div>}>
-          {children}
-        </React.Suspense>
+        <React.Suspense fallback={<div>Loading...</div>}>{children}</React.Suspense>
       </QueryClientProvider>
     )
 
     // Import component dynamically to ensure mocks are applied
-    const { default: ChatView } = await import('@/features/tasks/components/chat-view/chat-view')
+    const { ChatView } = await import('@/features/tasks/components/chat-view/chat-view')
 
     // This should render without throwing React hooks violations
     expect(() => {
       render(
         <TestWrapper>
           <ChatView />
-        </TestWrapper>
+        </TestWrapper>,
       )
     }).not.toThrow()
 
@@ -167,9 +165,7 @@ describe('Component Crash Detection Tests', () => {
     setupMocks()
 
     const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
 
     const { PreviewToolbar } = await import('@/features/preview/components/preview-toolbar')
@@ -178,8 +174,8 @@ describe('Component Crash Detection Tests', () => {
     expect(() => {
       render(
         <TestWrapper>
-          <PreviewToolbar />
-        </TestWrapper>
+          <PreviewToolbar onReload={() => {}} />
+        </TestWrapper>,
       )
     }).not.toThrow()
   })
@@ -198,9 +194,7 @@ describe('Component Crash Detection Tests', () => {
     }))
 
     const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
 
     const { TaskEventsProvider } = await import('@/features/tasks/contexts/task-events-provider')
@@ -212,7 +206,7 @@ describe('Component Crash Detection Tests', () => {
           <TaskEventsProvider taskId="test-task">
             <div data-testid="provider-content">Content</div>
           </TaskEventsProvider>
-        </TestWrapper>
+        </TestWrapper>,
       )
     }).not.toThrow()
   })
@@ -263,9 +257,7 @@ graph TD
     }))
 
     const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
 
     const TestComponent = ({ taskId }: { taskId: string }) => (
@@ -291,21 +283,24 @@ graph TD
 
   it('should handle edge cases without hooks crashes', () => {
     // Test the derived state patterns with edge cases
-    const DerivedStateStressTest = ({ 
-      globalStream 
-    }: { 
-      globalStream: { isConnected: boolean; connectionError: Error | null } | null 
+    const DerivedStateStressTest = ({
+      globalStream,
+    }: {
+      globalStream: { isConnected: boolean; connectionError: Error | null } | null
     }) => {
       // Simulate the fixed pattern with potential null values
       const isStreaming = globalStream?.isConnected ?? false
       const streamingError = globalStream?.connectionError?.message || null
 
       // Test memoization with potential null dependencies
-      const contextValue = React.useMemo(() => ({
-        isStreaming,
-        streamingError,
-        events: [],
-      }), [isStreaming, streamingError])
+      const contextValue = React.useMemo(
+        () => ({
+          isStreaming,
+          streamingError,
+          events: [],
+        }),
+        [isStreaming, streamingError],
+      )
 
       return (
         <div data-testid="derived-state">
@@ -321,10 +316,18 @@ graph TD
 
     // Test various edge cases
     expect(() => {
-      rerender(<DerivedStateStressTest globalStream={{ isConnected: true, connectionError: null }} />)
-      rerender(<DerivedStateStressTest globalStream={{ isConnected: false, connectionError: new Error('Test') }} />)
+      rerender(
+        <DerivedStateStressTest globalStream={{ isConnected: true, connectionError: null }} />,
+      )
+      rerender(
+        <DerivedStateStressTest
+          globalStream={{ isConnected: false, connectionError: new Error('Test') }}
+        />,
+      )
       rerender(<DerivedStateStressTest globalStream={null} />)
-      rerender(<DerivedStateStressTest globalStream={{ isConnected: true, connectionError: null }} />)
+      rerender(
+        <DerivedStateStressTest globalStream={{ isConnected: true, connectionError: null }} />,
+      )
     }).not.toThrow()
   })
 })

@@ -1,6 +1,6 @@
-import { render, act } from '@testing-library/react'
-import { vi } from 'vitest'
+import { act, render } from '@testing-library/react'
 import React from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Performance regression tests for React hooks fixes
 describe('Hooks Performance Regression Tests', () => {
@@ -30,19 +30,19 @@ describe('Hooks Performance Regression Tests', () => {
       }
 
       const { rerender } = render(<TestComponent externalDep="test" />)
-      
+
       expect(renderCount).toBe(1)
       expect(callbackCreationCount).toBe(1)
 
       // Same props - should not re-render or recreate callback
       rerender(<TestComponent externalDep="test" />)
-      
+
       expect(renderCount).toBe(2) // React re-renders but callback is stable
       expect(callbackCreationCount).toBe(1) // Callback not recreated
 
       // Different props - should recreate callback
       rerender(<TestComponent externalDep="different" />)
-      
+
       expect(renderCount).toBe(3)
       expect(callbackCreationCount).toBe(2) // Callback recreated due to dependency change
     })
@@ -53,9 +53,12 @@ describe('Hooks Performance Regression Tests', () => {
       let effectRunCount = 0
       let renderCount = 0
 
-      const TestComponent = ({ value, callback }: { 
+      const TestComponent = ({
+        value,
+        callback,
+      }: {
         value: string
-        callback: (val: string) => void 
+        callback: (val: string) => void
       }) => {
         renderCount++
         const [result, setResult] = React.useState('')
@@ -73,23 +76,21 @@ describe('Hooks Performance Regression Tests', () => {
       }
 
       const mockCallback = vi.fn()
-      const { rerender } = render(
-        <TestComponent value="initial" callback={mockCallback} />
-      )
-      
+      const { rerender } = render(<TestComponent value="initial" callback={mockCallback} />)
+
       expect(effectRunCount).toBe(1)
       expect(renderCount).toBe(2) // Initial + effect setState
       expect(mockCallback).toHaveBeenCalledWith('initial')
 
       // Same value and callback - effect should not run again
       rerender(<TestComponent value="initial" callback={mockCallback} />)
-      
+
       expect(effectRunCount).toBe(1) // No additional effect run
       expect(renderCount).toBe(3) // Just the re-render
 
       // Different value - effect should run
       rerender(<TestComponent value="updated" callback={mockCallback} />)
-      
+
       expect(effectRunCount).toBe(2) // Effect runs again
       expect(mockCallback).toHaveBeenCalledWith('updated')
     })
@@ -102,47 +103,31 @@ describe('Hooks Performance Regression Tests', () => {
       let effectCallCount = 0
 
       // Component using derived state (optimized)
-      const DerivedStateComponent = ({ 
-        items 
-      }: { 
-        items: string[] 
-      }) => {
+      const DerivedStateComponent = ({ items }: { items: string[] }) => {
         derivedRenderCount++
-        
+
         // Direct derivation - no useEffect needed
         const filteredItems = React.useMemo(() => {
-          return items.filter(item => item.startsWith('valid'))
+          return items.filter((item) => item.startsWith('valid'))
         }, [items])
 
         const itemCount = filteredItems.length
 
-        return (
-          <div data-testid="derived">
-            Count: {itemCount}
-          </div>
-        )
+        return <div data-testid="derived">Count: {itemCount}</div>
       }
 
       // Component using useEffect anti-pattern (not optimized)
-      const EffectStateComponent = ({ 
-        items 
-      }: { 
-        items: string[] 
-      }) => {
+      const EffectStateComponent = ({ items }: { items: string[] }) => {
         effectRenderCount++
         const [itemCount, setItemCount] = React.useState(0)
 
         React.useEffect(() => {
           effectCallCount++
-          const filtered = items.filter(item => item.startsWith('valid'))
+          const filtered = items.filter((item) => item.startsWith('valid'))
           setItemCount(filtered.length)
         }, [items])
 
-        return (
-          <div data-testid="effect">
-            Count: {itemCount}
-          </div>
-        )
+        return <div data-testid="effect">Count: {itemCount}</div>
       }
 
       const TestWrapper = ({ items }: { items: string[] }) => (
@@ -187,10 +172,10 @@ describe('Hooks Performance Regression Tests', () => {
 
           subscriptionCount++
           const listener = () => console.log('event')
-          
+
           // Simulate subscription
           window.addEventListener('test-event', listener)
-          
+
           return () => {
             cleanupCount++
             window.removeEventListener('test-event', listener)
@@ -201,7 +186,7 @@ describe('Hooks Performance Regression Tests', () => {
       }
 
       const { rerender, unmount } = render(<TestComponent isActive={false} />)
-      
+
       expect(subscriptionCount).toBe(0)
       expect(cleanupCount).toBe(0)
 

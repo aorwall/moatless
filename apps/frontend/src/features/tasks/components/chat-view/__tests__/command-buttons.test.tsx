@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { CommandButtons } from '../command-buttons'
 import type { Command } from '@moatless/shared/types/command'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { CommandButtons } from '../command-buttons'
 
 describe('CommandButtons', () => {
   const mockCommands: Command[] = [
@@ -28,17 +28,13 @@ describe('CommandButtons', () => {
   ]
 
   it('should render nothing when no commands are provided', () => {
-    const { container } = render(
-      <CommandButtons commands={[]} onCommandClick={vi.fn()} />
-    )
-    
+    const { container } = render(<CommandButtons commands={[]} onCommandClick={vi.fn()} />)
+
     expect(container.firstChild).toBeNull()
   })
 
   it('should render all provided commands', () => {
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />)
 
     expect(screen.getByText('Commit changes')).toBeInTheDocument()
     expect(screen.getByText('Continue after error')).toBeInTheDocument()
@@ -47,9 +43,7 @@ describe('CommandButtons', () => {
 
   it('should call onCommandClick with the correct command when clicked', () => {
     const mockOnCommandClick = vi.fn()
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={mockOnCommandClick} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={mockOnCommandClick} />)
 
     const commitButton = screen.getByText('Commit changes')
     fireEvent.click(commitButton)
@@ -59,37 +53,31 @@ describe('CommandButtons', () => {
   })
 
   it('should disable all buttons when disabled prop is true', () => {
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} disabled={true} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} disabled={true} />)
 
     const buttons = screen.getAllByRole('button')
-    buttons.forEach(button => {
+    buttons.forEach((button) => {
       expect(button).toBeDisabled()
     })
   })
 
   it('should not disable buttons when disabled prop is false', () => {
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} disabled={false} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} disabled={false} />)
 
     const buttons = screen.getAllByRole('button')
-    buttons.forEach(button => {
+    buttons.forEach((button) => {
       expect(button).not.toBeDisabled()
     })
   })
 
   it('should apply the correct variant prop to buttons', () => {
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />)
 
     const buttons = screen.getAllByRole('button')
-    
+
     // Verify buttons are rendered with correct props
     expect(buttons).toHaveLength(3)
-    
+
     // Since we can't directly test variant classes from the Button component,
     // we verify that the buttons are rendered and functional
     expect(buttons[0]).toBeInTheDocument()
@@ -98,13 +86,11 @@ describe('CommandButtons', () => {
   })
 
   it('should render commands with correct icons', () => {
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />)
 
     // Check that SVG icons are rendered within buttons
     const buttons = screen.getAllByRole('button')
-    buttons.forEach(button => {
+    buttons.forEach((button) => {
       const svg = button.querySelector('svg')
       expect(svg).toBeInTheDocument()
       expect(svg).toHaveClass('h-4', 'w-4')
@@ -120,9 +106,7 @@ describe('CommandButtons', () => {
       },
     ]
 
-    render(
-      <CommandButtons commands={commandsWithoutIcon} onCommandClick={vi.fn()} />
-    )
+    render(<CommandButtons commands={commandsWithoutIcon} onCommandClick={vi.fn()} />)
 
     const button = screen.getByText('Test command')
     const svg = button.parentElement?.querySelector('svg')
@@ -131,9 +115,7 @@ describe('CommandButtons', () => {
 
   it('should handle multiple command clicks', () => {
     const mockOnCommandClick = vi.fn()
-    render(
-      <CommandButtons commands={mockCommands} onCommandClick={mockOnCommandClick} />
-    )
+    render(<CommandButtons commands={mockCommands} onCommandClick={mockOnCommandClick} />)
 
     const commitButton = screen.getByText('Commit changes')
     const continueButton = screen.getByText('Continue after error')
@@ -149,7 +131,11 @@ describe('CommandButtons', () => {
   it('should not call onCommandClick when disabled', () => {
     const mockOnCommandClick = vi.fn()
     render(
-      <CommandButtons commands={mockCommands} onCommandClick={mockOnCommandClick} disabled={true} />
+      <CommandButtons
+        commands={mockCommands}
+        onCommandClick={mockOnCommandClick}
+        disabled={true}
+      />,
     )
 
     const commitButton = screen.getByText('Commit changes')
@@ -160,7 +146,7 @@ describe('CommandButtons', () => {
 
   it('should render with proper layout classes', () => {
     const { container } = render(
-      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />
+      <CommandButtons commands={mockCommands} onCommandClick={vi.fn()} />,
     )
 
     const wrapper = container.firstChild
