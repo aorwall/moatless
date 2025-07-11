@@ -46,8 +46,6 @@ interface TaskEventsProviderProps {
  */
 export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps) {
   const queryClient = useQueryClient()
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [streamingError, setStreamingError] = useState<string | null>(null)
 
   // Get global stream connection status
   const globalStream = useGlobalEventStream()
@@ -114,11 +112,9 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
 
   useTaskEventSubscription(taskId, handleTaskEvent)
 
-  // Update streaming status from global stream
-  useEffect(() => {
-    setIsStreaming(globalStream.isConnected)
-    setStreamingError(globalStream.connectionError?.message || null)
-  }, [globalStream.isConnected, globalStream.connectionError])
+  // Derive streaming status directly from global stream
+  const isStreaming = globalStream.isConnected
+  const streamingError = globalStream.connectionError?.message || null
 
   // Get latest event ID for stable reference
   const latestEventId = useMemo(() => {

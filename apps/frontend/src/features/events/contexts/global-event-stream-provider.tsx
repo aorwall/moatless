@@ -357,7 +357,7 @@ export function GlobalEventStreamProvider({
       clearTimeout(timer)
       disconnect()
     }
-  }, []) // Empty deps to ensure single connection
+  }, [connect, disconnect]) // Include stable callback dependencies
 
   // Note: We don't handle visibility changes to ensure a stable connection
   // The stream will remain connected even when the tab is in the background

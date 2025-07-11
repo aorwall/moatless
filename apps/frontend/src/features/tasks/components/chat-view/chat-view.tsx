@@ -82,8 +82,8 @@ function ChatViewComponent() {
     },
   })
 
-  // Handle sending message to task - define early to avoid hoisting issues
-  const handleSendMessage = (
+  // Handle sending message to task - wrapped in useCallback for stable reference
+  const handleSendMessage = useCallback((
     _taskId: string,
     message: string,
     clearMessage: () => void,
@@ -100,7 +100,7 @@ function ChatViewComponent() {
         },
       },
     )
-  }
+  }, [sendMessage])
 
   // Throttled scroll handler to update scroll values
   useEffect(() => {
@@ -183,6 +183,35 @@ function ChatViewComponent() {
     return counts
   }, [events, isStreaming])
 
+  // Filter available commands based on current context - must be before any early returns
+  const availableCommands = useMemo(() => {
+    if (!commands || status === 'running') return []
+    
+    const context = {
+      task: { status, iterations, repositoryId } as Task,
+      lastIteration: lastIteration || undefined,
+      workspaceHasChanges,
+    }
+    
+    return filterAvailableCommands(commands, context)
+  }, [commands, status, iterations, lastIteration, workspaceHasChanges, repositoryId])
+
+  // Handle command click - must be before any early returns
+  const handleCommandClick = useCallback(
+    (command: Command) => {
+      handleSendMessage(
+        params.taskId,
+        command.prompt,
+        () => {},
+        true,
+        undefined,
+        undefined,
+        command.name,
+      )
+    },
+    [params.taskId, handleSendMessage],
+  )
+
   // Show skeleton during initial load
   if (isLoadingTask || !taskId) {
     return <ChatViewSkeleton />
@@ -256,35 +285,10 @@ function ChatViewComponent() {
 
   const isTaskRunning = status === 'running'
 
+
   // Check if last iteration has an error
   const lastIterationHasError =
     lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
-
-  // Filter available commands based on current context
-  const availableCommands = useMemo(() => {
-    if (!commands || status === 'running') return []
-    
-    const context = {
-      task: { status, iterations, repositoryId } as Task,
-      lastIteration: lastIteration || undefined,
-      workspaceHasChanges,
-    }
-    
-    return filterAvailableCommands(commands, context)
-  }, [commands, status, iterations, lastIteration, workspaceHasChanges, repositoryId])
-
-  // Handle command click
-  const handleCommandClick = useCallback((command: Command) => {
-    handleSendMessage(
-      params.taskId,
-      command.prompt,
-      () => {},
-      true,
-      undefined,
-      undefined,
-      command.name,
-    )
-  }, [params.taskId, handleSendMessage])
 
   return (
     <div className="h-full flex flex-col">

@@ -9,7 +9,7 @@ import {
   Server,
   Square,
 } from 'lucide-react'
-import { type KeyboardEvent, useCallback, useEffect, useState } from 'react'
+import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import {
   useRestartServer,
@@ -37,10 +37,14 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const [pathInput, setPathInput] = useState(displayPath)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
 
-  // Sync pathInput with displayPath when it changes from route navigation
-  useEffect(() => {
+  // Reset pathInput when displayPath changes (using key prop pattern in parent is better)
+  // But for internal component state, we need to track when displayPath changes
+  const [lastDisplayPath, setLastDisplayPath] = useState(displayPath)
+  
+  if (displayPath !== lastDisplayPath) {
     setPathInput(displayPath)
-  }, [displayPath])
+    setLastDisplayPath(displayPath)
+  }
 
   // Server management hooks
   const { data: serverStatus } = useServerStatus(params.taskId)

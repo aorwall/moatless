@@ -1,15 +1,10 @@
+import mermaid from 'mermaid'
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import mermaid from 'mermaid'
-import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/components/theme-provider'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/lib/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/lib/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
 interface MarkdownPreviewProps {
   content: string
@@ -20,7 +15,10 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const renderingRef = useRef<Set<string>>(new Set())
-  const [expandedDiagram, setExpandedDiagram] = useState<{svg: string, definition: string} | null>(null)
+  const [expandedDiagram, setExpandedDiagram] = useState<{
+    svg: string
+    definition: string
+  } | null>(null)
 
   useEffect(() => {
     const isDark =
@@ -39,7 +37,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
   useEffect(() => {
     // Clear previous rendering set when content changes
     renderingRef.current.clear()
-    
+
     if (containerRef.current) {
       const mermaidElements = containerRef.current.querySelectorAll('.language-mermaid')
       const promises: Promise<void>[] = []
@@ -47,12 +45,12 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
       mermaidElements.forEach((element, index) => {
         const graphDefinition = element.textContent || ''
         const elementId = `mermaid-${index}`
-        
+
         // Skip if already rendering
         if (renderingRef.current.has(elementId)) {
           return
         }
-        
+
         renderingRef.current.add(elementId)
         const graphId = `mermaid-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`
 
@@ -80,13 +78,13 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
                     </svg>
                   </button>
                 `
-                
+
                 // Add click handler to the wrapper
                 wrapper.addEventListener('click', (e) => {
                   e.preventDefault()
                   setExpandedDiagram({ svg, definition: graphDefinition })
                 })
-                
+
                 // Replace the pre element content with the wrapper
                 element.innerHTML = ''
                 element.appendChild(wrapper)
@@ -106,7 +104,8 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
               try {
                 // Create a more user-friendly error display
                 const errorWrapper = document.createElement('div')
-                errorWrapper.className = 'border border-destructive/20 rounded-lg p-4 bg-destructive/5 my-4'
+                errorWrapper.className =
+                  'border border-destructive/20 rounded-lg p-4 bg-destructive/5 my-4'
                 errorWrapper.innerHTML = `
                   <div class="flex items-start gap-3">
                     <div class="flex-shrink-0 mt-0.5">
@@ -126,7 +125,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
                     </div>
                   </div>
                 `
-                
+
                 // Replace the pre element content with the error wrapper
                 element.innerHTML = ''
                 element.appendChild(errorWrapper)
@@ -150,12 +149,12 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
 
       Promise.all(promises).catch(console.error)
     }
-    
+
     // Cleanup function
     return () => {
       renderingRef.current.clear()
     }
-  }, [content, setExpandedDiagram])
+  }, [])
 
   return (
     <div
@@ -199,10 +198,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
             }
 
             return (
-              <pre
-                className="overflow-x-auto rounded-md bg-muted p-4 text-sm"
-                {...props}
-              >
+              <pre className="overflow-x-auto rounded-md bg-muted p-4 text-sm" {...props}>
                 {children}
               </pre>
             )
@@ -210,10 +206,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           code: ({ children, className, ...props }) => {
             const isInline = !className
             return isInline ? (
-              <code
-                className="px-1 py-0.5 rounded bg-muted text-foreground text-sm"
-                {...props}
-              >
+              <code className="px-1 py-0.5 rounded bg-muted text-foreground text-sm" {...props}>
                 {children}
               </code>
             ) : (
@@ -230,18 +223,13 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
             </div>
           ),
           img: ({ alt, src, ...props }) => (
-            <img
-              alt={alt}
-              src={src}
-              className="max-w-full h-auto"
-              {...props}
-            />
+            <img alt={alt} src={src} className="max-w-full h-auto" {...props} />
           ),
         }}
       >
         {content}
       </ReactMarkdown>
-      
+
       {/* Expanded Diagram Dialog */}
       <Dialog open={!!expandedDiagram} onOpenChange={(open) => !open && setExpandedDiagram(null)}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] overflow-auto">
@@ -250,7 +238,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           </DialogHeader>
           <div className="flex justify-center items-center p-4">
             {expandedDiagram && (
-              <div 
+              <div
                 dangerouslySetInnerHTML={{ __html: expandedDiagram.svg }}
                 className="[&>svg]:max-w-full [&>svg]:h-auto"
               />

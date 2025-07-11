@@ -157,7 +157,7 @@ export function ChatInput({
         templateSelector.onChange(savedTemplateId)
       }
     }
-  }, [taskId, mode])
+  }, [taskId, mode, templateSelector.value, templateSelector.onChange])
   
   // Save selected repository to localStorage
   useEffect(() => {
@@ -187,14 +187,14 @@ export function ChatInput({
         branchSelector.onChange(branchSelector.items[0].id) // Select the first branch
       }
     }
-  }, [showRepositorySelector, mode, repoSelector.value, branchSelector.items])
+  }, [showRepositorySelector, mode, repoSelector.value, branchSelector.items, branchSelector.value, branchSelector.onChange])
 
   // Auto-select first template when templates are loaded
   useEffect(() => {
     if (showRepositorySelector && mode === 'vibe' && templateSelector.items.length > 0 && !templateSelector.value) {
       templateSelector.onChange(templateSelector.items[0].id)
     }
-  }, [showRepositorySelector, mode, templateSelector.items])
+  }, [showRepositorySelector, mode, templateSelector.items, templateSelector.value, templateSelector.onChange])
   
   // Reset message and files when taskId changes
   useEffect(() => {

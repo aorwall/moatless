@@ -150,9 +150,8 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       updateChatState,
       updateGitDiffState,
     }),
-    // Only re-create when taskId or currentState changes
-    // All callbacks are stable because they only depend on taskId
-    [currentState, taskId],
+    // Include all dependencies - callbacks are stable
+    [currentState, setRightPanelView, setSelectedIteration, setPanelSizes, setSelectedFile, updateChatState, updateGitDiffState],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
