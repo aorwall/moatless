@@ -2,6 +2,7 @@ import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { EventType } from '@moatless/shared/types/event'
+import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import {
   type CommandResult,
   type ServerStatus,
@@ -9,7 +10,9 @@ import {
   WorkspaceStatus,
 } from '@moatless/shared/types/workspace'
 import type { BaseAgent } from '../services/agents/base-agent.js'
+import type { EventService } from '../services/event.service.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
+import { LocalWorkspace } from './local.js'
 
 const execAsync = promisify(exec)
 
@@ -22,6 +25,7 @@ export class DockerWorkspace extends BaseWorkspace {
   private runningAgent?: BaseAgent
   private _createdAt = new Date()
   private _error?: string
+  private localWorkspace: LocalWorkspace
 
   get type(): 'docker' {
     return 'docker'
@@ -40,6 +44,24 @@ export class DockerWorkspace extends BaseWorkspace {
 
   get error(): string | undefined {
     return this._error
+  }
+
+  constructor(
+    taskId: string,
+    repositoryConfig: RepositoryConfig,
+    eventService: EventService,
+    workspacePath: string,
+  ) {
+    super(taskId, repositoryConfig, eventService)
+    // Create LocalWorkspace instance for file operations delegation
+    this.localWorkspace = new LocalWorkspace(
+      taskId,
+      repositoryConfig,
+      eventService,
+      undefined, // originalBranch
+      undefined, // branchName
+      workspacePath,
+    )
   }
 
   async setup(iterationNumber?: number): Promise<void> {
@@ -216,14 +238,14 @@ export class DockerWorkspace extends BaseWorkspace {
     this.containerId = ''
   }
 
-  async searchFiles(_request: FileSearchRequest): Promise<FileSearchResponse> {
-    // TODO: Implement Docker file search
-    throw new Error('Docker file search not yet implemented')
+  async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
+    // Delegate to LocalWorkspace for host file system operations
+    return this.localWorkspace.searchFiles(request)
   }
 
   async getGitDiff(): Promise<string> {
-    // TODO: Implement Docker git diff
-    throw new Error('Git diff not supported for Docker workspaces yet')
+    // Delegate to LocalWorkspace for git operations on host
+    return this.localWorkspace.getGitDiff()
   }
 
   async runCommand(command: string, timeout?: number): Promise<CommandResult> {
@@ -313,8 +335,8 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   async hasUncommittedChanges(): Promise<boolean> {
-    // TODO: Implement for Docker
-    return false
+    // Delegate to LocalWorkspace for git operations
+    return this.localWorkspace.hasUncommittedChanges()
   }
 
   async mergeChanges(): Promise<string> {
@@ -341,64 +363,18 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   async listFiles(relativePath = '.', recursive = false): Promise<string[]> {
-    try {
-      const command = recursive
-        ? `docker exec "${this.containerId}" find "${relativePath}" -type f`
-        : `docker exec "${this.containerId}" ls -1 "${relativePath}"`
-
-      const { stdout } = await execAsync(command, { timeout: 10000 })
-      return stdout
-        .trim()
-        .split('\n')
-        .filter((line) => line.trim())
-    } catch (error) {
-      throw new Error(
-        `Failed to list Docker files: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    // Delegate to LocalWorkspace for host file system operations
+    return this.localWorkspace.listFiles(relativePath, recursive)
   }
 
   async readFile(filePath: string): Promise<string> {
-    try {
-      const command = `docker exec "${this.containerId}" cat "${filePath}"`
-      const { stdout } = await execAsync(command, { timeout: 10000 })
-      return stdout
-    } catch (error) {
-      throw new Error(
-        `Failed to read Docker file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    // Delegate to LocalWorkspace for host file system operations
+    return this.localWorkspace.readFile(filePath)
   }
 
   async writeFile(filePath: string, content: string): Promise<void> {
-    try {
-      // Create directory if needed
-      const dirPath = filePath.substring(0, filePath.lastIndexOf('/'))
-      if (dirPath && dirPath !== '.') {
-        await execAsync(`docker exec "${this.containerId}" mkdir -p "${dirPath}"`, {
-          timeout: 5000,
-        })
-      }
-
-      // Write file using docker exec with tee
-      const command = `docker exec -i "${this.containerId}" tee "${filePath}"`
-      const child = exec(command, { timeout: 10000 })
-
-      child.stdin?.write(content)
-      child.stdin?.end()
-
-      await new Promise<void>((resolve, reject) => {
-        child.on('close', (code) => {
-          if (code === 0) resolve()
-          else reject(new Error(`Command failed with code ${code}`))
-        })
-        child.on('error', reject)
-      })
-    } catch (error) {
-      throw new Error(
-        `Failed to write Docker file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    // Delegate to LocalWorkspace for host file system operations
+    return this.localWorkspace.writeFile(filePath, content)
   }
 
   // Server methods (TODO: implement these)
@@ -435,10 +411,15 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   getWorkspacePath(): string {
-    return this.containerId
+    // Return the actual workspace path from LocalWorkspace
+    return this.localWorkspace.getWorkspacePath()
   }
 
   async isWorkspacePathValid(): Promise<boolean> {
+    // Check both the local workspace path and container status
+    const localPathValid = await this.localWorkspace.isWorkspacePathValid()
+    if (!localPathValid) return false
+
     if (!this.containerId) return false
 
     try {

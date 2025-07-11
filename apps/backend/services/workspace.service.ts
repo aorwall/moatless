@@ -47,7 +47,7 @@ export class WorkspaceService {
 
     let workspace: BaseWorkspace
     if (repository.codeExecution.type === 'docker') {
-      workspace = new DockerWorkspace(taskId, repository, this.eventService)
+      workspace = new DockerWorkspace(taskId, repository, this.eventService, workspacePath!)
     } else {
       workspace = new LocalWorkspace(
         taskId,
@@ -188,7 +188,11 @@ export class WorkspaceService {
       let workspace: BaseWorkspace
       if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker workspace with existing path')
-        workspace = new DockerWorkspace(taskId, repository, this.eventService)
+        // For existing workspaces, create the workspace path if not already set
+        const workspacePath =
+          existingWorkspacePath ||
+          (await this.createWorkspaceRepository(repository, taskId, branchName))
+        workspace = new DockerWorkspace(taskId, repository, this.eventService, workspacePath)
       } else {
         workspaceLogger.debug('Creating Local workspace with existing path', {
           branchName,
