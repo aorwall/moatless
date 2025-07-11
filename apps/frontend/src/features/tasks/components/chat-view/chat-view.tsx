@@ -285,35 +285,6 @@ function ChatViewComponent() {
   // Check if last iteration has an error
   const lastIterationHasError =
     lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
-
-  // Filter available commands based on current context
-  const availableCommands = useMemo(() => {
-    if (!commands || status === 'running') return []
-
-    const context = {
-      task: { status, iterations, repositoryId } as Task,
-      lastIteration: lastIteration || undefined,
-      workspaceHasChanges,
-    }
-
-    return filterAvailableCommands(commands, context)
-  }, [commands, status, iterations, lastIteration, workspaceHasChanges, repositoryId])
-
-  // Handle command click
-  const handleCommandClick = useCallback(
-    (command: Command) => {
-      handleSendMessage(
-        params.taskId,
-        command.prompt,
-        () => {},
-        true,
-        undefined,
-        undefined,
-        command.name,
-      )
-    },
-    [params.taskId, handleSendMessage],
-  )
   return (
     <div className="h-full flex flex-col">
       <ChatHeader />
