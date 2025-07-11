@@ -175,7 +175,7 @@ describe('Task Routes', () => {
 
     it('should return 400 if environment does not exist', async () => {
       // Import the error class
-      const { EnvironmentNotFoundError } = await import('@moatless/shared/constants/errors')
+      const { EnvironmentNotFoundError } = await import('@moatless/shared')
 
       // Mock task creation to throw environment not found error
       vi.spyOn(app.services.task, 'createTask').mockRejectedValueOnce(
@@ -443,11 +443,12 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 if task not found', async () => {
-      vi.spyOn(app.services.task, 'deleteTask').mockRejectedValueOnce({
-        code: 'TASK_NOT_FOUND',
-        statusCode: 404,
-        message: 'Task not found',
-      })
+      // Import the error class
+      const { TaskNotFoundError } = await import('@moatless/shared')
+
+      vi.spyOn(app.services.task, 'deleteTask').mockRejectedValueOnce(
+        new TaskNotFoundError('non-existent'),
+      )
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/non-existent', {
@@ -455,7 +456,9 @@ describe('Task Routes', () => {
         }),
       )
 
-      expect(response.status).toBe(500) // Default error handler returns 500
+      expect(response.status).toBe(404)
+      const body = (await response.json()) as any
+      expect(body.error.code).toBe('TASK_NOT_FOUND')
     })
   })
 })

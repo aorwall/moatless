@@ -1,4 +1,4 @@
-import { MoatlessError } from '@moatless/shared/constants/errors'
+import { MoatlessError } from '@moatless/shared'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'

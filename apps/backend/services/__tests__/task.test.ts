@@ -1,8 +1,4 @@
-import {
-  RepositoryNotFoundError,
-  TaskNotFoundError,
-  ValidationError,
-} from '@moatless/shared/constants/errors'
+import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/shared'
 import type { CreateTaskRequest, Task } from '@moatless/shared/types/task'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'

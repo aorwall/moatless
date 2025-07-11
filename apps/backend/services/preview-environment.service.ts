@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import path from 'node:path'
-import { TaskNotFoundError, WorkspaceError } from '@moatless/shared/constants/errors'
+import { TaskNotFoundError, WorkspaceError } from '@moatless/shared'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,

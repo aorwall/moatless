@@ -1,4 +1,4 @@
-import { CommandNotFoundError } from '@moatless/shared/constants/errors'
+import { CommandNotFoundError } from '@moatless/shared'
 import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/shared/schemas/command.schemas'
 import type { CommandList } from '@moatless/shared/types/command'
 import type { Hono } from 'hono'

@@ -1,4 +1,4 @@
-import { CriticalError } from '@moatless/shared/constants/errors'
+import { CriticalError } from '@moatless/shared'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LocalWorkspace } from '../../workspaces/local.js'

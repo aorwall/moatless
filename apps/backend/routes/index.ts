@@ -5,9 +5,11 @@ import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
+import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
 import { registerTaskRoutes } from './tasks.js'
 import { registerUploadRoutes } from './uploads.js'
+import { registerWorkspaceRoutes } from './workspace.js'
 
 const API_PREFIX = '/api/v1'
 
@@ -57,6 +59,8 @@ export async function registerRoutes(app: Hono<AppBindings>) {
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app, `${API_PREFIX}/tasks`)
+  await registerWorkspaceRoutes(app, `${API_PREFIX}/tasks`)
+  await registerPreviewEnvironmentRoutes(app, `${API_PREFIX}/tasks`)
   await registerRepositoryRoutes(app, `${API_PREFIX}/repositories`)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app, `${API_PREFIX}/uploads`)

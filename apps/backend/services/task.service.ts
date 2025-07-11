@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { TaskNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
+import { TaskNotFoundError, ValidationError } from '@moatless/shared'
 import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
 import type { Command } from '@moatless/shared/types/command'
 import { EventType } from '@moatless/shared/types/event'

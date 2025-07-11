@@ -1,4 +1,4 @@
-import { RepositoryNotFoundError } from '@moatless/shared/constants/errors'
+import { RepositoryNotFoundError } from '@moatless/shared'
 import {
   CreateRepositorySchema,
   FileSearchSchema,

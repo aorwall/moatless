@@ -1,10 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import {
-  RepositoryNotFoundError,
-  TaskNotFoundError,
-  WorkspaceError,
-} from '@moatless/shared/constants/errors'
+import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/shared'
 import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'

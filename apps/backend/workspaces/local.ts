@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { WorkspaceError } from '@moatless/shared/constants/errors'
+import { WorkspaceError } from '@moatless/shared'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 
 import {

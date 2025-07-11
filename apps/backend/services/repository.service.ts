@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { RepositoryNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
+import { RepositoryNotFoundError, ValidationError } from '@moatless/shared'
 import {
   FRAMEWORK_DEFAULT_COMMANDS,
   PACKAGE_MANAGER_FILES,

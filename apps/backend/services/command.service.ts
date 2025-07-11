@@ -1,4 +1,4 @@
-import { CommandNotFoundError, ValidationError } from '@moatless/shared/constants/errors'
+import { CommandNotFoundError, ValidationError } from '@moatless/shared'
 import type {
   Command,
   CommandsFile,

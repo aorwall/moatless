@@ -1,5 +1,6 @@
-import { MoatlessError } from '@moatless/shared/constants/errors'
+import { MoatlessError } from '@moatless/shared'
 import type { ErrorHandler } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 
 export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
@@ -16,6 +17,20 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
         requestId,
       },
       error.statusCode as any,
+    )
+  }
+
+  // Handle HTTPException from Hono
+  if (error instanceof HTTPException) {
+    return c.json(
+      {
+        error: {
+          code: 'HTTP_ERROR',
+          message: error.message,
+        },
+        requestId,
+      },
+      error.status,
     )
   }
 

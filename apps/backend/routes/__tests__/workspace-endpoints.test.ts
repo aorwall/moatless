@@ -91,8 +91,12 @@ describe('Workspace Endpoints', () => {
       durationMs: 100,
     })
     vi.spyOn(app.services.workspace, 'startServer').mockResolvedValue({
+      running: true,
+      configured: true,
       port: 3000,
       pid: 12345,
+      url: 'http://localhost:3000',
+      uptimeSeconds: 0,
     })
     vi.spyOn(app.services.workspace, 'stopServer').mockResolvedValue(true)
     vi.spyOn(app.services.workspace, 'getServerStatus').mockResolvedValue({
@@ -126,8 +130,13 @@ describe('Workspace Endpoints', () => {
     })
 
     it('should return 404 for non-existent task', async () => {
-      // Mock task service to return null for non-existent task
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
+      // Import TaskNotFoundError
+      const { TaskNotFoundError } = await import('@moatless/shared')
+
+      // Mock workspace service to throw TaskNotFoundError
+      vi.spyOn(app.services.workspace, 'getWorkspaceStatus').mockRejectedValueOnce(
+        new TaskNotFoundError('non-existent'),
+      )
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/non-existent/workspace-status', {
@@ -171,11 +180,13 @@ describe('Workspace Endpoints', () => {
     })
 
     it('should return error if workspace not setup', async () => {
-      vi.mocked(app.services.workspace.getWorkspaceStatus).mockResolvedValueOnce({
-        status: WorkspaceStatus.NOT_SETUP,
-        hasUncommittedChanges: false,
-        backgroundTaskCount: 0,
-      })
+      // Import WorkspaceError
+      const { WorkspaceError } = await import('@moatless/shared')
+
+      // Mock workspace service to throw WorkspaceError
+      vi.spyOn(app.services.workspace, 'listFiles').mockRejectedValueOnce(
+        new WorkspaceError('Workspace not created for task', taskId),
+      )
 
       const response = await app.fetch(
         new Request(`http://localhost/api/v1/tasks/${taskId}/files`, {
@@ -215,7 +226,7 @@ describe('Workspace Endpoints', () => {
         }),
       )
 
-      expect(response.status).toBe(500)
+      expect(response.status).toBe(404)
     })
   })
 
@@ -329,11 +340,13 @@ describe('Workspace Endpoints', () => {
     })
 
     it('should not allow execution if workspace not idle', async () => {
-      vi.mocked(app.services.workspace.getWorkspaceStatus).mockResolvedValueOnce({
-        status: WorkspaceStatus.RUNNING,
-        hasUncommittedChanges: false,
-        backgroundTaskCount: 0,
-      })
+      // Import WorkspaceError
+      const { WorkspaceError } = await import('@moatless/shared')
+
+      // Mock workspace service to throw WorkspaceError when trying to run command
+      vi.spyOn(app.services.workspace, 'runCommand').mockRejectedValueOnce(
+        new WorkspaceError('Workspace is not idle', taskId),
+      )
 
       const response = await app.fetch(
         new Request(`http://localhost/api/v1/tasks/${taskId}/execute`, {
@@ -350,7 +363,7 @@ describe('Workspace Endpoints', () => {
       expect(response.status).toBe(400)
       const error = (await response.json()) as any
       const errorMessage = error.error?.message || error.message || error.error
-      expect(errorMessage).toContain('Cannot execute command: workspace is running')
+      expect(errorMessage).toContain('Workspace is not idle')
     })
   })
 
@@ -429,7 +442,7 @@ describe('Workspace Endpoints', () => {
           lines: 1,
           truncated: false,
         })
-        expect(app.services.workspace.getServerLogs).toHaveBeenCalledWith(taskId, '50')
+        expect(app.services.workspace.getServerLogs).toHaveBeenCalledWith(taskId, 50)
       })
     })
   })

@@ -1,22 +1,25 @@
-import { TaskNotFoundError, WorkspaceError } from '@moatless/shared/constants/errors'
 import {
+  CloseTaskResponseSchema,
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
   type EventListResponse,
-  GitStatusSchema,
-  MergeTaskResponseSchema,
+  EventListResponseSchema,
+  type EventType,
+  EventTypeQuerySchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
-  ServerLogsResponseSchema,
   SimpleTaskResponseSchema,
   StopAgentResponseSchema,
+  TaskCommandSchema,
   TaskCommandsResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
-  WorkspaceStatusResponseSchema,
-} from '@moatless/shared/types/api'
-import type { EventType } from '@moatless/shared/types/event'
+  TaskListResponseSchema,
+  TaskNotFoundError,
+  TaskResponseSchema,
+  WorkspaceError,
+} from '@moatless/shared'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
@@ -25,10 +28,6 @@ import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 
 // Schema for query params
-const EventTypeQuerySchema = z.object({
-  type: z.string().optional(),
-})
-
 const FileQuerySchema = z.object({
   path: z.string().optional().default('/'),
   recursive: z.coerce.boolean().optional().default(false),
@@ -58,85 +57,6 @@ const MergeTaskSchema = z.object({
 })
 
 // Response schemas
-const TaskIterationSchema = z.object({
-  iterationNumber: z.number(),
-  startTime: z.date(),
-  endTime: z.date().optional(),
-  status: z.enum(['active', 'completed', 'error', 'failed']),
-  messageCount: z.number(),
-  costUsd: z.number(),
-  initialMessage: z.string().optional(),
-  commandName: z.string().optional(),
-  result: z.string().optional(),
-  durationMs: z.number().optional(),
-  gitDiff: z.string().optional(),
-  merged: z.boolean().optional(),
-  agentSessionId: z.string().optional(),
-  model: z.string().optional(),
-  gitSyncStatus: z
-    .object({
-      status: z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']),
-      commitsAhead: z.number(),
-      commitsBehind: z.number(),
-      hasUncommittedChanges: z.boolean(),
-      currentBranch: z.string(),
-      baseBranch: z.string(),
-      originExists: z.boolean(),
-    })
-    .optional(),
-  attachments: z
-    .array(
-      z.object({
-        fileId: z.string().optional(),
-        filename: z.string(),
-        path: z.string(),
-        mimeType: z.string(),
-      }),
-    )
-    .optional(),
-  error: z
-    .object({
-      message: z.string(),
-      stack: z.string().optional(),
-      timestamp: z.date(),
-    })
-    .optional(),
-  willNotResume: z.boolean().optional(),
-})
-
-const TaskResponseSchema = z.object({
-  taskId: z.string(),
-  createdAt: z.date(),
-  lastMessageAt: z.date(),
-  agentType: z.string(),
-  repositoryId: z.string(),
-  status: z.enum(['open', 'running', 'error', 'merged', 'closed']),
-  numTurns: z.number(),
-  totalCostUsd: z.number(),
-  iterations: z.array(TaskIterationSchema),
-  workspacePath: z.string().optional(),
-})
-
-const TaskListResponseSchema = z.object({
-  tasks: z.array(TaskResponseSchema),
-  items: z.array(TaskResponseSchema),
-  pagination: z.object({
-    limit: z.number(),
-    offset: z.number(),
-    total: z.number().optional(),
-  }),
-})
-
-const EventListResponseSchema = z.object({
-  events: z.array(z.any()), // Event type is complex, using any for now
-  items: z.array(z.any()),
-})
-
-const CloseTaskResponseSchema = z.object({
-  status: z.string(),
-  taskId: z.string(),
-})
-
 const FileListResponseSchema = z.object({
   files: z.array(
     z.object({
@@ -194,8 +114,31 @@ const ServerStopResponseSchema = z.object({
   runtime: z.number(),
 })
 
+const ServerLogsResponseSchema = z.object({
+  logs: z.string(),
+  lines: z.number(),
+})
+
 const ServerLogsResponseExtendedSchema = ServerLogsResponseSchema.extend({
   truncated: z.boolean(),
+})
+
+const MergeTaskResponseSchema = z.object({
+  success: z.boolean(),
+  mergeCommit: z.string(),
+  sourceBranch: z.string(),
+  targetBranch: z.string(),
+})
+
+const GitStatusSchema = z.object({
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  hasUncommittedChanges: z.boolean(),
+  hasConflicts: z.boolean(),
+  status: z.string(),
+  commitsAhead: z.number(),
+  commitsBehind: z.number(),
+  originExists: z.boolean(),
 })
 
 export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string) {
@@ -328,7 +271,6 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       }
 
       const task = await taskService.getTask(taskId)
-
       if (!task) {
         throw new TaskNotFoundError(taskId)
       }
@@ -411,6 +353,53 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         },
       }
       return c.json(response)
+    },
+  )
+
+  // Delete task
+  app.delete(
+    `${prefix}/:taskId`,
+    describeRoute({
+      description: 'Delete a task',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Task deleted successfully',
+          content: {
+            'application/json': {
+              schema: resolver(DeleteTaskResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { task: taskService } = services
+
+      const taskId = c.req.param('taskId')
+      if (!taskId) {
+        throw new HTTPException(400, { message: 'Task ID is required' })
+      }
+
+      await taskService.deleteTask(taskId)
+      return c.json({ status: 'deleted' })
     },
   )
 
@@ -540,14 +529,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         description: 'Command parameters',
         content: {
           'application/json': {
-            schema: resolver(
-              z.object({
-                commandName: z.string(),
-                resume: z.boolean().optional().default(true),
-                model: z.string().optional(),
-                filePaths: z.array(z.string()).optional(),
-              }),
-            ) as any,
+            schema: resolver(TaskCommandSchema) as any,
           },
         },
       },
@@ -662,100 +644,6 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     },
   )
 
-  // Delete task
-  app.delete(
-    `${prefix}/:taskId`,
-    describeRoute({
-      description: 'Delete a task',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
-      responses: {
-        200: {
-          description: 'Task deleted successfully',
-          content: {
-            'application/json': {
-              schema: resolver(DeleteTaskResponseSchema) as any,
-            },
-          },
-        },
-        400: {
-          description: 'Invalid task ID',
-        },
-        404: {
-          description: 'Task not found',
-        },
-      },
-    }),
-    async (c) => {
-      const services = c.get('services')
-      const { task: taskService } = services
-
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
-
-      await taskService.deleteTask(taskId)
-      return c.json({ status: 'deleted' })
-    },
-  )
-
-  // Get workspace status
-  app.get(
-    `${prefix}/:taskId/workspace-status`,
-    describeRoute({
-      description: 'Get workspace status for a task',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
-      responses: {
-        200: {
-          description: 'Workspace status information',
-          content: {
-            'application/json': {
-              schema: resolver(WorkspaceStatusResponseSchema) as any,
-            },
-          },
-        },
-        400: {
-          description: 'Invalid task ID',
-        },
-        404: {
-          description: 'Task not found',
-        },
-      },
-    }),
-    async (c) => {
-      const services = c.get('services')
-
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
-
-      // Task validation now handled in workspace service
-      const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
-      return c.json(workspaceStatus as any)
-    },
-  )
-
   // Stop agent
   app.post(
     `${prefix}/:taskId/stop`,
@@ -788,7 +676,6 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-
       const taskId = c.req.param('taskId')
       if (!taskId) {
         throw new HTTPException(400, { message: 'Task ID is required' })

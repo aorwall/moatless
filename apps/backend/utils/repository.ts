@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
-import { ValidationError } from '@moatless/shared/constants/errors'
+import { ValidationError } from '@moatless/shared'
 
 // TODO: Import from shared types when RemoteRepository is added
 // import type { RemoteRepository } from '@moatless/shared/types/index'

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { CriticalError } from '@moatless/shared/constants/errors'
+import { CriticalError } from '@moatless/shared'
 import type { SDKResultMessage } from '@moatless/shared/types/claude'
 import { EventType, type TaskIteration } from '@moatless/shared/types/index'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
