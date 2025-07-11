@@ -328,6 +328,7 @@ export class TaskService {
       costUsd: 0,
       initialMessage: message,
       commandName,
+      model,
     }
 
     // Add file attachments if provided

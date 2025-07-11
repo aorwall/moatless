@@ -161,7 +161,7 @@ export function ChatInput({
         templateSelector.onChange(savedTemplateId)
       }
     }
-  }, [taskId, mode, templateSelector.value, templateSelector.onChange])
+  }, [taskId, mode])
 
   // Save selected repository to localStorage
   useEffect(() => {
@@ -210,13 +210,7 @@ export function ChatInput({
     ) {
       templateSelector.onChange(templateSelector.items[0].id)
     }
-  }, [
-    showRepositorySelector,
-    mode,
-    templateSelector.items,
-    templateSelector.value,
-    templateSelector.onChange,
-  ])
+  }, [showRepositorySelector, mode, templateSelector.items])
 
   // Reset message and files when taskId changes
   useEffect(() => {

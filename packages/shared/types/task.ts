@@ -12,6 +12,7 @@ export interface TaskIteration {
   gitDiff?: string
   merged?: boolean
   agentSessionId?: string
+  model?: string
   gitSyncStatus?: {
     status: 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
     commitsAhead: number

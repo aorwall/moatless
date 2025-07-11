@@ -71,6 +71,7 @@ const TaskIterationSchema = z.object({
   gitDiff: z.string().optional(),
   merged: z.boolean().optional(),
   agentSessionId: z.string().optional(),
+  model: z.string().optional(),
   gitSyncStatus: z
     .object({
       status: z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']),
