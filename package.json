@@ -37,6 +37,7 @@
     "type:check": "turbo run type:check",
     "biome:check": "biome check",
     "biome:fix": "biome check --write",
+    "format": "biome check --write",
     "check:turbo": "turbo run biome:check type:check test:fast",
     "prepare": "husky"
   },
