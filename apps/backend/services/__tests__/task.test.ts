@@ -1,4 +1,8 @@
-import { RepositoryNotFoundError, TaskNotFoundError } from '@moatless/shared/constants/errors'
+import {
+  RepositoryNotFoundError,
+  TaskNotFoundError,
+  ValidationError,
+} from '@moatless/shared/constants/errors'
 import type { CreateTaskRequest, Task } from '@moatless/shared/types/task'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'
@@ -15,6 +19,7 @@ describe('TaskService', () => {
   let mockRepositoryService: RepositoryService
   let mockWorkspaceService: WorkspaceService
   let mockAgentService: AgentService
+  let mockCommandService: CommandService
 
   beforeEach(() => {
     // Create mock services
@@ -26,6 +31,7 @@ describe('TaskService', () => {
       exists: vi.fn(),
       read: vi.fn(),
       write: vi.fn(),
+      get: vi.fn(),
     } as unknown as StorageBackend
 
     mockRepositoryService = {
@@ -53,10 +59,13 @@ describe('TaskService', () => {
       getAgentSessionId: vi.fn(),
     } as unknown as AgentService
 
+    mockCommandService = {
+      getCommand: vi.fn(),
+    } as unknown as CommandService
+
     const mockEventService = {
       emitEvent: vi.fn().mockResolvedValue(undefined),
     } as unknown as EventService
-    const mockCommandService = {} as unknown as CommandService
     taskService = new TaskService(
       mockStorage,
       mockEventService,
@@ -402,6 +411,124 @@ describe('TaskService', () => {
 
       await expect(taskService.sendMessage('non-existent', 'Hello')).rejects.toThrow(
         TaskNotFoundError,
+      )
+    })
+
+    it('should throw ValidationError when neither message nor commandName is provided', async () => {
+      const task: Task = {
+        taskId: 'task-123',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      vi.mocked(mockStorage.getTask).mockResolvedValue(task)
+
+      // Pass empty message and no commandName
+      await expect(
+        taskService.sendMessage('task-123', '', false, undefined, undefined, undefined, undefined),
+      ).rejects.toThrow(ValidationError)
+
+      // Reset mock and test the error message
+      vi.mocked(mockStorage.getTask).mockResolvedValue(task)
+      await expect(
+        taskService.sendMessage('task-123', '', false, undefined, undefined, undefined, undefined),
+      ).rejects.toThrow('Either initialMessage or commandName must be provided for task iteration')
+    })
+  })
+
+  describe('sendCommand', () => {
+    it('should send a command by converting it to a message', async () => {
+      const task: Task = {
+        taskId: 'task-123',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockCommandService.getCommand).mockResolvedValueOnce({
+        name: 'test-command',
+        prompt: 'Test command prompt',
+        description: 'Test command',
+      } as any)
+      vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
+
+      await taskService.sendCommand('task-123', 'test-command')
+
+      // Verify command was retrieved
+      expect(mockCommandService.getCommand).toHaveBeenCalledWith('test-command')
+
+      // Verify task was updated with commandName
+      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'task-123',
+          status: 'running',
+          numTurns: 1,
+          iterations: expect.arrayContaining([
+            expect.objectContaining({
+              iterationNumber: 1,
+              status: 'active',
+              messageCount: 1,
+              initialMessage: 'Test command prompt',
+              commandName: 'test-command',
+            }),
+          ]),
+        }),
+      )
+
+      // Verify agent was executed with the command's prompt
+      expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
+        'task-123',
+        'Test command prompt',
+        expect.objectContaining({
+          iterationNumber: 1,
+          status: 'active',
+          messageCount: 1,
+          initialMessage: 'Test command prompt',
+          commandName: 'test-command',
+        }),
+        'claude-code',
+        undefined,
+        undefined,
+      )
+    })
+
+    it('should throw ValidationError for non-existent command', async () => {
+      const task: Task = {
+        taskId: 'task-123',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      vi.mocked(mockStorage.getTask).mockResolvedValue(task)
+      vi.mocked(mockCommandService.getCommand).mockResolvedValue(null)
+
+      await expect(taskService.sendCommand('task-123', 'non-existent-command')).rejects.toThrow(
+        ValidationError,
+      )
+
+      // Reset mocks and test the error message
+      vi.mocked(mockStorage.getTask).mockResolvedValue(task)
+      vi.mocked(mockCommandService.getCommand).mockResolvedValue(null)
+      await expect(taskService.sendCommand('task-123', 'non-existent-command')).rejects.toThrow(
+        "Command 'non-existent-command' not found",
       )
     })
   })

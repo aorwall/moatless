@@ -285,43 +285,27 @@ export class TaskService {
     return { tasks: paginatedTasks, total }
   }
 
-  async sendCommand(
-    taskId: string,
-    commandName: string,
-    resume = true,
-    model?: string,
-    filePaths?: string[],
-  ): Promise<void> {
-    const command = await this.commandService.getCommand(commandName)
-    if (!command) {
-      throw new ValidationError(`Command '${commandName}' not found`, 'commandName')
-    }
-
-    // Use the command's prompt as the message
-    await this.sendMessage(taskId, command.prompt, resume, model, undefined, filePaths, commandName)
-  }
-
-  async sendMessage(
-    taskId: string,
-    message: string,
-    resume = true,
+  /**
+   * Creates a new task iteration without starting it
+   */
+  private async createTaskIteration(
+    task: Task,
+    message?: string,
+    commandName?: string,
     model?: string,
     fileIds?: string[],
     filePaths?: string[],
-    commandName?: string,
-  ): Promise<void> {
-    const metadata = await this.getTask(taskId)
-
-    // Update metadata
-    const now = new Date()
-    const iterationNumber = metadata.iterations.length + 1
-
-    // Find the previous iteration's session ID for resume
-    let resumeSessionId: string | undefined
-    if (resume && metadata.iterations.length > 0) {
-      const previousIteration = metadata.iterations[metadata.iterations.length - 1]
-      resumeSessionId = previousIteration.agentSessionId
+  ): Promise<TaskIteration> {
+    // Validate that either message or commandName is provided
+    if (!message && !commandName) {
+      throw new ValidationError(
+        'Either initialMessage or commandName must be provided for task iteration',
+        'message',
+      )
     }
+
+    const now = new Date()
+    const iterationNumber = task.iterations.length + 1
 
     const iteration: TaskIteration = {
       iterationNumber,
@@ -355,7 +339,9 @@ export class TaskService {
       iteration.attachments = []
       for (const fileId of fileIds) {
         // Get file metadata
-        const fileMetadata = await this.storage.get<FileMetadata>(`uploads/${taskId}/${fileId}`)
+        const fileMetadata = await this.storage.get<FileMetadata>(
+          `uploads/${task.taskId}/${fileId}`,
+        )
         if (fileMetadata) {
           iteration.attachments.push({
             fileId,
@@ -367,6 +353,55 @@ export class TaskService {
       }
     }
 
+    return iteration
+  }
+
+  async sendCommand(
+    taskId: string,
+    commandName: string,
+    resume = true,
+    model?: string,
+    filePaths?: string[],
+  ): Promise<void> {
+    const command = await this.commandService.getCommand(commandName)
+    if (!command) {
+      throw new ValidationError(`Command '${commandName}' not found`, 'commandName')
+    }
+
+    // Use the command's prompt as the message
+    await this.sendMessage(taskId, command.prompt, resume, model, undefined, filePaths, commandName)
+  }
+
+  async sendMessage(
+    taskId: string,
+    message: string,
+    resume = true,
+    model?: string,
+    fileIds?: string[],
+    filePaths?: string[],
+    commandName?: string,
+  ): Promise<void> {
+    const metadata = await this.getTask(taskId)
+
+    // Create the iteration (this validates inputs)
+    const iteration = await this.createTaskIteration(
+      metadata,
+      message,
+      commandName,
+      model,
+      fileIds,
+      filePaths,
+    )
+
+    // Find the previous iteration's session ID for resume
+    let resumeSessionId: string | undefined
+    if (resume && metadata.iterations.length > 0) {
+      const previousIteration = metadata.iterations[metadata.iterations.length - 1]
+      resumeSessionId = previousIteration.agentSessionId
+    }
+
+    // Update metadata
+    const now = new Date()
     metadata.iterations.push(iteration)
     metadata.lastMessageAt = now
     metadata.numTurns += 1
@@ -383,7 +418,7 @@ export class TaskService {
       payload: {
         status: 'running',
         previousStatus,
-        iterationNumber,
+        iterationNumber: iteration.iterationNumber,
       },
       eventId: randomUUID(),
       timestamp: now,
