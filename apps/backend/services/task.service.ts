@@ -383,6 +383,20 @@ export class TaskService {
   ): Promise<void> {
     const metadata = await this.getTask(taskId)
 
+    // Mark last iteration as willNotResume if resume is false
+    if (!resume && metadata.iterations.length > 0) {
+      const lastIteration = metadata.iterations[metadata.iterations.length - 1]
+      if (!lastIteration.willNotResume) {
+        lastIteration.willNotResume = true
+        await this.storage.saveTask(metadata)
+        
+        logger.info('Marked last iteration as will not resume due to resume=false', {
+          taskId: metadata.taskId,
+          iterationNumber: lastIteration.iterationNumber
+        })
+      }
+    }
+
     // Create the iteration (this validates inputs)
     const iteration = await this.createTaskIteration(
       metadata,
