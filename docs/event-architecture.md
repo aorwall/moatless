@@ -4,15 +4,14 @@ This document describes the event-driven architecture used in the Moatless Swarm
 
 ## Overview
 
-The application uses a hybrid event architecture that supports both task-specific and global event streams. This design enables real-time updates across the UI while maintaining flexibility for different use cases.
+The application uses a global event stream for real-time updates. This design enables real-time updates across the UI while maintaining flexibility for different use cases.
 
 ### Key Components
 
 1. **Event Service** - Backend service that manages event emission and storage
 2. **SSE Manager** - Manages Server-Sent Events connections
 3. **Global Event Stream** - Single connection for app-wide events
-4. **Task Event Streams** - Per-task connections for focused updates
-5. **Event Subscribers** - Frontend components that react to events
+4. **Event Subscribers** - Frontend components that react to events
 
 ## Event Types
 
@@ -135,12 +134,7 @@ Query parameters:
 - `activeTasksOnly` - Only stream events from active tasks
 - `lastEventId` - Resume from a specific event (reconnection support)
 
-#### Task Event Stream (`/api/v1/tasks/:taskId/stream`)
 
-Similar to global stream but filtered to a specific task:
-- Only events for the specified task
-- Automatic cleanup when task completes
-- Lower overhead for task-focused views
 
 ## Frontend Architecture
 
@@ -205,21 +199,17 @@ function SidebarTasks() {
 
 ### Task Event Provider
 
-For task detail views, the `TaskEventsProvider` can use either:
-1. Global stream (when feature flag enabled)
-2. Task-specific stream (default)
+For task detail views, the `TaskEventsProvider` subscribes to the global stream and filters events for the specific `taskId` it's managing.
 
 ```typescript
-function TaskEventsProvider({ taskId, useGlobalStream = false }) {
-  if (useGlobalStream) {
-    // Subscribe to global stream, filter by taskId
-    useTaskEventSubscription(taskId, handleTaskEvent)
-  } else {
-    // Create task-specific SSE connection
-    const client = new NDJSONSSEClient({ taskId, onEvent })
-    client.connect()
-  }
-}
+// In TaskEventsProvider
+const globalStream = useGlobalEventStream()
+
+// Subscribe to events for this specific task
+useTaskEventSubscription(taskId, (event) => {
+  // Handle events for this task only
+  handleTaskEvent(event)
+})
 ```
 
 ## Event Flow
@@ -241,71 +231,23 @@ sequenceDiagram
     participant EventService
     participant SSEManager
     participant GlobalStream
-    participant TaskStream
     participant Frontend
     participant ReactQuery
 
     Agent->>EventService: emitEvent({type: 'task:statusChanged'})
     EventService->>EventService: Add eventId & timestamp
     EventService->>EventService: Cache event
-    EventService->>SSEManager: emit('task:123', event)
     EventService->>SSEManager: emit('global', event)
     
     SSEManager->>GlobalStream: Write event to global connections
-    SSEManager->>TaskStream: Write event to task connections
     
     GlobalStream->>Frontend: SSE message
-    TaskStream->>Frontend: SSE message
     
     Frontend->>ReactQuery: invalidateQueries(['task', '123'])
     ReactQuery->>Frontend: Refetch & update UI
 ```
 
-## Performance Considerations
 
-### Connection Management
-
-- **Global Stream**: Single connection serves entire app
-- **Task Streams**: Created on-demand for focused views
-- **Connection Limits**: Browser typically allows 6 connections per domain
-- **Cleanup**: Automatic cleanup on disconnect/navigation
-
-### Event Filtering
-
-Events are filtered at multiple levels:
-1. **Backend**: Only send relevant events based on filters
-2. **Frontend**: Subscribe only to needed event types
-3. **Component**: Process only events affecting component
-
-### Caching Strategy
-
-- **In-Memory Cache**: Recent events kept in memory
-- **Lazy Loading**: Historical events loaded on demand
-- **Cache Invalidation**: Targeted invalidation based on event type
-- **Optimistic Updates**: UI updates before server confirmation
-
-## Migration Strategy
-
-The architecture supports gradual migration from task-specific to global streams:
-
-### Feature Flags
-
-```typescript
-// apps/frontend/src/lib/config/feature-flags.ts
-export const featureFlags = {
-  useGlobalEventStream: {
-    enabled: process.env.VITE_USE_GLOBAL_EVENT_STREAM === 'true',
-    description: 'Use global event stream for all real-time updates'
-  }
-}
-```
-
-### Migration Phases
-
-1. **Phase 1**: Global stream for sidebar and task lists (current)
-2. **Phase 2**: Optional global stream for task details (flag-controlled)
-3. **Phase 3**: Global stream everywhere, task streams deprecated
-4. **Phase 4**: Remove task-specific stream code
 
 ## Best Practices
 

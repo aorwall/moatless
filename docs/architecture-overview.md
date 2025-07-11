@@ -193,49 +193,24 @@ The frontend implements sophisticated patterns for performance and developer exp
 
 ## API Architecture
 
-### REST API Endpoints
+The backend API is built with Hono and uses `hono-openapi` to generate an OpenAPI 3.0 specification. This specification serves as the single source of truth for all API endpoints, request/response schemas, and operations.
 
-The backend exposes the following API routes under `/api/v1`:
+### OpenAPI Specification
 
-#### Task Management
-- `POST /tasks` - Create new task
-- `POST /tasks/vibe` - Create task from template
-- `GET /tasks` - List tasks
-- `GET /tasks/:taskId` - Get task details
-- `POST /tasks/:taskId/messages` - Send message to task
-- `DELETE /tasks/:taskId` - Delete task
-- `POST /tasks/:taskId/close` - Close task
-- `POST /tasks/:taskId/stop` - Stop agent
-- `POST /tasks/:taskId/merge` - Merge task changes
+The OpenAPI specification provides a detailed and interactive API reference. To view the specification:
 
-#### Workspace Operations
-- `GET /tasks/:taskId/workspace-status` - Get workspace status
-- `GET /tasks/:taskId/files` - List files
-- `GET /tasks/:taskId/files/*` - Read file
-- `PUT /tasks/:taskId/files/*` - Write file
-- `POST /tasks/:taskId/search-files` - Search files
-- `GET /tasks/:taskId/git-diff` - Get git diff
-- `POST /tasks/:taskId/execute` - Execute command
+1.  **Run the development server**:
+    ```bash
+    pnpm dev
+    ```
+2.  **Access the UI**: The OpenAPI UI is available at [http://localhost:8000/api/v1/doc](http://localhost:8000/api/v1/doc).
 
-#### Preview Environment Server Management
-- `POST /tasks/:taskId/server/start` - Start dev server
-- `POST /tasks/:taskId/server/stop` - Stop dev server
-- `POST /tasks/:taskId/server/restart` - Restart dev server
-- `GET /tasks/:taskId/server/status` - Get server status
-- `GET /tasks/:taskId/server/logs` - Get server logs
+This interactive UI allows you to:
+- Explore all available API endpoints.
+- View request and response schemas.
+- Execute API requests directly from the browser.
 
-#### Repository Management
-- `POST /repositories` - Create repository
-- `GET /repositories` - List repositories
-- `GET /repositories/:id` - Get repository
-- `PUT /repositories/:id` - Update repository
-- `DELETE /repositories/:id` - Delete repository
-
-#### Other APIs
-- `GET /events` - List events
-- `GET /events/stream` - Global event stream
-- `POST /uploads` - Upload files
-- `GET /commands` - List available commands
+Using the OpenAPI specification ensures that the API documentation is always synchronized with the backend implementation.
 
 ### Service Layer Architecture
 

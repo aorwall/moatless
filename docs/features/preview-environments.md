@@ -693,7 +693,7 @@ The system also handles orphaned processes that may be running without metadata:
 
 ### Script Injection System
 
-The injection system adapts to different frameworks and build tools to ensure inspector capabilities are available. The implementation is primarily in `apps/backend/services/preview-environment.service.ts` within the `injectInspector()` method.
+The system primarily uses a **Proxy Injection** strategy, which is the default and recommended method. It also supports other methods like HTML Injection and Middleware Injection as fallbacks or for specific use cases.
 
 #### Injection Strategy Overview
 
