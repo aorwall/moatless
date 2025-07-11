@@ -395,9 +395,19 @@ export class TaskService {
 
     // Find the previous iteration's session ID for resume
     let resumeSessionId: string | undefined
-    if (resume && metadata.iterations.length > 0) {
+    let prependedResult: string | undefined
+    if (metadata.iterations.length > 0) {
       const previousIteration = metadata.iterations[metadata.iterations.length - 1]
-      resumeSessionId = previousIteration.agentSessionId
+      
+      // Check if previous iteration has willNotResume flag set
+      if (previousIteration.willNotResume && previousIteration.result) {
+        // Prepend the result to the message instead of resuming
+        prependedResult = previousIteration.result
+        resumeSessionId = undefined
+      } else if (resume) {
+        // Normal resume behavior
+        resumeSessionId = previousIteration.agentSessionId
+      }
     }
 
     // Update metadata
@@ -430,9 +440,14 @@ export class TaskService {
     iteration.task = metadata
     iteration.taskId = taskId
 
+    // Prepend result if needed
+    const finalMessage = prependedResult 
+      ? `Previous result:\n${prependedResult}\n\n${message}`
+      : message
+
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
-      .executeAgent(taskId, message, iteration, 'claude-code', resumeSessionId, model)
+      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
       })
@@ -527,6 +542,29 @@ export class TaskService {
     }
 
     return filterAvailableCommands(allCommands, context)
+  }
+
+  async markIterationAsWillNotResume(taskId: string, iterationNumber: number): Promise<void> {
+    const task = await this.getTask(taskId)
+    
+    const iterationIndex = task.iterations.findIndex(
+      (it) => it.iterationNumber === iterationNumber
+    )
+    
+    if (iterationIndex >= 0) {
+      task.iterations[iterationIndex].willNotResume = true
+      await this.storage.saveTask(task)
+      
+      logger.info('Marked iteration as will not resume', { 
+        taskId, 
+        iterationNumber 
+      })
+    } else {
+      throw new ValidationError(
+        `Iteration ${iterationNumber} not found for task ${taskId}`,
+        'iterationNumber'
+      )
+    }
   }
 
   private async pathExists(filePath: string): Promise<boolean> {

@@ -101,6 +101,7 @@ const TaskIterationSchema = z.object({
       timestamp: z.date(),
     })
     .optional(),
+  willNotResume: z.boolean().optional(),
 })
 
 const TaskResponseSchema = z.object({

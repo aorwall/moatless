@@ -34,6 +34,7 @@ export interface TaskIteration {
     stack?: string
     timestamp: Date
   }
+  willNotResume?: boolean // Indicates this iteration won't be resumed on next message
   // Runtime properties (not persisted)
   task?: Task
   taskId?: string

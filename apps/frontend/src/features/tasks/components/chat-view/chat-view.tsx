@@ -2,7 +2,7 @@ import type { Command } from '@moatless/shared/types/command'
 import { EventType } from '@moatless/shared/types/event'
 import type { Task, TaskIteration } from '@moatless/shared/types/task'
 import { useParams } from '@tanstack/react-router'
-import { AlertCircle, ArrowDown, Clock, DollarSign, MessageSquare } from 'lucide-react'
+import { AlertCircle, ArrowDown, Clock, DollarSign, InfoIcon, MessageSquare } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -21,6 +21,12 @@ import { Alert, AlertDescription } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
 import { IsolatedTimer } from '@/lib/components/ui/isolated-timer'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
 import { TaskMinifiedLastEventsDisplay } from '../event-viewer'
@@ -57,7 +63,7 @@ function ChatViewComponent() {
   }, [])
 
   // Get workspace status from context (doesn't block loading) - no longer needed for command filtering
-  const {} = useWorkspaceStatus()
+  useWorkspaceStatus()
 
   // Fetch available commands for this task
   const { data: commandsData } = useTaskCommands(params.taskId, {
@@ -325,6 +331,22 @@ function ChatViewComponent() {
                           <DollarSign className="h-4 w-4" />
                           <span>{formatCost(iteration.costUsd)}</span>
                         </div>
+                        {iteration.willNotResume && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="flex items-center gap-1 text-status-warning">
+                                  <InfoIcon className="h-4 w-4" />
+                                  <span className="text-xs">Won't resume</span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>This iteration reached the maximum turn limit.</p>
+                                <p>Its result will be prepended to the next message.</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                         <span className="text-xs">• Click to view events</span>
                       </button>
                     </div>

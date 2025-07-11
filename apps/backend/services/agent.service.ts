@@ -269,6 +269,8 @@ export class AgentService {
             let errorMessage = 'Agent execution failed'
             if (resultPayload.subtype === 'error_max_turns') {
               errorMessage = 'Maximum number of turns exceeded'
+              // Mark as will not resume when max turns is reached
+              iteration.willNotResume = true
             } else if (resultPayload.subtype === 'error_during_execution') {
               errorMessage = 'Error occurred during execution'
             }
