@@ -12,10 +12,12 @@ import type { AppBindings } from '../app.js'
 const commandResponseSchema = z.object({
   name: z.string(),
   description: z.string(),
-  command: z.string(),
-  timeout: z.number().optional(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  prompt: z.string(),
+  conditions: z.any().optional(), // CommandConditionsSchema
+  icon: z.string().optional(),
+  variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
+  active: z.boolean().optional(),
+  willNotResume: z.boolean().optional(),
 })
 
 const commandListResponseSchema = z.object({

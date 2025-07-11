@@ -69,6 +69,17 @@ const DEFAULT_COMMANDS: CommandsFile = {
       icon: 'GitBranch',
       variant: 'secondary',
     },
+    compact: {
+      name: 'compact',
+      description: 'Summarize the conversation and compact the context',
+      prompt: 'Please provide a comprehensive summary of our conversation so far, including:\n\n1. The main task or problem we\'re working on\n2. Key decisions and approaches taken\n3. Important code changes made\n4. Current status and any remaining work\n5. Any important context that should be preserved\n\nThis summary will be used as context for future interactions, so please be thorough and include all relevant details.',
+      conditions: {
+        requiresTaskNotRunning: true,
+      },
+      icon: 'FileText',
+      variant: 'secondary',
+      willNotResume: true,
+    },
   },
 }
 

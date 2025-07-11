@@ -407,6 +407,19 @@ export class TaskService {
       filePaths,
     )
 
+    // Check if command has willNotResume flag set
+    if (commandName) {
+      const command = await this.commandService.getCommand(commandName)
+      if (command?.willNotResume) {
+        iteration.willNotResume = true
+        logger.info('Marked iteration as will not resume due to command flag', {
+          taskId: metadata.taskId,
+          commandName,
+          iterationNumber: iteration.iterationNumber
+        })
+      }
+    }
+
     // Find the previous iteration's session ID for resume
     let resumeSessionId: string | undefined
     let prependedResult: string | undefined

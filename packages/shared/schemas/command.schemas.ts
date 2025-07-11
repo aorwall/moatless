@@ -47,6 +47,7 @@ export const CommandSchema = z.object({
   icon: z.string().optional(), // Icon name like 'GitCommit', 'GitBranch', etc.
   variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
   active: z.boolean().optional(), // Whether command is active/visible (defaults to true)
+  willNotResume: z.boolean().optional(), // Whether this command creates iterations that won't be resumed
 })
 
 export const CreateCommandSchema = z.object({
@@ -57,6 +58,7 @@ export const CreateCommandSchema = z.object({
   icon: z.string().optional(),
   variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
   active: z.boolean().optional(),
+  willNotResume: z.boolean().optional(),
 })
 
 export const UpdateCommandSchema = z.object({
@@ -67,6 +69,7 @@ export const UpdateCommandSchema = z.object({
   icon: z.string().optional(),
   variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
   active: z.boolean().optional(),
+  willNotResume: z.boolean().optional(),
 })
 
 // Parameter schemas
