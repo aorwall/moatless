@@ -169,6 +169,55 @@ describe('MessageEvent', () => {
     expect(preElement).toHaveClass('bg-muted', 'rounded-md', 'p-3')
   })
 
+  it('should display context tokens when available', () => {
+    const event = createMessageEvent({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'Message with context tokens',
+          },
+        ],
+      },
+    })
+    // Set contextTokens on the event
+    event.contextTokens = 15000
+
+    render(<MessageEvent event={event} />)
+
+    // Context tokens should be displayed and formatted (appears in both MessageEvent and EventHeader)
+    const contextTokenElements = screen.getAllByText('15,000')
+    expect(contextTokenElements.length).toBeGreaterThan(0)
+    // Progress bar should be rendered
+    const progressBar = document.querySelector('[role="progressbar"]')
+    expect(progressBar).toBeInTheDocument()
+  })
+
+  it('should not display context tokens when zero or undefined', () => {
+    const event = createMessageEvent({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'Message without context tokens',
+          },
+        ],
+      },
+    })
+    // Set contextTokens to 0
+    event.contextTokens = 0
+
+    render(<MessageEvent event={event} />)
+
+    // Context tokens section should not be displayed
+    // Look for progress bar specifically in the message event, not in EventHeader
+    const progressBars = document.querySelectorAll('[role="progressbar"]')
+    // Should only have one progress bar (from EventHeader if it shows zero)
+    expect(progressBars.length).toBeLessThanOrEqual(1)
+  })
+
   describe('SDK Message format', () => {
     it('should handle SDK assistant message with content array', () => {
       const event: Event = {

@@ -9,11 +9,11 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { 
-  useGlobalEventStream,
-  useTaskEventSubscription,
+import {
   getInvalidationKeys,
   shouldInvalidateTaskList,
+  useGlobalEventStream,
+  useTaskEventSubscription,
 } from '@/features/events'
 import { queryKeys } from '@/lib/api/query-keys'
 import { tasksApi } from '../api/tasks'
@@ -44,10 +44,7 @@ interface TaskEventsProviderProps {
  * Implements smart event merging and status-affecting event handling.
  * Uses the global event stream for all task events.
  */
-export function TaskEventsProvider({
-  taskId,
-  children,
-}: TaskEventsProviderProps) {
+export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps) {
   const queryClient = useQueryClient()
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingError, setStreamingError] = useState<string | null>(null)
@@ -80,20 +77,23 @@ export function TaskEventsProvider({
 
       // 2. Get invalidation keys based on event type
       const invalidationKeys = getInvalidationKeys(event)
-      
+
       if (invalidationKeys.length > 0) {
-        console.log(`[Events] Event ${event.type} triggering invalidations:`, invalidationKeys.map(fn => fn.name))
-        
+        console.log(
+          `[Events] Event ${event.type} triggering invalidations:`,
+          invalidationKeys.map((fn) => fn.name),
+        )
+
         // Use queueMicrotask to ensure cache update completes before invalidation
         queueMicrotask(() => {
           // 3. Invalidate each affected query
-          invalidationKeys.forEach(keyFunction => {
+          invalidationKeys.forEach((keyFunction) => {
             queryClient.invalidateQueries({
               queryKey: keyFunction(taskId),
               refetchType: 'active',
             })
           })
-          
+
           // 4. Always invalidate task lists for status-affecting events
           if (shouldInvalidateTaskList(event)) {
             queryClient.invalidateQueries({
@@ -111,7 +111,7 @@ export function TaskEventsProvider({
   useEffect(() => {
     console.log('[TaskEventsProvider] Setting up subscription for task:', taskId)
   }, [taskId])
-  
+
   useTaskEventSubscription(taskId, handleTaskEvent)
 
   // Update streaming status from global stream
@@ -175,22 +175,17 @@ export function useStreamingStatus() {
 
 /**
  * Hook to get the latest context tokens from message events.
- * Returns the sum of input_tokens + cache_read_input_tokens from the most recent message event.
+ * Returns the contextTokens from the most recent message event.
  */
 export function useLatestContextTokens() {
   const { events } = useTaskEvents()
-  
+
   return useMemo(() => {
-    // Find the last message event with usage data
+    // Find the last message event with contextTokens
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i]
-      if (event.type === 'message' && event.payload?.message) {
-        const message = event.payload.message as any
-        if (message.usage) {
-          const inputTokens = message.usage.input_tokens || 0
-          const cacheReadTokens = message.usage.cache_read_input_tokens || 0
-          return inputTokens + cacheReadTokens
-        }
+      if (event.type === 'message' && event.contextTokens) {
+        return event.contextTokens
       }
     }
     return 0

@@ -42,6 +42,19 @@ export abstract class BaseAgent {
     type: EventType,
     isError: boolean = false,
   ): Event {
+    // Calculate contextTokens from usage data if available
+    let contextTokens: number | undefined
+
+    if (payload.type === 'assistant' && payload.message && 'usage' in payload.message) {
+      const usage = payload.message.usage as Record<string, unknown> | null
+      if (usage) {
+        const inputTokens = Number(usage.input_tokens || 0)
+        const cacheReadTokens = Number(usage.cache_read_input_tokens || 0)
+        const cacheCreationTokens = Number(usage.cache_creation_input_tokens || 0)
+        contextTokens = inputTokens + cacheReadTokens + cacheCreationTokens
+      }
+    }
+
     return {
       eventId: crypto.randomUUID(),
       agentType: this.getAgentType(),
@@ -50,6 +63,7 @@ export abstract class BaseAgent {
       iterationId: this.iterationNumber,
       timestamp: new Date(),
       isError,
+      contextTokens,
       payload,
     }
   }

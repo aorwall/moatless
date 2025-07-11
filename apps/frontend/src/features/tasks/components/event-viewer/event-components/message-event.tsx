@@ -24,10 +24,8 @@ export function MessageEvent({ event }: MessageEventProps) {
   const isAssistant = role === 'assistant'
   const isUser = role === 'user'
 
-  // Extract usage information for context tokens display
-  const usage = message.usage as Record<string, unknown> | null
-  const contextTokens = usage ? 
-    (Number(usage.input_tokens || 0) + Number(usage.cache_read_input_tokens || 0)) : null
+  // Use contextTokens from the event
+  const contextTokens = event.contextTokens
 
   // Extract text content
   let textContent = ''
@@ -71,10 +69,7 @@ export function MessageEvent({ event }: MessageEventProps) {
               <span className="text-xs text-muted-foreground">
                 {contextTokens.toLocaleString()}
               </span>
-              <Progress 
-                value={(contextTokens / 200000) * 100} 
-                className="w-16 h-1.5" 
-              />
+              <Progress value={(contextTokens / 200000) * 100} className="w-16 h-1.5" />
             </div>
           )}
         </div>
