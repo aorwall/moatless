@@ -4,6 +4,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeSettings } from '@moatless/shared/types/claude'
 import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
 import type { Task } from '@moatless/shared/types/task'
+import { calculateContextTokens } from './context-tokens.js'
 import { logger } from './logger.js'
 
 /**
@@ -17,6 +18,9 @@ export function sdkMessageToEvent(
   // Check if this is an error message
   const isError = 'error' in sdkMessage && sdkMessage.error !== undefined
 
+  // Calculate context tokens using shared function
+  const contextTokens = calculateContextTokens(sdkMessage)
+
   if (sdkMessage.type === 'result') {
     return {
       eventId: crypto.randomUUID(),
@@ -25,6 +29,7 @@ export function sdkMessageToEvent(
       taskId,
       iterationId: iterationNumber,
       isError,
+      contextTokens,
       payload: sdkMessage,
     } as ResultEvent
   }
@@ -36,6 +41,7 @@ export function sdkMessageToEvent(
     taskId,
     iterationId: iterationNumber,
     isError,
+    contextTokens,
     payload: sdkMessage,
   }
 }

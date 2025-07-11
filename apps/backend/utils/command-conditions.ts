@@ -107,9 +107,7 @@ function checkGitConditions(
     },
     () => {
       const result =
-        conditions.requiresCommittedChanges &&
-        gitSyncStatus &&
-        gitSyncStatus.commitsAhead > 0
+        conditions.requiresCommittedChanges && gitSyncStatus && gitSyncStatus.commitsAhead > 0
       if (conditions.requiresCommittedChanges) {
         debugLog('Committed changes check', {
           required: true,

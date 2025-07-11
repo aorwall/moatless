@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-code'
-import type { ClaudeCodeOptions } from '@moatless/shared/types/claude'
+import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
 import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
+import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { logger } from '../../utils/logger.js'
 import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
@@ -58,9 +59,13 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         if (sdkMessage.type === 'result') {
           const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
-          yield this.createEvent(sdkMessage, EventType.RESULT, isError) as ResultEvent
+          yield this.createEventWithContextTokens(
+            sdkMessage,
+            EventType.RESULT,
+            isError,
+          ) as ResultEvent
         } else {
-          yield this.createEvent(sdkMessage, EventType.MESSAGE)
+          yield this.createEventWithContextTokens(sdkMessage, EventType.MESSAGE)
         }
       }
 
@@ -130,6 +135,26 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   getAgentType(): string {
     return 'claude-code'
+  }
+
+  private createEventWithContextTokens(
+    payload: ClaudeCodeSDKMessage,
+    type: EventType,
+    isError: boolean = false,
+  ): Event {
+    const contextTokens = calculateContextTokens(payload)
+
+    return {
+      eventId: crypto.randomUUID(),
+      agentType: this.getAgentType(),
+      type,
+      taskId: this.taskId,
+      iterationId: this.iterationNumber,
+      timestamp: new Date(),
+      isError,
+      contextTokens,
+      payload,
+    }
   }
 
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {

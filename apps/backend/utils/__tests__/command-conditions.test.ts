@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
 import type { Command } from '@moatless/shared/types/command'
 import type { Task, TaskIteration } from '@moatless/shared/types/task'
+import { describe, expect, it } from 'vitest'
 import { filterAvailableCommands, isCommandAvailable } from '../command-conditions.js'
 
 describe('Command Conditions', () => {
