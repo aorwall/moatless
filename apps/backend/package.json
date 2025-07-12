@@ -14,7 +14,7 @@
     "test:e2e": "USE_CONSOLE_LOGGING=true vitest run --include='**/*.e2e.test.ts'",
     "test:all": "USE_CONSOLE_LOGGING=true vitest run",
     "test:coverage": "USE_CONSOLE_LOGGING=true vitest run --coverage --exclude='**/*e2e*'",
-    "test:fast": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*.e2e.test.ts' --exclude='**/*.integration.test.ts' --exclude='**/*shutdown*.test.ts' --exclude='**/*lifecycle*.test.ts' --exclude='**/*server*.test.ts' --exclude='**/routes/**/*.test.ts'",
+    "test:fast": "USE_CONSOLE_LOGGING=true vitest run utils/__tests__/logger.test.ts utils/__tests__/context-tokens.test.ts utils/__tests__/data-dir.test.ts utils/__tests__/command-conditions.test.ts utils/__tests__/performance.test.ts __tests__/app.test.ts",
     "type:check": "tsc --noEmit"
   },
   "dependencies": {
