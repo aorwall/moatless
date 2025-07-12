@@ -1,7 +1,7 @@
 import { CLAUDE_MODELS, type ClaudeModel } from '@moatless/shared/constants'
 import type { UploadFileResponse } from '@moatless/shared/types/api'
 import type { Task } from '@moatless/shared/types/task'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
@@ -113,6 +113,7 @@ export function ChatInput({
     return ''
   })()
 
+  // Always call hooks but control their enabled state
   const repoSelector = useRepositorySelector(
     showRepositorySelector && mode === 'code',
     initialRepositoryId,
@@ -214,8 +215,8 @@ export function ChatInput({
     showRepositorySelector,
     mode,
     templateSelector.items,
-    templateSelector.onChange,
     templateSelector.value,
+    templateSelector.onChange,
   ])
 
   // Reset message and files when taskId changes
@@ -369,18 +370,28 @@ export function ChatInput({
           maxHeight={maxHeight}
           files={uploadedFiles}
           onFilesChange={setUploadedFiles}
-          selectors={[
-            ...(showRepositorySelector && mode === 'code'
-              ? [
-                  <GenericSelector key="repo" {...repoSelector} />,
-                  <GenericSelector key="branch" {...branchSelector} />,
-                ]
-              : []),
-            ...(showRepositorySelector && mode === 'vibe'
-              ? [<GenericSelector key="template" {...templateSelector} />]
-              : []),
-            <GenericSelector key="model" {...modelSelector} />,
-          ]}
+          selectors={useMemo(
+            () => [
+              ...(showRepositorySelector && mode === 'code'
+                ? [
+                    <GenericSelector key="repo" {...repoSelector} />,
+                    <GenericSelector key="branch" {...branchSelector} />,
+                  ]
+                : []),
+              ...(showRepositorySelector && mode === 'vibe'
+                ? [<GenericSelector key="template" {...templateSelector} />]
+                : []),
+              <GenericSelector key="model" {...modelSelector} />,
+            ],
+            [
+              showRepositorySelector,
+              mode,
+              repoSelector,
+              branchSelector,
+              templateSelector,
+              modelSelector,
+            ],
+          )}
         />
       </div>
     </div>
