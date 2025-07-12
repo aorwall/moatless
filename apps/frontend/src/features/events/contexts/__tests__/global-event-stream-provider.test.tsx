@@ -310,7 +310,7 @@ describe('GlobalEventStreamProvider', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     const TestComponent = () => {
-      const context = useGlobalEventStream()
+      useGlobalEventStream()
 
       // Simulate receiving an event
       React.useEffect(() => {
