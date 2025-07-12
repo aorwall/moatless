@@ -324,7 +324,7 @@ describe('Task Switching Behavior', () => {
     expect(screen.getByTestId('task-switch-count')).toHaveTextContent('15') // 5 initial + 10 switches
   })
 
-  it('should handle state modifications during task switching', () => {
+  it('should handle state modifications during task switching', async () => {
     render(<TaskSwitchingTest />)
 
     // Task 1: Initial state
@@ -337,12 +337,25 @@ describe('Task Switching Behavior', () => {
     // Switch to Task 2
     act(() => {
       screen.getByTestId('switch-to-task2').click()
+    })
+
+    // Wait for task2 UI to be rendered
+    await waitFor(() => {
+      expect(screen.getByTestId('current-task-id')).toHaveTextContent('task2')
+      expect(screen.getByTestId('task2-complex-update')).toBeInTheDocument()
+    })
+
+    act(() => {
       screen.getByTestId('task2-complex-update').click()
     })
 
     // Switch back to Task 1 and modify state
     act(() => {
       screen.getByTestId('switch-to-task1').click()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('current-task-id')).toHaveTextContent('task1')
     })
 
     // Verify Task 1 still has its original state
@@ -362,6 +375,10 @@ describe('Task Switching Behavior', () => {
       screen.getByTestId('switch-to-task2').click()
     })
 
+    await waitFor(() => {
+      expect(screen.getByTestId('current-task-id')).toHaveTextContent('task2')
+    })
+
     expect(screen.getByTestId('task2-expanded-files-count')).toHaveTextContent('2') // preserved
     expect(screen.getByTestId('task2-chat-is-at-bottom')).toHaveTextContent('false') // preserved
     expect(screen.getByTestId('task2-panel-view')).toHaveTextContent('diff') // preserved
@@ -369,6 +386,10 @@ describe('Task Switching Behavior', () => {
     // Switch back to Task 1 and verify reset state is preserved
     act(() => {
       screen.getByTestId('switch-to-task1').click()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('current-task-id')).toHaveTextContent('task1')
     })
 
     expect(screen.getByTestId('task1-expanded-files-count')).toHaveTextContent('0') // reset preserved

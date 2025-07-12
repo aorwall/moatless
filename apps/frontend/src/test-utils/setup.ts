@@ -32,8 +32,17 @@ vi.mock('react-resizable-panels', () => ({
 vi.mock('@radix-ui/react-tooltip', () => ({
   Provider: ({ children }: { children: React.ReactNode }) => children,
   Root: ({ children }: { children: React.ReactNode }) => children,
-  Trigger: ({ children, ...props }: any) => React.createElement('div', props, children),
-  Content: ({ children, ...props }: any) => React.createElement('div', props, children),
+  Portal: ({ children }: { children: React.ReactNode }) => children,
+  Trigger: ({ children, asChild, ...props }: any) => {
+    // Filter out asChild to prevent React warnings
+    const { asChild: _, ...domProps } = props
+    return React.createElement('div', domProps, children)
+  },
+  Content: ({ children, asChild, ...props }: any) => {
+    // Filter out asChild to prevent React warnings
+    const { asChild: _, ...domProps } = props
+    return React.createElement('div', domProps, children)
+  },
   TooltipProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 

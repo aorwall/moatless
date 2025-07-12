@@ -224,12 +224,16 @@ describe('Git Diff State Isolation', () => {
     // Expand some paths
     act(() => {
       screen.getByTestId('expand-path-src').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-tests').click()
     })
 
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('2')
-    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('src/')
-    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('tests/')
+    const pathsList = screen.getByTestId('expanded-paths-list').textContent
+    expect(pathsList).toContain('src/')
+    expect(pathsList).toContain('tests/')
   })
 
   it('should isolate git diff state between different tasks', () => {
@@ -271,8 +275,17 @@ describe('Git Diff State Isolation', () => {
     // Task 2: Different state
     act(() => {
       screen.getByTestId('expand-file-3').click()
+    })
+
+    act(() => {
       screen.getByTestId('select-file-2').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-tests').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-components').click()
     })
 
@@ -305,8 +318,9 @@ describe('Git Diff State Isolation', () => {
     expect(screen.getByTestId('selected-file-key')).toHaveTextContent('src/file2.ts') // preserved
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('2') // preserved
     expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('tests/file3.test.ts')
-    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('tests/')
-    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('src/components/')
+    const pathsList2 = screen.getByTestId('expanded-paths-list').textContent
+    expect(pathsList2).toContain('tests/')
+    expect(pathsList2).toContain('src/components/')
   })
 
   it('should handle bulk operations and state resets independently per task', () => {
@@ -330,6 +344,9 @@ describe('Git Diff State Isolation', () => {
     // Task 2: Do some manual expansions
     act(() => {
       screen.getByTestId('expand-file-1').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-file-3').click()
     })
 
@@ -401,8 +418,12 @@ describe('Git Diff State Isolation', () => {
     // Task 2: Different toggle pattern
     act(() => {
       screen.getByTestId('expand-file-2').click() // expand file 2
+    })
+
+    act(() => {
       screen.getByTestId('expand-file-3').click() // expand file 3
     })
+
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2')
 
     act(() => {
@@ -433,8 +454,17 @@ describe('Git Diff State Isolation', () => {
     // Task 1: Build up complex state
     act(() => {
       screen.getByTestId('expand-file-1').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-file-2').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-src').click()
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-components').click()
     })
 
@@ -448,8 +478,17 @@ describe('Git Diff State Isolation', () => {
 
     act(() => {
       screen.getByTestId('expand-file-1').click() // Same file as Task 1
+    })
+
+    act(() => {
       screen.getByTestId('expand-file-3').click() // Different file
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-src').click() // Same path as Task 1
+    })
+
+    act(() => {
       screen.getByTestId('expand-path-tests').click() // Different path
     })
 
