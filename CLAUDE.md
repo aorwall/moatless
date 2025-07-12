@@ -607,31 +607,38 @@ pnpm test:coverage
 pnpm test:ui
 ```
 
-### Server Testing Strategy
+### Backend Testing Strategy
+
+The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles. For detailed backend testing guidelines, see [Backend Testing Guidelines](./apps/backend/TESTING-GUIDELINES.md).
+
+#### Test Naming Conventions
+- **Unit Tests**: `*.test.ts` or `*.unit.test.ts` (fast, <200ms)
+- **Integration Tests**: `*.integration.test.ts` (moderate, 200ms-2s)
+- **E2E Tests**: `*.e2e.test.ts` (slow, >2s)
 
 #### Test Performance Tiers
-The server tests are organized into performance tiers to optimize development workflow:
-
 **FAST Tests (<200ms)** - Run on every push:
-- Unit tests: `services/__tests__/*.test.ts`
-- Utility tests: `utils/__tests__/*.test.ts`
-- Plugin tests: `plugins/__tests__/*.test.ts`
-- Basic app tests: `__tests__/app.test.ts`
+- Pure unit tests with mocked dependencies
+- No file system operations
+- No git operations
+- No server/process spawning
 
 **MODERATE Tests (200ms-2s)** - Run in CI:
-- Integration tests: `routes/__tests__/*.test.ts` (excluding E2E)
-- File/git operation tests
+- Integration tests with real file system
+- Git operation tests
+- Database tests
 
-**SLOW Tests (>2s)** - Run separately or nightly:
-- E2E tests: `**/*e2e*.test.ts`
-- Server lifecycle tests: `**/server-lifecycle*.test.ts`
+**SLOW Tests (>2s)** - Run separately:
+- E2E tests with real servers
+- Process lifecycle tests
+- Preview environment tests
 
 #### Test Commands Usage
 ```bash
 # Development - Fast feedback loop
 pnpm test:unit
 
-# Pre-commit - Core functionality validation
+# Pre-push hook - Essential coverage
 pnpm test:fast
 
 # CI Pipeline - Full integration testing
@@ -642,7 +649,7 @@ pnpm test:all
 ```
 
 #### Git Hook Optimization
-The `.husky/pre-push` hook now uses `pnpm test:fast` instead of running all tests, reducing push time from **2-3 minutes to ~30 seconds** while maintaining essential test coverage.
+The `.husky/pre-push` hook uses `pnpm test:fast` which excludes integration and E2E tests, reducing push time to ~30 seconds while maintaining essential test coverage.
 
 ### Testing Strategy & Guidelines
 

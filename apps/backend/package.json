@@ -9,11 +9,12 @@
     "build": "tsc",
     "start": "NODE_ENV=production node dist/index.js",
     "test": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*'",
-    "test:unit": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*' --exclude='**/server-lifecycle*'",
+    "test:unit": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*.e2e.test.ts' --exclude='**/*.integration.test.ts' --exclude='**/routes/**/*.test.ts'",
     "test:integration": "USE_CONSOLE_LOGGING=true vitest run --include='**/routes/**/*.test.ts' --exclude='**/*e2e*'",
+    "test:e2e": "USE_CONSOLE_LOGGING=true vitest run --include='**/*.e2e.test.ts'",
     "test:all": "USE_CONSOLE_LOGGING=true vitest run",
     "test:coverage": "USE_CONSOLE_LOGGING=true vitest run --coverage --exclude='**/*e2e*'",
-    "test:fast": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*' --exclude='**/server-lifecycle*' --exclude='**/routes/**/*.test.ts'",
+    "test:fast": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*.e2e.test.ts' --exclude='**/*.integration.test.ts' --exclude='**/*shutdown*.test.ts' --exclude='**/*lifecycle*.test.ts' --exclude='**/*server*.test.ts' --exclude='**/routes/**/*.test.ts'",
     "type:check": "tsc --noEmit"
   },
   "dependencies": {
