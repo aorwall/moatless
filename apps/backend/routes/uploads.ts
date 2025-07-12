@@ -45,6 +45,11 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
                   format: 'binary',
                   description: 'File to upload',
                 },
+                taskId: {
+                  type: 'string',
+                  description:
+                    'Optional task ID - if provided, file is uploaded to task directory, otherwise to temp directory',
+                },
               },
               required: ['file'],
             },
@@ -72,6 +77,7 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
       try {
         const formData = await c.req.formData()
         const file = formData.get('file') as File
+        const taskId = formData.get('taskId') as string // Optional taskId
 
         if (!file) {
           throw new HTTPException(400, { message: 'No file provided' })
@@ -81,10 +87,24 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
         const filename = file.name
         const mimeType = file.type || 'application/octet-stream'
 
-        // Generate unique directory for this upload
-        const uploadId = randomUUID()
+        // Validate filename length (255 chars is typical filesystem limit)
+        if (filename.length > 255) {
+          throw new HTTPException(400, { message: 'Filename too long (max 255 characters)' })
+        }
+
         const uploadDir = getUploadDir()
-        const fileDir = path.join(uploadDir, uploadId)
+        let uploadId: string
+        let fileDir: string
+
+        if (taskId) {
+          // Upload directly to task directory
+          uploadId = taskId
+          fileDir = path.join(uploadDir, taskId)
+        } else {
+          // Upload to temp directory (for task creation)
+          uploadId = `temp-${randomUUID()}`
+          fileDir = path.join(uploadDir, 'temp', uploadId)
+        }
 
         // Create directory
         await fs.mkdir(fileDir, { recursive: true })
@@ -192,7 +212,7 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
       const uploadId = c.req.param('uploadId')
       const filename = c.req.param('filename')
 
-      if (!uploadId || !filename) {
+      if (!uploadId || !filename || uploadId.trim() === '' || filename.trim() === '') {
         throw new HTTPException(400, { message: 'Upload ID and filename are required' })
       }
 
