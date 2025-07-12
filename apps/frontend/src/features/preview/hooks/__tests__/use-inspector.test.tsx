@@ -1,9 +1,9 @@
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ElementInfo } from '../../types'
 import { useInspector } from '../use-inspector'
 import { PreviewProvider } from '../use-preview'
+import { createMockElementInfo } from './test-helpers'
 
 // Mock clipboard API
 const mockWriteText = vi.fn()
@@ -64,14 +64,10 @@ describe('useInspector', () => {
   describe('Element Selection', () => {
     it('should select element and copy selector to clipboard', async () => {
       const { result } = renderHook(() => useInspector(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
+      const mockElement = createMockElementInfo({
         attributes: { class: 'test-element', id: 'test' },
-        textContent: 'Test content',
-        boundingRect: { top: 10, left: 20, width: 100, height: 50 },
-      }
+        boundingRect: { top: 10, left: 20, width: 100, height: 50, x: 20, y: 10 },
+      })
 
       act(() => {
         result.current.selectElement(mockElement)
@@ -94,14 +90,10 @@ describe('useInspector', () => {
 
     it('should not copy to clipboard when element has no selector', () => {
       const { result } = renderHook(() => useInspector(), { wrapper })
-      const mockElement: ElementInfo = {
+      const mockElement = createMockElementInfo({
         selector: '',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 10, left: 20, width: 100, height: 50 },
-      }
+        boundingRect: { top: 10, left: 20, width: 100, height: 50, x: 20, y: 10 },
+      })
 
       act(() => {
         result.current.selectElement(mockElement)
@@ -113,14 +105,9 @@ describe('useInspector', () => {
 
     it('should handle clipboard errors gracefully', () => {
       const { result } = renderHook(() => useInspector(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 10, left: 20, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo({
+        boundingRect: { top: 10, left: 20, width: 100, height: 50, x: 20, y: 10 },
+      })
 
       // Mock clipboard to reject
       mockWriteText.mockRejectedValue(new Error('Clipboard error'))
@@ -137,14 +124,9 @@ describe('useInspector', () => {
   describe('Clear Selection', () => {
     it('should clear selected element', () => {
       const { result } = renderHook(() => useInspector(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 10, left: 20, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo({
+        boundingRect: { top: 10, left: 20, width: 100, height: 50, x: 20, y: 10 },
+      })
 
       // First select an element
       act(() => {
@@ -193,14 +175,9 @@ describe('useInspector', () => {
         { wrapper },
       )
 
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 10, left: 20, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo({
+        boundingRect: { top: 10, left: 20, width: 100, height: 50, x: 20, y: 10 },
+      })
 
       act(() => {
         result.current.inspector1.selectElement(mockElement)

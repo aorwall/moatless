@@ -1,8 +1,9 @@
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
-import type { ElementInfo, PreviewConfig, ScriptHealthStatus } from '../../types'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PreviewConfig, ScriptHealthStatus } from '../../types'
 import { PreviewProvider, usePreview } from '../use-preview'
+import { createMockElementInfo } from './test-helpers'
 
 // Test wrapper component
 function createWrapper() {
@@ -129,14 +130,7 @@ describe('usePreview', () => {
 
     it('should clear selected element when deactivating inspector', () => {
       const { result } = renderHook(() => usePreview(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 0, left: 0, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo()
 
       // Activate inspector and select element
       act(() => {
@@ -158,14 +152,7 @@ describe('usePreview', () => {
 
     it('should not clear selected element when activating inspector', () => {
       const { result } = renderHook(() => usePreview(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 0, left: 0, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo()
 
       // Set element while inspector is inactive
       act(() => {
@@ -185,14 +172,7 @@ describe('usePreview', () => {
 
     it('should update selected element', () => {
       const { result } = renderHook(() => usePreview(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 0, left: 0, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo()
 
       act(() => {
         result.current.setSelectedElement(mockElement)
@@ -326,14 +306,13 @@ describe('usePreview', () => {
         result.current.setConnected(true)
         result.current.setError('Some error')
         result.current.setScriptHealthStatus('injected-reachable')
-        result.current.setSelectedElement({
-          selector: '.test',
-          displayText: 'Test',
-          tagName: 'div',
-          attributes: {},
-          textContent: 'Test',
-          boundingRect: { top: 0, left: 0, width: 100, height: 50 },
-        })
+        result.current.setSelectedElement(
+          createMockElementInfo({
+            selector: '.test',
+            displayText: 'Test',
+            textContent: 'Test',
+          }),
+        )
         result.current.updateHeartbeat()
       })
 
@@ -364,7 +343,7 @@ describe('usePreview', () => {
   describe('Error Boundaries', () => {
     it('should throw error when used outside provider', () => {
       // Mock console.error to avoid noise in test output
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       expect(() => {
         renderHook(() => usePreview())

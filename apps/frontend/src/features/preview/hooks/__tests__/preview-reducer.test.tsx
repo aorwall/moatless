@@ -1,8 +1,9 @@
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ElementInfo, PreviewConfig } from '../../types'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PreviewConfig } from '../../types'
 import { PreviewProvider, usePreview } from '../use-preview'
+import { createMockElementInfo } from './test-helpers'
 
 function createWrapper() {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -41,14 +42,7 @@ describe('Preview Reducer Logic', () => {
       expect(result.current.error).toBe(null)
 
       // Transition 2: Activate inspector and select element
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 0, left: 0, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo()
 
       act(() => {
         result.current.toggleInspector()
@@ -123,14 +117,7 @@ describe('Preview Reducer Logic', () => {
   describe('Edge Cases', () => {
     it('should handle inspector toggle with existing selected element', () => {
       const { result } = renderHook(() => usePreview(), { wrapper })
-      const mockElement: ElementInfo = {
-        selector: '.test-element',
-        displayText: 'Test Element',
-        tagName: 'div',
-        attributes: {},
-        textContent: 'Test content',
-        boundingRect: { top: 0, left: 0, width: 100, height: 50 },
-      }
+      const mockElement = createMockElementInfo()
 
       // Set element while inspector is inactive
       act(() => {
