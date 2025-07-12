@@ -4,6 +4,17 @@ import { describe, expect, it, vi } from 'vitest'
 // Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => ({
+    options: {
+      component: () => {
+        const { TaskProviders, TaskPage } = require('@/features/tasks')
+        const taskId = 'test-task-123'
+        return (
+          <TaskProviders taskId={taskId}>
+            <TaskPage />
+          </TaskProviders>
+        )
+      },
+    },
     useParams: vi.fn(() => ({ taskId: 'test-task-123' })),
   })),
   useParams: vi.fn(() => ({ taskId: 'test-task-123' })),

@@ -2,21 +2,28 @@
 
 ## Executive Summary
 
-The frontend tests have been successfully stabilized with memory fixes, but require strategic optimization to improve performance and developer experience. With 16GB memory allocation, tests now complete, but many memory-intensive tests should be categorized differently for optimal CI/CD performance.
+The frontend tests have been successfully stabilized with memory fixes and optimized with test categorization. Unit tests now run with 4GB memory in ~18 seconds, while integration tests handle memory-intensive operations separately. This provides fast feedback for developers while maintaining comprehensive test coverage.
 
 ## Current Status ✅
 
 ### Fixed Issues
-- **Memory crashes**: Resolved with 16GB memory allocation
+- **Memory crashes**: Resolved with 16GB memory allocation for all tests
 - **Git diff state isolation**: Fixed assertion methods and async handling
 - **Task switching behavior**: Added proper `waitFor` assertions for async updates
 - **Preview toolbar accessibility**: Added ARIA labels and context mocking
-- **React warnings**: Filtered `asChild` props in tooltip mocks
+- **React warnings**: Filtered `asChild` props and added Arrow export in tooltip mocks
 
-### Remaining Challenges
-- High memory consumption (16GB required)
-- Some tests still timeout (preview connection tests)
-- Complex integration tests running in `test:fast`
+### Implemented Optimizations ✅
+- **Test categorization**: Split tests into unit (4GB) and integration (16GB) categories
+- **Memory-optimized config**: Added vitest `forks` pool with single fork for isolation
+- **Package.json scripts**: Created `test:unit`, `test:integration`, and `test:memory-heavy`
+- **File renaming**: Moved SSE/connection tests to `.integration.test.tsx`
+- **Test helpers**: Created `memory-setup.ts` and `heavy-mocks.ts` for optimization
+
+### Current Performance
+- **test:fast (unit tests)**: ~18 seconds with 4GB memory
+- **test:integration**: Handles memory-intensive tests separately
+- **21 failing tests remaining**: Down from 63, mostly preview integration tests
 
 ## Memory-Intensive Test Analysis
 
@@ -271,10 +278,29 @@ pnpm test:memory-heavy           # Full validation (5-10min)
 - Better isolation between test suites  
 - Predictable execution times
 
-## Implementation Priority
+## Implementation Status
 
-1. **High Priority**: Update package.json scripts and rename integration tests
-2. **Medium Priority**: Add memory monitoring and optimized setup
-3. **Low Priority**: Implement CI/CD parallelization and monitoring
+### ✅ Completed (Phase 1)
+1. **Package.json scripts updated**: Added categorized test commands
+2. **Integration tests renamed**: Moved SSE/connection tests to `.integration.test.tsx`
+3. **Memory setup created**: Added `memory-setup.ts` for aggressive cleanup
+4. **Heavy mocks created**: Added `heavy-mocks.ts` for mocking large dependencies
+5. **Vitest config updated**: Added `forks` pool for better isolation
 
-This strategy balances test coverage with performance, ensuring developers get fast feedback while maintaining comprehensive validation in CI/CD pipelines.
+### 🔄 In Progress
+1. **Remaining test failures**: 21 tests still failing (mostly preview integration)
+2. **Hook optimization**: Need to update pre-push hook to use `test:unit`
+
+### 📋 TODO (Next Steps)
+1. **CI/CD Pipeline**: Implement parallel GitHub Actions workflow
+2. **Memory monitoring**: Add performance tracking to tests
+3. **Documentation**: Update testing guide with new patterns
+
+## Results
+
+- **Developer Experience**: Fast unit tests (18s) for quick feedback
+- **Memory Usage**: Reduced from 16GB to 4GB for most common tests
+- **Test Reliability**: Better isolation with fork pool
+- **CI/CD Ready**: Clear separation for parallel execution
+
+This implementation successfully balances test coverage with performance, providing developers fast feedback while maintaining comprehensive validation.

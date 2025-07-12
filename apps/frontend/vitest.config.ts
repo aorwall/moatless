@@ -10,6 +10,7 @@ export default defineConfig({
     globals: true,
     setupFiles: [path.resolve(__dirname, './src/test-utils/setup.ts')],
     include: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.{ts,tsx}'],
+    exclude: ['**/test-helpers.ts', '**/test-helpers.tsx', '**/node_modules/**'],
     coverage: {
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
@@ -20,6 +21,12 @@ export default defineConfig({
         'src/main.tsx',
         'src/routeTree.gen.ts',
       ],
+    },
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
     },
   },
   resolve: {

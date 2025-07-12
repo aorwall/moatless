@@ -33,6 +33,7 @@ vi.mock('@radix-ui/react-tooltip', () => ({
   Provider: ({ children }: { children: React.ReactNode }) => children,
   Root: ({ children }: { children: React.ReactNode }) => children,
   Portal: ({ children }: { children: React.ReactNode }) => children,
+  Arrow: () => null,
   Trigger: ({ children, asChild, ...props }: any) => {
     // Filter out asChild to prevent React warnings
     const { asChild: _, ...domProps } = props
@@ -44,6 +45,14 @@ vi.mock('@radix-ui/react-tooltip', () => ({
     return React.createElement('div', domProps, children)
   },
   TooltipProvider: ({ children }: { children: React.ReactNode }) => children,
+  Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  TooltipTrigger: ({ children, asChild, ...props }: any) => {
+    // Filter out asChild to prevent React warnings
+    const { asChild: _, ...domProps } = props
+    return React.createElement('div', domProps, children)
+  },
+  TooltipContent: ({ children }: { children: React.ReactNode }) => children,
+  TooltipArrow: () => null,
 }))
 
 // Increase test timeout for heavy operations
