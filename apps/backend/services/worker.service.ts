@@ -89,7 +89,7 @@ export class WorkerService {
     const apiKey = randomUUID()
     const port = 8001 + this.workers.size
 
-    const image = repositoryConfig?.codeExecution?.workerImage || 'moatless/backend:latest'
+    const image = repositoryConfig?.codeExecution?.image || 'moatless/backend:latest'
 
     this.logger.info('Creating worker container', { workerId, image })
 

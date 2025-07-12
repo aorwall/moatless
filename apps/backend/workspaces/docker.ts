@@ -13,8 +13,7 @@ import type { BaseAgent } from '../services/agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 import type { GitDiffResponse } from '../utils/git-utils.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
-import { LocalWorkspace } from './local.js'
-import { WorkspaceFileOperations } from './workspace-file-operations.js'
+import type { LocalWorkspace } from './local.js'
 
 const execAsync = promisify(exec)
 
@@ -28,8 +27,6 @@ export class DockerWorkspace extends BaseWorkspace {
   private _createdAt = new Date()
   private _error?: string
   private localWorkspace: LocalWorkspace
-  private workerMode = false // Whether this workspace uses worker mode
-  private fileOps: WorkspaceFileOperations
   private eventStreamController?: AbortController
 
   get type(): 'docker' {
@@ -55,20 +52,10 @@ export class DockerWorkspace extends BaseWorkspace {
     taskId: string,
     repositoryConfig: RepositoryConfig,
     eventService: EventService,
-    workspacePath: string,
+    localWorkspace: LocalWorkspace,
   ) {
     super(taskId, repositoryConfig, eventService)
-    // Create LocalWorkspace instance for file operations delegation
-    this.localWorkspace = new LocalWorkspace(
-      taskId,
-      repositoryConfig,
-      eventService,
-      undefined, // originalBranch
-      undefined, // branchName
-      workspacePath,
-    )
-    // Initialize file operations with repository path (will be mounted in container)
-    this.fileOps = new WorkspaceFileOperations(repositoryConfig.path, taskId)
+    this.localWorkspace = localWorkspace
   }
 
   async setup(iterationNumber?: number): Promise<void> {
@@ -77,75 +64,61 @@ export class DockerWorkspace extends BaseWorkspace {
       // Emit setup started event
 
       this.image = this.repositoryConfig.codeExecution.image || 'node:18-alpine'
-      const workdir = '/workspace'
 
       // Create container
       this.containerName = this.repositoryConfig.codeExecution.containerName
         ? `${this.repositoryConfig.codeExecution.containerName}-${this.taskId}`
         : `moatless-task-${this.taskId}`
 
-      // Check if we should use worker mode (runs backend inside container)
-      this.workerMode = this.repositoryConfig.codeExecution?.workerImage ? true : false
-      const actualImage = this.workerMode
-        ? this.repositoryConfig.codeExecution.workerImage
-        : this.image
+      // Docker workspaces always run backend inside container
+      const actualImage = this.repositoryConfig.codeExecution.image || this.image
 
       let createCommand = `docker create --name "${this.containerName}"`
 
-      // Only set working directory for non-worker mode
-      // Worker mode uses the WORKDIR from Dockerfile (/app/apps/backend)
-      if (!this.workerMode) {
-        createCommand += ` -w "${workdir}"`
+      // Add moatless labels for easy cleanup
+      createCommand += ` --label "created-by=moatless"`
+      createCommand += ` --label "moatless.task-id=${this.taskId}"`
+      createCommand += ` --label "moatless.workspace-type=docker"`
+      createCommand += ` --label "moatless.created-at=${new Date().toISOString()}"`
+
+      // Set working directory to /repo
+      createCommand += ` -w "/repo"`
+
+      // Add volume mappings - mount both workspace and data directories
+      const workspacePath = this.localWorkspace.getWorkspacePath()
+      const dataDir = process.env.DATA_DIR || './data'
+
+      // Mount workspace to /repo
+      createCommand += ` -v "${workspacePath}:/repo"`
+
+      // Mount data directory for shared storage
+      createCommand += ` -v "${dataDir}:/data"`
+
+      // Add environment variables for worker mode
+      // Use host.docker.internal to reach the host from within the container
+      const port = process.env.PORT || '8000'
+      const apiUrl =
+        process.env.WORKER_API_URL || process.env.API_URL || `http://host.docker.internal:${port}`
+      const apiKey = process.env.WORKER_API_KEY || process.env.API_KEY || 'test-key'
+
+      createCommand += ` -e "WORKER_MODE=true"`
+      createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
+      createCommand += ` -e "WORKER_API_KEY=${apiKey}"`
+      createCommand += ` -e "WORKER_TASK_ID=${this.taskId}"`
+      createCommand += ` -e "WORKSPACE_DIR=/repo"`
+      createCommand += ` -e "DATA_DIR=/data"`
+      createCommand += ` -e "PORT=8001"` // Worker runs on different port
+
+      // Pass through Claude authentication environment variables
+      if (process.env.CLAUDE_AUTH_DIR) {
+        createCommand += ` -e "CLAUDE_AUTH_DIR=${process.env.CLAUDE_AUTH_DIR}"`
       }
-
-      // Add volume mappings
-      if (this.workerMode) {
-        // In worker mode, we need to mount both workspace and data directories
-        const workspacePath = this.repositoryConfig.path
-        const dataDir = process.env.DATA_DIR || './data'
-
-        // Mount workspace
-        createCommand += ` -v "${workspacePath}:/workspace"`
-
-        // Mount data directory for shared storage
-        createCommand += ` -v "${dataDir}:/data"`
-      } else {
-        // Add volume mounts if specified
-        if (this.repositoryConfig.codeExecution.volumes) {
-          for (const volume of this.repositoryConfig.codeExecution.volumes) {
-            createCommand += ` -v "${volume}"`
-          }
-        }
+      if (process.env.ANTHROPIC_API_KEY) {
+        createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
       }
-
-      // Add environment variables
-      if (this.workerMode) {
-        // Worker mode requires specific environment variables
-        // Use host.docker.internal to reach the host from within the container
-        const port = process.env.PORT || '8000'
-        const apiUrl =
-          process.env.WORKER_API_URL || process.env.API_URL || `http://host.docker.internal:${port}`
-        const apiKey = process.env.WORKER_API_KEY || process.env.API_KEY || 'test-key'
-
-        createCommand += ` -e "WORKER_MODE=true"`
-        createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
-        createCommand += ` -e "WORKER_API_KEY=${apiKey}"`
-        createCommand += ` -e "WORKER_TASK_ID=${this.taskId}"`
-        createCommand += ` -e "WORKSPACE_DIR=/workspace"`
-        createCommand += ` -e "DATA_DIR=/data"`
-        createCommand += ` -e "PORT=8001"` // Worker runs on different port
-
-        // Pass through Claude authentication environment variables
-        if (process.env.CLAUDE_AUTH_DIR) {
-          createCommand += ` -e "CLAUDE_AUTH_DIR=${process.env.CLAUDE_AUTH_DIR}"`
-        }
-        if (process.env.ANTHROPIC_API_KEY) {
-          createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
-        }
-        // Pass mock mode for tests
-        if (process.env.CLAUDE_CODE_MOCK) {
-          createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
-        }
+      // Pass mock mode for tests
+      if (process.env.CLAUDE_CODE_MOCK) {
+        createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
       }
 
       if (this.repositoryConfig.codeExecution.envVars) {
@@ -165,13 +138,9 @@ export class DockerWorkspace extends BaseWorkspace {
         }
       }
 
-      if (this.workerMode) {
-        // In worker mode, start the backend directly
-        // Note: The Dockerfile sets WORKDIR to /app/apps/backend
-        createCommand += ` "${actualImage}"`
-      } else {
-        createCommand += ` "${actualImage}" sh -c "mkdir -p ${workdir} && sleep infinity"`
-      }
+      // Start the backend directly
+      // Working directory is set to /repo where the workspace is mounted
+      createCommand += ` "${actualImage}"`
 
       const { stdout } = await execAsync(createCommand, { timeout: 30000 })
       this.containerId = stdout.trim()
@@ -179,14 +148,8 @@ export class DockerWorkspace extends BaseWorkspace {
       // Start container
       await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
 
-      // Wait for worker to be ready if in worker mode
-      if (this.workerMode) {
-        await this.waitForWorkerReady()
-      } else {
-        // Copy repository files to container (only for non-worker mode)
-        const copyCommand = `docker cp "${this.repositoryConfig.path}/." "${this.containerId}:/workspace/"`
-        await execAsync(copyCommand, { timeout: 60000 })
-      }
+      // Wait for worker to be ready
+      await this.waitForWorkerReady()
 
       // Run setup commands if specified
       if (this.repositoryConfig.codeExecution.setupCommands) {
@@ -306,11 +269,7 @@ export class DockerWorkspace extends BaseWorkspace {
     // Stop the running agent if any
     if (this.runningAgent) {
       try {
-        if (this.workerMode) {
-          await this.executeWorkerHttpRequest('/stop-agent', { taskId: this.taskId })
-        } else {
-          await this.runningAgent.stop()
-        }
+        await this.executeWorkerHttpRequest('/stop-agent', { taskId: this.taskId })
       } catch (error) {
         console.error('Error stopping agent:', error)
       }
@@ -334,24 +293,13 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
-    if (this.workerMode) {
-      // Use file operations directly for worker mode
-      return this.fileOps.searchFiles(request)
-    } else {
-      // Delegate to LocalWorkspace for host file system operations
-      return this.localWorkspace.searchFiles(request)
-    }
+    // Delegate to local workspace for consistent file search behavior
+    return this.localWorkspace.searchFiles(request)
   }
 
   async getGitDiff(): Promise<GitDiffResponse> {
-    if (this.workerMode) {
-      // Use file operations directly for worker mode
-      const diff = await this.fileOps.getGitDiff()
-      return { diff }
-    } else {
-      // Delegate to LocalWorkspace for git operations on host
-      return this.localWorkspace.getGitDiff()
-    }
+    // Delegate to local workspace for consistent git operations
+    return this.localWorkspace.getGitDiff()
   }
 
   async runCommand(command: string, timeout?: number): Promise<CommandResult> {
@@ -402,10 +350,6 @@ export class DockerWorkspace extends BaseWorkspace {
     resumeSessionId?: string,
     model?: string,
   ): Promise<BaseAgent> {
-    if (!this.workerMode) {
-      throw new Error('Agent triggering only supported in worker mode for Docker workspaces')
-    }
-
     // Mark agent as running
     this.runningAgent = {} as BaseAgent
 
@@ -483,13 +427,8 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   async hasUncommittedChanges(): Promise<boolean> {
-    if (this.workerMode) {
-      // Use file operations directly for worker mode
-      return this.fileOps.hasUncommittedChanges()
-    } else {
-      // Delegate to LocalWorkspace for git operations
-      return this.localWorkspace.hasUncommittedChanges()
-    }
+    // Delegate to local workspace for consistent git operations
+    return this.localWorkspace.hasUncommittedChanges()
   }
 
   async mergeChanges(): Promise<string> {
@@ -504,25 +443,17 @@ export class DockerWorkspace extends BaseWorkspace {
 
     console.log(`Stopping agent for task ${this.taskId}`)
     try {
-      if (this.workerMode) {
-        // Stop event stream first
-        if (this.eventStreamController) {
-          this.eventStreamController.abort()
-          this.eventStreamController = undefined
-        }
-
-        // Stop agent via worker HTTP endpoint
-        await this.executeWorkerHttpRequest('/stop-agent', { taskId: this.taskId })
-        this.runningAgent = undefined
-        console.log(`Agent stopped successfully for task ${this.taskId}`)
-        return true
-      } else {
-        // Direct stop for non-worker mode
-        await this.runningAgent.stop()
-        this.runningAgent = undefined
-        console.log(`Agent stopped successfully for task ${this.taskId}`)
-        return true
+      // Stop event stream first
+      if (this.eventStreamController) {
+        this.eventStreamController.abort()
+        this.eventStreamController = undefined
       }
+
+      // Stop agent via worker HTTP endpoint
+      await this.executeWorkerHttpRequest('/stop-agent', { taskId: this.taskId })
+      this.runningAgent = undefined
+      console.log(`Agent stopped successfully for task ${this.taskId}`)
+      return true
     } catch (error) {
       console.error(`Error stopping agent for task ${this.taskId}:`, error)
       this.runningAgent = undefined
@@ -531,33 +462,18 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   async listFiles(relativePath = '.', recursive = false): Promise<string[]> {
-    if (this.workerMode) {
-      // Use file operations directly for worker mode
-      return this.fileOps.listFiles(relativePath, recursive)
-    } else {
-      // Delegate to LocalWorkspace for host file system operations
-      return this.localWorkspace.listFiles(relativePath, recursive)
-    }
+    // Delegate to local workspace for consistent file operations
+    return this.localWorkspace.listFiles(relativePath, recursive)
   }
 
   async readFile(filePath: string): Promise<string> {
-    if (this.workerMode) {
-      // Use file operations directly for worker mode
-      return this.fileOps.readFile(filePath)
-    } else {
-      // Delegate to LocalWorkspace for host file system operations
-      return this.localWorkspace.readFile(filePath)
-    }
+    // Delegate to local workspace for consistent file operations
+    return this.localWorkspace.readFile(filePath)
   }
 
   async writeFile(filePath: string, content: string): Promise<void> {
-    if (this.workerMode) {
-      // Use file operations directly for worker mode
-      return this.fileOps.writeFile(filePath, content)
-    } else {
-      // Delegate to LocalWorkspace for host file system operations
-      return this.localWorkspace.writeFile(filePath, content)
-    }
+    // Delegate to local workspace for consistent file operations
+    return this.localWorkspace.writeFile(filePath, content)
   }
 
   // Server methods (TODO: implement these)
@@ -594,20 +510,12 @@ export class DockerWorkspace extends BaseWorkspace {
   }
 
   getWorkspacePath(): string {
-    if (this.workerMode) {
-      // For Docker workspaces in worker mode, return the container's workspace path
-      return '/workspace'
-    } else {
-      // Return the actual workspace path from LocalWorkspace
-      return this.localWorkspace.getWorkspacePath()
-    }
+    // Delegate to local workspace to get the actual workspace path
+    return this.localWorkspace.getWorkspacePath()
   }
 
   async isWorkspacePathValid(): Promise<boolean> {
-    // Check both the local workspace path and container status
-    const localPathValid = await this.localWorkspace.isWorkspacePathValid()
-    if (!localPathValid) return false
-
+    // Check container status
     if (!this.containerId) return false
 
     try {

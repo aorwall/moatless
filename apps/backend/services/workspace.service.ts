@@ -41,22 +41,27 @@ export class WorkspaceService {
     let workspacePath: string | undefined
     workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
 
+    // Always create LocalWorkspace first
+    const localWorkspace = new LocalWorkspace(
+      taskId,
+      repository,
+      this.eventService,
+      undefined, // originalBranch
+      branchName,
+      workspacePath,
+    )
+
     // Determine workspace type from repository config or global default
     const globalDefaultWorkspaceType = process.env.DEFAULT_WORKSPACE_TYPE || 'local'
     const workspaceType = repository.codeExecution.workspaceType || globalDefaultWorkspaceType
 
     let workspace: BaseWorkspace
     if (workspaceType === 'docker') {
-      workspace = new DockerWorkspace(taskId, repository, this.eventService, workspacePath!)
+      // Create DockerWorkspace that wraps LocalWorkspace
+      workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
     } else {
-      workspace = new LocalWorkspace(
-        taskId,
-        repository,
-        this.eventService,
-        undefined, // originalBranch
-        branchName,
-        workspacePath,
-      )
+      // Use LocalWorkspace directly
+      workspace = localWorkspace
     }
 
     this.activeWorkspaces.set(taskId, workspace)
@@ -185,27 +190,33 @@ export class WorkspaceService {
     })
 
     try {
+      // For existing workspaces, create the workspace path if not already set
+      const workspacePath =
+        existingWorkspacePath ||
+        (await this.createWorkspaceRepository(repository, taskId, branchName))
+
+      // Always create LocalWorkspace first
+      const localWorkspace = new LocalWorkspace(
+        taskId,
+        repository,
+        this.eventService,
+        undefined,
+        branchName,
+        workspacePath,
+      )
+
       let workspace: BaseWorkspace
       if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker workspace with existing path')
-        // For existing workspaces, create the workspace path if not already set
-        const workspacePath =
-          existingWorkspacePath ||
-          (await this.createWorkspaceRepository(repository, taskId, branchName))
-        workspace = new DockerWorkspace(taskId, repository, this.eventService, workspacePath)
+        // Create DockerWorkspace that wraps LocalWorkspace
+        workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
       } else {
         workspaceLogger.debug('Creating Local workspace with existing path', {
           branchName,
           existingWorkspacePath,
         })
-        workspace = new LocalWorkspace(
-          taskId,
-          repository,
-          this.eventService,
-          undefined,
-          branchName,
-          existingWorkspacePath,
-        )
+        // Use LocalWorkspace directly
+        workspace = localWorkspace
       }
 
       // Store the workspace in the active workspaces map

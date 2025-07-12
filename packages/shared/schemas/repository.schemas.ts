@@ -22,19 +22,26 @@ export const CodeExecutionSchema = z.object({
   setupCommands: z.string().optional(),
   serverCommand: z.string().optional(),
   serverLogFile: z.string().optional(),
+  // Docker-specific fields
+  containerName: z.string().optional(),
   image: z.string().optional(),
   envVars: z.record(z.string()).optional(),
   volumes: z.array(z.string()).optional(),
   ports: z.record(z.number()).optional(),
-  // New worker configuration
-  useWorkers: z.boolean().optional(),
-  workerImage: z.string().optional(),
-  workerResources: z
+  volumeMapping: z
     .object({
-      memory: z.string(),
-      cpu: z.string(),
+      hostPath: z.string(),
+      containerPath: z.string(),
     })
     .optional(),
+  resources: z
+    .object({
+      cpuLimit: z.string(),
+      memoryLimit: z.string(),
+    })
+    .optional(),
+  // Workspace type configuration
+  workspaceType: z.enum(['local', 'docker']).optional(), // Default set at global level
 })
 
 // Repository schemas - merged repository fields directly into RepositoryConfig

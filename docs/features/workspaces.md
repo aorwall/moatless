@@ -79,34 +79,21 @@ The workspace service provides capability checking to ensure operations are only
 
 ### Core Design Principles
 
-```mermaid
-graph LR
-    subgraph "Design Principles"
-        ISO[Task Isolation]
-        SEC[Security First]
-        EFF[Resource Efficiency]
-        CON[Concurrency Support]
-        TRA[Traceability]
-    end
-    
-    ISO --> |"One workspace per task"| SEC
-    SEC --> |"Sandboxed execution"| EFF
-    EFF --> |"Git worktrees"| CON
-    CON --> |"Parallel execution"| TRA
-```
-
 1. **Complete Isolation**: Each task operates in a completely separate environment
 2. **Security by Design**: All operations are sandboxed and validated
 3. **Resource Efficiency**: Shared git objects, lazy initialization
 4. **Concurrent Safety**: Multiple agents can work simultaneously
-5. **Full Traceability**: All operations are logged and tracked
+5. **Separation of Concerns**: Worker mode is a deployment decision, not a workspace type
 
-### Architectural Constraints
+### Worker Mode Architecture
 
-- **No Shared State**: Workspaces never share data or resources
-- **Immutable Infrastructure**: Workspaces are disposable and recreatable
-- **Fail-Safe Defaults**: Security restrictions enabled by default
-- **Graceful Degradation**: Failures isolated to individual workspaces
+**Important**: Worker mode is not a separate workspace type but rather a deployment architecture for Docker workspaces. When using Docker workspaces, the backend always runs inside the container (worker mode) to ensure proper isolation and security.
+
+Key principles:
+- **Single Responsibility**: DockerWorkspace handles container management, not mode detection
+- **Deployment Concern**: The decision to run in worker mode is made at the deployment/configuration level
+- **Always Worker**: Docker workspaces inherently run the backend inside containers for isolation
+- **Communication**: Host-to-container communication via HTTP and SSE is the standard pattern
 
 ## Core Architecture
 
@@ -129,14 +116,12 @@ graph TB
         WM[Workspace Manager]
         LW[Local Workspace]
         DW[Docker Workspace]
-        VW[Virtual Workspace]
     end
     
     subgraph "Infrastructure Layer"
         GIT[Git Worktrees]
         FS[File System]
         DOC[Docker Engine]
-        SEC[Security Layer]
     end
     
     UI --> API
@@ -147,12 +132,10 @@ graph TB
     WS --> WM
     WM --> LW
     WM --> DW
-    WM --> VW
     
     LW --> GIT
     LW --> FS
     DW --> DOC
-    VW --> SEC
     
     style WS fill:#f9f,stroke:#333,stroke-width:4px
     style WM fill:#bbf,stroke:#333,stroke-width:2px
@@ -164,6 +147,10 @@ The workspace system architecture is organized into distinct layers:
 
 1. **Service Layer** - Core business logic
    - `apps/backend/services/workspace.service.ts` - Main workspace service orchestrating all workspace operations
+     - Worker mode selection: Uses `repository.codeExecution.workspaceType` OR `process.env.DEFAULT_WORKSPACE_TYPE`
+     - Setup persistence: Saves workspace path to task storage after successful setup
+     - Force cleanup: Always uses `force: true` internally for workspace cleanup
+     - Git status checking: Conditional based on workspace type (LocalWorkspace only)
    - `apps/backend/services/task.service.ts` - Task service that requests workspace creation
    - `apps/backend/services/agents/` - Agent implementations that execute within workspaces
 
@@ -171,54 +158,10 @@ The workspace system architecture is organized into distinct layers:
    - `apps/backend/workspaces/base.ts` - Abstract base class defining workspace interface
    - `apps/backend/workspaces/local.ts` - Local filesystem workspace using git worktrees
    - `apps/backend/workspaces/docker.ts` - Docker container-based workspace implementation
-   - Virtual workspace (planned for future implementation)
 
 3. **Infrastructure Layer** - Low-level utilities
    - `apps/backend/utils/git-utils.ts` - Git operations including worktree management
    - `apps/backend/utils/file-search.ts` - File system search utilities
-   - Docker integration through shell commands
-   - Path validation and security utilities
-
-### Component Architecture
-
-```mermaid
-graph LR
-    subgraph "Workspace Service"
-        direction TB
-        API[API Layer]
-        ORCH[Orchestration]
-        VAL[Validation]
-        LIFE[Lifecycle Manager]
-    end
-    
-    subgraph "Workspace Types"
-        direction TB
-        LOCAL[Local Workspace]
-        DOCKER[Docker Workspace]
-        REMOTE[Remote Workspace]
-    end
-    
-    subgraph "Core Services"
-        direction TB
-        GIT[Git Service]
-        FS[File Service]
-        CMD[Command Service]
-        SEC[Security Service]
-    end
-    
-    API --> ORCH
-    ORCH --> VAL
-    ORCH --> LIFE
-    
-    LIFE --> LOCAL
-    LIFE --> DOCKER
-    LIFE --> REMOTE
-    
-    LOCAL --> GIT
-    LOCAL --> FS
-    LOCAL --> CMD
-    DOCKER --> SEC
-```
 
 ### Workspace Hierarchy
 
@@ -248,15 +191,9 @@ classDiagram
         +copyRepositoryFiles()
     }
     
-    class VirtualWorkspace {
-        -memoryFS: Map
-        +simulateCommand()
-        +mockFileSystem()
-    }
     
     BaseWorkspace <|-- LocalWorkspace
     BaseWorkspace <|-- DockerWorkspace
-    BaseWorkspace <|-- VirtualWorkspace
 ```
 
 **Workspace Class Implementation Details:**
@@ -276,6 +213,15 @@ classDiagram
      - `writeFile()`: File modification
      - `searchFiles()`: File search functionality
      - `getGitDiff()`: Version control changes
+     - `isWorkspacePathValid()`: Check if workspace path/container is valid
+     - `toWorkspaceInfo()`: Convert to storage-compatible object
+     - `getWorkspacePath()`: Get workspace path or container ID
+   - Optional server management methods:
+     - `startServer()`: Start development server
+     - `stopServer()`: Stop development server
+     - `restartServer()`: Restart development server
+     - `getServerStatus()`: Get server running status
+     - `getServerLogs()`: Retrieve server logs
 
 2. **LocalWorkspace Implementation** (`apps/backend/workspaces/local.ts`)
    - Uses git worktrees for isolation
@@ -284,30 +230,42 @@ classDiagram
      - `runSetupCommands()`: Executes npm install, pip install, etc.
      - `validatePath()`: Ensures operations stay within workspace
      - `executeCommand()`: Runs commands with timeout and resource limits
+     - `getGitStatus()`: Returns detailed git sync status with origin
+     - `hasUnmergedCommits()`: Checks for commits not in base branch
+     - `isBehindBase()`: Checks if workspace is behind base branch
+     - `getOriginSyncStatus()`: Gets sync status with origin remote
    - State management:
-     - Tracks setup progress
+     - Tracks setup progress with `setupInProgress` and `setupComplete` flags
      - Monitors running processes
      - Manages background tasks
+     - Auto-recreates missing worktrees during setup
+   - Branch detection:
+     - Intelligently detects existing branches from workspace paths
+     - Handles recovery when worktree is missing but branch exists
+   - Server management:
+     - Methods delegate to PreviewEnvironmentService
+     - Throws errors directing users to use preview environment endpoints
 
 3. **DockerWorkspace Implementation** (`apps/backend/workspaces/docker.ts`)
-   - Container-based isolation
+   - Container-based isolation that always runs in worker mode
    - Key methods:
      - `createContainer()`: Docker container initialization
-     - `copyRepositoryFiles()`: Syncs code to container
      - `executeInContainer()`: Runs commands inside Docker
      - `getContainerLogs()`: Retrieves execution logs
+   - Architecture:
+     - Runs the entire backend inside the container
+     - Uses SSE (Server-Sent Events) for real-time event streaming
+     - HTTP communication with worker backend on port 8001
+     - Health check polling during setup
+     - Agent execution triggered via HTTP endpoints
+     - Maintains `eventStreamController` for SSE connections
+   - File Operations:
+     - Uses `WorkspaceFileOperations` utility class for direct file access
+     - All file operations happen within the container
    - Container lifecycle:
-     - Creates named containers per task
-     - Manages volume mounts
-     - Handles container cleanup
-
-4. **VirtualWorkspace (Planned)**
-   - In-memory workspace for testing
-   - Would provide:
-     - Memory-based file system
-     - Command simulation
-     - Fast test execution
-     - No disk I/O
+     - Creates named containers per task: `moatless-task-<task-id>`
+     - Manages volume mounts and environment variables
+     - Uses custom Docker image with backend pre-installed
 
 ## Isolation Architecture
 
@@ -359,12 +317,35 @@ Git worktrees provide workspace isolation through separate working directories w
    - Branch naming convention: `workspace-<task-id>`
    - Worktree path: `<repo-parent>/<repo-name>-workspace-<task-id>`
    - Creation command: `git worktree add -b "workspace-<task-id>" "<path>"`
+   - Handles existing branch conflicts by creating alternative names
+   - Detects if branch is already checked out in another worktree
 
 2. **Branch Isolation** (`apps/backend/workspaces/local.ts`)
    - Each workspace operates on its own branch
    - Changes are isolated from main repository and other workspaces
    - Prevents conflicts between concurrent AI agents
    - Branches can be merged back to main when task completes
+   - Auto-recovery: Recreates missing worktrees if branch still exists
+
+3. **Git Utilities** (`apps/backend/utils/git-utils.ts`)
+   - **Origin-Aware Operations**: Most functions prioritize `origin/branch` over local branches
+   - **Comprehensive Status**: `getComprehensiveGitStatus()` provides detailed sync information:
+     - Current branch and tracking status
+     - Commits ahead/behind origin
+     - Modified files and staging area
+     - Untracked files
+   - **Worktree Management**:
+     - `isGitWorktree()`: Detects if path is a worktree
+     - `isBranchCheckedOut()`: Checks if branch is in use
+     - `getWorktreeBranch()`: Retrieves branch name from worktree
+   - **Advanced Diff**: `getGitDiffDetailed()` returns structured diff with:
+     - File-by-file changes
+     - Full file contents for new/deleted files
+     - Line-by-line modifications
+   - **Origin Sync Functions**:
+     - `fetchLatestFromOrigin()`: Updates from remote
+     - `isOriginBranch()`: Checks if branch exists on origin
+     - `getOriginBranchName()`: Gets corresponding origin branch
 
 ### Docker Container Isolation
 
@@ -403,13 +384,32 @@ graph TB
 
 **Docker Container Implementation Details:**
 
-Docker provides complete process and resource isolation for workspace execution:
+Docker provides complete process and resource isolation for workspace execution. Docker workspaces always operate in worker mode, where the backend runs inside the container:
 
 1. **Container Creation** (`apps/backend/workspaces/docker.ts:setup()`)
    - Container naming: `moatless-task-<task-id>`
-   - Base image configurable per repository (default: `node:18-alpine`)
-   - Working directory: `/workspace`
-   - Container creation: `docker create --name "<name>" -w "/workspace" "<image>" sleep infinity`
+   - Uses custom Docker image with backend pre-installed
+   - Mounts workspace at `/workspace` and data at `/data`
+   - Starts backend automatically (no `sleep infinity`)
+
+2. **Worker Mode Architecture**
+   - **Backend in Container**: Full backend runs inside Docker container
+   - **SSE Communication**: Real-time event streaming from container to host
+   - **HTTP API**: Worker exposes endpoints on port 8001:
+     - `/health`: Health check endpoint
+     - `/execute`: Run commands
+     - `/execute-agent`: Execute AI agents
+     - `/stop-agent`: Stop running agents
+     - `/events/stream`: SSE event stream
+   - **Health Monitoring**: Polls `/health` during setup (max 30 attempts)
+   - **Event Streaming**: Maintains persistent SSE connection for real-time updates
+   - **Resource Limits**: Configurable CPU and memory limits
+   - **Environment Variables**:
+     - `WORKER_MODE=true`: Indicates worker mode
+     - `WORKER_API_URL`: API URL for host communication
+     - `WORKER_TASK_ID`: Task identifier
+     - `WORKSPACE_DIR=/workspace`: Working directory
+     - `DATA_DIR=/data`: Data storage directory
 
 ## Lifecycle Management
 
@@ -452,7 +452,12 @@ sequenceDiagram
 2. **Workspace Request** (`apps/backend/services/workspace.service.ts:createWorkspace()`)
    - WorkspaceService receives task ID and repository ID
    - Retrieves repository configuration to determine workspace type
-   - Decides between Local (git worktree) or Docker workspace based on `repository.codeExecution.type`
+   - Workspace type selection logic:
+     - First checks `repository.codeExecution.workspaceType`
+     - Falls back to `process.env.DEFAULT_WORKSPACE_TYPE` if not specified
+     - Options: `local` (git worktree) or `docker` (container with worker mode)
+   - Validates prerequisites (Docker installed for container workspaces)
+   - Stores workspace path in task metadata after successful setup
 
 3. **Git Worktree Creation** (for Local workspaces)
    - **Path Generation** (`workspace.service.ts:createWorkspaceRepository()`)
@@ -473,16 +478,21 @@ sequenceDiagram
 4. **Docker Container Creation** (for Docker workspaces)
    - **Container Setup** (`apps/backend/workspaces/docker.ts:setup()`)
      - Creates container with name `moatless-task-<task-id>`
-     - Configures working directory as `/workspace`
-     - Applies volume mounts and environment variables from config
-   
-   - **File Synchronization**
-     - Copies repository files to container: `docker cp "<repo-path>/." "<container-id>:/workspace/"`
-     - Preserves file permissions and structure
+     - Uses Docker image with backend pre-installed
+     - Mounts volumes:
+       - Repository path to `/workspace`
+       - Data directory to `/data`
+     - Sets environment variables:
+       - `WORKER_MODE=true`
+       - `WORKER_API_URL` for host communication
+       - `WORKER_TASK_ID` for task identification
+       - Authentication credentials (Claude API keys)
    
    - **Container Initialization**
-     - Starts container with `sleep infinity` to keep it running
+     - Starts backend automatically (image ENTRYPOINT)
+     - Waits for health check at `http://localhost:8001/health`
      - Executes setup commands defined in repository config
+     - No file copying needed - workspace is mounted directly
 
 5. **Setup Commands Execution**
    - **Local Workspace** (`apps/backend/workspaces/local.ts:runSetupCommandsInBackground()`)
@@ -592,3 +602,126 @@ graph TB
    - Ensures workspace is removed from active list even if teardown fails
    - Provides detailed error logging for debugging
    - Total cleanup time is tracked and logged
+
+## Repository Configuration
+
+### Workspace Configuration Schema
+
+The repository configuration schema (`packages/shared/schemas/repository.schemas.ts`) defines how workspaces are configured:
+
+```typescript
+CodeExecutionSchema: {
+  type: 'local' | 'docker',
+  workspaceType?: 'local' | 'docker',  // Explicit workspace type
+  dockerImage?: string,                 // Docker image with backend
+  workerResources?: {                   // Resource limits for containers
+    cpuLimit?: string,
+    memoryLimit?: string
+  },
+  setupCommands: string[],
+  environmentVariables?: Record<string, string>
+}
+```
+
+### Configuration Fields
+
+1. **Workspace Type Selection**
+   - `type`: Legacy field for basic workspace type
+   - `workspaceType`: Explicit workspace type selection (takes precedence)
+   - Falls back to `DEFAULT_WORKSPACE_TYPE` environment variable
+   - Options: `local` or `docker`
+
+2. **Docker Configuration**
+   - `dockerImage`: Docker image with backend pre-installed (required for Docker workspaces)
+   - `workerResources`: CPU and memory limits for containers
+   - Docker workspaces always run in worker mode with backend inside container
+
+3. **Repository Fields** (merged into RepositoryConfig)
+   - `path`: Local filesystem path to repository
+   - `useGitWorktrees`: Enable git worktree-based workspaces (for local mode)
+   - `originalBranch`: Base branch for workspace creation
+
+## Security Architecture
+
+### Path Validation
+
+All workspace operations include strict path validation to prevent directory traversal attacks:
+
+1. **Local Workspace** (`validatePath()`)
+   - Ensures all paths resolve within workspace directory
+   - Prevents access to parent directories
+   - Validates symbolic links stay within bounds
+
+2. **Docker Workspace**
+   - Container isolation provides natural boundaries
+   - Volume mounts restricted to workspace directory
+   - No host filesystem access outside defined mounts
+
+### Process Isolation
+
+1. **Command Execution**
+   - Commands run with restricted permissions
+   - Environment variables sanitized
+   - Resource limits enforced (CPU, memory, timeout)
+
+2. **Agent Execution**
+   - Agents run within workspace context
+   - No access to host system resources
+   - File system operations sandboxed
+
+## Integration Architecture
+
+### Preview Environment Integration
+
+Workspaces integrate with the Preview Environment service for development server management:
+
+1. **Server Operations**
+   - Workspace delegates server management to PreviewEnvironmentService
+   - Maintains separation of concerns
+   - Enables port forwarding and log access
+
+2. **Lifecycle Coordination**
+   - Preview environments tied to workspace lifecycle
+   - Automatic cleanup on workspace teardown
+   - Server processes managed independently
+
+### Event System Integration
+
+Workspaces emit events throughout their lifecycle. All workspace events use `EventType.WORKSPACE` with various subtypes:
+
+#### Event Structure
+```typescript
+{
+  eventId: string,              // Unique event ID (UUID)
+  agentType: 'system',          // Always 'system' for workspace events
+  type: EventType.WORKSPACE,    // Event type constant
+  subType: string,              // Specific workspace action
+  taskId: string,               // Associated task ID
+  iterationId?: number,         // Optional iteration number
+  timestamp: Date,              // Event timestamp
+  isError: boolean,             // Error flag
+  payload: object               // Event-specific data
+}
+```
+
+#### Currently Implemented Events
+
+**Note**: Currently, only Docker workspaces emit events. Local workspaces rely on logging instead of event emission.
+
+1. **Setup Lifecycle Events** (Docker only)
+   - `setup_completed`: Docker container setup successful
+     - Payload: `{ containerId: string }`
+     - Emitted when container is created and started
+   
+   - `setup_failed`: Docker container setup failed
+     - Payload: `{ error: string }`
+     - Emitted when container creation or startup fails
+
+2. **Command Execution Events** (Docker only)
+   - `command_completed`: Setup command executed successfully
+     - Payload: `{ command: string, durationMs: number }`
+     - Emitted for each successful setup command
+   
+   - `command_failed`: Setup command execution failed
+     - Payload: `{ command: string, error: string, exitCode?: number }`
+     - Emitted when a setup command fails or throws an error
