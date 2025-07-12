@@ -526,6 +526,96 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     },
   )
 
+  // Sync workspace with main branch
+  app.post(
+    `${prefix}/:taskId/sync-with-main`,
+    describeRoute({
+      description: 'Safely sync workspace with main branch if no conflicts exist',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'baseBranch',
+          in: 'query',
+          required: false,
+          description: 'Base branch to sync with (defaults to main)',
+          schema: {
+            type: 'string',
+            default: 'main',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Sync operation result',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: {
+                    type: 'boolean',
+                    description: 'Whether the sync was successful',
+                  },
+                  conflicts: {
+                    type: 'boolean',
+                    description: 'Whether conflicts were detected',
+                  },
+                  message: {
+                    type: 'string',
+                    description: 'Description of the sync result',
+                  },
+                  commitsBehind: {
+                    type: 'number',
+                    description: 'Number of commits behind main',
+                  },
+                  commitsAhead: {
+                    type: 'number',
+                    description: 'Number of commits ahead of main',
+                  },
+                },
+                required: ['success', 'conflicts', 'message'],
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Cannot access git or workspace not ready',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = c.req.param('taskId')
+      if (!taskId) {
+        throw new HTTPException(400, { message: 'Task ID is required' })
+      }
+
+      const baseBranch = c.req.query('baseBranch')
+
+      try {
+        // Task validation and capability check now handled in workspace service
+        const result = await services.workspace.syncWorkspaceWithMain(taskId, baseBranch)
+        return c.json(result)
+      } catch (error) {
+        handleWorkspaceError(error)
+      }
+    },
+  )
+
   // Execute command in workspace
   app.post(
     `${prefix}/:taskId/execute`,
