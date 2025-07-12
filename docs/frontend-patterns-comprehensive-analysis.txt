@@ -1,0 +1,379 @@
+# Frontend Patterns Comprehensive Analysis & Action Plan
+
+## Executive Summary
+
+After reviewing all documented patterns in `/docs/patterns/` and comparing with the actual implementation, I've identified several areas where the codebase deviates from documented best practices. This report provides a detailed analysis and expanded action plan.
+
+## Pattern Compliance Analysis
+
+### 1. Tri-Context Pattern ✅ (Mostly Compliant)
+
+**Documentation:** `/docs/patterns/tri-context.md`
+
+**Implementation Status:**
+- ✅ Tasks feature correctly implements tri-context (TaskDataProvider, TaskEventsProvider, TaskUIProvider)
+- ✅ Proper separation of concerns between stable data, events, and UI state
+- ✅ Memoization of context values to prevent unnecessary re-renders
+
+**Minor Issues:**
+- Some components still access multiple contexts when they only need one
+- Could benefit from more granular hooks for specific data access
+
+### 2. Smart Cache Invalidation Pattern ⚠️ (Partial Compliance)
+
+**Documentation:** `/docs/patterns/cache-invalidation.md`
+
+**Implementation Status:**
+- ✅ Hierarchical query keys properly implemented in `query-keys.ts`
+- ✅ Event-driven invalidation in place
+- ❌ Missing batched invalidation strategy
+- ❌ No smart invalidator class implementation
+- ❌ Lack of conditional invalidation logic
+
+**Key Deviations:**
+```typescript
+// Current implementation (tasks hooks)
+onSuccess: async (data, variables, context) => {
+  await queryClient.invalidateQueries({
+    queryKey: queryKeys.tasksList(),
+  });
+}
+
+// Should implement batched invalidation per pattern:
+const invalidator = new SmartInvalidator();
+invalidator.scheduleInvalidation(queryClient, queryKeys.task(taskId), 'task_completed');
+```
+
+### 3. Derived State Without Effects Pattern ❌ (Major Violations)
+
+**Documentation:** `/docs/patterns/derived-state.md`
+
+**Implementation Status:**
+- ❌ Multiple components using useEffect for state synchronization
+- ❌ Scroll position tracking causes unnecessary re-renders
+- ❌ File expansion state managed with effects
+
+**Specific Violations Found:**
+
+1. **ChatView Component** (chat-view.tsx, lines 107-160):
+   ```typescript
+   // Bad: Using state for scroll tracking
+   const [scrollTop, setScrollTop] = useState(0)
+   const [scrollHeight, setScrollHeight] = useState(0)
+   const [clientHeight, setClientHeight] = useState(0)
+   
+   useEffect(() => {
+     // Updates state on every scroll
+   })
+   ```
+
+2. **GitDiffViewer Component** (git-diff-viewer.tsx, lines 131-138):
+   ```typescript
+   // Bad: Effect to sync UI state
+   React.useEffect(() => {
+     if (parsedFiles.length > 0) {
+       updateGitDiffState({ expandedFiles: allFileKeys })
+     }
+   }, [parsedFiles, updateGitDiffState])
+   ```
+
+3. **ChatForm Component** (chat-form.tsx, lines 123-149):
+   ```typescript
+   // Bad: Effects for DOM manipulation and position detection
+   useEffect(() => {
+     textarea.style.height = 'auto'
+     // ...
+   }, [maxHeight, inputRef.current]) // Problematic ref dependency
+   ```
+
+### 4. Error Handling Pattern ✅ (Good Compliance)
+
+**Documentation:** `/docs/patterns/error-handling.md`
+
+**Implementation Status:**
+- ✅ Error boundaries properly implemented
+- ✅ Strategic placement around features
+- ✅ Custom error fallback UI
+- ✅ Error recovery mechanisms
+- ⚠️ Missing global error context provider as documented
+
+### 5. React Query Patterns ⚠️ (Partial Compliance)
+
+**Documentation:** `/docs/patterns/react-query.md`
+
+**Implementation Status:**
+- ✅ Hierarchical query keys
+- ✅ Consistent hook structure
+- ✅ Optimistic updates in some mutations
+- ❌ Missing prefetching implementation
+- ❌ No smart invalidation as per pattern
+- ❌ Inconsistent staleTime configuration
+
+**Example Deviation:**
+```typescript
+// Current: No prefetching
+<Link to={`/tasks/${task.id}`}>{task.title}</Link>
+
+// Should implement:
+<Link 
+  to={`/tasks/${task.id}`}
+  onMouseEnter={() => queryClient.prefetchQuery({
+    queryKey: queryKeys.taskDetail(task.id),
+    queryFn: () => tasksApi.get(task.id),
+  })}
+>
+```
+
+### 6. Strategic Mocking Pattern ❌ (Poor Compliance)
+
+**Documentation:** `/docs/patterns/strategic-mocking.md`
+
+**Implementation Status:**
+- ❌ Over-mocking in many tests
+- ❌ Feature components being mocked when they shouldn't be
+- ❌ No strategic mock setup utilities
+- ❌ Missing contract testing patterns
+
+**Example Violations:**
+```typescript
+// Bad: Over-mocking feature components
+vi.mock('@/features/tasks/components/task-viewer')
+vi.mock('@/features/tasks/components/task-header')
+
+// Should only mock external dependencies
+vi.mock('@/features/tasks/hooks/use-tasks')
+vi.mock('@/lib/api/client')
+```
+
+### 7. Event-Driven Architecture ✅ (Good Compliance)
+
+**Documentation:** `/docs/patterns/event-driven.md`
+
+**Implementation Status:**
+- ✅ Type-safe event system
+- ✅ SSE integration for real-time updates
+- ✅ Event-based cache invalidation
+- ⚠️ Could use more typed event emitters
+
+### 8. SSE Management Pattern ✅ (Implemented)
+
+**Documentation:** `/docs/patterns/sse-management.md`
+
+**Implementation Status:**
+- ✅ Proper SSE connection management
+- ✅ Reconnection logic
+- ✅ Event deduplication
+- ✅ Type-safe event handling
+
+## Additional Findings Not in Current Action Plan
+
+### 1. Missing Pattern Documentation
+
+Several patterns are implemented but not documented:
+- **Command Pattern** - Used in tasks but no documentation
+- **File Tree Pattern** - Complex implementation without docs
+- **Preview Architecture** - Zustand usage not documented
+
+### 2. Inconsistent Query Configuration
+
+```typescript
+// Some queries have staleTime
+staleTime: 30 * 1000, // 30 seconds
+
+// Others don't, using global default
+// No clear strategy for cache duration
+```
+
+### 3. Component Size Violations
+
+Despite CLAUDE.md stating "keep components small and focused":
+- ChatView: 460 lines
+- TaskPage: 210 lines
+- Several other components >200 lines
+
+### 4. Missing Utilities from Patterns
+
+The patterns document several utilities not found in codebase:
+- `SmartInvalidator` class
+- `createTestWrapper` for strategic testing
+- `expectComponentIntegration` test helper
+
+## Expanded Action Plan
+
+### 🔴 Critical Pattern Violations (Fix Immediately)
+
+#### 1. Implement Derived State Pattern Fixes
+**Files to refactor:**
+- `chat-view.tsx` - Remove scroll state tracking
+- `git-diff-viewer.tsx` - Remove effect-based UI sync
+- `chat-form.tsx` - Use callback refs instead of effects
+- `minified-last-events-display.tsx` - Derive state directly
+
+**Example fix for ChatView:**
+```typescript
+// Replace state tracking with ref and derived value
+const scrollMetricsRef = useRef({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 })
+const [isAtBottom, setIsAtBottom] = useState(true)
+
+const handleScroll = useCallback(() => {
+  const viewport = scrollRef.current
+  if (!viewport) return
+  
+  const newIsAtBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 50
+  // Only update state when isAtBottom changes
+  if (newIsAtBottom !== isAtBottom) {
+    setIsAtBottom(newIsAtBottom)
+  }
+}, [isAtBottom])
+```
+
+#### 2. Implement Smart Cache Invalidation
+**Create new file:** `/lib/utils/smart-invalidator.ts`
+```typescript
+export class SmartInvalidator {
+  private pendingInvalidations = new Map<string, Set<string>>()
+  private batchTimeout: NodeJS.Timeout | null = null
+  
+  scheduleInvalidation(queryClient: QueryClient, queryKey: string[], reason: string) {
+    // Implementation from pattern doc
+  }
+}
+```
+
+#### 3. Fix Strategic Mocking
+**Update all route tests to follow pattern:**
+```typescript
+// Only mock external dependencies
+vi.mock('@/features/tasks/hooks/use-tasks')
+vi.mock('@/features/tasks/hooks/use-task-sse-connection')
+
+// DO NOT mock feature components
+// Test real integration
+```
+
+### 🟡 High Priority Pattern Improvements
+
+#### 4. Implement Prefetching
+**Add to task list components:**
+```typescript
+const prefetchTask = (taskId: string) => {
+  queryClient.prefetchQuery({
+    queryKey: queryKeys.taskDetail(taskId),
+    queryFn: () => tasksApi.getTask(taskId),
+    staleTime: 10 * 1000,
+  })
+}
+
+<Link 
+  to={`/tasks/${taskId}`}
+  onMouseEnter={() => prefetchTask(taskId)}
+>
+```
+
+#### 5. Add Global Error Context
+**Create:** `/lib/contexts/error-context.tsx`
+- Implement as documented in error-handling pattern
+- Wrap app with ErrorProvider
+- Use for centralized error reporting
+
+#### 6. Standardize Query Configuration
+**Update:** `/lib/api/query-client.ts`
+```typescript
+// Define data volatility categories
+const STALE_TIMES = {
+  STATIC: 60 * 60 * 1000,      // 1 hour (repos, settings)
+  STABLE: 5 * 60 * 1000,       // 5 minutes (tasks)
+  DYNAMIC: 30 * 1000,          // 30 seconds (events)
+  REALTIME: 0,                 // Always fresh (SSE data)
+}
+```
+
+### 🟢 Medium Priority Documentation
+
+#### 7. Create Missing Pattern Docs
+- `/docs/patterns/command-pattern.md`
+- `/docs/patterns/file-tree-pattern.md`
+- `/docs/patterns/component-size.md`
+
+#### 8. Update Existing Documentation
+- Add examples from actual codebase
+- Document exceptions (e.g., Zustand in preview)
+- Add migration guides for patterns
+
+### 🔵 Low Priority Enhancements
+
+#### 9. Implement Test Utilities
+Create `/test-utils/strategic-mocking.ts`:
+- `setupStrategicMocks()`
+- `createTestWrapper()`
+- `renderWithProviders()`
+
+#### 10. Performance Optimizations
+- Add React.memo based on profiling data
+- Implement virtual scrolling for large lists
+- Add service worker for offline support
+
+## Pattern Compliance Checklist
+
+### Must Follow (From Documentation):
+- [ ] Tri-Context for complex features
+- [ ] Smart cache invalidation with batching
+- [ ] Derived state without effects
+- [ ] Strategic mocking in tests
+- [ ] Error boundaries at feature level
+- [ ] Hierarchical query keys
+- [ ] Event-driven updates
+
+### Should Follow (Best Practices):
+- [ ] Prefetching on hover
+- [ ] Global error context
+- [ ] Component size <200 lines
+- [ ] Contract testing
+- [ ] Standardized stale times
+
+### Nice to Have:
+- [ ] Virtual scrolling
+- [ ] Service worker
+- [ ] Performance monitoring
+
+## Migration Strategy
+
+### Phase 1 (Week 1): Fix Critical Violations
+1. Refactor all useEffect state syncing
+2. Implement smart invalidator
+3. Fix test mocking strategy
+
+### Phase 2 (Week 2): Implement Missing Patterns
+1. Add prefetching
+2. Create global error context
+3. Standardize query configuration
+
+### Phase 3 (Week 3): Documentation & Testing
+1. Create missing pattern docs
+2. Implement test utilities
+3. Update component guidelines
+
+### Phase 4 (Week 4): Polish & Optimize
+1. Performance profiling
+2. Component size refactoring
+3. Final pattern compliance audit
+
+## Success Metrics
+
+- 0 useEffect calls for state synchronization
+- 100% of tests using strategic mocking
+- All components <200 lines
+- Prefetching on all navigation links
+- Smart invalidation for all cache updates
+- Complete pattern documentation
+- 90%+ pattern compliance score
+
+## Conclusion
+
+The codebase has good architectural foundations but deviates from documented patterns in several key areas. The most critical issues are:
+
+1. **Derived state violations** causing performance issues
+2. **Over-mocking in tests** missing integration bugs
+3. **Missing cache optimization** features
+
+By following this comprehensive action plan, the codebase will fully align with documented patterns and best practices, resulting in better performance, maintainability, and developer experience.
