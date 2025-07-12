@@ -22,7 +22,7 @@ import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { usePreviewStore } from '../stores/preview-store'
+import { usePreview } from '../hooks/use-preview'
 import { ScriptHealthIndicator } from './script-health-indicator'
 
 interface PreviewToolbarProps {
@@ -39,7 +39,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
     scriptHealthStatus,
     navigateToPath,
     toggleInspector,
-  } = usePreviewStore()
+  } = usePreview()
 
   const [pathInput, setPathInput] = useState(displayPath)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)

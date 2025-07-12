@@ -3,7 +3,7 @@ import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Separator } from '@/lib/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { usePreviewStore } from '../stores/preview-store'
+import { usePreview } from '../hooks/use-preview'
 
 interface InspectorPanelProps {
   className?: string
@@ -11,8 +11,7 @@ interface InspectorPanelProps {
 }
 
 export function InspectorPanel({ className, onClose }: InspectorPanelProps) {
-  const selectedElement = usePreviewStore((state) => state.selectedElement)
-  const setSelectedElement = usePreviewStore((state) => state.setSelectedElement)
+  const { selectedElement, setSelectedElement } = usePreview()
 
   if (!selectedElement) {
     return null

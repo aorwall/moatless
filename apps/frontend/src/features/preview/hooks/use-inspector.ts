@@ -1,10 +1,9 @@
 import { useCallback } from 'react'
-import { usePreviewStore } from '../stores/preview-store'
 import type { ElementInfo } from '../types'
+import { usePreview } from './use-preview'
 
 export function useInspector() {
-  const { isInspectorActive, selectedElement, toggleInspector, setSelectedElement } =
-    usePreviewStore()
+  const { isInspectorActive, selectedElement, toggleInspector, setSelectedElement } = usePreview()
 
   const handleElementSelected = useCallback(
     (element: ElementInfo | null) => {

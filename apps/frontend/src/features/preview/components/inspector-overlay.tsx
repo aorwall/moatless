@@ -1,5 +1,5 @@
 import { type RefObject, useEffect, useRef } from 'react'
-import { usePreviewStore } from '../stores/preview-store'
+import { usePreview } from '../hooks/use-preview'
 import type { ElementInfo } from '../types'
 import { INSPECTOR_SCRIPT } from '../utils/inspector-script'
 
@@ -10,8 +10,7 @@ interface InspectorOverlayProps {
 
 export function InspectorOverlay({ iframeRef, onElementSelected }: InspectorOverlayProps) {
   const injectedRef = useRef(false)
-  const isInspectorActive = usePreviewStore((state) => state.isInspectorActive)
-  const setSelectedElement = usePreviewStore((state) => state.setSelectedElement)
+  const { isInspectorActive, setSelectedElement } = usePreview()
 
   useEffect(() => {
     const iframe = iframeRef.current

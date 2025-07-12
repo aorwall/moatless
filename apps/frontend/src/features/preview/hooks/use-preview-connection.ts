@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from 'react'
-import { usePreviewStore } from '../stores/preview-store'
+import { usePreview } from './use-preview'
 
 export function usePreviewConnection(url: string) {
-  const { isConnected, setConnected, setError } = usePreviewStore()
+  const { isConnected, setConnected, setError } = usePreview()
 
   const checkConnection = useCallback(async () => {
     // Skip connection check if URL is empty or invalid

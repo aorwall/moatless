@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
-import { usePreviewStore } from '../stores/preview-store'
+import { usePreview } from '../hooks/use-preview'
 
 interface ConsoleLog {
   id: string
@@ -23,7 +23,8 @@ export function ConsoleLogs() {
   const [logs, setLogs] = useState<ConsoleLog[]>([])
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const shouldAutoScroll = useRef(true)
-  const previewUrl = usePreviewStore((state) => state.config?.url)
+  const { config } = usePreview()
+  const previewUrl = config?.url
 
   // Listen for console messages from the preview iframe
   useEffect(() => {

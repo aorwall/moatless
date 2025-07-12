@@ -5,8 +5,8 @@ import { useRestartServer, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
+import { usePreview } from '../hooks/use-preview'
 import { usePreviewConnection } from '../hooks/use-preview-connection'
-import { usePreviewStore } from '../stores/preview-store'
 import type { PreviewProps } from '../types'
 import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
@@ -34,7 +34,7 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
     setDisplayPath,
     setScriptHealthStatus,
     updateHeartbeat,
-  } = usePreviewStore()
+  } = usePreview()
 
   const { isConnected } = usePreviewConnection(config.url)
 
