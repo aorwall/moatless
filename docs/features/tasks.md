@@ -96,11 +96,11 @@ graph LR
     end
 ```
 
-## Frontend: The Tri-Context Pattern
+## Frontend: The Dual-Context Pattern
 
-To achieve high performance and prevent unnecessary re-renders, the frontend employs a "Tri-Context Pattern". This pattern separates different types of state into three distinct React contexts, ensuring that components only re-render when the specific data they subscribe to changes.
+To achieve high performance and prevent unnecessary re-renders, the frontend employs a "Dual-Context Pattern". This pattern separates different types of state into two distinct React contexts, ensuring that components only re-render when the specific data they subscribe to changes.
 
-This pattern is implemented via the `<TaskProviders>` component (`apps/frontend/src/features/tasks/contexts/task-providers.tsx`), which composes the three context providers.
+This pattern is implemented via the `<TaskProviders>` component (`apps/frontend/src/features/tasks/contexts/task-providers.tsx`), which composes the two context providers.
 
 ### 1. TaskUIProvider: Local UI State
 
@@ -109,19 +109,22 @@ This pattern is implemented via the `<TaskProviders>` component (`apps/frontend/
 - **Implementation**: This provider uses a `useState` hook holding a `Map<string, TaskUIState>`, where the key is the `taskId`. This provides **complete state isolation** between tasks. When you switch from one task to another, the UI state for the previous task is preserved in the map, and the state for the new task is loaded (or initialized to default).
 - **Hooks**: Provides specialized hooks like `usePanelView()`, `useChatState()`, and `useGitDiffState()` that allow components to subscribe to only the slice of UI state they need, preventing re-renders from unrelated state changes.
 
-### 2. TaskDataProvider: Server State
+### 2. TaskDataProvider: Server State & Events
 
 - **File**: `apps/frontend/src/features/tasks/contexts/task-data-provider.tsx`
-- **Responsibility**: Manages fetching, caching, and serving stable data from the backend. This includes task metadata, iterations, git diffs, and workspace status.
-- **Implementation**: Built on top of `react-query`, it uses the `useQueries` hook to fetch multiple data sources in parallel. Data is considered relatively stable and is refetched based on `staleTime` or through event-driven invalidation. It exposes specialized hooks like `useTaskStatus()` and `useTaskMetadata()` to provide components with stable, memoized primitive values.
+- **Responsibility**: Manages all server-side data including task metadata, workspace status, git diffs, and events. It handles both historical events (from API) and live streaming events (from SSE).
+- **Implementation**: Built on top of `react-query`, it manages multiple data sources with appropriate caching strategies:
+  - **Task metadata**: Fetched with 30s stale time (rarely changes)
+  - **Workspace status**: Conditional polling when in transitional states
+  - **Git diff**: Cached for 10 minutes
+  - **Events**: Never stale, updated only via SSE
+- **Event Handling**: 
+  - Maintains two event lists: `events` (historical from API) and `streamingEvents` (recent from SSE)
+  - Subscribes to the global event stream and updates both caches
+  - Streaming events are kept for components like the minified event viewer
+- **Hooks**: Provides specialized hooks for different data slices: `useTaskStatus()`, `useWorkspaceStatus()`, `useEventStream()`, `useStreamingStatus()`, etc.
 
-### 3. TaskEventsProvider: Real-time Events
-
-- **File**: `apps/frontend/src/features/tasks/contexts/task-events-provider.tsx`
-- **Responsibility**: Manages the real-time flow of events for the current task.
-- **Implementation**: It subscribes to the `GlobalEventStream` and filters events for the current `taskId`. Its primary job is to receive live events and update the event cache directly. All query invalidation logic is centralized in the `GlobalEventStreamProvider` to avoid duplication and ensure consistent behavior across the application.
-
-This separation ensures that a high-frequency stream of events from `TaskEventsProvider` doesn't cause components that only care about stable metadata from `TaskDataProvider` or local UI state from `TaskUIProvider` to re-render.
+This separation ensures that high-frequency event updates don't cause components that only care about stable metadata or UI state to re-render unnecessarily.
 
 ## Backend: Task Lifecycle & Services
 
@@ -199,7 +202,7 @@ graph TB
   1.  It uses a mapping (`getInvalidationKeys`) to determine which queries are affected by each event type.
   2.  It triggers `queryClient.invalidateQueries` for the affected queries, including task details and task lists.
   3.  The hierarchical query key structure ensures that invalidating a parent key (e.g., `tasks.detail(id)`) automatically invalidates all child queries.
-- **Task Event Subscription**: `TaskEventsProvider` subscribes to task-specific events and updates only the event cache directly, without duplicating invalidation logic.
+- **Task Event Subscription**: `TaskDataProvider` subscribes to task-specific events and updates both the historical event cache and the streaming events list.
 
 ## Command System
 

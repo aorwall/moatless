@@ -90,7 +90,7 @@ graph TB
 
 - **`GlobalEventStreamProvider`**: A top-level provider that establishes and maintains a single, persistent SSE connection for the entire application. It receives all events from the backend, handles all cache invalidation for events with a `taskId`, and makes events available to subscribers.
 
-- **`TaskEventsProvider` (`apps/frontend/src/features/tasks/contexts/task-events-provider.tsx`)**: A task-specific provider that subscribes to the global stream but only processes events relevant to the `taskId` it's managing. Its primary responsibility is to update the event cache directly. This is a key part of the **Tri-Context Pattern**.
+- **`TaskDataProvider` (`apps/frontend/src/features/tasks/contexts/task-data-provider.tsx`)**: Now handles event subscription in addition to other task data. It subscribes to task-specific events from the global stream and maintains both historical events (from API) and streaming events (recent SSE events for UI components).
 
 - **Event-Driven Cache Invalidation**: This is the core of the frontend's real-time functionality. The `GlobalEventStreamProvider` centralizes all invalidation logic, ensuring consistent behavior across the application and avoiding duplication.
 
@@ -107,7 +107,7 @@ Here is the end-to-end flow of an event:
     a.  **Consults Mapping**: Uses `EVENT_INVALIDATION_MAP` to determine affected queries.
     b.  **Invalidates Queries**: Calls `queryClient.invalidateQueries` for affected query keys.
     c.  **Invalidates Task Lists**: For status-affecting events, also invalidates task lists.
-7.  **Task Subscription**: The `TaskEventsProvider` receives the event through its subscription and updates only the event cache (`queryClient.setQueryData`).
+7.  **Task Subscription**: The `TaskDataProvider` receives the event through its subscription and updates both the historical event cache (`queryClient.setQueryData`) and the streaming events list.
 8.  **Refetch & Re-render**: `react-query` automatically refetches the stale data, and any components subscribed to that data will re-render with the fresh information.
 
 ## 4. Event Types and Their Effects

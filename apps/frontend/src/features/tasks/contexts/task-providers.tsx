@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { TaskDataProvider } from './task-data-provider'
-import { TaskEventsProvider } from './task-events-provider'
 import { TaskUIProvider } from './task-ui-provider'
 
 interface TaskProvidersProps {
@@ -9,15 +8,14 @@ interface TaskProvidersProps {
 }
 
 /**
- * Composed provider that includes all three task providers.
- * This implements the Tri-Context Pattern for optimal performance.
+ * Composed provider that includes task data and UI providers.
+ * TaskDataProvider now handles events, workspace status, and task metadata.
+ * TaskUIProvider handles local UI state.
  */
 export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
     <TaskUIProvider taskId={taskId}>
-      <TaskDataProvider taskId={taskId}>
-        <TaskEventsProvider taskId={taskId}>{children}</TaskEventsProvider>
-      </TaskDataProvider>
+      <TaskDataProvider taskId={taskId}>{children}</TaskDataProvider>
     </TaskUIProvider>
   )
 }
@@ -25,10 +23,15 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
 // Export all the individual providers and hooks
 export {
   TaskDataProvider,
+  useEventStream,
   useGitDiff,
   useGitDiffWithLoading,
+  useLatestContextTokens,
+  useStreamingStatus,
   useTaskData,
   useTaskDuration,
+  // Event hooks (now in TaskDataProvider)
+  useTaskEvents,
   useTaskIterations,
   useTaskLoadingError,
   useTaskMetadata,
@@ -36,13 +39,6 @@ export {
   useWorkspaceStatus,
   useWorkspaceStatusWithLoading,
 } from './task-data-provider'
-export {
-  TaskEventsProvider,
-  useEventStream,
-  useLatestContextTokens,
-  useStreamingStatus,
-  useTaskEvents,
-} from './task-events-provider'
 export {
   TaskUIProvider,
   useChatState,

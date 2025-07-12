@@ -11,10 +11,9 @@ export { GitDiffViewer } from './components/git-diff-viewer'
 export { TaskCard } from './components/task-card'
 export { TaskPage } from './components/task-page'
 
-// New Tri-Context Pattern (recommended)
+// Dual-Context Pattern (simplified from Tri-Context)
 export {
   TaskDataProvider,
-  TaskEventsProvider,
   TaskProviders,
   TaskUIProvider,
   useEventStream,
