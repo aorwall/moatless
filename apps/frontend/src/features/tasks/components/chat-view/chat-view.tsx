@@ -156,7 +156,6 @@ function ChatViewComponent() {
                   index={index}
                   messageCount={messageCount}
                   isLastIteration={isLastIteration}
-                  isRunning={isLastIteration && status === 'running'}
                   status={status}
                 />
               )
@@ -211,7 +210,11 @@ function ChatViewComponent() {
         <ChatInput
           data-testid="task-chat-input"
           taskId={params.taskId}
-          task={iterations ? ({ iterations, repositoryId } as unknown as Task) : undefined}
+          task={
+            iterations && repositoryId
+              ? ({ iterations, repositoryId } as unknown as Task)
+              : undefined
+          }
           taskStatus={status}
           lastIterationHasError={lastIterationHasError || false}
           onSendMessage={handleSendMessage}

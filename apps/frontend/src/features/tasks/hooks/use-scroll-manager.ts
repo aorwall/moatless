@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseScrollManagerProps {
-  scrollRef: React.RefObject<HTMLDivElement>
-  bottomRef: React.RefObject<HTMLDivElement>
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  bottomRef: React.RefObject<HTMLDivElement | null>
 }
 
 export function useScrollManager({ scrollRef, bottomRef }: UseScrollManagerProps) {

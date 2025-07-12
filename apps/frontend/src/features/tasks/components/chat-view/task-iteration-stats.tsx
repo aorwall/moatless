@@ -49,7 +49,7 @@ export function TaskIterationStats({
       >
         <div className="flex items-center gap-1">
           <Clock className="h-4 w-4" />
-          {timing.isRunning ? (
+          {timing.isRunning && timing.startTime ? (
             <IsolatedTimer startTime={timing.startTime} />
           ) : (
             <span>{formatDuration(timing.duration)}</span>

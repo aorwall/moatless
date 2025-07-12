@@ -12,8 +12,7 @@ interface TaskIterationProps {
   index: number
   messageCount: number
   isLastIteration: boolean
-  isRunning: boolean
-  status: string
+  status?: string
 }
 
 export function TaskIteration({
@@ -21,7 +20,6 @@ export function TaskIteration({
   index,
   messageCount,
   isLastIteration,
-  isRunning,
   status,
 }: TaskIterationProps) {
   const { setSelectedIteration } = useSelectedIteration()
@@ -42,7 +40,10 @@ export function TaskIteration({
     return {
       isRunning: isRunningIteration,
       duration: iteration.durationMs || 0,
-      startTime: iteration.startTime,
+      startTime:
+        iteration.startTime instanceof Date
+          ? iteration.startTime.toISOString()
+          : iteration.startTime,
     }
   }
 
