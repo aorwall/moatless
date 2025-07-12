@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/shared'
 import { RepositoryNotFoundError, ValidationError } from '@moatless/shared'
-import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/shared/types/repository'
-import { RepositoryService } from '../repository.service'
-import type { StorageBackend } from '../storage'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RepositoryService } from '../repository.service.js'
+import type { StorageBackend } from '../storage.js'
 
 // Mock dependencies
 vi.mock('node:fs', () => ({
@@ -19,7 +19,7 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }))
 
-vi.mock('../utils/file-search.js', () => ({
+vi.mock('../../utils/file-search.js', () => ({
   searchFilesInDirectoryNew: vi.fn(),
 }))
 
@@ -36,7 +36,6 @@ const createMockStorage = (): StorageBackend => ({
   getRepository: vi.fn(),
   saveEvents: vi.fn(),
   getEvents: vi.fn(),
-  getEventsFromTo: vi.fn(),
   saveWorkspace: vi.fn(),
   getWorkspace: vi.fn(),
 })
@@ -66,6 +65,7 @@ describe('RepositoryService', () => {
       useGitWorktrees: true,
       originalBranch: 'main',
       codeExecution: {
+        type: 'local',
         serverCommand: 'npm run dev',
         setupCommands: 'npm install',
       },
@@ -103,12 +103,14 @@ describe('RepositoryService', () => {
 
       const requestWithoutServerCommand = {
         ...validRequest,
-        codeExecution: { setupCommands: 'npm install' },
+        codeExecution: { type: 'local' as const, setupCommands: 'npm install' },
       }
 
       const result = await service.createRepository(requestWithoutServerCommand)
 
-      expect(result.codeExecution.serverCommand).toBe(validRequest.previewConfig?.serverStartCommand)
+      expect(result.codeExecution.serverCommand).toBe(
+        validRequest.previewConfig?.serverStartCommand,
+      )
     })
 
     it('should throw ValidationError for non-existent path', async () => {
@@ -141,9 +143,10 @@ describe('RepositoryService', () => {
         id: 'test-id',
         name: 'Test Repo',
         path: '/test/repo',
-        codeExecution: {},
+        codeExecution: { type: 'local' },
         createdAt: new Date(),
         updatedAt: new Date(),
+        variables: {},
       }
       vi.mocked(mockStorage.getRepository).mockResolvedValue(mockRepo)
 
@@ -165,17 +168,19 @@ describe('RepositoryService', () => {
         id: 'repo-1',
         name: 'Repo 1',
         path: '/repo1',
-        codeExecution: {},
+        codeExecution: { type: 'local' },
         createdAt: new Date('2024-01-01'),
         updatedAt: new Date(),
+        variables: {},
       }
       const repo2: RepositoryConfig = {
         id: 'repo-2',
         name: 'Repo 2',
         path: '/repo2',
-        codeExecution: {},
+        codeExecution: { type: 'local' },
         createdAt: new Date('2024-01-02'),
         updatedAt: new Date(),
+        variables: {},
       }
 
       vi.mocked(mockStorage.list).mockResolvedValue(['repositories/repo-1', 'repositories/repo-2'])
@@ -205,9 +210,10 @@ describe('RepositoryService', () => {
       id: 'test-id',
       name: 'Test Repo',
       path: '/test/repo',
-      codeExecution: {},
+      codeExecution: { type: 'local' as const },
       createdAt: new Date(),
       updatedAt: new Date(),
+      variables: {},
     }
 
     it('should update repository successfully', async () => {
@@ -251,9 +257,10 @@ describe('RepositoryService', () => {
       id: 'test-id',
       name: 'Test Repo',
       path: '/test/repo',
-      codeExecution: {},
+      codeExecution: { type: 'local' as const },
       createdAt: new Date(),
       updatedAt: new Date(),
+      variables: {},
     }
 
     it('should delete repository successfully', async () => {
@@ -271,6 +278,9 @@ describe('RepositoryService', () => {
         id: 'task-1',
         repositoryId: 'test-id',
         status: 'running',
+        title: 'Test Task',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as any)
 
       await expect(service.deleteRepository('test-id')).rejects.toThrow(ValidationError)
@@ -283,6 +293,9 @@ describe('RepositoryService', () => {
         id: 'task-1',
         repositoryId: 'test-id',
         status: 'completed',
+        title: 'Test Task',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as any)
 
       await service.deleteRepository('test-id')
@@ -304,10 +317,12 @@ describe('RepositoryService', () => {
       name: 'Test Repo',
       path: '/test/repo',
       codeExecution: {
+        type: 'local',
         setupCommands: 'npm install\nnpm run build',
       },
       createdAt: new Date(),
       updatedAt: new Date(),
+      variables: {},
     }
 
     it('should run setup commands successfully', async () => {
@@ -348,7 +363,7 @@ describe('RepositoryService', () => {
     })
 
     it('should handle empty setup commands', async () => {
-      const repoWithoutSetup = { ...mockRepo, codeExecution: {} }
+      const repoWithoutSetup = { ...mockRepo, codeExecution: { type: 'local' as const } }
 
       const result = await service.runSetupScript(repoWithoutSetup)
 
@@ -376,7 +391,7 @@ describe('RepositoryService', () => {
 
       const result = await service.runSetupScript({
         ...mockRepo,
-        codeExecution: { setupCommands: 'invalid-command' },
+        codeExecution: { type: 'local', setupCommands: 'invalid-command' },
       })
 
       expect(result.success).toBe(false)
@@ -449,28 +464,35 @@ describe('RepositoryService', () => {
         id: 'test-id',
         name: 'Test Repo',
         path: '/test/repo',
-        codeExecution: {},
+        codeExecution: { type: 'local' },
         createdAt: new Date(),
         updatedAt: new Date(),
+        variables: {},
       }
 
       vi.mocked(mockStorage.getRepository).mockResolvedValue(mockRepo)
 
-      const { searchFilesInDirectoryNew } = await import('../utils/file-search.js')
+      const { searchFilesInDirectoryNew } = await import('../../utils/file-search.js')
       const mockSearch = vi.mocked(searchFilesInDirectoryNew)
       mockSearch.mockResolvedValue({
-        files: ['file1.ts', 'file2.ts'],
-        total: 2,
-        hasMore: false,
+        results: [
+          { path: 'file1.ts', absolutePath: '/test/repo/file1.ts', score: 1 },
+          { path: 'file2.ts', absolutePath: '/test/repo/file2.ts', score: 1 },
+        ],
+        totalFound: 2,
+        query: 'test',
       })
 
       const result = await service.searchFiles('test-id', { query: 'test', limit: 10 })
 
       expect(mockSearch).toHaveBeenCalledWith('/test/repo', { query: 'test', limit: 10 })
       expect(result).toEqual({
-        files: ['file1.ts', 'file2.ts'],
-        total: 2,
-        hasMore: false,
+        results: [
+          { path: 'file1.ts', absolutePath: '/test/repo/file1.ts', score: 1 },
+          { path: 'file2.ts', absolutePath: '/test/repo/file2.ts', score: 1 },
+        ],
+        totalFound: 2,
+        query: 'test',
       })
     })
 

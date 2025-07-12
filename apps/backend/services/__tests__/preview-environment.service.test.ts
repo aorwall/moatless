@@ -1,15 +1,12 @@
 import { promises as fs } from 'node:fs'
-import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RepositoryConfig, Task } from '@moatless/shared'
 import { TaskNotFoundError } from '@moatless/shared'
-import type { Task } from '@moatless/shared/types/task'
-import type { RepositoryConfig } from '@moatless/shared/types/repository'
-import type { Logger } from 'pino'
-import { PreviewEnvironmentService } from '../preview-environment.service'
-import type { StorageBackend } from '../storage'
-import type { WorkspaceService } from '../workspace.service'
-import { ServerHandler } from '../../workspaces/server-handler'
-import { createPreviewProxy } from '../preview-proxy.service'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ServerHandler } from '../../workspaces/server-handler.js'
+import { PreviewEnvironmentService } from '../preview-environment.service.js'
+import { createPreviewProxy } from '../preview-proxy.service.js'
+import type { StorageBackend } from '../storage.js'
+import type { WorkspaceService } from '../workspace.service.js'
 
 // Mock dependencies
 vi.mock('node:fs', () => ({
@@ -52,20 +49,20 @@ const createMockStorage = (): StorageBackend => ({
   getRepository: vi.fn(),
   saveEvents: vi.fn(),
   getEvents: vi.fn(),
-  getEventsFromTo: vi.fn(),
   saveWorkspace: vi.fn(),
   getWorkspace: vi.fn(),
 })
 
 // Create mock workspace service
-const createMockWorkspaceService = (): WorkspaceService => ({
-  getOrCreateWorkspace: vi.fn(),
-  getWorkspace: vi.fn(),
-  cleanupWorkspace: vi.fn(),
-  getAllWorkspaces: vi.fn(),
-  getWorkspaceStatus: vi.fn(),
-  recreateWorkspace: vi.fn(),
-} as any)
+const createMockWorkspaceService = (): WorkspaceService =>
+  ({
+    getOrCreateWorkspace: vi.fn(),
+    getWorkspace: vi.fn(),
+    cleanupWorkspace: vi.fn(),
+    getAllWorkspaces: vi.fn(),
+    getWorkspaceStatus: vi.fn(),
+    recreateWorkspace: vi.fn(),
+  }) as any
 
 describe('PreviewEnvironmentService', () => {
   let service: PreviewEnvironmentService
@@ -112,7 +109,7 @@ describe('PreviewEnvironmentService', () => {
         processStartTime: Date.now(),
       }
 
-      mockFsReaddir.mockResolvedValue(['task-1.json'])
+      mockFsReaddir.mockResolvedValue(['task-1.json'] as any)
       mockFsReadFile.mockResolvedValue(JSON.stringify(mockMetadata))
 
       const { execSync } = await import('node:child_process')
@@ -123,21 +120,21 @@ describe('PreviewEnvironmentService', () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(mockFsReaddir).toHaveBeenCalled()
-      expect(mockFsReadFile).toHaveBeenCalledWith(
-        expect.stringContaining('task-1.json'),
-        'utf-8',
-      )
+      expect(mockFsReadFile).toHaveBeenCalledWith(expect.stringContaining('task-1.json'), 'utf-8')
     })
   })
 
   describe('startServer', () => {
     const mockTask: Task = {
-      id: 'task-1',
+      taskId: 'task-1',
       repositoryId: 'repo-1',
-      title: 'Test Task',
+      agentType: 'claude-code',
       status: 'open',
       createdAt: new Date(),
-      updatedAt: new Date(),
+      lastMessageAt: new Date(),
+      numTurns: 0,
+      totalCostUsd: 0,
+      iterations: [],
     }
 
     const mockRepository: RepositoryConfig = {
@@ -145,6 +142,7 @@ describe('PreviewEnvironmentService', () => {
       name: 'Test Repo',
       path: '/test/repo',
       codeExecution: {
+        type: 'local',
         serverCommand: 'npm run dev',
         envVars: { NODE_ENV: 'development' },
       },
@@ -159,6 +157,7 @@ describe('PreviewEnvironmentService', () => {
           },
         },
       },
+      variables: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -235,7 +234,7 @@ describe('PreviewEnvironmentService', () => {
       vi.mocked(ServerHandler).mockImplementation(() => mockHandler as any)
       vi.mocked(createPreviewProxy).mockReturnValue(mockProxy as any)
 
-      const result = await service.startServer('task-1', { proxyPort: 8080 })
+      const result = await service.startServer('task-1')
 
       expect(result).toMatchObject({
         running: true,
@@ -524,7 +523,7 @@ describe('PreviewEnvironmentService', () => {
     })
   })
 
-  describe('cleanupAllServers', () => {
+  describe('stopAllServers', () => {
     it('should stop all running servers and proxies', async () => {
       const mockHandler1 = { stop: vi.fn().mockResolvedValue(true) }
       const mockHandler2 = { stop: vi.fn().mockResolvedValue(true) }
@@ -535,7 +534,7 @@ describe('PreviewEnvironmentService', () => {
       service['runningServers'].set('task-2', mockHandler2 as any)
       service['runningProxies'].set('task-1', mockProxy1 as any)
 
-      await service.cleanupAllServers()
+      await service.stopAllServers()
 
       expect(mockHandler1.stop).toHaveBeenCalled()
       expect(mockHandler2.stop).toHaveBeenCalled()

@@ -1,19 +1,19 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import type { RepositoryResponse } from '@moatless/shared/types/repository'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { repositoriesApi } from '@/features/repositories/api/repositories'
 import {
+  useBranches,
+  useCreateRepository,
+  useDeleteRepository,
   useRepositoriesList,
   useRepository,
-  useCreateRepository,
-  useUpdateRepository,
-  useDeleteRepository,
   useRunSetupScript,
   useSearchFiles,
-  useBranches,
+  useUpdateRepository,
 } from '../use-repositories'
-import type { RepositoryResponse } from '@moatless/shared/types/repository'
 
 // Mock the API
 vi.mock('@/features/repositories/api/repositories', () => ({
@@ -44,14 +44,16 @@ describe('useRepositories hooks', () => {
     useGitWorktrees: true,
     originalBranch: 'main',
     codeExecution: {
+      type: 'local' as const,
       serverCommand: 'npm run dev',
     },
     previewConfig: {
       framework: 'vite',
       serverStartCommand: 'npm run dev',
     },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    variables: {},
   }
 
   beforeEach(() => {
@@ -114,7 +116,7 @@ describe('useRepositories hooks', () => {
     it('should not fetch when repoId is empty', () => {
       const { result } = renderHook(() => useRepository(''), { wrapper })
 
-      expect(result.current.isIdle).toBe(true)
+      expect(result.current.isPending).toBe(true)
       expect(repositoriesApi.getRepository).not.toHaveBeenCalled()
     })
   })
@@ -133,6 +135,7 @@ describe('useRepositories hooks', () => {
         useGitWorktrees: true,
         originalBranch: 'main',
         codeExecution: {
+          type: 'local' as const,
           serverCommand: 'npm run dev',
         },
       }
@@ -157,7 +160,7 @@ describe('useRepositories hooks', () => {
       result.current.mutate({
         name: 'New Repo',
         path: '/new/repo',
-        codeExecution: {},
+        codeExecution: { type: 'local' as const },
       })
 
       await waitFor(() => {
@@ -244,9 +247,12 @@ describe('useRepositories hooks', () => {
   describe('useSearchFiles', () => {
     it('should search files when query is valid', async () => {
       const mockResponse = {
-        files: ['src/index.ts', 'src/app.ts'],
-        total: 2,
-        hasMore: false,
+        results: [
+          { path: 'src/index.ts', absolutePath: '/test/repo/src/index.ts', score: 1 },
+          { path: 'src/app.ts', absolutePath: '/test/repo/src/app.ts', score: 1 },
+        ],
+        totalFound: 2,
+        query: 'index',
       }
       vi.mocked(repositoriesApi.searchFiles).mockResolvedValue(mockResponse)
 
@@ -267,14 +273,14 @@ describe('useRepositories hooks', () => {
     it('should not search when query is too short', () => {
       const { result } = renderHook(() => useSearchFiles('repo-1', 'in'), { wrapper })
 
-      expect(result.current.isIdle).toBe(true)
+      expect(result.current.isPending).toBe(true)
       expect(repositoriesApi.searchFiles).not.toHaveBeenCalled()
     })
 
     it('should not search when repoId is empty', () => {
       const { result } = renderHook(() => useSearchFiles('', 'index'), { wrapper })
 
-      expect(result.current.isIdle).toBe(true)
+      expect(result.current.isPending).toBe(true)
       expect(repositoriesApi.searchFiles).not.toHaveBeenCalled()
     })
   })
@@ -300,7 +306,7 @@ describe('useRepositories hooks', () => {
     it('should not fetch branches when repoId is empty', () => {
       const { result } = renderHook(() => useBranches(''), { wrapper })
 
-      expect(result.current.isIdle).toBe(true)
+      expect(result.current.isPending).toBe(true)
       expect(repositoriesApi.getBranches).not.toHaveBeenCalled()
     })
   })

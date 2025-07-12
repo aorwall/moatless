@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/shared'
 import { CommandNotFoundError, ValidationError } from '@moatless/shared'
-import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/shared/types/command'
-import { CommandService } from '../command.service'
-import type { StorageBackend } from '../storage'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CommandService } from '../command.service.js'
+import type { StorageBackend } from '../storage.js'
 
 // Create mock storage
 const createMockStorage = (): StorageBackend => ({
@@ -17,7 +17,6 @@ const createMockStorage = (): StorageBackend => ({
   getRepository: vi.fn(),
   saveEvents: vi.fn(),
   getEvents: vi.fn(),
-  getEventsFromTo: vi.fn(),
   saveWorkspace: vi.fn(),
   getWorkspace: vi.fn(),
 })
@@ -38,6 +37,7 @@ describe('CommandService', () => {
         },
         icon: 'GitCommit',
         variant: 'outline',
+        type: 'command',
       },
       continue: {
         name: 'continue',
@@ -49,6 +49,7 @@ describe('CommandService', () => {
         },
         icon: 'Play',
         variant: 'default',
+        type: 'command',
       },
     },
   }
@@ -72,6 +73,7 @@ describe('CommandService', () => {
             description: 'Test command',
             prompt: 'run tests',
             conditions: {},
+            type: 'command',
           },
         },
       }
@@ -196,8 +198,8 @@ describe('CommandService', () => {
 
       expect(result).toBeInstanceOf(Array)
       expect(result).toHaveLength(2)
-      expect(result.map((cmd) => cmd.name)).toContain('commit')
-      expect(result.map((cmd) => cmd.name)).toContain('continue')
+      expect(result.map((cmd: Command) => cmd.name)).toContain('commit')
+      expect(result.map((cmd: Command) => cmd.name)).toContain('continue')
     })
 
     it('should return empty array when no commands exist', async () => {
@@ -311,7 +313,7 @@ describe('CommandService', () => {
       vi.mocked(mockStorage.get).mockResolvedValue(null)
 
       const commands = await service.listCommands()
-      const commandNames = commands.map((cmd) => cmd.name)
+      const commandNames = commands.map((cmd: Command) => cmd.name)
 
       expect(commandNames).toContain('commit')
       expect(commandNames).toContain('continue')
@@ -325,9 +327,9 @@ describe('CommandService', () => {
       vi.mocked(mockStorage.get).mockResolvedValue(null)
 
       const commands = await service.listCommands()
-      const commitCommand = commands.find((cmd) => cmd.name === 'commit')
-      const continueCommand = commands.find((cmd) => cmd.name === 'continue')
-      const createPrCommand = commands.find((cmd) => cmd.name === 'create-pr')
+      const commitCommand = commands.find((cmd: Command) => cmd.name === 'commit')
+      const continueCommand = commands.find((cmd: Command) => cmd.name === 'continue')
+      const createPrCommand = commands.find((cmd: Command) => cmd.name === 'create-pr')
 
       expect(commitCommand?.conditions).toMatchObject({
         requiresUncommittedChanges: true,
