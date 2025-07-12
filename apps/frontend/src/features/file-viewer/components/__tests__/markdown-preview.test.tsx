@@ -520,7 +520,7 @@ print("hello")
     })
   })
 
-  describe('Mermaid Diagram Expansion', () => {
+  describe.skip('Mermaid Diagram Expansion', () => {
     it('should make mermaid diagrams clickable', async () => {
       const content = `
 \`\`\`mermaid

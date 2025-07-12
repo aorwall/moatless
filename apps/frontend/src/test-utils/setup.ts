@@ -16,24 +16,8 @@ global.ResizeObserver = class ResizeObserver {
   disconnect() {}
 }
 
-// Mock heavy dependencies to improve test performance
-vi.mock('@git-diff-view/react', () => ({
-  DiffView: ({ children }: { children?: React.ReactNode }) =>
-    React.createElement('div', { 'data-testid': 'mock-diff-view' }, children),
-  parseDiff: vi.fn(() => []),
-}))
-
-vi.mock('react-markdown', () => ({
-  default: ({ children }: { children?: React.ReactNode }) =>
-    React.createElement('div', { 'data-testid': 'mock-markdown' }, children),
-}))
-
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: vi.fn(),
-    render: vi.fn(() => Promise.resolve({ svg: '<svg></svg>' })),
-  },
-}))
+// Only mock the most problematic components globally
+// Individual tests can add their own mocks as needed
 
 vi.mock('react-resizable-panels', () => ({
   Panel: ({ children, ...props }: any) =>
