@@ -96,20 +96,24 @@ export class DockerWorkspace extends BaseWorkspace {
       // Mount data directory for shared storage
       createCommand += ` -v "${dataDir}:/data"`
 
-      // Mount Claude config directory
-      const claudeConfigDir =
+      // Define container paths for Claude configuration
+      const containerClaudeConfigDir = '/home/node/.claude'
+
+      // Mount Claude config directory to container user's home
+      const hostClaudeConfigDir =
         process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude')
-      if (claudeConfigDir) {
-        createCommand += ` -v "${claudeConfigDir}:${claudeConfigDir}"`
+
+      if (hostClaudeConfigDir && existsSync(hostClaudeConfigDir)) {
+        createCommand += ` -v "${hostClaudeConfigDir}:${containerClaudeConfigDir}"`
       }
 
-      // Mount .claude.json file as .config.json in the Claude config directory
+      // Mount .claude.json file as .config.json in the container's Claude config directory
       const homeDir = process.env.HOME
-      if (homeDir && claudeConfigDir) {
+      if (homeDir) {
         const claudeJsonPath = path.join(homeDir, '.claude.json')
-        const configJsonPath = path.join(claudeConfigDir, '.config.json')
+        const containerConfigJsonPath = path.join(containerClaudeConfigDir, '.config.json')
         if (existsSync(claudeJsonPath)) {
-          createCommand += ` -v "${claudeJsonPath}:${configJsonPath}:ro"`
+          createCommand += ` -v "${claudeJsonPath}:${containerConfigJsonPath}"`
         }
       }
 
@@ -135,14 +139,10 @@ export class DockerWorkspace extends BaseWorkspace {
       if (process.env.ANTHROPIC_API_KEY) {
         createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
       }
-      // Pass through Claude config directory path
-      if (claudeConfigDir) {
-        createCommand += ` -e "CLAUDE_CONFIG_DIR=${claudeConfigDir}"`
-      }
-      // Set HOME environment variable to match host
-      if (process.env.HOME) {
-        createCommand += ` -e "HOME=${process.env.HOME}"`
-      }
+      // Set Claude config directory path to container location
+      createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
+      // Set HOME environment variable for container user (node user's home is /home/node)
+      createCommand += ` -e "HOME=/home/node"`
       // Pass mock mode for tests
       if (process.env.CLAUDE_CODE_MOCK) {
         createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
