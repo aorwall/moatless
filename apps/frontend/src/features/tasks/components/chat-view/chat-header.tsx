@@ -1,9 +1,10 @@
 import type { Task } from '@moatless/shared/types/task'
-import { GitMerge, X } from 'lucide-react'
+import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -46,6 +47,26 @@ export function ChatHeader() {
     },
   })
 
+  const syncWorkspace = useSyncWorkspace({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success('Workspace synced successfully', {
+          description: data.message,
+        })
+      } else {
+        toast.warning('Could not sync workspace', {
+          description: data.message,
+        })
+      }
+    },
+    onError: (error) => {
+      console.error('Failed to sync workspace:', error)
+      toast.error('Failed to sync workspace', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
+
   const handleMerge = () => {
     if (taskId && status) {
       if (!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0) {
@@ -61,6 +82,12 @@ export function ChatHeader() {
         return
       }
       mergeTask.mutate({})
+    }
+  }
+
+  const handleSync = () => {
+    if (taskId) {
+      syncWorkspace.mutate({ taskId })
     }
   }
 
@@ -159,6 +186,52 @@ export function ChatHeader() {
                     <p>Cannot merge: conflicts detected</p>
                   ) : (
                     <p>Merge workspace changes to the main branch</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {status !== 'running' && status !== 'closed' && status !== 'merged' && gitStatus && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSync}
+                    disabled={
+                      syncWorkspace.isPending ||
+                      status === 'running' ||
+                      status === 'error' ||
+                      !gitStatus.commitsBehind ||
+                      gitStatus.commitsBehind === 0 ||
+                      gitStatus.hasConflicts ||
+                      gitStatus.hasUncommittedChanges ||
+                      gitStatus.status === 'diverged'
+                    }
+                    className="h-7 px-2 cursor-pointer hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                  >
+                    {syncWorkspace.isPending ? (
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    <span className="sr-only">Sync with main</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {status === 'running' ? (
+                    <p>Cannot sync: agent is running</p>
+                  ) : !gitStatus.commitsBehind || gitStatus.commitsBehind === 0 ? (
+                    <p>Already up to date with main</p>
+                  ) : gitStatus.hasConflicts || gitStatus.status === 'diverged' ? (
+                    <p>Cannot sync: conflicts detected</p>
+                  ) : gitStatus.hasUncommittedChanges ? (
+                    <p>Cannot sync: uncommitted changes detected</p>
+                  ) : (
+                    <p>
+                      Sync workspace with main branch ({gitStatus.commitsBehind} commits behind)
+                    </p>
                   )}
                 </TooltipContent>
               </Tooltip>
