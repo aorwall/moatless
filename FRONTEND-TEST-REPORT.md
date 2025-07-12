@@ -1,206 +1,280 @@
-# Frontend Test Failure Report
+# Frontend Test Optimization Report
 
 ## Executive Summary
 
-The frontend tests are experiencing significant failures with 35 failing tests across multiple components. The test suite also crashes with a JavaScript heap memory error, indicating serious performance issues.
+The frontend tests have been successfully stabilized with memory fixes, but require strategic optimization to improve performance and developer experience. With 16GB memory allocation, tests now complete, but many memory-intensive tests should be categorized differently for optimal CI/CD performance.
 
-## Critical Issues
+## Current Status ✅
 
-### 1. JavaScript Heap Memory Error
-**Severity**: Critical
-**Impact**: Tests cannot complete execution
-```
-FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
-```
-**Solution**: 
-- Increase Node.js memory limit for test execution
-- Add to package.json test scripts: `NODE_OPTIONS=--max-old-space-size=4096`
-- Investigate memory leaks in test setup/teardown
+### Fixed Issues
+- **Memory crashes**: Resolved with 16GB memory allocation
+- **Git diff state isolation**: Fixed assertion methods and async handling
+- **Task switching behavior**: Added proper `waitFor` assertions for async updates
+- **Preview toolbar accessibility**: Added ARIA labels and context mocking
+- **React warnings**: Filtered `asChild` props in tooltip mocks
 
-### 2. Segmentation Faults
-**Severity**: Critical
-**Symptoms**: Random crashes during test execution
-**Potential Causes**:
-- React 19 compatibility issues with testing library
-- Native module conflicts
-- Memory corruption in test environment
+### Remaining Challenges
+- High memory consumption (16GB required)
+- Some tests still timeout (preview connection tests)
+- Complex integration tests running in `test:fast`
 
-## Component-Specific Failures
+## Memory-Intensive Test Analysis
 
-### 1. Git Diff State Isolation (5 failures)
-**File**: `src/features/tasks/components/git-diff-viewer/__tests__/git-diff-state-isolation.test.tsx`
-**Issues**:
-- State mutations between tests
-- Incorrect assertion methods (`toContain()` used on strings instead of DOM nodes)
-- State not properly isolated between different task contexts
+### High Memory Consumers (Should NOT be in `test:fast`)
 
-**Fixes Needed**:
+#### 1. **SSE/Real-time Connection Tests** 🔴
 ```typescript
-// Wrong
-expect(expandedFiles).toContain('src/file1.ts')
+// Files to move out of test:fast
+src/features/events/contexts/__tests__/global-event-stream-provider.test.tsx
+src/features/preview/hooks/__tests__/use-preview-connection.test.tsx
+```
+**Issues**: 
+- Mock EventSource with persistent listeners
+- Periodic polling with setInterval (5s intervals)
+- Multiple QueryClient instances
+- AbortController mocks accumulating
 
-// Correct
-expect(Array.from(expandedFiles)).toContain('src/file1.ts')
+#### 2. **Integration Tests with Multiple Providers** 🔴
+```typescript
+// Files to move out of test:fast  
+src/features/preview/components/__tests__/preview-integration.test.tsx
+src/features/tasks/__tests__/task-data-fetching.integration.test.tsx
+src/routes/__tests__/tasks.$taskId.test.tsx
+```
+**Issues**:
+- Full component tree rendering
+- Multiple context providers stacked
+- Heavy DOM manipulation
+
+#### 3. **Large Data Set Tests** 🔴
+```typescript
+// Files to optimize or move out
+src/features/file-viewer/components/__tests__/markdown-preview.test.tsx (Mermaid tests)
+src/features/tasks/components/event-viewer/__tests__/event-list-integration.test.tsx
+```
+**Issues**:
+- Mermaid diagram rendering (CPU + memory intensive)
+- Large mock event lists (10+ events with complex data)
+- Multiple re-renders without cleanup
+
+### Tests That SHOULD Stay in `test:fast` ✅
+
+#### 1. **Pure Unit Tests**
+```typescript
+// Keep in test:fast - lightweight
+src/features/tasks/utils/__tests__/merge-tool-events.test.ts
+src/lib/utils/sample.test.ts
+src/features/preview/hooks/__tests__/preview-reducer.test.tsx
 ```
 
-### 2. Task Switching Behavior (2 failures)
-**File**: `src/features/tasks/__tests__/task-switching-behavior.test.tsx`
-**Issues**:
-- Elements not rendering when switching between tasks
-- Missing `task2-complex-update` element after task switch
-- Likely race condition in state updates
+#### 2. **Component Tests with Mocked Dependencies**
+```typescript
+// Keep in test:fast - properly mocked
+src/features/tasks/components/__tests__/task-header.test.tsx
+src/features/tasks/components/__tests__/task-card.test.tsx
+src/features/settings/components/__tests__/repository-form.test.tsx
+```
 
-**Fixes Needed**:
-- Add `waitFor` assertions for async state updates
-- Ensure task switching properly unmounts/remounts components
+#### 3. **Hook Tests**
+```typescript
+// Keep in test:fast - isolated logic
+src/features/tasks/hooks/__tests__/use-task-data.test.ts
+src/features/repositories/hooks/__tests__/use-repositories.test.tsx
+```
 
-### 3. Preview Toolbar (11 failures)
-**File**: `src/features/preview/components/__tests__/preview-toolbar.test.tsx`
-**Issues**:
-- Missing accessible roles for buttons
-- Inspector toggle button not found
-- Context provider not properly mocked
+## Optimization Plan
 
-**Fixes Needed**:
-- Add proper ARIA labels to buttons
-- Ensure PreviewContext is properly provided in tests
-- Mock tooltip components to avoid accessibility test failures
+### Phase 1: Test Categorization 🎯
 
-### 4. Repository Form (5 failures)
-**File**: `src/features/settings/components/__tests__/repository-form.test.tsx`
-**Issues**:
-- Form validation tests timing out (1000ms+)
-- Zod schema validation not working as expected
-- Memory issues causing test timeouts
+#### 1. Update package.json scripts
+```json
+{
+  "scripts": {
+    "test": "NODE_OPTIONS='--max-old-space-size=16384' vitest run",
+    "test:unit": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --exclude='**/*connection*.test.{ts,tsx}' --exclude='**/global-event-stream-provider.test.tsx' --exclude='**/markdown-preview.test.tsx'",
+    "test:integration": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/*.integration.test.{ts,tsx}' '**/global-event-stream-provider.test.tsx' '**/*connection*.test.{ts,tsx}'",
+    "test:fast": "pnpm run test:unit",
+    "test:memory-heavy": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/markdown-preview.test.tsx' '**/preview-integration.test.tsx'",
+    "test:all": "pnpm run test:unit && pnpm run test:integration && pnpm run test:memory-heavy"
+  }
+}
+```
 
-**Fixes Needed**:
-- Reduce test timeout expectations
-- Mock heavy validation operations
-- Fix memory leaks in form component
-
-### 5. Markdown Preview (2 failures)
-**File**: `src/features/file-viewer/components/__tests__/markdown-preview.test.tsx`
-**Issues**:
-- Mermaid diagram re-rendering tests failing
-- Memory leak during rapid content changes
-- 1000ms+ test execution times
-
-**Fixes Needed**:
-- Mock Mermaid rendering to avoid heavy operations
-- Add proper cleanup in afterEach hooks
-
-## Common Patterns in Failures
-
-### 1. Missing Context Providers
-Many tests fail because they expect contexts that aren't provided:
-- `SidebarProvider`
-- `PreviewContext`
-- `TaskUIProvider`
-
-### 2. Accessibility Issues
-- Missing ARIA labels
-- Incorrect role queries
-- Tooltip components interfering with tests
-
-### 3. Async State Management
-- Race conditions in state updates
-- Missing `waitFor` assertions
-- Improper handling of React 19's concurrent features
-
-### 4. Memory Management
-- No cleanup between tests
-- Heavy operations not mocked
-- Memory leaks in component lifecycle
-
-## Recommended Actions
-
-### Immediate Fixes
-
-1. **Fix Memory Issues**
-   ```json
-   // package.json
-   "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
-   "test:fast": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}'"
-   ```
-
-2. **Add Test Setup File**
-   Create `src/test/setup.ts`:
-   ```typescript
-   import '@testing-library/jest-dom'
-   
-   // Mock heavy dependencies
-   vi.mock('@git-diff-view/react')
-   vi.mock('react-markdown')
-   
-   // Increase test timeout
-   vi.setConfig({ testTimeout: 10000 })
-   
-   // Add global cleanup
-   afterEach(() => {
-     cleanup()
-     vi.clearAllMocks()
-   })
-   ```
-
-3. **Fix Context Provider Issues**
-   Create test utilities:
-   ```typescript
-   // src/test/test-utils.tsx
-   export function renderWithProviders(ui: React.ReactElement) {
-     return render(
-       <QueryClient>
-         <SidebarProvider>
-           <TaskUIProvider>
-             {ui}
-           </TaskUIProvider>
-         </SidebarProvider>
-       </QueryClient>
-     )
-   }
-   ```
-
-### Long-term Solutions
-
-1. **Upgrade Testing Dependencies**
-   - Ensure React Testing Library is compatible with React 19
-   - Update Vitest to latest version
-   - Check for known issues with React 19 testing
-
-2. **Implement Test Categories**
-   - Separate heavy integration tests
-   - Create smoke test suite for CI
-   - Add memory profiling to identify leaks
-
-3. **Add Pre-commit Hooks**
-   - Run only unit tests on commit
-   - Leave integration tests for CI
-   - Add memory limit checks
-
-## Test Execution Strategy
-
-### For Development
+#### 2. Rename Heavy Tests
 ```bash
-# Run only fast unit tests
+# Rename to .integration.test.tsx to auto-exclude from fast tests
+mv src/features/events/contexts/__tests__/global-event-stream-provider.test.tsx \
+   src/features/events/contexts/__tests__/global-event-stream-provider.integration.test.tsx
+
+mv src/features/preview/hooks/__tests__/use-preview-connection.test.tsx \
+   src/features/preview/hooks/__tests__/use-preview-connection.integration.test.tsx
+```
+
+### Phase 2: Memory Optimization 🚀
+
+#### 1. Add Test Categories with File Patterns
+```typescript
+// vitest.config.ts additions
+export default defineConfig({
+  test: {
+    // ... existing config
+    pool: 'forks', // Isolate tests in separate processes
+    poolOptions: {
+      forks: {
+        singleFork: true, // Reduce memory by using single fork
+      }
+    }
+  }
+})
+```
+
+#### 2. Create Memory-Optimized Test Setup
+```typescript
+// src/test-utils/memory-setup.ts
+import { vi, afterEach } from 'vitest'
+
+// Aggressive cleanup for memory-heavy tests
+afterEach(() => {
+  // Clear DOM completely
+  document.body.innerHTML = ''
+  document.head.innerHTML = '<title>Test</title>'
+  
+  // Clear all timers and intervals
+  vi.clearAllTimers()
+  vi.clearAllMocks()
+  
+  // Force garbage collection if available
+  if (global.gc) {
+    global.gc()
+  }
+})
+
+// Reduce test timeout for memory tests
+vi.setConfig({ testTimeout: 30000 })
+```
+
+#### 3. Mock Heavy Dependencies More Aggressively
+```typescript
+// src/test-utils/heavy-mocks.ts
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(() => Promise.resolve({ svg: '<svg>mocked</svg>' })),
+  }
+}))
+
+vi.mock('@git-diff-view/react', () => ({
+  DiffView: () => <div data-testid="mock-diff">Mocked Diff</div>,
+  parseDiff: vi.fn(() => []),
+}))
+
+vi.mock('react-markdown', () => ({
+  default: ({ children }: any) => <div data-testid="mock-markdown">{children}</div>
+}))
+```
+
+### Phase 3: CI/CD Strategy 🏗️
+
+#### 1. GitHub Actions Optimization
+```yaml
+# .github/workflows/test.yml
+name: Tests
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: pnpm install
+      - run: pnpm test:unit  # Fast, low memory
+      
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: pnpm install
+      - run: pnpm test:integration  # Medium memory
+      
+  memory-heavy-tests:
+    runs-on: ubuntu-latest-4-cores  # Larger runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: pnpm install  
+      - run: pnpm test:memory-heavy  # High memory, parallel
+```
+
+#### 2. Pre-commit Hook Strategy
+```json
+// .husky/pre-push
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Only run unit tests on push - fast feedback
 pnpm test:unit
-
-# Run with increased memory
-NODE_OPTIONS=--max-old-space-size=4096 pnpm test
 ```
 
-### For CI/CD
+### Phase 4: Long-term Optimizations 🔮
+
+#### 1. Test File Size Limits
+- Max 200 lines per test file
+- Max 5 tests per describe block for heavy tests
+- Split large test files into focused suites
+
+#### 2. Memory Monitoring
+```typescript
+// Add to test setup for monitoring
+const getMemoryUsage = () => {
+  if (typeof window !== 'undefined' && (window as any).performance?.memory) {
+    return (window as any).performance.memory.usedJSHeapSize
+  }
+  return 0
+}
+
+beforeEach(() => {
+  const initialMemory = getMemoryUsage()
+  console.log(`Test starting with ${(initialMemory / 1024 / 1024).toFixed(2)}MB`)
+})
+```
+
+#### 3. Selective Test Execution
 ```bash
-# Run tests in batches to avoid memory issues
-pnpm test -- --run --reporter=verbose --shard=1/3
-pnpm test -- --run --reporter=verbose --shard=2/3
-pnpm test -- --run --reporter=verbose --shard=3/3
+# Development workflow
+pnpm test:unit                    # Quick feedback (30s)
+pnpm test:integration            # Feature testing (2-3min)  
+pnpm test:memory-heavy           # Full validation (5-10min)
 ```
 
-## Conclusion
+## Expected Outcomes
 
-The frontend tests require significant refactoring to address:
-1. Memory management issues
-2. React 19 compatibility
-3. Context provider setup
-4. Async state handling
+### Performance Improvements
+- **test:fast**: 30-60 seconds (down from 2+ minutes)
+- **Memory usage**: 4GB for unit tests (down from 16GB)
+- **CI/CD time**: 3-5 minutes total (parallel execution)
 
-Priority should be given to fixing the memory issues and critical test infrastructure before addressing individual component test failures.
+### Developer Experience
+- Faster feedback loop for common changes
+- Reliable test execution without memory crashes
+- Clear separation between test types
+
+### Test Reliability
+- Reduced flakiness from memory pressure
+- Better isolation between test suites  
+- Predictable execution times
+
+## Implementation Priority
+
+1. **High Priority**: Update package.json scripts and rename integration tests
+2. **Medium Priority**: Add memory monitoring and optimized setup
+3. **Low Priority**: Implement CI/CD parallelization and monitoring
+
+This strategy balances test coverage with performance, ensuring developers get fast feedback while maintaining comprehensive validation in CI/CD pipelines.
