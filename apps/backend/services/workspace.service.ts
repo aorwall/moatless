@@ -5,7 +5,7 @@ import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
 import type { GitDiffResponse } from '../utils/git-utils.js'
-import { createGitWorktree, isGitRepository } from '../utils/index.js'
+import { createGitWorktree, isGitRepository, syncWithMain } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
 import { DockerWorkspace } from '../workspaces/docker.js'
@@ -547,6 +547,49 @@ export class WorkspaceService {
 
   setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {
     this.previewEnvironmentService = previewEnvironmentService
+  }
+
+  async syncWorkspaceWithMain(
+    taskId: string,
+    baseBranch?: string,
+  ): Promise<{
+    success: boolean
+    conflicts: boolean
+    message: string
+    commitsBehind?: number
+    commitsAhead?: number
+  }> {
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const workspacePath = workspace.getWorkspacePath()
+
+    if (!workspacePath) {
+      throw new WorkspaceError('Workspace path not available', taskId)
+    }
+
+    if (!(await this.canAccessGit(taskId))) {
+      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
+    }
+
+    try {
+      const result = await syncWithMain(workspacePath, baseBranch)
+
+      logger.info('Workspace sync completed', {
+        taskId,
+        workspacePath,
+        success: result.success,
+        conflicts: result.conflicts,
+        commitsBehind: result.commitsBehind,
+        commitsAhead: result.commitsAhead,
+      })
+
+      return result
+    } catch (error) {
+      logger.error('Failed to sync workspace with main', error as Error, { taskId, workspacePath })
+      throw new WorkspaceError(
+        `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+        taskId,
+      )
+    }
   }
 }
 

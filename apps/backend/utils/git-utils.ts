@@ -1159,3 +1159,112 @@ export async function getGitDiffDetailed(
     )
   }
 }
+
+export interface GitSyncResult {
+  success: boolean
+  conflicts: boolean
+  message: string
+  commitsBehind?: number
+  commitsAhead?: number
+}
+
+/**
+ * Safely sync workspace with main branch if no conflicts exist
+ * Checks for conflicts, uncommitted changes, and only syncs when safe
+ */
+export async function syncWithMain(repoPath: string, baseBranch?: string): Promise<GitSyncResult> {
+  try {
+    // Check current sync status
+    const syncStatus = await getOriginSyncStatus(repoPath, baseBranch)
+
+    // If already synced, nothing to do
+    if (syncStatus.status === 'synced') {
+      return {
+        success: true,
+        conflicts: false,
+        message: 'Already up to date with main',
+        commitsBehind: syncStatus.commitsBehind,
+        commitsAhead: syncStatus.commitsAhead,
+      }
+    }
+
+    // Check for uncommitted changes first
+    if (syncStatus.hasUncommittedChanges) {
+      return {
+        success: false,
+        conflicts: false,
+        message: 'Cannot sync: uncommitted changes detected. Please commit or stash changes first.',
+        commitsBehind: syncStatus.commitsBehind,
+        commitsAhead: syncStatus.commitsAhead,
+      }
+    }
+
+    // Check for conflicts before attempting sync
+    const hasConflicts = await checkForConflicts(repoPath, baseBranch)
+    if (hasConflicts) {
+      return {
+        success: false,
+        conflicts: true,
+        message: 'Cannot sync: merge conflicts detected. Manual resolution required.',
+        commitsBehind: syncStatus.commitsBehind,
+        commitsAhead: syncStatus.commitsAhead,
+      }
+    }
+
+    // Only sync if we're behind or diverged (and no conflicts)
+    if (syncStatus.status === 'behind' || syncStatus.status === 'diverged') {
+      const base = baseBranch || syncStatus.baseBranch
+      const originBranch = `origin/${base}`
+
+      // Ensure we have the latest changes
+      await checkAndFetchOrigin(repoPath, base, true)
+
+      // Attempt to merge origin/main into current branch
+      await execAsync(`git merge ${originBranch}`, {
+        cwd: repoPath,
+        timeout: 30000,
+      })
+
+      logger.info('Successfully synced workspace with main', {
+        repoPath,
+        originBranch,
+        commitsBehind: syncStatus.commitsBehind,
+      })
+
+      return {
+        success: true,
+        conflicts: false,
+        message: `Successfully synced with ${originBranch}. Updated ${syncStatus.commitsBehind} commits.`,
+        commitsBehind: syncStatus.commitsBehind,
+        commitsAhead: syncStatus.commitsAhead,
+      }
+    }
+
+    // For 'ahead' status, no sync needed
+    return {
+      success: true,
+      conflicts: false,
+      message: `No sync needed. Status: ${syncStatus.status}`,
+      commitsBehind: syncStatus.commitsBehind,
+      commitsAhead: syncStatus.commitsAhead,
+    }
+  } catch (error) {
+    logger.error('Failed to sync with main', error as Error, { repoPath, baseBranch })
+
+    // Try to abort merge if it failed
+    try {
+      await execAsync('git merge --abort', {
+        cwd: repoPath,
+        timeout: 5000,
+      })
+    } catch {
+      // Ignore abort errors
+    }
+
+    return {
+      success: false,
+      conflicts: false,
+      message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
