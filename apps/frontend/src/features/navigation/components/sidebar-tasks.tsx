@@ -1,8 +1,6 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useGlobalEventStream } from '@/features/events'
+import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
@@ -12,7 +10,6 @@ import {
   formatGitSyncDetails,
   getGitSyncStatusConfig,
 } from '@/features/tasks/utils/git-sync-status'
-import { queryKeys } from '@/lib/api/query-keys'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -125,8 +122,6 @@ function SidebarTaskItem({
 }
 
 export function SidebarTasks() {
-  const queryClient = useQueryClient()
-  const { subscribeToAll } = useGlobalEventStream()
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
 
   // Fetch all non-closed tasks with a higher limit to ensure we get all active tasks
@@ -139,35 +134,12 @@ export function SidebarTasks() {
       limit: 100, // Increase limit to ensure we get all active tasks
     },
     {
-      // Remove polling since we're using global event stream
+      // Refetch disabled since GlobalEventStreamProvider handles invalidation
       refetchInterval: false,
     },
   )
 
   const tasks = data?.tasks
-
-  // Subscribe to global events to invalidate the task list when relevant events occur
-  useEffect(() => {
-    console.log('[SidebarTasks] Setting up global subscription')
-    const unsubscribe = subscribeToAll((event) => {
-      // Invalidate task list on relevant events
-      if (
-        event.subType &&
-        (event.subType === 'task:created' ||
-          event.subType === 'task:updated' ||
-          event.subType === 'task:statusChanged' ||
-          event.subType === 'iteration:created' ||
-          event.subType === 'iteration:updated')
-      ) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
-      }
-    })
-
-    return () => {
-      console.log('[SidebarTasks] Cleaning up global subscription')
-      unsubscribe()
-    }
-  }, [subscribeToAll, queryClient])
 
   // Fetch repositories to map IDs to names
   const { data: repositories } = useRepositoriesList()
