@@ -1,5 +1,6 @@
 import { exec, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { EventType } from '@moatless/shared/types/event'
@@ -100,6 +101,16 @@ export class DockerWorkspace extends BaseWorkspace {
         process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude')
       if (claudeConfigDir) {
         createCommand += ` -v "${claudeConfigDir}:${claudeConfigDir}"`
+      }
+
+      // Mount .claude.json file as .config.json in the Claude config directory
+      const homeDir = process.env.HOME
+      if (homeDir && claudeConfigDir) {
+        const claudeJsonPath = path.join(homeDir, '.claude.json')
+        const configJsonPath = path.join(claudeConfigDir, '.config.json')
+        if (existsSync(claudeJsonPath)) {
+          createCommand += ` -v "${claudeJsonPath}:${configJsonPath}:ro"`
+        }
       }
 
       // Add environment variables for worker mode
