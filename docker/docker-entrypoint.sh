@@ -2,9 +2,10 @@
 set -e
 
 # Initialize firewall rules if running with privileges
-if [ -f /usr/local/bin/init-firewall.sh ]; then
-    sudo /usr/local/bin/init-firewall.sh || true
-fi
+# Disabled by default - uncomment to enable firewall rules
+# if [ -f /usr/local/bin/init-firewall.sh ]; then
+#     sudo /usr/local/bin/init-firewall.sh || true
+# fi
 
 # Ensure data directory exists with correct permissions
 if [ ! -d "$DATA_DIR" ]; then

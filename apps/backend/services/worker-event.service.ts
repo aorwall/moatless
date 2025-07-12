@@ -18,7 +18,7 @@ export class WorkerEventService {
 
   constructor(
     private apiUrl: string,
-    private apiKey: string,
+    private apiKey?: string,
     private taskId?: string,
   ) {}
 
@@ -38,7 +38,7 @@ export class WorkerEventService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
+          ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
         },
         body: JSON.stringify(event),
       })

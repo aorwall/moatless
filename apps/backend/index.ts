@@ -19,12 +19,8 @@ const start = async () => {
   if (process.env.WORKER_MODE === 'true') {
     const workerConfig = {
       apiUrl: process.env.WORKER_API_URL || 'http://localhost:8000',
-      apiKey: process.env.WORKER_API_KEY || '',
+      apiKey: process.env.WORKER_API_KEY,
       workspaceDir: process.env.WORKSPACE_DIR || '/workspace',
-    }
-
-    if (!workerConfig.apiKey) {
-      throw new Error('WORKER_API_KEY is required in worker mode')
     }
 
     await startWorkerMode(workerConfig)

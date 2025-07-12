@@ -66,11 +66,18 @@ RUN ARCH=$(dpkg --print-architecture) && \
   rm "git-delta_0.18.2_${ARCH}.deb"
 
 # Copy built application from builder stage
+# Copy root node_modules (includes pnpm store)
 COPY --from=builder --chown=node:node /app/node_modules /app/node_modules
+
+# Copy shared package
 COPY --from=builder --chown=node:node /app/packages/shared/dist /app/packages/shared/dist
 COPY --from=builder --chown=node:node /app/packages/shared/package.json /app/packages/shared/package.json
+COPY --from=builder --chown=node:node /app/packages/shared/node_modules /app/packages/shared/node_modules
+
+# Copy backend app
 COPY --from=builder --chown=node:node /app/apps/backend/dist /app/apps/backend/dist
 COPY --from=builder --chown=node:node /app/apps/backend/package.json /app/apps/backend/package.json
+COPY --from=builder --chown=node:node /app/apps/backend/node_modules /app/apps/backend/node_modules
 
 # Set up non-root user
 USER node

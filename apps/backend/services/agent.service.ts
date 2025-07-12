@@ -49,7 +49,7 @@ export class AgentService {
     const useWorkers =
       process.env.ENABLE_WORKERS === 'true' &&
       repository?.codeExecution?.workspaceType === 'docker' &&
-      repository?.codeExecution?.image &&
+      repository?.codeExecution?.dockerImage &&
       this.workerService
 
     if (useWorkers && this.workerService) {

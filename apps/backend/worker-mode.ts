@@ -10,7 +10,7 @@ import { LocalWorkspace } from './workspaces/local.js'
 
 export interface WorkerModeConfig {
   apiUrl: string
-  apiKey: string
+  apiKey?: string
   workspaceDir: string
   dataDir?: string // Optional data directory for storage (defaults to /data)
 }
