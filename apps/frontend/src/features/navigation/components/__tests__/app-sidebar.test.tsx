@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import { createMemoryRouter, RouterProvider } from '@tanstack/react-router'
 import { describe, expect, it, vi } from 'vitest'
 import { AppSidebar } from '../app-sidebar'
 
@@ -36,26 +35,18 @@ vi.mock('@/lib/components/ui/sidebar', () => ({
   SidebarMenuItem: ({ children }: any) => <li data-testid="sidebar-menu-item">{children}</li>,
 }))
 
-describe('AppSidebar', () => {
-  const createTestRouter = () => {
-    return createMemoryRouter({
-      routes: [
-        {
-          path: '/',
-          component: AppSidebar,
-        },
-        {
-          path: '/settings',
-          component: () => <div>Settings</div>,
-        },
-      ],
-      initialEntries: ['/'],
-    })
-  }
+// Mock router hooks
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, to, ...props }: any) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
+}))
 
+describe('AppSidebar', () => {
   it('should render all main sections', () => {
-    const router = createTestRouter()
-    render(<RouterProvider router={router} />)
+    render(<AppSidebar />)
 
     // Check main structure
     expect(screen.getByTestId('sidebar')).toBeInTheDocument()
@@ -65,15 +56,13 @@ describe('AppSidebar', () => {
   })
 
   it('should display application title', () => {
-    const router = createTestRouter()
-    render(<RouterProvider router={router} />)
+    render(<AppSidebar />)
 
     expect(screen.getByText('Moatless Vibe')).toBeInTheDocument()
   })
 
   it('should render navigation links', () => {
-    const router = createTestRouter()
-    render(<RouterProvider router={router} />)
+    render(<AppSidebar />)
 
     // Check main navigation items
     const dashboardLink = screen.getByRole('link', { name: /dashboard/i })
@@ -86,8 +75,7 @@ describe('AppSidebar', () => {
   })
 
   it('should render all sidebar sections', () => {
-    const router = createTestRouter()
-    render(<RouterProvider router={router} />)
+    render(<AppSidebar />)
 
     // Check that all sections are rendered
     expect(screen.getByTestId('sidebar-tasks')).toBeInTheDocument()
@@ -96,8 +84,7 @@ describe('AppSidebar', () => {
   })
 
   it('should display version in footer', () => {
-    const router = createTestRouter()
-    render(<RouterProvider router={router} />)
+    render(<AppSidebar />)
 
     expect(screen.getByText('v1.0.0')).toBeInTheDocument()
   })
