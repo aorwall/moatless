@@ -137,15 +137,35 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
     )
   }, [parsedFiles])
 
-  // Auto-expand files only when new files are detected (avoid re-expanding on every change)
-  React.useEffect(() => {
-    if (parsedFiles.length > 0 && expandedFiles.size === 0) {
-      updateGitDiffState({ expandedFiles: allFileKeys })
+  // Track if we've auto-expanded for this set of files
+  const autoExpandRef = React.useRef<Set<string>>(new Set())
+
+  // Derive expanded files state - auto-expand if we haven't done so for these files
+  const effectiveExpandedFiles = React.useMemo(() => {
+    if (parsedFiles.length === 0) return expandedFiles
+
+    // Create a stable key for this set of files
+    const filesKey = Array.from(allFileKeys).sort().join('|')
+
+    // If we haven't auto-expanded these files yet and no files are expanded
+    if (!autoExpandRef.current.has(filesKey) && expandedFiles.size === 0) {
+      autoExpandRef.current.add(filesKey)
+      // Auto-expand all files
+      return allFileKeys
     }
-  }, [parsedFiles.length, expandedFiles.size, allFileKeys, updateGitDiffState])
+
+    return expandedFiles
+  }, [parsedFiles, allFileKeys, expandedFiles])
+
+  // Sync the derived state back to the context if it differs
+  React.useEffect(() => {
+    if (effectiveExpandedFiles !== expandedFiles) {
+      updateGitDiffState({ expandedFiles: effectiveExpandedFiles })
+    }
+  }, [effectiveExpandedFiles, expandedFiles, updateGitDiffState])
 
   const toggleFileExpansion = (fileKey: string) => {
-    const next = new Set(expandedFiles)
+    const next = new Set(effectiveExpandedFiles)
     if (next.has(fileKey)) {
       next.delete(fileKey)
     } else {
@@ -265,7 +285,7 @@ export function GitDiffViewer({ className }: GitDiffViewerProps) {
                 key={fileKey}
                 file={file}
                 fileKey={fileKey}
-                isExpanded={expandedFiles.has(fileKey)}
+                isExpanded={effectiveExpandedFiles.has(fileKey)}
                 onToggle={() => toggleFileExpansion(fileKey)}
               />
             )

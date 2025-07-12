@@ -1,6 +1,6 @@
 import type { UploadFileResponse } from '@moatless/shared/types/api'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { Button } from '@/lib/components/ui/button'
@@ -119,34 +119,42 @@ export function ChatForm({
     }
   }
 
-  // Initial resize on mount
-  useEffect(() => {
-    const textarea = inputRef.current
-    if (!textarea) return
+  // Callback ref to handle initial resize and ref assignment
+  const textareaCallbackRef = (node: HTMLTextAreaElement | null) => {
+    // Assign to the autocomplete ref
+    inputRef.current = node
 
-    // Set initial height
-    textarea.style.height = 'auto'
-    const scrollHeight = textarea.scrollHeight
-    const maxHeightPx = parseInt(maxHeight)
-    const newHeight = Math.min(scrollHeight, maxHeightPx)
-    textarea.style.height = `${newHeight}px`
-  }, [maxHeight, inputRef.current])
+    if (node) {
+      // Set initial height using callback ref pattern
+      node.style.height = 'auto'
+      const scrollHeight = node.scrollHeight
+      const maxHeightPx = parseInt(maxHeight)
+      const newHeight = Math.min(scrollHeight, maxHeightPx)
+      node.style.height = `${newHeight}px`
+    }
+  }
 
-  // Detect if dropdown should appear above or below
-  useEffect(() => {
+  // Derive dropdown position when autocomplete opens
+  const calculateDropdownPosition = useCallback(() => {
     if (isAutocompleteOpen && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect()
       const spaceBelow = window.innerHeight - rect.bottom
       const dropdownHeight = 240 // max-h-60 = 15rem = 240px
 
       // If not enough space below and we're in task context (likely at bottom), show above
-      if (spaceBelow < dropdownHeight && isTaskContext) {
-        setDropdownPosition('above')
-      } else {
-        setDropdownPosition('below')
+      const newPosition = spaceBelow < dropdownHeight && isTaskContext ? 'above' : 'below'
+      if (newPosition !== dropdownPosition) {
+        setDropdownPosition(newPosition)
       }
     }
-  }, [isAutocompleteOpen, isTaskContext])
+  }, [isAutocompleteOpen, isTaskContext, dropdownPosition])
+
+  // Calculate position when autocomplete opens (effect needed for timing)
+  useEffect(() => {
+    if (isAutocompleteOpen) {
+      calculateDropdownPosition()
+    }
+  }, [isAutocompleteOpen, calculateDropdownPosition])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Let autocomplete handle key events first
@@ -192,7 +200,7 @@ export function ChatForm({
         const blob = item.getAsFile()
         if (blob) {
           // Generate a filename based on timestamp
-          const timestamp = new Date().getTime()
+          const timestamp = Date.now()
           const extension = blob.type.split('/')[1] || 'png'
           const filename = `pasted-image-${timestamp}.${extension}`
 
@@ -229,7 +237,7 @@ export function ChatForm({
       <div ref={containerRef}>
         <div className="relative flex flex-1 items-center">
           <Textarea
-            ref={inputRef}
+            ref={textareaCallbackRef}
             placeholder={placeholder}
             value={message}
             onChange={handleTextareaChange}

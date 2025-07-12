@@ -2,20 +2,19 @@ import type { Command } from '@moatless/shared/types/command'
 import type { TaskIteration } from '@moatless/shared/types/task'
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import {
   useEventStream,
-  useSelectedIteration,
   useStreamingStatus,
   useTaskData,
   useWorkspaceStatus,
 } from '@/features/tasks/contexts/task-providers'
-import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
+import { useSelectedIteration } from '@/features/tasks/contexts/task-ui-provider'
+import { useSendMessage, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
 import { ChatView } from '../chat-view'
 
 // Mock all dependencies
-vi.mock('@/features/commands/hooks/use-commands')
 vi.mock('@/features/tasks/contexts/task-providers')
+vi.mock('@/features/tasks/contexts/task-ui-provider')
 vi.mock('@/features/tasks/hooks/use-tasks')
 vi.mock('@/features/tasks/hooks/use-auto-scroll', () => ({
   useAutoScroll: () => ({ scrollRef: { current: null } }),
@@ -77,8 +76,8 @@ describe('ChatView Commands Integration', () => {
       workspaceHasChanges: false,
     } as any)
 
-    vi.mocked(useCommandsList).mockReturnValue({
-      data: [],
+    vi.mocked(useTaskCommands).mockReturnValue({
+      data: { commands: [] },
       isLoading: false,
     } as any)
   })
@@ -100,8 +99,8 @@ describe('ChatView Commands Integration', () => {
         workspaceHasChanges: true,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: [commitCommand],
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: { commands: [commitCommand] },
         isLoading: false,
       } as any)
 
@@ -113,21 +112,13 @@ describe('ChatView Commands Integration', () => {
     })
 
     it('should hide commit command when there are no uncommitted changes', async () => {
-      const commitCommand: Command = {
-        name: 'commit',
-        description: 'Commit changes',
-        prompt: 'commit the changes',
-        conditions: {
-          requiresUncommittedChanges: true,
-        },
-      }
-
+      // When there are no uncommitted changes, the backend should not return commit command
       vi.mocked(useWorkspaceStatus).mockReturnValue({
         workspaceHasChanges: false,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: [commitCommand],
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: { commands: [] }, // Backend filters out commit command
         isLoading: false,
       } as any)
 
@@ -141,19 +132,6 @@ describe('ChatView Commands Integration', () => {
 
   describe('Command visibility based on task status', () => {
     it('should hide all commands when task is running', async () => {
-      const commands: Command[] = [
-        {
-          name: 'commit',
-          description: 'Commit changes',
-          prompt: 'commit',
-        },
-        {
-          name: 'continue',
-          description: 'Continue',
-          prompt: 'continue',
-        },
-      ]
-
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
         status: 'running',
@@ -162,14 +140,29 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: commands,
+      // The component filters out commands when task is running (line 209 in chat-view.tsx)
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: {
+          commands: [
+            {
+              name: 'commit',
+              description: 'Commit changes',
+              prompt: 'commit',
+            },
+            {
+              name: 'continue',
+              description: 'Continue',
+              prompt: 'continue',
+            },
+          ],
+        },
         isLoading: false,
       } as any)
 
       render(<ChatView />)
 
       await waitFor(() => {
+        // Commands are not rendered when task is running
         expect(screen.queryByText('Commit changes')).not.toBeInTheDocument()
         expect(screen.queryByText('Continue')).not.toBeInTheDocument()
       })
@@ -203,8 +196,8 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: [continueCommand],
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: { commands: [continueCommand] },
         isLoading: false,
       } as any)
 
@@ -253,8 +246,8 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: [createPrCommand],
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: { commands: [createPrCommand] },
         isLoading: false,
       } as any)
 
@@ -301,8 +294,8 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: [syncCommand],
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: { commands: [syncCommand] },
         isLoading: false,
       } as any)
 
@@ -360,8 +353,8 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
-      vi.mocked(useCommandsList).mockReturnValue({
-        data: commands,
+      vi.mocked(useTaskCommands).mockReturnValue({
+        data: { commands },
         isLoading: false,
       } as any)
 
