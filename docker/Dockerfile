@@ -1,128 +1,256 @@
-# Multi-stage build for efficiency
-# Stage 1: Build the application
-FROM node:20 AS builder
+# moatless-universal: Comprehensive development environment
+# Based on OpenAI codex-universal (MIT License)
+# https://github.com/openai/codex-universal
 
-# Install pnpm
-RUN npm install -g pnpm@10.7.1
+### Stage 1: Build the application ###
+FROM ubuntu:24.04 AS builder
+
+ENV LANG="C.UTF-8"
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install base development tools and dependencies
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        binutils \
+        build-essential \
+        curl \
+        git \
+        git-lfs \
+        gnupg2 \
+        jq \
+        ca-certificates \
+        software-properties-common \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 via NodeSource repository
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
+
+# Install pnpm with corepack
+RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 
 # Copy source code
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json tsconfig.node.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json tsconfig.node.json .npmrc ./
 COPY packages ./packages
 COPY apps ./apps
 
 # Install dependencies and build
 RUN pnpm install --frozen-lockfile
+
+# Install the Claude Code SDK binary by running pnpm postinstall manually
+# This ensures the binary is downloaded and installed
+RUN pnpm postinstall || true
+
 RUN pnpm build
 
-# Stage 2: Runtime image
-FROM node:20
+### Stage 2: Universal development runtime ###
+FROM ubuntu:24.04
 
-ARG TZ
-ENV TZ="$TZ"
+ENV LANG="C.UTF-8"
+ENV HOME=/workspace
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install basic development tools and iptables/ipset
-RUN apt update && apt install -y less \
-  git \
-  procps \
-  sudo \
-  fzf \
-  zsh \
-  man-db \
-  unzip \
-  gnupg2 \
-  gh \
-  iptables \
-  ipset \
-  iproute2 \
-  dnsutils \
-  aggregate \
-  jq
+# Install comprehensive system packages (based on codex-universal)
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        # Base system tools
+        binutils \
+        sudo \
+        build-essential \
+        bzr \
+        curl \
+        default-libmysqlclient-dev \
+        dnsutils \
+        gettext \
+        git \
+        git-lfs \
+        gnupg2 \
+        inotify-tools \
+        iputils-ping \
+        jq \
+        # Development libraries
+        libbz2-dev \
+        libc6 \
+        libc6-dev \
+        libcurl4-openssl-dev \
+        libdb-dev \
+        libedit2 \
+        libffi-dev \
+        libgcc-13-dev \
+        libgcc1 \
+        libgdbm-compat-dev \
+        libgdbm-dev \
+        libgdiplus \
+        libgssapi-krb5-2 \
+        liblzma-dev \
+        libncurses-dev \
+        libncursesw5-dev \
+        libnss3-dev \
+        libpq-dev \
+        libpsl-dev \
+        libpython3-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libssl-dev \
+        libstdc++-13-dev \
+        libunwind8 \
+        libuuid1 \
+        libxml2-dev \
+        libz3-dev \
+        # Additional tools
+        make \
+        moreutils \
+        netcat-openbsd \
+        openssh-client \
+        pkg-config \
+        protobuf-compiler \
+        python3-pip \
+        ripgrep \
+        rsync \
+        software-properties-common \
+        sqlite3 \
+        swig3.0 \
+        tk-dev \
+        tzdata \
+        unzip \
+        vim \
+        wget \
+        zip \
+        # Additional dev tools for moatless
+        less \
+        procps \
+        fzf \
+        zsh \
+        man-db \
+        gh \
+        iptables \
+        ipset \
+        iproute2 \
+        aggregate \
+    && rm -rf /var/lib/apt/lists/*
 
-# Ensure default node user has access to /usr/local/share
-RUN mkdir -p /usr/local/share/npm-global && \
-  chown -R node:node /usr/local/share
+# Install Node.js 20 via NodeSource repository
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-ARG USERNAME=node
+# Install Python via pyenv
+ENV PYENV_ROOT="/opt/pyenv"
+ENV PATH="$PYENV_ROOT/bin:$PATH"
+RUN git clone https://github.com/pyenv/pyenv.git $PYENV_ROOT \
+    && cd $PYENV_ROOT && git checkout v2.4.21 \
+    && echo 'export PYENV_ROOT="/opt/pyenv"' >> /etc/profile \
+    && echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> /etc/profile \
+    && echo 'eval "$(pyenv init -)"' >> /etc/profile
 
-# Persist bash history.
-RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-  && mkdir /commandhistory \
-  && touch /commandhistory/.bash_history \
-  && chown -R $USERNAME /commandhistory
+# Install Python versions
+RUN eval "$(pyenv init -)" \
+    && pyenv install 3.12.8 \
+    && pyenv global 3.12.8
 
-# Set `DEVCONTAINER` environment variable to help with orientation
-ENV DEVCONTAINER=true
+# Install Rust
+ENV RUSTUP_HOME="/opt/rust"
+ENV CARGO_HOME="/opt/cargo"
+ENV PATH="/opt/cargo/bin:$PATH"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+    && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile
 
-# Create workspace and config directories and set permissions
-RUN mkdir -p /workspace /home/node/.claude /data /app && \
-  chown -R node:node /workspace /home/node/.claude /data /app
+# Install Go
+ENV GO_VERSION=1.23.8
+ENV GOROOT="/usr/local/go"
+ENV GOPATH="/opt/go"
+ENV PATH="$GOROOT/bin:$GOPATH/bin:$PATH"
+RUN wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    && tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz" \
+    && rm "go${GO_VERSION}.linux-amd64.tar.gz" \
+    && mkdir -p $GOPATH \
+    && echo 'export PATH="/usr/local/go/bin:/opt/go/bin:$PATH"' >> /etc/profile
+
+# Install Java OpenJDK 21 and Maven
+RUN apt-get update \
+    && apt-get install -y openjdk-21-jdk maven \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/lib/jvm/java-21-openjdk-* /usr/lib/jvm/default-java
+ENV JAVA_HOME="/usr/lib/jvm/default-java"
+
+# Configure existing ubuntu user (UID 1000)
+ARG USERNAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME \
+    && usermod -s /bin/zsh $USERNAME
+
+# Set up pnpm and npm
+RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
+
+# Create directories and set permissions
+RUN mkdir -p /workspace /home/$USERNAME/.claude /data /app /commandhistory \
+    && touch /commandhistory/.bash_history \
+    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /data /app /commandhistory \
+    && chmod -R 755 /workspace /data /app
+
+# Install git-delta
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
+    dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
+    rm "git-delta_0.18.2_${ARCH}.deb"
+
+# Install Claude Code CLI as root
+RUN npm install -g @anthropic-ai/claude-code
+
+# Switch to non-root user
+USER $USERNAME
 
 WORKDIR /workspace
 
-RUN ARCH=$(dpkg --print-architecture) && \
-  wget "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
-  sudo dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
-  rm "git-delta_0.18.2_${ARCH}.deb"
+# Set up shell environment
+ENV SHELL=/bin/zsh
+RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.2.0/zsh-in-docker.sh)" -- \
+    -p git \
+    -p fzf \
+    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
+    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
+    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
+    -a "export PYENV_ROOT='/opt/pyenv'" \
+    -a "export PATH='\$PYENV_ROOT/bin:\$PATH'" \
+    -a "eval \"\$(pyenv init -)\"" \
+    -a "export PATH='/opt/cargo/bin:\$PATH'" \
+    -a "export PATH='/usr/local/go/bin:/opt/go/bin:\$PATH'" \
+    -x
 
 # Copy built application from builder stage
-# Copy root node_modules (includes pnpm store)
-COPY --from=builder --chown=node:node /app/node_modules /app/node_modules
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/node_modules /app/node_modules
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/shared/dist /app/packages/shared/dist
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/shared/package.json /app/packages/shared/package.json
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/shared/node_modules /app/packages/shared/node_modules
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/dist /app/apps/backend/dist
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/package.json /app/apps/backend/package.json
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/node_modules /app/apps/backend/node_modules
 
-# Copy shared package
-COPY --from=builder --chown=node:node /app/packages/shared/dist /app/packages/shared/dist
-COPY --from=builder --chown=node:node /app/packages/shared/package.json /app/packages/shared/package.json
-COPY --from=builder --chown=node:node /app/packages/shared/node_modules /app/packages/shared/node_modules
-
-# Copy backend app
-COPY --from=builder --chown=node:node /app/apps/backend/dist /app/apps/backend/dist
-COPY --from=builder --chown=node:node /app/apps/backend/package.json /app/apps/backend/package.json
-COPY --from=builder --chown=node:node /app/apps/backend/node_modules /app/apps/backend/node_modules
-
-# Set up non-root user
-USER node
-
-# Install global packages
-ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=$PATH:/usr/local/share/npm-global/bin
-
-# Set the default shell to zsh rather than sh
-ENV SHELL=/bin/zsh
-
-# Default powerline10k theme
-RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.2.0/zsh-in-docker.sh)" -- \
-  -p git \
-  -p fzf \
-  -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
-  -a "source /usr/share/doc/fzf/examples/completion.zsh" \
-  -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-  -x
-
-# Install Claude
-RUN npm install -g @anthropic-ai/claude-code
-
-# Copy and set up firewall script
-COPY docker/init-firewall.sh /usr/local/bin/
+# Copy entrypoint script
 USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
-  chmod 0440 /etc/sudoers.d/node-firewall
-
-# Create entrypoint script
 COPY docker/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Switch back to node user
-USER node
+# Final setup
+USER $USERNAME
 
-# Set environment variables for worker mode
+# Environment variables
+ENV DEVCONTAINER=true
 ENV NODE_ENV=production
 ENV WORKER_MODE=true
 ENV DATA_DIR=/data
 ENV WORKSPACE_DIR=/workspace
 ENV PORT=8001
+ENV TZ="UTC"
 
-# Expose worker port
+# Expose port
 EXPOSE 8001
 
 # Set entrypoint
