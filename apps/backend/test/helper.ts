@@ -11,6 +11,7 @@ export interface TestApp extends Hono<AppBindings> {
   close: () => Promise<void>
   listen: (options: { port: number; host?: string }) => Promise<void>
   server?: { address: () => { port: number } }
+  _httpServer?: { close?: () => void }
 }
 
 /**
@@ -19,7 +20,7 @@ export interface TestApp extends Hono<AppBindings> {
 export interface RequestOptions {
   method: string
   url: string
-  payload?: any
+  payload?: unknown
   headers?: Record<string, string>
 }
 
@@ -39,7 +40,7 @@ export async function build(): Promise<TestApp> {
   const { app, services } = await createApp()
 
   // Create enhanced app with test utilities
-  const testApp = app as any as TestApp
+  const testApp = app as TestApp
   testApp.services = services
 
   // Add inject method that maps to app.fetch()
@@ -95,15 +96,15 @@ export async function build(): Promise<TestApp> {
 
     // Store the server instance for cleanup
 
-    ;(testApp as any)._httpServer = server
+    testApp._httpServer = server
   }
 
   // Add close method for test cleanup
   testApp.close = async (): Promise<void> => {
     // Close HTTP server if it exists
-    if ((testApp as any)._httpServer) {
-      ;(testApp as any)._httpServer.close?.()
-      delete (testApp as any)._httpServer
+    if (testApp._httpServer) {
+      testApp._httpServer.close?.()
+      delete testApp._httpServer
       delete testApp.server
     }
 

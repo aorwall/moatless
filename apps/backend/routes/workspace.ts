@@ -25,7 +25,7 @@ function handleWorkspaceError(error: unknown): never {
     throw new HTTPException(404, { message: 'Task not found' })
   }
   if (error instanceof WorkspaceError) {
-    throw new HTTPException(error.statusCode as any, { message: error.message })
+    throw new HTTPException(error.statusCode as number, { message: error.message })
   }
   if (error instanceof Error) {
     // Handle specific error messages
@@ -505,8 +505,8 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         // Get workspace status which now includes unified git status
         const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
 
-        if ((workspaceStatus as any).gitStatus) {
-          return c.json((workspaceStatus as any).gitStatus)
+        if (workspaceStatus.gitStatus) {
+          return c.json(workspaceStatus.gitStatus)
         } else {
           // If git status is not available, return a default response
           return c.json({

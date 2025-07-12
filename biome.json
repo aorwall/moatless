@@ -81,6 +81,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["apps/backend/routes/**/*"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "warn"
+          }
+        }
+      }
     }
   ]
 }

@@ -862,8 +862,13 @@ export class PreviewEnvironmentService {
 
           await proxyService.start()
           break
-        } catch (error: any) {
-          if (error.code === 'EADDRINUSE') {
+        } catch (error: unknown) {
+          if (
+            error &&
+            typeof error === 'object' &&
+            'code' in error &&
+            error.code === 'EADDRINUSE'
+          ) {
             proxyPort++
             attempts++
           } else {

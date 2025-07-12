@@ -19,7 +19,7 @@ interface CommandAvailabilityContext {
 // Debug logging flag - set to true to enable detailed command filtering logs
 const DEBUG_COMMAND_FILTERING = false
 
-function debugLog(message: string, data?: any) {
+function debugLog(message: string, data?: unknown) {
   if (DEBUG_COMMAND_FILTERING) {
     if (data !== undefined) {
       console.log(`[Command Filter] ${message}`, data)

@@ -7,6 +7,7 @@ import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
+import { createSchema } from '../utils/openapi-helpers.js'
 
 // Response schemas
 const commandResponseSchema = z.object({
@@ -38,7 +39,7 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
         description: 'Command data to create',
         content: {
           'application/json': {
-            schema: resolver(CreateCommandSchema) as any,
+            schema: createSchema(CreateCommandSchema),
           },
         },
       },
@@ -165,7 +166,7 @@ export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: stri
         description: 'Updated command data',
         content: {
           'application/json': {
-            schema: resolver(UpdateCommandSchema) as any,
+            schema: createSchema(UpdateCommandSchema),
           },
         },
       },

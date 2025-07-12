@@ -139,7 +139,7 @@ describe('getGitDiffDetailed', () => {
     // Modify file
     repo.createFile(
       'app.js',
-      'const version = "2.0.0";\nconsole.log(`Version: ${version}`);\nconsole.log("Updated");\n',
+      `const version = "2.0.0";\nconsole.log(\`Version: \${version}\`);\nconsole.log("Updated");\n`,
     )
     repo.addFile('app.js')
 

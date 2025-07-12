@@ -1612,7 +1612,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         throw new HTTPException(400, { message: 'Task ID is required' })
       }
 
-      let body: any = {}
+      let body: unknown = {}
       try {
         body = await c.req.json()
       } catch {
