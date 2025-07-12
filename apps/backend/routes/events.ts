@@ -89,7 +89,7 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
       const controller = {
         enqueue: (data: string) => writer.write(new TextEncoder().encode(data)),
         close: () => writer.close(),
-        error: (error: any) => writer.abort(error),
+        error: (error: Error) => writer.abort(error),
         desiredSize: 1,
       } as ReadableStreamDefaultController
       sseManager.connectGlobal(connectionId, controller)

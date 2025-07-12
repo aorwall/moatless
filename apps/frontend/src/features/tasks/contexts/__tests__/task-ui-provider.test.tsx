@@ -29,6 +29,7 @@ function TestComponent({ taskId }: { taskId: string }) {
       <div data-testid="selected-iteration">{selectedIteration?.iterationNumber || 'none'}</div>
 
       <button
+        type="button"
         data-testid="update-chat-state"
         onClick={() => updateChatState({ isAtBottom: false, scrollPosition: 100 })}
       >
@@ -36,6 +37,7 @@ function TestComponent({ taskId }: { taskId: string }) {
       </button>
 
       <button
+        type="button"
         data-testid="update-git-diff-state"
         onClick={() =>
           updateGitDiffState({
@@ -48,11 +50,16 @@ function TestComponent({ taskId }: { taskId: string }) {
         Update Git Diff State
       </button>
 
-      <button data-testid="update-panel-view" onClick={() => setRightPanelView('diff')}>
+      <button
+        type="button"
+        data-testid="update-panel-view"
+        onClick={() => setRightPanelView('diff')}
+      >
         Update Panel View
       </button>
 
       <button
+        type="button"
         data-testid="update-iteration"
         onClick={() => setSelectedIteration({ iterationNumber: 2 } as any)}
       >
@@ -155,10 +162,18 @@ describe('TaskUIProvider State Isolation', () => {
     return (
       <div>
         <div data-testid="active-task-id">{currentTaskId}</div>
-        <button data-testid="switch-to-task-1" onClick={() => setCurrentTaskId('task-1')}>
+        <button
+          type="button"
+          data-testid="switch-to-task-1"
+          onClick={() => setCurrentTaskId('task-1')}
+        >
           Task 1
         </button>
-        <button data-testid="switch-to-task-2" onClick={() => setCurrentTaskId('task-2')}>
+        <button
+          type="button"
+          data-testid="switch-to-task-2"
+          onClick={() => setCurrentTaskId('task-2')}
+        >
           Task 2
         </button>
 

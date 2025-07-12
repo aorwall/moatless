@@ -53,10 +53,10 @@ describe('Derived State Patterns - Regression Tests', () => {
 
   describe('Preview Toolbar - Path input state reset', () => {
     it('should reset path input when displayPath changes using render-time pattern', () => {
-      let renderCount = 0
+      let _renderCount = 0
 
       const TestComponent = ({ displayPath }: { displayPath: string }) => {
-        renderCount++
+        _renderCount++
 
         const [pathInput, setPathInput] = React.useState(displayPath)
         const [lastDisplayPath, setLastDisplayPath] = React.useState(displayPath)
@@ -70,7 +70,11 @@ describe('Derived State Patterns - Regression Tests', () => {
         return (
           <div>
             <div data-testid="path-input">{pathInput}</div>
-            <button data-testid="update-input" onClick={() => setPathInput('user-modified')}>
+            <button
+              type="button"
+              data-testid="update-input"
+              onClick={() => setPathInput('user-modified')}
+            >
               Modify Input
             </button>
           </div>

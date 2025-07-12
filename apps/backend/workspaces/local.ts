@@ -551,7 +551,7 @@ export class LocalWorkspace extends BaseWorkspace {
         commitsBehind: syncStatus.commitsBehind,
         originExists: syncStatus.originExists,
       }
-    } catch (error) {
+    } catch (_error) {
       // Fall back to defaults on error
       return {
         currentBranch: 'unknown',

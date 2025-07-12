@@ -32,7 +32,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
           description: 'Server started successfully',
           content: {
             'application/json': {
-              schema: resolver(ServerStatusSchema) as any,
+              schema: resolver(ServerStatusSchema),
             },
           },
         },
@@ -81,7 +81,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
           description: 'Server stopped successfully',
           content: {
             'application/json': {
-              schema: resolver(ServerStopResponseSchema) as any,
+              schema: resolver(ServerStopResponseSchema),
             },
           },
         },
@@ -133,7 +133,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
           description: 'Server restarted successfully',
           content: {
             'application/json': {
-              schema: resolver(ServerStatusSchema) as any,
+              schema: resolver(ServerStatusSchema),
             },
           },
         },
@@ -182,7 +182,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
           description: 'Server status',
           content: {
             'application/json': {
-              schema: resolver(ServerStatusSchema) as any,
+              schema: resolver(ServerStatusSchema),
             },
           },
         },
@@ -240,7 +240,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
           description: 'Server logs',
           content: {
             'application/json': {
-              schema: resolver(ServerLogsResponseExtendedSchema) as any,
+              schema: resolver(ServerLogsResponseExtendedSchema),
             },
           },
         },

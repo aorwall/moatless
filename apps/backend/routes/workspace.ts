@@ -94,7 +94,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Workspace status information',
           content: {
             'application/json': {
-              schema: resolver(WorkspaceStatusResponseSchema) as any,
+              schema: resolver(WorkspaceStatusResponseSchema),
             },
           },
         },
@@ -160,7 +160,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'List of files',
           content: {
             'application/json': {
-              schema: resolver(FileListResponseSchema) as any,
+              schema: resolver(FileListResponseSchema),
             },
           },
         },
@@ -226,7 +226,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'File content',
           content: {
             'application/json': {
-              schema: resolver(FileContentResponseSchema) as any,
+              schema: resolver(FileContentResponseSchema),
             },
           },
         },
@@ -300,7 +300,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'File written successfully',
           content: {
             'application/json': {
-              schema: resolver(FileWriteResponseSchema) as any,
+              schema: resolver(FileWriteResponseSchema),
             },
           },
         },
@@ -362,7 +362,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Search results',
           content: {
             'application/json': {
-              schema: resolver(FileSearchResponseSchema) as any,
+              schema: resolver(FileSearchResponseSchema),
             },
           },
         },
@@ -422,7 +422,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Git diff',
           content: {
             'application/json': {
-              schema: resolver(GitDiffResponseSchema) as any,
+              schema: resolver(GitDiffResponseSchema),
             },
           },
         },
@@ -479,7 +479,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Git sync status',
           content: {
             'application/json': {
-              schema: resolver(GitStatusSchema) as any,
+              schema: resolver(GitStatusSchema),
             },
           },
         },
@@ -555,7 +555,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Command execution result',
           content: {
             'application/json': {
-              schema: resolver(CommandResultSchema) as any,
+              schema: resolver(CommandResultSchema),
             },
           },
         },

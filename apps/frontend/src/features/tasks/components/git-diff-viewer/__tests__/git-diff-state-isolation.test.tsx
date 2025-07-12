@@ -62,35 +62,60 @@ function GitDiffTestComponent() {
         {Array.from(gitDiffState.expandedPaths).join(',')}
       </div>
 
-      <button data-testid="expand-file-1" onClick={() => handleExpandFile('src/file1.ts')}>
+      <button
+        type="button"
+        data-testid="expand-file-1"
+        onClick={() => handleExpandFile('src/file1.ts')}
+      >
         Toggle File 1
       </button>
 
-      <button data-testid="expand-file-2" onClick={() => handleExpandFile('src/file2.ts')}>
+      <button
+        type="button"
+        data-testid="expand-file-2"
+        onClick={() => handleExpandFile('src/file2.ts')}
+      >
         Toggle File 2
       </button>
 
-      <button data-testid="expand-file-3" onClick={() => handleExpandFile('tests/file3.test.ts')}>
+      <button
+        type="button"
+        data-testid="expand-file-3"
+        onClick={() => handleExpandFile('tests/file3.test.ts')}
+      >
         Toggle File 3
       </button>
 
-      <button data-testid="select-file-1" onClick={() => handleSelectFile('src/file1.ts')}>
+      <button
+        type="button"
+        data-testid="select-file-1"
+        onClick={() => handleSelectFile('src/file1.ts')}
+      >
         Select File 1
       </button>
 
-      <button data-testid="select-file-2" onClick={() => handleSelectFile('src/file2.ts')}>
+      <button
+        type="button"
+        data-testid="select-file-2"
+        onClick={() => handleSelectFile('src/file2.ts')}
+      >
         Select File 2
       </button>
 
-      <button data-testid="expand-path-src" onClick={() => handleExpandPath('src/')}>
+      <button type="button" data-testid="expand-path-src" onClick={() => handleExpandPath('src/')}>
         Toggle Src Path
       </button>
 
-      <button data-testid="expand-path-tests" onClick={() => handleExpandPath('tests/')}>
+      <button
+        type="button"
+        data-testid="expand-path-tests"
+        onClick={() => handleExpandPath('tests/')}
+      >
         Toggle Tests Path
       </button>
 
       <button
+        type="button"
         data-testid="expand-path-components"
         onClick={() => handleExpandPath('src/components/')}
       >
@@ -98,13 +123,14 @@ function GitDiffTestComponent() {
       </button>
 
       <button
+        type="button"
         data-testid="bulk-expand-files"
         onClick={() => handleBulkExpandFiles(['file1.ts', 'file2.ts', 'file3.ts', 'file4.ts'])}
       >
         Bulk Expand Files
       </button>
 
-      <button data-testid="reset-state" onClick={handleResetState}>
+      <button type="button" data-testid="reset-state" onClick={handleResetState}>
         Reset State
       </button>
     </div>
@@ -119,15 +145,27 @@ function MultiTaskGitDiffTest() {
     <div>
       <div data-testid="current-task-id">{currentTaskId}</div>
 
-      <button data-testid="switch-to-git-task-1" onClick={() => setCurrentTaskId('git-task-1')}>
+      <button
+        type="button"
+        data-testid="switch-to-git-task-1"
+        onClick={() => setCurrentTaskId('git-task-1')}
+      >
         Switch to Git Task 1
       </button>
 
-      <button data-testid="switch-to-git-task-2" onClick={() => setCurrentTaskId('git-task-2')}>
+      <button
+        type="button"
+        data-testid="switch-to-git-task-2"
+        onClick={() => setCurrentTaskId('git-task-2')}
+      >
         Switch to Git Task 2
       </button>
 
-      <button data-testid="switch-to-git-task-3" onClick={() => setCurrentTaskId('git-task-3')}>
+      <button
+        type="button"
+        data-testid="switch-to-git-task-3"
+        onClick={() => setCurrentTaskId('git-task-3')}
+      >
         Switch to Git Task 3
       </button>
 

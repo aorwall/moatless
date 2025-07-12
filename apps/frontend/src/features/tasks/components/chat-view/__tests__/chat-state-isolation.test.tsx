@@ -38,19 +38,23 @@ function ChatScrollTestComponent() {
       <div data-testid="chat-scroll-position">{chatState.scrollPosition || 0}</div>
       <div data-testid="current-scroll">{scrollPosition}</div>
 
-      <button data-testid="scroll-to-top" onClick={() => handleScroll(0)}>
+      <button type="button" data-testid="scroll-to-top" onClick={() => handleScroll(0)}>
         Scroll to Top
       </button>
 
-      <button data-testid="scroll-to-middle" onClick={() => handleScroll(500)}>
+      <button type="button" data-testid="scroll-to-middle" onClick={() => handleScroll(500)}>
         Scroll to Middle
       </button>
 
-      <button data-testid="scroll-to-bottom" onClick={() => handleScroll(1000)}>
+      <button type="button" data-testid="scroll-to-bottom" onClick={() => handleScroll(1000)}>
         Scroll to Bottom
       </button>
 
-      <button data-testid="mark-at-bottom" onClick={() => updateChatState({ isAtBottom: true })}>
+      <button
+        type="button"
+        data-testid="mark-at-bottom"
+        onClick={() => updateChatState({ isAtBottom: true })}
+      >
         Mark At Bottom
       </button>
     </div>
@@ -65,15 +69,27 @@ function MultiTaskChatTest() {
     <div>
       <div data-testid="current-task-id">{currentTaskId}</div>
 
-      <button data-testid="switch-to-task-1" onClick={() => setCurrentTaskId('chat-task-1')}>
+      <button
+        type="button"
+        data-testid="switch-to-task-1"
+        onClick={() => setCurrentTaskId('chat-task-1')}
+      >
         Switch to Task 1
       </button>
 
-      <button data-testid="switch-to-task-2" onClick={() => setCurrentTaskId('chat-task-2')}>
+      <button
+        type="button"
+        data-testid="switch-to-task-2"
+        onClick={() => setCurrentTaskId('chat-task-2')}
+      >
         Switch to Task 2
       </button>
 
-      <button data-testid="switch-to-task-3" onClick={() => setCurrentTaskId('chat-task-3')}>
+      <button
+        type="button"
+        data-testid="switch-to-task-3"
+        onClick={() => setCurrentTaskId('chat-task-3')}
+      >
         Switch to Task 3
       </button>
 

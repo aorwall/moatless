@@ -1,6 +1,7 @@
 import { MoatlessError } from '@moatless/shared'
 import type { ErrorHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { ZodError } from 'zod'
 import type { AppBindings } from '../app.js'
 
 export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
@@ -35,13 +36,13 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
   }
 
   // Handle Zod validation errors
-  if (error.name === 'ZodError') {
+  if (error instanceof ZodError) {
     return c.json(
       {
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Request validation failed',
-          details: (error as any).issues,
+          details: error.issues,
         },
         requestId,
       },

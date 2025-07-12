@@ -96,11 +96,15 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
         {currentState.panelSizes.left},{currentState.panelSizes.right}
       </div>
 
-      <button data-testid={`${taskName}-complex-update`} onClick={handleComplexStateUpdate}>
+      <button
+        type="button"
+        data-testid={`${taskName}-complex-update`}
+        onClick={handleComplexStateUpdate}
+      >
         Complex Update
       </button>
 
-      <button data-testid={`${taskName}-reset-state`} onClick={handleResetState}>
+      <button type="button" data-testid={`${taskName}-reset-state`} onClick={handleResetState}>
         Reset State
       </button>
     </div>
@@ -123,19 +127,19 @@ function TaskSwitchingTest() {
       <div data-testid="task-history">{taskHistory.join(' -> ')}</div>
       <div data-testid="task-switch-count">{taskHistory.length - 1}</div>
 
-      <button data-testid="switch-to-task1" onClick={() => switchToTask('task1')}>
+      <button type="button" data-testid="switch-to-task1" onClick={() => switchToTask('task1')}>
         Task 1
       </button>
-      <button data-testid="switch-to-task2" onClick={() => switchToTask('task2')}>
+      <button type="button" data-testid="switch-to-task2" onClick={() => switchToTask('task2')}>
         Task 2
       </button>
-      <button data-testid="switch-to-task3" onClick={() => switchToTask('task3')}>
+      <button type="button" data-testid="switch-to-task3" onClick={() => switchToTask('task3')}>
         Task 3
       </button>
-      <button data-testid="switch-to-task4" onClick={() => switchToTask('task4')}>
+      <button type="button" data-testid="switch-to-task4" onClick={() => switchToTask('task4')}>
         Task 4
       </button>
-      <button data-testid="switch-to-task5" onClick={() => switchToTask('task5')}>
+      <button type="button" data-testid="switch-to-task5" onClick={() => switchToTask('task5')}>
         Task 5
       </button>
 

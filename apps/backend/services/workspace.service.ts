@@ -428,7 +428,7 @@ export class WorkspaceService {
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
     // Check if workspace has getGitStatus method (LocalWorkspace)
-    let gitStatus: any
+    let gitStatus: unknown
     if ('getGitStatus' in workspace && typeof workspace.getGitStatus === 'function') {
       gitStatus = await workspace.getGitStatus()
     }

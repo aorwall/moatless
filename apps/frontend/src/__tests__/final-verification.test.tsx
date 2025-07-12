@@ -49,7 +49,9 @@ describe('Final Verification - All Bad Signs Fixed', () => {
         return (
           <div>
             <span>Condition false: {memoizedValue}</span>
-            <button onClick={callback}>Increment</button>
+            <button type="button" onClick={callback}>
+              Increment
+            </button>
           </div>
         )
       }
@@ -87,7 +89,9 @@ describe('Final Verification - All Bad Signs Fixed', () => {
         return (
           <div>
             <span>{processedValue}</span>
-            <button onClick={handleClick}>Click</button>
+            <button type="button" onClick={handleClick}>
+              Click
+            </button>
           </div>
         )
       }
@@ -133,10 +137,10 @@ describe('Final Verification - All Bad Signs Fixed', () => {
             </div>
             <div>Items: {itemCount}</div>
             <div>Expensive: {expensiveValue}</div>
-            <button onClick={increment} data-testid="increment">
+            <button type="button" onClick={increment} data-testid="increment">
               +
             </button>
-            <button onClick={addItem} data-testid="add-item">
+            <button type="button" onClick={addItem} data-testid="add-item">
               Add Item
             </button>
           </div>
@@ -321,7 +325,9 @@ describe('Final Verification - All Bad Signs Fixed', () => {
             <span>
               {processedValue} - {data.count}
             </span>
-            <button onClick={handleClick}>Click</button>
+            <button type="button" onClick={handleClick}>
+              Click
+            </button>
           </div>
         )
       }

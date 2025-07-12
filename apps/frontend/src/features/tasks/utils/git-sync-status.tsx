@@ -45,7 +45,6 @@ export function getGitSyncStatusConfig(status: GitSyncStatus): GitSyncStatusConf
         bgColor: 'bg-purple-100',
         tooltip: 'Uncommitted changes',
       }
-    case 'error':
     default:
       return {
         icon: <XCircle className="h-3.5 w-3.5" />,

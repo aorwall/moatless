@@ -113,7 +113,9 @@ describe('Hooks Integration - Real Components', () => {
         return (
           <div>
             <span>{memoValue}</span>
-            <button onClick={callback}>Increment</button>
+            <button type="button" onClick={callback}>
+              Increment
+            </button>
           </div>
         )
       }

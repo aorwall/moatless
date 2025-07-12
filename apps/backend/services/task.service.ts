@@ -389,10 +389,10 @@ export class TaskService {
       if (!lastIteration.willNotResume) {
         lastIteration.willNotResume = true
         await this.storage.saveTask(metadata)
-        
+
         logger.info('Marked last iteration as will not resume due to resume=false', {
           taskId: metadata.taskId,
-          iterationNumber: lastIteration.iterationNumber
+          iterationNumber: lastIteration.iterationNumber,
         })
       }
     }
@@ -415,7 +415,7 @@ export class TaskService {
         logger.info('Marked iteration as will not resume due to command flag', {
           taskId: metadata.taskId,
           commandName,
-          iterationNumber: iteration.iterationNumber
+          iterationNumber: iteration.iterationNumber,
         })
       }
     }
@@ -425,7 +425,7 @@ export class TaskService {
     let prependedResult: string | undefined
     if (metadata.iterations.length > 0) {
       const previousIteration = metadata.iterations[metadata.iterations.length - 1]
-      
+
       // Check if previous iteration has willNotResume flag set
       if (previousIteration.willNotResume && previousIteration.result) {
         // Prepend the result to the message instead of resuming
@@ -468,7 +468,7 @@ export class TaskService {
     iteration.taskId = taskId
 
     // Prepend result if needed
-    const finalMessage = prependedResult 
+    const finalMessage = prependedResult
       ? `Previous result:\n${prependedResult}\n\n${message}`
       : message
 
@@ -573,23 +573,21 @@ export class TaskService {
 
   async markIterationAsWillNotResume(taskId: string, iterationNumber: number): Promise<void> {
     const task = await this.getTask(taskId)
-    
-    const iterationIndex = task.iterations.findIndex(
-      (it) => it.iterationNumber === iterationNumber
-    )
-    
+
+    const iterationIndex = task.iterations.findIndex((it) => it.iterationNumber === iterationNumber)
+
     if (iterationIndex >= 0) {
       task.iterations[iterationIndex].willNotResume = true
       await this.storage.saveTask(task)
-      
-      logger.info('Marked iteration as will not resume', { 
-        taskId, 
-        iterationNumber 
+
+      logger.info('Marked iteration as will not resume', {
+        taskId,
+        iterationNumber,
       })
     } else {
       throw new ValidationError(
         `Iteration ${iterationNumber} not found for task ${taskId}`,
-        'iterationNumber'
+        'iterationNumber',
       )
     }
   }

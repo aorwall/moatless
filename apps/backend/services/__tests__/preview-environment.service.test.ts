@@ -273,7 +273,7 @@ describe('PreviewEnvironmentService', () => {
       }
 
       // @ts-ignore - accessing private member for testing
-      service['runningServers'].set('task-1', mockHandler as any)
+      service.runningServers.set('task-1', mockHandler as any)
 
       const result = await service.stopServer('task-1')
 
@@ -348,13 +348,13 @@ describe('PreviewEnvironmentService', () => {
       }
 
       // @ts-ignore - accessing private member for testing
-      service['runningServers'].set('task-1', mockHandler as any)
+      service.runningServers.set('task-1', mockHandler as any)
 
       const mockProxy = {
         getProxyUrl: vi.fn().mockReturnValue('http://localhost:8080'),
       }
       // @ts-ignore - accessing private member for testing
-      service['runningProxies'].set('task-1', mockProxy as any)
+      service.runningProxies.set('task-1', mockProxy as any)
 
       const status = await service.getServerStatus('task-1')
 
@@ -421,7 +421,7 @@ describe('PreviewEnvironmentService', () => {
       }
 
       // @ts-ignore - accessing private member for testing
-      service['runningServers'].set('task-1', mockHandler as any)
+      service.runningServers.set('task-1', mockHandler as any)
 
       const logs = await service.getServerLogs('task-1', 10)
 
