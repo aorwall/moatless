@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useReducer } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useReducer } from 'react'
 import type { ElementInfo, PreviewConfig, ScriptHealthStatus } from '../types'
 
 interface PreviewState {
@@ -133,21 +133,60 @@ const PreviewContext = createContext<PreviewContextValue | null>(null)
 export function PreviewProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(previewReducer, initialState)
 
+  const setConfig = useCallback(
+    (config: PreviewConfig) => dispatch({ type: 'SET_CONFIG', payload: config }),
+    [],
+  )
+  const setCurrentPath = useCallback(
+    (path: string) => dispatch({ type: 'SET_CURRENT_PATH', payload: path }),
+    [],
+  )
+  const setDisplayPath = useCallback(
+    (path: string) => dispatch({ type: 'SET_DISPLAY_PATH', payload: path }),
+    [],
+  )
+  const navigateToPath = useCallback(
+    (path: string) => dispatch({ type: 'NAVIGATE_TO_PATH', payload: path }),
+    [],
+  )
+  const toggleInspector = useCallback(() => dispatch({ type: 'TOGGLE_INSPECTOR' }), [])
+  const setSelectedElement = useCallback(
+    (element: ElementInfo | null) => dispatch({ type: 'SET_SELECTED_ELEMENT', payload: element }),
+    [],
+  )
+  const setError = useCallback(
+    (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
+    [],
+  )
+  const setConnected = useCallback(
+    (connected: boolean) => dispatch({ type: 'SET_CONNECTED', payload: connected }),
+    [],
+  )
+  const setLoaded = useCallback(
+    (loaded: boolean) => dispatch({ type: 'SET_LOADED', payload: loaded }),
+    [],
+  )
+  const setScriptHealthStatus = useCallback(
+    (status: ScriptHealthStatus) => dispatch({ type: 'SET_SCRIPT_HEALTH_STATUS', payload: status }),
+    [],
+  )
+  const updateHeartbeat = useCallback(() => dispatch({ type: 'UPDATE_HEARTBEAT' }), [])
+  const reset = useCallback(() => dispatch({ type: 'RESET' }), [])
+
   const value: PreviewContextValue = {
     ...state,
-    setConfig: (config) => dispatch({ type: 'SET_CONFIG', payload: config }),
-    setCurrentPath: (path) => dispatch({ type: 'SET_CURRENT_PATH', payload: path }),
-    setDisplayPath: (path) => dispatch({ type: 'SET_DISPLAY_PATH', payload: path }),
-    navigateToPath: (path) => dispatch({ type: 'NAVIGATE_TO_PATH', payload: path }),
-    toggleInspector: () => dispatch({ type: 'TOGGLE_INSPECTOR' }),
-    setSelectedElement: (element) => dispatch({ type: 'SET_SELECTED_ELEMENT', payload: element }),
-    setError: (error) => dispatch({ type: 'SET_ERROR', payload: error }),
-    setConnected: (connected) => dispatch({ type: 'SET_CONNECTED', payload: connected }),
-    setLoaded: (loaded) => dispatch({ type: 'SET_LOADED', payload: loaded }),
-    setScriptHealthStatus: (status) =>
-      dispatch({ type: 'SET_SCRIPT_HEALTH_STATUS', payload: status }),
-    updateHeartbeat: () => dispatch({ type: 'UPDATE_HEARTBEAT' }),
-    reset: () => dispatch({ type: 'RESET' }),
+    setConfig,
+    setCurrentPath,
+    setDisplayPath,
+    navigateToPath,
+    toggleInspector,
+    setSelectedElement,
+    setError,
+    setConnected,
+    setLoaded,
+    setScriptHealthStatus,
+    updateHeartbeat,
+    reset,
   }
 
   return <PreviewContext.Provider value={value}>{children}</PreviewContext.Provider>
