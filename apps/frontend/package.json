@@ -8,8 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "type:check": "tsc --noEmit",
-    "test": "vitest run",
-    "test:fast": "vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}'",
+    "test": "NODE_OPTIONS=--max-old-space-size=8192 vitest run",
+    "test:fast": "NODE_OPTIONS=--max-old-space-size=8192 vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}'",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage run"
   },

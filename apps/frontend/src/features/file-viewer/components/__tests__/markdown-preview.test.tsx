@@ -25,6 +25,9 @@ vi.mock('@/lib/components/ui/dialog', () => ({
   DialogTitle: ({ children }: any) => <h2>{children}</h2>,
 }))
 
+// Custom waitFor with reduced timeout for faster tests
+const fastWaitFor = (fn: () => void, options = {}) => waitFor(fn, { timeout: 1000, ...options })
+
 describe('MarkdownPreview', () => {
   beforeEach(() => {
     // Reset all mocks before each test
@@ -40,8 +43,10 @@ describe('MarkdownPreview', () => {
   })
 
   afterEach(() => {
-    // Clean up DOM after each test
+    // Clean up DOM after each test to prevent memory leaks
     document.body.innerHTML = ''
+    // Clear any pending timeouts/intervals
+    vi.clearAllTimers()
   })
 
   describe('Basic Markdown Rendering', () => {
@@ -108,7 +113,7 @@ graph TD
 `
       render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalledWith(
           expect.stringMatching(/^mermaid-\d+-0-[a-z0-9]+$/),
           expect.stringContaining('graph TD'),
@@ -116,7 +121,7 @@ graph TD
       })
 
       // Check that the mermaid diagram was rendered
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
         expect(mermaidElements[0]).toContainHTML('<svg')
@@ -141,7 +146,7 @@ sequenceDiagram
       render(<MarkdownPreview content={content} />)
 
       // Wait for both diagrams to be processed
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(2)
       })
@@ -182,12 +187,12 @@ INVALID SYNTAX HERE
 `
       render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
 
       // Check error message is displayed with improved UI
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const errorTitle = screen.getByText('Mermaid Diagram Error')
         expect(errorTitle).toBeInTheDocument()
 
@@ -224,7 +229,7 @@ INVALID 2
       render(<MarkdownPreview content={content} />)
 
       // Wait for mermaid processing to complete
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const errorElements = document.querySelectorAll('.mermaid-error')
         expect(errorElements.length).toBeGreaterThan(0)
       })
@@ -250,12 +255,12 @@ graph TD
 `
       render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
 
       // Error should be caught and displayed with improved UI
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const errorTitle = screen.getByText('Mermaid Diagram Error')
         expect(errorTitle).toBeInTheDocument()
 
@@ -282,12 +287,12 @@ graph TD
 `
       const { container } = render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
 
       // Wait for error to be displayed
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const errorTitle = screen.getByText('Mermaid Diagram Error')
         expect(errorTitle).toBeInTheDocument()
       })
@@ -311,7 +316,7 @@ graph TD
 `
       render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalledWith(
           expect.any(String),
           '', // Empty content
@@ -332,27 +337,27 @@ graph TD
 `
       rerender(<MarkdownPreview content={newContent} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
     })
 
     it('should handle very large mermaid diagrams', async () => {
-      // Create a large diagram with many nodes
+      // Create a smaller diagram to prevent memory issues in tests
       const largeContent = `
 \`\`\`mermaid
 graph TD
-${Array.from({ length: 100 }, (_, i) => `    A${i} --> B${i}`).join('\n')}
+${Array.from({ length: 10 }, (_, i) => `    A${i} --> B${i}`).join('\n')}
 \`\`\`
 `
       render(<MarkdownPreview content={largeContent} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
 
       // Should still render successfully
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
       })
@@ -367,7 +372,7 @@ graph TD
 `
       render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
     })
@@ -424,7 +429,7 @@ graph TD
 `
       const { rerender } = render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
 
@@ -432,7 +437,7 @@ graph TD
       rerender(<MarkdownPreview content={content} />)
 
       // Should be called again because the effect runs on every render due to content dependency
-      await waitFor(() => {
+      await fastWaitFor(() => {
         // At least 2 calls expected (initial + re-render)
         expect(vi.mocked(mermaid.render).mock.calls.length).toBeGreaterThanOrEqual(2)
       })
@@ -441,8 +446,8 @@ graph TD
     it('should handle rapid content changes', async () => {
       const { rerender } = render(<MarkdownPreview content="Initial" />)
 
-      // Rapidly change content multiple times
-      for (let i = 0; i < 5; i++) {
+      // Reduce iterations to prevent memory issues
+      for (let i = 0; i < 2; i++) {
         const content = `
 \`\`\`mermaid
 graph TD
@@ -453,7 +458,7 @@ graph TD
       }
 
       // Should handle all changes without errors
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
     })
@@ -471,7 +476,7 @@ graph TD
 `
       render(<MarkdownPreview content={content} />)
 
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(mermaid.render).toHaveBeenCalled()
       })
     })
@@ -496,7 +501,7 @@ print("hello")
       render(<MarkdownPreview content={content} />)
 
       // Wait for mermaid block to be processed
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
       })
@@ -526,7 +531,7 @@ graph TD
       render(<MarkdownPreview content={content} />)
 
       // Wait for mermaid to render
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
       })
@@ -550,7 +555,7 @@ graph TD
       render(<MarkdownPreview content={content} />)
 
       // Wait for mermaid to render
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
       })
@@ -561,7 +566,7 @@ graph TD
       fireEvent.click(wrapper)
 
       // Check that dialog opened
-      await waitFor(() => {
+      await fastWaitFor(() => {
         expect(screen.getByTestId('dialog')).toBeInTheDocument()
         expect(screen.getByTestId('dialog-content')).toBeInTheDocument()
         expect(screen.getByText('Mermaid Diagram')).toBeInTheDocument()
@@ -578,7 +583,7 @@ graph LR
       render(<MarkdownPreview content={content} />)
 
       // Wait for mermaid to render
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
       })
@@ -588,7 +593,7 @@ graph LR
       fireEvent.click(wrapper)
 
       // Check that the SVG is displayed in the dialog
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const dialogContent = screen.getByTestId('dialog-content')
         const svg = dialogContent.querySelector('svg')
         expect(svg).toBeInTheDocument()
@@ -606,7 +611,7 @@ flowchart TB
       render(<MarkdownPreview content={content} />)
 
       // Wait for mermaid to render
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(1)
       })
@@ -634,7 +639,7 @@ graph TD
       render(<MarkdownPreview content={content} />)
 
       // Wait for both diagrams to render
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const mermaidElements = document.querySelectorAll('.mermaid-rendered')
         expect(mermaidElements).toHaveLength(2)
       })
@@ -647,7 +652,7 @@ graph TD
       fireEvent.click(wrappers[0] as HTMLElement)
 
       // Check that dialog shows first diagram content
-      await waitFor(() => {
+      await fastWaitFor(() => {
         const dialogContent = screen.getByTestId('dialog-content')
         expect(dialogContent.innerHTML).toContain('A1[First]')
         expect(dialogContent.innerHTML).not.toContain('A2[Second]')

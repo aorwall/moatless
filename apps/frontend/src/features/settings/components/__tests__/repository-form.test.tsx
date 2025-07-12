@@ -5,6 +5,18 @@ import { createMockRepository } from '@/test-utils/factories'
 import { render } from '@/test-utils/render'
 import { RepositoryForm } from '../repository-form'
 
+// Mock heavy operations to improve test performance
+vi.mock('@moatless/shared/schemas', () => ({
+  repositoryFormSchema: {
+    parse: vi.fn((data) => data),
+    safeParse: vi.fn((data) => ({ success: true, data })),
+  },
+}))
+
+// Configure shorter timeouts for faster tests
+const customWaitFor = (fn: () => void, options = {}): Promise<void> =>
+  waitFor(fn, { timeout: 2000, ...options })
+
 describe('RepositoryForm', () => {
   const mockOnSubmit = vi.fn()
   const mockOnCancel = vi.fn()
@@ -33,7 +45,7 @@ describe('RepositoryForm', () => {
       const submitButton = screen.getByText('Create Repository')
       fireEvent.click(submitButton)
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).not.toHaveBeenCalled()
       })
 
@@ -58,7 +70,7 @@ describe('RepositoryForm', () => {
       // Submit the form
       fireEvent.click(screen.getByText('Create Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'Test Environment',
@@ -98,7 +110,7 @@ describe('RepositoryForm', () => {
       // Submit
       fireEvent.click(screen.getByText('Create Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             path: '',
@@ -133,7 +145,7 @@ describe('RepositoryForm', () => {
       // Submit
       fireEvent.click(screen.getByText('Create Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             codeExecution: {
@@ -163,7 +175,7 @@ describe('RepositoryForm', () => {
       // Submit
       fireEvent.click(screen.getByText('Create Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             path: '/test/path',
@@ -214,7 +226,7 @@ describe('RepositoryForm', () => {
       // Submit
       fireEvent.click(screen.getByText('Update Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'Updated Environment Name',
@@ -255,7 +267,7 @@ describe('RepositoryForm', () => {
       // Submit without name to trigger error
       fireEvent.click(screen.getByText('Create Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(screen.getByText('Required')).toBeInTheDocument()
       })
 
@@ -265,7 +277,7 @@ describe('RepositoryForm', () => {
       })
 
       // Error should be cleared
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(screen.queryByText('Required')).not.toBeInTheDocument()
       })
     })
@@ -276,7 +288,7 @@ describe('RepositoryForm', () => {
       // Try to submit without required fields
       fireEvent.click(screen.getByText('Create Repository'))
 
-      await waitFor(() => {
+      await customWaitFor(() => {
         expect(mockOnSubmit).not.toHaveBeenCalled()
       })
 

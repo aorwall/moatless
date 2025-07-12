@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider, useTaskUI } from '@/features/tasks/contexts/task-ui-provider'
@@ -151,7 +151,7 @@ function TaskSwitchingTest() {
 }
 
 describe('Task Switching Behavior', () => {
-  it('should maintain complete state isolation across task switches', () => {
+  it('should maintain complete state isolation across task switches', async () => {
     render(<TaskSwitchingTest />)
 
     // Task 1: Set complex state
@@ -179,10 +179,12 @@ describe('Task Switching Behavior', () => {
       screen.getByTestId('switch-to-task2').click()
     })
 
-    expect(screen.getByTestId('current-task-id')).toHaveTextContent('task2')
-    expect(screen.getByTestId('task2-chat-is-at-bottom')).toHaveTextContent('true') // default
-    expect(screen.getByTestId('task2-expanded-files-count')).toHaveTextContent('0') // default
-    expect(screen.getByTestId('task2-panel-view')).toHaveTextContent('events') // default
+    await waitFor(() => {
+      expect(screen.getByTestId('current-task-id')).toHaveTextContent('task2')
+      expect(screen.getByTestId('task2-chat-is-at-bottom')).toHaveTextContent('true') // default
+      expect(screen.getByTestId('task2-expanded-files-count')).toHaveTextContent('0') // default
+      expect(screen.getByTestId('task2-panel-view')).toHaveTextContent('events') // default
+    })
 
     // Task 2: Set different complex state
     act(() => {
@@ -211,7 +213,9 @@ describe('Task Switching Behavior', () => {
       screen.getByTestId('switch-to-task1').click()
     })
 
-    expect(screen.getByTestId('current-task-id')).toHaveTextContent('task1')
+    await waitFor(() => {
+      expect(screen.getByTestId('current-task-id')).toHaveTextContent('task1')
+    })
     expect(screen.getByTestId('task1-chat-is-at-bottom').textContent).toBe(
       task1State.chatIsAtBottom,
     )
@@ -256,7 +260,7 @@ describe('Task Switching Behavior', () => {
     )
   })
 
-  it('should handle rapid task switching without state corruption', () => {
+  it('should handle rapid task switching without state corruption', async () => {
     render(<TaskSwitchingTest />)
 
     // Set up different states for multiple tasks
@@ -265,6 +269,13 @@ describe('Task Switching Behavior', () => {
     for (let taskNum = 1; taskNum <= 5; taskNum++) {
       act(() => {
         screen.getByTestId(`switch-to-task${taskNum}`).click()
+      })
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`task${taskNum}-complex-update`)).toBeInTheDocument()
+      })
+
+      act(() => {
         screen.getByTestId(`task${taskNum}-complex-update`).click()
       })
 
@@ -295,16 +306,18 @@ describe('Task Switching Behavior', () => {
       })
 
       // Verify state is preserved
-      expect(screen.getByTestId('current-task-id')).toHaveTextContent(taskId)
-      expect(screen.getByTestId(`${taskId}-chat-scroll-position`).textContent).toBe(
-        taskStates[taskId].chatScrollPosition,
-      )
-      expect(screen.getByTestId(`${taskId}-expanded-files`).textContent).toBe(
-        taskStates[taskId].expandedFiles,
-      )
-      expect(screen.getByTestId(`${taskId}-selected-iteration`).textContent).toBe(
-        taskStates[taskId].selectedIteration,
-      )
+      await waitFor(() => {
+        expect(screen.getByTestId('current-task-id')).toHaveTextContent(taskId)
+        expect(screen.getByTestId(`${taskId}-chat-scroll-position`).textContent).toBe(
+          taskStates[taskId].chatScrollPosition,
+        )
+        expect(screen.getByTestId(`${taskId}-expanded-files`).textContent).toBe(
+          taskStates[taskId].expandedFiles,
+        )
+        expect(screen.getByTestId(`${taskId}-selected-iteration`).textContent).toBe(
+          taskStates[taskId].selectedIteration,
+        )
+      })
     }
 
     // Verify we completed the switching sequence

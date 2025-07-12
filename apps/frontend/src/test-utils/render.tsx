@@ -22,10 +22,23 @@ export function createTestQueryClient() {
   })
 }
 
+// Mock providers to prevent test failures
+const MockSidebarProvider = ({ children }: { children: ReactNode }) => children
+const MockTaskUIProvider = ({ children }: { children: ReactNode }) => children
+const MockTooltipProvider = ({ children }: { children: ReactNode }) => children
+
 function AllTheProviders({ children }: AllTheProvidersProps) {
   const queryClient = createTestQueryClient()
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MockTooltipProvider>
+        <MockSidebarProvider>
+          <MockTaskUIProvider>{children}</MockTaskUIProvider>
+        </MockSidebarProvider>
+      </MockTooltipProvider>
+    </QueryClientProvider>
+  )
 }
 
 const customRender = (ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) =>

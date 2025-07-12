@@ -155,7 +155,13 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
       <div className="flex items-center gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={onReload} className="h-8 w-8">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onReload}
+              className="h-8 w-8"
+              aria-label="Reload"
+            >
               <RotateCcw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -172,6 +178,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
           onKeyDown={handlePathSubmit}
           placeholder="Enter path (e.g., /about)"
           className="flex-1 h-8 text-sm"
+          aria-label="Path"
         />
       </div>
 
@@ -180,7 +187,12 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
         {/* Server Control Popup */}
         <Popover open={isServerPopoverOpen} onOpenChange={setIsServerPopoverOpen}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className={cn('h-8 w-8', getServerStatusColor())}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-8 w-8', getServerStatusColor())}
+              aria-label="Server"
+            >
               <Server className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
@@ -308,6 +320,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
               size="icon"
               onClick={toggleInspector}
               className="h-8 w-8"
+              aria-label="Toggle Inspector"
             >
               <MousePointer className="h-4 w-4" />
             </Button>

@@ -204,15 +204,15 @@ describe('Git Diff State Isolation', () => {
     })
 
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('1')
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file1.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file1.ts')
 
     act(() => {
       screen.getByTestId('expand-file-2').click()
     })
 
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2')
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file1.ts')
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file2.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file1.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file2.ts')
 
     // Select a file
     act(() => {
@@ -228,8 +228,8 @@ describe('Git Diff State Isolation', () => {
     })
 
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('2')
-    expect(screen.getByTestId('expanded-paths-list')).toContain('src/')
-    expect(screen.getByTestId('expanded-paths-list')).toContain('tests/')
+    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('src/')
+    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('tests/')
   })
 
   it('should isolate git diff state between different tasks', () => {
@@ -291,9 +291,9 @@ describe('Git Diff State Isolation', () => {
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('1') // preserved
 
     // Verify specific files and paths are preserved
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file1.ts')
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file2.ts')
-    expect(screen.getByTestId('expanded-paths-list')).toContain('src/')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file1.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file2.ts')
+    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('src/')
 
     // Switch back to Task 2 and verify its state is preserved
     act(() => {
@@ -304,9 +304,9 @@ describe('Git Diff State Isolation', () => {
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('1') // preserved
     expect(screen.getByTestId('selected-file-key')).toHaveTextContent('src/file2.ts') // preserved
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('2') // preserved
-    expect(screen.getByTestId('expanded-files-list')).toContain('tests/file3.test.ts')
-    expect(screen.getByTestId('expanded-paths-list')).toContain('tests/')
-    expect(screen.getByTestId('expanded-paths-list')).toContain('src/components/')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('tests/file3.test.ts')
+    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('tests/')
+    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('src/components/')
   })
 
   it('should handle bulk operations and state resets independently per task', () => {
@@ -409,22 +409,22 @@ describe('Git Diff State Isolation', () => {
       screen.getByTestId('expand-file-2').click() // collapse file 2
     })
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('1')
-    expect(screen.getByTestId('expanded-files-list')).toContain('tests/file3.test.ts')
-    expect(screen.getByTestId('expanded-files-list')).not.toContain('src/file2.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('tests/file3.test.ts')
+    expect(screen.getByTestId('expanded-files-list').textContent).not.toContain('src/file2.ts')
 
     // Switch back to Task 1 and verify its state
     act(() => {
       screen.getByTestId('switch-to-git-task-1').click()
     })
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('1')
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file1.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file1.ts')
 
     // Switch back to Task 2 and verify its state
     act(() => {
       screen.getByTestId('switch-to-git-task-2').click()
     })
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('1')
-    expect(screen.getByTestId('expanded-files-list')).toContain('tests/file3.test.ts')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('tests/file3.test.ts')
   })
 
   it('should handle Set operations correctly without mutation issues', () => {
@@ -473,9 +473,11 @@ describe('Git Diff State Isolation', () => {
     expect(screen.getByTestId('expanded-paths-list').textContent).toBe(task1InitialPaths)
 
     // Verify Task 1 still has its specific state
-    expect(screen.getByTestId('expanded-files-list')).toContain('src/file2.ts')
-    expect(screen.getByTestId('expanded-files-list')).not.toContain('tests/file3.test.ts')
-    expect(screen.getByTestId('expanded-paths-list')).toContain('src/components/')
-    expect(screen.getByTestId('expanded-paths-list')).not.toContain('tests/')
+    expect(screen.getByTestId('expanded-files-list')).toHaveTextContent('src/file2.ts')
+    expect(screen.getByTestId('expanded-files-list').textContent).not.toContain(
+      'tests/file3.test.ts',
+    )
+    expect(screen.getByTestId('expanded-paths-list')).toHaveTextContent('src/components/')
+    expect(screen.getByTestId('expanded-paths-list').textContent).not.toContain('tests/')
   })
 })

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/lib/components/ui/tooltip'
 import { PreviewProvider } from '../../hooks/use-preview'
@@ -18,6 +19,20 @@ vi.mock('@/features/preview', () => ({
   useStartServer: () => ({ mutate: vi.fn(), isPending: false }),
   useStopServer: () => ({ mutate: vi.fn(), isPending: false }),
   useRestartServer: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
+// Mock PreviewProvider hook to provide default values
+vi.mock('../../hooks/use-preview', () => ({
+  PreviewProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePreview: () => ({
+    config: { url: 'http://localhost:3000' },
+    currentPath: '/',
+    displayPath: '/',
+    isInspectorActive: false,
+    scriptHealthStatus: 'healthy' as const,
+    navigateToPath: vi.fn(),
+    toggleInspector: vi.fn(),
+  }),
 }))
 
 describe('PreviewToolbar', () => {
