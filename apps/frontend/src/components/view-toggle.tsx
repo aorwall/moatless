@@ -1,10 +1,11 @@
 import { Code2, Sparkles } from 'lucide-react'
-import type { ChatInputMode } from '@/features/tasks/components/chat-input'
 import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
 
+type ViewMode = 'code' | 'vibe'
+
 interface ViewToggleProps {
-  mode: ChatInputMode
-  onModeChange: (mode: ChatInputMode) => void
+  mode: ViewMode
+  onModeChange: (mode: ViewMode) => void
   className?: string
 }
 
@@ -13,7 +14,7 @@ export function ViewToggle({ mode, onModeChange, className }: ViewToggleProps) {
     <ToggleGroup
       type="single"
       value={mode}
-      onValueChange={(value: string) => value && onModeChange(value as ChatInputMode)}
+      onValueChange={(value: string) => value && onModeChange(value as ViewMode)}
       className={className}
     >
       <ToggleGroupItem value="code" aria-label="Code mode" size="sm">

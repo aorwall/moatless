@@ -33,7 +33,7 @@ interface ChatFormProps {
   isTaskContext?: boolean
 
   // Composable selectors
-  selectors?: React.ReactNode[]
+  selectors?: React.ReactNode
 
   // File upload
   files?: UploadFileResponse[]
@@ -53,7 +53,7 @@ export function ChatForm({
   taskId,
   repositoryId,
   isTaskContext = false,
-  selectors = [],
+  selectors,
   files = [],
   onFilesChange,
 }: ChatFormProps) {
