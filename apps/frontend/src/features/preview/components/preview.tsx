@@ -5,7 +5,7 @@ import { useRestartServer, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
-import { usePreview } from '../hooks/use-preview'
+import { PreviewProvider, usePreview } from '../hooks/use-preview'
 import { usePreviewConnection } from '../hooks/use-preview-connection'
 import type { PreviewProps } from '../types'
 import { InspectorOverlay } from './inspector-overlay'
@@ -13,7 +13,7 @@ import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
 import { PreviewToolbar } from './preview-toolbar'
 
-export function Preview({ config, serverStatus, onElementSelected, className }: PreviewProps) {
+function PreviewContent({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const params = useParams({ from: '/tasks/$taskId' })
@@ -300,5 +300,13 @@ export function Preview({ config, serverStatus, onElementSelected, className }: 
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+  )
+}
+
+export function Preview(props: PreviewProps) {
+  return (
+    <PreviewProvider>
+      <PreviewContent {...props} />
+    </PreviewProvider>
   )
 }
