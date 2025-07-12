@@ -10,7 +10,6 @@ import {
   useDeleteRepository,
   useRepositoriesList,
   useRepository,
-  useRunSetupScript,
   useSearchFiles,
   useUpdateRepository,
 } from '../use-repositories'
@@ -213,34 +212,6 @@ describe('useRepositories hooks', () => {
 
       expect(repositoriesApi.deleteRepository).toHaveBeenCalledWith('repo-1')
       expect(onSuccess).toHaveBeenCalledWith(undefined, 'repo-1', undefined)
-    })
-  })
-
-  describe('useRunSetupScript', () => {
-    it('should run setup script successfully', async () => {
-      const mockResponse = {
-        success: true,
-        commands: [
-          {
-            command: 'npm install',
-            success: true,
-            exit_code: 0,
-            output: 'Installation complete',
-          },
-        ],
-      }
-      vi.mocked(repositoriesApi.runSetupScript).mockResolvedValue(mockResponse)
-
-      const { result } = renderHook(() => useRunSetupScript(), { wrapper })
-
-      result.current.mutate('repo-1')
-
-      await waitFor(() => {
-        expect(result.current.isSuccess).toBe(true)
-      })
-
-      expect(result.current.data).toEqual(mockResponse)
-      expect(repositoriesApi.runSetupScript).toHaveBeenCalledWith('repo-1')
     })
   })
 

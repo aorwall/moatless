@@ -3,7 +3,6 @@ import type {
   CreateRepositoryRequest,
   FileSearchResponse,
   RepositoryResponse,
-  SetupScriptResponse,
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
@@ -89,15 +88,6 @@ export function useDeleteRepository(options?: UseMutationOptions<void, Error, st
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
       options?.onSuccess?.(data, repoId, context)
     },
-    ...options,
-  })
-}
-
-export function useRunSetupScript(
-  options?: UseMutationOptions<SetupScriptResponse, Error, string>,
-) {
-  return useMutation({
-    mutationFn: (repoId: string) => repositoriesApi.runSetupScript(repoId),
     ...options,
   })
 }

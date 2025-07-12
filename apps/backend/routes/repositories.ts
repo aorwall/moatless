@@ -30,11 +30,6 @@ const repositoryListResponseSchema = z.object({
   repositories: z.array(repositoryResponseSchema),
 })
 
-const setupResponseSchema = z.object({
-  success: z.boolean(),
-  output: z.string(),
-})
-
 const fileSearchResultSchema = z.object({
   files: z.array(
     z.object({
@@ -274,63 +269,6 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
 
       await repositoryService.deleteRepository(repositoryId)
       return c.body(null, 204)
-    },
-  )
-
-  // Run setup script
-  app.post(
-    `${prefix}/:repositoryId/run-setup`,
-    describeRoute({
-      description: 'Run setup commands for repository',
-      parameters: [
-        {
-          name: 'repositoryId',
-          in: 'path',
-          required: true,
-          description: 'Repository ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
-      responses: {
-        200: {
-          description: 'Setup completed successfully',
-          content: {
-            'application/json': {
-              schema: resolver(setupResponseSchema),
-            },
-          },
-        },
-        400: {
-          description: 'Invalid repository ID',
-        },
-        404: {
-          description: 'Repository not found',
-        },
-      },
-    }),
-    async (c) => {
-      const services = c.get('services')
-      const { repository: repositoryService } = services
-
-      const repositoryId = c.req.param('repositoryId')
-      if (!repositoryId) {
-        throw new HTTPException(400, { message: 'Repository ID is required' })
-      }
-
-      const repository = await repositoryService.getRepositoryById(repositoryId)
-
-      if (!repository) {
-        throw new RepositoryNotFoundError()
-      }
-
-      // For now, just return a mock success response
-      // In a real implementation, this would use workspace service to run the setup commands
-      return c.json({
-        success: true,
-        output: 'Setup completed successfully',
-      })
     },
   )
 

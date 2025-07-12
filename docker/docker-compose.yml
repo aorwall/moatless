@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # Build service for the moatless-worker image
+  moatless-worker-build:
+    image: moatless-worker:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        TZ: ${TZ:-UTC}
+    profiles:
+      - build
+
+  # Example worker service (for testing)
+  moatless-worker:
+    image: moatless-worker:latest
+    container_name: moatless-worker-test
+    environment:
+      - WORKER_MODE=true
+      - WORKER_API_URL=${WORKER_API_URL:-http://host.docker.internal:8000}
+      - WORKER_API_KEY=${WORKER_API_KEY:-test-key}
+      - WORKER_TASK_ID=${WORKER_TASK_ID:-test-task}
+      - WORKSPACE_DIR=/workspace
+      - DATA_DIR=/data
+      - PORT=8001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_AUTH_DIR=${CLAUDE_AUTH_DIR}
+    volumes:
+      - ${WORKSPACE_PATH:-./workspace}:/workspace
+      - ${DATA_PATH:-./data}:/data
+    ports:
+      - "8001:8001"
+    working_dir: /workspace
+    labels:
+      - "created-by=moatless"
+      - "moatless.workspace-type=docker"
+    profiles:
+      - test
+
+# Build command: docker-compose --profile build build
+# Test command: docker-compose --profile test up

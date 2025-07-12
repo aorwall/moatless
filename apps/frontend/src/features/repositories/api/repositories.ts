@@ -5,7 +5,6 @@ import type {
   FileSearchResponse,
   RepositoryList,
   RepositoryResponse,
-  SetupScriptResponse,
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
 import { apiClient } from '@/lib/api/client'
@@ -33,10 +32,6 @@ export const repositoriesApi = {
 
   async deleteRepository(repoId: string): Promise<void> {
     await apiClient.delete(`/api/v1/repositories/${repoId}`)
-  },
-
-  async runSetupScript(repoId: string): Promise<SetupScriptResponse> {
-    return await apiClient.post<SetupScriptResponse>(`/api/v1/repositories/${repoId}/run-setup`)
   },
 
   async searchFiles(repoId: string, request: FileSearchRequest): Promise<FileSearchResponse> {

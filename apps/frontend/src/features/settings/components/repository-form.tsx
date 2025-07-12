@@ -101,7 +101,7 @@ export function RepositoryForm({
 
     return {
       localSetupCommands: '',
-      dockerImage: exec.image || '',
+      dockerImage: exec.dockerImage || '',
       dockerEnvVars: exec.envVars || {},
       dockerSetupCommands: exec.setupCommands || '',
       dockerVolumes: exec.volumes || [],
@@ -167,7 +167,7 @@ export function RepositoryForm({
             newErrors.localPath = err.message
           } else if (path === 'repository.repoId') {
             newErrors.githubRepoId = err.message
-          } else if (path === 'codeExecution.image') {
+          } else if (path === 'codeExecution.dockerImage') {
             newErrors.dockerImage = err.message
           }
         })
@@ -188,7 +188,7 @@ export function RepositoryForm({
 
     return {
       type: 'docker',
-      image: formData.dockerImage,
+      dockerImage: formData.dockerImage,
       envVars: formData.dockerEnvVars,
       setupCommands: formData.dockerSetupCommands || undefined,
       volumes: formData.dockerVolumes.length > 0 ? formData.dockerVolumes : undefined,

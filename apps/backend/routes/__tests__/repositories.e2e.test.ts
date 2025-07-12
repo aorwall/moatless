@@ -212,7 +212,7 @@ describe('Repository Routes E2E', () => {
         useGitWorktrees: false,
         codeExecution: {
           type: 'docker',
-          image: 'node:18-alpine',
+          dockerImage: 'moatless-worker:latest',
           setupCommands: 'npm ci\nnpm run build',
           envVars: {
             NODE_ENV: 'production',
@@ -324,7 +324,7 @@ describe('Repository Routes E2E', () => {
         },
         codeExecution: {
           type: 'docker',
-          image: 'node:18',
+          dockerImage: 'moatless-worker:latest',
         },
       }
 
@@ -420,45 +420,6 @@ describe('Repository Routes E2E', () => {
 
       // Delete might return 200 or 404 depending on implementation
       expect([200, 404]).toContain(deleteResponse.statusCode)
-    })
-
-    it('should handle setup script endpoint', async () => {
-      // Create repository first
-      const createRequest: CreateRepositoryRequest = {
-        name: 'E2E Test Setup Script',
-        path: tempDir,
-        codeExecution: {
-          type: 'local',
-          setupCommands: 'echo "Test setup"',
-        },
-      }
-
-      const createResponse = await app.inject({
-        method: 'POST',
-        url: '/api/v1/repositories',
-        payload: createRequest,
-      })
-
-      const repo: RepositoryConfig = JSON.parse(createResponse.body)
-      createdRepositoryId = repo.id
-
-      // Run setup script
-      const setupResponse = await app.inject({
-        method: 'POST',
-        url: `/api/v1/repositories/${repo.id}/run-setup`,
-      })
-
-      expect(setupResponse.statusCode).toBe(200)
-      const setupResult = JSON.parse(setupResponse.body)
-      expect(setupResult).toHaveProperty('success')
-      expect(setupResult).toHaveProperty('output')
-
-      // Cleanup
-      await app.inject({
-        method: 'DELETE',
-        url: `/api/v1/repositories/${createdRepositoryId}`,
-      })
-      createdRepositoryId = ''
     })
   })
 })

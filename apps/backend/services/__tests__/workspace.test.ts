@@ -253,7 +253,7 @@ describe('WorkspaceService', () => {
         path: '/test/docker-repo',
         codeExecution: {
           type: 'docker',
-          image: 'node:18',
+          dockerImage: 'moatless-worker:latest',
         },
       } as any)
 

@@ -24,7 +24,7 @@ export const CodeExecutionSchema = z.object({
   serverLogFile: z.string().optional(),
   // Docker-specific fields
   containerName: z.string().optional(),
-  image: z.string().optional(),
+  dockerImage: z.string().optional(),
   envVars: z.record(z.string()).optional(),
   volumes: z.array(z.string()).optional(),
   ports: z.record(z.number()).optional(),

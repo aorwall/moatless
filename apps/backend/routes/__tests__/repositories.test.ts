@@ -268,42 +268,6 @@ describe('Repository Routes', () => {
     })
   })
 
-  describe('POST /api/repositories/:repositoryId/run-setup', () => {
-    it('should run setup script', async () => {
-      const mockRepository = {
-        id: 'env-123',
-        name: 'Test Repository',
-        path: '/test/path',
-        useGitWorktrees: false,
-        codeExecution: { type: 'local' as const, setupCommands: 'echo "test"' },
-        variables: {},
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
-      vi.spyOn(app.services.workspace, 'createWorkspace').mockResolvedValueOnce({} as any)
-      vi.spyOn(app.services.workspace, 'setupWorkspace').mockResolvedValueOnce(undefined)
-      vi.spyOn(app.services.workspace, 'runCommand').mockResolvedValueOnce({
-        command: 'echo "test"',
-        output: 'test',
-        exitCode: 0,
-        durationMs: 100,
-      })
-
-      const response = await app.fetch(
-        new Request('http://localhost/api/v1/repositories/env-123/run-setup', {
-          method: 'POST',
-        }),
-      )
-
-      expect(response.status).toBe(200)
-      const body = (await response.json()) as any
-      expect(body.success).toBeDefined()
-      expect(body.output).toBeDefined()
-    })
-  })
-
   describe('GET /api/repositories/:repositoryId/branches', () => {
     it('should get branches', async () => {
       const mockRepository = {

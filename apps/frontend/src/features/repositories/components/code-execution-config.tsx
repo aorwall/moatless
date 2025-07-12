@@ -34,8 +34,6 @@ import {
 } from '@/lib/components/ui/sheet'
 import { Textarea } from '@/lib/components/ui/textarea'
 
-import { useRunSetupScript } from '../hooks/use-repositories'
-
 interface CodeExecutionConfigProps {
   codeExecution: CodeExecution
   onUpdate: (codeExecution: CodeExecution) => void
@@ -284,7 +282,7 @@ export function CodeExecutionConfig({
     setup_commands: codeExecution.setupCommands || '',
     server_command: codeExecution.serverCommand || '',
     env_vars: codeExecution.envVars || {},
-    image: codeExecution.image || 'ubuntu:latest',
+    dockerImage: codeExecution.dockerImage || 'moatless-worker:latest',
   })
 
   const [envVarKey, setEnvVarKey] = useState('')
@@ -310,7 +308,7 @@ export function CodeExecutionConfig({
     }
 
     if (formData.type === 'docker') {
-      updatedExecution.image = formData.image
+      updatedExecution.dockerImage = formData.dockerImage
     }
 
     return updatedExecution
@@ -400,9 +398,9 @@ export function CodeExecutionConfig({
                   <Label htmlFor={imageId}>Docker Image</Label>
                   <Input
                     id={imageId}
-                    value={formData.image}
-                    onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                    placeholder="ubuntu:latest"
+                    value={formData.dockerImage}
+                    onChange={(e) => setFormData({ ...formData, dockerImage: e.target.value })}
+                    placeholder="moatless-worker:latest"
                     required
                   />
                 </div>

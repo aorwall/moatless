@@ -377,13 +377,13 @@ async function main() {
     // Setup cleanup handlers
     process.on('SIGINT', async () => {
       console.log('\n🛑 Interrupted, cleaning up...')
-      await cleanup()
+      //await cleanup()
       process.exit(1)
     })
     
     process.on('SIGTERM', async () => {
       console.log('\n🛑 Terminated, cleaning up...')
-      await cleanup()
+      //await cleanup()
       process.exit(1)
     })
 
@@ -457,12 +457,6 @@ async function main() {
     log('    ✅ Command execution through DockerWorkspace')
     log('  ✅ Workspace info and status working correctly')
     log('')
-    log('🏗️ The new architecture is working correctly!')
-    log('   LocalWorkspace is always created first and DockerWorkspace delegates to it.')
-    log('   All Docker containers are properly labeled for cleanup.')
-    log('')
-    log('💡 Note: This test validates the architecture and container management')
-    log('   without requiring a full worker backend setup.')
     
   } catch (error: any) {
     log('\n❌ Basic Docker workspace test failed:', error.message)
@@ -470,7 +464,7 @@ async function main() {
     console.error(error)
     process.exit(1)
   } finally {
-    await cleanup()
+    //await cleanup()
     // Force exit after cleanup to ensure process terminates
     // Backend services might keep the event loop alive
     log('🏁 Test completed, exiting process...')

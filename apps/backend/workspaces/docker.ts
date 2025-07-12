@@ -63,7 +63,7 @@ export class DockerWorkspace extends BaseWorkspace {
     try {
       // Emit setup started event
 
-      this.image = this.repositoryConfig.codeExecution.image || 'node:18-alpine'
+      this.image = this.repositoryConfig.codeExecution.dockerImage || 'moatless-worker:latest'
 
       // Create container
       this.containerName = this.repositoryConfig.codeExecution.containerName
@@ -71,7 +71,7 @@ export class DockerWorkspace extends BaseWorkspace {
         : `moatless-task-${this.taskId}`
 
       // Docker workspaces always run backend inside container
-      const actualImage = this.repositoryConfig.codeExecution.image || this.image
+      const actualImage = this.image
 
       let createCommand = `docker create --name "${this.containerName}"`
 
@@ -142,11 +142,16 @@ export class DockerWorkspace extends BaseWorkspace {
       // Working directory is set to /repo where the workspace is mounted
       createCommand += ` "${actualImage}"`
 
+      console.log(createCommand)
+
       const { stdout } = await execAsync(createCommand, { timeout: 30000 })
       this.containerId = stdout.trim()
+      console.log('containerId', stdout)
 
       // Start container
-      await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
+      console.log(`docker start "${this.containerId}"`)
+      const startResult = await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
+      console.log('startResult', startResult)
 
       // Wait for worker to be ready
       await this.waitForWorkerReady()
@@ -539,7 +544,7 @@ export class DockerWorkspace extends BaseWorkspace {
    * Wait for worker backend to be ready
    */
   private async waitForWorkerReady(): Promise<void> {
-    const maxAttempts = 30
+    const maxAttempts = 300
     const delayMs = 1000
 
     for (let i = 0; i < maxAttempts; i++) {
@@ -549,6 +554,7 @@ export class DockerWorkspace extends BaseWorkspace {
           `docker exec "${this.containerId}" curl -s http://localhost:8001/health`,
           { timeout: 5000 },
         )
+        console.log(response)
 
         const health = JSON.parse(response.stdout)
         if (health.status === 'ok' && health.mode === 'worker') {
@@ -556,7 +562,7 @@ export class DockerWorkspace extends BaseWorkspace {
           return
         }
       } catch (error) {
-        // Worker not ready yet
+        console.log(error)
       }
 
       await new Promise((resolve) => setTimeout(resolve, delayMs))

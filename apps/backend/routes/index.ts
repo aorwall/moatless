@@ -9,8 +9,8 @@ import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
 import { registerTaskRoutes } from './tasks.js'
 import { registerUploadRoutes } from './uploads.js'
-import { registerWorkspaceRoutes } from './workspace.js'
 import { registerWorkerRoutes } from './worker.routes.js'
+import { registerWorkspaceRoutes } from './workspace.js'
 
 const API_PREFIX = '/api/v1'
 
