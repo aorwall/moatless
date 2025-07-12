@@ -1,5 +1,6 @@
 import { exec, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { promisify } from 'node:util'
 import { EventType } from '@moatless/shared/types/event'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
@@ -94,6 +95,13 @@ export class DockerWorkspace extends BaseWorkspace {
       // Mount data directory for shared storage
       createCommand += ` -v "${dataDir}:/data"`
 
+      // Mount Claude config directory
+      const claudeConfigDir =
+        process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude')
+      if (claudeConfigDir) {
+        createCommand += ` -v "${claudeConfigDir}:${claudeConfigDir}"`
+      }
+
       // Add environment variables for worker mode
       // Use host.docker.internal to reach the host from within the container
       const port = process.env.PORT || '8000'
@@ -115,6 +123,14 @@ export class DockerWorkspace extends BaseWorkspace {
       }
       if (process.env.ANTHROPIC_API_KEY) {
         createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
+      }
+      // Pass through Claude config directory path
+      if (claudeConfigDir) {
+        createCommand += ` -e "CLAUDE_CONFIG_DIR=${claudeConfigDir}"`
+      }
+      // Set HOME environment variable to match host
+      if (process.env.HOME) {
+        createCommand += ` -e "HOME=${process.env.HOME}"`
       }
       // Pass mock mode for tests
       if (process.env.CLAUDE_CODE_MOCK) {
