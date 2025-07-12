@@ -119,7 +119,7 @@ This pattern is implemented via the `<TaskProviders>` component (`apps/frontend/
 
 - **File**: `apps/frontend/src/features/tasks/contexts/task-events-provider.tsx`
 - **Responsibility**: Manages the real-time flow of events for the current task.
-- **Implementation**: It subscribes to the `GlobalEventStream` and filters events for the current `taskId`. Its primary job is to receive live events and trigger cache invalidations in the `TaskDataProvider` via `react-query`. It is the engine of the event-driven architecture on the frontend.
+- **Implementation**: It subscribes to the `GlobalEventStream` and filters events for the current `taskId`. Its primary job is to receive live events and update the event cache directly. All query invalidation logic is centralized in the `GlobalEventStreamProvider` to avoid duplication and ensure consistent behavior across the application.
 
 This separation ensures that a high-frequency stream of events from `TaskEventsProvider` doesn't cause components that only care about stable metadata from `TaskDataProvider` or local UI state from `TaskUIProvider` to re-render.
 
@@ -195,11 +195,11 @@ graph TB
 #### Cache Invalidation Implementation
 
 - **Global Stream**: A single, persistent SSE connection is established for the application (`apps/frontend/src/features/events/contexts/global-event-stream-provider.tsx`).
-- **Task Subscription**: `TaskEventsProvider` subscribes to this global stream and filters events for the currently viewed `taskId`.
-- **Event Handler (`handleTaskEvent`)**: The provider's event handler (`apps/frontend/src/features/tasks/contexts/task-events-provider.tsx`) is the system's brain.
-  1.  It directly updates the `react-query` cache for events, making it the single source of truth.
-  2.  It uses a mapping (`getInvalidationKeys`) to determine which other data queries (like task status, git diff, etc.) have become stale due to the event.
-  3.  It triggers `queryClient.invalidateQueries` for only the affected queries, ensuring minimal and precise refetching.
+- **Centralized Invalidation**: The `GlobalEventStreamProvider` handles all cache invalidation for events with a `taskId`:
+  1.  It uses a mapping (`getInvalidationKeys`) to determine which queries are affected by each event type.
+  2.  It triggers `queryClient.invalidateQueries` for the affected queries, including task details and task lists.
+  3.  The hierarchical query key structure ensures that invalidating a parent key (e.g., `tasks.detail(id)`) automatically invalidates all child queries.
+- **Task Event Subscription**: `TaskEventsProvider` subscribes to task-specific events and updates only the event cache directly, without duplicating invalidation logic.
 
 ## Command System
 

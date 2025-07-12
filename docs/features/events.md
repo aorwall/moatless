@@ -88,11 +88,11 @@ graph TB
     RQ -->|refetches & re-renders| Components
 ```
 
-- **`GlobalEventStreamProvider`**: A top-level provider that establishes and maintains a single, persistent SSE connection for the entire application. It receives all events from the backend and makes them available to its children.
+- **`GlobalEventStreamProvider`**: A top-level provider that establishes and maintains a single, persistent SSE connection for the entire application. It receives all events from the backend, handles all cache invalidation for events with a `taskId`, and makes events available to subscribers.
 
-- **`TaskEventsProvider` (`apps/frontend/src/features/tasks/contexts/task-events-provider.tsx`)**: A task-specific provider that subscribes to the global stream but only processes events relevant to the `taskId` it's managing. This is a key part of the **Tri-Context Pattern**.
+- **`TaskEventsProvider` (`apps/frontend/src/features/tasks/contexts/task-events-provider.tsx`)**: A task-specific provider that subscribes to the global stream but only processes events relevant to the `taskId` it's managing. Its primary responsibility is to update the event cache directly. This is a key part of the **Tri-Context Pattern**.
 
-- **Event-Driven Cache Invalidation**: This is the core of the frontend's real-time functionality. Instead of components subscribing directly to the event stream, the `TaskEventsProvider` acts as a centralized controller that translates events into `react-query` cache updates.
+- **Event-Driven Cache Invalidation**: This is the core of the frontend's real-time functionality. The `GlobalEventStreamProvider` centralizes all invalidation logic, ensuring consistent behavior across the application and avoiding duplication.
 
 ## 3. Data Flow: From Backend Action to UI Update
 
@@ -103,28 +103,35 @@ Here is the end-to-end flow of an event:
 3.  **Broadcast**: The `EventService` broadcasts this event to the global SSE route.
 4.  **Streaming**: The SSE route sends the event as a JSON string to all connected frontend clients.
 5.  **Reception**: The `GlobalEventStreamProvider` on the frontend receives the event.
-6.  **Filtering**: The active `TaskEventsProvider` checks if the event's `taskId` matches its own. If it does, it processes the event.
-7.  **Handling (`handleTaskEvent`)**: The provider's handler function is executed.
-    a.  **Direct Cache Update**: The event is added to the `react-query` cache for the task's event list (`queryClient.setQueryData`).
-    b.  **Invalidation Mapping**: The handler consults `EVENT_INVALIDATION_MAP` (`apps/frontend/src/features/events/utils/event-handlers.ts`) to see which other data queries are affected by this event type.
-    c.  **Invalidation**: It calls `queryClient.invalidateQueries` for the affected query keys (e.g., `queryKeys.task(taskId)` and `queryKeys.tasksList()`).
+6.  **Invalidation**: If the event has a `taskId`, the global provider:
+    a.  **Consults Mapping**: Uses `EVENT_INVALIDATION_MAP` to determine affected queries.
+    b.  **Invalidates Queries**: Calls `queryClient.invalidateQueries` for affected query keys.
+    c.  **Invalidates Task Lists**: For status-affecting events, also invalidates task lists.
+7.  **Task Subscription**: The `TaskEventsProvider` receives the event through its subscription and updates only the event cache (`queryClient.setQueryData`).
 8.  **Refetch & Re-render**: `react-query` automatically refetches the stale data, and any components subscribed to that data will re-render with the fresh information.
 
 ## 4. Event Types and Their Effects
 
 The `EVENT_INVALIDATION_MAP` defines how the UI reacts to different events. This mapping is the source of truth for the event-driven architecture.
 
-| EventType | Invalidated Query Keys (from `query-keys.ts`) | Description |
+### Actively Used Event Types
+
+| EventType | Invalidated Query Keys | Description |
 | :--- | :--- | :--- |
-| `START` | `task`, `taskWorkspaceStatus` | A new agent run has started. Updates the task status and workspace. |
-| `STOP` | `task`, `taskWorkspaceStatus`, `taskServerStatus` | The agent was stopped. Updates task, workspace, and server status. |
+| `MESSAGE` | (none) | AI message chunks from Claude. Handled by direct cache update, no invalidation needed. Contains tool calls, assistant messages, and user messages. |
 | `RESULT` | `task`, `taskGitDiff`, `tasks.all` | The agent run finished. Updates the task, git diff, and all task lists. |
 | `ERROR` | `task` | The agent run failed. Updates the task status to show the error. |
-| `WORKSPACE` | `taskWorkspaceStatus`, `taskGitDiff` | A file was changed or a git operation occurred. Updates workspace and diff. |
-| `SERVER` | `taskServerStatus` | The preview server's status changed. |
-| `INPUT` | `task`, `tasks.all` | A new message was sent. Updates the task and task lists. |
-| `TOOL` | `taskEvents` | A tool was called. Only updates the event list itself. |
-| `MESSAGE` | (none) | An AI message chunk. Handled by direct cache update, no invalidation needed. |
+| `WORKSPACE` | `taskWorkspaceStatus`, `taskGitDiff` | Workspace events like file changes, command execution, or git operations. |
+| `INPUT` | `task`, `tasks.all` | Task status changes or user inputs. Updates the task and task lists. |
+
+### Deprecated/Unused Event Types
+
+The following event types are defined in the codebase but are not actively used in production:
+- `START` - Previously used for agent run start, now handled via INPUT events
+- `STOP` - Previously used for agent stop, now handled via status changes
+- `SERVER` - Defined but never emitted by any service
+- `TOOL` - Tool calls are sent as MESSAGE events instead
+- `COMPLETION` - Defined but never implemented
 
 This system ensures that updates are both efficient and targeted. A `MESSAGE` event, which happens frequently during streaming, doesn't trigger any expensive data refetches, while a `RESULT` event, which signifies a major state change, correctly invalidates all relevant data views.
 

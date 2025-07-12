@@ -55,45 +55,47 @@ export function GlobalEventStreamProvider({
       taskEvents.push(event)
       eventsByTask.set(event.taskId, taskEvents)
 
-      // Use smart invalidation mapping
-      const invalidationKeys = getInvalidationKeys(event)
+      // Use smart invalidation mapping for all events with taskId
+      if (event.taskId) {
+        const invalidationKeys = getInvalidationKeys(event)
 
-      if (invalidationKeys.length > 0) {
-        // Use queueMicrotask to ensure state updates complete before invalidation
-        queueMicrotask(() => {
-          // Invalidate each affected query
-          invalidationKeys.forEach((keyFunction) => {
-            queryClient.invalidateQueries({
-              queryKey: keyFunction(event.taskId),
+        if (invalidationKeys.length > 0) {
+          // Use queueMicrotask to ensure state updates complete before invalidation
+          queueMicrotask(() => {
+            // Invalidate each affected query
+            invalidationKeys.forEach((keyFunction) => {
+              queryClient.invalidateQueries({
+                queryKey: keyFunction(event.taskId),
+              })
             })
+
+            // Always invalidate task lists for status-affecting events
+            if (shouldInvalidateTaskList(event)) {
+              queryClient.invalidateQueries({
+                queryKey: queryKeys.tasks.all,
+              })
+            }
           })
-
-          // Always invalidate task lists for status-affecting events
-          if (shouldInvalidateTaskList(event)) {
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.tasksList(),
-            })
-          }
-        })
+        }
       }
 
       // Handle subType-specific invalidations (legacy support)
-      if (event.subType) {
+      if (event.taskId && event.subType) {
         switch (event.subType) {
           case 'iteration:created':
           case 'iteration:updated':
           case 'task:created':
           case 'task:updated':
           case 'task:statusChanged':
-            queryClient.invalidateQueries({ queryKey: queryKeys.task(event.taskId) })
-            queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
+            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(event.taskId) })
+            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
             break
 
           case 'tool:start':
           case 'tool:result':
           case 'tool:error':
-            queryClient.invalidateQueries({ queryKey: queryKeys.taskMessages(event.taskId) })
-            queryClient.invalidateQueries({ queryKey: queryKeys.taskEvents(event.taskId) })
+            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.messages(event.taskId) })
+            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.events(event.taskId) })
             break
         }
       }

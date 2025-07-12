@@ -1,12 +1,7 @@
 import type { Event } from '@moatless/shared/types/event'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
-import {
-  getInvalidationKeys,
-  shouldInvalidateTaskList,
-  useGlobalEventStream,
-  useTaskEventSubscription,
-} from '@/features/events'
+import { useGlobalEventStream, useTaskEventSubscription } from '@/features/events'
 import { queryKeys } from '@/lib/api/query-keys'
 import { tasksApi } from '../api/tasks'
 
@@ -32,9 +27,9 @@ interface TaskEventsProviderProps {
 }
 
 /**
- * TaskEventsProvider manages real-time events and event-driven updates.
- * Implements smart event merging and status-affecting event handling.
- * Uses the global event stream for all task events.
+ * TaskEventsProvider manages real-time events for the current task.
+ * Subscribes to the global event stream and maintains the event cache.
+ * All invalidation logic is handled by GlobalEventStreamProvider.
  */
 export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps) {
   const queryClient = useQueryClient()
@@ -51,10 +46,11 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
     // No polling - events are updated via SSE only
   })
 
-  // Smart event handler with invalidation mapping
+  // Event handler - only updates the event cache
+  // All invalidation is handled by GlobalEventStreamProvider
   const handleTaskEvent = useCallback(
     (event: Event) => {
-      // 1. Update React Query cache directly - single source of truth
+      // Update React Query cache directly - single source of truth
       queryClient.setQueryData(queryKeys.taskEvents(taskId), (old: Event[] = []) => {
         const eventMap = new Map(old.map((e) => [e.eventId, e]))
         eventMap.set(event.eventId, event)
@@ -64,35 +60,6 @@ export function TaskEventsProvider({ taskId, children }: TaskEventsProviderProps
           return aTime - bTime
         })
       })
-
-      // 2. Get invalidation keys based on event type
-      const invalidationKeys = getInvalidationKeys(event)
-
-      if (invalidationKeys.length > 0) {
-        console.log(
-          `[Events] Event ${event.type} triggering invalidations:`,
-          invalidationKeys.map((fn) => fn.name),
-        )
-
-        // Use queueMicrotask to ensure cache update completes before invalidation
-        queueMicrotask(() => {
-          // 3. Invalidate each affected query
-          invalidationKeys.forEach((keyFunction) => {
-            queryClient.invalidateQueries({
-              queryKey: keyFunction(taskId),
-              refetchType: 'active',
-            })
-          })
-
-          // 4. Always invalidate task lists for status-affecting events
-          if (shouldInvalidateTaskList(event)) {
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.tasksList(),
-              refetchType: 'active',
-            })
-          }
-        })
-      }
     },
     [taskId, queryClient],
   )
