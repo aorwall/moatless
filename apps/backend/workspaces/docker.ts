@@ -107,16 +107,6 @@ export class DockerWorkspace extends BaseWorkspace {
         createCommand += ` -v "${hostClaudeConfigDir}:${containerClaudeConfigDir}"`
       }
 
-      // Mount .claude.json file as .config.json in the container's Claude config directory
-      const homeDir = process.env.HOME
-      if (homeDir) {
-        const claudeJsonPath = path.join(homeDir, '.claude.json')
-        const containerConfigJsonPath = path.join(containerClaudeConfigDir, '.config.json')
-        if (existsSync(claudeJsonPath)) {
-          createCommand += ` -v "${claudeJsonPath}:${containerConfigJsonPath}"`
-        }
-      }
-
       // Add environment variables for worker mode
       // Use host.docker.internal to reach the host from within the container
       const port = process.env.PORT || '8000'
