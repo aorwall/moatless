@@ -18,11 +18,11 @@
     "moatless": "./bin/cli.js"
   },
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "node scripts/dev-with-port.js",
     "build": "turbo run build",
     "start": "NODE_ENV=production node apps/backend/dist/index.js",
     "start:production": "pnpm build && pnpm start",
-    "start:frontend": "cd apps/frontend && pnpm dev",
+    "dev:frontend": "cd apps/frontend && pnpm dev",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
     "test:integration": "turbo run test:integration",
