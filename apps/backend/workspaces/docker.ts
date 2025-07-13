@@ -122,6 +122,7 @@ export class DockerWorkspace extends BaseWorkspace {
       createCommand += ` -e "WORKSPACE_DIR=/repo"`
       createCommand += ` -e "DATA_DIR=/data"`
       createCommand += ` -e "PORT=8001"` // Worker runs on different port
+      createCommand += ` -e "LOG_LEVEL=debug"`
 
       // Pass through Claude authentication environment variables
       if (process.env.CLAUDE_AUTH_DIR) {

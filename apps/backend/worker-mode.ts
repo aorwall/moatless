@@ -30,6 +30,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     apiUrl: config.apiUrl,
     workspaceDir: config.workspaceDir,
     dataDir: config.dataDir || '/data',
+    logLevel: process.env.LOG_LEVEL || 'info',
   })
 
   // Initialize services for worker mode
