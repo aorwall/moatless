@@ -275,7 +275,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         customSystemPrompt: CLAUDE_CODE_SYSTEM_PROMPTS.BRANCH_NAME_GENERATION,
         maxTurns: 1,
         allowedTools: [],
-        model: sdkOptions.model || 'claude-3-haiku-20240307',
+        model: sdkOptions.model || 'claude-sonnet-4-20250514',
       }
 
       // Create the formatted prompt with the user's request
@@ -325,7 +325,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       }
     } catch (error) {
       agentLogger.error('Error in getBranchNameAndSummary', error as Error)
-      return null
+      throw error
     }
   }
 }
