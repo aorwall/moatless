@@ -8,9 +8,7 @@ import { ClaudeCodeAgent } from '../services/agents/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace } from '../workspaces/base.js'
 import type { EventService } from './event.service.js'
-import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
-import type { WorkerService } from './worker.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class AgentService {
@@ -20,8 +18,6 @@ export class AgentService {
     private storage: StorageBackend,
     private eventService: EventService,
     private workspaceService: WorkspaceService,
-    private repositoryService?: RepositoryService | null,
-    private workerService?: WorkerService,
   ) {}
 
   /**
@@ -41,32 +37,7 @@ export class AgentService {
       throw new CriticalError('Task not found', taskId, iteration)
     }
 
-    const repository = this.repositoryService
-      ? await this.repositoryService.getRepositoryById(task.repositoryId)
-      : await this.storage.getRepository(task.repositoryId)
-
-    // Check if we should use workers
-    const useWorkers =
-      process.env.ENABLE_WORKERS === 'true' &&
-      repository?.codeExecution?.workspaceType === 'docker' &&
-      repository?.codeExecution?.dockerImage &&
-      this.workerService
-
-    if (useWorkers && this.workerService) {
-      // Delegate to worker
-      await this.workerService.executeAgentInWorker(
-        taskId,
-        message,
-        iteration,
-        agentType,
-        resumeSessionId,
-        model,
-        repository,
-      )
-      return
-    }
-
-    // Execute locally as before
+    // Execute agent directly
     await this.processAgentExecution(taskId, message, iteration, agentType, resumeSessionId, model)
   }
 
@@ -476,8 +447,6 @@ export function createAgentService(
   storage: StorageBackend,
   eventService: EventService,
   workspaceService: WorkspaceService,
-  repositoryService?: RepositoryService | null,
-  workerService?: WorkerService,
 ): AgentService {
-  return new AgentService(storage, eventService, workspaceService, repositoryService, workerService)
+  return new AgentService(storage, eventService, workspaceService)
 }

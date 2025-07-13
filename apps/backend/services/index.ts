@@ -8,7 +8,6 @@ import {
 import { createRepositoryService, type RepositoryService } from './repository.service.js'
 import { createStorageService, type StorageBackend } from './storage.js'
 import { createTaskService, type TaskService } from './task.service.js'
-import { WorkerService } from './worker.service.js'
 import { createWorkspaceService, type WorkspaceService } from './workspace.service.js'
 
 export interface Services {
@@ -20,7 +19,6 @@ export interface Services {
   previewEnvironment: PreviewEnvironmentService
   agent: AgentService
   task: TaskService
-  worker?: WorkerService
 }
 
 export async function setupServices(): Promise<Services> {
@@ -35,13 +33,7 @@ export async function setupServices(): Promise<Services> {
   // Set preview environment service on workspace service
   workspace.setPreviewEnvironmentService(previewEnvironment)
 
-  // Create worker service if enabled
-  let worker: WorkerService | undefined
-  if (process.env.ENABLE_WORKERS === 'true') {
-    worker = new WorkerService()
-  }
-
-  const agent = createAgentService(storage, event, workspace, repository, worker)
+  const agent = createAgentService(storage, event, workspace)
   const task = createTaskService(storage, event, workspace, agent, command, repository)
 
   return {
@@ -53,7 +45,6 @@ export async function setupServices(): Promise<Services> {
     previewEnvironment,
     agent,
     task,
-    worker,
   }
 }
 

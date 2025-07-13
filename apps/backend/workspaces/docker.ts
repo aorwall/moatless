@@ -159,16 +159,11 @@ export class DockerWorkspace extends BaseWorkspace {
       // Working directory is set to /repo where the workspace is mounted
       createCommand += ` "${actualImage}"`
 
-      console.log(createCommand)
-
       const { stdout } = await execAsync(createCommand, { timeout: 30000 })
       this.containerId = stdout.trim()
-      console.log('containerId', stdout)
 
       // Start container
-      console.log(`docker start "${this.containerId}"`)
-      const startResult = await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
-      console.log('startResult', startResult)
+      await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
 
       // Wait for worker to be ready
       await this.waitForWorkerReady()
@@ -561,7 +556,7 @@ export class DockerWorkspace extends BaseWorkspace {
    * Wait for worker backend to be ready
    */
   private async waitForWorkerReady(): Promise<void> {
-    const maxAttempts = 300
+    const maxAttempts = 30
     const delayMs = 1000
 
     for (let i = 0; i < maxAttempts; i++) {

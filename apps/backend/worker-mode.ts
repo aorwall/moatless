@@ -59,12 +59,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   }
 
   // Create agent service
-  const agentService = new AgentService(
-    storage,
-    eventService as any,
-    workspaceService,
-    null, // No repository service needed in worker mode
-  )
+  const agentService = new AgentService(storage, eventService as any, workspaceService)
 
   // Create HTTP server
   const app = new Hono()

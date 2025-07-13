@@ -39,7 +39,6 @@
     "biome:fix": "biome check --write",
     "format": "biome check --write",
     "check:turbo": "turbo run biome:check type:check test:fast",
-    "test:docker:workspace": "tsx scripts/test-docker-workspace.ts",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
     "prepare": "husky"
   },

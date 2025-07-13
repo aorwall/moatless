@@ -4,14 +4,6 @@
 
 ### Test Scripts
 
-#### `test-docker-workspace.ts`
-Comprehensive test script that validates the Docker workspace architecture:
-
-- **Architecture Validation**: Verifies LocalWorkspace → DockerWorkspace delegation pattern
-- **File Operations**: Tests that all file operations delegate to LocalWorkspace  
-- **Container Management**: Validates Docker container creation with proper labels
-- **Command Execution**: Tests running commands through DockerWorkspace
-
 **Usage:**
 ```bash
 pnpm test:docker:workspace

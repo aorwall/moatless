@@ -9,7 +9,6 @@ import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
 import { registerTaskRoutes } from './tasks.js'
 import { registerUploadRoutes } from './uploads.js'
-import { registerWorkerRoutes } from './worker.routes.js'
 import { registerWorkspaceRoutes } from './workspace.js'
 
 const API_PREFIX = '/api/v1'
@@ -66,9 +65,4 @@ export async function registerRoutes(app: Hono<AppBindings>) {
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app, `${API_PREFIX}/uploads`)
   await registerCommandRoutes(app, `${API_PREFIX}/commands`)
-
-  // Register worker routes if workers are enabled
-  if (process.env.ENABLE_WORKERS === 'true') {
-    registerWorkerRoutes(app)
-  }
 }

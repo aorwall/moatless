@@ -224,7 +224,7 @@ describe('Docker Workspace E2E Test', () => {
     const containerName = containerList.trim()
     expect(containerName).toBeTruthy()
     expect(containerName).toContain('moatless-task')
-    logger.info('Docker container created:', containerName)
+    logger.info('Docker container created:', { containerName })
 
     // Step 4: Verify task was created and has initial state
     const getTaskResponse = await app.inject({
