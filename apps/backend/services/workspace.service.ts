@@ -211,6 +211,17 @@ export class WorkspaceService {
         workspaceLogger.debug('Creating Docker workspace with existing path')
         // Create DockerWorkspace that wraps LocalWorkspace
         workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
+
+        // For Docker workspaces, ensure container is running if it was previously set up
+        if ((workspace as DockerWorkspace).getContainerId()) {
+          try {
+            await (workspace as DockerWorkspace).ensureContainerRunning()
+          } catch (error) {
+            workspaceLogger.warn('Container restart failed, will need to run setup again', {
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
       } else {
         workspaceLogger.debug('Creating Local workspace with existing path', {
           branchName,
@@ -560,6 +571,31 @@ export class WorkspaceService {
 
   setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {
     this.previewEnvironmentService = previewEnvironmentService
+  }
+
+  async gracefulShutdown(): Promise<void> {
+    const workspaceLogger = logger.child({ context: 'graceful-shutdown' })
+    workspaceLogger.info('Starting workspace service graceful shutdown')
+
+    const activeWorkspaceIds = Array.from(this.activeWorkspaces.keys())
+    workspaceLogger.info(`Cleaning up ${activeWorkspaceIds.length} active workspaces`)
+
+    // Clean up all active workspaces concurrently
+    const cleanupPromises = activeWorkspaceIds.map(async (taskId) => {
+      try {
+        await this.cleanupWorkspace(taskId)
+      } catch (error) {
+        workspaceLogger.error(`Failed to cleanup workspace ${taskId}`, error as Error)
+        // Continue with other cleanups even if one fails
+      }
+    })
+
+    await Promise.allSettled(cleanupPromises)
+
+    // Clear background tasks
+    this.backgroundTasks.clear()
+
+    workspaceLogger.info('Workspace service graceful shutdown completed')
   }
 
   async syncWorkspaceWithMain(

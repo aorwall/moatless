@@ -252,7 +252,7 @@ export class LocalWorkspace extends BaseWorkspace {
 
     const commands = this.repositoryConfig.codeExecution.setupCommands.split('\n')
     this.logger.info('Running setup commands', {
-      commandCount: commands.filter((c) => c.trim()).length,
+      commandCount: commands.filter((c: string) => c.trim()).length,
     })
 
     for (const command of commands) {

@@ -50,13 +50,19 @@ const start = async () => {
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 3. Shutdown preview environments
+        // 3. Shutdown workspaces (including Docker containers)
+        if (appServices?.services.workspace) {
+          logger.info('Shutting down workspaces...')
+          await appServices.services.workspace.gracefulShutdown()
+        }
+
+        // 4. Shutdown preview environments
         if (appServices?.services.previewEnvironment) {
           logger.info('Shutting down preview environments...')
           await appServices.services.previewEnvironment.gracefulShutdown()
         }
 
-        // 4. Wait a bit for any pending operations
+        // 5. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 

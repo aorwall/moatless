@@ -51,6 +51,10 @@ export class DockerWorkspace extends BaseWorkspace {
     return this._error
   }
 
+  getContainerId(): string {
+    return this.containerId
+  }
+
   constructor(
     taskId: string,
     repositoryConfig: RepositoryConfig,
@@ -274,9 +278,14 @@ export class DockerWorkspace extends BaseWorkspace {
 
     // Check for uncommitted changes first
     if (!force) {
-      const hasChanges = await this.hasUncommittedChanges()
-      if (hasChanges) {
-        throw new Error('Workspace has uncommitted changes. Use force=true to close anyway.')
+      try {
+        const hasChanges = await this.hasUncommittedChanges()
+        if (hasChanges) {
+          throw new Error('Workspace has uncommitted changes. Use force=true to close anyway.')
+        }
+      } catch (error) {
+        // If we can't check for changes during graceful shutdown, just log and continue
+        console.warn('Could not check for uncommitted changes during teardown:', error)
       }
     }
 
@@ -297,15 +306,21 @@ export class DockerWorkspace extends BaseWorkspace {
     }
 
     try {
-      // Stop container
-      await execAsync(`docker stop "${this.containerId}"`, { timeout: 10000 })
+      // Stop container with shorter timeout for graceful shutdown
+      const stopTimeout = force ? 5000 : 10000
+      await execAsync(`docker stop "${this.containerId}"`, { timeout: stopTimeout })
 
       // Remove container
-      await execAsync(`docker rm "${this.containerId}"`, { timeout: 10000 })
+      await execAsync(`docker rm "${this.containerId}"`, { timeout: 5000 })
     } catch (error) {
-      throw new Error(
-        `Failed to cleanup Docker workspace: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      if (force) {
+        // During graceful shutdown, log errors but don't throw
+        console.error(`Error cleaning up Docker workspace ${this.taskId}:`, error)
+      } else {
+        throw new Error(
+          `Failed to cleanup Docker workspace: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
     }
 
     this.setupComplete = false
@@ -557,6 +572,45 @@ export class DockerWorkspace extends BaseWorkspace {
       return status.startsWith('Up')
     } catch {
       return false
+    }
+  }
+
+  /**
+   * Ensure container is running, restart if needed
+   */
+  async ensureContainerRunning(): Promise<void> {
+    if (!this.containerId) {
+      throw new Error('No container ID available, need to run setup first')
+    }
+
+    try {
+      // Check if container exists and its status
+      const { stdout } = await execAsync(
+        `docker ps -a --filter "id=${this.containerId}" --format "{{.Status}}"`,
+      )
+      const status = stdout.trim()
+
+      if (!status) {
+        // Container doesn't exist, need to recreate
+        this.containerId = ''
+        this.setupComplete = false
+        throw new Error('Container no longer exists, need to run setup again')
+      }
+
+      if (status.startsWith('Up')) {
+        // Container is already running
+        return
+      }
+
+      // Container exists but is stopped, restart it
+      await execAsync(`docker start "${this.containerId}"`, { timeout: 10000 })
+
+      // Wait for worker to be ready
+      await this.waitForWorkerReady()
+    } catch (error) {
+      // If restart fails, mark as needing setup
+      this.setupComplete = false
+      throw error
     }
   }
 
