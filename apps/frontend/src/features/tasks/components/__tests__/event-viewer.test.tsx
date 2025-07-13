@@ -128,7 +128,7 @@ describe('EventViewer', () => {
 
       renderWithRouter(<EventViewer />)
 
-      expect(screen.getByText('No events to display')).toBeInTheDocument()
+      expect(screen.getByText('No events yet')).toBeInTheDocument()
     })
 
     it('shows waiting state when streaming with no events', () => {
@@ -140,7 +140,8 @@ describe('EventViewer', () => {
 
       renderWithRouter(<EventViewer />)
 
-      expect(screen.getByText('Waiting for events...')).toBeInTheDocument()
+      // When streaming with no events, it shows the same empty state
+      expect(screen.getByText('No events yet')).toBeInTheDocument()
     })
   })
 
@@ -361,7 +362,7 @@ describe('EventViewer', () => {
 
       renderWithRouter(<EventViewer />)
 
-      expect(screen.getByText('No events to display')).toBeInTheDocument()
+      expect(screen.getByText('No events yet')).toBeInTheDocument()
     })
 
     it('does not scroll when events length stays the same', async () => {

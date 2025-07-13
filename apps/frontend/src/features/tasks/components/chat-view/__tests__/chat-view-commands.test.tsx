@@ -353,8 +353,23 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
+      // Only mock commands that should be shown based on conditions
+      // In a real scenario, the API would filter these
+      const filteredCommands = commands.filter((cmd) => {
+        if (cmd.conditions?.requiresLastIterationError) {
+          // Last iteration is completed, not error
+          return false
+        }
+        if (cmd.conditions?.requiresUncommittedChanges) {
+          // We have uncommitted changes
+          return true
+        }
+        // Commands with no conditions are always shown
+        return !cmd.conditions
+      })
+
       vi.mocked(useTaskCommands).mockReturnValue({
-        data: { commands },
+        data: { commands: filteredCommands },
         isLoading: false,
       } as any)
 

@@ -55,9 +55,14 @@ describe('EventList Integration - Tool Calls', () => {
     // Should render the LS tool name
     expect(screen.getByText('LS')).toBeInTheDocument()
 
-    // Should show the ls command with path
+    // Should show the ls command with path in a code element
     expect(
-      screen.getByText(/ls \/Users\/albert\/repos\/moatless\/templates\/bolt-workspace/),
+      screen.getByText((content, element) => {
+        return (
+          element?.tagName === 'CODE' &&
+          content.includes('ls /Users/albert/repos/moatless/templates/bolt-workspace')
+        )
+      }),
     ).toBeInTheDocument()
 
     // Should have the folder icon (part of LSToolCall component)
@@ -159,7 +164,7 @@ describe('EventList Integration - Tool Calls', () => {
                 id: 'toolu_01FQfZbk5ZYnMxn1y3YGZffU',
                 name: 'Read',
                 input: {
-                  filePath:
+                  file_path:
                     '/Users/albert/repos/moatless/templates/bolt-workspace-7f5ddcd4-ca18-485a-9306-4b91ef6782d8/src/App.tsx',
                 },
               },

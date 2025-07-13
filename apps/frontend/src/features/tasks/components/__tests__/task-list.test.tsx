@@ -76,7 +76,7 @@ describe('TaskList', () => {
       expect(screen.getByText('Environment')).toBeInTheDocument()
       expect(screen.getByText('Last Activity')).toBeInTheDocument()
       expect(screen.getByText('Status')).toBeInTheDocument()
-      expect(screen.getByText('Git Sync')).toBeInTheDocument()
+      expect(screen.getByText('Git')).toBeInTheDocument()
       expect(screen.getByText('Actions')).toBeInTheDocument()
     })
 
