@@ -69,10 +69,10 @@ export function GlobalEventStreamProvider({
               })
             })
 
-            // Always invalidate task lists for status-affecting events
+            // Invalidate task lists for status-affecting events to update sidebar
             if (shouldInvalidateTaskList(event)) {
               queryClient.invalidateQueries({
-                queryKey: queryKeys.tasks.all,
+                queryKey: queryKeys.tasks.lists(),
               })
             }
           })
@@ -88,7 +88,7 @@ export function GlobalEventStreamProvider({
           case 'task:updated':
           case 'task:statusChanged':
             queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(event.taskId) })
-            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
+            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
             break
 
           case 'tool:start':

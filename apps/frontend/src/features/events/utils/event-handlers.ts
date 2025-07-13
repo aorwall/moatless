@@ -9,18 +9,15 @@ export const STATUS_AFFECTING_EVENTS = [
   EventType.TASK_STATUS,
 ] as const
 
-// Wrapper functions for constants that need to be used as invalidation keys
-const tasksAllKey = (_id: string) => queryKeys.tasks.all
-
 // Map of actively used event types to their invalidation keys
-// Unused event types (START, STOP, SERVER, TOOL, COMPLETION) have been removed
+// These invalidation keys are for the specific task only
 export const EVENT_INVALIDATION_MAP = {
   [EventType.MESSAGE]: [], // No invalidation needed - handled by direct cache update
-  [EventType.RESULT]: [queryKeys.task, queryKeys.taskGitDiff, tasksAllKey],
+  [EventType.RESULT]: [queryKeys.task, queryKeys.taskGitDiff],
   [EventType.ERROR]: [queryKeys.task],
   [EventType.WORKSPACE]: [queryKeys.taskWorkspaceStatus, queryKeys.taskGitDiff],
-  [EventType.INPUT]: [queryKeys.task, tasksAllKey],
-  [EventType.TASK_STATUS]: [queryKeys.task, tasksAllKey],
+  [EventType.INPUT]: [queryKeys.task],
+  [EventType.TASK_STATUS]: [queryKeys.task],
   // Deprecated/unused event types:
   // START, STOP, SERVER, TOOL, COMPLETION - not actively used in production
   [EventType.START]: [queryKeys.task, queryKeys.taskWorkspaceStatus],
@@ -39,9 +36,9 @@ export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {
 
 export function shouldInvalidateTaskList(event: Event): boolean {
   // Task lists should be invalidated for status-affecting events
-  return STATUS_AFFECTING_EVENTS.includes(event.type as any)
+  return STATUS_AFFECTING_EVENTS.some((type) => type === event.type)
 }
 
 export function isStatusAffectingEvent(event: Event): boolean {
-  return STATUS_AFFECTING_EVENTS.includes(event.type as any)
+  return STATUS_AFFECTING_EVENTS.some((type) => type === event.type)
 }
