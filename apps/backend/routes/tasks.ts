@@ -685,6 +685,76 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     },
   )
 
+  // Start task
+  app.post(
+    `${prefix}/:taskId/start`,
+    describeRoute({
+      description: 'Start a task by activating the last iteration with "created" status',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Task started successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  status: {
+                    type: 'string',
+                    enum: ['started'],
+                  },
+                  taskId: {
+                    type: 'string',
+                  },
+                },
+                required: ['status', 'taskId'],
+              },
+            },
+          },
+        },
+        400: {
+          description: 'No iterations with "created" status found or invalid task ID',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = c.req.param('taskId')
+      if (!taskId) {
+        throw new HTTPException(400, { message: 'Task ID is required' })
+      }
+
+      try {
+        await services.task.startTask(taskId)
+        return c.json({
+          status: 'started',
+          taskId,
+        })
+      } catch (error) {
+        if (error instanceof TaskNotFoundError) {
+          throw new HTTPException(404, { message: error.message })
+        }
+        if (error instanceof ValidationError) {
+          throw new HTTPException(400, { message: error.message })
+        }
+        throw error
+      }
+    },
+  )
+
   // Stop agent
   app.post(
     `${prefix}/:taskId/stop`,

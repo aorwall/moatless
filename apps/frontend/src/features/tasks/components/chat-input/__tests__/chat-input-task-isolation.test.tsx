@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
 import { createMockMutationResult } from '@/test-utils/mock-mutations'
 import { ChatInput } from '../index'
@@ -54,6 +54,13 @@ const renderChatInputWithTaskProvider = (taskId: string, component: React.ReactE
 }
 
 describe('ChatInput Task Isolation', () => {
+  beforeEach(() => {
+    // Clear localStorage to ensure consistent test behavior
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('lastSelectedModel')
+    }
+  })
+
   it('should isolate message state between different tasks', () => {
     // This test is primarily about verifying the basic rendering with different task contexts
     // The actual state isolation is better tested at the hook level in task-ui-provider tests

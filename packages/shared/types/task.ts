@@ -4,7 +4,7 @@ export interface TaskIteration {
   iterationNumber: number
   startTime: Date
   endTime?: Date
-  status: 'active' | 'completed' | 'error' | 'failed'
+  status: 'created' | 'active' | 'completed' | 'error' | 'failed'
   messageCount: number
   costUsd: number
   contextTokens?: number

@@ -461,4 +461,63 @@ describe('Task Routes', () => {
       expect(body.error.code).toBe('TASK_NOT_FOUND')
     })
   })
+
+  describe('POST /api/tasks/:taskId/start', () => {
+    it('should start a task with created iteration', async () => {
+      vi.spyOn(app.services.task, 'startTask').mockResolvedValueOnce()
+
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123/start', {
+          method: 'POST',
+        }),
+      )
+
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as any
+      expect(body.status).toBe('started')
+      expect(body.taskId).toBe('test-123')
+
+      expect(app.services.task.startTask).toHaveBeenCalledWith('test-123')
+    })
+
+    it('should return 400 when last iteration is not in created status', async () => {
+      const { ValidationError } = await import('@moatless/shared')
+
+      vi.spyOn(app.services.task, 'startTask').mockRejectedValueOnce(
+        new ValidationError('Last iteration does not have status "created". Cannot start task.', {
+          status: 'Last iteration not in created state',
+        }),
+      )
+
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/test-123/start', {
+          method: 'POST',
+        }),
+      )
+
+      expect(response.status).toBe(400)
+      const body = (await response.json()) as any
+      expect(body.error.message).toBe(
+        'Last iteration does not have status "created". Cannot start task.',
+      )
+    })
+
+    it('should return 404 when task not found', async () => {
+      const { TaskNotFoundError } = await import('@moatless/shared')
+
+      vi.spyOn(app.services.task, 'startTask').mockRejectedValueOnce(
+        new TaskNotFoundError('non-existent'),
+      )
+
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/tasks/non-existent/start', {
+          method: 'POST',
+        }),
+      )
+
+      expect(response.status).toBe(404)
+      const body = (await response.json()) as any
+      expect(body.error.message).toContain('Task non-existent not found')
+    })
+  })
 })

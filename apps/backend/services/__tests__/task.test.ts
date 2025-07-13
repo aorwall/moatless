@@ -53,6 +53,7 @@ describe('TaskService', () => {
       stopAgent: vi.fn(),
       isAgentRunning: vi.fn(),
       getAgentSessionId: vi.fn(),
+      getTaskRunningStatus: vi.fn().mockResolvedValue(false),
     } as unknown as AgentService
 
     mockCommandService = {
@@ -107,7 +108,16 @@ describe('TaskService', () => {
           status: 'open',
           numTurns: 0,
           totalCostUsd: 0,
-          iterations: [],
+          iterations: [
+            {
+              iterationNumber: 1,
+              startTime: new Date(),
+              status: 'created',
+              messageCount: 1,
+              costUsd: 0,
+              initialMessage: 'Test task',
+            },
+          ],
           createdAt: new Date(),
           lastMessageAt: new Date(),
         })
@@ -123,16 +133,23 @@ describe('TaskService', () => {
       expect(taskId).toBeDefined()
       expect(taskId).toMatch(/^[0-9a-f-]+$/) // UUID pattern
 
-      // Verify task was saved with 'running' status since start=true
+      // Verify task was saved first with 'open' status and 'created' iteration
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId,
           agentType: 'test-agent',
           repositoryId: 'env-123',
-          status: 'running',
+          status: 'open',
           numTurns: 0,
           totalCostUsd: 0,
-          iterations: [],
+          iterations: expect.arrayContaining([
+            expect.objectContaining({
+              iterationNumber: 1,
+              status: 'created',
+              messageCount: 1,
+              initialMessage: 'Test task',
+            }),
+          ]),
         }),
       )
 
@@ -252,8 +269,173 @@ describe('TaskService', () => {
       // Task creation should throw when workspace setup fails
       await expect(taskService.createTask(request)).rejects.toThrow('Workspace setup failed')
 
-      // Task should not be saved
-      expect(mockStorage.saveTask).not.toHaveBeenCalled()
+      // Task should have been saved initially but workspace creation failed
+      expect(mockStorage.saveTask).toHaveBeenCalled()
+    })
+
+    it('should create task without starting when start=false', async () => {
+      const request: CreateTaskRequest = {
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        message: 'Test task',
+        start: false,
+      }
+
+      vi.mocked(mockRepositoryService.getRepositoryById).mockResolvedValueOnce({
+        id: 'env-123',
+        name: 'Test Repository',
+      } as any)
+
+      // Mock the new workspace methods
+      vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValueOnce({
+        id: 'task-id',
+        type: 'local',
+        getWorkspacePath: () => '/test/workspace',
+      } as any)
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
+
+      const taskId = await taskService.createTask(request)
+
+      expect(taskId).toBeDefined()
+
+      // Verify task was saved with 'open' status and 'created' iteration but not started
+      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId,
+          agentType: 'test-agent',
+          repositoryId: 'env-123',
+          status: 'open',
+          iterations: expect.arrayContaining([
+            expect.objectContaining({
+              iterationNumber: 1,
+              status: 'created',
+              messageCount: 1,
+              initialMessage: 'Test task',
+            }),
+          ]),
+        }),
+      )
+
+      // Agent should NOT be executed since start=false
+      expect(mockAgentService.executeAgent).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('startTask', () => {
+    it('should start a task with last iteration in created status', async () => {
+      const task: Task = {
+        taskId: 'task-123',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date(),
+            status: 'created',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'Test task',
+          },
+        ],
+      }
+
+      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue({
+        getStatus: () => 'idle',
+      } as any)
+      vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
+
+      await taskService.startTask('task-123')
+
+      // Verify task status was updated to running and iteration to active
+      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'task-123',
+          status: 'running',
+          iterations: expect.arrayContaining([
+            expect.objectContaining({
+              iterationNumber: 1,
+              status: 'active',
+              messageCount: 1,
+              initialMessage: 'Test task',
+            }),
+          ]),
+        }),
+      )
+
+      // Verify agent was executed
+      expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
+        'task-123',
+        'Test task',
+        expect.objectContaining({
+          iterationNumber: 1,
+          status: 'active',
+          messageCount: 1,
+          initialMessage: 'Test task',
+        }),
+        'claude-code',
+        undefined,
+        undefined,
+      )
+    })
+
+    it('should throw ValidationError when last iteration is not in created status', async () => {
+      const task: Task = {
+        taskId: 'task-123',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        status: 'open',
+        numTurns: 1,
+        totalCostUsd: 0,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date(),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'Test task',
+          },
+        ],
+      }
+
+      vi.mocked(mockStorage.getTask).mockResolvedValue(task)
+
+      await expect(taskService.startTask('task-123')).rejects.toThrow(ValidationError)
+      await expect(taskService.startTask('task-123')).rejects.toThrow(
+        'Last iteration does not have status "created". Cannot start task.',
+      )
+    })
+
+    it('should throw ValidationError when task has no iterations', async () => {
+      const task: Task = {
+        taskId: 'task-123',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'test-agent',
+        repositoryId: 'env-123',
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+
+      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(task)
+
+      await expect(taskService.startTask('task-123')).rejects.toThrow(ValidationError)
+    })
+
+    it('should throw TaskNotFoundError for non-existent task', async () => {
+      vi.mocked(mockStorage.getTask).mockResolvedValueOnce(null)
+
+      await expect(taskService.startTask('non-existent')).rejects.toThrow(TaskNotFoundError)
     })
   })
 
@@ -333,7 +515,8 @@ describe('TaskService', () => {
 
       await taskService.sendMessage('task-123', 'Hello, task!')
 
-      // Verify task was updated
+      // Verify task was saved twice - first with 'created', then with 'active'
+      expect(mockStorage.saveTask).toHaveBeenCalledTimes(2)
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',
@@ -465,7 +648,8 @@ describe('TaskService', () => {
       // Verify command was retrieved
       expect(mockCommandService.getCommand).toHaveBeenCalledWith('test-command')
 
-      // Verify task was updated with commandName
+      // Verify task was saved twice - first with 'created', then with 'active'
+      expect(mockStorage.saveTask).toHaveBeenCalledTimes(2)
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-123',

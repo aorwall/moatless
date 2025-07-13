@@ -132,8 +132,8 @@ This separation ensures that high-frequency event updates don't cause components
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Open: User initiates task
-    Open --> Running: Message sent
+    [*] --> Open: User creates task
+    Open --> Running: Task/iteration started
     Running --> Open: Iteration complete
     Running --> Error: Execution failed
     Error --> Open: User continues or resets
@@ -143,14 +143,46 @@ stateDiagram-v2
     Closed --> [*]
 
     note right of Open
-        Workspace is idle and
-        ready for agent execution.
+        Task created with workspace
+        and iteration in 'created' status
+        ready for execution.
     end note
 ```
 
+#### Task Creation and Iteration Flow
+
+The task creation process has been refactored to provide better separation of concerns and error handling:
+
+1. **Task Creation**: Creates task metadata and first iteration with `'created'` status (if message provided)
+2. **Task Persistence**: Saves task to storage before any workspace operations
+3. **Workspace Creation**: Creates and sets up the isolated git workspace
+4. **Task Starting**: Optionally starts the task if `shouldStart` is enabled
+
+#### Iteration Status Lifecycle
+
+Task iterations now follow a more explicit status lifecycle:
+
+```mermaid
+stateDiagram-v2
+    [*] --> created: Iteration created
+    created --> active: Task started
+    active --> completed: Execution successful
+    active --> error: Execution failed
+    active --> failed: Critical failure
+    error --> active: Retry/continue
+    completed --> [*]
+    failed --> [*]
+```
+
+- **created**: Iteration has been created but not yet started
+- **active**: Iteration is currently being executed by the agent
+- **completed**: Iteration finished successfully
+- **error**: Iteration encountered an error but can be retried
+- **failed**: Iteration failed critically and cannot be retried
+
 #### Lifecycle State Details
 
-- **Open**: The initial state of a task after its workspace has been successfully created. The task is ready to accept messages.
+- **Open**: The initial state of a task after its workspace has been successfully created. The task is ready to accept messages or be explicitly started.
 - **Running**: The task is actively processing a message with an AI agent. The UI is locked from sending new messages, but the agent can be stopped.
 - **Error**: The last agent iteration failed. The user can inspect the error and choose to continue the conversation or start fresh.
 - **Merged**: The changes generated in the task's workspace have been successfully merged into the target branch of the main repository. This is a terminal success state.
@@ -159,9 +191,10 @@ stateDiagram-v2
 ### Core Services
 
 - **TaskService (`task.service.ts`)**: The central orchestrator.
-  - `createTask`: Creates the task record and initiates workspace creation.
+  - `createTask`: Creates the task record with initial iteration in `'created'` status, saves to storage, then creates workspace. Optionally starts the task if `shouldStart` is enabled.
+  - `startTask`: Explicitly starts a task by finding the last iteration with `'created'` status and activating it. Returns 400 if no `'created'` iteration exists.
   - `createVibeTask`: A specialized creator that clones a repository from a predefined template to create a new, self-contained environment for a task.
-  - `sendMessage`: Kicks off an agent run. It creates a `TaskIteration`, updates the task status to `running`, and calls `AgentService`.
+  - `sendMessage`: Creates a new iteration with `'created'` status, saves the task, then immediately starts the iteration by updating to `'active'` and executing the agent.
   - `closeTask`: Handles the teardown of a task, including stopping the agent, stopping the preview server, and cleaning up the workspace.
   - `getAvailableCommands`: Determines which contextual commands are available to the user based on the task's current state.
 

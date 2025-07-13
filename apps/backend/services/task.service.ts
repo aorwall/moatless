@@ -70,19 +70,18 @@ export class TaskService {
       iterations: [],
     }
 
-    try {
-      const workspace = await this.workspaceService.createWorkspace(
-        task.taskId,
-        params.repositoryId,
-        params.originalBranch || params.branchName, // Use originalBranch if provided, fallback to branchName for backward compatibility
+    // Create task iteration with 'created' status if message is provided
+    if (params.message) {
+      const iteration = await this.createTaskIteration(
+        task,
+        params.message,
+        undefined,
+        params.model,
+        undefined,
+        params.filePaths,
+        'created',
       )
-      task.workspacePath = workspace.getWorkspacePath()
-    } catch (error) {
-      logger.error('Failed to create workspace', error as Error, {
-        taskId: task.taskId,
-        repositoryId: params.repositoryId,
-      })
-      throw error
+      task.iterations.push(iteration)
     }
 
     try {
@@ -92,61 +91,126 @@ export class TaskService {
         taskId: task.taskId,
         agentType: params.agentType,
         repositoryId: params.repositoryId,
-        workspacePath: task.workspacePath,
+        hasInitialIteration: !!params.message,
       })
     } catch (error) {
       logger.error('Failed to save task metadata', error as Error)
       throw error
     }
 
-    // Determine if we should start immediately
-    const shouldStart = (params.start ?? true) && !!params.message
+    try {
+      const workspace = await this.workspaceService.createWorkspace(
+        task.taskId,
+        params.repositoryId,
+        params.originalBranch || params.branchName, // Use originalBranch if provided, fallback to branchName for backward compatibility
+      )
+      task.workspacePath = workspace.getWorkspacePath()
+
+      // Save task with workspace path
+      await this.storage.saveTask(task)
+    } catch (error) {
+      logger.error('Failed to create workspace', error as Error, {
+        taskId: task.taskId,
+        repositoryId: params.repositoryId,
+      })
+      throw error
+    }
 
     // Setup workspace
     await this.workspaceService.setupWorkspace(task.taskId)
 
-    // If we should start immediately, do it synchronously
+    // Determine if we should start immediately
+    const shouldStart = (params.start ?? true) && !!params.message
+
+    // If we should start immediately, start the task
     if (shouldStart) {
-      // Wait for workspace to be ready
-      const maxWaitTime = TaskService.WORKSPACE_READY_TIMEOUT
-      const checkInterval = TaskService.WORKSPACE_CHECK_INTERVAL
-      const startWait = Date.now()
-
-      while (Date.now() - startWait < maxWaitTime) {
-        const workspace = await this.workspaceService.getWorkspace(task.taskId)
-        if (workspace && workspace.getStatus() === 'idle') {
-          break
-        }
-        await new Promise((resolve) => setTimeout(resolve, checkInterval))
+      try {
+        await this.startTask(task.taskId)
+      } catch (error) {
+        logger.error('Failed to start task', error as Error, { taskId: task.taskId })
+        // Don't throw here - task was created successfully, just failed to start
       }
-
-      // Update task status to running before sending message
-      task.status = 'running'
-      await this.storage.saveTask(task)
-
-      // Send the initial message
-      const sendMessageTask = this.sendMessage(
-        task.taskId,
-        params.message!,
-        true,
-        params.model,
-        undefined,
-        params.filePaths,
-      ).catch((error) => {
-        logger.error('Failed to send initial message', error as Error, { taskId: task.taskId })
-        // Update status back to open on error
-        task.status = 'open'
-        this.storage.saveTask(task).catch((saveError) => {
-          logger.error('Failed to update task status after error', saveError as Error)
-        })
-      })
-
-      // Track the background message sending task
-      this.workspaceService.trackBackgroundTask(task.taskId, sendMessageTask)
     }
 
     logger.info('Task creation completed successfully', { taskId: task.taskId })
     return task.taskId
+  }
+
+  /**
+   * Starts a task by activating the last iteration with 'created' status
+   */
+  async startTask(taskId: string): Promise<void> {
+    logger.info('Starting task', { taskId })
+
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Check if last iteration has status 'created'
+    const lastIteration = task.iterations[task.iterations.length - 1]
+
+    if (!lastIteration || lastIteration.status !== 'created') {
+      throw new ValidationError(
+        'Last iteration does not have status "created". Cannot start task.',
+        { status: 'Last iteration not in created state' },
+      )
+    }
+
+    // Wait for workspace to be ready
+    const maxWaitTime = TaskService.WORKSPACE_READY_TIMEOUT
+    const checkInterval = TaskService.WORKSPACE_CHECK_INTERVAL
+    const startWait = Date.now()
+
+    while (Date.now() - startWait < maxWaitTime) {
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (workspace && workspace.getStatus() === 'idle') {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, checkInterval))
+    }
+
+    // Update task status to running
+    task.status = 'running'
+
+    // Update iteration status to active
+    lastIteration.status = 'active'
+
+    // Save task with updated statuses
+    await this.storage.saveTask(task)
+
+    // Execute the agent with the iteration's initial message
+    if (lastIteration.initialMessage || lastIteration.commandName) {
+      const executeTask = this.agentService
+        .executeAgent(
+          taskId,
+          lastIteration.initialMessage || '',
+          lastIteration,
+          'claude-code',
+          undefined,
+          lastIteration.model,
+        )
+        .catch((error) => {
+          logger.error('Failed to execute agent during task start', error as Error, {
+            taskId,
+            iterationNumber: lastIteration.iterationNumber,
+          })
+          // Update status back to open on error
+          task.status = 'open'
+          lastIteration.status = 'error'
+          this.storage.saveTask(task).catch((saveError) => {
+            logger.error('Failed to update task status after agent error', saveError as Error)
+          })
+        })
+
+      // Track the background agent execution
+      this.workspaceService.trackBackgroundTask(taskId, executeTask)
+    }
+
+    logger.info('Task started successfully', {
+      taskId,
+      iterationNumber: lastIteration.iterationNumber,
+    })
   }
 
   async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
@@ -295,12 +359,13 @@ export class TaskService {
     model?: string,
     fileIds?: string[],
     filePaths?: string[],
+    initialStatus: 'created' | 'active' = 'active',
   ): Promise<TaskIteration> {
     // Validate that either message or commandName is provided
     if (!message && !commandName) {
       throw new ValidationError(
         'Either initialMessage or commandName must be provided for task iteration',
-        'message',
+        { message: 'Missing required message or command' },
       )
     }
 
@@ -310,7 +375,7 @@ export class TaskService {
     const iteration: TaskIteration = {
       iterationNumber,
       startTime: now,
-      status: 'active',
+      status: initialStatus,
       messageCount: 1,
       costUsd: 0,
       initialMessage: message,
@@ -397,7 +462,7 @@ export class TaskService {
       }
     }
 
-    // Create the iteration (this validates inputs)
+    // Create the iteration with 'created' status (this validates inputs)
     const iteration = await this.createTaskIteration(
       metadata,
       message,
@@ -405,6 +470,7 @@ export class TaskService {
       model,
       fileIds,
       filePaths,
+      'created',
     )
 
     // Check if command has willNotResume flag set
@@ -442,9 +508,16 @@ export class TaskService {
     metadata.iterations.push(iteration)
     metadata.lastMessageAt = now
     metadata.numTurns += 1
+
+    // Save task with the new iteration in 'created' status
+    await this.storage.saveTask(metadata)
+
+    // Now start the iteration by updating its status to 'active' and starting execution
     const previousStatus = metadata.status
     metadata.status = 'running'
+    iteration.status = 'active'
 
+    // Save task with updated statuses
     await this.storage.saveTask(metadata)
 
     // Emit status change event
@@ -477,6 +550,12 @@ export class TaskService {
       .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
       .catch((error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
+        // Update status back on error
+        metadata.status = 'open'
+        iteration.status = 'error'
+        this.storage.saveTask(metadata).catch((saveError) => {
+          logger.error('Failed to update task status after agent error', saveError as Error)
+        })
       })
 
     // Track the background task in WorkspaceService for status reporting
