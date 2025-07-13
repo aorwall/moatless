@@ -19,14 +19,14 @@ vi.mock('@moatless/shared/schemas/repository.schemas', () => ({
     parse: vi.fn((data) => {
       // Basic validation for required fields
       if (!data.name || !data.path) {
-        const error = new Error('Validation failed')
+        const error: any = new Error('Validation failed')
         error.name = 'ZodError'
-        ;(error as any).errors = []
+        error.errors = []
         if (!data.name) {
-          ;(error as any).errors.push({ path: ['name'], message: 'Required' })
+          error.errors.push({ path: ['name'], message: 'Required' })
         }
         if (!data.path) {
-          ;(error as any).errors.push({ path: ['path'], message: 'Required' })
+          error.errors.push({ path: ['path'], message: 'Required' })
         }
         throw error
       }
@@ -37,14 +37,14 @@ vi.mock('@moatless/shared/schemas/repository.schemas', () => ({
     parse: vi.fn((data) => {
       // Basic validation for required fields
       if (!data.name || !data.path) {
-        const error = new Error('Validation failed')
+        const error: any = new Error('Validation failed')
         error.name = 'ZodError'
-        ;(error as any).errors = []
+        error.errors = []
         if (!data.name) {
-          ;(error as any).errors.push({ path: ['name'], message: 'Required' })
+          error.errors.push({ path: ['name'], message: 'Required' })
         }
         if (!data.path) {
-          ;(error as any).errors.push({ path: ['path'], message: 'Required' })
+          error.errors.push({ path: ['path'], message: 'Required' })
         }
         throw error
       }
