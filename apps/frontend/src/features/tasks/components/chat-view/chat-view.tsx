@@ -196,17 +196,7 @@ function ChatViewComponent() {
           </div>
         )}
       </div>
-      <ErrorBoundary
-        componentName="Chat Input"
-        fallback={(_error, reset) => (
-          <div className="p-4 border-t text-sm text-muted-foreground">
-            Chat input unavailable
-            <button type="button" onClick={reset} className="ml-2 text-primary hover:underline">
-              Retry
-            </button>
-          </div>
-        )}
-      >
+      <ErrorBoundary componentName="Chat Input">
         <ChatInput
           data-testid="task-chat-input"
           taskId={params.taskId}
