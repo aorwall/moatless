@@ -11,6 +11,7 @@ export enum EventType {
   SERVER = 'server',
   TOOL = 'tool',
   COMPLETION = 'completion',
+  TASK_STATUS = 'task_status',
 }
 
 export interface BaseEvent {
@@ -73,6 +74,16 @@ export interface ResultEvent extends BaseEvent {
   payload: SDKResultMessage
 }
 
+export interface TaskStatusEvent extends BaseEvent {
+  type: EventType.TASK_STATUS
+  subType: string // The status that was changed to (e.g., 'open', 'running', 'completed')
+  payload: {
+    status: string
+    previousStatus: string
+    iterationNumber?: number
+  }
+}
+
 export type SpecificEvent =
   | InputEvent
   | MessageEvent
@@ -80,3 +91,4 @@ export type SpecificEvent =
   | WorkspaceEvent
   | ServerEvent
   | ResultEvent
+  | TaskStatusEvent

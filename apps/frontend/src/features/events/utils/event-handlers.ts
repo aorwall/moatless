@@ -2,7 +2,12 @@ import type { Event } from '@moatless/shared/types/event'
 import { EventType } from '@moatless/shared/types/event'
 import { queryKeys } from '@/lib/api/query-keys'
 
-export const STATUS_AFFECTING_EVENTS = [EventType.RESULT, EventType.ERROR, EventType.INPUT] as const
+export const STATUS_AFFECTING_EVENTS = [
+  EventType.RESULT,
+  EventType.ERROR,
+  EventType.INPUT,
+  EventType.TASK_STATUS,
+] as const
 
 // Wrapper functions for constants that need to be used as invalidation keys
 const tasksAllKey = (_id: string) => queryKeys.tasks.all
@@ -15,6 +20,7 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.ERROR]: [queryKeys.task],
   [EventType.WORKSPACE]: [queryKeys.taskWorkspaceStatus, queryKeys.taskGitDiff],
   [EventType.INPUT]: [queryKeys.task, tasksAllKey],
+  [EventType.TASK_STATUS]: [queryKeys.task, tasksAllKey],
   // Deprecated/unused event types:
   // START, STOP, SERVER, TOOL, COMPLETION - not actively used in production
   [EventType.START]: [queryKeys.task, queryKeys.taskWorkspaceStatus],

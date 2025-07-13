@@ -90,8 +90,8 @@ export class TaskService {
       // Emit task created event
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: EventType.INPUT,
-        subType: 'task:statusChanged',
+        type: EventType.TASK_STATUS,
+        subType: 'open',
         payload: {
           status: 'open',
           previousStatus: 'created',
@@ -198,8 +198,8 @@ export class TaskService {
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
-      type: EventType.INPUT,
-      subType: 'task:statusChanged',
+      type: EventType.TASK_STATUS,
+      subType: 'running',
       payload: {
         status: 'running',
         previousStatus,
