@@ -18,7 +18,7 @@ export const tasksApi = {
     const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
       status: 'active',
     })
-    return response.tasks.map((task) => task.taskId)
+    return response.items.map((task) => task.taskId)
   },
 
   async listTasks(params?: {
@@ -81,7 +81,7 @@ export const tasksApi = {
       `/api/v1/tasks/${taskId}/events`,
       type ? { type } : undefined,
     )
-    return response.events
+    return response.items
   },
 
   async getTaskGitDiff(taskId: string): Promise<GitDiffResponse> {

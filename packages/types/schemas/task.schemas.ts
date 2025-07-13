@@ -123,18 +123,25 @@ export const TaskResponseSchema = z.object({
 })
 
 export const TaskListResponseSchema = z.object({
-  tasks: z.array(TaskResponseSchema),
   items: z.array(TaskResponseSchema),
   pagination: z.object({
     limit: z.number(),
     offset: z.number(),
     total: z.number().optional(),
+    hasMore: z.boolean().optional(),
   }),
 })
 
 export const EventListResponseSchema = z.object({
-  events: z.array(z.any()), // Event type is complex, using any for now
-  items: z.array(z.any()),
+  items: z.array(z.any()), // Event type is complex, using any for now
+  pagination: z
+    .object({
+      limit: z.number(),
+      offset: z.number(),
+      total: z.number().optional(),
+      hasMore: z.boolean().optional(),
+    })
+    .optional(),
 })
 
 export const CloseTaskResponseSchema = z.object({

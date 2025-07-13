@@ -7,18 +7,23 @@ import type { Task } from './task.js'
 
 // Override the basic paginated responses with more specific ones that reference other types
 export interface TaskListResponse {
-  tasks: Task[]
   items: Task[]
   pagination: {
     limit: number
     offset: number
     total?: number
+    hasMore?: boolean
   }
 }
 
 export interface EventListResponse {
-  events: Event[]
   items: Event[]
+  pagination?: {
+    limit: number
+    offset: number
+    total?: number
+    hasMore?: boolean
+  }
 }
 
 // Re-export task schema types that are used in API

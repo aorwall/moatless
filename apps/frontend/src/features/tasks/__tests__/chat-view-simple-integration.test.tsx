@@ -32,7 +32,6 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const initialTask = createMockTaskWithIterations({ taskId: taskId }, 1)
     vi.mocked(tasksApi.getTask).mockResolvedValue(initialTask)
     vi.mocked(tasksApi.listTasks).mockResolvedValue({
-      tasks: [initialTask],
       items: [initialTask],
       pagination: { limit: 20, offset: 0, total: 1 },
     })
@@ -60,7 +59,6 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     )
     vi.mocked(tasksApi.getTask).mockResolvedValue(updatedTask)
     vi.mocked(tasksApi.listTasks).mockResolvedValue({
-      tasks: [updatedTask],
       items: [updatedTask],
       pagination: { limit: 20, offset: 0, total: 1 },
     })
@@ -81,17 +79,12 @@ describe('Task Viewer Integration - Query Invalidation', () => {
       })
     })
 
-    // Verify only task list is invalidated by mutation (events handle task-specific invalidations)
+    // Mutations invalidate both task lists and task-specific queries
     expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.tasksList(),
     })
-
-    // Task-specific queries are now invalidated by events, not mutations
-    expect(spyInvalidate).not.toHaveBeenCalledWith({
+    expect(spyInvalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.task(taskId),
-    })
-    expect(spyInvalidate).not.toHaveBeenCalledWith({
-      queryKey: queryKeys.taskWorkspaceStatus(taskId),
     })
 
     // Verify immediate refetch

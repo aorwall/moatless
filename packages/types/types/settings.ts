@@ -1,25 +1,5 @@
-export interface ApplicationSettings {
-  dataDir?: string
-  defaultWorkspaceType?: 'docker' | 'local'
-  claude?: ClaudeSettings
-}
+// Re-export all settings schemas and types
 
-export interface ClaudeSettings {
-  binDir?: string
-  configDir?: string
-}
-
-// Import UpdateSettingsRequest from schema
+// Legacy alias for backwards compatibility
 export type { UpdateSettingsSchemaType as UpdateSettingsRequest } from '../schemas/settings.schemas.js'
-
-export interface SettingsResponse {
-  settings: ApplicationSettings
-  defaults: {
-    dataDir: string
-    defaultWorkspaceType: 'docker' | 'local'
-    claude: {
-      binDir: string
-      configDir: string
-    }
-  }
-}
+export * from '../schemas/settings.schemas.js'

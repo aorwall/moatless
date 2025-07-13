@@ -7,7 +7,7 @@ import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
 import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
-import { settingsRoute } from './settings.js'
+import { registerSettingsRoutes } from './settings.js'
 import { registerTaskRoutes } from './tasks.js'
 import { registerUploadRoutes } from './uploads.js'
 import { registerWorkspaceRoutes } from './workspace.js'
@@ -70,5 +70,5 @@ export async function registerRoutes(app: Hono<AppBindings>) {
   await registerCommandRoutes(app, `${API_PREFIX}/commands`)
 
   // Register settings routes
-  app.route(`${API_PREFIX}/settings`, settingsRoute)
+  await registerSettingsRoutes(app, `${API_PREFIX}/settings`)
 }

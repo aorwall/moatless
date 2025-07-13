@@ -190,16 +190,24 @@ export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
 export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
 export type EventListQuery = z.infer<typeof EventListQuerySchema>
 export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
+export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
 
 // ============================================
 // Pagination Response Types
 // ============================================
 
-export interface PaginationInfo {
-  limit: number
-  offset: number
-  total?: number
-  hasMore?: boolean
+export const PaginationInfoSchema = z.object({
+  limit: z.number(),
+  offset: z.number(),
+  total: z.number().optional(),
+  hasMore: z.boolean().optional(),
+})
+
+export function createPaginatedResponseSchema<T extends z.ZodType>(itemSchema: T) {
+  return z.object({
+    items: z.array(itemSchema),
+    pagination: PaginationInfoSchema,
+  })
 }
 
 export interface PaginatedResponse<T> {

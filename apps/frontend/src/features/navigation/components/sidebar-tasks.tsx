@@ -1,3 +1,4 @@
+import type { Task } from '@moatless/types/types/task'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -139,7 +140,7 @@ export function SidebarTasks() {
     },
   )
 
-  const tasks = data?.tasks
+  const tasks = data?.items
 
   // Fetch repositories to map IDs to names
   const { data: repositories } = useRepositoriesList()
@@ -151,8 +152,8 @@ export function SidebarTasks() {
   // filtering on the backend to exclude closed tasks.
   const sortedTasks =
     tasks
-      ?.filter((task) => task.status !== 'closed') // Filter out closed tasks
-      ?.sort((a, b) => {
+      ?.filter((task: Task) => task.status !== 'closed') // Filter out closed tasks
+      ?.sort((a: Task, b: Task) => {
         // First sort by active status (open/running tasks come first)
         const aActive = a.status === 'open' || a.status === 'running'
         const bActive = b.status === 'open' || b.status === 'running'
@@ -261,7 +262,7 @@ export function SidebarTasks() {
         <SidebarGroupContent>
           {sortedTasks.length > 0 ? (
             <SidebarMenu>
-              {sortedTasks.map((task) => {
+              {sortedTasks.map((task: Task) => {
                 const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
                 return (
                   <SidebarTaskItem key={task.taskId} task={task} repositoryName={repositoryName} />

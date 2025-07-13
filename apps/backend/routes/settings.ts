@@ -1,47 +1,119 @@
-import { zValidator } from '@hono/zod-validator'
-import type { UpdateSettingsRequest } from '@moatless/types'
-import { updateSettingsSchema } from '@moatless/types/schemas'
-import { Hono } from 'hono'
+import {
+  type SettingsResponse,
+  SettingsResponseSchema,
+  type UpdateSettingsRequest,
+  updateSettingsSchema,
+} from '@moatless/types'
+import type { Hono } from 'hono'
+import { describeRoute } from 'hono-openapi'
+import { resolver } from 'hono-openapi/zod'
+import type { AppBindings } from '../app.js'
 import { getSettingsService } from '../services/index.js'
-import { logger } from '../utils/logger.js'
+import { handleServiceError } from '../utils/error-handler.js'
+import { validateRequestBody } from '../utils/route-helpers.js'
 
-const settingsRoute = new Hono()
+export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: string) {
+  // GET settings - Get current settings and defaults
+  app.get(
+    prefix,
+    describeRoute({
+      description: 'Get current application settings and defaults',
+      responses: {
+        200: {
+          description: 'Current settings and defaults',
+          content: {
+            'application/json': {
+              schema: resolver(SettingsResponseSchema) as any,
+            },
+          },
+        },
+        500: {
+          description: 'Failed to get settings',
+        },
+      },
+    }),
+    async (c) => {
+      try {
+        const settingsService = getSettingsService()
+        const settings: SettingsResponse = await settingsService.getSettings()
+        return c.json(settings)
+      } catch (error) {
+        handleServiceError(error, 'Get settings')
+      }
+    },
+  )
 
-// GET /api/settings - Get current settings and defaults
-settingsRoute.get('/', async (c) => {
-  try {
-    const settingsService = getSettingsService()
-    const settings = await settingsService.getSettings()
-    return c.json(settings)
-  } catch (error) {
-    logger.error('Failed to get settings', error as Error)
-    return c.json({ error: 'Failed to get settings' }, 500)
-  }
-})
+  // PUT settings - Update settings
+  app.put(
+    prefix,
+    describeRoute({
+      description: 'Update application settings',
+      requestBody: {
+        description: 'Settings update parameters',
+        content: {
+          'application/json': {
+            schema: resolver(updateSettingsSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Updated settings',
+          content: {
+            'application/json': {
+              schema: resolver(SettingsResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request body',
+        },
+        500: {
+          description: 'Failed to update settings',
+        },
+      },
+    }),
+    async (c) => {
+      try {
+        const settingsService = getSettingsService()
+        const update = await validateRequestBody(c, updateSettingsSchema)
+        const settings: SettingsResponse = await settingsService.updateSettings(
+          update as UpdateSettingsRequest,
+        )
+        return c.json(settings)
+      } catch (error) {
+        handleServiceError(error, 'Update settings')
+      }
+    },
+  )
 
-// PUT /api/settings - Update settings
-settingsRoute.put('/', zValidator('json', updateSettingsSchema), async (c) => {
-  try {
-    const settingsService = getSettingsService()
-    const update = await c.req.valid('json')
-    const settings = await settingsService.updateSettings(update as UpdateSettingsRequest)
-    return c.json(settings)
-  } catch (error) {
-    logger.error('Failed to update settings', error as Error)
-    return c.json({ error: 'Failed to update settings' }, 500)
-  }
-})
-
-// DELETE /api/settings - Reset settings to defaults
-settingsRoute.delete('/', async (c) => {
-  try {
-    const settingsService = getSettingsService()
-    const settings = await settingsService.resetSettings()
-    return c.json(settings)
-  } catch (error) {
-    logger.error('Failed to reset settings', error as Error)
-    return c.json({ error: 'Failed to reset settings' }, 500)
-  }
-})
-
-export { settingsRoute }
+  // DELETE settings - Reset settings to defaults
+  app.delete(
+    prefix,
+    describeRoute({
+      description: 'Reset application settings to defaults',
+      responses: {
+        200: {
+          description: 'Reset settings',
+          content: {
+            'application/json': {
+              schema: resolver(SettingsResponseSchema) as any,
+            },
+          },
+        },
+        500: {
+          description: 'Failed to reset settings',
+        },
+      },
+    }),
+    async (c) => {
+      try {
+        const settingsService = getSettingsService()
+        const settings: SettingsResponse = await settingsService.resetSettings()
+        return c.json(settings)
+      } catch (error) {
+        handleServiceError(error, 'Reset settings')
+      }
+    },
+  )
+}

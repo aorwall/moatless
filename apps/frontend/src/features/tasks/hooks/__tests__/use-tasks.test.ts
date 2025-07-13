@@ -64,7 +64,6 @@ describe('Task Hooks', () => {
     it('fetches tasks list', async () => {
       const mockTasks = [createMockTask({ taskId: 'task-1' }), createMockTask({ taskId: 'task-2' })]
       vi.mocked(tasksApi.listTasks).mockResolvedValue({
-        tasks: mockTasks,
         items: mockTasks,
         pagination: { limit: 20, offset: 0, total: 2 },
       })
@@ -78,7 +77,6 @@ describe('Task Hooks', () => {
       })
 
       expect(result.current.data).toEqual({
-        tasks: mockTasks,
         items: mockTasks,
         pagination: { limit: 20, offset: 0, total: 2 },
       })
@@ -88,7 +86,6 @@ describe('Task Hooks', () => {
     it('fetches tasks with filters', async () => {
       const filters = { activeOnly: true, limit: 10, offset: 0 }
       vi.mocked(tasksApi.listTasks).mockResolvedValue({
-        tasks: [],
         items: [],
         pagination: { limit: 10, offset: 0, total: 0 },
       })
@@ -196,17 +193,12 @@ describe('Task Hooks', () => {
         })
       })
 
-      // In the new event-driven architecture, mutations only invalidate task lists
-      // Task-specific queries are invalidated by events, not mutations
+      // Mutations invalidate both task lists and task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.tasksList(),
       })
-      // Task-specific queries should NOT be invalidated by mutations
-      expect(spyInvalidate).not.toHaveBeenCalledWith({
+      expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.task('task-123'),
-      })
-      expect(spyInvalidate).not.toHaveBeenCalledWith({
-        queryKey: queryKeys.taskWorkspaceStatus('task-123'),
       })
     })
   })
@@ -227,13 +219,11 @@ describe('Task Hooks', () => {
         await result.current.mutateAsync()
       })
 
-      // In the new event-driven architecture, mutations only invalidate task lists
-      // Task-specific queries are invalidated by events, not mutations
+      // Mutations invalidate both task lists and task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.tasksList(),
       })
-      // Task-specific queries should NOT be invalidated by mutations
-      expect(spyInvalidate).not.toHaveBeenCalledWith({
+      expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.task('task-123'),
       })
     })
