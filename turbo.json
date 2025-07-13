@@ -13,6 +13,7 @@
       "env": ["USE_CONSOLE_LOGGING", "VITE_API_BASE_URL"]
     },
     "type:check": {
+      "dependsOn": ["^build"],
       "inputs": ["**/*.ts", "**/*.tsx", "tsconfig.json"],
       "outputs": [],
       "env": ["VITE_API_BASE_URL"]
