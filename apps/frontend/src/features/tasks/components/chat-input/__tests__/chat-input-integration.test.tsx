@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
 import { ChatInput } from '../index'
 
 // Mock the API hooks
@@ -31,7 +32,11 @@ const renderWithProviders = (component: React.ReactElement) => {
     },
   })
 
-  return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TaskUIProvider taskId="test-task">{component}</TaskUIProvider>
+    </QueryClientProvider>,
+  )
 }
 
 describe('ChatInput integration', () => {

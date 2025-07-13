@@ -9,6 +9,7 @@ import {
   useRepositoriesList,
   useSearchFiles,
 } from '@/features/repositories/hooks/use-repositories'
+import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
 import { useSendMessage, useStopAgent, useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
 import { useTemplatesList } from '@/features/templates'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
@@ -67,7 +68,9 @@ describe('ChatInput file search functionality', () => {
     })
 
     return ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <TaskUIProvider taskId="test-task">{children}</TaskUIProvider>
+      </QueryClientProvider>
     )
   }
 

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
 import { createMockMutationResult } from '@/test-utils/mock-mutations'
 import { ChatInput } from '../index'
 
@@ -71,7 +72,11 @@ const renderWithProviders = (component: React.ReactElement) => {
     },
   })
 
-  return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TaskUIProvider taskId="test-task">{component}</TaskUIProvider>
+    </QueryClientProvider>,
+  )
 }
 
 vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({
@@ -134,13 +139,7 @@ describe('ChatInput - Expandable Textarea', () => {
       let textareaStyles = window.getComputedStyle(textarea)
       expect(textareaStyles.maxHeight).toBe('150px')
 
-      rerender(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="400px" />
-        </QueryClientProvider>,
-      )
+      rerender(<ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="400px" />)
 
       textarea = screen.getByPlaceholderText(/type a new request/i)
       textareaStyles = window.getComputedStyle(textarea)

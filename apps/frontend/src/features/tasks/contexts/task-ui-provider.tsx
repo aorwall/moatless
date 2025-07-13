@@ -1,3 +1,4 @@
+import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/shared/constants'
 import type { TaskIteration } from '@moatless/shared/types/task'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
@@ -6,6 +7,9 @@ type PanelView = 'events' | 'diff' | 'files' | 'preview' | 'server'
 interface ChatState {
   scrollPosition?: number
   isAtBottom: boolean
+  message: string
+  selectedModel?: ClaudeModel
+  resumeConversation: boolean
 }
 
 interface GitDiffState {
@@ -52,6 +56,17 @@ interface TaskUIProviderProps {
 }
 
 function getDefaultTaskUIState(): TaskUIState {
+  // Initialize model from localStorage for new tasks, fallback to default
+  const getInitialModel = (): ClaudeModel => {
+    if (typeof window !== 'undefined') {
+      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
+      if (savedModel && Object.values(CLAUDE_MODELS).includes(savedModel)) {
+        return savedModel
+      }
+    }
+    return DEFAULT_CLAUDE_MODEL
+  }
+
   return {
     rightPanelView: 'events',
     selectedIteration: undefined,
@@ -62,6 +77,9 @@ function getDefaultTaskUIState(): TaskUIState {
     selectedFile: '',
     chatState: {
       isAtBottom: true,
+      message: '',
+      selectedModel: getInitialModel(),
+      resumeConversation: true,
     },
     gitDiffState: {
       expandedFiles: new Set(),
@@ -193,6 +211,52 @@ export function useTaskUI() {
     throw new Error('useTaskUI must be used within TaskUIProvider')
   }
   return context
+}
+
+// Specialized hooks for chat message and model state
+export function useChatMessage() {
+  const { currentState, updateChatState } = useTaskUI()
+
+  // Memoize the clear function to prevent unnecessary re-renders
+  const clearMessage = useCallback(() => {
+    updateChatState({ message: '' })
+  }, [updateChatState])
+
+  return {
+    message: currentState.chatState.message,
+    setMessage: (message: string) => updateChatState({ message }),
+    clearMessage,
+  }
+}
+
+export function useChatModel() {
+  const { currentState, updateChatState } = useTaskUI()
+
+  // Memoize the setSelectedModel function to include localStorage persistence
+  const setSelectedModel = useCallback(
+    (model: ClaudeModel | undefined) => {
+      updateChatState({ selectedModel: model })
+
+      // Save to localStorage as preference for future new tasks (not for syncing existing tasks)
+      if (model && typeof window !== 'undefined') {
+        localStorage.setItem('lastSelectedModel', model)
+      }
+    },
+    [updateChatState],
+  )
+
+  return {
+    selectedModel: currentState.chatState.selectedModel,
+    setSelectedModel,
+  }
+}
+
+export function useChatResumeConversation() {
+  const { currentState, updateChatState } = useTaskUI()
+  return {
+    resumeConversation: currentState.chatState.resumeConversation,
+    setResumeConversation: (resume: boolean) => updateChatState({ resumeConversation: resume }),
+  }
 }
 
 // Specialized hooks for specific UI state

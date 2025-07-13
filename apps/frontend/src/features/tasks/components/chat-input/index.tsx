@@ -1,7 +1,12 @@
-import { CLAUDE_MODELS, type ClaudeModel } from '@moatless/shared/constants'
+import type { ClaudeModel } from '@moatless/shared/constants'
 import type { UploadFileResponse } from '@moatless/shared/types/api'
 import type { Task } from '@moatless/shared/types/task'
 import { useEffect, useState } from 'react'
+import {
+  useChatMessage,
+  useChatModel,
+  useChatResumeConversation,
+} from '@/features/tasks/contexts/task-ui-provider'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
@@ -45,23 +50,18 @@ export function ChatInput({
   maxHeight = '200px',
   ...divProps
 }: ChatInputProps) {
-  const [message, setMessage] = useState('')
+  // Use TaskUI context for isolated task state
+  const { message, setMessage, clearMessage } = useChatMessage()
+  const { selectedModel, setSelectedModel } = useChatModel()
+  const { resumeConversation, setResumeConversation } = useChatResumeConversation()
+
+  // Local component state (not shared between tasks)
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [runningDuration, setRunningDuration] = useState<string>('')
-  const [resumeConversation, setResumeConversation] = useState(true)
 
-  // Initialize model selector with saved value
-  const initialModel = (() => {
-    if (typeof window !== 'undefined') {
-      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
-      return savedModel && Object.values(CLAUDE_MODELS).includes(savedModel)
-        ? savedModel
-        : undefined
-    }
-    return undefined
-  })()
+  // No localStorage initialization - each task maintains its own isolated model selection
 
-  const modelSelector = useModelSelector(initialModel)
+  const modelSelector = useModelSelector(selectedModel)
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
@@ -92,12 +92,12 @@ export function ChatInput({
     return () => clearInterval(interval)
   }, [isRunning, task?.iterations])
 
-  // Save selected model to localStorage
+  // Update context when model selector changes (isolated per task, no localStorage sync)
   useEffect(() => {
-    if (modelSelector.value) {
-      localStorage.setItem('lastSelectedModel', modelSelector.value)
+    if (modelSelector.value && modelSelector.value !== selectedModel) {
+      setSelectedModel(modelSelector.value as ClaudeModel)
     }
-  }, [modelSelector.value])
+  }, [modelSelector.value, selectedModel, setSelectedModel])
 
   const handleSendMessage = () => {
     // If running, stop the agent instead of sending message
@@ -110,18 +110,20 @@ export function ChatInput({
       return
     }
 
-    const clearMessage = () => {
-      setMessage('')
-      setUploadedFiles([])
-    }
-
     // Send message with file paths
     if (!isPending) {
       const filePaths = uploadedFiles.map((f) => f.absolutePath)
+
+      // Create a stable callback that clears both message and files
+      const clearMessageAndFiles = () => {
+        clearMessage()
+        setUploadedFiles([])
+      }
+
       onSendMessage(
         taskId,
         message.trim(),
-        clearMessage,
+        clearMessageAndFiles,
         resumeConversation,
         modelSelector.value as ClaudeModel,
         filePaths,
