@@ -18,6 +18,7 @@ import {
   TaskListResponseSchema,
   TaskNotFoundError,
   TaskResponseSchema,
+  ValidationError,
   WorkspaceError,
 } from '@moatless/shared'
 import type { Hono } from 'hono'
@@ -26,6 +27,42 @@ import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
+import { logger } from '../utils/logger.js'
+
+// Helper function to handle common error responses
+function handleServiceError(error: unknown, context: string): never {
+  logger.error(`${context} failed`, error as Error)
+
+  if (error instanceof ValidationError) {
+    throw new HTTPException(400, {
+      message: error.message,
+      cause: error,
+    })
+  }
+
+  if (error instanceof TaskNotFoundError) {
+    throw new HTTPException(404, {
+      message: error.message,
+      cause: error,
+    })
+  }
+
+  // For all other errors (including WorkspaceError), return 500 with the actual error message
+  const errorMessage = error instanceof Error ? error.message : `Failed to ${context.toLowerCase()}`
+  throw new HTTPException(500, {
+    message: errorMessage,
+    cause: error,
+  })
+}
+
+// Helper function to validate and get task ID from params
+function getTaskId(c: any): string {
+  const taskId = c.req.param('taskId')
+  if (!taskId) {
+    throw new HTTPException(400, { message: 'Task ID is required' })
+  }
+  return taskId
+}
 
 // Schema for query params
 const FileQuerySchema = z.object({
@@ -177,11 +214,15 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const validatedBody = CreateTaskRequestSchema.parse(body)
       const { model, filePaths, ...taskData } = validatedBody
 
-      const taskId = await taskService.createTask({ ...taskData, model, filePaths })
+      try {
+        const taskId = await taskService.createTask({ ...taskData, model, filePaths })
 
-      // Get the task to return the current status
-      const task = await taskService.getTask(taskId)
-      return c.json({ taskId, status: task?.status || 'open' })
+        // Get the task to return the current status
+        const task = await taskService.getTask(taskId)
+        return c.json({ taskId, status: task?.status || 'open' })
+      } catch (error) {
+        handleServiceError(error, 'Create task')
+      }
     },
   )
 
@@ -220,11 +261,15 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const validatedBody = CreateVibeTaskRequestSchema.parse(body)
       const { model, filePaths, ...taskData } = validatedBody
 
-      const taskId = await taskService.createVibeTask({ ...taskData, model, filePaths })
+      try {
+        const taskId = await taskService.createVibeTask({ ...taskData, model, filePaths })
 
-      // Get the task to return the current status
-      const task = await taskService.getTask(taskId)
-      return c.json({ taskId, status: task?.status || 'open' })
+        // Get the task to return the current status
+        const task = await taskService.getTask(taskId)
+        return c.json({ taskId, status: task?.status || 'open' })
+      } catch (error) {
+        handleServiceError(error, 'Create vibe task')
+      }
     },
   )
 
@@ -264,18 +309,14 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
       const { task: taskService } = services
+      const taskId = getTaskId(c)
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
+      try {
+        const task = await taskService.getTask(taskId)
+        return c.json(task)
+      } catch (error) {
+        handleServiceError(error, 'Get task')
       }
-
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      return c.json(task)
     },
   )
 
@@ -392,14 +433,14 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
       const { task: taskService } = services
+      const taskId = getTaskId(c)
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
+      try {
+        await taskService.deleteTask(taskId)
+        return c.json({ status: 'deleted' })
+      } catch (error) {
+        handleServiceError(error, 'Delete task')
       }
-
-      await taskService.deleteTask(taskId)
-      return c.json({ status: 'deleted' })
     },
   )
 
@@ -800,11 +841,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const queryParams = c.req.query()
       const validatedQuery = FileQuerySchema.parse(queryParams)
@@ -815,19 +852,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         const files = await services.workspace.listFiles(taskId, path, recursive)
         return c.json({ files, totalCount: files.length })
       } catch (error) {
-        if (error instanceof TaskNotFoundError) {
-          throw new HTTPException(404, { message: 'Task not found' })
-        }
-        if (error instanceof Error && error.message.includes('Path not found')) {
-          throw new HTTPException(404, { message: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Access denied')) {
-          throw new HTTPException(403, { message: error.message })
-        }
-        if (error instanceof Error && error.message.includes('Cannot list files')) {
-          throw new HTTPException(403, { message: error.message })
-        }
-        throw error
+        handleServiceError(error, 'List files')
       }
     },
   )
