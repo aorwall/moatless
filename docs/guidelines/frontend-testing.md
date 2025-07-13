@@ -15,6 +15,14 @@ src/features/tasks/
 │   ├── __tests__/
 │   │   └── use-tasks.test.ts
 │   └── use-tasks.ts
+├── stores/
+│   ├── __tests__/
+│   │   └── task-ui-store.test.ts
+│   └── task-ui-store.ts
+├── contexts/
+│   ├── __tests__/
+│   │   └── task-context.test.tsx
+│   └── task-context.tsx
 ```
 
 ## React 19 Compatibility
@@ -485,6 +493,54 @@ it('renders task list with correct data', () => {
   
   expect(screen.getByText('Task 1')).toBeInTheDocument();
   expect(screen.getAllByRole('listitem')).toHaveLength(1);
+});
+```
+
+#### ❌ Testing Without User Context
+```typescript
+// BAD: Testing technical implementation
+it('calls setState when clicked', () => {
+  const setState = vi.fn();
+  // Testing React internals
+});
+
+// GOOD: Test from user perspective
+it('increments counter when increment button is clicked', async () => {
+  const user = userEvent.setup();
+  render(<Counter />);
+  
+  const button = screen.getByRole('button', { name: /increment/i });
+  const counter = screen.getByTestId('counter-value');
+  
+  expect(counter).toHaveTextContent('0');
+  
+  await user.click(button);
+  
+  expect(counter).toHaveTextContent('1');
+});
+```
+
+#### ❌ Over-Testing Third-Party Libraries
+```typescript
+// BAD: Testing that React Query caches data
+it('caches the query result', () => {
+  const { result, rerender } = renderHook(() => useQuery(...));
+  rerender();
+  expect(mockFetch).toHaveBeenCalledTimes(1); // Testing library behavior
+});
+
+// GOOD: Test your integration with the library
+it('displays cached data on subsequent renders', () => {
+  const { rerender } = render(<DataDisplay />);
+  expect(screen.getByText('Loading...')).toBeInTheDocument();
+  
+  // After data loads
+  expect(screen.getByText('Data loaded')).toBeInTheDocument();
+  
+  // Rerender should show data immediately (from cache)
+  rerender(<DataDisplay />);
+  expect(screen.getByText('Data loaded')).toBeInTheDocument();
+  expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
 });
 ```
 
@@ -1001,6 +1057,23 @@ describe('TaskDetail Route - Integration Tests', () => {
 
 ## Test Maintenance
 
+### Test Quality Standards
+
+#### When to Write Tests
+Write tests for:
+- **Business Logic**: Any code that implements business rules or calculations
+- **User Interactions**: Components that handle user input or actions
+- **Data Transformations**: Functions that process or transform data
+- **Error Handling**: Code that handles error cases or edge conditions
+- **Critical Paths**: Features essential to application functionality
+
+#### When NOT to Write Tests
+Skip tests for:
+- **Generated Code**: Files like `routeTree.gen.ts`
+- **Type Definitions**: Pure TypeScript interfaces/types
+- **Constants**: Simple constant exports
+- **Third-Party Wrappers**: Thin wrappers around well-tested libraries
+- **Styles**: CSS classes or style objects
 
 ### Test Organization Best Practices
 
@@ -1277,6 +1350,303 @@ describe('TaskDataProvider', () => {
 });
 ```
 
+### 9. React Context and Reducer Testing
+
+Test React Context providers and reducers for state management:
+
+```typescript
+// Example from preview-reducer.test.tsx
+describe('PreviewReducer', () => {
+  it('handles rapid state changes without race conditions', () => {
+    let state = initialState;
+    
+    // Simulate rapid updates
+    state = previewReducer(state, { type: 'SET_LOADING', payload: true });
+    state = previewReducer(state, { type: 'SET_CONTENT', payload: 'content1' });
+    state = previewReducer(state, { type: 'SET_LOADING', payload: false });
+    
+    expect(state.isLoading).toBe(false);
+    expect(state.content).toBe('content1');
+  });
+
+  it('maintains state immutability', () => {
+    const originalState = { ...initialState };
+    const newState = previewReducer(originalState, {
+      type: 'SET_CONFIG',
+      payload: { theme: 'dark' }
+    });
+    
+    expect(newState).not.toBe(originalState);
+    expect(originalState.config).toEqual({}); // Original unchanged
+  });
+
+  it('provides state isolation between contexts', () => {
+    const { result: context1 } = renderHook(() => usePreview(), {
+      wrapper: ({ children }) => <PreviewProvider>{children}</PreviewProvider>
+    });
+    
+    const { result: context2 } = renderHook(() => usePreview(), {
+      wrapper: ({ children }) => <PreviewProvider>{children}</PreviewProvider>
+    });
+    
+    act(() => {
+      context1.current.setContent('content1');
+    });
+    
+    expect(context1.current.content).toBe('content1');
+    expect(context2.current.content).toBe(''); // Isolated
+  });
+});
+```
+
+### 10. Performance and Memory Leak Testing
+
+Test for performance regressions and memory leaks:
+
+```typescript
+// Example from infinite-loop-detection.test.tsx
+describe('Performance and Memory Tests', () => {
+  it('prevents infinite render loops', () => {
+    const renderCount = vi.fn();
+    
+    const ProblematicComponent = () => {
+      renderCount();
+      const [state, setState] = useState(0);
+      
+      // This would cause infinite loop if not handled properly
+      useEffect(() => {
+        setState(prev => prev + 1);
+      }); // Missing dependency array
+      
+      return <div>{state}</div>;
+    };
+    
+    const { unmount } = render(<ProblematicComponent />);
+    
+    // Should not render infinitely
+    expect(renderCount).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('cleans up subscriptions to prevent memory leaks', () => {
+    const unsubscribe = vi.fn();
+    const subscribe = vi.fn(() => unsubscribe);
+    
+    const { unmount } = renderHook(() => useSubscription(subscribe));
+    
+    unmount();
+    
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it('handles large datasets efficiently', () => {
+    const startTime = performance.now();
+    const largeData = Array.from({ length: 10000 }, (_, i) => ({
+      id: i,
+      name: `Item ${i}`
+    }));
+    
+    render(<VirtualizedList items={largeData} />);
+    
+    const renderTime = performance.now() - startTime;
+    expect(renderTime).toBeLessThan(100); // Should render quickly
+  });
+});
+```
+
+### 11. SSE/WebSocket Testing
+
+Test real-time features and event streams:
+
+```typescript
+describe('SSE Connection Testing', () => {
+  let mockEventSource: MockEventSource;
+  
+  beforeEach(() => {
+    mockEventSource = new MockEventSource();
+    global.EventSource = vi.fn(() => mockEventSource);
+  });
+
+  it('handles connection lifecycle', async () => {
+    const { result } = renderHook(() => useTaskSSEConnection('task-123'));
+    
+    expect(result.current.isConnected).toBe(false);
+    
+    // Simulate connection
+    act(() => {
+      mockEventSource.triggerOpen();
+    });
+    
+    expect(result.current.isConnected).toBe(true);
+    
+    // Simulate disconnection
+    act(() => {
+      mockEventSource.triggerError(new Event('error'));
+    });
+    
+    expect(result.current.isConnected).toBe(false);
+  });
+
+  it('processes streaming events', async () => {
+    const onMessage = vi.fn();
+    renderHook(() => useTaskSSEConnection('task-123', { onMessage }));
+    
+    const event = new MessageEvent('message', {
+      data: JSON.stringify({ type: 'update', payload: { status: 'completed' } })
+    });
+    
+    act(() => {
+      mockEventSource.triggerMessage(event);
+    });
+    
+    expect(onMessage).toHaveBeenCalledWith({
+      type: 'update',
+      payload: { status: 'completed' }
+    });
+  });
+
+  it('handles reconnection with backoff', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useTaskSSEConnection('task-123'));
+    
+    // First connection fails
+    act(() => {
+      mockEventSource.triggerError(new Event('error'));
+    });
+    
+    expect(result.current.reconnectAttempts).toBe(1);
+    
+    // Wait for backoff
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    
+    expect(EventSource).toHaveBeenCalledTimes(2); // Initial + retry
+    vi.useRealTimers();
+  });
+});
+```
+
+### 12. Form Testing Strategies
+
+Test complex forms with validation and third-party components:
+
+```typescript
+describe('Form Testing', () => {
+  it('validates form fields', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    
+    render(<RepositoryForm onSubmit={onSubmit} />);
+    
+    // Submit without filling required fields
+    await user.click(screen.getByTestId('submit-button'));
+    
+    expect(screen.getByText('Repository name is required')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+    
+    // Fill required fields
+    await user.type(screen.getByTestId('repo-name-input'), 'my-repo');
+    await user.type(screen.getByTestId('repo-url-input'), 'https://github.com/user/repo');
+    
+    await user.click(screen.getByTestId('submit-button'));
+    
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: 'my-repo',
+      url: 'https://github.com/user/repo'
+    });
+  });
+
+  it('handles complex UI components gracefully', async () => {
+    const user = userEvent.setup();
+    render(<FormWithSelect />);
+    
+    // For hard-to-test components, focus on the outcome
+    const selectTrigger = screen.getByTestId('branch-selector');
+    await user.click(selectTrigger);
+    
+    // Instead of testing the dropdown internals, test the result
+    // This might involve mocking the select component
+    expect(screen.getByTestId('selected-branch')).toHaveTextContent('main');
+  });
+
+  it('handles async validation', async () => {
+    const checkUsername = vi.fn().mockImplementation(async (username) => {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return username === 'taken';
+    });
+    
+    render(<UsernameForm checkUsername={checkUsername} />);
+    
+    await userEvent.type(screen.getByTestId('username-input'), 'taken');
+    
+    // Wait for async validation
+    await waitFor(() => {
+      expect(screen.getByText('Username is already taken')).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### 13. Accessibility Testing
+
+Test for accessibility compliance:
+
+```typescript
+describe('Accessibility Tests', () => {
+  it('has proper ARIA labels', () => {
+    render(<TaskList tasks={mockTasks} />);
+    
+    expect(screen.getByRole('list', { name: /tasks/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(mockTasks.length);
+    
+    // Check for proper heading hierarchy
+    const headings = screen.getAllByRole('heading');
+    expect(headings[0]).toHaveProperty('tagName', 'H1');
+  });
+
+  it('supports keyboard navigation', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    
+    render(<TaskList tasks={mockTasks} onSelect={onSelect} />);
+    
+    // Tab to first item
+    await user.tab();
+    expect(screen.getAllByRole('listitem')[0]).toHaveFocus();
+    
+    // Navigate with arrow keys
+    await user.keyboard('[ArrowDown]');
+    expect(screen.getAllByRole('listitem')[1]).toHaveFocus();
+    
+    // Select with Enter
+    await user.keyboard('[Enter]');
+    expect(onSelect).toHaveBeenCalledWith(mockTasks[1]);
+  });
+
+  it('announces dynamic content changes', async () => {
+    render(<NotificationArea />);
+    
+    act(() => {
+      // Trigger a notification
+      showNotification('Task completed successfully');
+    });
+    
+    // Check for live region
+    const liveRegion = screen.getByRole('status');
+    expect(liveRegion).toHaveTextContent('Task completed successfully');
+    expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('has sufficient color contrast', () => {
+    // This would typically be done with axe-core
+    // Example with jest-axe:
+    const { container } = render(<Button>Click me</Button>);
+    // await expect(container).toHaveNoAccessibilityViolations();
+  });
+});
+```
+
 ## Debugging Tests
 
 ### Visual Debugging
@@ -1336,4 +1706,68 @@ vi.mock('@/features/tasks/components/task-chat-input');
 // After: Strategic mocking
 vi.mock('@/features/tasks/hooks/use-tasks'); // External dependency
 // Let TaskViewer and TaskChatInput render for real!
+```
+
+### Test Naming Best Practices
+
+Use descriptive test names that explain the expected behavior:
+
+```typescript
+// ❌ BAD: Vague test names
+it('renders correctly');
+it('handles click');
+it('works with props');
+
+// ✅ GOOD: Descriptive behavior-focused names
+it('displays task title and status when task data is provided');
+it('disables submit button when form has validation errors');
+it('scrolls to bottom when new message is received');
+it('retries connection with exponential backoff after network failure');
+```
+
+### Test Data Management
+
+#### Use Factory Functions
+```typescript
+// src/test-utils/factories/task.factory.ts
+export const createMockTask = (overrides?: Partial<Task>): Task => ({
+  id: 'task-' + Math.random().toString(36).substr(2, 9),
+  title: 'Default Task Title',
+  status: 'active',
+  created_at: new Date().toISOString(),
+  repository_id: 'repo-123',
+  agent_type: 'claude-code',
+  ...overrides,
+});
+
+export const createMockTaskWithIterations = (
+  taskOverrides?: Partial<Task>,
+  iterationCount = 1
+): Task => {
+  const task = createMockTask(taskOverrides);
+  const iterations = Array.from({ length: iterationCount }, (_, i) => 
+    createMockIteration({
+      task_id: task.id,
+      iteration_number: i + 1,
+    })
+  );
+  
+  return { ...task, iterations };
+};
+```
+
+#### Avoid Hardcoded Test Data
+```typescript
+// ❌ BAD: Hardcoded data scattered across tests
+const task = {
+  id: '123',
+  title: 'Test',
+  // Missing fields...
+};
+
+// ✅ GOOD: Use factories with meaningful overrides
+const task = createMockTask({
+  title: 'Implement user authentication',
+  status: 'completed',
+});
 ```
