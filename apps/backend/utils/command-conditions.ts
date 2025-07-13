@@ -194,7 +194,7 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
 
   const { conditions } = command
   const { task, lastIteration, workspaceHasChanges } = context
-  const gitSyncStatus = lastIteration?.gitSyncStatus
+  const gitSyncStatus = lastIteration?.gitStatus
 
   // All non-git conditions must pass (AND logic)
   const taskConditionsPassed = checkTaskConditions(conditions, task)

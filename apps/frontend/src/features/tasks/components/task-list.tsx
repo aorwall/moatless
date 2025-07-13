@@ -67,8 +67,8 @@ function TaskRow({
 
   // Get git sync status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
-  const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
-  const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
+  const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
+  const gitSyncConfig = gitStatus ? getGitSyncStatusConfig(gitStatus.status) : null
 
   return (
     <TableRow className="cursor-pointer">
@@ -116,9 +116,9 @@ function TaskRow({
             <TooltipContent>
               <div>
                 <p className="font-medium">{gitSyncConfig.tooltip}</p>
-                {gitSyncStatus && (
+                {gitStatus && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    {formatGitSyncDetails(gitSyncStatus)}
+                    {formatGitSyncDetails(gitStatus)}
                   </p>
                 )}
               </div>

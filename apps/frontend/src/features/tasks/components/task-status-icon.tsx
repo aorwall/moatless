@@ -13,8 +13,8 @@ export function TaskStatusIcon({ task, showText = true, className = '' }: TaskSt
 
   // Get git sync status from the last iteration for open tasks
   const lastIteration = task.iterations?.[task.iterations.length - 1]
-  const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
-  const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
+  const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
+  const gitSyncConfig = gitStatus ? getGitSyncStatusConfig(gitStatus.status) : null
 
   // Use git sync icon/color for open tasks if available, otherwise use task status
   const displayConfig = task.status === 'open' && gitSyncConfig ? gitSyncConfig : statusConfig

@@ -212,11 +212,12 @@ describe('Command Conditions', () => {
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitSyncStatus: {
+          gitStatus: {
             status: 'ahead',
             commitsAhead: 2,
             commitsBehind: 0,
             hasUncommittedChanges: false,
+            hasConflicts: false,
             currentBranch: 'feature-branch',
             baseBranch: 'main',
             originExists: true,
@@ -225,8 +226,8 @@ describe('Command Conditions', () => {
 
         const iterationWithoutCommits: TaskIteration = {
           ...iterationWithCommits,
-          gitSyncStatus: {
-            ...iterationWithCommits.gitSyncStatus!,
+          gitStatus: {
+            ...iterationWithCommits.gitStatus!,
             commitsAhead: 0,
             hasUncommittedChanges: false,
           },
@@ -253,11 +254,12 @@ describe('Command Conditions', () => {
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitSyncStatus: {
+          gitStatus: {
             status: 'ahead',
             commitsAhead: 2,
             commitsBehind: 0,
             hasUncommittedChanges: false,
+            hasConflicts: false,
             currentBranch: 'feature-branch',
             baseBranch: 'main',
             originExists: true,
@@ -266,8 +268,8 @@ describe('Command Conditions', () => {
 
         const iterationSync: TaskIteration = {
           ...iterationAhead,
-          gitSyncStatus: {
-            ...iterationAhead.gitSyncStatus!,
+          gitStatus: {
+            ...iterationAhead.gitStatus!,
             status: 'synced',
             commitsAhead: 0,
           },
@@ -293,11 +295,12 @@ describe('Command Conditions', () => {
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitSyncStatus: {
+          gitStatus: {
             status: 'ahead',
             commitsAhead: 2,
             commitsBehind: 0,
             hasUncommittedChanges: false,
+            hasConflicts: false,
             currentBranch: 'feature-branch',
             baseBranch: 'main',
             originExists: true,
@@ -306,8 +309,8 @@ describe('Command Conditions', () => {
 
         const iterationDiverged: TaskIteration = {
           ...iterationAhead,
-          gitSyncStatus: {
-            ...iterationAhead.gitSyncStatus!,
+          gitStatus: {
+            ...iterationAhead.gitStatus!,
             status: 'diverged',
             commitsBehind: 1,
           },
@@ -315,8 +318,8 @@ describe('Command Conditions', () => {
 
         const iterationSynced: TaskIteration = {
           ...iterationAhead,
-          gitSyncStatus: {
-            ...iterationAhead.gitSyncStatus!,
+          gitStatus: {
+            ...iterationAhead.gitStatus!,
             status: 'synced',
             commitsAhead: 0,
           },
@@ -344,11 +347,12 @@ describe('Command Conditions', () => {
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitSyncStatus: {
+          gitStatus: {
             status: 'uncommitted_changes',
             commitsAhead: 0,
             commitsBehind: 0,
             hasUncommittedChanges: true,
+            hasConflicts: false,
             currentBranch: 'feature-branch',
             baseBranch: 'main',
             originExists: true,
@@ -357,8 +361,8 @@ describe('Command Conditions', () => {
 
         const iterationAhead: TaskIteration = {
           ...iterationWithUncommitted,
-          gitSyncStatus: {
-            ...iterationWithUncommitted.gitSyncStatus!,
+          gitStatus: {
+            ...iterationWithUncommitted.gitStatus!,
             status: 'ahead',
             commitsAhead: 2,
             hasUncommittedChanges: false,
@@ -367,8 +371,8 @@ describe('Command Conditions', () => {
 
         const iterationClean: TaskIteration = {
           ...iterationWithUncommitted,
-          gitSyncStatus: {
-            ...iterationWithUncommitted.gitSyncStatus!,
+          gitStatus: {
+            ...iterationWithUncommitted.gitStatus!,
             status: 'synced',
             commitsAhead: 0,
             hasUncommittedChanges: false,

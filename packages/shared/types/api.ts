@@ -158,6 +158,9 @@ export const GitStatusSchema = z.object({
   commitsAhead: z.number(),
   commitsBehind: z.number(),
   originExists: z.boolean(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
+  modifications: z.number().optional(),
 })
 export type GitStatus = z.infer<typeof GitStatusSchema>
 

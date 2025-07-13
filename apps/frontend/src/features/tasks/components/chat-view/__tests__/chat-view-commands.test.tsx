@@ -228,15 +228,18 @@ describe('ChatView Commands Integration', () => {
         initialMessage: 'Test',
         messageCount: 1,
         costUsd: 0.01,
-        gitSyncStatus: {
+        startTime: new Date(),
+        gitStatus: {
           status: 'ahead',
           hasUncommittedChanges: false,
+          hasConflicts: false,
           commitsAhead: 2,
           commitsBehind: 0,
           currentBranch: 'feature',
           baseBranch: 'main',
+          originExists: true,
         },
-      } as TaskIteration
+      }
 
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',
@@ -276,15 +279,18 @@ describe('ChatView Commands Integration', () => {
         initialMessage: 'Test',
         messageCount: 1,
         costUsd: 0.01,
-        gitSyncStatus: {
+        startTime: new Date(),
+        gitStatus: {
           status: 'behind',
           hasUncommittedChanges: false,
+          hasConflicts: false,
           commitsAhead: 0,
           commitsBehind: 3,
           currentBranch: 'feature',
           baseBranch: 'main',
+          originExists: true,
         },
-      } as TaskIteration
+      }
 
       vi.mocked(useTaskData).mockReturnValue({
         taskId: 'test-task-id',

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { WorkspaceError } from '@moatless/shared'
+import type { GitStatus } from '@moatless/shared/types/api'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 
 import {
@@ -514,7 +515,7 @@ export class LocalWorkspace extends BaseWorkspace {
     return isBehindBase(this.workspacePath, this.originalBranch)
   }
 
-  async getGitStatus(): Promise<import('@moatless/shared/types/api').GitStatus> {
+  async getGitStatus(): Promise<GitStatus> {
     // If workspace doesn't exist or is not set up, return defaults
     if (
       !this.workspacePath ||
@@ -530,16 +531,37 @@ export class LocalWorkspace extends BaseWorkspace {
         commitsAhead: 0,
         commitsBehind: 0,
         originExists: false,
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
       }
     }
 
     try {
       // Import the functions from git-utils
-      const { getOriginSyncStatus, checkForConflicts } = await import('../utils/git-utils.js')
-      const [syncStatus, hasConflicts] = await Promise.all([
+      const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import(
+        '../utils/git-utils.js'
+      )
+      const [syncStatus, hasConflicts, gitDiff] = await Promise.all([
         getOriginSyncStatus(this.workspacePath, this.originalBranch),
         checkForConflicts(this.workspacePath, this.originalBranch),
+        getGitDiffDetailed(this.workspacePath, this.originalBranch),
       ])
+
+      // Count file changes by type
+      let additions = 0
+      let deletions = 0
+      let modifications = 0
+
+      for (const file of gitDiff.files) {
+        if (file.status === 'added') {
+          additions++
+        } else if (file.status === 'deleted') {
+          deletions++
+        } else if (file.status === 'modified') {
+          modifications++
+        }
+      }
 
       return {
         currentBranch: syncStatus.currentBranch,
@@ -550,6 +572,9 @@ export class LocalWorkspace extends BaseWorkspace {
         commitsAhead: syncStatus.commitsAhead,
         commitsBehind: syncStatus.commitsBehind,
         originExists: syncStatus.originExists,
+        additions,
+        deletions,
+        modifications,
       }
     } catch (_error) {
       // Fall back to defaults on error
@@ -562,6 +587,9 @@ export class LocalWorkspace extends BaseWorkspace {
         commitsAhead: 0,
         commitsBehind: 0,
         originExists: false,
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
       }
     }
   }

@@ -1,3 +1,5 @@
+import type { GitStatus } from './api.js'
+
 export interface TaskIteration {
   iterationNumber: number
   startTime: Date
@@ -14,15 +16,7 @@ export interface TaskIteration {
   merged?: boolean
   agentSessionId?: string
   model?: string
-  gitSyncStatus?: {
-    status: 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
-    commitsAhead: number
-    commitsBehind: number
-    hasUncommittedChanges: boolean
-    currentBranch: string
-    baseBranch: string
-    originExists: boolean
-  }
+  gitStatus?: GitStatus
   attachments?: Array<{
     fileId?: string // Optional for backward compatibility
     filename: string

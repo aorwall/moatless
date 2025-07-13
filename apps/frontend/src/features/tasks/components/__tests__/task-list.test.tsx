@@ -183,9 +183,10 @@ describe('TaskList', () => {
             status: 'completed' as const,
             startTime: new Date(),
             messageCount: 1,
-            gitSyncStatus: {
+            gitStatus: {
               status: 'synced',
               hasUncommittedChanges: false,
+              hasConflicts: false,
               commitsAhead: 0,
               commitsBehind: 0,
               currentBranch: 'test-branch',
@@ -214,9 +215,10 @@ describe('TaskList', () => {
             status: 'completed' as const,
             startTime: new Date(),
             messageCount: 1,
-            gitSyncStatus: {
+            gitStatus: {
               status: 'synced',
               hasUncommittedChanges: false,
+              hasConflicts: false,
               commitsAhead: 0,
               commitsBehind: 0,
               currentBranch: 'test-branch',
