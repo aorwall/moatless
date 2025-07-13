@@ -194,17 +194,12 @@ describe('Task Hooks', () => {
         })
       })
 
-      // In the new event-driven architecture, mutations only invalidate task lists
-      // Task-specific queries are invalidated by events, not mutations
+      // Mutations invalidate both task lists and task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.tasksList(),
       })
-      // Task-specific queries should NOT be invalidated by mutations
-      expect(spyInvalidate).not.toHaveBeenCalledWith({
+      expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.task('task-123'),
-      })
-      expect(spyInvalidate).not.toHaveBeenCalledWith({
-        queryKey: queryKeys.taskWorkspaceStatus('task-123'),
       })
     })
   })
@@ -225,13 +220,11 @@ describe('Task Hooks', () => {
         await result.current.mutateAsync()
       })
 
-      // In the new event-driven architecture, mutations only invalidate task lists
-      // Task-specific queries are invalidated by events, not mutations
+      // Mutations invalidate both task lists and task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.tasksList(),
       })
-      // Task-specific queries should NOT be invalidated by mutations
-      expect(spyInvalidate).not.toHaveBeenCalledWith({
+      expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.task('task-123'),
       })
     })
