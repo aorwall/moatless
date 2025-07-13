@@ -244,6 +244,11 @@ export function getSettingsService(): SettingsService {
   return settingsServiceInstance
 }
 
+// For testing: reset the singleton instance
+export function resetSettingsServiceInstance(): void {
+  settingsServiceInstance = null
+}
+
 export async function initializeSettingsService(): Promise<SettingsService> {
   const service = getSettingsService()
   await service.initialize()
