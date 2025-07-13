@@ -42,7 +42,7 @@ export const TaskIterationSchema = z.object({
   iterationNumber: z.number(),
   startTime: z.date(),
   endTime: z.date().optional(),
-  status: z.enum(['active', 'completed', 'error', 'failed']),
+  status: z.enum(['created', 'active', 'completed', 'error', 'failed']),
   messageCount: z.number(),
   costUsd: z.number(),
   initialMessage: z.string().optional(),
