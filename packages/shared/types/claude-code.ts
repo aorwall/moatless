@@ -33,3 +33,8 @@ export interface UpdateClaudeCodeSettingsRequest {
   disallowedTools: string[]
   permissionMode: PermissionMode | null
 }
+
+export interface BranchNameAndSummary {
+  branchName: string
+  summary?: string
+}

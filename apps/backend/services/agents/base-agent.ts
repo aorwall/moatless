@@ -1,4 +1,5 @@
 import type { ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
+import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
 import type { Event, EventType } from '@moatless/shared/types/event'
 
 export interface AgentOptions {
@@ -32,6 +33,11 @@ export abstract class BaseAgent {
   abstract run(message: string, options?: AgentRunOptions): AsyncGenerator<Event>
   abstract stop(): Promise<void>
   abstract getAgentType(): string
+  abstract sendMessage(message: string, options?: AgentRunOptions): Promise<string>
+  abstract getBranchNameAndSummary(
+    message: string,
+    options?: AgentRunOptions,
+  ): Promise<BranchNameAndSummary | null>
 
   getSessionId(): string | undefined {
     return this.sessionId

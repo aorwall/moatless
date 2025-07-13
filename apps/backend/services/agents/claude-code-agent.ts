@@ -1,7 +1,9 @@
 import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
+import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
 import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
+import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
 import { logger } from '../../utils/logger.js'
 import { getSettingsService } from '../settings.service.js'
 import { type AgentRunOptions, BaseAgent } from './base-agent.js'
@@ -204,5 +206,120 @@ export class ClaudeCodeAgent extends BaseAgent {
       this.abortController.abort()
     }
     this.abortController = undefined
+  }
+
+  async sendMessage(message: string, runOptions: AgentRunOptions = {}): Promise<string> {
+    const agentLogger = logger.child({
+      taskId: this.taskId,
+      component: 'ClaudeCodeAgent.sendMessage',
+    })
+
+    try {
+      const sdkOptions = this.buildSDKOptions(runOptions)
+      const abortController = new AbortController()
+
+      let responseText = ''
+
+      // Use the SDK query function
+      for await (const sdkMessage of query({
+        prompt: message,
+        abortController,
+        options: sdkOptions,
+      })) {
+        agentLogger.debug('Received SDK message', { sdkMessage })
+
+        if (sdkMessage.type === 'result') {
+          // For result messages, use the result field
+          if ('result' in sdkMessage && sdkMessage.result) {
+            responseText += sdkMessage.result
+          }
+        } else if (
+          sdkMessage.type === 'assistant' ||
+          sdkMessage.type === 'user' ||
+          sdkMessage.type === 'system'
+        ) {
+          // For message types, use the content field
+          if ('content' in sdkMessage && sdkMessage.content) {
+            responseText += sdkMessage.content
+          }
+        }
+      }
+
+      return responseText
+    } catch (error) {
+      agentLogger.error('Error in sendMessage', error as Error)
+      throw error
+    }
+  }
+
+  async getBranchNameAndSummary(
+    message: string,
+    runOptions: AgentRunOptions = {},
+  ): Promise<BranchNameAndSummary | null> {
+    const agentLogger = logger.child({
+      taskId: this.taskId,
+      component: 'ClaudeCodeAgent.getBranchNameAndSummary',
+    })
+
+    try {
+      // Build SDK options with specific configuration for branch name generation
+      const sdkOptions = this.buildSDKOptions(runOptions)
+
+      // Override options for this specific task
+      const branchNameOptions: ClaudeCodeOptions = {
+        ...sdkOptions,
+        appendSystemPrompt:
+          "You're task is to determine a good branch name for the users request. YOU MUST respond with ONLY a JSON object with the format {branchName: string, summary?: string}",
+        maxTurns: 1,
+        allowedTools: [],
+        model: sdkOptions.model || 'claude-sonnet-4',
+      }
+
+      const abortController = new AbortController()
+      let responseText = ''
+
+      // Use the SDK query function with branch name specific options
+      for await (const sdkMessage of query({
+        prompt: message,
+        abortController,
+        options: branchNameOptions,
+      })) {
+        agentLogger.debug('Received SDK message for branch name', { sdkMessage })
+
+        if (sdkMessage.type === 'result') {
+          // For result messages, use the result field
+          if ('result' in sdkMessage && sdkMessage.result) {
+            responseText += sdkMessage.result
+          }
+        } else if (
+          sdkMessage.type === 'assistant' ||
+          sdkMessage.type === 'user' ||
+          sdkMessage.type === 'system'
+        ) {
+          // For message types, use the content field
+          if ('content' in sdkMessage && sdkMessage.content) {
+            responseText += sdkMessage.content
+          }
+        }
+      }
+
+      agentLogger.debug('Raw response for branch name', { response: responseText })
+
+      const parseResult = parseBranchNameAndSummary(responseText)
+
+      if (parseResult.found && parseResult.data) {
+        agentLogger.debug('Successfully parsed branch name and summary', parseResult.data)
+        return parseResult.data
+      } else {
+        agentLogger.warn('Failed to parse branch name and summary', {
+          error: parseResult.error,
+          response: responseText,
+        })
+        return null
+      }
+    } catch (error) {
+      agentLogger.error('Error in getBranchNameAndSummary', error as Error)
+      return null
+    }
   }
 }
