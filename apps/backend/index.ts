@@ -4,7 +4,7 @@ import { config } from 'dotenv'
 import { createApp } from './app.js'
 import { createLogger } from './utils/logger.js'
 import { sseManager } from './utils/sse-manager.js'
-import { startWorkerMode } from './worker-mode.js'
+import { startWorkerMode } from './worker-app.js'
 
 config() // Load environment variables
 
