@@ -1,7 +1,7 @@
 {
   "name": "@moatless/backend",
   "license": "AGPL-3.0-or-later",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "USE_CONSOLE_LOGGING=true tsx watch index.ts",
