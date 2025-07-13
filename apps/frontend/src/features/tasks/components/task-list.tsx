@@ -1,3 +1,4 @@
+import type { GitSyncStatus } from '@moatless/shared/types/api'
 import type { Task } from '@moatless/shared/types/task'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
@@ -68,7 +69,7 @@ function TaskRow({
   // Get git sync status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
   const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
-  const gitSyncConfig = gitStatus ? getGitSyncStatusConfig(gitStatus.status) : null
+  const gitSyncConfig = gitStatus ? getGitSyncStatusConfig(gitStatus.status as GitSyncStatus) : null
 
   return (
     <TableRow className="cursor-pointer">
