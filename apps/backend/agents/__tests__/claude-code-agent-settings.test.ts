@@ -94,7 +94,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
     it('should set environment variables when settings are configured', async () => {
       // Save settings with Claude configuration
-      const settingsService = (await import('../../settings.service.js')).getSettingsService()
+      const settingsService = (
+        await import('../../services/settings.service.js')
+      ).getSettingsService()
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -120,7 +122,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       process.env.CLAUDE_CONFIG_DIR = '/env/config'
 
       // Reinitialize settings service to pick up env vars
-      const settingsService = (await import('../../settings.service.js')).getSettingsService()
+      const settingsService = (
+        await import('../../services/settings.service.js')
+      ).getSettingsService()
       await settingsService.initialize()
 
       const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
@@ -140,7 +144,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       process.env.CLAUDE_CONFIG_DIR = '/env/config'
 
       // Initialize settings service and override with settings
-      const settingsService = (await import('../../settings.service.js')).getSettingsService()
+      const settingsService = (
+        await import('../../services/settings.service.js')
+      ).getSettingsService()
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -162,7 +168,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
     it('should handle partial Claude settings', async () => {
       // Set only binDir in settings
-      const settingsService = (await import('../../settings.service.js')).getSettingsService()
+      const settingsService = (
+        await import('../../services/settings.service.js')
+      ).getSettingsService()
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -184,7 +192,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
     it('should not set environment variables for whitespace-only strings', async () => {
       // Set settings with whitespace-only strings
-      const settingsService = (await import('../../settings.service.js')).getSettingsService()
+      const settingsService = (
+        await import('../../services/settings.service.js')
+      ).getSettingsService()
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -206,7 +216,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
     it('should reset environment variables when settings are cleared', async () => {
       // First set some settings
-      const settingsService = (await import('../../settings.service.js')).getSettingsService()
+      const settingsService = (
+        await import('../../services/settings.service.js')
+      ).getSettingsService()
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {

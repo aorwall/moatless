@@ -54,10 +54,10 @@ export async function setupServices(): Promise<Services> {
   }
 }
 
+export * from '../agents/base-agent.js'
+export { ClaudeCodeAgent } from '../agents/claude-code-agent.js'
 // Export all services and types
 export * from './agent.service.js'
-export * from './agents/base-agent.js'
-export { ClaudeCodeAgent } from './agents/claude-code-agent.js'
 export * from './command.service.js'
 export * from './event.service.js'
 export * from './preview-environment.service.js'
