@@ -320,11 +320,11 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
   app.get(
     `${prefix}/:taskId/git-diff`,
     describeRoute({
-      description: 'Get git diff for task workspace',
+      description: 'Get git diff for task workspace showing branch changes',
       parameters: [CommonParameters.taskId],
       responses: {
         200: {
-          description: 'Git diff',
+          description: 'Git diff showing changes on the branch',
           content: {
             'application/json': {
               schema: resolver(GitDiffResponseSchema),
@@ -353,6 +353,10 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           diff: diffResult.diffString,
           files: diffResult.files.map((f) => f.filename),
           hasChanges: diffResult.files.length > 0,
+          totalChanges: diffResult.totalChanges,
+          totalAdditions: diffResult.totalAdditions,
+          totalDeletions: diffResult.totalDeletions,
+          compareBase: diffResult.compareBase,
         })
       } catch (error) {
         handleServiceError(error, 'Get workspace status')
