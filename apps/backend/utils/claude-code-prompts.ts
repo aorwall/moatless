@@ -20,6 +20,16 @@ Guidelines for creating a good branch name:
 - Avoid special characters other than hyphens
 - Start with a verb or category (e.g., "feature", "bugfix", "refactor")
 
+Here are two examples:
+
+Example 1:
+Request: "Add user authentication with login and logout functionality"
+Response: {"branchName": "feature/user-authentication", "summary": "Add user login and logout functionality"}
+
+Example 2:
+Request: "Fix the memory leak in the task event streaming component"
+Response: {"branchName": "fix/memory-leak-streaming", "summary": "Fix memory leak in task streaming"}
+
 The request you need to analyze is provided below:
 
 <request>
@@ -30,16 +40,14 @@ Analyze the request carefully. Based on the content, create a suitable branch na
 
 Next, create a brief summary of the task described in the request. This summary should be concise (1 sentence, max 10 words) but capture the essential elements of the task.
 
-Your final output must be in the following JSON format:
+Your response must be in the following JSON format:
 
-<output>
 {
   "branchName": "your-branch-name-here",
   "summary": "Your concise summary of the task here."
 }
-</output>
 
-Ensure that your response contains only the JSON object within the <output> tags. Do not include any additional text, explanations, or formatting outside of the JSON structure.`
+Respond with only the JSON object. Do not include any additional text, explanations, or formatting.`
 }
 
 /**

@@ -22,18 +22,6 @@ describe('parseJsonFromText', () => {
     expect(result.data).toEqual({ branchName: 'feature/auth' })
   })
 
-  it('should parse JSON from text with <output> tags', () => {
-    const text =
-      '<output>\n{"branchName": "feature/task-cards", "summary": "Create TaskCard component"}\n</output>'
-    const result = parseJsonFromText(text, ['branchName'])
-
-    expect(result.found).toBe(true)
-    expect(result.data).toEqual({
-      branchName: 'feature/task-cards',
-      summary: 'Create TaskCard component',
-    })
-  })
-
   it('should parse JSON from text with surrounding content', () => {
     const text = 'Here is the response: {"branchName": "fix/bug-123"} and that is it.'
     const result = parseJsonFromText(text, ['branchName'])
@@ -159,22 +147,15 @@ This branch name follows standard conventions and clearly describes the feature 
     })
   })
 
-  it('should handle new prompt format with <output> tags', () => {
-    const text = `Based on the request analysis, here is the branch name and summary:
-
-<output>
-{
-  "branchName": "feature/task-dashboard",
-  "summary": "Create TaskCard component and dashboard route"
-}
-</output>`
-
+  it('should handle new few-shot example format responses', () => {
+    const text =
+      '{"branchName": "feature/user-authentication", "summary": "Add user login and logout functionality"}'
     const result = parseBranchNameAndSummary(text)
 
     expect(result.found).toBe(true)
     expect(result.data).toEqual({
-      branchName: 'feature/task-dashboard',
-      summary: 'Create TaskCard component and dashboard route',
+      branchName: 'feature/user-authentication',
+      summary: 'Add user login and logout functionality',
     })
   })
 

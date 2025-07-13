@@ -25,12 +25,10 @@ export function parseJsonFromText<T = Record<string, unknown>>(
     return { data: null, found: false, error: 'Invalid input text' }
   }
 
-  // Remove common markdown code block markers and XML-style output tags
+  // Remove common markdown code block markers
   const cleanedText = text
     .replace(/```json\s*/g, '')
     .replace(/```\s*/g, '')
-    .replace(/<output>\s*/g, '')
-    .replace(/<\/output>\s*/g, '')
     .trim()
 
   // Find potential JSON objects using regex
