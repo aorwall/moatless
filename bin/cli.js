@@ -33,7 +33,7 @@ function startServer() {
   // Check if running from installed package or development
   const isInstalledPackage = !existsSync(join(rootDir, 'apps'))
   const serverPath = isInstalledPackage
-    ? join(rootDir, 'dist', 'server', 'index.js')
+    ? join(rootDir, 'dist', 'server.js')
     : join(rootDir, 'apps', 'backend', 'dist', 'index.js')
 
   // Set static client path for production

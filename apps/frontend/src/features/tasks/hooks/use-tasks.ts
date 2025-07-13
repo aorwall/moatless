@@ -10,7 +10,6 @@ import type { FileSearchResponse } from '@moatless/types/types/repository'
 import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import { updateTaskInLists } from '../utils/query-helpers'
@@ -60,33 +59,14 @@ export function useCreateTask(
   options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
 ) {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
 
   return useMutation({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onSuccess: async (data, variables, context) => {
-      // Pre-populate cache with real task data so the page loads immediately
-      const fullTask: Task = {
-        taskId: data.taskId,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        agentType: variables.agentType || 'claude-code',
-        repositoryId: variables.repositoryId,
-        status: (data.status as Task['status']) || 'open',
-        numTurns: 0,
-        totalCostUsd: 0,
-        iterations: [],
-      }
-
-      queryClient.setQueryData<Task>(queryKeys.task(data.taskId), fullTask)
-
       // Invalidate task lists to show the new task
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.lists(),
       })
-
-      // Navigate to the real task URL now that we have the ID
-      navigate({ to: `/tasks/${data.taskId}` })
 
       options?.onSuccess?.(data, variables, context)
     },
@@ -119,12 +99,10 @@ export function useSendMessage(
     mutationFn: ({ message, resume, model, fileIds, filePaths, commandName }) =>
       tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),
     onSuccess: async (data, variables, context) => {
-      // Only invalidate task lists - events will handle task-specific invalidations
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasksList(),
       })
-      // Immediately refetch task data for instant feedback
-      await queryClient.refetchQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.task(taskId),
       })
       options?.onSuccess?.(data, variables, context)
@@ -143,9 +121,11 @@ export function useStopAgent(
     mutationKey: ['tasks', taskId, 'stop'],
     mutationFn: () => tasksApi.stopAgent(taskId),
     onSuccess: (data, _, context) => {
-      // Only invalidate task lists - STOP event will handle task-specific invalidations
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasksList(),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.task(taskId),
       })
       options?.onSuccess?.(data, undefined, context)
     },

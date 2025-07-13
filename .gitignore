@@ -45,3 +45,7 @@ data/
 tmp/
 temp/client/src/routeTree.gen.ts
 uploads
+
+# NPM package files
+*.tgz
+*.tar.gz

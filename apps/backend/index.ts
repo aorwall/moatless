@@ -13,8 +13,12 @@ const logger = createLogger()
 // Global references to allow cleanup
 let server: ServerType | null = null
 let appServices: Awaited<ReturnType<typeof createApp>> | null = null
+let isShuttingDown = false
 
 const start = async () => {
+  console.log('Starting application...')
+  logger.info('Starting application...')
+
   // Check if running in worker mode
   if (process.env.WORKER_MODE === 'true') {
     const workerConfig = {
@@ -37,7 +41,20 @@ const start = async () => {
 
     // Setup graceful shutdown handlers
     const gracefulShutdown = async (signal: string) => {
+      // Prevent multiple shutdown attempts
+      if (isShuttingDown) {
+        logger.warn(`Already shutting down, ignoring ${signal}`)
+        return
+      }
+      isShuttingDown = true
+
       logger.info(`Received ${signal}, starting graceful shutdown...`)
+
+      // Add a timeout to force exit if shutdown hangs
+      const shutdownTimeout = setTimeout(() => {
+        logger.error('Graceful shutdown timeout, forcing exit')
+        process.exit(1)
+      }, 30000) // 30 second timeout
 
       try {
         // 1. Stop accepting new connections
@@ -66,17 +83,25 @@ const start = async () => {
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 
+        clearTimeout(shutdownTimeout)
         logger.info('Graceful shutdown completed')
         process.exit(0)
       } catch (error) {
         logger.error('Error during graceful shutdown:', error)
+        clearTimeout(shutdownTimeout)
         process.exit(1)
       }
     }
 
     // Handle shutdown signals
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+    process.on('SIGTERM', () => {
+      logger.info('Received SIGTERM signal')
+      gracefulShutdown('SIGTERM')
+    })
+    process.on('SIGINT', () => {
+      logger.info('Received SIGINT signal')
+      gracefulShutdown('SIGINT')
+    })
 
     // Handle unhandled promise rejections
     process.on('unhandledRejection', (reason, promise) => {
@@ -87,14 +112,35 @@ const start = async () => {
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
       logger.error('Uncaught Exception:', error)
+      console.error('Uncaught Exception:', error)
       // For uncaught exceptions, we should exit as the process state may be corrupted
       gracefulShutdown('UNCAUGHT_EXCEPTION')
+    })
+
+    // Log all process exit events
+    process.on('exit', (code) => {
+      logger.info(`Process exiting with code: ${code}`)
     })
 
     server = serve({
       fetch: app.fetch,
       port,
       hostname: host,
+    })
+
+    // Add error handling for server
+    server.on('error', (error: any) => {
+      logger.error('Server error:', error)
+      if (error.code === 'EADDRINUSE') {
+        logger.error(`Port ${port} is already in use`)
+        console.error(
+          `Error: Port ${port} is already in use. Please stop the other process or use a different port.`,
+        )
+        process.exit(1)
+      } else {
+        logger.error('Failed to start server:', error)
+        process.exit(1)
+      }
     })
 
     logger.info(`Server listening on http://${host}:${port}`)

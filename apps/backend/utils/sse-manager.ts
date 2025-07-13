@@ -165,11 +165,19 @@ export class SSEConnectionManager {
 
   // Graceful shutdown - close all connections
   async gracefulShutdown(): Promise<void> {
-    console.log('Starting SSE connection manager graceful shutdown...')
+    const safeLog = (message: string) => {
+      try {
+        console.log(message)
+      } catch {
+        // Ignore console errors during shutdown
+      }
+    }
+
+    safeLog('Starting SSE connection manager graceful shutdown...')
 
     // Close all task-specific connections
     for (const [taskId, connections] of this.connections.entries()) {
-      console.log(`Closing ${connections.size} connections for task ${taskId}`)
+      safeLog(`Closing ${connections.size} connections for task ${taskId}`)
       for (const connection of connections) {
         try {
           // Send a close event to notify clients
@@ -180,7 +188,7 @@ export class SSEConnectionManager {
           // Close the connection
           connection.controller.close()
         } catch (error) {
-          console.error(`Error closing SSE connection ${connection.id}:`, error)
+          // Silently ignore errors during shutdown
         }
       }
       connections.clear()
@@ -188,8 +196,8 @@ export class SSEConnectionManager {
     this.connections.clear()
 
     // Close all global connections
-    console.log(`Closing ${this.globalConnections.size} global connections`)
-    for (const [connectionId, connection] of this.globalConnections.entries()) {
+    safeLog(`Closing ${this.globalConnections.size} global connections`)
+    for (const [, connection] of this.globalConnections.entries()) {
       try {
         // Send a close event to notify clients
         const encoder = new TextEncoder()
@@ -199,12 +207,12 @@ export class SSEConnectionManager {
         // Close the connection
         connection.controller.close()
       } catch (error) {
-        console.error(`Error closing global SSE connection ${connectionId}:`, error)
+        // Silently ignore errors during shutdown
       }
     }
     this.globalConnections.clear()
 
-    console.log('SSE connection manager graceful shutdown completed')
+    safeLog('SSE connection manager graceful shutdown completed')
   }
 }
 

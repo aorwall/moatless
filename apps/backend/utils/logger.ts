@@ -8,11 +8,14 @@ const getLogLevel = () => {
   return process.env.LOG_LEVEL || 'info'
 }
 
-// Create the base pino logger with pino-pretty by default, JSON only when explicitly enabled
+// Detect if we're in a bundled environment
+const isBundled = typeof __filename !== 'undefined' && __filename.includes('/dist/server.js')
+
+// Create the base pino logger with pino-pretty by default, JSON only when explicitly enabled or in bundled environment
 const pinoLogger = pino({
   level: getLogLevel(),
   transport:
-    process.env.USE_JSON_LOGGING === 'true'
+    process.env.USE_JSON_LOGGING === 'true' || isBundled
       ? undefined
       : {
           target: 'pino-pretty',
