@@ -32,11 +32,14 @@ export interface FileSearchResult {
   score: number
 }
 
-export interface RepositoryFileSearchResponse {
+export interface FileSearchResponse {
   results: FileSearchResult[]
   totalFound: number
   query: string
 }
+
+// Also export with specific name to avoid conflicts
+export type RepositoryFileSearchResponse = FileSearchResponse
 
 export interface RepositoryList {
   repositories: RepositoryResponse[]

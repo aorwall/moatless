@@ -45,6 +45,7 @@ export const TaskIterationSchema = z.object({
   status: z.enum(['created', 'active', 'completed', 'error', 'failed']),
   messageCount: z.number(),
   costUsd: z.number(),
+  contextTokens: z.number().optional(),
   initialMessage: z.string().optional(),
   commandName: z.string().optional(),
   result: z.string().optional(),
@@ -53,6 +54,27 @@ export const TaskIterationSchema = z.object({
   merged: z.boolean().optional(),
   agentSessionId: z.string().optional(),
   model: z.string().optional(),
+  gitStatus: z
+    .object({
+      status: z.string(),
+      commitsAhead: z.number(),
+      commitsBehind: z.number(),
+      hasUncommittedChanges: z.boolean(),
+      currentBranch: z.string(),
+      baseBranch: z.string(),
+      originExists: z.boolean(),
+      hasConflicts: z.boolean(),
+    })
+    .optional(),
+  gitChanges: z
+    .object({
+      currentBranch: z.string(),
+      status: z.string(),
+      additions: z.number(),
+      deletions: z.number(),
+      modifications: z.number(),
+    })
+    .optional(),
   gitSyncStatus: z
     .object({
       status: z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']),
@@ -81,6 +103,10 @@ export const TaskIterationSchema = z.object({
       timestamp: z.date(),
     })
     .optional(),
+  willNotResume: z.boolean().optional(),
+  // Runtime properties (not persisted)
+  task: z.any().optional(),
+  taskId: z.string().optional(),
 })
 
 export const TaskResponseSchema = z.object({
@@ -171,6 +197,9 @@ export const ServerStatusSchema = z.object({
   url: z.string().optional(),
   pid: z.number().optional(),
   uptimeSeconds: z.number(),
+  error: z.string().optional(),
+  logs: z.string().optional(),
+  responsive: z.boolean().optional(),
 })
 
 export const ServerStopResponseSchema = z.object({
@@ -206,6 +235,9 @@ export const GitStatusSchema = z.object({
   commitsAhead: z.number(),
   commitsBehind: z.number(),
   originExists: z.boolean(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
+  modifications: z.number().optional(),
 })
 
 // Derive types from schemas
