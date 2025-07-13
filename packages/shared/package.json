@@ -49,6 +49,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:dev": "tsc --sourceMap",
     "clean": "rm -rf dist",
     "test": "vitest",
     "test:unit": "vitest run",
