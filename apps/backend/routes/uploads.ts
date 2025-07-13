@@ -218,7 +218,15 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
 
       try {
         const uploadDir = getUploadDir()
-        const filePath = path.join(uploadDir, uploadId, filename)
+        let filePath: string
+
+        if (uploadId.startsWith('temp-')) {
+          // Handle temp files which are stored in /uploads/temp/temp-{uuid}/filename
+          filePath = path.join(uploadDir, 'temp', uploadId, filename)
+        } else {
+          // Handle task files which are stored in /uploads/{taskId}/filename
+          filePath = path.join(uploadDir, uploadId, filename)
+        }
 
         // Check if file exists
         try {

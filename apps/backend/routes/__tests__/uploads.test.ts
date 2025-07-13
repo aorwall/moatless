@@ -222,8 +222,8 @@ describe('Upload Routes', () => {
       const testFilename = 'test.txt'
       const uploadId = `temp-${randomUUID()}`
 
-      // Set up test file
-      const fileDir = path.join(testUploadDir, uploadId)
+      // Set up test file in correct temp directory structure
+      const fileDir = path.join(testUploadDir, 'temp', uploadId)
       await fs.mkdir(fileDir, { recursive: true })
       const filePath = path.join(fileDir, testFilename)
       await fs.writeFile(filePath, testContent)
@@ -246,8 +246,8 @@ describe('Upload Routes', () => {
       const testFilename = 'test.png'
       const uploadId = `temp-${randomUUID()}`
 
-      // Set up test file
-      const fileDir = path.join(testUploadDir, uploadId)
+      // Set up test file in correct temp directory structure
+      const fileDir = path.join(testUploadDir, 'temp', uploadId)
       await fs.mkdir(fileDir, { recursive: true })
       const filePath = path.join(fileDir, testFilename)
       await fs.writeFile(filePath, binaryData)
@@ -312,8 +312,8 @@ describe('Upload Routes', () => {
       for (const testCase of testCases) {
         const uploadId = `temp-${randomUUID()}`
 
-        // Set up test file
-        const fileDir = path.join(testUploadDir, uploadId)
+        // Set up test file in correct temp directory structure
+        const fileDir = path.join(testUploadDir, 'temp', uploadId)
         await fs.mkdir(fileDir, { recursive: true })
         const filePath = path.join(fileDir, testCase.filename)
         await fs.writeFile(filePath, testCase.content)
