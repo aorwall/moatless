@@ -29,7 +29,7 @@ vi.mock('../logger.js', () => {
 })
 
 // Import after mocking
-import { createRequestLogger, createTaskLogger, logger } from '../logger.js'
+import { createTaskLogger, logger } from '../logger.js'
 
 describe('Logger', () => {
   beforeEach(() => {
@@ -60,16 +60,6 @@ describe('Logger', () => {
   })
 
   describe('helper functions', () => {
-    it('should create request-scoped logger', () => {
-      const requestLogger = createRequestLogger('req-123', 'task-456')
-
-      expect(logger.child).toHaveBeenCalledWith({
-        requestId: 'req-123',
-        taskId: 'task-456',
-      })
-      expect(requestLogger).toBeDefined()
-    })
-
     it('should create task-scoped logger', () => {
       const taskLogger = createTaskLogger('task-789')
 
@@ -77,16 +67,6 @@ describe('Logger', () => {
         taskId: 'task-789',
       })
       expect(taskLogger).toBeDefined()
-    })
-
-    it('should create request logger without taskId', () => {
-      const requestLogger = createRequestLogger('req-999')
-
-      expect(logger.child).toHaveBeenCalledWith({
-        requestId: 'req-999',
-        taskId: undefined,
-      })
-      expect(requestLogger).toBeDefined()
     })
   })
 })
