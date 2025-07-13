@@ -1,4 +1,4 @@
-import type { GitChanges } from './api.js'
+import type { GitChanges, GitStatus } from './api.js'
 
 export interface TaskIteration {
   iterationNumber: number
@@ -16,7 +16,8 @@ export interface TaskIteration {
   merged?: boolean
   agentSessionId?: string
   model?: string
-  gitChanges?: GitChanges
+  gitStatus?: GitStatus // For sync status display
+  gitChanges?: GitChanges // For working directory changes
   attachments?: Array<{
     fileId?: string // Optional for backward compatibility
     filename: string
