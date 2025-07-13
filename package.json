@@ -1,8 +1,17 @@
 {
-  "name": "moatless-app",
-  "license": "AGPL-3.0-or-later",
+  "name": "moatless-vibe",
   "version": "0.1.0",
-  "description": "Moatless - AI-powered code analysis and task management",
+  "description": "Web UI for Vibe coding with Claude Code",
+  "author": "Albert Örwall",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aorwall/moatless-vibe"
+  },
+  "bugs": {
+    "url": "https://github.com/aorwall/moatless-vibe/issues"
+  },
+  "homepage": "https://github.com/aorwall/moatless-vibe#readme",
   "type": "module",
   "engines": {
     "node": ">=22.16.x"
@@ -15,12 +24,20 @@
     ]
   },
   "bin": {
-    "moatless": "./bin/cli.js"
+    "moatless-vibe": "./bin/cli.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "node scripts/dev-with-port.js",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
+    "build:package": "pnpm build && node scripts/prepare-package.js",
+    "prepublishOnly": "pnpm build:package",
     "start": "NODE_ENV=production node apps/backend/dist/index.js",
     "start:dev": "pnpm build:dev && NODE_ENV=development node apps/backend/dist/index.js",
     "start:production": "pnpm build && pnpm start",

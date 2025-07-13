@@ -24,12 +24,22 @@ switch (command) {
     break
   default:
     console.log(`Unknown command: ${command}`)
-    console.log('Usage: npx moatless [start|dev]')
+    console.log('Usage: npx moatless-vibe [start|dev]')
     process.exit(1)
 }
 
 function startServer() {
-  const serverPath = join(rootDir, 'dist', 'server', 'index.js')
+  // Check if running from installed package or development
+  const isInstalledPackage = !require('node:fs').existsSync(join(rootDir, 'apps'))
+  const serverPath = isInstalledPackage
+    ? join(rootDir, 'dist', 'server', 'index.js')
+    : join(rootDir, 'apps', 'backend', 'dist', 'index.js')
+
+  // Set static client path for production
+  if (isInstalledPackage) {
+    process.env.STATIC_CLIENT_PATH = join(rootDir, 'dist', 'client')
+  }
+
   const child = spawn('node', [serverPath], {
     cwd: rootDir,
     stdio: 'inherit',
