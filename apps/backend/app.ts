@@ -83,7 +83,7 @@ export async function createApp(): Promise<AppWithServices> {
   // Serve client build in production
   if (process.env.NODE_ENV === 'production') {
     // Serve static files
-    const staticPath = path.join(__dirname, '../../frontend/dist')
+    const staticPath = process.env.STATIC_CLIENT_PATH || path.join(__dirname, '../../frontend/dist')
     app.use(
       '/*',
       serveStatic({

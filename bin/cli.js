@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,7 +31,7 @@ switch (command) {
 
 function startServer() {
   // Check if running from installed package or development
-  const isInstalledPackage = !require('node:fs').existsSync(join(rootDir, 'apps'))
+  const isInstalledPackage = !existsSync(join(rootDir, 'apps'))
   const serverPath = isInstalledPackage
     ? join(rootDir, 'dist', 'server', 'index.js')
     : join(rootDir, 'apps', 'backend', 'dist', 'index.js')
