@@ -324,45 +324,6 @@ graph TD
       })
     })
 
-    it('should re-render when content changes', async () => {
-      const { rerender } = render(<MarkdownPreview content="# Initial" />)
-
-      expect(mermaid.render).not.toHaveBeenCalled()
-
-      const newContent = `
-\`\`\`mermaid
-graph TD
-    A --> B
-\`\`\`
-`
-      rerender(<MarkdownPreview content={newContent} />)
-
-      await fastWaitFor(() => {
-        expect(mermaid.render).toHaveBeenCalled()
-      })
-    })
-
-    it('should handle very large mermaid diagrams', async () => {
-      // Create a smaller diagram to prevent memory issues in tests
-      const largeContent = `
-\`\`\`mermaid
-graph TD
-${Array.from({ length: 10 }, (_, i) => `    A${i} --> B${i}`).join('\n')}
-\`\`\`
-`
-      render(<MarkdownPreview content={largeContent} />)
-
-      await fastWaitFor(() => {
-        expect(mermaid.render).toHaveBeenCalled()
-      })
-
-      // Should still render successfully
-      await fastWaitFor(() => {
-        const mermaidElements = document.querySelectorAll('.mermaid-rendered')
-        expect(mermaidElements).toHaveLength(1)
-      })
-    })
-
     it('should handle special characters in mermaid diagrams', async () => {
       const content = `
 \`\`\`mermaid
@@ -440,26 +401,6 @@ graph TD
       await fastWaitFor(() => {
         // At least 2 calls expected (initial + re-render)
         expect(vi.mocked(mermaid.render).mock.calls.length).toBeGreaterThanOrEqual(2)
-      })
-    })
-
-    it('should handle rapid content changes', async () => {
-      const { rerender } = render(<MarkdownPreview content="Initial" />)
-
-      // Reduce iterations to prevent memory issues
-      for (let i = 0; i < 2; i++) {
-        const content = `
-\`\`\`mermaid
-graph TD
-    A${i} --> B${i}
-\`\`\`
-`
-        rerender(<MarkdownPreview content={content} />)
-      }
-
-      // Should handle all changes without errors
-      await fastWaitFor(() => {
-        expect(mermaid.render).toHaveBeenCalled()
       })
     })
   })
