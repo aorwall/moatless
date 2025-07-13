@@ -1,6 +1,6 @@
 import type { GitChanges, GitStatus } from '@moatless/types/types/api'
 import type { RepositoryConfig } from '@moatless/types/types/repository'
-import type { CommandResult, WorkspaceStatus } from '@moatless/types/types/workspace'
+import type { CommandResult, ServerStatus, WorkspaceStatus } from '@moatless/types/types/workspace'
 import type { EventService } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
 
@@ -102,7 +102,7 @@ export abstract class BaseWorkspace {
   /**
    * Start the server if configured
    */
-  abstract startServer?(): Promise<never>
+  abstract startServer?(): Promise<ServerStatus>
 
   /**
    * Stop the server if running
@@ -112,7 +112,7 @@ export abstract class BaseWorkspace {
   /**
    * Get the current server status
    */
-  abstract getServerStatus?(): unknown
+  abstract getServerStatus?(): Promise<ServerStatus>
 
   /**
    * Get server logs

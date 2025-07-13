@@ -14,6 +14,7 @@ import {
 } from '@moatless/types/types/workspace'
 import type { BaseAgent, EventService } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
+import { createTaskLogger } from '../utils/index.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 import type { LocalWorkspace } from './local.js'
 
@@ -30,6 +31,9 @@ export class DockerWorkspace extends BaseWorkspace {
   private _error?: string
   private localWorkspace: LocalWorkspace
   private eventStreamController?: AbortController
+  private previewPortMapping?: { containerPort: number; hostPort: number }
+  private workerPort = 8001
+  private logger
 
   get type(): 'docker' {
     return 'docker'
@@ -62,6 +66,7 @@ export class DockerWorkspace extends BaseWorkspace {
   ) {
     super(taskId, repositoryConfig, eventService)
     this.localWorkspace = localWorkspace
+    this.logger = createTaskLogger(taskId)
   }
 
   async setup(iterationNumber?: number): Promise<void> {
@@ -520,25 +525,86 @@ export class DockerWorkspace extends BaseWorkspace {
     return this.localWorkspace.writeFile(filePath, content)
   }
 
-  // Server methods (TODO: implement these)
-  async startServer(): Promise<never> {
-    throw new Error('Server not yet implemented for Docker workspaces')
-  }
+  // Preview server methods - delegate to worker
+  async startServer(): Promise<ServerStatus> {
+    this.logger.info('Starting preview server in Docker container')
 
-  async stopServer(): Promise<boolean> {
-    return false
-  }
+    try {
+      const response = await this.makeWorkerRequest('/preview/start', 'POST')
+      const containerStatus = response.data
 
-  getServerStatus(): ServerStatus {
-    return {
-      running: false,
-      configured: false,
-      uptimeSeconds: 0,
+      // Map container response to host-accessible URL
+      this.previewPortMapping = {
+        containerPort: containerStatus.port,
+        hostPort: containerStatus.port, // In Docker setup, we map container port to same host port
+      }
+
+      return {
+        running: containerStatus.running,
+        configured: containerStatus.configured,
+        url: containerStatus.url?.replace('localhost', 'localhost'), // Keep as localhost for host access
+        uptimeSeconds: containerStatus.uptimeSeconds,
+      }
+    } catch (error) {
+      this.logger.error('Failed to start preview server', error)
+      throw error
     }
   }
 
-  async getServerLogs(_lines = 100): Promise<string> {
-    return 'No server configured or initialized'
+  async stopServer(): Promise<boolean> {
+    this.logger.info('Stopping preview server in Docker container')
+
+    try {
+      const response = await this.makeWorkerRequest('/preview/stop', 'POST')
+      const success = response.success
+
+      if (success) {
+        this.previewPortMapping = undefined
+      }
+
+      return success
+    } catch (error) {
+      this.logger.error('Failed to stop preview server', error)
+      return false
+    }
+  }
+
+  async getServerStatus(): Promise<ServerStatus> {
+    // For Docker workspaces, we need to query the worker for current status
+    // This is an async method that can query the worker
+    try {
+      const response = await this.makeWorkerRequest('/preview/status', 'GET')
+      const containerStatus = response.data
+
+      return {
+        running: containerStatus.running,
+        configured: containerStatus.configured,
+        url: containerStatus.url?.replace('localhost', 'localhost'), // Keep as localhost for host access
+        uptimeSeconds: containerStatus.uptimeSeconds,
+      }
+    } catch (error) {
+      // If we can't reach the worker, return basic status based on local state
+      return {
+        running: this.previewPortMapping !== undefined,
+        configured: true,
+        url: this.previewPortMapping
+          ? `http://localhost:${this.previewPortMapping.hostPort}`
+          : undefined,
+        uptimeSeconds: 0,
+      }
+    }
+  }
+
+  async getServerLogs(lines = 100): Promise<string> {
+    this.logger.debug('Fetching preview server logs from Docker container', { lines })
+
+    try {
+      const response = await this.makeWorkerRequest('/preview/logs', 'GET', { lines })
+      return response.logs || 'No logs available'
+    } catch (error) {
+      this.logger.error('Failed to fetch preview server logs', error)
+      return `Failed to fetch logs: ${error instanceof Error ? error.message : String(error)}`
+    }
   }
 
   toWorkspaceInfo(): Workspace {
@@ -647,6 +713,61 @@ export class DockerWorkspace extends BaseWorkspace {
     }
 
     throw new Error('Worker backend failed to start within 30 seconds')
+  }
+
+  /**
+   * Make HTTP request to worker backend running in container
+   */
+  private async makeWorkerRequest(
+    path: string,
+    method: 'GET' | 'POST' = 'POST',
+    payload?: any,
+  ): Promise<any> {
+    let curlCommand: string[]
+
+    if (method === 'GET') {
+      curlCommand = [
+        'curl',
+        '-X',
+        'GET',
+        `http://localhost:${this.workerPort}${path}`,
+        '--max-time',
+        '30',
+      ]
+    } else {
+      const requestPayload = JSON.stringify(payload || {})
+      // Escape JSON for shell command
+      const escapedPayload = requestPayload.replace(/'/g, "'\\''")
+
+      curlCommand = [
+        'curl',
+        '-X',
+        method,
+        `http://localhost:${this.workerPort}${path}`,
+        '-H',
+        '"Content-Type: application/json"',
+        '-d',
+        `'${escapedPayload}'`,
+        '--max-time',
+        '30',
+      ]
+    }
+
+    const { stdout, stderr } = await execAsync(
+      `docker exec "${this.containerId}" sh -c "${curlCommand.join(' ')}"`,
+      { timeout: 35000 },
+    )
+
+    // Parse and return response
+    try {
+      const response = JSON.parse(stdout)
+      if (!response.success && method !== 'GET') {
+        throw new Error(`Worker request failed: ${response.error || 'Unknown error'}`)
+      }
+      return response
+    } catch (parseError) {
+      throw new Error(`Worker request failed: ${stderr || stdout || 'Invalid response'}`)
+    }
   }
 
   /**
