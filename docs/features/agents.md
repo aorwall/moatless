@@ -9,7 +9,7 @@
 ## Overview
 
 ### Purpose
-The Agent system provides the core AI capabilities for Moatless Swarm UI, enabling AI-powered code generation, modification, and analysis. It integrates Claude Code and other AI agents into the task execution pipeline with proper workspace access, tool execution, and real-time streaming.
+The Agent system provides the core AI capabilities for Moatless Vibe, enabling AI-powered code generation, modification, and analysis. It integrates Claude Code and other AI agents into the task execution pipeline with proper workspace access, tool execution, and real-time streaming.
 
 ### Key Responsibilities
 - Execute AI agents with workspace context

@@ -1,10 +1,10 @@
-# Moatless Swarm UI Architecture Overview
+# Moatless Vibe Architecture Overview
 
 ## Quick Navigation
 
 ## Introduction
 
-Moatless Swarm UI is a web application that enables AI agents to safely execute code modifications in isolated environments. This document provides a high-level overview of the system architecture and references detailed documentation for specific components.
+Moatless Vibe is a web application that enables AI agents to safely execute code modifications in isolated environments. This document provides a high-level overview of the system architecture and references detailed documentation for specific components.
 
 ## System Architecture
 
@@ -93,7 +93,7 @@ Tasks represent AI-powered coding sessions that coordinate all other components.
 - Smart cache invalidation
 - Git integration
 
-📖 **[Task Architecture Documentation](./task-management-architecture.md)**
+📖 **[Task Architecture Documentation](./features/tasks.md)**
 
 ### 2. Events - Real-time Communication
 Server-Sent Events (SSE) provide unidirectional real-time updates from backend to frontend.
@@ -110,7 +110,7 @@ Server-Sent Events (SSE) provide unidirectional real-time updates from backend t
 - Event deduplication
 - Type-safe event system
 
-📖 **[Event Architecture Documentation](./event-architecture.md)**
+📖 **[Event Architecture Documentation](./features/events.md)**
 
 ### 3. Repositories - Codebase Configuration
 Repositories define how codebases are accessed and executed within the system.
@@ -144,7 +144,7 @@ Workspaces provide safe, isolated environments for code modifications.
 - Command execution with timeouts
 - File operation APIs
 
-📖 **[Workspace Architecture Documentation](./workspace-architecture.md)**
+📖 **[Workspace Architecture Documentation](./features/workspaces.md)**
 
 ### 5. Preview Environments - Live Testing
 Preview environments allow testing changes in real-time with development servers.
@@ -179,17 +179,6 @@ Agents are the AI models that process tasks and generate code modifications.
 - Error recovery
 
 📖 **[Agent Architecture Documentation](features/agents.md)**
-
-### Frontend Architecture
-The frontend implements sophisticated patterns for performance and developer experience.
-
-**Key Patterns:**
-- Tri-context pattern for performance isolation
-- React Query for server state management
-- Optimistic updates for responsiveness
-- Type-safe API integration
-
-📖 **[Frontend Task Architecture](./frontend-task-architecture.md)**
 
 ## API Architecture
 
@@ -313,7 +302,7 @@ pnpm biome:check
 - **Integration**: API route testing with strategic mocking
 - **E2E**: Playwright for critical user flows
 
-**Documentation**: [Testing Guide](./testing-guide.md)
+**Documentation**: [Testing Guide](guidelines/frontend-testing.md)
 
 ## Deployment Considerations
 
@@ -322,12 +311,6 @@ pnpm biome:check
 - `PORT` - Server port configuration
 - `CORS_ORIGIN` - CORS configuration
 - `DATA_DIR` - Data storage directory
-
-## Future Enhancements
-
-### Planned Features
-1. Docker-based workspace isolation
-2. Enhanced authentication and authorization
 
 ## Glossary
 

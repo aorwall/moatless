@@ -13,7 +13,7 @@ import type {
   RepositoryConfig,
   SetupScriptResponse,
 } from '@moatless/shared/types/repository'
-import { searchFilesInDirectoryNew } from '../utils/file-search.js'
+import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
 

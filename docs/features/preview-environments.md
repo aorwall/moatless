@@ -957,7 +957,6 @@ The system manages injected files carefully:
 
 - **Type Definitions**: 
   - `packages/shared/types/preview-environment.ts`: Backend metadata types
-  - `packages/shared/types/repository.ts`: Framework and injection types  
   - `apps/frontend/src/features/preview/types.ts`: Frontend component types
 
 #### Injection Strategy by Framework
@@ -1227,7 +1226,6 @@ The framework detection system automatically identifies the web framework being 
 
 - **Backend Service**: `apps/backend/services/preview-environment.service.ts` - `detectFramework()` method (lines 646-716)
 - **Repository Service**: `apps/backend/services/repository.service.ts` - May contain additional framework detection logic
-- **Type Definitions**: Framework types are defined in `packages/shared/types/repository.ts`
 
 ##### Detection Process Steps
 
@@ -1374,11 +1372,6 @@ async detectFramework(workspaceDir: string): Promise<FrameworkConfig> {
   - `getScriptInjectionStrategy()` method (lines 1096-1133)
   - Maps framework types to injection methods
   - Returns `ScriptInjectionStrategy` for each framework
-
-- **Type Definitions**: `packages/shared/types/repository.ts`
-  - Framework-related types and configurations
-  - `ScriptInjectionStrategy` interface
-  - Shared between frontend and backend services
 
 ## Frontend Implementation
 

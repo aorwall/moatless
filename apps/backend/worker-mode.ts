@@ -1,10 +1,9 @@
 import { serve } from '@hono/node-server'
 import type { TaskIteration } from '@moatless/shared/types/task'
 import { Hono } from 'hono'
-import { AgentService } from './services/agent.service.js'
+import { AgentService, WorkspaceService } from './services/index.js'
 import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
-import { WorkspaceService } from './services/workspace.service.js'
 import { createLogger } from './utils/logger.js'
 import { LocalWorkspace } from './workspaces/local.js'
 

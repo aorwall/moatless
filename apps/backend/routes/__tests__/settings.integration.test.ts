@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetSettingsServiceInstance } from '../../services/settings.service.js'
+import { resetSettingsServiceInstance } from '../../services/index.js'
 import { build } from '../../test/helper.js'
 
 // Mock logger

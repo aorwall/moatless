@@ -2,13 +2,10 @@ import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
 import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
 import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
-import {
-  CLAUDE_CODE_SYSTEM_PROMPTS,
-  createBranchNamePrompt,
-} from '../../utils/claude-code-prompts.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
 import { logger } from '../../utils/logger.js'
+import { createBranchNamePrompt } from '../../utils/prompts.js'
 import { getSettingsService } from '../settings.service.js'
 import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
@@ -272,7 +269,6 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Override options for this specific task
       const branchNameOptions: ClaudeCodeOptions = {
         ...sdkOptions,
-        customSystemPrompt: CLAUDE_CODE_SYSTEM_PROMPTS.BRANCH_NAME_GENERATION,
         maxTurns: 1,
         allowedTools: [],
         model: sdkOptions.model || 'claude-sonnet-4-20250514',

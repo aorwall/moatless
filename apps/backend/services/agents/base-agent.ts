@@ -1,6 +1,5 @@
-import type { ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
 import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
-import type { Event, EventType } from '@moatless/shared/types/event'
+import type { Event } from '@moatless/shared/types/event'
 
 export interface AgentOptions {
   model?: string
@@ -25,7 +24,7 @@ export abstract class BaseAgent {
   protected iterationNumber?: number
   protected sessionId?: string
 
-  constructor(
+  protected constructor(
     protected taskId: string,
     protected options: AgentOptions = {},
   ) {}
@@ -41,23 +40,6 @@ export abstract class BaseAgent {
 
   getSessionId(): string | undefined {
     return this.sessionId
-  }
-
-  protected createEvent(
-    payload: ClaudeCodeSDKMessage,
-    type: EventType,
-    isError: boolean = false,
-  ): Event {
-    return {
-      eventId: crypto.randomUUID(),
-      agentType: this.getAgentType(),
-      type,
-      taskId: this.taskId,
-      iterationId: this.iterationNumber,
-      timestamp: new Date(),
-      isError,
-      payload,
-    }
   }
 
   protected async delay(ms: number): Promise<void> {

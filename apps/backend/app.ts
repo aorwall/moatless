@@ -91,8 +91,7 @@ export async function createApp(): Promise<AppWithServices> {
         getContent: async (path: string) => {
           try {
             const fs = await import('node:fs/promises')
-            const content = await fs.readFile(path)
-            return content
+            return await fs.readFile(path)
           } catch {
             return null
           }

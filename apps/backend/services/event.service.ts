@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import type { Event, EventType } from '@moatless/shared'
 import type { ClaudeCodeSettings } from '@moatless/shared/types/claude'
-import type { Event, EventType } from '@moatless/shared/types/index'
 import type { Task } from '@moatless/shared/types/task'
 import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
 import type { StorageBackend } from './storage.js'
@@ -119,14 +119,6 @@ export class EventService extends EventEmitter {
   async getEventCount(taskId: string, eventType?: EventType, task?: Task): Promise<number> {
     const events = await this.getEvents(taskId, undefined, 0, eventType, task)
     return events.length
-  }
-
-  clearCache(taskId?: string): void {
-    if (taskId) {
-      this.eventCache.delete(taskId)
-    } else {
-      this.eventCache.clear()
-    }
   }
 }
 

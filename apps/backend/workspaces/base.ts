@@ -1,8 +1,8 @@
 import type { GitChanges, GitStatus } from '@moatless/shared/types/api'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
-import type { CommandResult, Workspace, WorkspaceStatus } from '@moatless/shared/types/workspace'
-import type { EventService } from '../services/event.service.js'
-import type { GitDiffResponse } from '../utils/git-utils.js'
+import type { CommandResult, WorkspaceStatus } from '@moatless/shared/types/workspace'
+import type { EventService } from '../services/index.js'
+import type { GitDiffResponse } from '../utils/index.js'
 
 export interface FileSearchRequest {
   query: string
@@ -44,7 +44,11 @@ export abstract class BaseWorkspace {
     return this.repositoryConfig
   }
 
-  constructor(taskId: string, repositoryConfig: RepositoryConfig, eventService: EventService) {
+  protected constructor(
+    taskId: string,
+    repositoryConfig: RepositoryConfig,
+    eventService: EventService,
+  ) {
     this.taskId = taskId
     this.repositoryConfig = repositoryConfig
     this.eventService = eventService
@@ -91,11 +95,6 @@ export abstract class BaseWorkspace {
   abstract hasUncommittedChanges(): Promise<boolean>
 
   /**
-   * Merge changes from workspace branch back to the original branch
-   */
-  abstract mergeChanges(): Promise<string>
-
-  /**
    * Stop the running agent for this workspace
    */
   abstract stopAgent(): Promise<boolean>
@@ -134,11 +133,6 @@ export abstract class BaseWorkspace {
    * Write a file to the workspace
    */
   abstract writeFile(filePath: string, content: string): Promise<void>
-
-  /**
-   * Convert to storage-compatible Workspace object
-   */
-  abstract toWorkspaceInfo(): Workspace
 
   /**
    * Get the workspace path (for local workspaces) or container ID (for docker workspaces)

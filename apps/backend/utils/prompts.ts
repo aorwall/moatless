@@ -50,19 +50,34 @@ Your response must be in the following JSON format:
 Respond with only the JSON object. Do not include any additional text, explanations, or formatting.`
 }
 
-/**
- * Common system prompts for Claude Code agent configurations
- */
-export const CLAUDE_CODE_SYSTEM_PROMPTS = {
-  /**
-   * System prompt for branch name generation tasks
-   */
-  BRANCH_NAME_GENERATION:
-    'You are an expert at analyzing software development requests and creating appropriate branch names and summaries. Focus on being concise, following git conventions, and capturing the essence of the request.',
+export function createRepositoryPrompt(request: string): string {
+  return `You are tasked with creating a repository name for a web application based on a given request. This repository name will be used to host the web app's source code and should clearly represent the application's purpose and functionality. Your response must be in a strict JSON format.
+Guidelines for creating a good repository name:
 
-  /**
-   * System prompt for general task assistance
-   */
-  GENERAL_ASSISTANCE:
-    'You are a helpful assistant that can analyze code, help with development tasks, and provide technical guidance. Always be precise and follow best practices.',
-} as const
+Use lowercase letters
+Replace spaces with hyphens
+Keep it concise but descriptive (ideally 2-4 words)
+Avoid special characters other than hyphens and underscores
+Should reflect the main purpose or domain of the web app
+Can include common suffixes like "-app", "-web", "-platform", "-dashboard"
+
+Here are two examples:
+Example 1:
+Request: "Create a web application for managing personal finances and budget tracking"
+Response: {"repositoryName": "budget-tracker-app", "description": "Web application for personal finance and budget management"}
+Example 2:
+Request: "Build a platform for online code collaboration and real-time editing"
+Response: {"repositoryName": "code-collab-platform", "description": "Real-time code collaboration and editing platform"}
+The request you need to analyze is provided below:
+<request>
+${request}
+</request>
+Analyze the request carefully. Based on the content, create a suitable repository name that follows the guidelines mentioned above. The repository name should reflect the main purpose and functionality of the web application described in the request.
+Next, create a brief description of the web application described in the request. This description should be concise (1-2 sentences, max 15 words) but capture the essential purpose and key features of the application.
+Your response must be in the following JSON format:
+{
+"repositoryName": "your-repository-name-here",
+"description": "Your concise description of the web application here."
+}
+Respond with only the JSON object. Do not include any additional text, explanations, or <formatting class=""></formatting>`
+}

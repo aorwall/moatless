@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import type { CommandResult, ServerStatus } from '@moatless/shared'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/shared'
-import type { CommandResult, ServerStatus } from '@moatless/shared/types/index'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import { WorkspaceStatus } from '@moatless/shared/types/workspace'
-import type { GitDiffResponse } from '../utils/git-utils.js'
+import type { GitDiffResponse } from '../utils/index.js'
 import { createGitWorktree, isGitRepository, syncWithMain } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
@@ -531,10 +531,6 @@ export class WorkspaceService {
         this.backgroundTasks.delete(taskId)
       }
     })
-  }
-
-  public getBackgroundTaskCount(taskId: string): number {
-    return this.backgroundTasks.get(taskId)?.size || 0
   }
 
   async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {

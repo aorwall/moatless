@@ -21,7 +21,7 @@ export function parseJsonFromText<T = Record<string, unknown>>(
   text: string,
   requiredKeys: string[] = [],
 ): JsonParseResult<T> {
-  if (!text || typeof text !== 'string') {
+  if (!text) {
     return { data: null, found: false, error: 'Invalid input text' }
   }
 

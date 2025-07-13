@@ -55,18 +55,4 @@ export class WorkerEventService {
       throw error
     }
   }
-
-  // EventService methods not implemented in worker mode
-  // Workers only emit events, they don't subscribe or retrieve
-  subscribeToTaskEvents(_taskId: string): AsyncGenerator<Event> {
-    throw new Error('Event subscription not available in worker mode - workers only emit events')
-  }
-
-  getAllTaskEvents(_taskId: string): Promise<Event[]> {
-    throw new Error('Event retrieval not available in worker mode - workers only emit events')
-  }
-
-  clearTaskEvents(_taskId: string): Promise<void> {
-    throw new Error('Event clearing not available in worker mode - workers only emit events')
-  }
 }

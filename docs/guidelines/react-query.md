@@ -1,22 +1,5 @@
 # React Query Patterns
 
-## Problem
-
-Managing server state in React applications presents several challenges:
-- Synchronizing server data with UI state
-- Caching and cache invalidation
-- Handling loading and error states
-- Optimistic updates for better UX
-- Avoiding redundant network requests
-
-## Solution
-
-We use TanStack Query (React Query) with a set of established patterns:
-- Hierarchical query keys for smart invalidation
-- Standardized hooks for all API operations
-- Optimistic updates for immediate feedback
-- Event-driven cache management
-
 ## Implementation
 
 ### Query Key Architecture

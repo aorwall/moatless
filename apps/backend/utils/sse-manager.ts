@@ -56,10 +56,6 @@ export class SSEConnectionManager {
     }
   }
 
-  getConnections(taskId: string): SSEConnection[] {
-    return Array.from(this.connections.get(taskId) || [])
-  }
-
   getConnectionCount(taskId: string): number {
     return this.connections.get(taskId)?.size || 0
   }
@@ -106,16 +102,6 @@ export class SSEConnectionManager {
       counts[taskId] = connections.size
     }
     return counts
-  }
-
-  // Methods to track event counts
-  incrementTaskEventCount(taskId: string): void {
-    const connections = this.connections.get(taskId)
-    if (connections) {
-      connections.forEach((connection) => {
-        connection.eventCount++
-      })
-    }
   }
 
   incrementGlobalEventCount(): void {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Task system is the central orchestration layer in Moatless Swarm UI, managing AI agent interactions through a sophisticated event-driven architecture. It coordinates isolated workspaces, tracks conversation history, and streams real-time updates while maintaining high performance through strategic caching and a refined frontend state management pattern.
+The Task system is the central orchestration layer in Moatless Vibe, managing AI agent interactions through a sophisticated event-driven architecture. It coordinates isolated workspaces, tracks conversation history, and streams real-time updates while maintaining high performance through strategic caching and a refined frontend state management pattern.
 
 ## Architectural Overview
 

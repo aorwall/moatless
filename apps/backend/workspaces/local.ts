@@ -12,16 +12,15 @@ import {
   type Workspace,
   WorkspaceStatus,
 } from '@moatless/shared/types/workspace'
-import type { BaseAgent } from '../services/agents/base-agent.js'
-import type { EventService } from '../services/event.service.js'
-import { searchFilesInDirectoryNew } from '../utils/file-search.js'
+import type { BaseAgent, EventService } from '../services/index.js'
 import {
   type GitDiffResponse,
   getCurrentBranch,
   getGitDiffDetailed,
   hasUncommittedChanges,
   isGitRepository,
-} from '../utils/git-utils.js'
+  searchFilesInDirectoryNew,
+} from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 
@@ -38,10 +37,6 @@ export class LocalWorkspace extends BaseWorkspace {
   private _createdAt = new Date()
   private _error?: string
   private logger = createTaskLogger(this.taskId)
-
-  get worktreePath(): string {
-    return this.workspacePath
-  }
 
   get type(): 'local' {
     return 'local'
@@ -485,36 +480,6 @@ export class LocalWorkspace extends BaseWorkspace {
     return hasUncommittedChanges(this.workspacePath)
   }
 
-  async hasUnmergedCommits(): Promise<boolean> {
-    // If workspace doesn't exist or is not set up, no unmerged commits
-    if (
-      !this.workspacePath ||
-      !(await this.pathExists(this.workspacePath)) ||
-      this.getStatus() === WorkspaceStatus.NOT_SETUP
-    ) {
-      return false
-    }
-
-    // Import the function from git-utils
-    const { hasUnmergedCommits } = await import('../utils/git-utils.js')
-    return hasUnmergedCommits(this.workspacePath, this.originalBranch)
-  }
-
-  async isBehindBase(): Promise<boolean> {
-    // If workspace doesn't exist or is not set up, not behind
-    if (
-      !this.workspacePath ||
-      !(await this.pathExists(this.workspacePath)) ||
-      this.getStatus() === WorkspaceStatus.NOT_SETUP
-    ) {
-      return false
-    }
-
-    // Import the function from git-utils
-    const { isBehindBase } = await import('../utils/git-utils.js')
-    return isBehindBase(this.workspacePath, this.originalBranch)
-  }
-
   async getGitStatus(): Promise<GitStatus> {
     // If workspace doesn't exist or is not set up, return defaults
     if (
@@ -624,44 +589,6 @@ export class LocalWorkspace extends BaseWorkspace {
         modifications: 0,
       }
     }
-  }
-
-  async getOriginSyncStatus(): Promise<import('../utils/git-utils.js').GitSyncStatusInfo> {
-    // If workspace doesn't exist or is not set up, return defaults
-    if (
-      !this.workspacePath ||
-      !(await this.pathExists(this.workspacePath)) ||
-      this.getStatus() === WorkspaceStatus.NOT_SETUP
-    ) {
-      return {
-        status: 'error',
-        commitsAhead: 0,
-        commitsBehind: 0,
-        hasUncommittedChanges: false,
-        currentBranch: 'unknown',
-        baseBranch: 'main',
-        originExists: false,
-      }
-    }
-
-    // Import the function from git-utils
-    const { getOriginSyncStatus } = await import('../utils/git-utils.js')
-    return getOriginSyncStatus(this.workspacePath, this.originalBranch)
-  }
-
-  async mergeChanges(): Promise<string> {
-    // Check if worktrees are enabled
-    if (!this.repositoryConfig.useGitWorktrees) {
-      throw new Error('Merge only supported for git worktree workspaces')
-    }
-
-    // Check for uncommitted changes
-    if (await this.hasUncommittedChanges()) {
-      throw new Error('Cannot merge with uncommitted changes')
-    }
-
-    // TODO: Implement merge logic
-    throw new Error('Merge not yet implemented')
   }
 
   async stopAgent(): Promise<boolean> {
@@ -832,10 +759,6 @@ export class LocalWorkspace extends BaseWorkspace {
 
   getWorkspacePath(): string {
     return this.workspacePath
-  }
-
-  isWorkspacePathSet(): boolean {
-    return !!this.workspacePath
   }
 
   private async pathExists(filePath: string): Promise<boolean> {

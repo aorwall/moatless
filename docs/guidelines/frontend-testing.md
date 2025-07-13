@@ -41,54 +41,6 @@ This flag is required for React 19 to properly handle the `act` function in test
 2. **No downgrade needed** - Keep React 19 and use the compatibility flag
 3. **act() is built into React 19** - The testing library uses React's native act implementation
 
-## Data Directory Management
-
-### Backend Data Directory Pattern
-
-The backend uses a centralized data directory management system to ensure tests use isolated temporary directories while production code uses the correct persistent directories.
-
-#### Common Function Usage
-
-All backend code should use the `getDataDir()` function instead of directly accessing `process.env.DATA_DIR`:
-
-```typescript
-import { getDataDir } from '../utils/data-dir.js'
-
-// ✅ GOOD: Use the common function
-const dataDir = getDataDir()
-const tasksDir = path.join(dataDir, 'tasks')
-
-// ❌ BAD: Direct environment variable access
-const dataDir = process.env.DATA_DIR || './data'
-```
-
-#### Test Setup
-
-The test setup (`apps/backend/test/setup.ts`) automatically:
-1. Creates a unique temporary directory for each test run
-2. Sets `process.env.DATA_DIR` to point to this temporary directory
-3. Cleans up after each test and after all tests complete
-
-```typescript
-// Test setup handles this automatically
-beforeAll(async () => {
-  tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-test-data-'))
-  process.env.DATA_DIR = tempDataDir
-})
-
-beforeEach(async () => {
-  // Clean and recreate for each test
-  await fs.rm(tempDataDir, { recursive: true, force: true })
-  await fs.mkdir(tempDataDir, { recursive: true })
-})
-```
-
-#### Production vs Test Behavior
-
-- **Production**: `getDataDir()` returns `~/.moatless` (or `DATA_DIR` if set)
-- **Tests**: `getDataDir()` returns the temporary directory set by test setup
-- **Custom**: Set `DATA_DIR` environment variable to override
-
 ## Testing Strategy
 
 ### Layered Testing Approach

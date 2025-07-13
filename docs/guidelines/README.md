@@ -1,6 +1,6 @@
 # Shared Architectural Patterns
 
-This directory contains documentation for architectural patterns used across multiple components in the Moatless Swarm UI. These patterns represent proven solutions to common challenges in our system.
+This directory contains documentation for architectural patterns used across multiple components in the Moatless Vibe. These patterns represent proven solutions to common challenges in our system.
 
 ## Pattern Index
 
@@ -23,4 +23,4 @@ This directory contains documentation for architectural patterns used across mul
 - [Strategic Mocking](./strategic-mocking.md) - Balanced testing approach
 
 ### API & Backend Patterns
-- [API Patterns and Best Practices](./api-patterns-best-practices.md) - Schema-first API architecture and implementation patterns
+- [API Patterns and Best Practices](api-best-practices.md) - Schema-first API architecture and implementation patterns

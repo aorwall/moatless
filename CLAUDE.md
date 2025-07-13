@@ -143,7 +143,7 @@ When handling git operations in this worktree environment:
 
 **Note:** Every commit will automatically trigger the rebase and push workflow to keep main updated.
 
-For detailed LLM instructions, see [Git Operations Guide](./docs/git-operations-guide.md).
+For detailed LLM instructions, see [Git Operations Guide](docs/guidelines/git-operations-guide.md).
 
 ### Pre-commit Hooks
 - **pre-push**: Runs fast tests (`pnpm test:fast`) before pushing
@@ -609,7 +609,7 @@ pnpm test:ui
 
 ### Backend Testing Strategy
 
-The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles. For detailed backend testing guidelines, see [Backend Testing Guidelines](./apps/backend/TESTING-GUIDELINES.md).
+The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles. For detailed backend testing guidelines, see [Backend Testing Guidelines](docs/guidelines/backend-testing.md).
 
 #### Test Naming Conventions
 - **Unit Tests**: `*.test.ts` or `*.unit.test.ts` (fast, <200ms)
@@ -711,5 +711,5 @@ it('displays task data through component hierarchy', () => {
 - **Note**: `any` types are allowed in test files (`**/*.test.ts`, `**/*.test.tsx`, `**/__tests__/**/*`)
 
 ### Comprehensive Testing Guide
-For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](./docs/testing-guide.md).
+For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](docs/guidelines/frontend-testing.md).
 

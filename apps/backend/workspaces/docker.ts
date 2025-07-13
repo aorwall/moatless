@@ -12,9 +12,8 @@ import {
   type Workspace,
   WorkspaceStatus,
 } from '@moatless/shared/types/workspace'
-import type { BaseAgent } from '../services/agents/base-agent.js'
-import type { EventService } from '../services/event.service.js'
-import type { GitDiffResponse } from '../utils/git-utils.js'
+import type { BaseAgent, EventService } from '../services/index.js'
+import type { GitDiffResponse } from '../utils/index.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
 import type { LocalWorkspace } from './local.js'
 

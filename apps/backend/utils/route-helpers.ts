@@ -18,26 +18,6 @@ export interface PaginatedResponse<T> {
 }
 
 /**
- * Helper to create paginated response
- */
-export function createPaginatedResponse<T>(
-  items: T[],
-  limit: number,
-  offset: number,
-  total?: number,
-): PaginatedResponse<T> {
-  return {
-    items,
-    pagination: {
-      limit,
-      offset,
-      total,
-      hasMore: total ? offset + items.length < total : undefined,
-    },
-  }
-}
-
-/**
  * Helper to validate request body with schema
  */
 export async function validateRequestBody<T extends z.ZodType>(

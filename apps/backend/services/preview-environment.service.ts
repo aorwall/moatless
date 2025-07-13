@@ -597,7 +597,6 @@ export class PreviewEnvironmentService {
     const mockProcess = {
       exitCode: null,
       on: (_event: string, _callback: (...args: unknown[]) => void) => {},
-      removeAllListeners: (_event?: string) => {},
       kill: (_signal?: string) => {},
     }
     ;(handler as unknown as { process: typeof mockProcess }).process = mockProcess

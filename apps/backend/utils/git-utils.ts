@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { GitChanges, GitStatus, GitSyncStatus } from '@moatless/shared/types/api'
+import type { GitChanges, GitSyncStatus } from '@moatless/shared/types/api'
 import { logger } from './logger.js'
 
 const execAsync = promisify(exec)
@@ -51,31 +51,6 @@ export async function hasUncommittedChanges(repoPath: string): Promise<boolean> 
   } catch (error) {
     throw new Error(
       `Failed to check uncommitted changes: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-}
-
-export async function fetchBaseBranch(repoPath: string, baseBranch?: string): Promise<void> {
-  try {
-    const base = baseBranch || (await detectBaseBranch(repoPath))
-    const currentBranch = await getCurrentBranch(repoPath)
-
-    // If we're on the base branch, just log and skip
-    if (currentBranch === base) {
-      logger.info(`Skipping fetch: currently on ${base} branch`, { repoPath, branch: base })
-      return
-    }
-
-    // Fetch the latest changes from origin for the base branch
-    await execAsync(`git fetch origin ${base}:${base}`, {
-      cwd: repoPath,
-      timeout: 30000,
-    })
-  } catch (error) {
-    // Log the error but continue - fetch failure is not critical
-    logger.warn(
-      `Failed to fetch ${baseBranch || 'main'} branch: ${error instanceof Error ? error.message : String(error)}`,
-      { repoPath, baseBranch },
     )
   }
 }
@@ -291,19 +266,6 @@ export async function createBranch(repoPath: string, branchName: string): Promis
   } catch (error) {
     throw new Error(
       `Failed to create branch: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-}
-
-export async function switchBranch(repoPath: string, branchName: string): Promise<void> {
-  try {
-    await execAsync(`git checkout "${branchName}"`, {
-      cwd: repoPath,
-      timeout: 10000,
-    })
-  } catch (error) {
-    throw new Error(
-      `Failed to switch branch: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
 }
@@ -581,67 +543,6 @@ export async function getMergeBase(
   }
 }
 
-export async function getComprehensiveGitStatus(
-  repoPath: string,
-  providedBaseBranch?: string,
-): Promise<GitStatus> {
-  try {
-    // Check if origin exists and fetch if available
-    const originExists = await checkAndFetchOrigin(repoPath, providedBaseBranch, true)
-
-    // Get current branch
-    const currentBranch = await getCurrentBranch(repoPath)
-
-    // Detect base branch if not provided
-    const baseBranch = providedBaseBranch || (await detectBaseBranch(repoPath))
-
-    // Get all the git information in parallel for efficiency
-    // Use origin commit counts if available, otherwise fall back to local
-    const [uncommittedChanges, commitCounts, conflicts] = await Promise.all([
-      hasUncommittedChanges(repoPath),
-      getOriginCommitCounts(repoPath, baseBranch),
-      checkForConflicts(repoPath, baseBranch),
-    ])
-
-    // Determine sync status
-    let status: GitSyncStatus
-    if (uncommittedChanges) {
-      status = 'uncommitted_changes'
-    } else if (commitCounts.ahead > 0 && commitCounts.behind > 0) {
-      status = 'diverged'
-    } else if (commitCounts.ahead > 0) {
-      status = 'ahead'
-    } else if (commitCounts.behind > 0) {
-      status = 'behind'
-    } else {
-      status = 'synced'
-    }
-
-    return {
-      currentBranch,
-      baseBranch,
-      hasUncommittedChanges: uncommittedChanges,
-      hasConflicts: conflicts,
-      status,
-      commitsAhead: commitCounts.ahead,
-      commitsBehind: commitCounts.behind,
-      originExists,
-    }
-  } catch (_error) {
-    // Return safe defaults if git operations fail
-    return {
-      currentBranch: 'unknown',
-      baseBranch: 'main',
-      hasUncommittedChanges: false,
-      hasConflicts: false,
-      status: 'error',
-      commitsAhead: 0,
-      commitsBehind: 0,
-      originExists: false,
-    }
-  }
-}
-
 export async function pruneWorktrees(repoPath: string): Promise<void> {
   try {
     // Prune worktree information for deleted worktrees
@@ -832,23 +733,6 @@ export async function createGitWorktree(
     })
     throw new Error(
       `Failed to create worktree: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-}
-
-export async function removeGitWorktree(
-  workspacePath: string,
-  force: boolean = false,
-): Promise<void> {
-  try {
-    const forceFlag = force ? '--force' : ''
-    await execAsync(`git worktree remove ${forceFlag} "${workspacePath}"`, {
-      timeout: 10000,
-    })
-    logger.debug('Git worktree removed successfully', { workspacePath, force })
-  } catch (error) {
-    throw new Error(
-      `Failed to remove worktree: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
 }

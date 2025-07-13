@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Moatless Swarm UI uses Playwright for end-to-end testing, validating the complete user experience from UI interactions through backend processing to agent execution. The test suite includes infrastructure validation, smoke tests, and comprehensive workflow tests with real Claude Code agents.
+The Moatless Vibe uses Playwright for end-to-end testing, validating the complete user experience from UI interactions through backend processing to agent execution. The test suite includes infrastructure validation, smoke tests, and comprehensive workflow tests with real Claude Code agents.
 
 ## Test Categories & Running Tests
 

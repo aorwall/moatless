@@ -22,9 +22,6 @@ vi.mock('../logger.js', () => {
       debug: vi.fn(),
       child: mockChild,
     },
-    createRequestLogger: (requestId: string, taskId?: string) => {
-      return mockChild({ requestId, taskId })
-    },
     createTaskLogger: (taskId: string) => {
       return mockChild({ taskId })
     },

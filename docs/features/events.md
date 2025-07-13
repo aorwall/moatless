@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The Event system is the real-time communication backbone of the Moatless Swarm UI. It uses a global Server-Sent Events (SSE) stream to push live updates from the backend to the frontend, ensuring users see agent progress and state changes instantly without needing to refresh or poll the server.
+The Event system is the real-time communication backbone of the Moatless Vibe. It uses a global Server-Sent Events (SSE) stream to push live updates from the backend to the frontend, ensuring users see agent progress and state changes instantly without needing to refresh or poll the server.
 
 This architecture is designed to be scalable, efficient, and resilient, providing a reactive and responsive user experience.
 
