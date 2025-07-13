@@ -4,7 +4,7 @@ import {
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
 } from '@moatless/shared/constants'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useTemplatesList } from '@/features/templates'
 
@@ -107,6 +107,11 @@ export function useTemplateSelector(enabled = true) {
 // Model selector hook
 export function useModelSelector(initial: ClaudeModel = DEFAULT_CLAUDE_MODEL) {
   const [selected, setSelected] = useState<ClaudeModel>(initial)
+
+  // Sync internal state when initial value changes (e.g., when switching tasks)
+  useEffect(() => {
+    setSelected(initial)
+  }, [initial])
 
   const items = useMemo(
     () => [

@@ -131,15 +131,31 @@ describe('ChatInput - Expandable Textarea', () => {
     })
 
     it('should accept different maxHeight values', () => {
-      const { rerender } = renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="150px" />,
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+        },
+      })
+
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <TaskUIProvider taskId="test-task">
+            <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="150px" />
+          </TaskUIProvider>
+        </QueryClientProvider>,
       )
 
       let textarea = screen.getByPlaceholderText(/type a new request/i)
       let textareaStyles = window.getComputedStyle(textarea)
       expect(textareaStyles.maxHeight).toBe('150px')
 
-      rerender(<ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="400px" />)
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <TaskUIProvider taskId="test-task">
+            <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="400px" />
+          </TaskUIProvider>
+        </QueryClientProvider>,
+      )
 
       textarea = screen.getByPlaceholderText(/type a new request/i)
       textareaStyles = window.getComputedStyle(textarea)
