@@ -54,7 +54,7 @@ export function RepositoryList({
     if (codeExecution.type === 'local') {
       return 'Local execution'
     } else {
-      return codeExecution.image || 'Docker'
+      return codeExecution.dockerImage || 'Docker'
     }
   }
 

@@ -5,6 +5,7 @@ import type {
 } from '@moatless/shared/types/repository'
 import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
 import { useId, useState } from 'react'
+import { useRunSetupScript } from '@/features/repositories/hooks/use-repositories'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import {
@@ -293,7 +294,7 @@ export function CodeExecutionConfig({
   const [showServerExamples, setShowServerExamples] = useState(false)
 
   const runSetupScript = useRunSetupScript({
-    onSuccess: (data) => {
+    onSuccess: (data: SetupScriptResponse) => {
       setSetupScriptResult(data)
       setShowSetupOutput(true)
     },

@@ -3,6 +3,7 @@ import type {
   CreateRepositoryRequest,
   FileSearchResponse,
   RepositoryResponse,
+  SetupScriptResponse,
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
@@ -115,6 +116,15 @@ export function useBranches(
     queryFn: () => repositoriesApi.getBranches(repoId),
     enabled: !!repoId,
     staleTime: 60000, // Cache for 1 minute
+    ...options,
+  })
+}
+
+export function useRunSetupScript(
+  options?: UseMutationOptions<SetupScriptResponse, Error, string>,
+) {
+  return useMutation({
+    mutationFn: (repoId: string) => repositoriesApi.runSetupScript(repoId),
     ...options,
   })
 }

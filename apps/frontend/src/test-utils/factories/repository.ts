@@ -17,7 +17,7 @@ export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>)
 export function createMockDockerCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {
   return {
     type: 'docker',
-    image: 'node:18-alpine',
+    dockerImage: 'node:18-alpine',
     setupCommands: 'npm ci',
     envVars: {
       NODE_ENV: 'production',

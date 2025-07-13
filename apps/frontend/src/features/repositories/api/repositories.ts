@@ -5,6 +5,7 @@ import type {
   FileSearchResponse,
   RepositoryList,
   RepositoryResponse,
+  SetupScriptResponse,
   UpdateRepositoryRequest,
 } from '@moatless/shared/types/repository'
 import { apiClient } from '@/lib/api/client'
@@ -43,5 +44,9 @@ export const repositoriesApi = {
 
   async getBranches(repoId: string): Promise<BranchListResponse> {
     return await apiClient.get<BranchListResponse>(`/api/v1/repositories/${repoId}/branches`)
+  },
+
+  async runSetupScript(repoId: string): Promise<SetupScriptResponse> {
+    return await apiClient.post<SetupScriptResponse>(`/api/v1/repositories/${repoId}/run-setup`)
   },
 }
