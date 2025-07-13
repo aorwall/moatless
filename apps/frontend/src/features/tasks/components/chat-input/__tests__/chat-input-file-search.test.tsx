@@ -1,4 +1,4 @@
-import type { FileSearchResponse } from '@moatless/shared/types/repository'
+import type { FileSearchResponse } from '@moatless/types/types/repository'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

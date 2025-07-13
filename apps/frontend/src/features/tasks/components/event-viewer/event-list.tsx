@@ -1,9 +1,9 @@
-import { isToolUseContent } from '@moatless/shared'
+import { isToolUseContent } from '@moatless/types'
 import type {
   Event,
   MessageEvent as MessageEventType,
   ResultEvent as ResultEventType,
-} from '@moatless/shared/types/event'
+} from '@moatless/types/types/event'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 

@@ -1,10 +1,10 @@
-import { CommandNotFoundError, ValidationError } from '@moatless/shared'
+import { CommandNotFoundError, ValidationError } from '@moatless/types'
 import type {
   Command,
   CommandsFile,
   CreateCommandRequest,
   UpdateCommandRequest,
-} from '@moatless/shared/types/command'
+} from '@moatless/types/types/command'
 import type { StorageBackend } from './storage.js'
 
 const COMMANDS_FILE = 'commands'

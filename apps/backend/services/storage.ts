@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, Task, Workspace } from '@moatless/shared/types/index'
-import type { RepositoryConfig } from '@moatless/shared/types/repository'
-import { fromJSON, toJSON } from '@moatless/shared/utils/validation'
+import type { Event, Task, Workspace } from '@moatless/types/types/index'
+import type { RepositoryConfig } from '@moatless/types/types/repository'
+import { fromJSON, toJSON } from '@moatless/types/utils/validation'
 import { getDataDir, logger } from '../utils/index.js'
 
 export interface StorageBackend {

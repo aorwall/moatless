@@ -6,4 +6,4 @@
 
 - First release
 - Updated dependencies
-  - @moatless/shared@0.1.1
+  - @moatless/types@0.1.1

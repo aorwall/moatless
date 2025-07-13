@@ -71,7 +71,7 @@ graph TB
 ### Monorepo Structure
 - **Tool**: Turborepo
 - **Package Manager**: pnpm workspaces
-- **Shared Code**: `@moatless/shared` package
+- **Types**: `@moatless/types` package
 - **Build Order**: Shared packages build before apps (dependency graph)
 
 ## Core Components

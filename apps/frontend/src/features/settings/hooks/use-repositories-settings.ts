@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/shared/types/repository'
+import type { UpdateRepositoryRequest } from '@moatless/types/types/repository'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { repositoriesApi } from '@/features/repositories/api/repositories'
 

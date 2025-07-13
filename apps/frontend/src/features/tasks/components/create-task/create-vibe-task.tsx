@@ -1,4 +1,4 @@
-import type { ClaudeModel } from '@moatless/shared/constants'
+import type { ClaudeModel } from '@moatless/types/constants'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'

@@ -7,10 +7,10 @@ import type {
   TaskCommandsResponse,
   TaskListResponse,
   WorkspaceStatusResponse,
-} from '@moatless/shared/types/api'
-import type { Event } from '@moatless/shared/types/event'
-import type { FileSearchRequest, FileSearchResponse } from '@moatless/shared/types/repository'
-import type { GitDiffResponse, Task } from '@moatless/shared/types/task'
+} from '@moatless/types/types/api'
+import type { Event } from '@moatless/types/types/event'
+import type { FileSearchRequest, FileSearchResponse } from '@moatless/types/types/repository'
+import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import { apiClient } from '@/lib/api/client'
 
 export const tasksApi = {

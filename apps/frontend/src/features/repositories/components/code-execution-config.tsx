@@ -2,7 +2,7 @@ import type {
   CodeExecution,
   SetupScriptCommand,
   SetupScriptResponse,
-} from '@moatless/shared/types/repository'
+} from '@moatless/types/types/repository'
 import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
 import { useId, useState } from 'react'
 import { useRunSetupScript } from '@/features/repositories/hooks/use-repositories'

@@ -1,4 +1,4 @@
-import type { GitSyncStatus } from '@moatless/shared/types/api'
+import type { GitSyncStatus } from '@moatless/types/types/api'
 import { Check, ChevronDown, ChevronUp, FileWarning, GitBranch, XCircle } from 'lucide-react'
 
 export interface GitSyncStatusConfig {

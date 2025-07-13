@@ -3,7 +3,7 @@ import type {
   CommandList,
   CreateCommandRequest,
   UpdateCommandRequest,
-} from '@moatless/shared/types/command'
+} from '@moatless/types/types/command'
 import { apiClient } from '@/lib/api/client'
 
 export const commandsApi = {

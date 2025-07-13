@@ -689,7 +689,7 @@ graph TB
 
 ### Workspace Configuration Schema
 
-The repository configuration schema (`packages/shared/schemas/repository.schemas.ts`) defines how workspaces are configured:
+The repository configuration schema (`packages/types/schemas/repository.schemas.ts`) defines how workspaces are configured:
 
 ```typescript
 CodeExecutionSchema: {

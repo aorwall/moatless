@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/shared/types/event'
+import type { Event } from '@moatless/types/types/event'
 import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockEventList } from '@/test-utils/factories'

@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS, DEFAULT_CLAUDE_MODEL } from '@moatless/shared/constants'
+import { CLAUDE_MODELS, DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import {

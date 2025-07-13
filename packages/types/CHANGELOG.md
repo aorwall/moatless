@@ -1,4 +1,4 @@
-# @moatless/shared
+# @moatless/types
 
 ## 0.1.1
 

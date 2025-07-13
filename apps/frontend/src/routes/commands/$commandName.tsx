@@ -1,4 +1,4 @@
-import { getErrorMessage } from '@moatless/shared/types/api-errors'
+import { getErrorMessage } from '@moatless/types/types/api-errors'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 

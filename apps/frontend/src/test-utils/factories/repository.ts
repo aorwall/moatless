@@ -3,7 +3,7 @@ import type {
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
-} from '@moatless/shared/types/repository'
+} from '@moatless/types/types/repository'
 
 // Code execution factories
 export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {

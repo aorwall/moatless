@@ -1,9 +1,9 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
-import type { ClaudeCodeSettings } from '@moatless/shared/types/claude'
-import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
-import type { Task } from '@moatless/shared/types/task'
+import type { ClaudeCodeSettings } from '@moatless/types/types/claude'
+import { type Event, EventType, type ResultEvent } from '@moatless/types/types/event'
+import type { Task } from '@moatless/types/types/task'
 import { calculateContextTokens } from './context-tokens.js'
 import { logger } from './logger.js'
 
@@ -18,7 +18,7 @@ export function sdkMessageToEvent(
   // Check if this is an error message
   const isError = 'error' in sdkMessage && sdkMessage.error !== undefined
 
-  // Calculate context tokens using shared function
+  // Calculate context tokens using types function
   const contextTokens = calculateContextTokens(sdkMessage)
 
   if (sdkMessage.type === 'result') {

@@ -1,5 +1,5 @@
-import type { Task, TaskIteration } from '@moatless/shared'
-import { CriticalError, EventType, WorkspaceStatus } from '@moatless/shared'
+import type { Task, TaskIteration } from '@moatless/types'
+import { CriticalError, EventType, WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BaseAgent } from '../../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../../agents/claude-code-agent.js'

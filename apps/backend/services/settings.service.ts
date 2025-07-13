@@ -6,7 +6,7 @@ import type {
   ClaudeSettings,
   SettingsResponse,
   UpdateSettingsRequest,
-} from '@moatless/shared'
+} from '@moatless/types'
 import { logger } from '../utils/logger.js'
 
 export class SettingsService {

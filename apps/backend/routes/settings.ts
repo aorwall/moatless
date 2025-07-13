@@ -1,6 +1,6 @@
 import { zValidator } from '@hono/zod-validator'
-import type { UpdateSettingsRequest } from '@moatless/shared'
-import { updateSettingsSchema } from '@moatless/shared/schemas'
+import type { UpdateSettingsRequest } from '@moatless/types'
+import { updateSettingsSchema } from '@moatless/types/schemas'
 import { Hono } from 'hono'
 import { getSettingsService } from '../services/index.js'
 import { logger } from '../utils/logger.js'

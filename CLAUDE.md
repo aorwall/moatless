@@ -223,13 +223,12 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 │       ├── dist/            # Build output
 │       └── package.json     # Backend package configuration
 ├── packages/                 # Shared packages
-│   └── shared/              # Shared code between frontend and backend
+│   └── types/              # Shared code between frontend and backend
 │       ├── types/           # Shared TypeScript types
 │       ├── constants/       # Shared constants
 │       ├── schemas/         # Validation schemas
 │       ├── utils/           # Shared utilities
 │       ├── index.ts         # Package exports
-│       ├── dist/            # Build output
 │       └── package.json     # Shared package configuration
 ├── data/                    # Persistent data storage (created at runtime)
 │   ├── events/                # Task events
@@ -253,9 +252,9 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 - **Testing**: Vitest
 
 ### Monorepo Workflow
-- **Shared Package**: `@moatless/shared` contains types, constants, schemas, and utilities shared between frontend and backend
+- **Types Package**: `@moatless/types` contains types, constants, schemas, and utilities shared between frontend and backend
 - **Development**: `pnpm dev` runs all apps concurrently using Turborepo
-- **Building**: `pnpm build` builds all packages in the correct order (shared → apps)
+- **Building**: `pnpm build` builds all packages in the correct order (types → apps)
 - **Testing**: Tests run with Turborepo caching for optimal performance
 - **Type Safety**: Shared types ensure consistency across frontend and backend
 
@@ -363,7 +362,7 @@ The task detail page uses a React Context to manage and share task-related data 
   - Handle loading, error, and success states
 - **Import Patterns**:
   - Feature imports: `@/features/[feature]/`
-  - Shared imports: `@moatless/shared` (from the shared package)
+  - Shared imports: `@moatless/types` (from the types package)
   - Library imports: `@/lib/`
   - Prefer named imports over barrel imports
 - **Error Handling**: 
@@ -530,7 +529,7 @@ import { SafeBoundary } from '@/lib/components/error-boundary-with-fallback';
 - Consider using error tracking services (Sentry, LogRocket) in production
 
 **Type Safety**:
-  - Use shared API types from `@shared/types/`
+  - Use types API types from `@types/`
   - Local types only for client-specific needs (e.g., git-diff)
   - Use TypeScript strict mode
   - Avoid `any` types

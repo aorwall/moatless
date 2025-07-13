@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/shared/types/task'
+import type { Task } from '@moatless/types/types/task'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

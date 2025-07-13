@@ -2,7 +2,7 @@ import type {
   PermissionMode,
   UpdateClaudeCodeSettingsRequest,
   UpdateSettingsRequest,
-} from '@moatless/shared'
+} from '@moatless/types'
 import { createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, FolderOpen, Loader2, RotateCcw, Save } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'

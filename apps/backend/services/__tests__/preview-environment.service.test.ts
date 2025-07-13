@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
-import type { RepositoryConfig, Task } from '@moatless/shared'
-import { TaskNotFoundError } from '@moatless/shared'
+import type { RepositoryConfig, Task } from '@moatless/types'
+import { TaskNotFoundError } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ServerHandler } from '../../workspaces/server-handler.js'
 import { PreviewEnvironmentService } from '../preview-environment.service.js'

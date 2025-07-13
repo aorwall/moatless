@@ -7,7 +7,7 @@ import type {
   Event,
   RepositoryConfig,
   Task,
-} from '@moatless/shared/types/index'
+} from '@moatless/types/types/index'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 import { logger } from '../../utils/logger.js'

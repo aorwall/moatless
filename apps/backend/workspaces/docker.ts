@@ -3,15 +3,15 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { GitChanges, GitStatus } from '@moatless/shared/types/api'
-import { EventType } from '@moatless/shared/types/event'
-import type { RepositoryConfig } from '@moatless/shared/types/repository'
+import type { GitChanges, GitStatus } from '@moatless/types/types/api'
+import { EventType } from '@moatless/types/types/event'
+import type { RepositoryConfig } from '@moatless/types/types/repository'
 import {
   type CommandResult,
   type ServerStatus,
   type Workspace,
   WorkspaceStatus,
-} from '@moatless/shared/types/workspace'
+} from '@moatless/types/types/workspace'
 import type { BaseAgent, EventService } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
 import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from './base.js'
@@ -98,7 +98,7 @@ export class DockerWorkspace extends BaseWorkspace {
       // Mount workspace to /repo
       createCommand += ` -v "${workspacePath}:/repo"`
 
-      // Mount data directory for shared storage
+      // Mount data directory for types storage
       createCommand += ` -v "${dataDir}:/data"`
 
       // Define container paths for Claude configuration

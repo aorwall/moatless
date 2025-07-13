@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/shared/types/task'
+import type { Task } from '@moatless/types/types/task'
 import { Link } from '@tanstack/react-router'
 import { Calendar, Clock, DollarSign, MessageSquare, Server } from 'lucide-react'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'

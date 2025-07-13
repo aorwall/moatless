@@ -8,24 +8,6 @@ export const dateSchema = z
   .union([z.string().datetime(), z.date()])
   .transform((val) => (val instanceof Date ? val : new Date(val)))
 
-// Common validation functions
-export function isValidUuid(value: string): boolean {
-  return uuidSchema.safeParse(value).success
-}
-
-export function parseDate(value: string | Date): Date {
-  return dateSchema.parse(value)
-}
-
-// Type utilities
-export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P]
-}
-
-export type RequireAtLeastOne<T> = {
-  [K in keyof T]-?: Required<Pick<T, K>> & Partial<Pick<T, Exclude<keyof T, K>>>
-}[keyof T]
-
 // JSON serialization helpers
 export function toJSON<T>(data: T): string {
   return JSON.stringify(data, (_key, value) => {

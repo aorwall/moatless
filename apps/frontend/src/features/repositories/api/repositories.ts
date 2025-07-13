@@ -7,7 +7,7 @@ import type {
   RepositoryResponse,
   SetupScriptResponse,
   UpdateRepositoryRequest,
-} from '@moatless/shared/types/repository'
+} from '@moatless/types/types/repository'
 import { apiClient } from '@/lib/api/client'
 
 export const repositoriesApi = {

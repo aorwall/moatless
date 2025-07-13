@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/shared/types/api'
+import type { UploadFileResponse } from '@moatless/types/types/api'
 
 export const uploadsApi = {
   async uploadFile(file: File): Promise<UploadFileResponse> {

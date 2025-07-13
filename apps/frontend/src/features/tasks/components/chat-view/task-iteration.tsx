@@ -1,4 +1,4 @@
-import type { TaskIteration as TaskIterationType } from '@moatless/shared/types/task'
+import type { TaskIteration as TaskIterationType } from '@moatless/types/types/task'
 import { AlertCircle } from 'lucide-react'
 import type React from 'react'
 import ReactMarkdown from 'react-markdown'

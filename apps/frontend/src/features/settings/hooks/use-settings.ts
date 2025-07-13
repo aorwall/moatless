@@ -1,4 +1,4 @@
-import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/shared'
+import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { settingsApi } from '../api/settings.api'
 

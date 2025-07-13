@@ -2,16 +2,16 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { WorkspaceError } from '@moatless/shared'
-import type { GitChanges, GitStatus } from '@moatless/shared/types/api'
-import type { RepositoryConfig } from '@moatless/shared/types/repository'
+import { WorkspaceError } from '@moatless/types'
+import type { GitChanges, GitStatus } from '@moatless/types/types/api'
+import type { RepositoryConfig } from '@moatless/types/types/repository'
 
 import {
   type CommandResult,
   type ServerStatus,
   type Workspace,
   WorkspaceStatus,
-} from '@moatless/shared/types/workspace'
+} from '@moatless/types/types/workspace'
 import type { BaseAgent, EventService } from '../services/index.js'
 import {
   type GitDiffResponse,

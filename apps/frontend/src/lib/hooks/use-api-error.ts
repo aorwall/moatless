@@ -3,7 +3,7 @@ import {
   getValidationErrors,
   isApiErrorResponse,
   isValidationError,
-} from '@moatless/shared/types/api-errors'
+} from '@moatless/types/types/api-errors'
 import { useCallback } from 'react'
 import { ApiError } from '@/lib/api/client'
 

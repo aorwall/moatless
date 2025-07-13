@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/shared/types/task'
+import type { Task } from '@moatless/types/types/task'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'

@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/shared/types/api'
+import type { UploadFileResponse } from '@moatless/types/types/api'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'

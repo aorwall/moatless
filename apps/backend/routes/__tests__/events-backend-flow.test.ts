@@ -1,5 +1,5 @@
-import type { Event } from '@moatless/shared/types/event'
-import { EventType } from '@moatless/shared/types/event'
+import type { Event } from '@moatless/types/types/event'
+import { EventType } from '@moatless/types/types/event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 import { sseManager } from '../../utils/sse-manager.js'

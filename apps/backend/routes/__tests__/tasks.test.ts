@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/shared/types/task'
+import type { Task } from '@moatless/types/types/task'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
@@ -175,7 +175,7 @@ describe('Task Routes', () => {
 
     it('should return 400 if environment does not exist', async () => {
       // Import the error class
-      const { EnvironmentNotFoundError } = await import('@moatless/shared')
+      const { EnvironmentNotFoundError } = await import('@moatless/types')
 
       // Mock task creation to throw environment not found error
       vi.spyOn(app.services.task, 'createTask').mockRejectedValueOnce(
@@ -444,7 +444,7 @@ describe('Task Routes', () => {
 
     it('should return 404 if task not found', async () => {
       // Import the error class
-      const { TaskNotFoundError } = await import('@moatless/shared')
+      const { TaskNotFoundError } = await import('@moatless/types')
 
       vi.spyOn(app.services.task, 'deleteTask').mockRejectedValueOnce(
         new TaskNotFoundError('non-existent'),
@@ -481,7 +481,7 @@ describe('Task Routes', () => {
     })
 
     it('should return 400 when last iteration is not in created status', async () => {
-      const { ValidationError } = await import('@moatless/shared')
+      const { ValidationError } = await import('@moatless/types')
 
       vi.spyOn(app.services.task, 'startTask').mockRejectedValueOnce(
         new ValidationError('Last iteration does not have status "created". Cannot start task.', {
@@ -503,7 +503,7 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 when task not found', async () => {
-      const { TaskNotFoundError } = await import('@moatless/shared')
+      const { TaskNotFoundError } = await import('@moatless/types')
 
       vi.spyOn(app.services.task, 'startTask').mockRejectedValueOnce(
         new TaskNotFoundError('non-existent'),

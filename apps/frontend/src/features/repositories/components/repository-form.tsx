@@ -2,7 +2,7 @@ import type {
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
-} from '@moatless/shared/types/repository'
+} from '@moatless/types/types/repository'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'

@@ -1,4 +1,4 @@
-import type { Command } from '@moatless/shared/types/command'
+import type { Command } from '@moatless/types/types/command'
 import { GitBranch, GitCommit, GitMerge, GitPullRequest, MessageSquare, Play } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 

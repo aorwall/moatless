@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
-import { EventType } from '@moatless/shared/types/event'
-import type { Event, Task, Workspace } from '@moatless/shared/types/index'
+import { EventType } from '@moatless/types/types/event'
+import type { Event, Task, Workspace } from '@moatless/types/types/index'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FileStorage } from '../storage.js'
 

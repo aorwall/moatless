@@ -1,4 +1,4 @@
-import { EventType } from '@moatless/shared/types/event'
+import { EventType } from '@moatless/types/types/event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 

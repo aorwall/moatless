@@ -1,4 +1,4 @@
-import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/shared'
+import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 export const settingsApi = {

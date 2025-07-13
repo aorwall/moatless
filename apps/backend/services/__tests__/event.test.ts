@@ -1,5 +1,5 @@
-import { EventType } from '@moatless/shared/types/event'
-import type { Event } from '@moatless/shared/types/index'
+import { EventType } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types/types/index'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'

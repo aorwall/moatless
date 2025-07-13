@@ -1,4 +1,4 @@
-import { DEFAULT_CLAUDE_MODEL } from '@moatless/shared/constants'
+import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'

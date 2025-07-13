@@ -1,7 +1,7 @@
 import type {
   ClaudeCodeSettingsResponse,
   UpdateClaudeCodeSettingsRequest,
-} from '@moatless/shared/types/claude-code'
+} from '@moatless/types/types/claude-code'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 

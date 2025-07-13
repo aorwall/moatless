@@ -1,5 +1,5 @@
-import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/shared/constants'
-import type { TaskIteration } from '@moatless/shared/types/task'
+import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
+import type { TaskIteration } from '@moatless/types/types/task'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
 type PanelView = 'events' | 'diff' | 'files' | 'preview' | 'server'

@@ -1,4 +1,4 @@
-import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
+import type { BranchNameAndSummary } from '@moatless/types/types/claude-code'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ClaudeCodeAgent } from '../claude-code-agent.js'
 

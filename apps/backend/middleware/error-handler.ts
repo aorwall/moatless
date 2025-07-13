@@ -1,4 +1,4 @@
-import { MoatlessError } from '@moatless/shared'
+import { MoatlessError } from '@moatless/types'
 import type { ErrorHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'

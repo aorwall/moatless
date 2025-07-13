@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     coverage: {
-      include: ['server/**/*.{ts,js}', 'shared/**/*.{ts,js}'],
+      include: ['server/**/*.{ts,js}', 'types/**/*.{ts,js}'],
       exclude: [
         '**/node_modules/**',
         '**/__tests__/**',
@@ -32,7 +32,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@shared': new URL('./shared', import.meta.url).pathname,
+      '@shared': new URL('./types', import.meta.url).pathname,
       '@server': new URL('./server', import.meta.url).pathname,
     },
   },

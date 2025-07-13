@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/shared/types/repository'
+import type { RepositoryResponse } from '@moatless/types/types/repository'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'

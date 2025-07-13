@@ -950,11 +950,6 @@ The system manages injected files carefully:
   - `generateInspectorScript()` creates the script content
   - Strategy selection based on framework
 
-- **Framework Configs**: `packages/shared/constants/preview-config.ts`
-  - Injection strategies per framework
-  - File paths and patterns
-  - Script templates
-
 - **Type Definitions**: 
   - `packages/shared/types/preview-environment.ts`: Backend metadata types
   - `apps/frontend/src/features/preview/types.ts`: Frontend component types

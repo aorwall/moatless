@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/shared/types/repository'
+import type { FileSearchResult } from '@moatless/types/types/repository'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchFiles } from '@/features/repositories/hooks/use-repositories'
 import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'

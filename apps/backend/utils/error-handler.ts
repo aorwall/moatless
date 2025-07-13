@@ -1,4 +1,4 @@
-import { TaskNotFoundError, ValidationError, WorkspaceError } from '@moatless/shared'
+import { TaskNotFoundError, ValidationError, WorkspaceError } from '@moatless/types'
 import type { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from './logger.js'

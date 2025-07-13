@@ -1,4 +1,4 @@
-import type { CreateVibeTaskRequest } from '@moatless/shared/types/api'
+import type { CreateVibeTaskRequest } from '@moatless/types/types/api'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'

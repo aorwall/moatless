@@ -1,5 +1,5 @@
-import type { Command } from '@moatless/shared/types/command'
-import type { Task } from '@moatless/shared/types/task'
+import type { Command } from '@moatless/types/types/command'
+import type { Task } from '@moatless/types/types/task'
 import { useParams } from '@tanstack/react-router'
 import { ArrowDown } from 'lucide-react'
 import React, { useCallback, useMemo, useRef } from 'react'

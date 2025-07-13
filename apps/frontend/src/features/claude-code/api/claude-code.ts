@@ -2,7 +2,7 @@ import type {
   ClaudeCodeSettingsResponse,
   ClaudeCodeToolsResponse,
   UpdateClaudeCodeSettingsRequest,
-} from '@moatless/shared/types/claude-code'
+} from '@moatless/types/types/claude-code'
 import { apiClient } from '@/lib/api/client'
 
 export const claudeCodeApi = {

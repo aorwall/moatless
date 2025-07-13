@@ -1,13 +1,13 @@
 import {
   CreateRepositorySchema,
   UpdateRepositorySchema,
-} from '@moatless/shared/schemas/repository.schemas'
+} from '@moatless/types/schemas/repository.schemas'
 import type {
   CodeExecution,
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
-} from '@moatless/shared/types/repository'
+} from '@moatless/types/types/repository'
 
 import { useId, useState } from 'react'
 import { z } from 'zod'

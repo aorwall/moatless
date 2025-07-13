@@ -1,5 +1,5 @@
-import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
-import type { Event } from '@moatless/shared/types/event'
+import type { BranchNameAndSummary } from '@moatless/types/types/claude-code'
+import type { Event } from '@moatless/types/types/event'
 
 export interface AgentOptions {
   model?: string

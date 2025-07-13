@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/shared/types/repository'
+import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/types/types/repository'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 

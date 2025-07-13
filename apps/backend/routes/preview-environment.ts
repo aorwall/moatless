@@ -3,7 +3,7 @@ import {
   ServerLogsResponseExtendedSchema,
   ServerStatusSchema,
   ServerStopResponseSchema,
-} from '@moatless/shared'
+} from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'

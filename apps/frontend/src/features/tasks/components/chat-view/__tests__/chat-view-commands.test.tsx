@@ -1,5 +1,5 @@
-import type { Command } from '@moatless/shared/types/command'
-import type { TaskIteration } from '@moatless/shared/types/task'
+import type { Command } from '@moatless/types/types/command'
+import type { TaskIteration } from '@moatless/types/types/task'
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {

@@ -226,9 +226,9 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 
 # Copy built application from builder stage
 COPY --from=builder --chown=$USERNAME:$USERNAME /app/node_modules /app/node_modules
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/shared/dist /app/packages/shared/dist
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/shared/package.json /app/packages/shared/package.json
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/shared/node_modules /app/packages/shared/node_modules
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/types/dist /app/packages/shared/dist
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/types/package.json /app/packages/shared/package.json
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/types/node_modules /app/packages/shared/node_modules
 COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/dist /app/apps/backend/dist
 COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/package.json /app/apps/backend/package.json
 COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/node_modules /app/apps/backend/node_modules

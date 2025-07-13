@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/shared/types/event'
+import type { Event } from '@moatless/types/types/event'
 import { Bot, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'

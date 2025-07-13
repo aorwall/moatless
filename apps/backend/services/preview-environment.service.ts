@@ -2,14 +2,14 @@ import { execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import path from 'node:path'
-import { TaskNotFoundError, WorkspaceError } from '@moatless/shared'
+import { TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
   ProcessValidation,
-} from '@moatless/shared/types/preview-environment'
-import type { ScriptInjectionStrategy } from '@moatless/shared/types/repository'
-import type { ServerStatus } from '@moatless/shared/types/workspace'
+} from '@moatless/types/types/preview-environment'
+import type { ScriptInjectionStrategy } from '@moatless/types/types/repository'
+import type { ServerStatus } from '@moatless/types/types/workspace'
 import type { Logger } from 'pino'
 import { logger } from '../utils/logger.js'
 import { ServerHandler } from '../workspaces/server-handler.js'

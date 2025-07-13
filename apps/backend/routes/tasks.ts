@@ -37,7 +37,7 @@ import {
   TaskResponseSchema,
   ValidationError,
   WorkspaceError,
-} from '@moatless/shared'
+} from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
@@ -45,9 +45,9 @@ import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 
-// All schemas are now imported from @moatless/shared
+// All schemas are now imported from @moatless/types
 
-// All response schemas are now imported from @moatless/shared
+// All response schemas are now imported from @moatless/types
 
 export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string) {
   // Create a new task

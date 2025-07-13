@@ -243,7 +243,7 @@ The task system includes a context-aware command system that displays relevant a
 
 #### Command Structure
 
-Commands are defined in `packages/shared/types/command.ts` and have conditions that determine their visibility.
+Commands are defined in `packages/types/types/command.ts` and have conditions that determine their visibility.
 
 ```typescript
 interface Command {

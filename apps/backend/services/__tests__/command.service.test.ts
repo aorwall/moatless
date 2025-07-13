@@ -1,5 +1,5 @@
-import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/shared'
-import { CommandNotFoundError, ValidationError } from '@moatless/shared'
+import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/types'
+import { CommandNotFoundError, ValidationError } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../command.service.js'
 import type { StorageBackend } from '../storage.js'

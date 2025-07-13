@@ -2,7 +2,7 @@ import type {
   Command,
   CreateCommandRequest,
   UpdateCommandRequest,
-} from '@moatless/shared/types/command'
+} from '@moatless/types/types/command'
 import { useNavigate } from '@tanstack/react-router'
 import * as LucideIcons from 'lucide-react'
 import { useEffect, useId, useState } from 'react'

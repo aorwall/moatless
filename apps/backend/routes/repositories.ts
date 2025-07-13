@@ -1,10 +1,10 @@
-import { RepositoryNotFoundError } from '@moatless/shared'
+import { RepositoryNotFoundError } from '@moatless/types'
 import {
   CreateRepositorySchema,
   FileSearchSchema,
   UpdateRepositorySchema,
-} from '@moatless/shared/schemas/repository.schemas'
-import type { RepositoryList } from '@moatless/shared/types/repository'
+} from '@moatless/types/schemas/repository.schemas'
+import type { RepositoryList } from '@moatless/types/types/repository'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'

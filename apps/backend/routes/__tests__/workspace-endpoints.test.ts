@@ -1,5 +1,5 @@
-import type { Task } from '@moatless/shared/types/task'
-import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import type { Task } from '@moatless/types/types/task'
+import { WorkspaceStatus } from '@moatless/types/types/workspace'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
@@ -131,7 +131,7 @@ describe('Workspace Endpoints', () => {
 
     it('should return 404 for non-existent task', async () => {
       // Import TaskNotFoundError
-      const { TaskNotFoundError } = await import('@moatless/shared')
+      const { TaskNotFoundError } = await import('@moatless/types')
 
       // Mock workspace service to throw TaskNotFoundError
       vi.spyOn(app.services.workspace, 'getWorkspaceStatus').mockRejectedValueOnce(
@@ -181,7 +181,7 @@ describe('Workspace Endpoints', () => {
 
     it('should return error if workspace not setup', async () => {
       // Import WorkspaceError
-      const { WorkspaceError } = await import('@moatless/shared')
+      const { WorkspaceError } = await import('@moatless/types')
 
       // Mock workspace service to throw WorkspaceError
       vi.spyOn(app.services.workspace, 'listFiles').mockRejectedValueOnce(
@@ -341,7 +341,7 @@ describe('Workspace Endpoints', () => {
 
     it('should not allow execution if workspace not idle', async () => {
       // Import WorkspaceError
-      const { WorkspaceError } = await import('@moatless/shared')
+      const { WorkspaceError } = await import('@moatless/types')
 
       // Mock workspace service to throw WorkspaceError when trying to run command
       vi.spyOn(app.services.workspace, 'runCommand').mockRejectedValueOnce(

@@ -1,8 +1,8 @@
-import type { SimpleTaskResponse } from '@moatless/shared/types/api'
-import type { Event } from '@moatless/shared/types/event'
-import { EventType } from '@moatless/shared/types/event'
-import type { GitDiffResponse, Task, TaskIteration } from '@moatless/shared/types/task'
-import { WorkspaceStatus } from '@moatless/shared/types/workspace'
+import type { SimpleTaskResponse } from '@moatless/types/types/api'
+import type { Event } from '@moatless/types/types/event'
+import { EventType } from '@moatless/types/types/event'
+import type { GitDiffResponse, Task, TaskIteration } from '@moatless/types/types/task'
+import { WorkspaceStatus } from '@moatless/types/types/workspace'
 
 // Re-export repository factories
 export * from './factories/repository'

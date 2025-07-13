@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import type { TaskIteration } from '@moatless/shared/types/task'
+import type { TaskIteration } from '@moatless/types/types/task'
 import { Hono } from 'hono'
 import { AgentService, WorkspaceService } from './services/index.js'
 import { FileStorage } from './services/storage.js'
@@ -39,7 +39,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   const eventService = new WorkerEventService(config.apiUrl, config.apiKey, taskId)
 
   // Use regular FileStorage with mounted volume path
-  // The data directory is mounted from the host, allowing shared storage
+  // The data directory is mounted from the host, allowing types storage
   const dataDir = config.dataDir || '/data'
   const storage = new FileStorage(dataDir)
 

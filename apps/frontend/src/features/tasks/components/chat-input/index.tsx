@@ -1,6 +1,6 @@
-import type { ClaudeModel } from '@moatless/shared/constants'
-import type { UploadFileResponse } from '@moatless/shared/types/api'
-import type { Task } from '@moatless/shared/types/task'
+import type { ClaudeModel } from '@moatless/types/constants'
+import type { UploadFileResponse } from '@moatless/types/types/api'
+import type { Task } from '@moatless/types/types/task'
 import { useEffect, useState } from 'react'
 import {
   useChatMessage,
@@ -55,7 +55,7 @@ export function ChatInput({
   const { selectedModel, setSelectedModel } = useChatModel()
   const { resumeConversation, setResumeConversation } = useChatResumeConversation()
 
-  // Local component state (not shared between tasks)
+  // Local component state (not types between tasks)
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [runningDuration, setRunningDuration] = useState<string>('')
 

@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/shared/types/event'
+import type { Event } from '@moatless/types/types/event'
 import { User } from 'lucide-react'
 
 interface InputEventProps {

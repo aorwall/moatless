@@ -4,7 +4,7 @@ import * as net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { ServerStatus } from '@moatless/shared/types/workspace'
+import type { ServerStatus } from '@moatless/types/types/workspace'
 import { createTaskLogger } from '../utils/logger.js'
 
 const execAsync = promisify(exec)

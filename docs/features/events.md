@@ -144,7 +144,7 @@ The `payload` of each event carries the specific data for that event type. Here 
 A `MESSAGE` event contains the content chunks from the AI agent. The payload follows the structure of the Claude API.
 
 ```typescript
-// From: @packages/shared/types/claude.ts
+// From: @packages/types/types/claude.ts
 interface ClaudeCodeSDKMessage {
   type: 'assistant' | 'user';
   message: {
@@ -167,7 +167,7 @@ interface ClaudeCodeSDKMessage {
 A `RESULT` event is emitted when an agent run completes.
 
 ```typescript
-// From: @packages/shared/types/claude.ts
+// From: @packages/types/types/claude.ts
 interface SDKResultMessage {
   is_error: boolean;
   result?: string;
@@ -186,7 +186,7 @@ interface SDKResultMessage {
 An `ERROR` event signals a failure during processing.
 
 ```typescript
-// From: @packages/shared/types/event.ts
+// From: @packages/types/types/event.ts
 interface ErrorEventPayload {
   error: string;
   stackTrace?: string;

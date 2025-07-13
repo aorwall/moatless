@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/shared'
+import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../test/helper.js'
 

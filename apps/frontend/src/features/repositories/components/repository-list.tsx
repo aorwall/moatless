@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/shared/types/repository'
+import type { RepositoryResponse } from '@moatless/types/types/repository'
 import { Link } from '@tanstack/react-router'
 import { Plus, Trash2 } from 'lucide-react'
 import { useDeleteRepository } from '@/features/repositories/hooks/use-repositories'

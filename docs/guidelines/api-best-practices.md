@@ -9,7 +9,7 @@ This document outlines the established patterns and best practices for the Moatl
 The project follows a **schema-first** approach where all types derive from Zod schemas:
 
 ```
-packages/shared/
+packages/types/
 ├── schemas/                 # Primary source of truth
 │   ├── api.schemas.ts      # API request/response schemas
 │   ├── task.schemas.ts     # Task-related schemas  
@@ -60,8 +60,8 @@ export type { CreateTaskRequest }
 ### 2. Route Implementation Pattern ✅
 
 ```typescript
-// Import from shared package
-import { CreateTaskSchema, handleServiceError, getTaskId } from '@moatless/shared'
+// Import from types package
+import { CreateTaskSchema, handleServiceError, getTaskId } from '@moatless/types'
 import { validateRequestBody } from '../utils/route-helpers.js'
 
 app.post('/tasks', 
@@ -121,7 +121,7 @@ export function handleServiceError(error: unknown, context: string): never {
 ### 4. Type Export Strategy ✅
 
 ```typescript
-// packages/shared/types/index.ts
+// packages/types/types/index.ts
 // Primary exports from schemas (schema-first approach)
 export * from '../schemas/index.js'
 
@@ -210,8 +210,8 @@ app.post('/endpoint',
 
 ### 1. API Layer Usage ✅
 ```typescript
-// ✅ Import types from shared package
-import type { CreateTaskRequest, TaskResponse } from '@moatless/shared'
+// ✅ Import types from types package
+import type { CreateTaskRequest, TaskResponse } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 export const tasksApi = {
@@ -225,7 +225,7 @@ export const tasksApi = {
 ```typescript
 // ✅ Use schemas for form validation
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CreateTaskSchema } from '@moatless/shared/schemas'
+import { CreateTaskSchema } from '@moatless/types/schemas'
 
 const form = useForm<CreateTaskRequest>({
   resolver: zodResolver(CreateTaskSchema),
@@ -260,7 +260,7 @@ export function useCreateTask() {
 5. **Error Handling**: Use `handleServiceError` for consistent responses
 
 ### For Frontend
-1. **Import Types**: Use types from `@moatless/shared`
+1. **Import Types**: Use types from `@moatless/types`
 2. **Form Validation**: Use schemas with `zodResolver`
 3. **API Calls**: Type all requests/responses properly
 4. **Error Handling**: Use `getErrorMessage` helper
@@ -276,7 +276,7 @@ export function useCreateTask() {
 
 ### Complete Feature Implementation
 ```typescript
-// 1. Schema (packages/shared/schemas/resource.schemas.ts)
+// 1. Schema (packages/types/schemas/resource.schemas.ts)
 export const CreateResourceSchema = z.object({
   name: z.string().min(1).max(255),
   type: z.enum(['type1', 'type2']),
@@ -332,7 +332,7 @@ export async function registerResourceRoutes(app: Hono<AppBindings>, prefix: str
 }
 
 // 3. Frontend API (apps/frontend/src/features/resources/api/resources.ts)
-import type { CreateResourceRequest, ResourceResponse } from '@moatless/shared'
+import type { CreateResourceRequest, ResourceResponse } from '@moatless/types'
 
 export const resourcesApi = {
   async createResource(request: CreateResourceRequest): Promise<ResourceResponse> {
@@ -356,7 +356,7 @@ export function useCreateResource() {
 
 // 5. Frontend Form (apps/frontend/src/features/resources/components/resource-form.tsx)
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CreateResourceSchema } from '@moatless/shared/schemas'
+import { CreateResourceSchema } from '@moatless/types/schemas'
 
 export function ResourceForm() {
   const form = useForm<CreateResourceRequest>({
