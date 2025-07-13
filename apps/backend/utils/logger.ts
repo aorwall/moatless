@@ -8,8 +8,11 @@ const getLogLevel = () => {
   return process.env.LOG_LEVEL || 'info'
 }
 
-// Detect if we're in a bundled environment
-const isBundled = typeof __filename !== 'undefined' && __filename.includes('/dist/server.js')
+// Detect if we're in a production/built environment (either bundled or TypeScript compiled)
+const isProductionBuild =
+  (typeof __filename !== 'undefined' && __filename.includes('/dist/server.js')) || // Bundled with esbuild
+  (typeof __filename !== 'undefined' && __filename.includes('/apps/backend/dist/')) || // TypeScript compiled
+  process.env.NODE_ENV === 'production' // Explicit production mode
 
 // Simple pretty formatter for bundled environments
 const LEVELS: Record<number, string> = {
@@ -76,8 +79,8 @@ const pinoLogger = (() => {
   if (process.env.USE_JSON_LOGGING === 'true') {
     // Explicit JSON logging
     return pino(baseOptions)
-  } else if (isBundled && process.env.USE_JSON_LOGGING !== 'false') {
-    // In bundled environment, use simple prettifier by default
+  } else if (isProductionBuild && process.env.USE_JSON_LOGGING !== 'false') {
+    // In production/built environment, use simple prettifier by default
     return pino(baseOptions, simplePrettifier())
   } else {
     // In development or when explicitly requested, use pino-pretty transport
