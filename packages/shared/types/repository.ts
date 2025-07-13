@@ -32,7 +32,7 @@ export interface FileSearchResult {
   score: number
 }
 
-export interface FileSearchResponse {
+export interface RepositoryFileSearchResponse {
   results: FileSearchResult[]
   totalFound: number
   query: string

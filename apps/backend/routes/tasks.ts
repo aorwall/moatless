@@ -1,5 +1,7 @@
 import {
   CloseTaskResponseSchema,
+  CommandExecutionSchema,
+  CommandResultSchema,
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
@@ -7,12 +9,27 @@ import {
   EventListResponseSchema,
   type EventType,
   EventTypeQuerySchema,
+  FileContentResponseSchema,
+  FileContentSchema,
+  FileListResponseSchema,
+  FileQuerySchema,
+  FileSearchResponseSchema,
+  FileWriteResponseSchema,
+  GitDiffResponseSchema,
+  GitStatusSchema,
+  MergeTaskResponseSchema,
+  MergeTaskSchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
+  ServerLogsQuerySchema,
+  ServerLogsResponseExtendedSchema,
+  ServerStatusSchema,
+  ServerStopResponseSchema,
   SimpleTaskResponseSchema,
   StopAgentResponseSchema,
   TaskCommandSchema,
   TaskCommandsResponseSchema,
+  TaskFileSearchSchema,
   TaskListQuerySchema,
   type TaskListResponse,
   TaskListResponseSchema,
@@ -25,158 +42,12 @@ import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
-import { z } from 'zod'
 import type { AppBindings } from '../app.js'
-import { logger } from '../utils/logger.js'
+import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 
-// Helper function to handle common error responses
-function handleServiceError(error: unknown, context: string): never {
-  logger.error(`${context} failed`, error as Error)
+// All schemas are now imported from @moatless/shared
 
-  if (error instanceof ValidationError) {
-    throw new HTTPException(400, {
-      message: error.message,
-      cause: error,
-    })
-  }
-
-  if (error instanceof TaskNotFoundError) {
-    throw new HTTPException(404, {
-      message: error.message,
-      cause: error,
-    })
-  }
-
-  // For all other errors (including WorkspaceError), return 500 with the actual error message
-  const errorMessage = error instanceof Error ? error.message : `Failed to ${context.toLowerCase()}`
-  throw new HTTPException(500, {
-    message: errorMessage,
-    cause: error,
-  })
-}
-
-// Helper function to validate and get task ID from params
-function getTaskId(c: any): string {
-  const taskId = c.req.param('taskId')
-  if (!taskId) {
-    throw new HTTPException(400, { message: 'Task ID is required' })
-  }
-  return taskId
-}
-
-// Schema for query params
-const FileQuerySchema = z.object({
-  path: z.string().optional().default('/'),
-  recursive: z.coerce.boolean().optional().default(false),
-})
-
-const FileContentSchema = z.object({
-  content: z.string(),
-})
-
-const FileSearchSchema = z.object({
-  query: z.string(),
-  limit: z.number().optional(),
-})
-
-const CommandExecutionSchema = z.object({
-  command: z.string(),
-  timeout: z.number().optional(),
-})
-
-const ServerLogsQuerySchema = z.object({
-  lines: z.coerce.number().optional(),
-})
-
-const MergeTaskSchema = z.object({
-  targetBranch: z.string().optional().default('main'),
-  commitMessage: z.string().optional(),
-})
-
-// Response schemas
-const FileListResponseSchema = z.object({
-  files: z.array(
-    z.object({
-      name: z.string(),
-      path: z.string(),
-      type: z.enum(['file', 'directory']),
-      size: z.number().optional(),
-    }),
-  ),
-  totalCount: z.number(),
-})
-
-const FileContentResponseSchema = z.object({
-  content: z.string(),
-  encoding: z.string(),
-})
-
-const FileWriteResponseSchema = z.object({
-  success: z.boolean(),
-})
-
-const FileSearchResponseSchema = z.object({
-  files: z.array(
-    z.object({
-      path: z.string(),
-      matches: z.number(),
-    }),
-  ),
-  totalMatches: z.number(),
-})
-
-const GitDiffResponseSchema = z.object({
-  diff: z.string(),
-  files: z.array(z.string()),
-  hasChanges: z.boolean(),
-})
-
-const CommandResultSchema = z.object({
-  command: z.string(),
-  output: z.string(),
-  exitCode: z.number(),
-  durationMs: z.number(),
-})
-
-const ServerStatusSchema = z.object({
-  running: z.boolean(),
-  configured: z.boolean(),
-  url: z.string().optional(),
-  pid: z.number().optional(),
-  uptimeSeconds: z.number(),
-})
-
-const ServerStopResponseSchema = z.object({
-  stopped: z.boolean(),
-  runtime: z.number(),
-})
-
-const ServerLogsResponseSchema = z.object({
-  logs: z.string(),
-  lines: z.number(),
-})
-
-const ServerLogsResponseExtendedSchema = ServerLogsResponseSchema.extend({
-  truncated: z.boolean(),
-})
-
-const MergeTaskResponseSchema = z.object({
-  success: z.boolean(),
-  mergeCommit: z.string(),
-  sourceBranch: z.string(),
-  targetBranch: z.string(),
-})
-
-const GitStatusSchema = z.object({
-  currentBranch: z.string(),
-  baseBranch: z.string(),
-  hasUncommittedChanges: z.boolean(),
-  hasConflicts: z.boolean(),
-  status: z.string(),
-  commitsAhead: z.number(),
-  commitsBehind: z.number(),
-  originExists: z.boolean(),
-})
+// All response schemas are now imported from @moatless/shared
 
 export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string) {
   // Create a new task
@@ -489,10 +360,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const { task: taskService } = services
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const body = await c.req.json()
       const validatedBody = SendMessageRequestSchema.parse(body)
@@ -540,10 +408,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const { task: taskService } = services
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const commands = await taskService.getAvailableCommands(taskId)
       return c.json({ commands })
@@ -595,10 +460,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const { task: taskService } = services
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const body = await c.req.json()
       const { commandName, resume, model, filePaths } = body
@@ -654,10 +516,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const { task: taskService, event: eventService } = services
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const queryParams = c.req.query()
       const validatedQuery = EventTypeQuerySchema.parse(queryParams)
@@ -732,10 +591,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       try {
         await services.task.startTask(taskId)
@@ -787,10 +643,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Stop agent through AgentService
       const stopped = await services.agent.stopAgent(taskId)
@@ -839,10 +692,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const { task: taskService } = services
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       await taskService.closeTask(taskId)
 
@@ -978,10 +828,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Get the wildcard portion of the path
       const path = c.req.path
@@ -1077,10 +924,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Get the wildcard portion of the path
       const path = c.req.path
@@ -1122,7 +966,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         description: 'Search parameters',
         content: {
           'application/json': {
-            schema: resolver(FileSearchSchema) as any,
+            schema: resolver(TaskFileSearchSchema) as any,
           },
         },
       },
@@ -1149,13 +993,10 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const body = await c.req.json()
-      const validatedBody = FileSearchSchema.parse(body)
+      const validatedBody = TaskFileSearchSchema.parse(body)
       const { query, limit } = validatedBody
 
       try {
@@ -1216,10 +1057,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       try {
         // Task validation and capability check now handled in workspace service
@@ -1286,10 +1124,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       try {
         // Get workspace status which now includes unified git status
@@ -1372,10 +1207,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const body = await c.req.json()
       const validatedBody = CommandExecutionSchema.parse(body)
@@ -1426,10 +1258,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.startServer(taskId)
@@ -1476,10 +1305,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
       const stopped = await services.workspace.stopServer(taskId)
@@ -1529,10 +1355,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.restartServer(taskId)
@@ -1579,10 +1402,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
       const status = await services.workspace.getServerStatus(taskId)
@@ -1638,10 +1458,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     async (c) => {
       const services = c.get('services')
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const queryParams = c.req.query()
       const validatedQuery = ServerLogsQuerySchema.parse(queryParams)
@@ -1702,10 +1519,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const { task: taskService } = services
 
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       let body: unknown = {}
       try {

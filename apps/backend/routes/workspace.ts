@@ -10,67 +10,19 @@ import {
   GitDiffResponseSchema,
   GitStatusSchema,
   TaskFileSearchSchema,
-  TaskNotFoundError,
-  WorkspaceError,
   WorkspaceStatusResponseSchema,
 } from '@moatless/shared'
 import type { Hono } from 'hono'
-import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
-
-function handleWorkspaceError(error: unknown): never {
-  if (error instanceof TaskNotFoundError) {
-    throw new HTTPException(404, { message: 'Task not found' })
-  }
-  if (error instanceof WorkspaceError) {
-    throw new HTTPException(error.statusCode as any, { message: error.message })
-  }
-  if (error instanceof Error) {
-    // Handle specific error messages
-    if (error.message.includes('Path not found')) {
-      throw new HTTPException(404, { message: error.message })
-    }
-    if (error.message.includes('Access denied')) {
-      throw new HTTPException(403, { message: error.message })
-    }
-    if (error.message.includes('Cannot list files')) {
-      throw new HTTPException(403, { message: error.message })
-    }
-    if (error.message.includes('File not found')) {
-      throw new HTTPException(404, { message: error.message })
-    }
-    if (error.message.includes('File too large')) {
-      throw new HTTPException(413, { message: error.message })
-    }
-    if (error.message.includes('Path is not a file')) {
-      throw new HTTPException(400, { message: error.message })
-    }
-    if (error.message.includes('Cannot read file')) {
-      throw new HTTPException(403, { message: error.message })
-    }
-    if (error.message.includes('Cannot search files')) {
-      throw new HTTPException(403, { message: error.message })
-    }
-    if (error.message.includes('Cannot access git')) {
-      throw new HTTPException(403, { message: error.message })
-    }
-  }
-  throw error
-}
-
-function extractFilePathFromWildcard(requestPath: string, prefix: string, taskId: string): string {
-  const basePattern = `${prefix}/${taskId}/files/`
-  const encodedFilePath = requestPath.replace(basePattern, '')
-  const filePath = decodeURIComponent(encodedFilePath)
-
-  if (!filePath) {
-    throw new HTTPException(400, { message: 'File path is required' })
-  }
-
-  return filePath
-}
+import { getTaskId, handleServiceError } from '../utils/error-handler.js'
+import {
+  CommonParameters,
+  extractFilePathFromWildcard,
+  validateQueryParams,
+  validateRequestBody,
+} from '../utils/route-helpers.js'
 
 export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: string) {
   // Get workspace status
@@ -78,17 +30,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     `${prefix}/:taskId/workspace-status`,
     describeRoute({
       description: 'Get workspace status for a task',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
+      parameters: [CommonParameters.taskId],
       responses: {
         200: {
           description: 'Workspace status information',
@@ -108,10 +50,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       // Task validation now handled in workspace service
       const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
@@ -177,13 +116,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
-      const queryParams = c.req.query()
-      const validatedQuery = FileQuerySchema.parse(queryParams)
+      const validatedQuery = validateQueryParams(c, FileQuerySchema)
       const { path = '/', recursive = false } = validatedQuery
 
       try {
@@ -191,7 +126,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         const files = await services.workspace.listFiles(taskId, path, recursive)
         return c.json({ files, totalCount: files.length })
       } catch (error) {
-        handleWorkspaceError(error)
+        handleServiceError(error, 'Get workspace status')
       }
     },
   )
@@ -246,10 +181,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
       const filePath = extractFilePathFromWildcard(c.req.path, prefix, taskId)
 
       try {
@@ -257,7 +189,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         const content = await services.workspace.readFile(taskId, filePath)
         return c.json({ content, encoding: 'utf-8' })
       } catch (error) {
-        handleWorkspaceError(error)
+        handleServiceError(error, 'Get workspace status')
       }
     },
   )
@@ -317,14 +249,10 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
       const filePath = extractFilePathFromWildcard(c.req.path, prefix, taskId)
 
-      const body = await c.req.json()
-      const validatedBody = FileContentSchema.parse(body)
+      const validatedBody = await validateRequestBody(c, FileContentSchema)
       const { content } = validatedBody
 
       // Task validation and capability check now handled in workspace service
@@ -338,17 +266,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     `${prefix}/:taskId/search-files`,
     describeRoute({
       description: 'Search files by filename/path in task workspace',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
+      parameters: [CommonParameters.taskId],
       requestBody: {
         description: 'Search parameters',
         content: {
@@ -379,10 +297,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const body = await c.req.json()
       const validatedBody = TaskFileSearchSchema.parse(body)
@@ -396,7 +311,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         })
         return c.json(result)
       } catch (error) {
-        handleWorkspaceError(error)
+        handleServiceError(error, 'Get workspace status')
       }
     },
   )
@@ -406,17 +321,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     `${prefix}/:taskId/git-diff`,
     describeRoute({
       description: 'Get git diff for task workspace',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
+      parameters: [CommonParameters.taskId],
       responses: {
         200: {
           description: 'Git diff',
@@ -439,10 +344,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       try {
         // Task validation and capability check now handled in workspace service
@@ -453,7 +355,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           hasChanges: diffResult.files.length > 0,
         })
       } catch (error) {
-        handleWorkspaceError(error)
+        handleServiceError(error, 'Get workspace status')
       }
     },
   )
@@ -463,17 +365,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     `${prefix}/:taskId/git-sync-status`,
     describeRoute({
       description: 'Get git sync status with origin for task workspace',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
+      parameters: [CommonParameters.taskId],
       responses: {
         200: {
           description: 'Git sync status',
@@ -496,10 +388,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       try {
         // Get workspace status which now includes unified git status
@@ -521,7 +410,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           })
         }
       } catch (error) {
-        handleWorkspaceError(error)
+        handleServiceError(error, 'Get workspace status')
       }
     },
   )
@@ -599,10 +488,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const baseBranch = c.req.query('baseBranch')
 
@@ -611,7 +497,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         const result = await services.workspace.syncWorkspaceWithMain(taskId, baseBranch)
         return c.json(result)
       } catch (error) {
-        handleWorkspaceError(error)
+        handleServiceError(error, 'Get workspace status')
       }
     },
   )
@@ -621,17 +507,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     `${prefix}/:taskId/execute`,
     describeRoute({
       description: 'Execute a command in task workspace',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
+      parameters: [CommonParameters.taskId],
       requestBody: {
         description: 'Command execution parameters',
         content: {
@@ -662,10 +538,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     }),
     async (c) => {
       const services = c.get('services')
-      const taskId = c.req.param('taskId')
-      if (!taskId) {
-        throw new HTTPException(400, { message: 'Task ID is required' })
-      }
+      const taskId = getTaskId(c)
 
       const body = await c.req.json()
       const validatedBody = CommandExecutionSchema.parse(body)

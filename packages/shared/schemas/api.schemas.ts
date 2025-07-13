@@ -1,0 +1,218 @@
+import { z } from 'zod'
+import { GitStatusSchema } from './task.schemas.js'
+
+// ============================================
+// Base Types and Enums
+// ============================================
+
+export const TaskStatusSchema = z.enum(['open', 'running', 'error', 'merged', 'closed'])
+
+// ============================================
+// Request Schemas
+// ============================================
+
+// Create Task
+export const CreateTaskRequestSchema = z.object({
+  agentType: z.string(),
+  repositoryId: z.string(),
+  message: z.string().optional(),
+  branchName: z.string().optional(), // Name for the new workspace branch (deprecated, use originalBranch)
+  originalBranch: z.string().optional(), // Branch to create from (the source branch)
+  start: z.boolean().optional(),
+  model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
+})
+
+// Create Vibe Task
+export const CreateVibeTaskRequestSchema = z.object({
+  agentType: z.string(),
+  templateId: z.string(),
+  repositoryName: z.string(), // Name for the new repository
+  message: z.string().optional(),
+  start: z.boolean().optional(),
+  model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(),
+})
+
+// Send Message
+export const SendMessageRequestSchema = z.object({
+  message: z.string().min(1),
+  resume: z.boolean().optional().default(true),
+  model: z.string().optional(),
+  fileIds: z.array(z.string()).optional(), // Deprecated, use filePaths
+  filePaths: z.array(z.string()).optional(), // Absolute file paths
+  commandName: z.string().optional(),
+})
+
+// General Upload (not tied to task)
+export const UploadFileResponseSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  path: z.string(), // Relative path like /uploads/{randomId}/filename.ext
+  absolutePath: z.string(), // Absolute path in workspace
+  size: z.number(),
+  mimeType: z.string(),
+  uploadedAt: z.string(),
+})
+
+// Update Task
+export const UpdateTaskRequestSchema = z.object({
+  status: TaskStatusSchema.optional(),
+})
+
+// ============================================
+// Response Schemas
+// ============================================
+
+// Simple Task Response (for create/update operations)
+export const SimpleTaskResponseSchema = z.object({
+  taskId: z.string(),
+  status: z.string(),
+})
+
+// Send Message Response
+export const SendMessageResponseSchema = z.object({
+  status: z.string(),
+  timestamp: z.string(),
+})
+
+// Delete Task Response
+export const DeleteTaskResponseSchema = z.object({
+  status: z.string(),
+})
+
+// Update Task Response
+export const UpdateTaskResponseSchema = z.object({
+  status: z.string(),
+})
+
+// Stop Agent Response
+export const StopAgentResponseSchema = z.object({
+  status: z.string(),
+  taskId: z.string(),
+})
+
+// Server Logs Response
+export const ServerLogsResponseSchema = z.object({
+  logs: z.string(),
+  lines: z.number(),
+})
+
+// Task Commands Response
+export const TaskCommandsResponseSchema = z.object({
+  commands: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      prompt: z.string(),
+      conditions: z.any().optional(),
+      icon: z.string().optional(),
+      variant: z.string().optional(),
+      active: z.boolean().optional(),
+    }),
+  ),
+})
+
+// Git Sync Status with Origin
+export const GitSyncStatusSchema = z.enum([
+  'synced',
+  'ahead',
+  'behind',
+  'diverged',
+  'uncommitted_changes',
+  'error',
+])
+
+// Git Changes Schema - Working directory changes (not diff to base branch)
+export const GitChangesSchema = z.object({
+  currentBranch: z.string(),
+  status: z.string(), // Simple status like 'clean' or 'modified'
+  additions: z.number(), // Lines added in working directory
+  deletions: z.number(), // Lines deleted in working directory
+  modifications: z.number(), // Files modified in working directory
+})
+
+// Workspace Status Response
+export const WorkspaceStatusResponseSchema = z.object({
+  status: z.enum(['not_setup', 'setting_up', 'idle', 'running']),
+  gitStatus: GitStatusSchema.optional(),
+  backgroundTaskCount: z.number(),
+})
+
+// ============================================
+// Query Schemas
+// ============================================
+
+// Pagination Query
+export const PaginationQuerySchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(20),
+  offset: z.coerce.number().min(0).default(0),
+})
+
+// Task List Query
+export const TaskListQuerySchema = PaginationQuerySchema.extend({
+  status: TaskStatusSchema.optional(),
+})
+
+// Event List Query
+export const EventListQuerySchema = PaginationQuerySchema.extend({
+  type: z.string().optional(),
+})
+
+// File Search Query
+export const FileSearchQuerySchema = z.object({
+  query: z.string(),
+  filePattern: z.string().optional(),
+  maxResults: z.number().min(1).max(1000).default(100),
+})
+
+// ============================================
+// Derived Types
+// ============================================
+
+export type TaskStatus = z.infer<typeof TaskStatusSchema>
+export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
+export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
+export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
+export type UploadFileResponse = z.infer<typeof UploadFileResponseSchema>
+export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>
+export type SimpleTaskResponse = z.infer<typeof SimpleTaskResponseSchema>
+export type SendMessageResponse = z.infer<typeof SendMessageResponseSchema>
+export type DeleteTaskResponse = z.infer<typeof DeleteTaskResponseSchema>
+export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>
+export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
+export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
+export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>
+export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
+export type GitChanges = z.infer<typeof GitChangesSchema>
+export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
+export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
+export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
+export type EventListQuery = z.infer<typeof EventListQuerySchema>
+export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
+
+// ============================================
+// Pagination Response Types
+// ============================================
+
+export interface PaginationInfo {
+  limit: number
+  offset: number
+  total?: number
+  hasMore?: boolean
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  pagination: PaginationInfo
+}
+
+// ============================================
+// Error Types
+// ============================================
+
+export interface BaseApiError {
+  code: string
+  message: string
+  details?: unknown
+}

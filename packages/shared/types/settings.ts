@@ -9,14 +9,8 @@ export interface ClaudeSettings {
   configDir?: string
 }
 
-export interface UpdateSettingsRequest {
-  dataDir?: string | null
-  defaultWorkspaceType?: 'docker' | 'local' | null
-  claude?: {
-    binDir?: string | null
-    configDir?: string | null
-  }
-}
+// Import UpdateSettingsRequest from schema
+export type { UpdateSettingsSchemaType as UpdateSettingsRequest } from '../schemas/settings.schemas.js'
 
 export interface SettingsResponse {
   settings: ApplicationSettings

@@ -147,10 +147,15 @@ export const FileSearchResponseSchema = z.object({
   totalMatches: z.number(),
 })
 
+export const GitDiffFileSchema = z.object({
+  oldFile: z.string().optional(),
+  newFile: z.string().optional(),
+  hunks: z.array(z.string()),
+})
+
 export const GitDiffResponseSchema = z.object({
-  diff: z.string(),
-  files: z.array(z.string()),
-  hasChanges: z.boolean(),
+  diff: z.string().optional(),
+  files: z.array(GitDiffFileSchema),
 })
 
 export const CommandResultSchema = z.object({
@@ -178,3 +183,54 @@ export const ServerLogsResponseExtendedSchema = z.object({
   lines: z.number(),
   truncated: z.boolean(),
 })
+
+// Additional schemas for task operations
+export const MergeTaskSchema = z.object({
+  targetBranch: z.string().optional().default('main'),
+  commitMessage: z.string().optional(),
+})
+
+export const MergeTaskResponseSchema = z.object({
+  success: z.boolean(),
+  mergeCommit: z.string(),
+  sourceBranch: z.string(),
+  targetBranch: z.string(),
+})
+
+export const GitStatusSchema = z.object({
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  hasUncommittedChanges: z.boolean(),
+  hasConflicts: z.boolean(),
+  status: z.string(),
+  commitsAhead: z.number(),
+  commitsBehind: z.number(),
+  originExists: z.boolean(),
+})
+
+// Derive types from schemas
+export type EventTypeQuery = z.infer<typeof EventTypeQuerySchema>
+export type FileQuery = z.infer<typeof FileQuerySchema>
+export type TaskFileSearch = z.infer<typeof TaskFileSearchSchema>
+export type CommandExecution = z.infer<typeof CommandExecutionSchema>
+export type ServerLogsQuery = z.infer<typeof ServerLogsQuerySchema>
+export type FileContent = z.infer<typeof FileContentSchema>
+export type TaskCommand = z.infer<typeof TaskCommandSchema>
+export type TaskIteration = z.infer<typeof TaskIterationSchema>
+export type TaskResponse = z.infer<typeof TaskResponseSchema>
+export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
+export type EventListResponse = z.infer<typeof EventListResponseSchema>
+export type CloseTaskResponse = z.infer<typeof CloseTaskResponseSchema>
+export type FileListResponse = z.infer<typeof FileListResponseSchema>
+export type FileContentResponse = z.infer<typeof FileContentResponseSchema>
+export type FileWriteResponse = z.infer<typeof FileWriteResponseSchema>
+export type FileSearchResponse = z.infer<typeof FileSearchResponseSchema>
+export type GitDiffResponse = z.infer<typeof GitDiffResponseSchema>
+export type CommandResult = z.infer<typeof CommandResultSchema>
+export type ServerStatus = z.infer<typeof ServerStatusSchema>
+export type ServerStopResponse = z.infer<typeof ServerStopResponseSchema>
+export type ServerLogsResponseExtended = z.infer<typeof ServerLogsResponseExtendedSchema>
+export type MergeTask = z.infer<typeof MergeTaskSchema>
+export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
+export type GitStatus = z.infer<typeof GitStatusSchema>
+export type GitDiffFile = z.infer<typeof GitDiffFileSchema>

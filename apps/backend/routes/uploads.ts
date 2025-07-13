@@ -8,6 +8,7 @@ import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { getDataDir } from '../utils/data-dir.js'
+import { getRequiredParam } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 
 // Response schemas
@@ -209,12 +210,8 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
       },
     }),
     async (c) => {
-      const uploadId = c.req.param('uploadId')
-      const filename = c.req.param('filename')
-
-      if (!uploadId || !filename || uploadId.trim() === '' || filename.trim() === '') {
-        throw new HTTPException(400, { message: 'Upload ID and filename are required' })
-      }
+      const uploadId = getRequiredParam(c, 'uploadId')
+      const filename = getRequiredParam(c, 'filename')
 
       try {
         const uploadDir = getUploadDir()

@@ -1,4 +1,6 @@
+export * from './api.schemas.js'
 export * from './command.schemas.js'
 export * from './repository.schemas.js'
 export * from './settings.schemas.js'
 export * from './task.schemas.js'
+export * from './workspace.schemas.js'
