@@ -1,3 +1,4 @@
+import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types/schemas'
 import type {
   Command,
   CreateCommandRequest,
@@ -20,6 +21,7 @@ import {
   SelectValue,
 } from '@/lib/components/ui/select'
 import { Textarea } from '@/lib/components/ui/textarea'
+import { useZodForm } from '@/lib/hooks/use-zod-form'
 
 interface CommandFormProps {
   command?: Command
@@ -66,6 +68,10 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
     variant: command?.variant || 'default',
   })
 
+  // Use the appropriate schema based on whether we're editing or creating
+  const schema = isEdit ? UpdateCommandSchema : CreateCommandSchema
+  const { errors, validate, clearErrors } = useZodForm({ schema })
+
   // Update form data when command prop changes
   useEffect(() => {
     if (command) {
@@ -80,32 +86,15 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
     }
   }, [command])
 
+  // Clear errors when form data changes
+  useEffect(() => {
+    clearErrors()
+  }, [formData, clearErrors])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!formData.name.trim()) {
-      toast.error('Please provide a command name')
-      return
-    }
-
-    if (!formData.description.trim()) {
-      toast.error('Please provide a command description')
-      return
-    }
-
-    if (!formData.prompt.trim()) {
-      toast.error('Please provide a command prompt')
-      return
-    }
-
-    // Validate command name format
-    if (!/^[a-zA-Z0-9_-]+$/.test(formData.name)) {
-      toast.error(
-        'Command name must contain only alphanumeric characters, hyphens, and underscores',
-      )
-      return
-    }
-
+    // Prepare data for validation
     const submitData: CreateCommandRequest | UpdateCommandRequest = {
       name: formData.name.trim(),
       description: formData.description.trim(),
@@ -123,7 +112,19 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
       submitData.variant = formData.variant
     }
 
-    onSubmit(submitData)
+    // Validate using schema
+    const result = validate(submitData)
+
+    if (!result.success) {
+      // Show first error as a toast
+      const firstError = result.error.errors[0]
+      if (firstError) {
+        toast.error(firstError.message)
+      }
+      return
+    }
+
+    onSubmit(result.data)
   }
 
   const handleCancel = () => {
@@ -150,8 +151,9 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="e.g., commit, test, build"
               disabled={isEdit}
-              className={isEdit ? 'bg-muted' : ''}
+              className={isEdit ? 'bg-muted' : errors.name ? 'border-destructive' : ''}
             />
+            {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
             <p className="text-sm text-muted-foreground">
               A unique identifier for the command. Use only letters, numbers, hyphens, and
               underscores.
@@ -166,7 +168,9 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="e.g., Commit the changes to the repository"
+              className={errors.description ? 'border-destructive' : ''}
             />
+            {errors.description && <p className="text-sm text-destructive">{errors.description}</p>}
             <p className="text-sm text-muted-foreground">
               A brief description of what this command does
             </p>
@@ -180,8 +184,9 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               onChange={(e) => setFormData({ ...formData, prompt: e.target.value })}
               placeholder="e.g., commit the relevant changes"
               rows={4}
-              className="font-mono text-sm"
+              className={`font-mono text-sm ${errors.prompt ? 'border-destructive' : ''}`}
             />
+            {errors.prompt && <p className="text-sm text-destructive">{errors.prompt}</p>}
             <p className="text-sm text-muted-foreground">
               The exact prompt that will be sent to the code agent when this command is selected
             </p>

@@ -69,7 +69,7 @@
   - Standardized file path validation using `extractFilePathFromWildcard`
   - Enhanced `validateRequestBody` usage across all routes
 
-### Priority 4: Missing Response Schemas (Partially Completed)
+### Priority 4: Missing Response Schemas ✅ COMPLETED
 **Problem**: Some API responses didn't have corresponding schemas.
 
 **Completed**:
@@ -77,12 +77,12 @@
 - ✅ Added schemas for task-related responses
 - ✅ Added schemas for workspace responses in `workspace.schemas.ts`
 - ✅ Added error response handling in centralized error handler
-
-**Remaining Actions**:
-- [ ] Create schema for global event stream responses
-- [ ] Create schema for upload endpoint responses
-- [ ] Add schemas for all error response types
-- [ ] Ensure all endpoints have typed responses
+- ✅ **NEW**: Created schema for global event stream responses (`EventStreamMessageSchema`)
+- ✅ **NEW**: Created schema for stream status endpoint (`StreamStatusResponseSchema`)
+- ✅ **NEW**: Updated upload endpoint to use existing `UploadFileResponseSchema`
+- ✅ **NEW**: Created error response schemas (matching TypeScript interfaces)
+- ✅ **NEW**: Created schema for sync-with-main endpoint (`SyncWorkspaceResponseSchema`)
+- ✅ **NEW**: Updated all routes to use shared schemas instead of inline definitions
 
 ## Future Improvements (Lower Priority)
 
@@ -213,26 +213,26 @@
 
 ## Frontend-Specific Action Items
 
-### Frontend Priority 1: Naming Consistency
+### Frontend Priority 1: Naming Consistency ✅ COMPLETED
 **Problem**: Inconsistent file naming (e.g., `settings.api.ts` vs `settings.ts`)
 
-**Actions**:
-- [ ] **IDENTIFIED**: Rename `settings.api.ts` to `settings.ts` for consistency
-- [ ] Ensure all API files follow `[feature].ts` pattern
-- [ ] Ensure all hook files follow `use-[feature].ts` pattern
-- [ ] Update all imports after renaming
+**Completed**:
+- ✅ Renamed `settings.api.ts` to `settings.ts` for consistency
+- ✅ Verified all API files follow `[feature].ts` pattern
+- ✅ Verified all hook files follow `use-[feature].ts` pattern
+- ✅ Updated all imports after renaming (2 files updated)
+- ✅ Type checks pass after changes
 
-**Status**: Ready for implementation (identified during current work)
-
-### Frontend Priority 2: Schema Usage in Forms
+### Frontend Priority 2: Schema Usage in Forms ✅ COMPLETED
 **Problem**: Limited use of schemas for form validation
 
-**Actions**:
-- [ ] Add schema validation to task creation forms
-- [ ] Add schema validation to command forms
-- [ ] Add schema validation to settings forms
-- [ ] Create reusable form components that use schemas
-- [ ] Document form validation patterns
+**Completed**:
+- ✅ Created reusable `useZodForm` hook for form validation with schemas
+- ✅ Added schema validation to command forms (using `CreateCommandSchema`/`UpdateCommandSchema`)
+- ✅ Added schema validation to repository forms (using `RepositoryConfigSchema`)
+- ✅ Added schema validation to task creation forms (using `CreateTaskRequestSchema`)
+- ✅ Implemented inline error display instead of toast-only notifications
+- ✅ Removed manual validation code in favor of schema validation
 
 ### Frontend Priority 3: Type Safety
 **Problem**: Some API responses not fully typed

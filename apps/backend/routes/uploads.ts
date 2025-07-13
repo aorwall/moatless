@@ -1,26 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { UploadFileResponseSchema } from '@moatless/types/schemas'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
-import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { getRequiredParam } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
-
-// Response schemas
-const uploadResponseSchema = z.object({
-  id: z.string(),
-  filename: z.string(),
-  path: z.string(),
-  absolutePath: z.string(),
-  size: z.number(),
-  mimeType: z.string(),
-  uploadedAt: z.string(),
-})
 
 export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: string) {
   // Get the upload directory from env or use default
@@ -62,7 +51,7 @@ export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: strin
           description: 'File uploaded successfully',
           content: {
             'application/json': {
-              schema: resolver(uploadResponseSchema),
+              schema: resolver(UploadFileResponseSchema),
             },
           },
         },

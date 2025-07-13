@@ -1,6 +1,8 @@
 import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
+import { CreateTaskRequestSchema } from '@moatless/types/schemas'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { RepositorySelector } from '@/features/tasks/components/chat-input/repository-selector'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
@@ -14,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
+import { useZodForm } from '@/lib/hooks/use-zod-form'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function CreateTaskForm() {
@@ -24,6 +27,9 @@ export function CreateTaskForm() {
   const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList()
 
   const { data: branches, isLoading: branchesLoading } = useBranches(selectedRepositoryId)
+
+  // Use schema validation
+  const { errors, validate } = useZodForm({ schema: CreateTaskRequestSchema })
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
@@ -37,17 +43,27 @@ export function CreateTaskForm() {
   }
 
   const handleCreateTask = () => {
-    if (!selectedRepositoryId) {
-      return
-    }
-
-    createTask.mutate({
+    const taskData = {
       agentType: 'claude-code',
       message: '',
       repositoryId: selectedRepositoryId,
       branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
       model: DEFAULT_CLAUDE_MODEL, // Use default model for now
-    })
+    }
+
+    // Validate using schema
+    const result = validate(taskData)
+
+    if (!result.success) {
+      // Show first error as a toast
+      const firstError = result.error.errors[0]
+      if (firstError) {
+        toast.error(firstError.message)
+      }
+      return
+    }
+
+    createTask.mutate(result.data)
   }
 
   return (
@@ -66,6 +82,7 @@ export function CreateTaskForm() {
             selectedRepositoryId={selectedRepositoryId}
             onRepositoryChange={handleRepositoryChange}
           />
+          {errors.repositoryId && <p className="text-sm text-destructive">{errors.repositoryId}</p>}
         </div>
 
         {selectedRepositoryId && (

@@ -8,6 +8,7 @@ interface LocalRepositoryConfigProps {
   useGitWorktrees: boolean
   onPathChange: (path: string) => void
   onUseGitWorktreesChange: (useGitWorktrees: boolean) => void
+  pathError?: string
 }
 
 export function LocalRepositoryConfig({
@@ -15,6 +16,7 @@ export function LocalRepositoryConfig({
   useGitWorktrees,
   onPathChange,
   onUseGitWorktreesChange,
+  pathError,
 }: LocalRepositoryConfigProps) {
   const pathId = useId()
   const worktreesId = useId()
@@ -29,7 +31,9 @@ export function LocalRepositoryConfig({
           onChange={(e) => onPathChange(e.target.value)}
           placeholder="/path/to/local/repository"
           required
+          className={pathError ? 'border-destructive' : ''}
         />
+        {pathError && <p className="text-sm text-destructive mt-1">{pathError}</p>}
         <p className="text-sm text-muted-foreground mt-1">
           Absolute path to the local repository directory
         </p>

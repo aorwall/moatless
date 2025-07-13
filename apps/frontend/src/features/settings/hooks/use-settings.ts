@@ -1,6 +1,6 @@
 import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { settingsApi } from '../api/settings.api'
+import { settingsApi } from '../api/settings'
 
 export function useSettings() {
   return useQuery<SettingsResponse>({
