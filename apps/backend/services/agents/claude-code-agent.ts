@@ -2,6 +2,10 @@ import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/shared/types/claude'
 import type { BranchNameAndSummary } from '@moatless/shared/types/claude-code'
 import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
+import {
+  CLAUDE_CODE_SYSTEM_PROMPTS,
+  createBranchNamePrompt,
+} from '../../utils/claude-code-prompts.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
 import { logger } from '../../utils/logger.js'
@@ -268,19 +272,21 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Override options for this specific task
       const branchNameOptions: ClaudeCodeOptions = {
         ...sdkOptions,
-        appendSystemPrompt:
-          "You're task is to determine a good branch name for the users request. YOU MUST respond with ONLY a JSON object with the format {branchName: string, summary?: string}",
+        customSystemPrompt: CLAUDE_CODE_SYSTEM_PROMPTS.BRANCH_NAME_GENERATION,
         maxTurns: 1,
         allowedTools: [],
         model: sdkOptions.model || 'claude-sonnet-4',
       }
+
+      // Create the formatted prompt with the user's request
+      const formattedPrompt = createBranchNamePrompt(message)
 
       const abortController = new AbortController()
       let responseText = ''
 
       // Use the SDK query function with branch name specific options
       for await (const sdkMessage of query({
-        prompt: message,
+        prompt: formattedPrompt,
         abortController,
         options: branchNameOptions,
       })) {
