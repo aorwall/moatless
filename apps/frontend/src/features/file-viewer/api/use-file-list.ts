@@ -1,3 +1,4 @@
+import type { FileListResponse } from '@moatless/types'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -6,11 +7,6 @@ interface FileListParams {
   taskId: string
   path?: string
   recursive?: boolean
-}
-
-interface FileListResponse {
-  files: string[]
-  totalCount: number
 }
 
 export function useFileList({ taskId, path = '/', recursive = false }: FileListParams) {

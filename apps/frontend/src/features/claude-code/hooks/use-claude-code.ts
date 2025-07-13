@@ -2,7 +2,13 @@ import type {
   ClaudeCodeSettingsResponse,
   UpdateClaudeCodeSettingsRequest,
 } from '@moatless/types/types/claude-code'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
+import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 
 import { claudeCodeApi } from '../api/claude-code'
@@ -21,40 +27,38 @@ export const useClaudeCodeTools = () => {
   })
 }
 
-interface UpdateSettingsOptions {
-  onSuccess?: (data: ClaudeCodeSettingsResponse) => void
-  onError?: (error: Error) => void
-}
-
-export const useUpdateClaudeCodeSettings = (options?: UpdateSettingsOptions) => {
+export const useUpdateClaudeCodeSettings = (
+  options?: UseMutationOptions<
+    ClaudeCodeSettingsResponse,
+    ApiError,
+    UpdateClaudeCodeSettingsRequest
+  >,
+) => {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<ClaudeCodeSettingsResponse, ApiError, UpdateClaudeCodeSettingsRequest>({
     mutationFn: (request: UpdateClaudeCodeSettingsRequest) => claudeCodeApi.updateSettings(request),
-    onSuccess: (data) => {
+    onSuccess: (data, variables, context) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.claudeCode.settings(),
       })
-      options?.onSuccess?.(data)
+      options?.onSuccess?.(data, variables, context)
     },
-    onError: options?.onError,
+    ...options,
   })
 }
 
-export const useDeleteClaudeCodeSettings = (options?: {
-  onSuccess?: () => void
-  onError?: (error: Error) => void
-}) => {
+export const useDeleteClaudeCodeSettings = (options?: UseMutationOptions<void, ApiError, void>) => {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<void, ApiError, void>({
     mutationFn: claudeCodeApi.deleteSettings,
-    onSuccess: () => {
+    onSuccess: (data, variables, context) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.claudeCode.settings(),
       })
-      options?.onSuccess?.()
+      options?.onSuccess?.(data, variables, context)
     },
-    onError: options?.onError,
+    ...options,
   })
 }

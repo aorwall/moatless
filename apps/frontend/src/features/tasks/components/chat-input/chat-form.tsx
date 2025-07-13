@@ -1,6 +1,7 @@
 import type { UploadFileResponse } from '@moatless/types/types/api'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { Button } from '@/lib/components/ui/button'
@@ -12,6 +13,7 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete'
+import { getErrorMessage } from '@/lib/utils/error'
 
 interface ChatFormProps {
   // Core functionality
@@ -89,7 +91,9 @@ export function ChatForm({
     },
     onError: (error) => {
       console.error('File upload failed:', error)
-      // TODO: Show error toast/notification
+      toast.error('Failed to upload file', {
+        description: getErrorMessage(error),
+      })
     },
   })
 

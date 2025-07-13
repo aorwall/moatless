@@ -1,11 +1,7 @@
+import type { FileContentResponse } from '@moatless/types'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
-
-interface FileContentResponse {
-  content: string
-  encoding: 'utf-8'
-}
 
 export function useFileContent(taskId: string, filePath: string) {
   return useQuery<FileContentResponse>({

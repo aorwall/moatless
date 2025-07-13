@@ -23,7 +23,9 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
 
   const tree = useMemo(() => {
     if (!data?.files) return []
-    return buildTreeStructure(data.files)
+    // Extract file paths from the objects
+    const filePaths = data.files.map((file) => file.path)
+    return buildTreeStructure(filePaths)
   }, [data?.files])
 
   const handleFileSelect = (path: string) => {
@@ -77,6 +79,7 @@ function TreeNode({
     return (
       <div>
         <button
+          type="button"
           onClick={() => onFileSelect(item.path)}
           className={cn(
             'w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap',
@@ -94,7 +97,10 @@ function TreeNode({
     <div>
       <Collapsible>
         <CollapsibleTrigger asChild>
-          <button className="w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap">
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap"
+          >
             <ChevronRight className="h-4 w-4 flex-shrink-0 transition-transform data-[state=open]:rotate-90" />
             <Folder className="h-4 w-4 flex-shrink-0" />
             <span className="text-left">{item.name}</span>

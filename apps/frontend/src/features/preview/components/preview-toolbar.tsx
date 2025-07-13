@@ -22,6 +22,7 @@ import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/utils/error'
 import { usePreview } from '../hooks/use-preview'
 import { ScriptHealthIndicator } from './script-health-indicator'
 
@@ -67,7 +68,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
     },
     onError: (error) => {
       toast.error('Failed to start preview environment server', {
-        description: error.message,
+        description: getErrorMessage(error),
       })
     },
   })
@@ -77,7 +78,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
     },
     onError: (error) => {
       toast.error('Failed to stop preview environment server', {
-        description: error.message,
+        description: getErrorMessage(error),
       })
     },
   })
@@ -93,7 +94,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
     },
     onError: (error) => {
       toast.error('Failed to restart preview environment server', {
-        description: error.message,
+        description: getErrorMessage(error),
       })
     },
   })

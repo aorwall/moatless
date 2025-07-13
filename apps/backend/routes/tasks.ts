@@ -769,7 +769,14 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const files = await services.workspace.listFiles(taskId, path, recursive)
+        const filePaths = await services.workspace.listFiles(taskId, path, recursive)
+        // Transform string paths to match the schema
+        const files = filePaths.map((filePath) => ({
+          name: filePath.split('/').pop() || filePath,
+          path: filePath,
+          type: filePath.endsWith('/') ? 'directory' : ('file' as const),
+          size: undefined, // Size not available from listFiles
+        }))
         return c.json({ files, totalCount: files.length })
       } catch (error) {
         handleServiceError(error, 'List files')

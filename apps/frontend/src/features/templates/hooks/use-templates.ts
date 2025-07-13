@@ -1,6 +1,6 @@
 import type { CreateVibeTaskRequest } from '@moatless/types/types/api'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { apiClient } from '@/lib/api/client'
+import { type UseMutationOptions, useMutation, useQuery } from '@tanstack/react-query'
+import { type ApiError, apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { RepositoryTemplate } from '../types'
 
@@ -36,15 +36,15 @@ export function useTemplatesList(options?: { enabled?: boolean }) {
   })
 }
 
-export function useCreateVibeTask(options?: {
-  onSuccess?: (data: { taskId: string; status: string }) => void
-  onError?: (error: Error) => void
-}) {
-  return useMutation({
+type CreateVibeTaskResponse = { taskId: string; status: string }
+
+export function useCreateVibeTask(
+  options?: UseMutationOptions<CreateVibeTaskResponse, ApiError, CreateVibeTaskRequest>,
+) {
+  return useMutation<CreateVibeTaskResponse, ApiError, CreateVibeTaskRequest>({
     mutationFn: async (request: CreateVibeTaskRequest) => {
-      return await apiClient.post<{ taskId: string; status: string }>('/api/v1/tasks/vibe', request)
+      return await apiClient.post<CreateVibeTaskResponse>('/api/v1/tasks/vibe', request)
     },
-    onSuccess: options?.onSuccess,
-    onError: options?.onError,
+    ...options,
   })
 }

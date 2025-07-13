@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiClient } from '@/lib/api/client'
+import { type UseMutationOptions, useMutation, useQueryClient } from '@tanstack/react-query'
+import { type ApiError, apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 
 interface SyncWorkspaceRequest {
@@ -26,21 +26,20 @@ async function syncWorkspace({
   return await apiClient.post<SyncWorkspaceResponse>(url)
 }
 
-export function useSyncWorkspace(options?: {
-  onSuccess?: (data: SyncWorkspaceResponse) => void
-  onError?: (error: Error) => void
-}) {
+export function useSyncWorkspace(
+  options?: UseMutationOptions<SyncWorkspaceResponse, ApiError, SyncWorkspaceRequest>,
+) {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<SyncWorkspaceResponse, ApiError, SyncWorkspaceRequest>({
     mutationFn: syncWorkspace,
-    onSuccess: (data, variables) => {
+    onSuccess: (data, variables, context) => {
       // Invalidate workspace status and git status queries
       queryClient.invalidateQueries({ queryKey: queryKeys.taskWorkspaceStatus(variables.taskId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.task(variables.taskId) })
 
-      options?.onSuccess?.(data)
+      options?.onSuccess?.(data, variables, context)
     },
-    onError: options?.onError,
+    ...options,
   })
 }
