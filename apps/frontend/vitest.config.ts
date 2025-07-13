@@ -9,7 +9,13 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: [path.resolve(__dirname, './src/test-utils/setup.ts')],
-    include: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.{ts,tsx}'],
+    include: [
+      'src/**/*.test.{ts,tsx}',
+      'src/**/*.unit.test.{ts,tsx}',
+      'src/**/*.integration.test.{ts,tsx}',
+      'src/**/*.e2e.test.{ts,tsx}',
+      'src/**/__tests__/**/*.{ts,tsx}',
+    ],
     exclude: ['**/test-helpers.ts', '**/test-helpers.tsx', '**/node_modules/**'],
     coverage: {
       include: ['src/**/*.{ts,tsx}'],

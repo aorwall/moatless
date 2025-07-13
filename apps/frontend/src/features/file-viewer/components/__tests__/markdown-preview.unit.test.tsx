@@ -461,7 +461,7 @@ print("hello")
     })
   })
 
-  describe.skip('Mermaid Diagram Expansion', () => {
+  describe.skip('Mermaid Diagram Expansion - FIXME: Mermaid rendering timing issues in tests (TASK-103)', () => {
     it('should make mermaid diagrams clickable', async () => {
       const content = `
 \`\`\`mermaid

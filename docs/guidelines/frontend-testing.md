@@ -92,31 +92,32 @@ feature/
 
 Use specific naming patterns to control which tests run in different scenarios:
 
-**Unit Tests (Fast)** - Run with `pnpm test:fast`:
-- `*.test.ts` - Standard unit tests
-- `*.test.tsx` - Component unit tests
+**Unit Tests (Fast)** - Run with `pnpm test:unit`:
+- `*.unit.test.ts` - Unit tests for hooks, utilities, and services
+- `*.unit.test.tsx` - Unit tests for React components
 
-**Integration Tests (Slower)** - Excluded from fast tests:
-- `*.integration.test.ts` - Integration tests
-- `*.integration.test.tsx` - Component integration tests
+**Integration Tests (Moderate)** - Run with `pnpm test:integration`:
+- `*.integration.test.ts` - Integration tests for services and APIs
+- `*.integration.test.tsx` - Integration tests for React components and routes
 - `*connection*.test.{ts,tsx}` - Network/WebSocket tests
-- `global-event-stream-provider.test.tsx` - Specific integration test
 
 **E2E Tests (Slowest)** - Run separately:
 - `*.e2e.test.ts` - End-to-end tests
 - `*.e2e.test.tsx` - Full user journey tests
 
 **Memory-Heavy Tests** - Run with increased memory:
-- `markdown-preview.test.tsx` - Large DOM tests
-- `preview-integration.test.tsx` - Heavy integration tests
+- Specific tests that require more memory are handled in test:memory-heavy
 
 **Test Commands**:
 ```bash
-pnpm test:fast      # Only unit tests (fastest)
-pnpm test:unit      # Same as test:fast
+pnpm test           # Standard test run (all tests)
+pnpm test:unit      # Only unit tests (fastest)
 pnpm test:integration # Only integration tests
-pnpm test:all       # All tests except E2E
-pnpm test           # Standard test run (excludes some slow tests)
+pnpm test:fast      # Alias for test:unit (git hooks)
+pnpm test:all       # All tests in sequence
+pnpm test:e2e       # End-to-end tests (when implemented)
+pnpm test:ui        # Run tests with Vitest UI
+pnpm test:coverage  # Run tests with coverage report
 ```
 
 ### Key Testing Principles
@@ -682,27 +683,59 @@ export function renderWithProviders(
 ```
 
 ### Centralized Mock Utilities
-```typescript
-// src/test-utils/mocks/selectors.tsx
-export const mockGenericSelector = () => ({
-  GenericSelector: ({ value, items, testId }: any) => {
-    const item = items?.find((i: any) => i.id === value)
-    return (
-      <div data-testid={testId}>
-        {item ? <span>{item.label}</span> : null}
-      </div>
-    )
-  },
-  useRepositorySelector: vi.fn(),
-  useModelSelector: vi.fn(),
-  useBranchSelector: vi.fn(),
-  useTemplateSelector: vi.fn(),
-})
 
-// Usage in tests
-vi.mock('@/features/tasks/components/chat-input/selectors', () => 
-  mockGenericSelector()
-)
+The project provides centralized mock utilities in `src/test-utils/mocks/` for consistent testing patterns:
+
+#### API Hook Mocks
+```typescript
+import { createMockQuery, createMockLoadingQuery, createMockErrorQuery } from '@/test-utils/mocks'
+
+// Mock successful data fetch
+vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
+
+// Mock loading state
+vi.mocked(useTask).mockReturnValue(createMockLoadingQuery())
+
+// Mock error state
+vi.mocked(useTask).mockReturnValue(createMockErrorQuery(new Error('Failed to fetch')))
+```
+
+#### SSE/WebSocket Mocks
+```typescript
+import { createMockSSEConnection } from '@/test-utils/mocks'
+
+const { mockEventSource, EventSourceSpy, restore } = createMockSSEConnection()
+
+// Simulate connection
+mockEventSource.triggerOpen()
+
+// Simulate data
+mockEventSource.simulateData({ type: 'update', data: 'test' })
+
+// Clean up
+afterEach(() => restore())
+```
+
+#### UI Library Mocks
+```typescript
+import { mockResizableComponents, mockDialogComponents } from '@/test-utils/mocks'
+
+// Mock complex UI components
+vi.mock('@/lib/components/ui/resizable', () => mockResizableComponents)
+vi.mock('@/lib/components/ui/dialog', () => mockDialogComponents)
+```
+
+#### Provider Wrappers
+```typescript
+import { createQueryWrapper, createAllProvidersWrapper } from '@/test-utils/mocks'
+
+// Use for tests that need React Query
+const { wrapper } = createQueryWrapper()
+render(<Component />, { wrapper })
+
+// Use for tests that need multiple providers
+const wrapper = createAllProvidersWrapper([CustomProvider])
+render(<Component />, { wrapper })
 ```
 
 ### Component Test Helpers
@@ -740,15 +773,17 @@ export class ChatInputTester {
 
 ### Core Principles
 
-1. **Test File Naming**: Use `.test.ts` or `.test.tsx` extensions
+1. **Test File Naming**: Use `*.unit.test.{ts,tsx}` for unit tests, `*.integration.test.{ts,tsx}` for integration tests
 2. **Test Organization**: Group related tests using `describe` blocks
 3. **Test Focus**: Test behavior, not implementation details
 4. **Integration First**: Prefer integration tests for routes and complex features
 5. **Strategic Mocking**: Mock only external dependencies and complex infrastructure
-6. **Test Coverage**: Aim for >80% coverage on critical paths
-7. **Error States**: Always test error handling and edge cases
-8. **Async Testing**: Use `waitFor` for async operations
-9. **User Interactions**: Use `@testing-library/user-event` for simulating user actions
+6. **Use Centralized Mocks**: Import from `@/test-utils/mocks` for consistency
+7. **Test Coverage**: Aim for >80% coverage on critical paths
+8. **Error States**: Always test error handling and edge cases
+9. **Async Testing**: Use `waitFor` for async operations
+10. **User Interactions**: Use `@testing-library/user-event` for simulating user actions
+11. **Document Skipped Tests**: Use `it.skip('description - FIXME: reason (TICKET-123)')` format
 
 ### What NOT to Test
 
@@ -1771,3 +1806,87 @@ const task = createMockTask({
   status: 'completed',
 });
 ```
+
+## Test Quality Standards
+
+### Meaningful Tests Only
+- **No placeholder tests**: Remove or implement tests with `expect(true).toBe(true)`
+- **Document skipped tests**: Always include FIXME comment with ticket number
+- **Test real behavior**: Verify actual functionality, not just rendering
+
+### Test Performance Tiers
+Tests are categorized by performance to optimize development workflow:
+
+**FAST Tests (<200ms)** - `pnpm test:unit`
+- Pure unit tests with mocked dependencies
+- No file system operations
+- No network calls
+- Used in git hooks for rapid feedback
+
+**MODERATE Tests (200ms-2s)** - `pnpm test:integration`
+- Integration tests with real component hierarchies
+- May include file system operations
+- Strategic mocking of external dependencies
+
+**SLOW Tests (>2s)** - `pnpm test:e2e`
+- End-to-end tests with real servers
+- Full user journey testing
+- Browser automation tests
+
+### Common Testing Patterns
+
+#### Testing Task Features
+```typescript
+// Unit test for hook
+describe('useTask', () => {
+  it('fetches task data on mount', () => {
+    const { result } = renderHook(() => useTask('task-123'))
+    expect(result.current.isLoading).toBe(true)
+  })
+})
+
+// Integration test for route
+describe('TaskDetail Route', () => {
+  it('displays task data through component hierarchy', () => {
+    vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
+    render(<TaskDetail />)
+    expect(screen.getByText(taskData.title)).toBeInTheDocument()
+  })
+})
+```
+
+#### Testing Real-time Features
+```typescript
+import { createMockSSEConnection } from '@/test-utils/mocks'
+
+it('updates UI when SSE message received', async () => {
+  const { mockEventSource } = createMockSSEConnection()
+  render(<EventViewer />)
+  
+  // Simulate SSE message
+  act(() => {
+    mockEventSource.simulateData({ type: 'task:updated', data: newData })
+  })
+  
+  await waitFor(() => {
+    expect(screen.getByText(newData.status)).toBeInTheDocument()
+  })
+})
+```
+
+### Test Maintenance
+
+#### Regular Cleanup Tasks
+1. **Remove obsolete tests**: Delete tests for removed features
+2. **Update mock data**: Keep mock factories current with API changes
+3. **Fix flaky tests**: Investigate and fix intermittent failures
+4. **Improve coverage**: Add tests for uncovered critical paths
+
+#### Test Review Checklist
+- [ ] Tests use proper naming convention (*.unit.test.tsx or *.integration.test.tsx)
+- [ ] No meaningless assertions (expect(true).toBe(true))
+- [ ] Skipped tests have FIXME comments with ticket numbers
+- [ ] Tests use centralized mocks from @/test-utils/mocks
+- [ ] Integration tests verify real component interactions
+- [ ] Error states and edge cases are tested
+- [ ] Tests run in reasonable time for their category

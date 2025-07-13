@@ -62,7 +62,10 @@ describe('Final Verification - All Bad Signs Fixed', () => {
       rerender(<TestComponent condition={true} />)
 
       // If we get here without throwing, hooks order is correct
-      expect(true).toBe(true)
+      // The test passes when React doesn't throw hooks order violations
+      expect(() => {
+        rerender(<TestComponent condition={false} />)
+      }).not.toThrow()
     })
 
     it('should have consistent render counts (no infinite loops)', () => {

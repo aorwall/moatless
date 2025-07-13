@@ -10,10 +10,10 @@
     "preview": "vite preview",
     "type:check": "tsc --noEmit",
     "test": "NODE_OPTIONS='--max-old-space-size=16384' vitest run",
-    "test:unit": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --exclude='**/*connection*.test.{ts,tsx}' --exclude='**/global-event-stream-provider.test.tsx' --exclude='**/markdown-preview.test.tsx'",
-    "test:integration": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/*.integration.test.{ts,tsx}' '**/global-event-stream-provider.test.tsx' '**/*connection*.test.{ts,tsx}'",
+    "test:unit": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --exclude='**/*connection*.test.{ts,tsx}' --exclude='**/global-event-stream-provider.integration.test.tsx' --exclude='**/markdown-preview.unit.test.tsx'",
+    "test:integration": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/*.integration.test.{ts,tsx}' '**/global-event-stream-provider.integration.test.tsx' '**/*connection*.test.{ts,tsx}'",
     "test:fast": "pnpm run test:unit",
-    "test:memory-heavy": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/markdown-preview.test.tsx' '**/preview-integration.test.tsx'",
+    "test:memory-heavy": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/markdown-preview.unit.test.tsx' '**/preview-integration.test.tsx'",
     "test:all": "pnpm run test:unit && pnpm run test:integration && pnpm run test:memory-heavy",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage run"

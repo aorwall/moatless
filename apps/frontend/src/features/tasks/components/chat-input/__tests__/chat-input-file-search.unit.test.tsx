@@ -127,7 +127,7 @@ describe('ChatInput file search functionality', () => {
     } as any)
   })
 
-  it.skip('should use repository search when in homepage context (no taskId)', async () => {
+  it.skip('should use repository search when in homepage context (no taskId) - FIXME: Autocomplete component testing issues (TASK-101)', async () => {
     const user = userEvent.setup()
     const repositoryId = 'repo-123'
 
@@ -191,7 +191,7 @@ describe('ChatInput file search functionality', () => {
     )
   })
 
-  it.skip('should use task search when in task context with repositoryId', async () => {
+  it.skip('should use task search when in task context with repositoryId - FIXME: Autocomplete component testing issues (TASK-101)', async () => {
     const user = userEvent.setup()
     const taskId = 'task-123'
     const repositoryId = 'repo-456'
@@ -246,7 +246,7 @@ describe('ChatInput file search functionality', () => {
     )
   })
 
-  it.skip('should show autocomplete results when search returns data', async () => {
+  it.skip('should show autocomplete results when search returns data - FIXME: Autocomplete component testing issues (TASK-101)', async () => {
     const user = userEvent.setup()
     const taskId = 'task-123'
     const repositoryId = 'repo-456'
@@ -285,7 +285,7 @@ describe('ChatInput file search functionality', () => {
     })
   })
 
-  it.skip('should fail to search files when repositoryId is missing in task context', async () => {
+  it.skip('should fail to search files when repositoryId is missing in task context - FIXME: Autocomplete component testing issues (TASK-101)', async () => {
     const user = userEvent.setup()
     const taskId = 'task-123'
 
@@ -323,7 +323,7 @@ describe('ChatInput file search functionality', () => {
     })
   })
 
-  it.skip('should complete file path when selecting from autocomplete', async () => {
+  it.skip('should complete file path when selecting from autocomplete - FIXME: Autocomplete component testing issues (TASK-101)', async () => {
     const user = userEvent.setup()
     const taskId = 'task-123'
     const repositoryId = 'repo-456'

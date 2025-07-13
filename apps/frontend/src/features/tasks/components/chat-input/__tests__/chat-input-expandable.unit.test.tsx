@@ -313,7 +313,7 @@ describe('ChatInput - Expandable Textarea', () => {
   })
 
   describe('Multiline input handling', () => {
-    it.skip('should allow multiline input with Shift+Enter', async () => {
+    it.skip('should allow multiline input with Shift+Enter - FIXME: Keyboard event simulation issues (TASK-102)', async () => {
       const user = userEvent.setup()
       renderWithProviders(<ChatInput taskId="test-task" onSendMessage={vi.fn()} />)
 
@@ -326,7 +326,7 @@ describe('ChatInput - Expandable Textarea', () => {
       expect(textarea.value).toBe('Line 1\nLine 2')
     })
 
-    it.skip('should submit on Enter without Shift', async () => {
+    it.skip('should submit on Enter without Shift - FIXME: Keyboard event simulation issues (TASK-102)', async () => {
       const user = userEvent.setup()
       const onCreateTask = vi.fn()
 

@@ -124,7 +124,7 @@ describe('ChatView Hooks Violations Regression Tests', () => {
 
     // The component should render without throwing React hooks violations
     // If hooks were called conditionally, React would throw an error about hook order
-    expect(true).toBe(true) // Test passes if no hooks errors are thrown
+    expect(screen.getByText('Loading...')).toBeInTheDocument() // Verify component is rendering
   })
 
   it('should call stable callbacks without causing infinite re-renders', () => {
