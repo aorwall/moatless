@@ -190,11 +190,13 @@ export function ChatForm({
     const items = e.clipboardData?.items
     if (!items) return
 
-    // Check for image in clipboard
+    // Check for image in clipboard first
+    let hasImage = false
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
 
       if (item.type.indexOf('image') !== -1) {
+        hasImage = true
         e.preventDefault() // Prevent default paste behavior for images
 
         const blob = item.getAsFile()
@@ -218,6 +220,12 @@ export function ChatForm({
         }
         break // Only handle the first image
       }
+    }
+
+    // If no image was found, allow normal text paste behavior
+    if (!hasImage) {
+      // Let the browser handle normal text paste - don't prevent default
+      return
     }
   }
 
