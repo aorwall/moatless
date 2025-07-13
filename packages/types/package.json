@@ -57,10 +57,10 @@
     "type:check": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.33",
     "zod": "^3.25.61"
   },
   "devDependencies": {
-    "@anthropic-ai/claude-code": "^1.0.33",
     "typescript": "^5.7.2",
     "vitest": "^3.2.3"
   }

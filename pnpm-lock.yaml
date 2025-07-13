@@ -350,13 +350,13 @@ importers:
 
   packages/types:
     dependencies:
+      '@anthropic-ai/claude-code':
+        specifier: ^1.0.33
+        version: 1.0.33
       zod:
         specifier: ^3.25.61
         version: 3.25.61
     devDependencies:
-      '@anthropic-ai/claude-code':
-        specifier: ^1.0.33
-        version: 1.0.33
       typescript:
         specifier: ^5.7.2
         version: 5.8.3
