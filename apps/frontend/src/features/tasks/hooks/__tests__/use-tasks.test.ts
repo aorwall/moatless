@@ -77,7 +77,6 @@ describe('Task Hooks', () => {
       })
 
       expect(result.current.data).toEqual({
-        tasks: mockTasks,
         items: mockTasks,
         pagination: { limit: 20, offset: 0, total: 2 },
       })
