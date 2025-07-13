@@ -1,7 +1,10 @@
 import { useParams } from '@tanstack/react-router'
+import { ArrowDown } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import { useServerLogs } from '@/features/preview'
+import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
+import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -11,11 +14,14 @@ export function ServerLogsViewer() {
   const selectedTaskId = params.taskId
   const { data: response, isLoading, error } = useServerLogs(selectedTaskId || '')
   const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const shouldAutoScroll = useRef(true)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when new logs arrive
+  // Use scroll manager for scroll detection and auto-scroll behavior
+  const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef: scrollAreaRef, bottomRef })
+
+  // Auto-scroll to bottom when new logs arrive, but only if user is at bottom
   useEffect(() => {
-    if (response?.logs && shouldAutoScroll.current && scrollAreaRef.current) {
+    if (response?.logs && isAtBottom && scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current.querySelector(
         '[data-radix-scroll-area-viewport]',
       )
@@ -23,7 +29,7 @@ export function ServerLogsViewer() {
         scrollContainer.scrollTop = scrollContainer.scrollHeight
       }
     }
-  }, [response?.logs])
+  }, [response?.logs, isAtBottom])
 
   if (!selectedTaskId) {
     return null
@@ -54,22 +60,31 @@ export function ServerLogsViewer() {
     )
   }
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const element = e.currentTarget
-    const isAtBottom =
-      Math.abs(element.scrollHeight - element.scrollTop - element.clientHeight) < 10
-    shouldAutoScroll.current = isAtBottom
-  }
-
   return (
-    <div className="h-full w-full bg-background border rounded-md">
-      <ScrollArea ref={scrollAreaRef} className="h-full w-full" onScroll={handleScroll}>
+    <div className="h-full w-full bg-background border rounded-md relative">
+      <ScrollArea ref={scrollAreaRef} className="h-full w-full">
         <div className="p-4">
           <pre className="text-xs leading-relaxed text-foreground font-mono whitespace-pre-wrap break-all">
             {logContent}
           </pre>
+          <div ref={bottomRef} />
         </div>
       </ScrollArea>
+
+      {/* Scroll to bottom indicator */}
+      {!isAtBottom && (
+        <div className="absolute bottom-4 right-4 z-10">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={scrollToBottom}
+            className="shadow-lg bg-background/80 backdrop-blur-sm border-border/50 hover:bg-background/90 flex items-center gap-2"
+          >
+            <ArrowDown className="h-4 w-4" />
+            Scroll to bottom
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
