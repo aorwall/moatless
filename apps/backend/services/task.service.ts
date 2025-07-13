@@ -664,7 +664,8 @@ export class TaskService {
 
     // Get workspace status to check for uncommitted changes
     const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
-    const workspaceHasChanges = (workspaceStatus as any).gitStatus?.hasUncommittedChanges || false
+    const gitStatus = (workspaceStatus as any).gitStatus
+    const workspaceHasChanges = gitStatus?.hasUncommittedChanges || false
 
     // Get last iteration
     const lastIteration =
@@ -677,6 +678,7 @@ export class TaskService {
       task,
       lastIteration,
       workspaceHasChanges,
+      gitStatus,
     }
 
     return filterAvailableCommands(allCommands, context)

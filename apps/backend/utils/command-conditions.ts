@@ -14,6 +14,7 @@ interface CommandAvailabilityContext {
   task?: Task
   lastIteration?: TaskIteration
   workspaceHasChanges?: boolean
+  gitStatus?: import('@moatless/shared/types/api').GitStatus
 }
 
 // Debug logging flag - set to true to enable detailed command filtering logs
@@ -193,8 +194,8 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
   }
 
   const { conditions } = command
-  const { task, lastIteration, workspaceHasChanges } = context
-  const gitSyncStatus = lastIteration?.gitStatus
+  const { task, lastIteration, workspaceHasChanges, gitStatus } = context
+  const gitSyncStatus = gitStatus
 
   // All non-git conditions must pass (AND logic)
   const taskConditionsPassed = checkTaskConditions(conditions, task)

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { GitStatus } from '@moatless/shared/types/api'
+import type { GitChanges, GitStatus } from '@moatless/shared/types/api'
 import { EventType } from '@moatless/shared/types/event'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import {
@@ -340,6 +340,11 @@ export class DockerWorkspace extends BaseWorkspace {
   async getGitStatus(): Promise<GitStatus> {
     // Delegate to local workspace for consistent git operations
     return this.localWorkspace.getGitStatus()
+  }
+
+  async getGitChanges(): Promise<GitChanges> {
+    // Delegate to local workspace for consistent git operations
+    return this.localWorkspace.getGitChanges()
   }
 
   async runCommand(command: string, timeout?: number): Promise<CommandResult> {

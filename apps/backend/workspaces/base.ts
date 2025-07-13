@@ -1,4 +1,4 @@
-import type { GitStatus } from '@moatless/shared/types/api'
+import type { GitChanges, GitStatus } from '@moatless/shared/types/api'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 import type { CommandResult, Workspace, WorkspaceStatus } from '@moatless/shared/types/workspace'
 import type { EventService } from '../services/event.service.js'
@@ -154,4 +154,9 @@ export abstract class BaseWorkspace {
    * Get git status with additions, deletions, modifications
    */
   abstract getGitStatus(): Promise<GitStatus>
+
+  /**
+   * Get working directory changes (not diff to base branch)
+   */
+  abstract getGitChanges(): Promise<GitChanges>
 }

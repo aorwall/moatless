@@ -312,20 +312,18 @@ export class AgentService {
           iteration.endTime = new Date()
           iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
-          // Capture git status when iteration completes
+          // Capture git changes when iteration completes
           try {
-            iteration.gitStatus = await workspace.getGitStatus()
-            agentLogger.debug('Captured git status for iteration', {
-              syncStatus: iteration.gitStatus?.status,
-              commitsAhead: iteration.gitStatus?.commitsAhead,
-              commitsBehind: iteration.gitStatus?.commitsBehind,
-              hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
-              additions: iteration.gitStatus?.additions,
-              deletions: iteration.gitStatus?.deletions,
-              modifications: iteration.gitStatus?.modifications,
+            iteration.gitChanges = await workspace.getGitChanges()
+            agentLogger.debug('Captured git changes for iteration', {
+              currentBranch: iteration.gitChanges?.currentBranch,
+              status: iteration.gitChanges?.status,
+              additions: iteration.gitChanges?.additions,
+              deletions: iteration.gitChanges?.deletions,
+              modifications: iteration.gitChanges?.modifications,
             })
           } catch (error) {
-            agentLogger.warn('Failed to capture git status for iteration', {
+            agentLogger.warn('Failed to capture git changes for iteration', {
               error: error instanceof Error ? error.message : String(error),
             })
           }
@@ -369,20 +367,18 @@ export class AgentService {
       iteration.endTime = new Date()
       iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
-      // Capture git status even for failed iterations
+      // Capture git changes even for failed iterations
       try {
-        iteration.gitStatus = await workspace.getGitStatus()
-        agentLogger.debug('Captured git status for failed iteration', {
-          syncStatus: iteration.gitStatus?.status,
-          commitsAhead: iteration.gitStatus?.commitsAhead,
-          commitsBehind: iteration.gitStatus?.commitsBehind,
-          hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
-          additions: iteration.gitStatus?.additions,
-          deletions: iteration.gitStatus?.deletions,
-          modifications: iteration.gitStatus?.modifications,
+        iteration.gitChanges = await workspace.getGitChanges()
+        agentLogger.debug('Captured git changes for failed iteration', {
+          currentBranch: iteration.gitChanges?.currentBranch,
+          status: iteration.gitChanges?.status,
+          additions: iteration.gitChanges?.additions,
+          deletions: iteration.gitChanges?.deletions,
+          modifications: iteration.gitChanges?.modifications,
         })
       } catch (syncError) {
-        agentLogger.warn('Failed to capture git status for failed iteration', {
+        agentLogger.warn('Failed to capture git changes for failed iteration', {
           syncError: syncError instanceof Error ? syncError.message : String(syncError),
         })
       }

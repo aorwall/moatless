@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { GitStatus, GitSyncStatus } from '@moatless/shared/types/api'
+import type { GitChanges, GitStatus, GitSyncStatus } from '@moatless/shared/types/api'
 import { logger } from './logger.js'
 
 const execAsync = promisify(exec)
@@ -1265,6 +1265,99 @@ export async function syncWithMain(repoPath: string, baseBranch?: string): Promi
       success: false,
       conflicts: false,
       message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
+/**
+ * Get working directory changes (staged + unstaged + untracked)
+ * This shows actual changes in the working directory, not a diff to the base branch
+ */
+export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitChanges> {
+  try {
+    // Get current branch
+    const currentBranch = await getCurrentBranch(repoPath)
+
+    // Get git status to check if working directory is clean
+    const gitStatus = await getGitStatus(repoPath)
+
+    // If working directory is clean, return early
+    if (gitStatus.clean) {
+      return {
+        currentBranch,
+        status: 'clean',
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
+      }
+    }
+
+    // Use git diff --stat to get statistics for tracked files
+    // This includes both staged and unstaged changes
+    const { stdout: diffStatOutput } = await execAsync('git diff --stat HEAD --numstat', {
+      cwd: repoPath,
+      timeout: 10000,
+    })
+
+    let totalAdditions = 0
+    let totalDeletions = 0
+    const modifiedFiles = new Set<string>()
+
+    // Parse numstat output (format: additions<TAB>deletions<TAB>filename)
+    const lines = diffStatOutput
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim())
+
+    for (const line of lines) {
+      const parts = line.split('\t')
+      if (parts.length >= 3) {
+        const additions = parseInt(parts[0], 10) || 0
+        const deletions = parseInt(parts[1], 10) || 0
+        const filename = parts[2]
+
+        if (!isNaN(additions) && !isNaN(deletions)) {
+          totalAdditions += additions
+          totalDeletions += deletions
+          modifiedFiles.add(filename)
+        }
+      }
+    }
+
+    // Count untracked files and their lines
+    for (const untrackedFile of gitStatus.untracked) {
+      try {
+        const filePath = path.join(repoPath, untrackedFile)
+        const content = await fs.readFile(filePath, 'utf-8')
+        const lines = content.split('\n').length
+        totalAdditions += lines
+        modifiedFiles.add(untrackedFile)
+      } catch (error) {
+        logger.debug('Error reading untracked file for line count', {
+          filename: untrackedFile,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    return {
+      currentBranch,
+      status: 'modified',
+      additions: totalAdditions,
+      deletions: totalDeletions,
+      modifications: modifiedFiles.size,
+    }
+  } catch (error) {
+    logger.error('Failed to get working directory changes', error as Error, { repoPath })
+
+    // Return safe defaults if git operations fail
+    const currentBranch = await getCurrentBranch(repoPath).catch(() => 'unknown')
+    return {
+      currentBranch,
+      status: 'error',
+      additions: 0,
+      deletions: 0,
+      modifications: 0,
     }
   }
 }

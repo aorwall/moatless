@@ -454,12 +454,16 @@ export class WorkspaceService {
     const workspace = await this.getOrCreateWorkspace(taskId)
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
-    // Get git status from workspace
-    const gitStatus = await workspace.getGitStatus()
+    // Get git status and git changes from workspace
+    const [gitStatus, gitChanges] = await Promise.all([
+      workspace.getGitStatus(),
+      workspace.getGitChanges(),
+    ])
 
     return {
       status: workspace.getStatus(),
       gitStatus,
+      gitChanges,
       backgroundTaskCount,
     }
   }

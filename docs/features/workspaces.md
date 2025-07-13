@@ -347,6 +347,88 @@ Git worktrees provide workspace isolation through separate working directories w
      - `isOriginBranch()`: Checks if branch exists on origin
      - `getOriginBranchName()`: Gets corresponding origin branch
 
+### Git Status vs Git Changes
+
+The workspace system provides two distinct ways to track repository state, each serving different purposes:
+
+#### GitStatus - Repository Synchronization State
+**Purpose**: Tracks synchronization status with base branch and origin remote
+**Use Case**: Understanding branch relationships and merge requirements
+
+```typescript
+interface GitStatus {
+  currentBranch: string;          // Current workspace branch
+  baseBranch: string;             // Base branch (usually main/master)
+  hasUncommittedChanges: boolean; // Working directory dirty state
+  hasConflicts: boolean;          // Merge conflicts detected
+  status: GitSyncStatus;          // Sync state: 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
+  commitsAhead: number;           // Commits ahead of base branch
+  commitsBehind: number;          // Commits behind base branch
+  originExists: boolean;          // Origin remote availability
+  additions?: number;             // File changes vs base branch
+  deletions?: number;             // File deletions vs base branch
+  modifications?: number;         // File modifications vs base branch
+}
+```
+
+**Key Characteristics:**
+- Compares current branch to base branch (e.g., main)
+- Tracks branch divergence and merge requirements
+- Includes origin remote synchronization state
+- Shows relationship between workspace and main repository
+- Used for understanding branch management needs
+
+#### GitChanges - Working Directory State
+**Purpose**: Tracks actual changes in the working directory
+**Use Case**: Understanding current work progress and file modifications
+
+```typescript
+interface GitChanges {
+  currentBranch: string;    // Current workspace branch
+  status: string;           // Simple status: 'clean' | 'modified' | 'error'
+  additions: number;        // Lines added in working directory
+  deletions: number;        // Lines deleted in working directory
+  modifications: number;    // Files modified in working directory
+}
+```
+
+**Key Characteristics:**
+- Focuses on working directory state only
+- Counts actual line changes and file modifications
+- Includes staged, unstaged, and untracked changes
+- Independent of base branch comparison
+- Reflects immediate development activity
+
+#### When to Use Each
+
+**Use GitStatus when:**
+- Planning branch merges or rebases
+- Understanding sync requirements with main branch
+- Checking for merge conflicts before integration
+- Monitoring branch divergence over time
+- Coordinating with team repository state
+
+**Use GitChanges when:**
+- Tracking task iteration progress
+- Measuring development activity
+- Understanding scope of current work
+- Providing simple status indicators
+- Monitoring file change velocity
+
+#### Implementation in Task Iterations
+
+Task iterations now capture `GitChanges` instead of `GitStatus` to better reflect the actual work performed:
+
+```typescript
+interface TaskIteration {
+  // ... other fields
+  gitChanges?: GitChanges;  // Working directory changes (new)
+  // gitStatus was removed in favor of gitChanges
+}
+```
+
+This change provides a clearer picture of the work accomplished in each iteration, focusing on tangible changes rather than repository synchronization state.
+
 ### Docker Container Isolation
 
 ```mermaid

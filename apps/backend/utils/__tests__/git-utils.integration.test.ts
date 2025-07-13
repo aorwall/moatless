@@ -12,6 +12,7 @@ import {
   getGitDiffString,
   getGitStatus,
   getMergeBase,
+  getWorkingDirectoryChanges,
   isGitWorktree,
   pruneWorktrees,
 } from '../git-utils.js'
@@ -625,6 +626,144 @@ describe('git-utils with real git commands', () => {
       // Verify worktree entry is gone
       const worktreeList = repo.exec('git worktree list')
       expect(worktreeList).not.toContain(worktreePath)
+    })
+  })
+
+  describe('getWorkingDirectoryChanges', () => {
+    it('should return clean status when no changes exist', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'Hello World')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.status).toBe('clean')
+      expect(changes.additions).toBe(0)
+      expect(changes.deletions).toBe(0)
+      expect(changes.modifications).toBe(0)
+      expect(changes.currentBranch).toMatch(/main|master/)
+    })
+
+    it('should count additions from new untracked files', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'Hello World')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Create untracked file with 3 lines
+      repo.createFile('new.txt', 'Line 1\nLine 2\nLine 3')
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.status).toBe('modified')
+      expect(changes.additions).toBe(3)
+      expect(changes.deletions).toBe(0)
+      expect(changes.modifications).toBe(1) // One file modified (new file)
+    })
+
+    it('should count changes from modified tracked files', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'Hello World')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Modify existing file (add 2 lines, content becomes 3 lines total)
+      repo.createFile('test.txt', 'Hello World\nNew Line 1\nNew Line 2')
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.status).toBe('modified')
+      expect(changes.additions).toBeGreaterThan(0) // Should have additions
+      expect(changes.modifications).toBe(1) // One file modified
+    })
+
+    it('should count staged and unstaged changes together', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'Hello World')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Create and stage a new file
+      repo.createFile('staged.txt', 'Staged content\nLine 2')
+      repo.addFile('staged.txt')
+
+      // Create an unstaged file
+      repo.createFile('unstaged.txt', 'Unstaged content')
+
+      // Modify existing file without staging
+      repo.createFile('test.txt', 'Hello World\nModified line')
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.status).toBe('modified')
+      expect(changes.additions).toBeGreaterThan(0)
+      expect(changes.modifications).toBeGreaterThanOrEqual(2) // At least staged.txt and unstaged.txt
+    })
+
+    it('should handle empty repository', async () => {
+      repo.init()
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.status).toBe('clean')
+      expect(changes.additions).toBe(0)
+      expect(changes.deletions).toBe(0)
+      expect(changes.modifications).toBe(0)
+    })
+
+    it('should return current branch name correctly', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'Hello World')
+      repo.addFile('test.txt')
+      repo.commit('Initial commit')
+
+      // Create and checkout new branch
+      repo.createBranch('feature-branch')
+      repo.checkout('feature-branch')
+
+      // Make a change
+      repo.createFile('feature.txt', 'Feature content')
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.currentBranch).toBe('feature-branch')
+      expect(changes.status).toBe('modified')
+    })
+
+    it('should handle repository with deleted files', async () => {
+      repo.init()
+      repo.createFile('test.txt', 'Hello World')
+      repo.createFile('delete-me.txt', 'This will be deleted')
+      repo.addFile('test.txt')
+      repo.addFile('delete-me.txt')
+      repo.commit('Initial commit')
+
+      // Delete file from filesystem (but not from git)
+      fs.unlinkSync(path.join(repo.path, 'delete-me.txt'))
+
+      const changes = await getWorkingDirectoryChanges(repo.path)
+
+      expect(changes.status).toBe('modified')
+      expect(changes.deletions).toBeGreaterThan(0)
+      expect(changes.modifications).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should return error status on git failure', async () => {
+      // Test with non-git directory
+      const nonGitPath = fs.mkdtempSync(path.join(os.tmpdir(), 'non-git-'))
+
+      try {
+        const changes = await getWorkingDirectoryChanges(nonGitPath)
+
+        expect(changes.status).toBe('error')
+        expect(changes.currentBranch).toBe('unknown')
+        expect(changes.additions).toBe(0)
+        expect(changes.deletions).toBe(0)
+        expect(changes.modifications).toBe(0)
+      } finally {
+        fs.rmSync(nonGitPath, { recursive: true, force: true })
+      }
     })
   })
 })

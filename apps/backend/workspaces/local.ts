@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { WorkspaceError } from '@moatless/shared'
-import type { GitStatus } from '@moatless/shared/types/api'
+import type { GitChanges, GitStatus } from '@moatless/shared/types/api'
 import type { RepositoryConfig } from '@moatless/shared/types/repository'
 
 import {
@@ -587,6 +587,38 @@ export class LocalWorkspace extends BaseWorkspace {
         commitsAhead: 0,
         commitsBehind: 0,
         originExists: false,
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
+      }
+    }
+  }
+
+  async getGitChanges(): Promise<GitChanges> {
+    // If workspace doesn't exist or is not set up, return defaults
+    if (
+      !this.workspacePath ||
+      !(await this.pathExists(this.workspacePath)) ||
+      this.getStatus() === WorkspaceStatus.NOT_SETUP
+    ) {
+      return {
+        currentBranch: 'unknown',
+        status: 'error',
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
+      }
+    }
+
+    try {
+      // Import and use the working directory changes function
+      const { getWorkingDirectoryChanges } = await import('../utils/git-utils.js')
+      return getWorkingDirectoryChanges(this.workspacePath)
+    } catch (_error) {
+      // Fall back to defaults on error
+      return {
+        currentBranch: 'unknown',
+        status: 'error',
         additions: 0,
         deletions: 0,
         modifications: 0,

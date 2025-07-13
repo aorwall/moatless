@@ -164,6 +164,16 @@ export const GitStatusSchema = z.object({
 })
 export type GitStatus = z.infer<typeof GitStatusSchema>
 
+// Git Changes Schema - Working directory changes (not diff to base branch)
+export const GitChangesSchema = z.object({
+  currentBranch: z.string(),
+  status: z.string(), // Simple status like 'clean' or 'modified'
+  additions: z.number(), // Lines added in working directory
+  deletions: z.number(), // Lines deleted in working directory
+  modifications: z.number(), // Files modified in working directory
+})
+export type GitChanges = z.infer<typeof GitChangesSchema>
+
 // Workspace Status Response
 export const WorkspaceStatusResponseSchema = z.object({
   status: z.nativeEnum(WorkspaceStatus),

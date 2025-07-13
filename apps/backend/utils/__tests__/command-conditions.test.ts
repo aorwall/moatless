@@ -212,29 +212,37 @@ describe('Command Conditions', () => {
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitStatus: {
-            status: 'ahead',
-            commitsAhead: 2,
-            commitsBehind: 0,
-            hasUncommittedChanges: false,
-            hasConflicts: false,
-            currentBranch: 'feature-branch',
-            baseBranch: 'main',
-            originExists: true,
-          },
         }
 
-        const iterationWithoutCommits: TaskIteration = {
-          ...iterationWithCommits,
-          gitStatus: {
-            ...iterationWithCommits.gitStatus!,
-            commitsAhead: 0,
-            hasUncommittedChanges: false,
-          },
+        const gitStatusWithCommits = {
+          status: 'ahead' as const,
+          commitsAhead: 2,
+          commitsBehind: 0,
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          currentBranch: 'feature-branch',
+          baseBranch: 'main',
+          originExists: true,
         }
 
-        expect(isCommandAvailable(command, { lastIteration: iterationWithCommits })).toBe(true)
-        expect(isCommandAvailable(command, { lastIteration: iterationWithoutCommits })).toBe(false)
+        const gitStatusWithoutCommits = {
+          ...gitStatusWithCommits,
+          commitsAhead: 0,
+          hasUncommittedChanges: false,
+        }
+
+        expect(
+          isCommandAvailable(command, {
+            lastIteration: iterationWithCommits,
+            gitStatus: gitStatusWithCommits,
+          }),
+        ).toBe(true)
+        expect(
+          isCommandAvailable(command, {
+            lastIteration: iterationWithCommits,
+            gitStatus: gitStatusWithoutCommits,
+          }),
+        ).toBe(false)
         expect(isCommandAvailable(command, {})).toBe(false)
       })
 
@@ -248,35 +256,37 @@ describe('Command Conditions', () => {
           },
         }
 
-        const iterationAhead: TaskIteration = {
+        const iteration: TaskIteration = {
           iterationNumber: 1,
           startTime: new Date(),
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitStatus: {
-            status: 'ahead',
-            commitsAhead: 2,
-            commitsBehind: 0,
-            hasUncommittedChanges: false,
-            hasConflicts: false,
-            currentBranch: 'feature-branch',
-            baseBranch: 'main',
-            originExists: true,
-          },
         }
 
-        const iterationSync: TaskIteration = {
-          ...iterationAhead,
-          gitStatus: {
-            ...iterationAhead.gitStatus!,
-            status: 'synced',
-            commitsAhead: 0,
-          },
+        const gitStatusAhead = {
+          status: 'ahead' as const,
+          commitsAhead: 2,
+          commitsBehind: 0,
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          currentBranch: 'feature-branch',
+          baseBranch: 'main',
+          originExists: true,
         }
 
-        expect(isCommandAvailable(command, { lastIteration: iterationAhead })).toBe(true)
-        expect(isCommandAvailable(command, { lastIteration: iterationSync })).toBe(false)
+        const gitStatusSync = {
+          ...gitStatusAhead,
+          status: 'synced' as const,
+          commitsAhead: 0,
+        }
+
+        expect(
+          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusAhead }),
+        ).toBe(true)
+        expect(
+          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusSync }),
+        ).toBe(false)
       })
 
       it('should respect allowedGitSyncStatuses condition', () => {
@@ -289,45 +299,46 @@ describe('Command Conditions', () => {
           },
         }
 
-        const iterationAhead: TaskIteration = {
+        const iteration: TaskIteration = {
           iterationNumber: 1,
           startTime: new Date(),
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitStatus: {
-            status: 'ahead',
-            commitsAhead: 2,
-            commitsBehind: 0,
-            hasUncommittedChanges: false,
-            hasConflicts: false,
-            currentBranch: 'feature-branch',
-            baseBranch: 'main',
-            originExists: true,
-          },
         }
 
-        const iterationDiverged: TaskIteration = {
-          ...iterationAhead,
-          gitStatus: {
-            ...iterationAhead.gitStatus!,
-            status: 'diverged',
-            commitsBehind: 1,
-          },
+        const gitStatusAhead = {
+          status: 'ahead' as const,
+          commitsAhead: 2,
+          commitsBehind: 0,
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          currentBranch: 'feature-branch',
+          baseBranch: 'main',
+          originExists: true,
         }
 
-        const iterationSynced: TaskIteration = {
-          ...iterationAhead,
-          gitStatus: {
-            ...iterationAhead.gitStatus!,
-            status: 'synced',
-            commitsAhead: 0,
-          },
+        const gitStatusDiverged = {
+          ...gitStatusAhead,
+          status: 'diverged' as const,
+          commitsBehind: 1,
         }
 
-        expect(isCommandAvailable(command, { lastIteration: iterationAhead })).toBe(true)
-        expect(isCommandAvailable(command, { lastIteration: iterationDiverged })).toBe(true)
-        expect(isCommandAvailable(command, { lastIteration: iterationSynced })).toBe(false)
+        const gitStatusSynced = {
+          ...gitStatusAhead,
+          status: 'synced' as const,
+          commitsAhead: 0,
+        }
+
+        expect(
+          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusAhead }),
+        ).toBe(true)
+        expect(
+          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusDiverged }),
+        ).toBe(true)
+        expect(
+          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusSynced }),
+        ).toBe(false)
       })
 
       it('should use OR logic for git conditions', () => {
@@ -341,65 +352,63 @@ describe('Command Conditions', () => {
           },
         }
 
-        const iterationWithUncommitted: TaskIteration = {
+        const iteration: TaskIteration = {
           iterationNumber: 1,
           startTime: new Date(),
           status: 'completed',
           messageCount: 1,
           costUsd: 0,
-          gitStatus: {
-            status: 'uncommitted_changes',
-            commitsAhead: 0,
-            commitsBehind: 0,
-            hasUncommittedChanges: true,
-            hasConflicts: false,
-            currentBranch: 'feature-branch',
-            baseBranch: 'main',
-            originExists: true,
-          },
         }
 
-        const iterationAhead: TaskIteration = {
-          ...iterationWithUncommitted,
-          gitStatus: {
-            ...iterationWithUncommitted.gitStatus!,
-            status: 'ahead',
-            commitsAhead: 2,
-            hasUncommittedChanges: false,
-          },
+        const gitStatusWithUncommitted = {
+          status: 'uncommitted_changes' as const,
+          commitsAhead: 0,
+          commitsBehind: 0,
+          hasUncommittedChanges: true,
+          hasConflicts: false,
+          currentBranch: 'feature-branch',
+          baseBranch: 'main',
+          originExists: true,
         }
 
-        const iterationClean: TaskIteration = {
-          ...iterationWithUncommitted,
-          gitStatus: {
-            ...iterationWithUncommitted.gitStatus!,
-            status: 'synced',
-            commitsAhead: 0,
-            hasUncommittedChanges: false,
-          },
+        const gitStatusAhead = {
+          ...gitStatusWithUncommitted,
+          status: 'ahead' as const,
+          commitsAhead: 2,
+          hasUncommittedChanges: false,
+        }
+
+        const gitStatusClean = {
+          ...gitStatusWithUncommitted,
+          status: 'synced' as const,
+          commitsAhead: 0,
+          hasUncommittedChanges: false,
         }
 
         // Should pass if workspace has uncommitted changes
         expect(
           isCommandAvailable(command, {
-            lastIteration: iterationClean,
+            lastIteration: iteration,
             workspaceHasChanges: true,
+            gitStatus: gitStatusClean,
           }),
         ).toBe(true)
 
         // Should pass if ahead of main
         expect(
           isCommandAvailable(command, {
-            lastIteration: iterationAhead,
+            lastIteration: iteration,
             workspaceHasChanges: false,
+            gitStatus: gitStatusAhead,
           }),
         ).toBe(true)
 
         // Should fail if neither condition is met
         expect(
           isCommandAvailable(command, {
-            lastIteration: iterationClean,
+            lastIteration: iteration,
             workspaceHasChanges: false,
+            gitStatus: gitStatusClean,
           }),
         ).toBe(false)
       })
