@@ -31,7 +31,7 @@ docker-compose -f docker/docker-compose.yml --profile build build --no-cache
 ### Using docker directly:
 ```bash
 # From repository root
-docker build -f docker/Dockerfile -t moatless-worker:latest .
+docker build -f docker/Dockerfile -t moatless-vibe-universal:latest .
 ```
 
 ## Worker Mode
@@ -68,7 +68,7 @@ To use the worker image in your repository configuration:
 {
   "codeExecution": {
     "workspaceType": "docker",
-    "dockerImage": "moatless-worker:latest",
+    "dockerImage": "moatless-vibe-universal:latest",
     "setupCommands": "npm install",
     "workerResources": {
       "cpuLimit": "2",

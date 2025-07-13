@@ -212,7 +212,7 @@ describe('Repository Routes E2E', () => {
         useGitWorktrees: false,
         codeExecution: {
           type: 'docker',
-          dockerImage: 'moatless-worker:latest',
+          dockerImage: 'moatless-vibe-universal:latest',
           setupCommands: 'npm ci\nnpm run build',
           envVars: {
             NODE_ENV: 'production',
@@ -324,7 +324,7 @@ describe('Repository Routes E2E', () => {
         },
         codeExecution: {
           type: 'docker',
-          dockerImage: 'moatless-worker:latest',
+          dockerImage: 'moatless-vibe-universal:latest',
         },
       }
 

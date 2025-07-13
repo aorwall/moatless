@@ -283,7 +283,7 @@ export function CodeExecutionConfig({
     setup_commands: codeExecution.setupCommands || '',
     server_command: codeExecution.serverCommand || '',
     env_vars: codeExecution.envVars || {},
-    dockerImage: codeExecution.dockerImage || 'moatless-worker:latest',
+    dockerImage: codeExecution.dockerImage || 'moatless-vibe-universal:latest',
   })
 
   const [envVarKey, setEnvVarKey] = useState('')
@@ -401,7 +401,7 @@ export function CodeExecutionConfig({
                     id={imageId}
                     value={formData.dockerImage}
                     onChange={(e) => setFormData({ ...formData, dockerImage: e.target.value })}
-                    placeholder="moatless-worker:latest"
+                    placeholder="moatless-vibe-universal:latest"
                     required
                   />
                 </div>

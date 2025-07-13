@@ -66,7 +66,8 @@ export class DockerWorkspace extends BaseWorkspace {
     try {
       // Emit setup started event
 
-      this.image = this.repositoryConfig.codeExecution.dockerImage || 'moatless-worker:latest'
+      this.image =
+        this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
 
       // Create container
       this.containerName = this.repositoryConfig.codeExecution.containerName

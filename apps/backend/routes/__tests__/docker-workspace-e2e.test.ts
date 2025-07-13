@@ -29,7 +29,7 @@ const execAsync = promisify(exec)
  *
  * Prerequisites:
  * - Docker must be installed and running
- * - moatless-worker:latest image must be built (run: docker build -t moatless-worker:latest -f docker/Dockerfile .)
+ * - moatless-vibe-universal:latest image must be built (run: docker build -t moatless-vibe-universal:latest -f docker/Dockerfile .)
  * - Claude authentication (via "claude login") for full functionality
  *
  * Note:
@@ -46,12 +46,12 @@ describe('Docker Workspace E2E Test', () => {
   let serverPort: number
 
   beforeAll(async () => {
-    // Ensure moatless-worker image exists
+    // Ensure moatless-vibe-universal image exists
     try {
-      await execAsync('docker image inspect moatless-worker:latest', { timeout: 5000 })
+      await execAsync('docker image inspect moatless-vibe-universal:latest', { timeout: 5000 })
     } catch (error) {
       throw new Error(
-        'moatless-worker:latest image not found. Please build it first with: docker build -t moatless-worker:latest -f docker/Dockerfile .',
+        'moatless-vibe-universal:latest image not found. Please build it first with: docker build -t moatless-vibe-universal:latest -f docker/Dockerfile .',
       )
     }
   })
@@ -165,7 +165,7 @@ describe('Docker Workspace E2E Test', () => {
       codeExecution: {
         type: 'docker',
         workspaceType: 'docker', // Explicitly set Docker workspace type
-        dockerImage: 'moatless-worker:latest',
+        dockerImage: 'moatless-vibe-universal:latest',
         setupCommands: 'echo "Docker workspace setup complete"',
       },
     }
@@ -190,7 +190,7 @@ describe('Docker Workspace E2E Test', () => {
       codeExecution: expect.objectContaining({
         type: 'docker',
         workspaceType: 'docker',
-        dockerImage: 'moatless-worker:latest',
+        dockerImage: 'moatless-vibe-universal:latest',
       }),
     })
 
@@ -472,7 +472,7 @@ describe('Docker Workspace E2E Test', () => {
       codeExecution: {
         type: 'docker',
         workspaceType: 'docker',
-        dockerImage: 'moatless-worker:latest',
+        dockerImage: 'moatless-vibe-universal:latest',
       },
     }
 
@@ -547,7 +547,7 @@ describe('Docker Workspace E2E Test', () => {
       codeExecution: {
         type: 'docker',
         workspaceType: 'docker',
-        dockerImage: 'moatless-worker:latest',
+        dockerImage: 'moatless-vibe-universal:latest',
       },
     }
 
