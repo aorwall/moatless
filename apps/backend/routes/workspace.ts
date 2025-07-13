@@ -9,6 +9,7 @@ import {
   FileWriteResponseSchema,
   GitDiffResponseSchema,
   GitStatusSchema,
+  SyncWorkspaceResponseSchema,
   TaskFileSearchSchema,
   WorkspaceStatusResponseSchema,
 } from '@moatless/types'
@@ -450,32 +451,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Sync operation result',
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: {
-                    type: 'boolean',
-                    description: 'Whether the sync was successful',
-                  },
-                  conflicts: {
-                    type: 'boolean',
-                    description: 'Whether conflicts were detected',
-                  },
-                  message: {
-                    type: 'string',
-                    description: 'Description of the sync result',
-                  },
-                  commitsBehind: {
-                    type: 'number',
-                    description: 'Number of commits behind main',
-                  },
-                  commitsAhead: {
-                    type: 'number',
-                    description: 'Number of commits ahead of main',
-                  },
-                },
-                required: ['success', 'conflicts', 'message'],
-              },
+              schema: resolver(SyncWorkspaceResponseSchema),
             },
           },
         },

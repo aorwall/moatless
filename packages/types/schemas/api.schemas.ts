@@ -192,6 +192,13 @@ export type EventListQuery = z.infer<typeof EventListQuerySchema>
 export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
 export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
 
+// Event Stream Types
+export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
+export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>
+
+// Workspace Sync Types
+export type SyncWorkspaceResponse = z.infer<typeof SyncWorkspaceResponseSchema>
+
 // ============================================
 // Pagination Response Types
 // ============================================
@@ -214,6 +221,95 @@ export interface PaginatedResponse<T> {
   items: T[]
   pagination: PaginationInfo
 }
+
+// ============================================
+// Error Schemas
+// ============================================
+
+// API Error Response Schema (matching the TypeScript interfaces)
+export const ApiResponseErrorSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  details: z.record(z.unknown()).optional(),
+})
+
+export const ApiErrorResponseSchema = z.object({
+  error: ApiResponseErrorSchema,
+  requestId: z.string().optional(),
+})
+
+// Validation Error Schema
+export const ApiValidationErrorSchema = ApiResponseErrorSchema.extend({
+  code: z.literal('VALIDATION_ERROR'),
+  details: z.object({
+    errors: z.union([
+      z.record(z.string()),
+      z.array(
+        z.object({
+          path: z.union([z.string(), z.array(z.string())]),
+          message: z.string(),
+        }),
+      ),
+    ]),
+  }),
+})
+
+// Not Found Error Schema
+export const NotFoundErrorSchema = ApiResponseErrorSchema.extend({
+  code: z.enum(['NOT_FOUND', 'ENVIRONMENT_NOT_FOUND', 'REPOSITORY_NOT_FOUND', 'TASK_NOT_FOUND']),
+  details: z
+    .object({
+      id: z.string().optional(),
+      resource: z.string().optional(),
+    })
+    .optional(),
+})
+
+// Internal Server Error Schema
+export const InternalServerErrorSchema = ApiResponseErrorSchema.extend({
+  code: z.literal('INTERNAL_SERVER_ERROR'),
+  details: z
+    .object({
+      error: z.string().optional(),
+    })
+    .optional(),
+})
+
+// ============================================
+// Event Stream Schemas
+// ============================================
+
+// Event Stream Message Schema (for NDJSON format)
+export const EventStreamMessageSchema = z.object({
+  type: z.string(),
+  timestamp: z.string(),
+  data: z.any().optional(), // Event-specific data
+})
+
+// Stream Status Response Schema (move from events.ts)
+export const StreamStatusResponseSchema = z.object({
+  globalConnections: z.number(),
+  globalEventCount: z.number(),
+  taskConnections: z.record(z.number()),
+  taskEventCounts: z.record(z.number()),
+  totalConnections: z.number(),
+  totalEventCount: z.number(),
+})
+
+// ============================================
+// Workspace Sync Schemas
+// ============================================
+
+// Sync with Main Response Schema
+export const SyncWorkspaceResponseSchema = z.object({
+  success: z.boolean().describe('Whether the sync was successful'),
+  conflicts: z.boolean().describe('Whether conflicts were detected'),
+  message: z.string().describe('Description of the sync result'),
+  commitsBehind: z.number().describe('Number of commits workspace is behind').optional(),
+  commitsAhead: z.number().describe('Number of commits workspace is ahead').optional(),
+  filesWithConflicts: z.array(z.string()).describe('Files that have conflicts').optional(),
+  unmergedPaths: z.array(z.string()).describe('Paths that could not be merged').optional(),
+})
 
 // ============================================
 // Error Types

@@ -1,2 +1,2 @@
-export * from './api/settings.api'
+export * from './api/settings'
 export * from './hooks/use-settings'

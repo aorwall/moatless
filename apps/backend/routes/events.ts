@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { StreamStatusResponseSchema } from '@moatless/types/schemas'
 import type { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
@@ -9,16 +10,6 @@ import { sseManager } from '../utils/sse-manager.js'
 
 // Schema for global stream query params (currently empty)
 const GlobalStreamQuerySchema = z.object({})
-
-// Response schemas
-const streamStatusResponseSchema = z.object({
-  globalConnections: z.number(),
-  globalEventCount: z.number(),
-  taskConnections: z.record(z.number()),
-  taskEventCounts: z.record(z.number()),
-  totalConnections: z.number(),
-  totalEventCount: z.number(),
-})
 
 export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string) {
   // Global event stream endpoint
@@ -154,7 +145,7 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
           description: 'Event stream statistics',
           content: {
             'application/json': {
-              schema: resolver(streamStatusResponseSchema),
+              schema: resolver(StreamStatusResponseSchema),
             },
           },
         },

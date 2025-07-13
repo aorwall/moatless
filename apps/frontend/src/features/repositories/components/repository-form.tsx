@@ -1,3 +1,4 @@
+import { RepositoryConfigSchema } from '@moatless/types/schemas'
 import type {
   CreateRepositoryRequest,
   RepositoryResponse,
@@ -5,11 +6,13 @@ import type {
 } from '@moatless/types/types/repository'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useId, useState } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
 import { Textarea } from '@/lib/components/ui/textarea'
+import { useZodForm } from '@/lib/hooks/use-zod-form'
 
 import { LocalRepositoryConfig } from './local-repository-config'
 
@@ -57,6 +60,9 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   const [envVarKey, setEnvVarKey] = useState('')
   const [envVarValue, setEnvVarValue] = useState('')
 
+  // Use schema validation
+  const { errors, validate, clearErrors } = useZodForm({ schema: RepositoryConfigSchema })
+
   useEffect(() => {
     if (repository) {
       setFormData({
@@ -68,13 +74,18 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     }
   }, [repository, getInitialRepositoryData])
 
+  // Clear errors when form data changes
+  useEffect(() => {
+    clearErrors()
+  }, [formData, clearErrors])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
     const repositoryData: CreateRepositoryRequest | UpdateRepositoryRequest = {
-      name: formData.name,
-      description: formData.description || undefined,
-      path: formData.path,
+      name: formData.name.trim(),
+      description: formData.description.trim() || undefined,
+      path: formData.path.trim(),
       useGitWorktrees: formData.useGitWorktrees,
       codeExecution: {
         type: 'local',
@@ -82,7 +93,19 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
       variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
     }
 
-    onSubmit(repositoryData)
+    // Validate using schema
+    const result = validate(repositoryData)
+
+    if (!result.success) {
+      // Show first error as a toast
+      const firstError = result.error.errors[0]
+      if (firstError) {
+        toast.error(firstError.message)
+      }
+      return
+    }
+
+    onSubmit(result.data)
   }
 
   const handleAddEnvVar = () => {
@@ -107,8 +130,6 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     })
   }
 
-  const isValid = formData.name.trim() && formData.path.trim()
-
   return (
     <div className="container mx-auto py-6 max-w-4xl">
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -127,7 +148,9 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="My Project Repository"
                   required
+                  className={errors.name ? 'border-destructive' : ''}
                 />
+                {errors.name && <p className="text-sm text-destructive mt-1">{errors.name}</p>}
               </div>
 
               <div>
@@ -149,6 +172,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
               onUseGitWorktreesChange={(useGitWorktrees) =>
                 setFormData({ ...formData, useGitWorktrees })
               }
+              pathError={errors.path}
             />
 
             <div>
@@ -210,7 +234,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting || !isValid}>
+          <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Saving...' : isEdit ? 'Update Repository' : 'Create Repository'}
           </Button>
         </div>
