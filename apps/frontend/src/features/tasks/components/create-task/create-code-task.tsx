@@ -18,6 +18,7 @@ interface CreateCodeTaskProps {
   title?: string
   defaultRepositoryId?: string
   defaultMessage?: string
+  onSuccess?: () => void
 }
 
 export function CreateCodeTask({
@@ -27,6 +28,7 @@ export function CreateCodeTask({
   title = 'What should we build today?',
   defaultRepositoryId,
   defaultMessage,
+  onSuccess,
 }: CreateCodeTaskProps) {
   const [message, setMessage] = useState(defaultMessage || '')
 
@@ -98,6 +100,7 @@ export function CreateCodeTask({
       {
         onSuccess: () => {
           setMessage('')
+          onSuccess?.()
         },
       },
     )

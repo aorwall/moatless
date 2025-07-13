@@ -12,6 +12,7 @@ interface CreateVibeTaskProps {
   showTitle?: boolean
   title?: string
   defaultMessage?: string
+  onSuccess?: () => void
 }
 
 export function CreateVibeTask({
@@ -20,6 +21,7 @@ export function CreateVibeTask({
   showTitle = false,
   title = 'What should we vibe today?',
   defaultMessage,
+  onSuccess,
 }: CreateVibeTaskProps) {
   const [message, setMessage] = useState(defaultMessage || '')
 
@@ -94,6 +96,7 @@ export function CreateVibeTask({
       {
         onSuccess: () => {
           setMessage('')
+          onSuccess?.()
         },
       },
     )

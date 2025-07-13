@@ -44,9 +44,15 @@ export function CreateTaskDialog({
               maxHeight="500px"
               defaultRepositoryId={defaultRepositoryId}
               defaultMessage={defaultMessage}
+              onSuccess={() => onOpenChange(false)}
             />
           ) : (
-            <CreateVibeTask className="w-full" maxHeight="500px" defaultMessage={defaultMessage} />
+            <CreateVibeTask
+              className="w-full"
+              maxHeight="500px"
+              defaultMessage={defaultMessage}
+              onSuccess={() => onOpenChange(false)}
+            />
           )}
         </div>
       </DialogContent>
