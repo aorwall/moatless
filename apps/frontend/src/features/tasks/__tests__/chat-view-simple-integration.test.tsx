@@ -32,7 +32,6 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     const initialTask = createMockTaskWithIterations({ taskId: taskId }, 1)
     vi.mocked(tasksApi.getTask).mockResolvedValue(initialTask)
     vi.mocked(tasksApi.listTasks).mockResolvedValue({
-      tasks: [initialTask],
       items: [initialTask],
       pagination: { limit: 20, offset: 0, total: 1 },
     })
@@ -60,7 +59,6 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     )
     vi.mocked(tasksApi.getTask).mockResolvedValue(updatedTask)
     vi.mocked(tasksApi.listTasks).mockResolvedValue({
-      tasks: [updatedTask],
       items: [updatedTask],
       pagination: { limit: 20, offset: 0, total: 1 },
     })

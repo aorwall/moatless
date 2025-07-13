@@ -44,6 +44,7 @@ import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
+import { extractFilePathFromWildcard, validateRequestBody } from '../utils/route-helpers.js'
 
 // All schemas are now imported from @moatless/types
 
@@ -256,12 +257,12 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { tasks, total } = await taskService.listTasks(limit, offset, status)
 
       const response: TaskListResponse = {
-        tasks: tasks,
         items: tasks,
         pagination: {
           limit,
           offset,
           total,
+          hasMore: total !== undefined ? offset + limit < total : undefined,
         },
       }
       return c.json(response)
@@ -537,7 +538,6 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       )
 
       const response: EventListResponse = {
-        events,
         items: events,
       }
       return c.json(response)
@@ -830,15 +830,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       const taskId = getTaskId(c)
 
-      // Get the wildcard portion of the path
-      const path = c.req.path
-      const basePattern = `${prefix}/${taskId}/files/`
-      const encodedFilePath = path.replace(basePattern, '')
-      const filePath = decodeURIComponent(encodedFilePath)
-
-      if (!filePath) {
-        throw new HTTPException(400, { message: 'File path is required' })
-      }
+      const filePath = extractFilePathFromWildcard(c.req.path, prefix, taskId)
 
       try {
         // Task validation and capability check now handled in workspace service
@@ -926,18 +918,9 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       const taskId = getTaskId(c)
 
-      // Get the wildcard portion of the path
-      const path = c.req.path
-      const basePattern = `${prefix}/${taskId}/files/`
-      const encodedFilePath = path.replace(basePattern, '')
-      const filePath = decodeURIComponent(encodedFilePath)
+      const filePath = extractFilePathFromWildcard(c.req.path, prefix, taskId)
 
-      if (!filePath) {
-        throw new HTTPException(400, { message: 'File path is required' })
-      }
-
-      const body = await c.req.json()
-      const validatedBody = FileContentSchema.parse(body)
+      const validatedBody = await validateRequestBody(c, FileContentSchema)
       const { content } = validatedBody
 
       // Task validation and capability check now handled in workspace service

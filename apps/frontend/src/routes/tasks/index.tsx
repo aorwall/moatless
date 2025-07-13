@@ -76,7 +76,7 @@ function TasksIndex() {
           <TaskListSkeleton />
         ) : (
           <>
-            <TaskList tasks={data?.tasks || []} loading={false} />
+            <TaskList tasks={data?.items || []} loading={false} />
             {totalPages > 1 && (
               <div className="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
                 <PaginationInfo currentPage={page} pageSize={limit} totalItems={totalItems} />

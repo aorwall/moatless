@@ -64,7 +64,6 @@ describe('Task Hooks', () => {
     it('fetches tasks list', async () => {
       const mockTasks = [createMockTask({ taskId: 'task-1' }), createMockTask({ taskId: 'task-2' })]
       vi.mocked(tasksApi.listTasks).mockResolvedValue({
-        tasks: mockTasks,
         items: mockTasks,
         pagination: { limit: 20, offset: 0, total: 2 },
       })
@@ -88,7 +87,6 @@ describe('Task Hooks', () => {
     it('fetches tasks with filters', async () => {
       const filters = { activeOnly: true, limit: 10, offset: 0 }
       vi.mocked(tasksApi.listTasks).mockResolvedValue({
-        tasks: [],
         items: [],
         pagination: { limit: 10, offset: 0, total: 0 },
       })
