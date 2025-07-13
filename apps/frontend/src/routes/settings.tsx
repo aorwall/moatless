@@ -4,7 +4,7 @@ import type {
   UpdateSettingsRequest,
 } from '@moatless/shared'
 import { createFileRoute } from '@tanstack/react-router'
-import { AlertCircle, FolderOpen, Loader2, RotateCcw, Save, Settings2 } from 'lucide-react'
+import { AlertCircle, FolderOpen, Loader2, RotateCcw, Save } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -193,18 +193,6 @@ function SettingsPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <div className="border-b">
-        <div className="container flex h-16 items-center px-4">
-          <Settings2 className="mr-2 h-6 w-6" />
-          <div className="flex flex-col">
-            <h1 className="text-xl font-semibold">Settings</h1>
-            <p className="text-sm text-muted-foreground">
-              Manage your application and Claude Code settings
-            </p>
-          </div>
-        </div>
-      </div>
-
       <div className="flex-1 space-y-6 p-6">
         <div className="mx-auto max-w-6xl">
           <div className="grid gap-6 lg:grid-cols-2">

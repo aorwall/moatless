@@ -3,14 +3,14 @@ import { apiClient } from '@/lib/api/client'
 
 export const settingsApi = {
   getSettings: async (): Promise<SettingsResponse> => {
-    return apiClient.get('/settings')
+    return apiClient.get('/api/v1/settings')
   },
 
   updateSettings: async (request: UpdateSettingsRequest): Promise<SettingsResponse> => {
-    return apiClient.put('/settings', request)
+    return apiClient.put('/api/v1/settings', request)
   },
 
   resetSettings: async (): Promise<SettingsResponse> => {
-    return apiClient.delete('/settings')
+    return apiClient.delete('/api/v1/settings')
   },
 }
