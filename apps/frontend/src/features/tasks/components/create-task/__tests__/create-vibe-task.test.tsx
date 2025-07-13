@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCreateVibeTask } from '@/features/templates'
+import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
 import { useModelSelector, useTemplateSelector } from '../../chat-input/selectors'
 import { CreateVibeTask } from '../create-vibe-task'
 
@@ -45,10 +46,10 @@ vi.mock('@/features/environments/hooks/use-environments', () => ({
   })),
 }))
 
-const mockCreateVibeTask = {
+const mockCreateVibeTask = createMockMutationResult({
   mutate: vi.fn(),
   isPending: false,
-}
+})
 
 const mockTemplateSelector = {
   value: 'hello-world-ui',
@@ -63,11 +64,11 @@ const mockTemplateSelector = {
 }
 
 const mockModelSelector = {
-  value: 'claude-3-opus-20240229',
+  value: 'claude-opus-4-20250514' as const,
   onChange: vi.fn(),
   loading: false,
   placeholder: 'Select model',
-  items: [{ id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' }],
+  items: [{ id: 'claude-opus-4-20250514' as const, label: 'Claude Opus 4' }],
   width: 'w-[180px]',
 }
 
@@ -89,9 +90,9 @@ function renderComponent(props = {}) {
 describe('CreateVibeTask', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useCreateVibeTask).mockReturnValue(mockCreateVibeTask)
+    vi.mocked(useCreateVibeTask).mockReturnValue(mockCreateVibeTask as any)
     vi.mocked(useTemplateSelector).mockReturnValue(mockTemplateSelector)
-    vi.mocked(useModelSelector).mockReturnValue(mockModelSelector)
+    vi.mocked(useModelSelector).mockReturnValue(mockModelSelector as any)
 
     // Mock Date.now() for consistent repository naming
     vi.spyOn(Date, 'now').mockReturnValue(1234567890)
@@ -171,8 +172,23 @@ describe('CreateVibeTask', () => {
     await user.type(textarea, 'Create a landing page')
 
     // Simulate successful submission
-    mockCreateVibeTask.mutate.mockImplementationOnce((data, callbacks) => {
-      callbacks.onSuccess()
+    vi.mocked(mockCreateVibeTask.mutate).mockImplementationOnce((_data: any, callbacks: any) => {
+      callbacks?.onSuccess?.(
+        {
+          taskId: 'test-task-id',
+          status: 'success',
+        },
+        {
+          agentType: 'vibe',
+          templateId: 'hello-world-ui',
+          repositoryName: 'hello-world-ui-1234567890',
+          message: 'Create a landing page',
+          model: 'claude-opus-4-20250514',
+          filePaths: [],
+          start: true,
+        },
+        undefined,
+      )
     })
 
     const submitButton = screen.getByRole('button', { name: /start task/i })
@@ -184,10 +200,7 @@ describe('CreateVibeTask', () => {
   })
 
   it('shows loading state when creating task', () => {
-    vi.mocked(useCreateVibeTask).mockReturnValue({
-      ...mockCreateVibeTask,
-      isPending: true,
-    })
+    vi.mocked(useCreateVibeTask).mockReturnValue(createPendingMutation() as any)
 
     renderComponent()
 

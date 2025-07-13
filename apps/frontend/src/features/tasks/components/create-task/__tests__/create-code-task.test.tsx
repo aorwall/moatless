@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
 import {
   useBranchSelector,
   useModelSelector,
@@ -57,10 +58,10 @@ vi.mock('@/features/environments/hooks/use-environments', () => ({
   })),
 }))
 
-const mockCreateTask = {
+const mockCreateTask = createMockMutationResult({
   mutate: vi.fn(),
   isPending: false,
-}
+})
 
 const mockRepoSelector = {
   value: 'repo-123',
@@ -88,11 +89,11 @@ const mockBranchSelector = {
 }
 
 const mockModelSelector = {
-  value: 'claude-3-opus-20240229',
+  value: 'claude-opus-4-20250514' as const,
   onChange: vi.fn(),
   loading: false,
   placeholder: 'Select model',
-  items: [{ id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' }],
+  items: [{ id: 'claude-opus-4-20250514' as const, label: 'Claude Opus 4' }],
   width: 'w-[180px]',
 }
 
@@ -114,10 +115,10 @@ function renderComponent(props = {}) {
 describe('CreateCodeTask', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useCreateTask).mockReturnValue(mockCreateTask)
+    vi.mocked(useCreateTask).mockReturnValue(mockCreateTask as any)
     vi.mocked(useRepositorySelector).mockReturnValue(mockRepoSelector)
     vi.mocked(useBranchSelector).mockReturnValue(mockBranchSelector)
-    vi.mocked(useModelSelector).mockReturnValue(mockModelSelector)
+    vi.mocked(useModelSelector).mockReturnValue(mockModelSelector as any)
   })
 
   it('renders with title when showTitle is true', () => {
@@ -174,7 +175,7 @@ describe('CreateCodeTask', () => {
         agentType: 'claude-code',
         message: 'Build a new feature',
         repositoryId: 'repo-123',
-        model: 'claude-3-opus-20240229',
+        model: 'claude-opus-4-20250514',
         filePaths: [],
         originalBranch: 'main',
       },
@@ -190,8 +191,22 @@ describe('CreateCodeTask', () => {
     await user.type(textarea, 'Build a new feature')
 
     // Simulate successful submission
-    mockCreateTask.mutate.mockImplementationOnce((data, callbacks) => {
-      callbacks.onSuccess()
+    vi.mocked(mockCreateTask.mutate).mockImplementationOnce((_data: any, callbacks: any) => {
+      callbacks?.onSuccess?.(
+        {
+          status: 'success',
+          taskId: 'test-task-id',
+        },
+        {
+          agentType: 'claude-code',
+          message: 'Build a new feature',
+          repositoryId: 'repo-123',
+          model: 'claude-opus-4-20250514',
+          filePaths: [],
+          originalBranch: 'main',
+        },
+        undefined,
+      )
     })
 
     const submitButton = screen.getByRole('button', { name: /start task/i })
@@ -203,10 +218,7 @@ describe('CreateCodeTask', () => {
   })
 
   it('shows loading state when creating task', () => {
-    vi.mocked(useCreateTask).mockReturnValue({
-      ...mockCreateTask,
-      isPending: true,
-    })
+    vi.mocked(useCreateTask).mockReturnValue(createPendingMutation() as any)
 
     renderComponent()
 
@@ -233,7 +245,7 @@ describe('CreateCodeTask', () => {
       ...mockRepoSelector,
       value: 'default-repo',
     }
-    vi.mocked(useRepositorySelector).mockImplementation((enabled, initialValue) => {
+    vi.mocked(useRepositorySelector).mockImplementation((_enabled: any, initialValue: any) => {
       if (initialValue === 'default-repo') {
         return mockRepoSelectorWithDefault
       }

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockMutationResult } from '@/test-utils/mock-mutations'
 import { ChatInput } from '../index'
 
 // Mock dependencies
@@ -25,18 +26,21 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
 }))
 
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
-  useSendMessage: () => ({
-    mutateAsync: vi.fn(),
-    isPending: false,
-  }),
-  useCreateTask: () => ({
-    mutateAsync: vi.fn(),
-    isPending: false,
-  }),
-  useStopAgent: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
+  useSendMessage: () =>
+    createMockMutationResult({
+      mutateAsync: vi.fn(),
+      isPending: false,
+    }),
+  useCreateTask: () =>
+    createMockMutationResult({
+      mutateAsync: vi.fn(),
+      isPending: false,
+    }),
+  useStopAgent: () =>
+    createMockMutationResult({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
   useTaskFileSearch: () => ({
     data: null,
     isLoading: false,
@@ -52,10 +56,11 @@ vi.mock('@/features/templates', () => ({
 }))
 
 vi.mock('@/features/uploads/hooks/use-upload', () => ({
-  useUploadFile: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
+  useUploadFile: () =>
+    createMockMutationResult({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
 }))
 
 // Helper to render with providers
@@ -90,7 +95,7 @@ describe('ChatInput - Expandable Textarea', () => {
 
   describe('Default maxHeight behavior', () => {
     it('should apply default maxHeight of 200px when no prop is provided', () => {
-      renderWithProviders(<ChatInput />)
+      renderWithProviders(<ChatInput taskId="test-task" onSendMessage={vi.fn()} />)
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -99,7 +104,7 @@ describe('ChatInput - Expandable Textarea', () => {
     })
 
     it('should have minimum height of 40px', () => {
-      renderWithProviders(<ChatInput />)
+      renderWithProviders(<ChatInput taskId="test-task" onSendMessage={vi.fn()} />)
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -110,7 +115,9 @@ describe('ChatInput - Expandable Textarea', () => {
 
   describe('Custom maxHeight prop', () => {
     it('should apply custom maxHeight when prop is provided', () => {
-      renderWithProviders(<ChatInput maxHeight="300px" />)
+      renderWithProviders(
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="300px" />,
+      )
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -119,13 +126,21 @@ describe('ChatInput - Expandable Textarea', () => {
     })
 
     it('should accept different maxHeight values', () => {
-      const { rerender } = renderWithProviders(<ChatInput maxHeight="150px" />)
+      const { rerender } = renderWithProviders(
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="150px" />,
+      )
 
       let textarea = screen.getByPlaceholderText(/describe your coding task/i)
       let textareaStyles = window.getComputedStyle(textarea)
       expect(textareaStyles.maxHeight).toBe('150px')
 
-      rerender(<ChatInput maxHeight="400px" />)
+      rerender(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="400px" />
+        </QueryClientProvider>,
+      )
 
       textarea = screen.getByPlaceholderText(/describe your coding task/i)
       textareaStyles = window.getComputedStyle(textarea)
@@ -136,7 +151,9 @@ describe('ChatInput - Expandable Textarea', () => {
   describe('Textarea auto-expansion', () => {
     it('should expand textarea height as user types', async () => {
       const user = userEvent.setup()
-      renderWithProviders(<ChatInput maxHeight="300px" />)
+      renderWithProviders(
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="300px" />,
+      )
 
       const textarea = screen.getByPlaceholderText(
         /describe your coding task/i,
@@ -166,7 +183,9 @@ describe('ChatInput - Expandable Textarea', () => {
 
     it('should stop expanding at maxHeight', async () => {
       const user = userEvent.setup()
-      renderWithProviders(<ChatInput maxHeight="150px" />)
+      renderWithProviders(
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="150px" />,
+      )
 
       const textarea = screen.getByPlaceholderText(
         /describe your coding task/i,
@@ -191,7 +210,9 @@ describe('ChatInput - Expandable Textarea', () => {
 
     it('should show scrollbar when content exceeds maxHeight', async () => {
       const user = userEvent.setup()
-      renderWithProviders(<ChatInput maxHeight="100px" />)
+      renderWithProviders(
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="100px" />,
+      )
 
       const textarea = screen.getByPlaceholderText(
         /describe your coding task/i,
@@ -218,7 +239,9 @@ describe('ChatInput - Expandable Textarea', () => {
 
     it('should reset height when content is cleared', async () => {
       const user = userEvent.setup()
-      renderWithProviders(<ChatInput maxHeight="200px" />)
+      renderWithProviders(
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="200px" />,
+      )
 
       const textarea = screen.getByPlaceholderText(
         /describe your coding task/i,
@@ -256,7 +279,12 @@ describe('ChatInput - Expandable Textarea', () => {
   describe('Integration with different contexts', () => {
     it('should work in task context with custom maxHeight', () => {
       renderWithProviders(
-        <ChatInput taskId="task-123" maxHeight="150px" placeholder="Type a new request..." />,
+        <ChatInput
+          taskId="task-123"
+          onSendMessage={vi.fn()}
+          maxHeight="150px"
+          placeholder="Type a new request..."
+        />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i)
@@ -265,23 +293,22 @@ describe('ChatInput - Expandable Textarea', () => {
       expect(textareaStyles.maxHeight).toBe('150px')
     })
 
-    it('should work in homepage context with custom maxHeight', () => {
+    it('should work with custom maxHeight', () => {
       renderWithProviders(
-        <ChatInput showRepositorySelector={true} showTitle={true} maxHeight="300px" />,
+        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="300px" />,
       )
 
-      const textarea = screen.getByPlaceholderText(/describe your coding task/i)
+      const textarea = screen.getByPlaceholderText(/type a new request/i)
       const textareaStyles = window.getComputedStyle(textarea)
 
       expect(textareaStyles.maxHeight).toBe('300px')
-      expect(screen.getByText(/what should we build today/i)).toBeInTheDocument()
     })
   })
 
   describe('Multiline input handling', () => {
     it.skip('should allow multiline input with Shift+Enter', async () => {
       const user = userEvent.setup()
-      renderWithProviders(<ChatInput />)
+      renderWithProviders(<ChatInput taskId="test-task" onSendMessage={vi.fn()} />)
 
       const textarea = screen.getByPlaceholderText(
         /describe your coding task/i,
@@ -298,7 +325,7 @@ describe('ChatInput - Expandable Textarea', () => {
       const user = userEvent.setup()
       const onCreateTask = vi.fn()
 
-      renderWithProviders(<ChatInput showRepositorySelector={true} onCreateTask={onCreateTask} />)
+      renderWithProviders(<ChatInput taskId="test-task" onSendMessage={onCreateTask} />)
 
       const textarea = screen.getByPlaceholderText(/describe your coding task/i)
 
@@ -307,10 +334,12 @@ describe('ChatInput - Expandable Textarea', () => {
 
       await waitFor(() => {
         expect(onCreateTask).toHaveBeenCalledWith(
+          'test-task',
           'Test message',
-          expect.any(String),
           expect.any(Function),
-          expect.any(String),
+          true,
+          undefined,
+          undefined,
         )
       })
     })

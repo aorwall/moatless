@@ -147,8 +147,8 @@ describe('ChatInput file search functionality', () => {
       const [_selectedRepo] = useState(repositoryId)
       return (
         <ChatInput
-          showRepositorySelector={true}
-          onCreateTask={vi.fn()}
+          taskId="test-task"
+          onSendMessage={vi.fn()}
           // Pass repositoryId through a controlled component to simulate selection
         />
       )
