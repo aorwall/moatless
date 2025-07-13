@@ -95,6 +95,7 @@ export function CreateCodeTask({
         message: message.trim(),
         repositoryId: repoSelector.value,
         model: modelSelector.value,
+        filePaths: [],
         originalBranch: branchSelector.value,
       },
       {

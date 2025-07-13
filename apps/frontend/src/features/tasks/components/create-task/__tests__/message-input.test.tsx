@@ -21,7 +21,12 @@ vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({
 vi.mock('@/features/tasks/components/file-autocomplete', () => ({
   FileAutocomplete: ({ onSelect }: { onSelect: (file: any) => void }) => (
     <div data-testid="file-autocomplete">
-      <button onClick={() => onSelect({ path: 'test.js' })}>Select test.js</button>
+      <button
+        type="button"
+        onClick={() => onSelect({ path: 'test.js', absolutePath: '/path/to/test.js', score: 1.0 })}
+      >
+        Select test.js
+      </button>
     </div>
   ),
 }))
@@ -177,33 +182,30 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value=""
-        onChange={handleChange}
-        onSubmit={handleSubmit}
-        maxHeight="150px"
-      />,
+      <MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} maxHeight="150px" />,
     )
 
     const textarea = screen.getByPlaceholderText('Type your message...')
-    
+
     // Initially should have minimum height
     expect(textarea.style.minHeight).toBe('40px')
-    
+
     // Mock scrollHeight property
     Object.defineProperty(textarea, 'scrollHeight', {
       configurable: true,
       value: 80,
     })
-    
+
     // Type some text that would cause expansion
-    fireEvent.change(textarea, { 
-      target: { 
-        value: 'This is a long message that should cause the textarea to expand in height'
-      } 
+    fireEvent.change(textarea, {
+      target: {
+        value: 'This is a long message that should cause the textarea to expand in height',
+      },
     })
 
-    expect(handleChange).toHaveBeenCalledWith('This is a long message that should cause the textarea to expand in height')
+    expect(handleChange).toHaveBeenCalledWith(
+      'This is a long message that should cause the textarea to expand in height',
+    )
     // The textarea should be resized to match scrollHeight
     expect(textarea.style.height).toBe('80px')
   })
@@ -213,12 +215,7 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value=""
-        onChange={handleChange}
-        onSubmit={handleSubmit}
-        maxHeight="100px"
-      />,
+      <MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} maxHeight="100px" />,
     )
 
     const textarea = screen.getByPlaceholderText('Type your message...')
@@ -229,13 +226,7 @@ describe('MessageInput', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(
-      <MessageInput
-        value="@test"
-        onChange={handleChange}
-        onSubmit={handleSubmit}
-      />,
-    )
+    render(<MessageInput value="@test" onChange={handleChange} onSubmit={handleSubmit} />)
 
     expect(screen.queryByTestId('file-autocomplete')).not.toBeInTheDocument()
   })

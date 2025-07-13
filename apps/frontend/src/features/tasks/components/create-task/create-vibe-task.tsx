@@ -91,6 +91,7 @@ export function CreateVibeTask({
         repositoryName,
         message: message.trim(),
         model: modelSelector.value,
+        filePaths: [],
         start: true,
       },
       {

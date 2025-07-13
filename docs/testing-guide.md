@@ -128,11 +128,83 @@ feature/
         └── feature-context.test.tsx    # Context providers
 ```
 
-#### Test Coverage Requirements
-- **Core Components**: Missing tests are technical debt
-- **Context Providers**: Must have tests for data flow
-- **Custom Hooks**: All hooks require test coverage
-- **Utility Functions**: 100% coverage expected
+#### Test File Naming Conventions
+
+Use specific naming patterns to control which tests run in different scenarios:
+
+**Unit Tests (Fast)** - Run with `pnpm test:fast`:
+- `*.test.ts` - Standard unit tests
+- `*.test.tsx` - Component unit tests
+
+**Integration Tests (Slower)** - Excluded from fast tests:
+- `*.integration.test.ts` - Integration tests
+- `*.integration.test.tsx` - Component integration tests
+- `*connection*.test.{ts,tsx}` - Network/WebSocket tests
+- `global-event-stream-provider.test.tsx` - Specific integration test
+
+**E2E Tests (Slowest)** - Run separately:
+- `*.e2e.test.ts` - End-to-end tests
+- `*.e2e.test.tsx` - Full user journey tests
+
+**Memory-Heavy Tests** - Run with increased memory:
+- `markdown-preview.test.tsx` - Large DOM tests
+- `preview-integration.test.tsx` - Heavy integration tests
+
+**Test Commands**:
+```bash
+pnpm test:fast      # Only unit tests (fastest)
+pnpm test:unit      # Same as test:fast
+pnpm test:integration # Only integration tests
+pnpm test:all       # All tests except E2E
+pnpm test           # Standard test run (excludes some slow tests)
+```
+
+### Key Testing Principles
+
+#### 1. Use Stable Selectors
+```typescript
+// ❌ BAD: Brittle text-based selection
+expect(screen.getByText('Claude 3 Opus')).toBeInTheDocument()
+const textarea = screen.getByPlaceholderText(/describe your coding task/i)
+
+// ✅ GOOD: Stable data-testid attributes
+expect(screen.getByTestId('model-selector')).toHaveTextContent('Claude 3 Opus')
+const textarea = screen.getByTestId('message-input')
+```
+
+#### 2. Test Behavior, Not Implementation
+```typescript
+// ❌ BAD: Testing implementation details
+expect(component.state.isLoading).toBe(true)
+expect(mockFunction).toHaveBeenCalledTimes(1)
+
+// ✅ GOOD: Testing user-facing behavior
+expect(screen.getByTestId('loading-spinner')).toBeInTheDocument()
+expect(screen.getByTestId('success-message')).toBeInTheDocument()
+```
+
+#### 3. Separate Business Logic from UI
+```typescript
+// ✅ GOOD: Extract and test logic separately
+export const createTaskPayload = (
+  message: string,
+  repoId: string,
+  model: string
+): CreateTaskRequest => ({
+  agentType: 'claude-code',
+  message: message.trim(),
+  repositoryId: repoId,
+  model,
+  filePaths: [], // Won't forget required fields!
+})
+
+// Test the logic independently
+it('creates valid task payload', () => {
+  const payload = createTaskPayload('test', 'repo', 'model')
+  expect(payload.filePaths).toEqual([])
+  expect(payload.agentType).toBe('claude-code')
+})
+```
 
 ### Strategic Mocking Philosophy
 
@@ -576,6 +648,7 @@ afterAll(() => server.close());
 
 Create shared test utilities in `src/test-utils/`:
 
+### Render Utilities
 ```typescript
 // src/test-utils/render.tsx
 export function renderWithProviders(
@@ -600,6 +673,61 @@ export function renderWithProviders(
 }
 ```
 
+### Centralized Mock Utilities
+```typescript
+// src/test-utils/mocks/selectors.tsx
+export const mockGenericSelector = () => ({
+  GenericSelector: ({ value, items, testId }: any) => {
+    const item = items?.find((i: any) => i.id === value)
+    return (
+      <div data-testid={testId}>
+        {item ? <span>{item.label}</span> : null}
+      </div>
+    )
+  },
+  useRepositorySelector: vi.fn(),
+  useModelSelector: vi.fn(),
+  useBranchSelector: vi.fn(),
+  useTemplateSelector: vi.fn(),
+})
+
+// Usage in tests
+vi.mock('@/features/tasks/components/chat-input/selectors', () => 
+  mockGenericSelector()
+)
+```
+
+### Component Test Helpers
+```typescript
+// src/test-utils/component-testers/chat-input.tester.ts
+export class ChatInputTester {
+  private user = userEvent.setup()
+  private component: RenderResult
+
+  constructor(props: ChatInputProps) {
+    this.component = renderWithProviders(<ChatInput {...props} />)
+  }
+
+  async typeMessage(message: string) {
+    const input = this.component.getByTestId('message-input')
+    await this.user.type(input, message)
+    return this
+  }
+
+  async submit() {
+    const button = this.component.getByTestId('submit-button')
+    await this.user.click(button)
+    return this
+  }
+
+  expectSubmitDisabled() {
+    const button = this.component.getByTestId('submit-button')
+    expect(button).toBeDisabled()
+    return this
+  }
+}
+```
+
 ## Testing Guidelines
 
 ### Core Principles
@@ -613,6 +741,58 @@ export function renderWithProviders(
 7. **Error States**: Always test error handling and edge cases
 8. **Async Testing**: Use `waitFor` for async operations
 9. **User Interactions**: Use `@testing-library/user-event` for simulating user actions
+
+### What NOT to Test
+
+#### 1. Third-Party Library Behavior
+```typescript
+// ❌ BAD: Testing React Query's caching
+it('caches the query result', () => {
+  const { result, rerender } = renderHook(() => useTask('123'))
+  rerender()
+  expect(mockFetch).toHaveBeenCalledTimes(1) // Testing library behavior
+})
+
+// ✅ GOOD: Test your usage of the library
+it('fetches task data on mount', () => {
+  renderHook(() => useTask('123'))
+  expect(mockTasksApi.getTask).toHaveBeenCalledWith('123')
+})
+```
+
+#### 2. CSS Classes and Styles
+```typescript
+// ❌ BAD: Testing CSS classes
+expect(button).toHaveClass('bg-primary hover:bg-primary-dark')
+
+// ✅ GOOD: Test visual states through behavior
+expect(button).toBeDisabled()
+expect(button).toHaveAttribute('aria-pressed', 'true')
+```
+
+#### 3. Implementation Details
+```typescript
+// ❌ BAD: Testing internal state
+expect(component.instance().state.count).toBe(5)
+
+// ✅ GOOD: Test observable output
+expect(screen.getByTestId('counter')).toHaveTextContent('5')
+```
+
+#### 4. Simple Prop Passing
+```typescript
+// ❌ BAD: Testing that props are passed through
+it('passes className to div', () => {
+  render(<Component className="test-class" />)
+  expect(container.firstChild).toHaveClass('test-class')
+})
+
+// ✅ GOOD: Test meaningful behavior changes
+it('disables form submission when disabled', () => {
+  render(<Form disabled />)
+  expect(screen.getByTestId('submit-button')).toBeDisabled()
+})
+```
 
 ### Test Layer Responsibilities
 
@@ -869,36 +1049,6 @@ describe('TaskDetail Route - Integration Tests', () => {
 
 ## Test Maintenance
 
-### Managing Test Debt
-
-1. **Track Skipped Tests**
-   ```typescript
-   // Create a test debt file
-   // __tests__/test-debt.md
-   ## Skipped Tests
-   - [ ] chat-input-file-search.test.tsx - File search integration (TASK-456)
-   - [ ] event-viewer.test.tsx - Auto-scroll behavior (TASK-457)
-   ```
-
-2. **Regular Test Audits**
-   - Review skipped tests monthly
-   - Remove obsolete tests
-   - Update mock data to match API changes
-   - Consolidate duplicate test patterns
-
-3. **Test Flakiness Resolution**
-   ```typescript
-   // Instead of skipping flaky tests
-   it.skip('flaky test', () => {});
-   
-   // Fix the root cause
-   it('fixed test', async () => {
-     // Use waitFor instead of setTimeout
-     await waitFor(() => {
-       expect(element).toBeVisible();
-     }, { timeout: 5000 });
-   });
-   ```
 
 ### Test Organization Best Practices
 
@@ -926,6 +1076,65 @@ describe('TaskDetail Route - Integration Tests', () => {
    - Use descriptive test names
    - Follow "should [do something] when [condition]" pattern
    - Group by feature/behavior, not implementation
+
+## Common Testing Pitfalls to Avoid
+
+### 1. Brittle Text Matching
+```typescript
+// ❌ BAD: Will break when text changes
+expect(screen.getByText('Claude 3 Opus')).toBeInTheDocument()
+
+// ✅ GOOD: Use test IDs or query by role
+expect(screen.getByTestId('model-selector')).toHaveTextContent('Claude 3 Opus')
+expect(screen.getByRole('combobox', { name: /model/i })).toBeInTheDocument()
+```
+
+### 2. Testing Mock Behavior
+```typescript
+// ❌ BAD: Testing that your mock works
+const mockFn = vi.fn()
+mockFn('test')
+expect(mockFn).toHaveBeenCalledWith('test') // Pointless!
+
+// ✅ GOOD: Test real component behavior
+render(<Component onSubmit={mockFn} />)
+await user.click(screen.getByTestId('submit'))
+expect(mockFn).toHaveBeenCalledWith(expectedData)
+```
+
+### 3. Incomplete Mock Data
+```typescript
+// ❌ BAD: Missing required fields causes runtime errors
+const mockTask = { id: '1', name: 'Test' }
+
+// ✅ GOOD: Use complete factories
+const mockTask = createMockTask({ name: 'Test' })
+```
+
+### 4. Over-Mocking
+```typescript
+// ❌ BAD: Mocking everything = testing nothing
+vi.mock('@/features/tasks/components/task-viewer')
+vi.mock('@/features/tasks/components/task-header')
+vi.mock('@/features/tasks/components/event-viewer')
+
+// ✅ GOOD: Mock only external dependencies
+vi.mock('@/features/tasks/hooks/use-tasks') // API calls
+// Let components render for real integration testing
+```
+
+### 5. Ignoring Async Behavior
+```typescript
+// ❌ BAD: Not waiting for async updates
+fireEvent.click(button)
+expect(screen.getByText('Success')).toBeInTheDocument() // Might fail!
+
+// ✅ GOOD: Use waitFor
+fireEvent.click(button)
+await waitFor(() => {
+  expect(screen.getByText('Success')).toBeInTheDocument()
+})
+```
 
 ## Best Practices
 

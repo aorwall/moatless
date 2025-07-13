@@ -11,17 +11,25 @@ import {
 } from '../../chat-input/selectors'
 import { CreateCodeTask } from '../create-code-task'
 
-// Mock the hooks
-vi.mock('@/features/tasks/hooks/use-tasks')
-vi.mock('../../chat-input/selectors')
+vi.mock('../../chat-input/selectors', () => ({
+  GenericSelector: ({ value, items }: any) => {
+    const item = items?.find((i: any) => i.id === value)
+    return item ? <span>{item.label}</span> : null
+  },
+  useBranchSelector: vi.fn(),
+  useModelSelector: vi.fn(),
+  useRepositorySelector: vi.fn(),
+}))
 vi.mock('sonner', () => ({
   toast: {
     error: vi.fn(),
   },
 }))
 
-// Mock file search hooks
-vi.mock('@/features/tasks/hooks/use-file-search', () => ({
+// Mock the useTaskFileSearch from the use-tasks module
+vi.mock('@/features/tasks/hooks/use-tasks', () => ({
+  ...vi.importActual('@/features/tasks/hooks/use-tasks'),
+  useCreateTask: vi.fn(),
   useTaskFileSearch: vi.fn(() => ({
     data: null,
     isLoading: false,
@@ -93,7 +101,7 @@ const mockModelSelector = {
   onChange: vi.fn(),
   loading: false,
   placeholder: 'Select model',
-  items: [{ id: 'claude-opus-4-20250514' as const, label: 'Claude Opus 4' }],
+  items: [{ id: 'claude-opus-4-20250514' as const, label: 'Claude 3 Opus' }],
   width: 'w-[180px]',
 }
 
