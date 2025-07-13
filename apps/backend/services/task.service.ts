@@ -87,6 +87,21 @@ export class TaskService {
     try {
       await this.storage.saveTask(task)
 
+      // Emit task created event
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: EventType.INPUT,
+        subType: 'task:statusChanged',
+        payload: {
+          status: 'open',
+          previousStatus: 'created',
+        },
+        eventId: randomUUID(),
+        timestamp: now,
+        agentType: params.agentType,
+        isError: false,
+      })
+
       logger.info('Task metadata created successfully', {
         taskId: task.taskId,
         agentType: params.agentType,
@@ -171,6 +186,7 @@ export class TaskService {
     }
 
     // Update task status to running
+    const previousStatus = task.status
     task.status = 'running'
 
     // Update iteration status to active
@@ -178,6 +194,22 @@ export class TaskService {
 
     // Save task with updated statuses
     await this.storage.saveTask(task)
+
+    // Emit status change event
+    await this.eventService.emitEvent({
+      taskId,
+      type: EventType.INPUT,
+      subType: 'task:statusChanged',
+      payload: {
+        status: 'running',
+        previousStatus,
+        iterationNumber: lastIteration.iterationNumber,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      agentType: task.agentType,
+      isError: false,
+    })
 
     // Execute the agent with the iteration's initial message
     if (lastIteration.initialMessage || lastIteration.commandName) {
