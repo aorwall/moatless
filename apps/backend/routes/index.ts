@@ -7,6 +7,7 @@ import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
 import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
+import { settingsRoute } from './settings.js'
 import { registerTaskRoutes } from './tasks.js'
 import { registerUploadRoutes } from './uploads.js'
 import { registerWorkspaceRoutes } from './workspace.js'
@@ -22,6 +23,7 @@ const apiInfoResponseSchema = z.object({
     repositories: z.string(),
     commands: z.string(),
     events: z.string(),
+    settings: z.string(),
   }),
 })
 
@@ -52,6 +54,7 @@ export async function registerRoutes(app: Hono<AppBindings>) {
           repositories: `${API_PREFIX}/repositories`,
           commands: `${API_PREFIX}/commands`,
           events: `${API_PREFIX}/events`,
+          settings: `${API_PREFIX}/settings`,
         },
       })
     },
@@ -65,4 +68,7 @@ export async function registerRoutes(app: Hono<AppBindings>) {
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app, `${API_PREFIX}/uploads`)
   await registerCommandRoutes(app, `${API_PREFIX}/commands`)
+
+  // Register settings routes
+  app.route(`${API_PREFIX}/settings`, settingsRoute)
 }

@@ -1,10 +1,11 @@
 import type {
   PermissionMode,
   UpdateClaudeCodeSettingsRequest,
-} from '@moatless/shared/types/claude-code'
+  UpdateSettingsRequest,
+} from '@moatless/shared'
 import { createFileRoute } from '@tanstack/react-router'
-import { AlertCircle, Loader2 } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { AlertCircle, FolderOpen, Loader2 } from 'lucide-react'
+import { useId, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   useClaudeCodeSettings,
@@ -12,6 +13,7 @@ import {
   useDeleteClaudeCodeSettings,
   useUpdateClaudeCodeSettings,
 } from '@/features/claude-code'
+import { useResetSettings, useSettings, useUpdateSettings } from '@/features/settings'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
@@ -48,40 +50,82 @@ function SettingsPage() {
   const updateSettings = useUpdateClaudeCodeSettings()
   const deleteSettings = useDeleteClaudeCodeSettings()
 
+  // Application settings
+  const {
+    data: appSettings,
+    isLoading: appSettingsLoading,
+    error: appSettingsError,
+  } = useSettings()
+  const updateAppSettings = useUpdateSettings()
+  const resetAppSettings = useResetSettings()
+
   const modelId = useId()
   const maxTurnsId = useId()
   const maxThinkingTokensId = useId()
   const systemPromptId = useId()
   const appendSystemPromptId = useId()
   const permissionModeId = useId()
+  const dataDirId = useId()
+  const defaultWorkspaceTypeId = useId()
+  const claudeBinDirId = useId()
+  const claudeConfigDirId = useId()
 
   const [showBypassWarning, setShowBypassWarning] = useState(false)
-  const [formData, setFormData] = useState<UpdateClaudeCodeSettingsRequest>({
-    model: null,
-    maxTurns: null,
-    maxThinkingTokens: 8000,
-    systemPrompt: null,
-    appendSystemPrompt: null,
-    allowedTools: [],
-    disallowedTools: [],
-    permissionMode: null,
-  })
+  // Derive form data directly from settings - no effects needed (following derived state pattern)
+  const baseAppFormData = useMemo<UpdateSettingsRequest>(
+    () => ({
+      dataDir: appSettings?.settings.dataDir || null,
+      defaultWorkspaceType: appSettings?.settings.defaultWorkspaceType || null,
+      claude: {
+        binDir: appSettings?.settings.claude?.binDir || null,
+        configDir: appSettings?.settings.claude?.configDir || null,
+      },
+    }),
+    [appSettings],
+  )
 
-  // Update form data when settings are loaded
-  useEffect(() => {
-    if (settings) {
-      setFormData({
-        model: settings.model,
-        maxTurns: settings.maxTurns,
-        maxThinkingTokens: settings.maxThinkingTokens,
-        systemPrompt: settings.systemPrompt,
-        appendSystemPrompt: settings.appendSystemPrompt,
-        allowedTools: settings.allowedTools,
-        disallowedTools: settings.disallowedTools,
-        permissionMode: settings.permissionMode,
-      })
-    }
-  }, [settings])
+  const baseClaudeFormData = useMemo<UpdateClaudeCodeSettingsRequest>(
+    () => ({
+      model: settings?.model || null,
+      maxTurns: settings?.maxTurns || null,
+      maxThinkingTokens: settings?.maxThinkingTokens || 8000,
+      systemPrompt: settings?.systemPrompt || null,
+      appendSystemPrompt: settings?.appendSystemPrompt || null,
+      allowedTools: settings?.allowedTools || [],
+      disallowedTools: settings?.disallowedTools || [],
+      permissionMode: settings?.permissionMode || null,
+    }),
+    [settings],
+  )
+
+  // Track user modifications separately from the derived data
+  const [appUserModifications, setAppUserModifications] = useState<Partial<UpdateSettingsRequest>>(
+    {},
+  )
+  const [claudeUserModifications, setClaudeUserModifications] = useState<
+    Partial<UpdateClaudeCodeSettingsRequest>
+  >({})
+
+  // Merge derived data with user modifications
+  const appFormData = useMemo(
+    () => ({
+      ...baseAppFormData,
+      ...appUserModifications,
+      claude: {
+        ...baseAppFormData.claude,
+        ...appUserModifications.claude,
+      },
+    }),
+    [baseAppFormData, appUserModifications],
+  )
+
+  const formData = useMemo(
+    () => ({
+      ...baseClaudeFormData,
+      ...claudeUserModifications,
+    }),
+    [baseClaudeFormData, claudeUserModifications],
+  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,6 +137,8 @@ function SettingsPage() {
 
     updateSettings.mutate(formData, {
       onSuccess: () => {
+        // Clear user modifications since settings are now persisted
+        setClaudeUserModifications({})
         toast.success('Settings saved successfully')
       },
       onError: (error) => {
@@ -106,17 +152,8 @@ function SettingsPage() {
   const handleReset = () => {
     deleteSettings.mutate(undefined, {
       onSuccess: () => {
-        // Reset form to defaults
-        setFormData({
-          model: null,
-          maxTurns: null,
-          maxThinkingTokens: 8000,
-          systemPrompt: null,
-          appendSystemPrompt: null,
-          allowedTools: [],
-          disallowedTools: [],
-          permissionMode: null,
-        })
+        // Clear user modifications when reset succeeds
+        setClaudeUserModifications({})
         toast.success('Settings reset to defaults')
       },
       onError: (error) => {
@@ -131,15 +168,18 @@ function SettingsPage() {
     const otherList = listType === 'allowed' ? 'disallowedTools' : 'allowedTools'
     const currentList = listType === 'allowed' ? 'allowedTools' : 'disallowedTools'
 
-    setFormData((prev) => {
+    setClaudeUserModifications((prev) => {
+      // Get current values from merged formData to ensure we're working with the latest state
+      const currentOtherList = formData[otherList] || []
+      const currentCurrentList = formData[currentList] || []
+
       // Remove from other list if present
-      const newOtherList = prev[otherList]?.filter((t) => t !== toolName) || []
+      const newOtherList = currentOtherList.filter((t) => t !== toolName)
 
       // Toggle in current list
-      const currentTools = prev[currentList] || []
-      const newCurrentList = currentTools.includes(toolName)
-        ? currentTools.filter((t) => t !== toolName)
-        : [...currentTools, toolName]
+      const newCurrentList = currentCurrentList.includes(toolName)
+        ? currentCurrentList.filter((t) => t !== toolName)
+        : [...currentCurrentList, toolName]
 
       return {
         ...prev,
@@ -160,6 +200,194 @@ function SettingsPage() {
         </div>
 
         <div className="space-y-6">
+          {/* Application Settings */}
+          {appSettingsLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : appSettingsError ? (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>
+                Failed to load application settings. Please try again later.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Application Settings</CardTitle>
+                <CardDescription>Configure core application settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor={dataDirId}>Data Directory</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id={dataDirId}
+                      type="text"
+                      placeholder={appSettings?.defaults.dataDir || '~/.moatless'}
+                      value={appFormData.dataDir || ''}
+                      onChange={(e) => {
+                        const value = e.target.value.trim()
+                        setAppUserModifications((prev) => ({
+                          ...prev,
+                          dataDir:
+                            value === '' || value === appSettings?.defaults.dataDir ? null : value,
+                        }))
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      title="Browse folders"
+                      disabled
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Directory where application data is stored
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={defaultWorkspaceTypeId}>Default Workspace Type</Label>
+                  <Select
+                    value={
+                      appFormData.defaultWorkspaceType ||
+                      appSettings?.defaults.defaultWorkspaceType ||
+                      'local'
+                    }
+                    onValueChange={(value) =>
+                      setAppUserModifications((prev) => ({
+                        ...prev,
+                        defaultWorkspaceType:
+                          value === appSettings?.defaults.defaultWorkspaceType
+                            ? null
+                            : (value as 'docker' | 'local'),
+                      }))
+                    }
+                  >
+                    <SelectTrigger id={defaultWorkspaceTypeId}>
+                      <SelectValue placeholder="Select workspace type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="local">Local</SelectItem>
+                      <SelectItem value="docker">Docker</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Default workspace type for new tasks
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor={claudeBinDirId}>Claude Bin Directory</Label>
+                    <Input
+                      id={claudeBinDirId}
+                      type="text"
+                      placeholder={appSettings?.defaults.claude.binDir || 'Auto-detect (optional)'}
+                      value={appFormData.claude?.binDir || ''}
+                      onChange={(e) => {
+                        const value = e.target.value.trim()
+                        setAppUserModifications((prev) => ({
+                          ...prev,
+                          claude: {
+                            ...prev.claude,
+                            binDir:
+                              value === '' || value === appSettings?.defaults.claude.binDir
+                                ? null
+                                : value,
+                          },
+                        }))
+                      }}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Directory containing Claude Code binary (optional - auto-detected if empty)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor={claudeConfigDirId}>Claude Config Directory</Label>
+                    <Input
+                      id={claudeConfigDirId}
+                      type="text"
+                      placeholder={
+                        appSettings?.defaults.claude.configDir || 'Auto-detect (optional)'
+                      }
+                      value={appFormData.claude?.configDir || ''}
+                      onChange={(e) => {
+                        const value = e.target.value.trim()
+                        setAppUserModifications((prev) => ({
+                          ...prev,
+                          claude: {
+                            ...prev.claude,
+                            configDir:
+                              value === '' || value === appSettings?.defaults.claude.configDir
+                                ? null
+                                : value,
+                          },
+                        }))
+                      }}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Directory for Claude Code configuration (optional - auto-detected if empty)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-between">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      resetAppSettings.mutate(undefined, {
+                        onSuccess: () => {
+                          // Clear user modifications when reset succeeds
+                          setAppUserModifications({})
+                          toast.success('Application settings reset to defaults')
+                        },
+                        onError: (error) => {
+                          toast.error('Failed to reset application settings', {
+                            description: getErrorMessage(error),
+                          })
+                        },
+                      })
+                    }}
+                    disabled={resetAppSettings.isPending}
+                  >
+                    Reset to Defaults
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      updateAppSettings.mutate(appFormData, {
+                        onSuccess: () => {
+                          // Clear user modifications since settings are now persisted
+                          setAppUserModifications({})
+                          toast.success('Application settings saved successfully')
+                        },
+                        onError: (error) => {
+                          toast.error('Failed to save application settings', {
+                            description: getErrorMessage(error),
+                          })
+                        },
+                      })
+                    }}
+                    disabled={updateAppSettings.isPending}
+                  >
+                    {updateAppSettings.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Save Application Settings
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Claude Code Settings */}
           {isLoading ? (
             <div className="flex items-center justify-center h-96">
@@ -192,10 +420,10 @@ function SettingsPage() {
                       placeholder="e.g., claude-3-opus-20240229"
                       value={formData.model || ''}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
+                        setClaudeUserModifications((prev) => ({
+                          ...prev,
                           model: e.target.value || null,
-                        })
+                        }))
                       }
                     />
                     <p className="text-sm text-muted-foreground">
@@ -214,10 +442,10 @@ function SettingsPage() {
                         placeholder="Default: unlimited"
                         value={formData.maxTurns || ''}
                         onChange={(e) =>
-                          setFormData({
-                            ...formData,
+                          setClaudeUserModifications((prev) => ({
+                            ...prev,
                             maxTurns: e.target.value ? parseInt(e.target.value) : null,
-                          })
+                          }))
                         }
                       />
                     </div>
@@ -231,10 +459,10 @@ function SettingsPage() {
                         max="100000"
                         value={formData.maxThinkingTokens}
                         onChange={(e) =>
-                          setFormData({
-                            ...formData,
+                          setClaudeUserModifications((prev) => ({
+                            ...prev,
                             maxThinkingTokens: parseInt(e.target.value) || 8000,
-                          })
+                          }))
                         }
                       />
                     </div>
@@ -259,10 +487,10 @@ function SettingsPage() {
                       rows={4}
                       value={formData.systemPrompt || ''}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
+                        setClaudeUserModifications((prev) => ({
+                          ...prev,
                           systemPrompt: e.target.value || null,
-                        })
+                        }))
                       }
                     />
                   </div>
@@ -275,10 +503,10 @@ function SettingsPage() {
                       rows={4}
                       value={formData.appendSystemPrompt || ''}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
+                        setClaudeUserModifications((prev) => ({
+                          ...prev,
                           appendSystemPrompt: e.target.value || null,
-                        })
+                        }))
                       }
                     />
                   </div>
@@ -299,10 +527,10 @@ function SettingsPage() {
                     <Select
                       value={formData.permissionMode || 'default'}
                       onValueChange={(value) =>
-                        setFormData({
-                          ...formData,
+                        setClaudeUserModifications((prev) => ({
+                          ...prev,
                           permissionMode: value === 'default' ? null : (value as PermissionMode),
-                        })
+                        }))
                       }
                     >
                       <SelectTrigger id={permissionModeId}>
@@ -429,7 +657,7 @@ function SettingsPage() {
             <AlertDialogFooter>
               <AlertDialogCancel
                 onClick={() => {
-                  setFormData({ ...formData, permissionMode: null })
+                  setClaudeUserModifications((prev) => ({ ...prev, permissionMode: null }))
                 }}
               >
                 Cancel

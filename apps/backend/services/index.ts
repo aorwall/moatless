@@ -6,11 +6,13 @@ import {
   type PreviewEnvironmentService,
 } from './preview-environment.service.js'
 import { createRepositoryService, type RepositoryService } from './repository.service.js'
+import { initializeSettingsService, type SettingsService } from './settings.service.js'
 import { createStorageService, type StorageBackend } from './storage.js'
 import { createTaskService, type TaskService } from './task.service.js'
 import { createWorkspaceService, type WorkspaceService } from './workspace.service.js'
 
 export interface Services {
+  settings: SettingsService
   storage: StorageBackend
   event: EventService
   repository: RepositoryService
@@ -22,6 +24,9 @@ export interface Services {
 }
 
 export async function setupServices(): Promise<Services> {
+  // Initialize settings service first
+  const settings = await initializeSettingsService()
+
   // Create services with dependency injection
   const storage = await createStorageService()
   const event = createEventService(storage)
@@ -37,6 +42,7 @@ export async function setupServices(): Promise<Services> {
   const task = createTaskService(storage, event, workspace, agent, command, repository)
 
   return {
+    settings,
     storage,
     event,
     repository,
@@ -56,6 +62,7 @@ export * from './command.service.js'
 export * from './event.service.js'
 export * from './preview-environment.service.js'
 export * from './repository.service.js'
+export * from './settings.service.js'
 export * from './storage.js'
 export * from './task.service.js'
 export * from './workspace.service.js'

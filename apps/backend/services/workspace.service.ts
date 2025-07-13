@@ -13,6 +13,7 @@ import { LocalWorkspace } from '../workspaces/local.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
+import { getSettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
@@ -38,8 +39,7 @@ export class WorkspaceService {
     }
 
     // Create workspace path for local repositories
-    let workspacePath: string | undefined
-    workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
+    const workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
 
     // Always create LocalWorkspace first
     const localWorkspace = new LocalWorkspace(
@@ -52,7 +52,8 @@ export class WorkspaceService {
     )
 
     // Determine workspace type from repository config or global default
-    const globalDefaultWorkspaceType = process.env.DEFAULT_WORKSPACE_TYPE || 'local'
+    const settingsService = getSettingsService()
+    const globalDefaultWorkspaceType = settingsService.getDefaultWorkspaceType()
     const workspaceType = repository.codeExecution.workspaceType || globalDefaultWorkspaceType
 
     let workspace: BaseWorkspace

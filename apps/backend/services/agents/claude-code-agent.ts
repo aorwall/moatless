@@ -3,6 +3,7 @@ import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/shared/t
 import { type Event, EventType, type ResultEvent } from '@moatless/shared/types/event'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { logger } from '../../utils/logger.js'
+import { getSettingsService } from '../settings.service.js'
 import { type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
@@ -159,6 +160,17 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
     const options = this.options as ClaudeCodeOptions
+    const settingsService = getSettingsService()
+    const claudeSettings = settingsService.getClaudeSettings()
+
+    // Set environment variables for Claude Code if provided by settings
+    if (claudeSettings.binDir && claudeSettings.binDir.trim() !== '') {
+      process.env.CLAUDE_BIN_DIR = claudeSettings.binDir
+    }
+    if (claudeSettings.configDir && claudeSettings.configDir.trim() !== '') {
+      process.env.CLAUDE_CONFIG_DIR = claudeSettings.configDir
+    }
+
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools: ['WebFetch', 'WebSearch', 'Bash'],
       permissionMode: 'acceptEdits',
