@@ -153,12 +153,7 @@ export function ChatInput({
   }
 
   // Disable sending based on conditions
-  // Allow clicking when running (to stop), but disable for other states
-  const isSendDisabled =
-    isPending ||
-    (!isRunning && !message.trim()) ||
-    taskStatus === 'completed' ||
-    taskStatus === 'failed'
+  const isSendDisabled = isPending || (!isRunning && !message.trim())
 
   return (
     <div className={className} {...divProps}>
