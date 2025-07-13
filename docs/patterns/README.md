@@ -21,3 +21,6 @@ This directory contains documentation for architectural patterns used across mul
 
 ### Testing Patterns
 - [Strategic Mocking](./strategic-mocking.md) - Balanced testing approach
+
+### API & Backend Patterns
+- [API Patterns and Best Practices](./api-patterns-best-practices.md) - Schema-first API architecture and implementation patterns
