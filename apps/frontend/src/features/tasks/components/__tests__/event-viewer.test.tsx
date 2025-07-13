@@ -100,9 +100,10 @@ describe('EventViewer', () => {
       renderWithRouter(<EventViewer />)
 
       expect(screen.getByText('Loading events...')).toBeInTheDocument()
-      // SVG spinner doesn't have role="img", check for the Loader2 icon instead
-      const spinner = document.querySelector('.lucide-loader-circle')
-      expect(spinner).toHaveClass('animate-spin')
+      // Check for the Loader2 icon with animate-spin class
+      const spinner = document.querySelector('.animate-spin')
+      expect(spinner).toBeInTheDocument()
+      expect(spinner).toHaveClass('h-6', 'w-6', 'animate-spin')
     })
 
     it('shows error state', () => {
