@@ -99,12 +99,6 @@ export function ChatInput({
     }
   }, [modelSelector.value])
 
-  // Reset message and files when taskId changes
-  useEffect(() => {
-    setMessage('')
-    setUploadedFiles([])
-  }, [taskId])
-
   const handleSendMessage = () => {
     // If running, stop the agent instead of sending message
     if (isRunning) {

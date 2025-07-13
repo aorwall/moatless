@@ -39,14 +39,7 @@ export function MessageInput({
   const containerRef = useRef<HTMLDivElement>(null)
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below')
 
-  // File autocomplete functionality (only when repositoryId is provided)
-  const fileAutocomplete = repositoryId ? useUniversalFileAutocomplete({
-    repositoryId,
-    taskId,
-    value,
-    onValueChange: onChange,
-  }) : null
-
+  // File autocomplete functionality - always call hook but disable when no repositoryId
   const {
     inputRef: autocompleteInputRef,
     isOpen: isAutocompleteOpen,
@@ -57,17 +50,12 @@ export function MessageInput({
     handleInputChange: handleAutocompleteInputChange,
     handleKeyDown: handleAutocompleteKeyDown,
     selectFile,
-  } = fileAutocomplete || {
-    inputRef: { current: null },
-    isOpen: false,
-    results: [],
-    selectedIndex: -1,
-    isLoading: false,
-    error: null,
-    handleInputChange: () => {},
-    handleKeyDown: () => {},
-    selectFile: () => {},
-  }
+  } = useUniversalFileAutocomplete({
+    repositoryId: repositoryId || '', // Provide empty string as fallback
+    taskId,
+    value,
+    onValueChange: onChange,
+  })
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Let autocomplete handle key events first if it's open
@@ -179,11 +167,7 @@ export function MessageInput({
           size="icon"
           className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
         >
-          {loading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <ArrowUp className="h-5 w-5" />
-          )}
+          {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
           <span className="sr-only">{buttonText}</span>
         </Button>
       </div>
