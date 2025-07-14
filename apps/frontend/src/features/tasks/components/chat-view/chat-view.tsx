@@ -9,6 +9,7 @@ import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
 import { MessageHistory } from '../message-history'
+import { ChatHeader } from './chat-header'
 import { CommandButtons } from './command-buttons'
 
 interface ChatViewProps {
@@ -96,6 +97,9 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
   return (
     <div className={`h-full flex flex-col ${className || ''}`}>
+      {/* Chat Header */}
+      <ChatHeader />
+
       {/* Message History Component */}
       <div className="flex-1 overflow-hidden">
         <ErrorBoundary componentName="Message History">
