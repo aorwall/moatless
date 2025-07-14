@@ -87,11 +87,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { model, filePaths, ...taskData } = validatedBody
 
       try {
-        const taskId = await taskService.createTask({ ...taskData, model, filePaths })
-
-        // Get the task to return the current status
-        const task = await taskService.getTask(taskId)
-        return c.json({ taskId, status: task?.status || 'open' })
+        const task = await taskService.createTask({ ...taskData, model, filePaths })
+        return c.json({ taskId: task.taskId, status: task.status, task })
       } catch (error) {
         handleServiceError(error, 'Create task')
       }
@@ -138,7 +135,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
         // Get the task to return the current status
         const task = await taskService.getTask(taskId)
-        return c.json({ taskId, status: task?.status || 'open' })
+        return c.json({ taskId, status: task?.status || 'open', task })
       } catch (error) {
         handleServiceError(error, 'Create vibe task')
       }

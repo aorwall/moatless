@@ -35,6 +35,9 @@ export function CreateTaskForm() {
     onSuccess: (data) => {
       navigate({ to: `/tasks/${data.taskId}` })
     },
+    onError: () => {
+      toast.error('Failed to create task. Please try again.')
+    },
   })
 
   const handleRepositoryChange = (repoId: string) => {

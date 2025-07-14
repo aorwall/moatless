@@ -9,7 +9,8 @@ import { queryKeys } from '@/lib/api/query-keys'
 export function updateTaskInLists(
   queryClient: QueryClient,
   taskId: string,
-  updates: Partial<Task>,
+  updates: Partial<Task> | Task | null,
+  isAdd = false,
 ) {
   // Get all cached task list queries - look for any query that starts with ['tasks']
   const queryCache = queryClient.getQueryCache()
@@ -25,10 +26,24 @@ export function updateTaskInLists(
     if (query.queryKey.includes('list')) {
       const data = query.state.data as Task[] | undefined
       if (data && Array.isArray(data)) {
-        const updatedTasks = data.map((task) =>
-          task.taskId === taskId ? { ...task, ...updates } : task,
-        )
-        queryClient.setQueryData(query.queryKey, updatedTasks)
+        if (updates === null) {
+          // Remove task
+          const updatedTasks = data.filter((task) => task.taskId !== taskId)
+          queryClient.setQueryData(query.queryKey, updatedTasks)
+        } else if (isAdd && 'taskId' in updates) {
+          // Add new task to the beginning of the list
+          const existingTask = data.find((task) => task.taskId === taskId)
+          if (!existingTask) {
+            const updatedTasks = [updates as Task, ...data]
+            queryClient.setQueryData(query.queryKey, updatedTasks)
+          }
+        } else {
+          // Update existing task
+          const updatedTasks = data.map((task) =>
+            task.taskId === taskId ? { ...task, ...updates } : task,
+          )
+          queryClient.setQueryData(query.queryKey, updatedTasks)
+        }
       }
     }
   })

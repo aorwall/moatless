@@ -202,7 +202,17 @@ describe('API Error Handling', () => {
         name: 'Test Repository',
       } as RepositoryConfig)
 
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce('test-task-id')
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce({
+        taskId: 'test-task-id',
+        status: 'open' as const,
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        agentType: 'claude-code',
+        repositoryId: 'test-env',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      })
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {

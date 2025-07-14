@@ -47,7 +47,7 @@ export class TaskService {
     private repositoryService: RepositoryService,
   ) {}
 
-  async createTask(params: CreateTaskRequest): Promise<string> {
+  async createTask(params: CreateTaskRequest): Promise<Task> {
     logger.info('Starting task creation', {
       agentType: params.agentType,
       repositoryId: params.repositoryId,
@@ -131,24 +131,77 @@ export class TaskService {
       throw error
     }
 
-    // Setup workspace
-    await this.workspaceService.setupWorkspace(task.taskId)
+    // Return task immediately - workspace setup will run in background
+    logger.info('Task creation completed successfully', { taskId: task.taskId })
 
-    // Determine if we should start immediately
-    const shouldStart = (params.start ?? true) && !!params.message
+    // Setup workspace and optionally start task in background
+    this.setupWorkspaceInBackground(task.taskId, params.start, params.message)
 
-    // If we should start immediately, start the task
-    if (shouldStart) {
+    return task
+  }
+
+  /**
+   * Sets up workspace and optionally starts task in background
+   */
+  private async setupWorkspaceInBackground(
+    taskId: string,
+    start?: boolean,
+    message?: string,
+  ): Promise<void> {
+    try {
+      logger.info('Starting background workspace setup', { taskId })
+
+      // Setup workspace
+      await this.workspaceService.setupWorkspace(taskId)
+
+      // Determine if we should start immediately
+      const shouldStart = (start ?? true) && !!message
+
+      // If we should start immediately, start the task
+      if (shouldStart) {
+        try {
+          await this.startTask(taskId)
+        } catch (error) {
+          logger.error('Failed to start task after workspace setup', error as Error, { taskId })
+          // Don't throw here - workspace was set up successfully
+        }
+      }
+
+      logger.info('Background workspace setup completed', { taskId, started: shouldStart })
+    } catch (error) {
+      logger.error('Background workspace setup failed', error as Error, { taskId })
+
+      // Update task status to error
       try {
-        await this.startTask(task.taskId)
-      } catch (error) {
-        logger.error('Failed to start task', error as Error, { taskId: task.taskId })
-        // Don't throw here - task was created successfully, just failed to start
+        const task = await this.storage.getTask(taskId)
+        if (task) {
+          const previousStatus = task.status
+          task.status = 'error'
+          await this.storage.saveTask(task)
+
+          // Emit status change event
+          await this.eventService.emitEvent({
+            eventId: randomUUID(),
+            taskId,
+            type: EventType.TASK_STATUS,
+            subType: 'error',
+            isError: true,
+            agentType: task.agentType,
+            payload: {
+              status: 'error',
+              previousStatus,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          })
+        }
+      } catch (updateError) {
+        logger.error(
+          'Failed to update task status after workspace setup failure',
+          updateError as Error,
+          { taskId },
+        )
       }
     }
-
-    logger.info('Task creation completed successfully', { taskId: task.taskId })
-    return task.taskId
   }
 
   /**
@@ -327,7 +380,8 @@ export class TaskService {
       filePaths: params.filePaths,
     }
 
-    return this.createTask(createTaskParams)
+    const task = await this.createTask(createTaskParams)
+    return task.taskId
   }
 
   async getTask(taskId: string): Promise<Task> {

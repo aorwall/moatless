@@ -15,15 +15,9 @@ describe('Task Routes', () => {
 
   describe('POST /api/tasks', () => {
     it('should create a new task with workspace', async () => {
-      const mockTaskId = 'mock-task-id'
-
-      // Mock task creation
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
-
-      // Mock getTask to return task with open status
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce({
-        taskId: mockTaskId,
-        status: 'open',
+      const mockTask = {
+        taskId: 'mock-task-id',
+        status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
@@ -31,7 +25,10 @@ describe('Task Routes', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
-      })
+      }
+
+      // Mock task creation to return task object
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {
@@ -49,7 +46,7 @@ describe('Task Routes', () => {
 
       expect(response.status).toBe(200)
       const body = (await response.json()) as any
-      expect(body.taskId).toBe(mockTaskId)
+      expect(body.taskId).toBe(mockTask.taskId)
       expect(body.status).toBe('open')
 
       // Verify task was created with correct params
@@ -61,15 +58,9 @@ describe('Task Routes', () => {
     })
 
     it('should always create workspace even without initial message', async () => {
-      const mockTaskId = 'mock-task-id-2'
-
-      // Mock task creation to verify it's called with start: false
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
-
-      // Mock getTask
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce({
-        taskId: mockTaskId,
-        status: 'open',
+      const mockTask = {
+        taskId: 'mock-task-id-2',
+        status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
@@ -77,7 +68,10 @@ describe('Task Routes', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
-      })
+      }
+
+      // Mock task creation to verify it's called with start: false
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {
@@ -106,15 +100,9 @@ describe('Task Routes', () => {
     })
 
     it('should return running status when task starts immediately', async () => {
-      const mockTaskId = 'mock-task-id-running'
-
-      // Mock task creation
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTaskId)
-
-      // Mock getTask to return task with running status
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce({
-        taskId: mockTaskId,
-        status: 'running',
+      const mockTask = {
+        taskId: 'mock-task-id-running',
+        status: 'running' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
         agentType: 'claude-code',
@@ -125,13 +113,16 @@ describe('Task Routes', () => {
           {
             iterationNumber: 1,
             startTime: new Date(),
-            status: 'active',
+            status: 'active' as const,
             messageCount: 1,
             costUsd: 0,
             initialMessage: 'Hello world',
           },
         ],
-      })
+      }
+
+      // Mock task creation
+      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {
@@ -150,7 +141,7 @@ describe('Task Routes', () => {
 
       expect(response.status).toBe(200)
       const body = (await response.json()) as any
-      expect(body.taskId).toBe(mockTaskId)
+      expect(body.taskId).toBe(mockTask.taskId)
       expect(body.status).toBe('running')
     })
 

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { GitStatusSchema } from './task.schemas.js'
+import { GitStatusSchema, TaskResponseSchema } from './task.schemas.js'
 
 // ============================================
 // Base Types and Enums
@@ -68,6 +68,7 @@ export const UpdateTaskRequestSchema = z.object({
 export const SimpleTaskResponseSchema = z.object({
   taskId: z.string(),
   status: z.string(),
+  task: TaskResponseSchema.optional(),
 })
 
 // Send Message Response

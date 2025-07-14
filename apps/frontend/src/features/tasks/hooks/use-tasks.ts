@@ -63,10 +63,19 @@ export function useCreateTask(
   return useMutation({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onSuccess: async (data, variables, context) => {
-      // Invalidate task lists to show the new task
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.lists(),
-      })
+      // Add the real task data to cache and lists
+      if (data.task) {
+        // Set task detail cache
+        queryClient.setQueryData(queryKeys.task(data.taskId), data.task)
+
+        // Add to task lists optimistically
+        updateTaskInLists(queryClient, data.taskId, data.task, true)
+      } else {
+        // Fallback: if no task data returned, invalidate to refetch
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks.lists(),
+        })
+      }
 
       options?.onSuccess?.(data, variables, context)
     },

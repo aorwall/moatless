@@ -98,7 +98,7 @@ describe('Task Status Management', () => {
       vi.mocked(mockAgentService.executeAgent).mockResolvedValueOnce(undefined)
 
       // Create task with start=true and message
-      const taskId = await taskService.createTask({
+      const task = await taskService.createTask({
         agentType: 'test-agent',
         repositoryId: 'env-123',
         message: 'Test message',
@@ -107,7 +107,7 @@ describe('Task Status Management', () => {
 
       // Initial save should be with 'open' status
       expect(savedTasks[0]).toMatchObject({
-        taskId,
+        taskId: task.taskId,
         status: 'open',
         numTurns: 0,
       })
@@ -115,7 +115,7 @@ describe('Task Status Management', () => {
       // Should have a second save with 'running' status before sendMessage
       expect(savedTasks.length).toBeGreaterThanOrEqual(2)
       expect(savedTasks[1]).toMatchObject({
-        taskId,
+        taskId: task.taskId,
         status: 'running',
         numTurns: 0,
       })
@@ -130,14 +130,14 @@ describe('Task Status Management', () => {
       const taskWithIterations = savedTasks.find((t) => t.numTurns > 0)
       expect(taskWithIterations).toBeDefined()
       expect(taskWithIterations).toMatchObject({
-        taskId,
+        taskId: task.taskId,
         status: 'running',
         numTurns: 1,
       })
 
       // Verify agent was executed
       expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
-        taskId,
+        task.taskId,
         'Test message',
         expect.objectContaining({
           iterationNumber: 1,
@@ -167,7 +167,7 @@ describe('Task Status Management', () => {
       })
 
       // Create task with start=false
-      const taskId = await taskService.createTask({
+      const task = await taskService.createTask({
         agentType: 'test-agent',
         repositoryId: 'env-123',
         message: 'Test message',
@@ -180,7 +180,7 @@ describe('Task Status Management', () => {
       // Should only have the initial save
       expect(savedTasks.length).toBe(1)
       expect(savedTasks[0]).toMatchObject({
-        taskId,
+        taskId: task.taskId,
         status: 'open',
         numTurns: 0,
       })
@@ -277,7 +277,7 @@ describe('Task Status Management', () => {
       })
 
       // Create task with start=true
-      const taskId = await taskService.createTask({
+      const task = await taskService.createTask({
         agentType: 'test-agent',
         repositoryId: 'env-123',
         message: 'Test message',
@@ -288,7 +288,7 @@ describe('Task Status Management', () => {
       await new Promise((resolve) => setTimeout(resolve, 150))
 
       // Get task to check status
-      const retrievedTask = await taskService.getTask(taskId)
+      const retrievedTask = await taskService.getTask(task.taskId)
 
       // Task should show as running since agent was started
       expect(retrievedTask.status).toBe('running')
