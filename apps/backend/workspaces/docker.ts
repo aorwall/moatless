@@ -1,4 +1,4 @@
-import { exec, spawn } from 'node:child_process'
+import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -30,7 +30,6 @@ export class DockerWorkspace extends BaseWorkspace {
   private _createdAt = new Date()
   private _error?: string
   private localWorkspace: LocalWorkspace
-  private eventStreamController?: AbortController
   private previewPortMapping?: { containerPort: number; hostPort: number }
   private workerPort = 8001
   private logger
@@ -293,12 +292,6 @@ export class DockerWorkspace extends BaseWorkspace {
       }
     }
 
-    // Stop event stream if running
-    if (this.eventStreamController) {
-      this.eventStreamController.abort()
-      this.eventStreamController = undefined
-    }
-
     // Stop the running agent if any
     if (this.runningAgent) {
       try {
@@ -402,9 +395,6 @@ export class DockerWorkspace extends BaseWorkspace {
     // Mark agent as running
     this.runningAgent = {} as BaseAgent
 
-    // Start event stream before triggering agent
-    this.startEventStream()
-
     // Execute agent asynchronously in worker container via HTTP
     this.executeWorkerHttpRequest('/execute-agent', {
       taskId: this.taskId,
@@ -424,15 +414,10 @@ export class DockerWorkspace extends BaseWorkspace {
       .then(() => {
         console.log('Agent execution completed in worker')
         this.runningAgent = undefined
-        // Event stream will be stopped when agent stops
       })
       .catch((error) => {
         console.error('Agent execution failed in worker:', error)
         this.runningAgent = undefined
-        if (this.eventStreamController) {
-          this.eventStreamController.abort()
-          this.eventStreamController = undefined
-        }
       })
 
     // Return immediately (execution happens asynchronously in worker)
@@ -492,12 +477,6 @@ export class DockerWorkspace extends BaseWorkspace {
 
     console.log(`Stopping agent for task ${this.taskId}`)
     try {
-      // Stop event stream first
-      if (this.eventStreamController) {
-        this.eventStreamController.abort()
-        this.eventStreamController = undefined
-      }
-
       // Stop agent via worker HTTP endpoint
       await this.executeWorkerHttpRequest('/stop-agent', { taskId: this.taskId })
       this.runningAgent = undefined
@@ -582,7 +561,7 @@ export class DockerWorkspace extends BaseWorkspace {
         url: containerStatus.url?.replace('localhost', 'localhost'), // Keep as localhost for host access
         uptimeSeconds: containerStatus.uptimeSeconds,
       }
-    } catch (error) {
+    } catch (_error) {
       // If we can't reach the worker, return basic status based on local state
       return {
         running: this.previewPortMapping !== undefined,
@@ -765,7 +744,7 @@ export class DockerWorkspace extends BaseWorkspace {
         throw new Error(`Worker request failed: ${response.error || 'Unknown error'}`)
       }
       return response
-    } catch (parseError) {
+    } catch (_parseError) {
       throw new Error(`Worker request failed: ${stderr || stdout || 'Invalid response'}`)
     }
   }
@@ -803,94 +782,8 @@ export class DockerWorkspace extends BaseWorkspace {
       if (!response.success) {
         throw new Error(`Worker request failed: ${response.error || 'Unknown error'}`)
       }
-    } catch (parseError) {
+    } catch (_parseError) {
       throw new Error(`Worker request failed: ${stderr || stdout || 'Invalid response'}`)
-    }
-  }
-
-  /**
-   * Start SSE event stream from worker
-   */
-  private startEventStream(): void {
-    if (this.eventStreamController) {
-      return // Already streaming
-    }
-
-    console.log(`Starting SSE event stream for task ${this.taskId}`)
-
-    // Create abort controller for cleanup
-    this.eventStreamController = new AbortController()
-
-    // Connect to worker's event stream endpoint
-    this.connectToWorkerEventStream()
-  }
-
-  /**
-   * Connect to worker's SSE event stream and forward events
-   */
-  private async connectToWorkerEventStream(): Promise<void> {
-    try {
-      // Use spawn to stream output from docker exec
-      const dockerExec = spawn('docker', [
-        'exec',
-        this.containerId,
-        'curl',
-        '-N', // No buffering for streaming
-        '-H',
-        'Accept: text/event-stream',
-        'http://localhost:8001/events/stream',
-      ])
-
-      let buffer = ''
-
-      // Handle streaming data
-      dockerExec.stdout.on('data', async (data) => {
-        buffer += data.toString()
-
-        // Process complete lines
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              // Parse NDJSON event
-              const event = JSON.parse(line)
-
-              // Skip ping events
-              if (event.type === 'ping') {
-                continue
-              }
-
-              // Forward event to main event service
-              await this.eventService.emitEvent(event)
-            } catch (error) {
-              console.error('Failed to parse event from worker:', error, line)
-            }
-          }
-        }
-      })
-
-      // Handle errors
-      dockerExec.stderr.on('data', (data) => {
-        console.error('Worker event stream stderr:', data.toString())
-      })
-
-      // Handle process exit
-      dockerExec.on('close', (code) => {
-        console.log(`Worker event stream process exited with code ${code}`)
-      })
-
-      // Handle abort
-      this.eventStreamController?.signal.addEventListener('abort', () => {
-        dockerExec.kill()
-      })
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.log('Worker event stream aborted')
-      } else {
-        console.error('Worker event stream error:', error)
-      }
     }
   }
 }

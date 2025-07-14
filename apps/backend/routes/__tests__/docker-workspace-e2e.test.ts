@@ -24,7 +24,6 @@ const execAsync = promisify(exec)
  * - Docker container creation and management
  * - Task creation and agent execution inside container
  * - Worker mode communication between host and container
- * - Event streaming from worker to host
  * - File operations and git operations through Docker
  *
  * Prerequisites:
@@ -49,7 +48,7 @@ describe('Docker Workspace E2E Test', () => {
     // Ensure moatless-vibe-universal image exists
     try {
       await execAsync('docker image inspect moatless-vibe-universal:latest', { timeout: 5000 })
-    } catch (error) {
+    } catch (_error) {
       throw new Error(
         'moatless-vibe-universal:latest image not found. Please build it first with: docker build -t moatless-vibe-universal:latest -f docker/Dockerfile .',
       )
@@ -433,7 +432,7 @@ describe('Docker Workspace E2E Test', () => {
     expect(containerStatus).toContain('Up')
     console.log('Docker container still running:', containerStatus.trim())
 
-    // Step 12: Verify event streaming worked correctly
+    // Step 12: Verify events were properly recorded
     const allEventsResponse = await app.inject({
       method: 'GET',
       url: `/api/v1/tasks/${createdTaskId}/events?limit=200`,
@@ -459,7 +458,7 @@ describe('Docker Workspace E2E Test', () => {
       containerCreated: true,
       agentExecutedInContainer: true,
       fileCreatedThroughDocker: true,
-      eventStreamingWorked: true,
+      eventsRecorded: true,
     })
   }, 90000) // 90 second timeout for Docker operations
 
