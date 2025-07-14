@@ -66,7 +66,7 @@ export function useCreateTask(
       const response = data as SimpleTaskResponse
       if (response.task) {
         // Set task detail cache
-        queryClient.setQueryData(queryKeys.task(response.taskId), response.task)
+        queryClient.setQueryData(queryKeys.tasks.detail(response.taskId), response.task)
 
         // Add to task lists optimistically
         updateTaskInLists(queryClient, response.taskId, response.task, true)

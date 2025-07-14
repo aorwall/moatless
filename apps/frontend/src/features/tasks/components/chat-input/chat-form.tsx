@@ -52,7 +52,7 @@ export function ChatForm({
   loading = false,
   running = false,
   maxHeight = '200px',
-  taskId,
+  taskId: _taskId,
   repositoryId,
   isTaskContext = false,
   selectors,

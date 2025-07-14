@@ -32,7 +32,7 @@ export function MessageInput({
   maxHeight = '200px',
   selectors,
   repositoryId,
-  taskId,
+  taskId: _taskId,
   isTaskContext = false,
 }: MessageInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)

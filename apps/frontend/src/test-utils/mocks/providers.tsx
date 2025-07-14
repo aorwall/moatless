@@ -1,3 +1,4 @@
+import type { QueryClientConfig } from '@tanstack/react-query'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type React from 'react'
 
@@ -10,9 +11,7 @@ import type React from 'react'
  * @param options - Optional QueryClient configuration
  * @returns Wrapper component with React Query provider
  */
-export function createQueryWrapper(options?: {
-  defaultOptions?: ConstructorParameters<typeof QueryClient>[0]['defaultOptions']
-}) {
+export function createQueryWrapper(options?: QueryClientConfig) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
