@@ -8,7 +8,6 @@ import {
   useChatResumeConversation,
 } from '@/features/tasks/contexts/task-ui-provider'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
-import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
 import { ChatForm } from './chat-form'
 import { GenericSelector, useModelSelector } from './selectors'
@@ -57,7 +56,6 @@ export function ChatInput({
 
   // Local component state (not types between tasks)
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
-  const [runningDuration, setRunningDuration] = useState<string>('')
 
   // No localStorage initialization - each task maintains its own isolated model selection
 
@@ -71,26 +69,6 @@ export function ChatInput({
 
   // Extract repositoryId from task
   const repositoryId = task?.repositoryId
-
-  // Update running duration every second
-  useEffect(() => {
-    if (!isRunning || !task?.iterations?.length) {
-      setRunningDuration('')
-      return
-    }
-
-    const lastIteration = task.iterations[task.iterations.length - 1]
-    const startTime = new Date(lastIteration.startTime)
-
-    const updateDuration = () => {
-      setRunningDuration(formatRunningDuration(startTime))
-    }
-
-    updateDuration() // Initial update
-    const interval = setInterval(updateDuration, 1000)
-
-    return () => clearInterval(interval)
-  }, [isRunning, task?.iterations])
 
   // Update context when model selector changes (isolated per task, no localStorage sync)
   useEffect(() => {
@@ -133,7 +111,7 @@ export function ChatInput({
 
   const getButtonText = () => {
     if (taskStatus === 'running') {
-      return runningDuration || 'Running'
+      return 'Running'
     }
     if (taskStatus === 'completed' || taskStatus === 'failed') {
       return 'Task Completed'
