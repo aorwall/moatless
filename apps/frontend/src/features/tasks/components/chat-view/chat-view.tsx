@@ -3,10 +3,7 @@ import type { Task } from '@moatless/types/types/task'
 import { useParams } from '@tanstack/react-router'
 import React, { useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
-import {
-  useTaskData,
-  useWorkspaceStatus,
-} from '@/features/tasks/contexts/task-providers'
+import { useTaskData, useWorkspaceStatus } from '@/features/tasks/contexts/task-providers'
 import { useSendMessage, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'

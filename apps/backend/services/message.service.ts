@@ -8,9 +8,9 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import {
+  type ClaudeCodeSDKMessage,
   isToolResultContent,
   isToolUseContent,
-  type ClaudeCodeSDKMessage,
   type SDKAssistantMessage,
   type SDKUserMessage,
 } from '@moatless/types'
@@ -151,10 +151,12 @@ export class MessageService {
               if (resultContent) {
                 toolResultContent = {
                   content: Array.isArray(resultContent.content)
-                    ? resultContent.content.map((c: any) => c.type === 'text' ? c.text : JSON.stringify(c)).join('\n')
-                    : typeof resultContent.content === 'string'
                     ? resultContent.content
-                    : JSON.stringify(resultContent.content),
+                        .map((c: any) => (c.type === 'text' ? c.text : JSON.stringify(c)))
+                        .join('\n')
+                    : typeof resultContent.content === 'string'
+                      ? resultContent.content
+                      : JSON.stringify(resultContent.content),
                   is_error: resultContent.is_error,
                   eventId: toolResult.eventId,
                 }
@@ -176,9 +178,10 @@ export class MessageService {
     return {
       id: event.eventId,
       role: 'assistant',
-      content: content.length === 1 && content[0].type === 'text' && content[0].text
-        ? content[0].text
-        : content,
+      content:
+        content.length === 1 && content[0].type === 'text' && content[0].text
+          ? content[0].text
+          : content,
       timestamp: event.timestamp || new Date(),
       eventId: event.eventId,
     }
@@ -187,7 +190,7 @@ export class MessageService {
   private transformUserMessage(event: MessageEvent): UserMessage {
     const sdkMessage = event.payload as SDKUserMessage
     const apiMessage = sdkMessage.message
-    
+
     // Extract text content from user message
     let textContent = ''
     if (apiMessage.content && Array.isArray(apiMessage.content)) {

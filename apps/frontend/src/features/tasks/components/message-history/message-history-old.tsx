@@ -12,9 +12,9 @@ import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input'
+import { AssistantMessageComponent } from './assistant-message'
 import { MessageHistorySkeleton } from './message-history-skeleton'
 import { UserMessageComponent } from './user-message'
-import { AssistantMessageComponent } from './assistant-message'
 
 interface MessageHistoryProps {
   className?: string

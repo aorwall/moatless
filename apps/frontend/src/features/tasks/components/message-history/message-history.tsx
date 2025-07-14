@@ -2,18 +2,16 @@ import type { AssistantMessage, Message, UserMessage } from '@moatless/types'
 import { useParams } from '@tanstack/react-router'
 import { ArrowDown } from 'lucide-react'
 import React, { useCallback, useRef, useState } from 'react'
-import {
-  useTaskData,
-} from '@/features/tasks/contexts/task-providers'
+import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { getErrorMessage } from '@/lib/utils/error'
+import { AssistantMessageComponent } from './assistant-message'
 import { MessageHistorySkeleton } from './message-history-skeleton'
 import { UserMessageComponent } from './user-message'
-import { AssistantMessageComponent } from './assistant-message'
 
 interface MessageHistoryProps {
   className?: string
@@ -32,13 +30,17 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
 
   // Fetch messages for this task
-  const { data: messages, isLoading: isLoadingMessages, error: messagesError } = useTaskMessages(params.taskId, {
+  const {
+    data: messages,
+    isLoading: isLoadingMessages,
+    error: messagesError,
+  } = useTaskMessages(params.taskId, {
     enabled: !!params.taskId,
   }) as { data: Message[] | undefined; isLoading: boolean; error: unknown }
 
   // Toggle tool call expansion
   const toggleToolCallExpansion = useCallback((toolUseId: string) => {
-    setExpandedToolCalls(prev => {
+    setExpandedToolCalls((prev) => {
       const newSet = new Set(prev)
       if (newSet.has(toolUseId)) {
         newSet.delete(toolUseId)
@@ -87,25 +89,21 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
       <div className="flex-1 overflow-hidden relative">
         <ScrollArea className="h-full w-full" ref={scrollRef}>
           <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">
-            {messages && messages.map((message: Message) => {
-              if (message.role === 'user') {
-                return (
-                  <UserMessageComponent
-                    key={message.id}
-                    message={message as UserMessage}
-                  />
-                )
-              } else {
-                return (
-                  <AssistantMessageComponent
-                    key={message.id}
-                    message={message as AssistantMessage}
-                    expandedToolCalls={expandedToolCalls}
-                    onToggleToolCall={toggleToolCallExpansion}
-                  />
-                )
-              }
-            })}
+            {messages &&
+              messages.map((message: Message) => {
+                if (message.role === 'user') {
+                  return <UserMessageComponent key={message.id} message={message as UserMessage} />
+                } else {
+                  return (
+                    <AssistantMessageComponent
+                      key={message.id}
+                      message={message as AssistantMessage}
+                      expandedToolCalls={expandedToolCalls}
+                      onToggleToolCall={toggleToolCallExpansion}
+                    />
+                  )
+                }
+              })}
 
             {/* Empty state */}
             {(!messages || (messages && messages.length === 0)) && !isLoadingMessages && (

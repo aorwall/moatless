@@ -1,3 +1,4 @@
+import type { Message, MessagesResponse } from '@moatless/types'
 import type {
   CreateTaskRequest,
   EventListResponse,
@@ -9,7 +10,6 @@ import type {
   WorkspaceStatusResponse,
 } from '@moatless/types/types/api'
 import type { Event } from '@moatless/types/types/event'
-import type { Message, MessagesResponse } from '@moatless/types'
 import type { FileSearchRequest, FileSearchResponse } from '@moatless/types/types/repository'
 import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import { apiClient } from '@/lib/api/client'
