@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskCard } from '@/features/tasks/components/task-card'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import { ErrorAlert } from '@/lib/components/error-alert'
+import { ErrorAlert } from '@/lib/components/ui/error-alert'
 
 function TaskDashboardSkeleton() {
   return (
