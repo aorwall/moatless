@@ -308,7 +308,6 @@ describe('TaskList', () => {
     })
   })
 
-
   describe('Edge Cases', () => {
     it('handles missing repository data gracefully', () => {
       vi.mocked(useRepositoriesList).mockReturnValue({

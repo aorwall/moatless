@@ -1,5 +1,5 @@
-import { vi } from 'vitest'
 import { EventEmitter } from 'events'
+import { vi } from 'vitest'
 
 /**
  * SSE/WebSocket mocks for testing real-time connections

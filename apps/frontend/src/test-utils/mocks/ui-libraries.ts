@@ -56,7 +56,7 @@ export const mockTabsComponents = () => ({
   TabsList: vi.fn(({ children }: any) => children),
   TabsTrigger: vi.fn(({ children }: any) => children),
   TabsContent: vi.fn(({ children, value, selectedValue }: any) =>
-    selectedValue === value ? children : null
+    selectedValue === value ? children : null,
   ),
 })
 
@@ -98,7 +98,7 @@ export function createUILibraryMocks() {
  */
 export function mockAllUILibraries() {
   const mocks = createUILibraryMocks()
-  
+
   Object.entries(mocks).forEach(([moduleName, exports]) => {
     vi.mock(moduleName, () => exports)
   })

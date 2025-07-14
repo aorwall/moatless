@@ -1,6 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import React, { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSearchFiles } from '@/features/environments/hooks/use-environments'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -47,7 +46,11 @@ vi.mock('../chat-form', () => ({
 // Mock repository selector
 vi.mock('../selectors', () => ({
   RepositorySelector: ({ value, onChange }: any) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} data-testid="repository-selector">
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid="repository-selector"
+    >
       <option value="">Select repository</option>
       <option value="repo-123">Test Repository</option>
     </select>
@@ -101,7 +104,12 @@ describe('ChatInput File Search', () => {
     }
 
     render(
-      <ChatInput taskId="task-123" task={mockTask as any} taskStatus="open" onSendMessage={vi.fn()} />,
+      <ChatInput
+        taskId="task-123"
+        task={mockTask as any}
+        taskStatus="open"
+        onSendMessage={vi.fn()}
+      />,
       { wrapper: createWrapper() },
     )
 

@@ -2,13 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TaskProviders } from '@/features/tasks'
 import { useCreateTaskMessage, useTask, useTaskEvents } from '@/features/tasks/hooks/use-task-data'
 import { useServerStatus, useWorkspaceStatus } from '@/features/tasks/hooks/use-task-environment'
 import { useTaskGitDiff } from '@/features/tasks/hooks/use-task-git-diff'
 import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection'
 import {
-  createMockEvent,
   createMockGitDiff,
   createMockMessageEvent,
   createMockServerStatus,
@@ -78,7 +76,7 @@ describe('TaskDetail Integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    
+
     // Setup EventSource mock
     global.EventSource = sseMock.EventSource as any
 
@@ -374,7 +372,7 @@ index 1234567..abcdefg 100644
     it('switches between iterations', async () => {
       const user = userEvent.setup()
       const task = createMockTaskWithIterations({ taskId: 'test-task-123' }, 3)
-      
+
       vi.mocked(useTask).mockReturnValue({
         data: task,
         isLoading: false,
@@ -400,7 +398,7 @@ index 1234567..abcdefg 100644
 
       // Find panel toggle buttons
       const toggleButtons = screen.getAllByRole('button', { name: /toggle/i })
-      
+
       // Click to hide a panel
       await user.click(toggleButtons[0])
 

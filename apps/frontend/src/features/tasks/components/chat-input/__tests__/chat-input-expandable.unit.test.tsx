@@ -311,5 +311,4 @@ describe('ChatInput - Expandable Textarea', () => {
       expect(textareaStyles.maxHeight).toBe('300px')
     })
   })
-
 })

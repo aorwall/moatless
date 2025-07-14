@@ -8,9 +8,9 @@ import {
   useTaskData,
   useTaskStatus,
 } from '@/features/tasks/contexts/task-providers'
+import { createMockMutation, createMockQuery } from '@/test-utils/mocks'
 import { useStopAgent } from '../../hooks/use-tasks'
 import { TaskHeader } from '../task-header'
-import { createMockQuery, createMockMutation } from '@/test-utils/mocks'
 
 // Mock dependencies
 vi.mock('@tanstack/react-router', () => ({
@@ -78,21 +78,21 @@ describe('TaskHeader', () => {
       createMockMutation({
         mutate: mockStopAgent,
         isPending: false,
-      })
+      }),
     )
 
     vi.mocked(useStartServer).mockReturnValue(
       createMockMutation({
         mutate: mockStartServer,
         isPending: false,
-      })
+      }),
     )
 
     vi.mocked(useStopServer).mockReturnValue(
       createMockMutation({
         mutate: mockStopServer,
         isPending: false,
-      })
+      }),
     )
   })
 

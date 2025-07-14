@@ -1,5 +1,5 @@
+import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 import { vi } from 'vitest'
-import type { UseQueryResult, UseMutationResult } from '@tanstack/react-query'
 
 /**
  * Standardized API hook mocks for consistent testing
@@ -186,8 +186,7 @@ export const mockApiHooks = {
   /**
    * Mock successful mutation
    */
-  mockSuccessMutation: <TData = any>(data: TData) =>
-    vi.fn(() => createMockSuccessMutation(data)),
+  mockSuccessMutation: <TData = any>(data: TData) => vi.fn(() => createMockSuccessMutation(data)),
 
   /**
    * Mock pending mutation

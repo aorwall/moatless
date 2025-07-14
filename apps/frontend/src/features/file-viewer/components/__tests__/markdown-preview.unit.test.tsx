@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import mermaid from 'mermaid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarkdownPreview } from '../markdown-preview'

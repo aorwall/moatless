@@ -1,15 +1,15 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useTask } from '@/features/tasks/hooks/use-tasks'
 import { useTaskEvents, useTaskStatus } from '@/features/tasks/contexts/task-providers'
-import { TaskViewer } from '../task-viewer'
+import { useTask } from '@/features/tasks/hooks/use-tasks'
 import {
-  createMockQuery,
-  createMockLoadingQuery,
   createMockErrorQuery,
+  createMockLoadingQuery,
+  createMockQuery,
   createQueryWrapper,
   mockResizableComponents,
 } from '@/test-utils/mocks'
+import { TaskViewer } from '../task-viewer'
 
 // Mock dependencies
 vi.mock('@/features/tasks/hooks/use-tasks')
