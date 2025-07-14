@@ -1,0 +1,442 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
+import { setupServer } from 'msw/node'
+import type { Message } from '@moatless/types'
+import { useTaskMessages } from '../use-tasks'
+import { createQueryWrapper } from '@/test-utils/mocks'
+
+// Mock data
+const mockMessages: Message[] = [
+  {
+    id: 'msg-1',
+    role: 'user',
+    content: 'Hello, can you help me with this task?',
+    timestamp: '2024-01-01T10:00:00Z',
+    toolCalls: []
+  },
+  {
+    id: 'msg-2',
+    role: 'assistant',
+    content: 'I\'ll help you with that. Let me run some commands first.',
+    timestamp: '2024-01-01T10:01:00Z',
+    toolCalls: [
+      {
+        id: 'tool-1',
+        name: 'Bash',
+        arguments: { command: 'ls -la' },
+        result: 'total 8\ndrwxr-xr-x 3 user user 4096 Jan  1 10:00 .\ndrwxr-xr-x 3 user user 4096 Jan  1 09:59 ..'
+      }
+    ]
+  },
+  {
+    id: 'msg-3',
+    role: 'user',
+    content: 'Thanks! That\'s helpful.',
+    timestamp: '2024-01-01T10:02:00Z',
+    toolCalls: []
+  }
+]
+
+// Setup MSW server
+const server = setupServer(
+  // Success response
+  http.get('/api/v1/tasks/:taskId/messages', ({ params }) => {
+    const { taskId } = params
+    
+    if (taskId === 'valid-task') {
+      return HttpResponse.json({
+        success: true,
+        data: mockMessages
+      })
+    }
+    
+    if (taskId === 'empty-task') {
+      return HttpResponse.json({
+        success: true,
+        data: []
+      })
+    }
+    
+    if (taskId === 'error-task') {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: 'Task not found'
+        },
+        { status: 404 }
+      )
+    }
+    
+    if (taskId === 'server-error-task') {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: 'Internal server error'
+        },
+        { status: 500 }
+      )
+    }
+    
+    return HttpResponse.json(
+      {
+        success: false,
+        error: 'Task not found'
+      },
+      { status: 404 }
+    )
+  })
+)
+
+describe('useTaskMessages Hook - Integration Tests', () => {
+  const { wrapper } = createQueryWrapper()
+
+  beforeEach(() => {
+    server.listen({ onUnhandledRequest: 'error' })
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    server.resetHandlers()
+  })
+
+  afterAll(() => {
+    server.close()
+  })
+
+  describe('Successful data fetching', () => {
+    it('fetches and returns task messages', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      // Initially loading
+      expect(result.current.isLoading).toBe(true)
+      expect(result.current.data).toBeUndefined()
+      expect(result.current.error).toBeNull()
+
+      // Wait for data to load
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      // Check final state
+      expect(result.current.data).toHaveLength(3)
+      expect(result.current.data).toEqual(mockMessages)
+      expect(result.current.error).toBeNull()
+      expect(result.current.isSuccess).toBe(true)
+    })
+
+    it('handles empty messages array', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('empty-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(result.current.data).toHaveLength(0)
+      expect(result.current.data).toEqual([])
+      expect(result.current.isSuccess).toBe(true)
+    })
+
+    it('includes proper React Query metadata', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      // Check React Query specific properties
+      expect(result.current.isFetching).toBe(false)
+      expect(result.current.isSuccess).toBe(true)
+      expect(result.current.isError).toBe(false)
+      expect(result.current.dataUpdatedAt).toBeGreaterThan(0)
+      expect(result.current.status).toBe('success')
+    })
+  })
+
+  describe('Error handling', () => {
+    it('handles 404 task not found error', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('error-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(result.current.isError).toBe(true)
+      expect(result.current.error).toBeTruthy()
+      expect(result.current.data).toBeUndefined()
+      expect(result.current.status).toBe('error')
+    })
+
+    it('handles 500 server error', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('server-error-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(result.current.isError).toBe(true)
+      expect(result.current.error).toBeTruthy()
+      expect(result.current.data).toBeUndefined()
+    })
+
+    it('handles network errors', async () => {
+      server.use(
+        http.get('/api/v1/tasks/:taskId/messages', () => {
+          return HttpResponse.error()
+        })
+      )
+
+      const { result } = renderHook(
+        () => useTaskMessages('network-error-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(result.current.isError).toBe(true)
+      expect(result.current.error).toBeTruthy()
+      expect(result.current.data).toBeUndefined()
+    })
+  })
+
+  describe('Caching behavior', () => {
+    it('caches data between hook instances', async () => {
+      // First hook instance
+      const { result: result1 } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result1.current.isLoading).toBe(false)
+      })
+
+      expect(result1.current.data).toHaveLength(3)
+
+      // Second hook instance should use cached data
+      const { result: result2 } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      // Should immediately have data from cache
+      expect(result2.current.data).toHaveLength(3)
+      expect(result2.current.isLoading).toBe(false)
+      expect(result2.current.isSuccess).toBe(true)
+    })
+
+    it('handles different task IDs separately', async () => {
+      const { result: result1 } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      const { result: result2 } = renderHook(
+        () => useTaskMessages('empty-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result1.current.isLoading).toBe(false)
+        expect(result2.current.isLoading).toBe(false)
+      })
+
+      expect(result1.current.data).toHaveLength(3)
+      expect(result2.current.data).toHaveLength(0)
+    })
+  })
+
+  describe('Loading states', () => {
+    it('shows initial loading state', () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      expect(result.current.isLoading).toBe(true)
+      expect(result.current.isFetching).toBe(true)
+      expect(result.current.data).toBeUndefined()
+      expect(result.current.status).toBe('pending')
+    })
+
+    it('transitions from loading to success', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      // Initial state
+      expect(result.current.status).toBe('pending')
+      expect(result.current.isLoading).toBe(true)
+
+      // Final state
+      await waitFor(() => {
+        expect(result.current.status).toBe('success')
+      })
+
+      expect(result.current.isLoading).toBe(false)
+      expect(result.current.isSuccess).toBe(true)
+    })
+
+    it('transitions from loading to error', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('error-task'),
+        { wrapper }
+      )
+
+      // Initial state
+      expect(result.current.status).toBe('pending')
+      expect(result.current.isLoading).toBe(true)
+
+      // Final state
+      await waitFor(() => {
+        expect(result.current.status).toBe('error')
+      })
+
+      expect(result.current.isLoading).toBe(false)
+      expect(result.current.isError).toBe(true)
+    })
+  })
+
+  describe('Refetch behavior', () => {
+    it('supports manual refetch', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(result.current.data).toHaveLength(3)
+
+      // Manually refetch
+      await result.current.refetch()
+
+      expect(result.current.data).toHaveLength(3)
+      expect(result.current.isSuccess).toBe(true)
+    })
+
+    it('handles refetch errors gracefully', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      // Change server to return error for refetch
+      server.use(
+        http.get('/api/v1/tasks/valid-task/messages', () => {
+          return HttpResponse.json(
+            { success: false, error: 'Server error' },
+            { status: 500 }
+          )
+        })
+      )
+
+      // Refetch should handle error
+      await result.current.refetch()
+
+      expect(result.current.isError).toBe(true)
+    })
+  })
+
+  describe('Type safety', () => {
+    it('returns properly typed message data', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages('valid-task'),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      const messages = result.current.data!
+
+      // Type assertions - these should compile without errors
+      expect(messages[0].id).toBe('msg-1')
+      expect(messages[0].role).toBe('user')
+      expect(messages[0].content).toBe('Hello, can you help me with this task?')
+      expect(messages[0].timestamp).toBe('2024-01-01T10:00:00Z')
+      expect(messages[0].toolCalls).toEqual([])
+
+      expect(messages[1].toolCalls[0].id).toBe('tool-1')
+      expect(messages[1].toolCalls[0].name).toBe('Bash')
+      expect(messages[1].toolCalls[0].arguments).toEqual({ command: 'ls -la' })
+      expect(messages[1].toolCalls[0].result).toBeTruthy()
+    })
+  })
+
+  describe('Edge cases', () => {
+    it('handles undefined taskId gracefully', async () => {
+      const { result } = renderHook(
+        // @ts-expect-error Testing runtime behavior
+        () => useTaskMessages(undefined),
+        { wrapper }
+      )
+
+      // Hook should be disabled when taskId is undefined
+      expect(result.current.data).toBeUndefined()
+      expect(result.current.isLoading).toBe(false)
+      expect(result.current.isError).toBe(false)
+    })
+
+    it('handles empty string taskId', async () => {
+      const { result } = renderHook(
+        () => useTaskMessages(''),
+        { wrapper }
+      )
+
+      // Should not make request with empty taskId
+      expect(result.current.data).toBeUndefined()
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    it('handles very long taskId', async () => {
+      const longTaskId = 'task-' + 'a'.repeat(1000)
+      
+      server.use(
+        http.get(`/api/v1/tasks/${longTaskId}/messages`, () => {
+          return HttpResponse.json({
+            success: true,
+            data: []
+          })
+        })
+      )
+
+      const { result } = renderHook(
+        () => useTaskMessages(longTaskId),
+        { wrapper }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(result.current.isSuccess).toBe(true)
+      expect(result.current.data).toEqual([])
+    })
+  })
+})
