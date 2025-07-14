@@ -97,8 +97,11 @@ function ToolCallSummary({ toolCalls, expanded, onToggle }: ToolCallSummaryProps
   }, {} as Record<string, number>)
 
   const totalCalls = toolCalls.length
-  const toolNames = Object.entries(toolCallCounts)
-    .map(([name, count]) => count > 1 ? `${name} (${count})` : name)
+  
+  // Format as "5 tool calls (2 Read, 3 Bash)"
+  const toolSummary = Object.entries(toolCallCounts)
+    .sort(([, a], [, b]) => b - a) // Sort by count descending
+    .map(([name, count]) => count > 1 ? `${count} ${name}` : name)
     .join(', ')
 
   return (
@@ -112,7 +115,10 @@ function ToolCallSummary({ toolCalls, expanded, onToggle }: ToolCallSummaryProps
         {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         <Terminal className="h-3 w-3 text-muted-foreground" />
         <span className="text-muted-foreground">
-          {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'}: {toolNames}
+          {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({toolSummary})
+        </span>
+        <span className="ml-auto text-muted-foreground">
+          {expanded ? 'collapse' : 'expand'}
         </span>
       </div>
     </Button>
@@ -128,46 +134,81 @@ export function AssistantMessageComponent({
   const isStringContent = typeof message.content === 'string'
   const contentArray = isStringContent ? [] : (message.content as AssistantMessageContent[])
 
-  // Separate text content from tool calls
-  const textContent = isStringContent
-    ? (message.content as string)
-    : contentArray
-        .filter((c) => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n')
+  // Group content into sections (text sections and tool call groups)
+  const contentSections: Array<{ type: 'text' | 'tools'; content: string | AssistantMessageContent[] }> = []
+  let currentText = ''
+  let currentTools: AssistantMessageContent[] = []
 
-  const toolCalls = isStringContent ? [] : contentArray.filter((c) => c.type === 'tool_use')
+  contentArray.forEach((item) => {
+    if (item.type === 'text') {
+      // If we have accumulated tools, push them first
+      if (currentTools.length > 0) {
+        contentSections.push({ type: 'tools', content: currentTools })
+        currentTools = []
+      }
+      currentText += (currentText ? '\n' : '') + item.text
+    } else if (item.type === 'tool_use') {
+      // If we have accumulated text, push it first
+      if (currentText) {
+        contentSections.push({ type: 'text', content: currentText })
+        currentText = ''
+      }
+      currentTools.push(item)
+    }
+  })
+
+  // Push any remaining content
+  if (currentText) {
+    contentSections.push({ type: 'text', content: currentText })
+  }
+  if (currentTools.length > 0) {
+    contentSections.push({ type: 'tools', content: currentTools })
+  }
+
+  // Handle string content
+  if (isStringContent) {
+    contentSections.push({ type: 'text', content: message.content as string })
+  }
+
+  const handleToggleAllTools = () => {
+    setToolCallsExpanded(!toolCallsExpanded)
+  }
 
   return (
     <div className="space-y-2">
-      {/* Text content */}
-      {textContent && (
-        <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>
-      )}
-
-      {/* Tool calls */}
-      {toolCalls.length > 0 && (
-        <div className="border border-border/50 rounded-lg overflow-hidden">
-          <ToolCallSummary
-            toolCalls={toolCalls}
-            expanded={toolCallsExpanded}
-            onToggle={() => setToolCallsExpanded(!toolCallsExpanded)}
-          />
-          
-          {toolCallsExpanded && (
-            <div className="p-2 space-y-2 border-t border-border/50">
-              {toolCalls.map((toolCall) => (
-                <ToolCallComponent
-                  key={toolCall.tool_use_id}
-                  content={toolCall}
-                  expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
-                  onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
-                />
-              ))}
+      {contentSections.map((section, index) => {
+        if (section.type === 'text') {
+          return (
+            <div key={`${message.id}-text-${index}`} className="text-sm whitespace-pre-wrap break-words">
+              {section.content as string}
             </div>
-          )}
-        </div>
-      )}
+          )
+        } else {
+          const toolCalls = section.content as AssistantMessageContent[]
+          return (
+            <div key={`${message.id}-tools-${index}`} className="border border-border/50 rounded-lg overflow-hidden">
+              <ToolCallSummary
+                toolCalls={toolCalls}
+                expanded={toolCallsExpanded}
+                onToggle={handleToggleAllTools}
+              />
+              
+              {toolCallsExpanded && (
+                <div className="p-2 space-y-2 border-t border-border/50">
+                  {toolCalls.map((toolCall) => (
+                    <ToolCallComponent
+                      key={toolCall.tool_use_id}
+                      content={toolCall}
+                      expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
+                      onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        }
+      })}
     </div>
   )
 }
