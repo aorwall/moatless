@@ -73,15 +73,15 @@ describe('Create Task Flow - Data Sync Integration', () => {
         // 1. Prefetch real task data
         await Promise.all([
           queryClient.prefetchQuery({
-            queryKey: queryKeys.task(data.taskId),
+            queryKey: queryKeys.tasks.detail(data.taskId),
             queryFn: () => tasksApi.getTask(data.taskId),
           }),
           queryClient.prefetchQuery({
-            queryKey: queryKeys.taskEvents(data.taskId),
+            queryKey: queryKeys.tasks.events(data.taskId),
             queryFn: () => tasksApi.getTaskEvents(data.taskId),
           }),
           queryClient.prefetchQuery({
-            queryKey: queryKeys.taskGitDiff(data.taskId),
+            queryKey: queryKeys.tasks.gitDiff(data.taskId),
             queryFn: () => tasksApi.getTaskGitDiff(data.taskId),
           }),
         ])
@@ -117,13 +117,13 @@ describe('Create Task Flow - Data Sync Integration', () => {
     })
 
     // CRITICAL: Verify the cache now contains the real data (the key fix)
-    const cachedTask = queryClient.getQueryData(queryKeys.task('test-123'))
+    const cachedTask = queryClient.getQueryData(queryKeys.tasks.detail('test-123'))
     expect(cachedTask).toEqual(realTaskData)
 
-    const cachedEvents = queryClient.getQueryData(queryKeys.taskEvents('test-123'))
+    const cachedEvents = queryClient.getQueryData(queryKeys.tasks.events('test-123'))
     expect(cachedEvents).toEqual([])
 
-    const cachedDiff = queryClient.getQueryData(queryKeys.taskGitDiff('test-123'))
+    const cachedDiff = queryClient.getQueryData(queryKeys.tasks.gitDiff('test-123'))
     expect(cachedDiff).toEqual({ files: [], diff: '' })
 
     // This proves the fix: when user lands on task detail page,

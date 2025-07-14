@@ -1,8 +1,6 @@
 import type { FileSearchResponse } from '@moatless/types'
 import { useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
-import { queryClient } from '@/lib/api/query-client'
-import { queryKeys } from '@/lib/api/query-keys'
 
 export function useFileSearch(taskId: string) {
   return useMutation<FileSearchResponse, Error, string>({
@@ -12,9 +10,6 @@ export function useFileSearch(taskId: string) {
         { query },
       )
       return response
-    },
-    onSuccess: (data, query) => {
-      queryClient.setQueryData(queryKeys.taskFileSearch(taskId, query), data)
     },
   })
 }

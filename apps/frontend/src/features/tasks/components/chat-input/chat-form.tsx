@@ -77,7 +77,6 @@ export function ChatForm({
     selectFile,
   } = useUniversalFileAutocomplete({
     repositoryId,
-    taskId,
     value: message,
     onValueChange: onMessageChange,
   })

@@ -5,7 +5,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 
 export function useFileContent(taskId: string, filePath: string) {
   return useQuery<FileContentResponse>({
-    queryKey: queryKeys.taskFileContent(taskId, filePath),
+    queryKey: queryKeys.tasks.fileContent(taskId, filePath),
     queryFn: async () => {
       const encodedPath = encodeURIComponent(filePath)
       const response = await apiClient.get<FileContentResponse>(

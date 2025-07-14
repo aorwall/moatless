@@ -25,7 +25,7 @@ describe('event-handlers', () => {
 
       // Should only invalidate the specific task, not all tasks
       expect(keys).toHaveLength(1)
-      expect(keys[0]('task-123')).toEqual(queryKeys.task('task-123'))
+      expect(keys[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })
 
     it('should return correct invalidation keys for RESULT event', () => {
@@ -42,8 +42,8 @@ describe('event-handlers', () => {
 
       // Should invalidate task detail and git diff
       expect(keys).toHaveLength(2)
-      expect(keys[0]('task-456')).toEqual(queryKeys.task('task-456'))
-      expect(keys[1]('task-456')).toEqual(queryKeys.taskGitDiff('task-456'))
+      expect(keys[0]('task-456')).toEqual(queryKeys.tasks.detail('task-456'))
+      expect(keys[1]('task-456')).toEqual(queryKeys.tasks.gitDiff('task-456'))
     })
 
     it('should return empty array for MESSAGE event', () => {
@@ -73,8 +73,8 @@ describe('event-handlers', () => {
       const keys = getInvalidationKeys(event)
 
       expect(keys).toHaveLength(2)
-      expect(keys[0]('task-999')).toEqual(queryKeys.taskWorkspaceStatus('task-999'))
-      expect(keys[1]('task-999')).toEqual(queryKeys.taskGitDiff('task-999'))
+      expect(keys[0]('task-999')).toEqual(queryKeys.tasks.workspaceStatus('task-999'))
+      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.gitDiff('task-999'))
     })
   })
 
@@ -131,7 +131,7 @@ describe('event-handlers', () => {
       // Verify TASK_STATUS only invalidates the specific task
       const taskStatusInvalidations = EVENT_INVALIDATION_MAP[EventType.TASK_STATUS]
       expect(taskStatusInvalidations).toHaveLength(1)
-      expect(taskStatusInvalidations[0]('task-123')).toEqual(queryKeys.task('task-123'))
+      expect(taskStatusInvalidations[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })
   })
 })

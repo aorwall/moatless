@@ -1,11 +1,9 @@
 import type { FileSearchResult } from '@moatless/types/types/repository'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchFiles } from '@/features/repositories/hooks/use-repositories'
-import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
 
 interface UseUniversalFileAutocompleteOptions {
   repositoryId?: string
-  taskId?: string
   value: string
   onValueChange: (value: string) => void
   onSelect?: (filePath: string) => void
@@ -20,7 +18,6 @@ interface AutocompleteState {
 
 export function useUniversalFileAutocomplete({
   repositoryId,
-  taskId,
   value,
   onValueChange,
   onSelect,
@@ -34,28 +31,14 @@ export function useUniversalFileAutocomplete({
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // Use environment search when in environment context
+  // Use repository search
   const {
-    data: envSearchResults,
-    isLoading: envLoading,
-    error: envError,
+    data: searchResults,
+    isLoading,
+    error,
   } = useSearchFiles(repositoryId || '', state.searchTerm, {
-    enabled: state.isOpen && !!repositoryId && !taskId && state.searchTerm.length >= 3,
+    enabled: state.isOpen && !!repositoryId && state.searchTerm.length >= 3,
   })
-
-  // Use task search when in task context
-  const {
-    data: taskSearchResults,
-    isLoading: taskLoading,
-    error: taskError,
-  } = useTaskFileSearch(taskId || '', state.searchTerm, repositoryId || '', {
-    enabled: state.isOpen && !!taskId && !!repositoryId && state.searchTerm.length >= 3,
-  })
-
-  // Determine which results to use
-  const searchResults = taskId ? taskSearchResults : envSearchResults
-  const isLoading = taskId ? taskLoading : envLoading
-  const error = taskId ? taskError : envError
 
   const handleInputChange = useCallback((value: string, cursorPosition: number) => {
     // Find the @ symbol before the cursor

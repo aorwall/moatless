@@ -84,7 +84,7 @@ export function getInvalidationKeys(
   const keys: Array<readonly unknown[]> = []
 
   // Always invalidate the specific task
-  keys.push(queryKeys.task(taskId))
+  keys.push(queryKeys.tasks.detail(taskId))
 
   // If status changed, invalidate relevant list queries
   if (oldStatus !== newStatus && newStatus) {

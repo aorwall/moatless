@@ -13,18 +13,22 @@ export const STATUS_AFFECTING_EVENTS = [
 // These invalidation keys are for the specific task only
 export const EVENT_INVALIDATION_MAP = {
   [EventType.MESSAGE]: [], // No invalidation needed - handled by direct cache update
-  [EventType.RESULT]: [queryKeys.task, queryKeys.taskGitDiff],
-  [EventType.ERROR]: [queryKeys.task],
-  [EventType.WORKSPACE]: [queryKeys.taskWorkspaceStatus, queryKeys.taskGitDiff],
-  [EventType.INPUT]: [queryKeys.task],
-  [EventType.TASK_STATUS]: [queryKeys.task],
+  [EventType.RESULT]: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff],
+  [EventType.ERROR]: [queryKeys.tasks.detail],
+  [EventType.WORKSPACE]: [queryKeys.tasks.workspaceStatus, queryKeys.tasks.gitDiff],
+  [EventType.INPUT]: [queryKeys.tasks.detail],
+  [EventType.TASK_STATUS]: [queryKeys.tasks.detail],
   // Deprecated/unused event types:
   // START, STOP, SERVER, TOOL, COMPLETION - not actively used in production
-  [EventType.START]: [queryKeys.task, queryKeys.taskWorkspaceStatus],
-  [EventType.STOP]: [queryKeys.task, queryKeys.taskWorkspaceStatus, queryKeys.taskServerStatus],
-  [EventType.SERVER]: [queryKeys.taskServerStatus],
-  [EventType.TOOL]: [queryKeys.taskEvents],
-  [EventType.COMPLETION]: [queryKeys.task],
+  [EventType.START]: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus],
+  [EventType.STOP]: [
+    queryKeys.tasks.detail,
+    queryKeys.tasks.workspaceStatus,
+    queryKeys.tasks.serverStatus,
+  ],
+  [EventType.SERVER]: [queryKeys.tasks.serverStatus],
+  [EventType.TOOL]: [queryKeys.tasks.events],
+  [EventType.COMPLETION]: [queryKeys.tasks.detail],
 } as const
 
 export type InvalidationKeyFunction = (id: string) => readonly unknown[]

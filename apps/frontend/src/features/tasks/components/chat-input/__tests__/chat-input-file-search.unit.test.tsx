@@ -1,9 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-// import { useSearchFiles } from '@/features/environments/hooks/use-environments'
+// import { useSearchFiles } from '@/features/environments/hooks/use-environments' // Hook doesn't exist
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
 import { createWrapper } from '@/test-utils/render'
 import { ChatInput } from '../index'
 
@@ -14,10 +13,6 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
 
 vi.mock('@/features/environments/hooks/use-environments', () => ({
   useSearchFiles: vi.fn(),
-}))
-
-vi.mock('@/features/tasks/hooks/use-tasks', () => ({
-  useTaskFileSearch: vi.fn(),
 }))
 
 // Mock child components to avoid complex dependencies
@@ -59,8 +54,7 @@ vi.mock('../selectors', () => ({
 
 describe('ChatInput File Search', () => {
   const mockRepositoriesList = vi.mocked(useRepositoriesList)
-  // const mockSearchFiles = vi.mocked(useSearchFiles)
-  const mockTaskFileSearch = vi.mocked(useTaskFileSearch)
+  // const mockSearchFiles = vi.mocked(useSearchFiles) // Hook doesn't exist
 
   // const mockFileSearchResponse = {
   //   files: [
@@ -79,17 +73,17 @@ describe('ChatInput File Search', () => {
       error: null,
     } as any)
 
-    mockSearchFiles.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as any)
+    // mockSearchFiles.mockReturnValue({
+    //   data: null,
+    //   isLoading: false,
+    //   error: null,
+    // } as any)
 
-    mockTaskFileSearch.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as any)
+    // mockTaskFileSearch.mockReturnValue({
+    //   data: null,
+    //   isLoading: false,
+    //   error: null,
+    // } as any)
   })
 
   it('renders with correct placeholder for new task', () => {

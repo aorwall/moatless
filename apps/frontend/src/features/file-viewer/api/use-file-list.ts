@@ -11,7 +11,7 @@ interface FileListParams {
 
 export function useFileList({ taskId, path = '/', recursive = false }: FileListParams) {
   return useQuery<FileListResponse>({
-    queryKey: queryKeys.taskFileList(taskId, path, recursive),
+    queryKey: queryKeys.tasks.fileList(taskId, path, recursive),
     queryFn: async () => {
       const params = new URLSearchParams()
       if (path) params.append('path', path)

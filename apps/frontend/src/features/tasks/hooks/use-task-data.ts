@@ -30,26 +30,26 @@ export function useTaskData(taskId: string): UseTaskDataResult {
   const queries = useQueries({
     queries: [
       {
-        queryKey: queryKeys.task(taskId),
+        queryKey: queryKeys.tasks.detail(taskId),
         queryFn: () => tasksApi.getTask(taskId),
         staleTime: 5 * 60 * 1000,
         enabled: shouldFetch,
       },
       {
-        queryKey: queryKeys.taskEvents(taskId),
+        queryKey: queryKeys.tasks.events(taskId),
         queryFn: () => tasksApi.getTaskEvents(taskId),
         staleTime: 60 * 1000,
         enabled: shouldFetch,
       },
       {
-        queryKey: queryKeys.taskGitDiff(taskId),
+        queryKey: queryKeys.tasks.gitDiff(taskId),
         queryFn: () => tasksApi.getTaskGitDiff(taskId),
         staleTime: 10 * 60 * 1000,
         enabled: shouldFetch,
         retry: false,
       },
       {
-        queryKey: queryKeys.taskWorkspaceStatus(taskId),
+        queryKey: queryKeys.tasks.workspaceStatus(taskId),
         queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
         enabled: shouldFetch,
         // Removed polling - rely on event-driven updates

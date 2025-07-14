@@ -26,7 +26,7 @@ function TasksIndex() {
           event.subType === 'iteration:created' ||
           event.subType === 'iteration:updated')
       ) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() })
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
       }
     })
   }, [subscribeToAll, queryClient])

@@ -35,8 +35,8 @@ export function useSyncWorkspace(
     mutationFn: syncWorkspace,
     onSuccess: (data, variables, context) => {
       // Invalidate workspace status and git status queries
-      queryClient.invalidateQueries({ queryKey: queryKeys.taskWorkspaceStatus(variables.taskId) })
-      queryClient.invalidateQueries({ queryKey: queryKeys.task(variables.taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(variables.taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(variables.taskId) })
 
       options?.onSuccess?.(data, variables, context)
     },

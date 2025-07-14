@@ -6,7 +6,6 @@ import type {
   TaskListResponse,
 } from '@moatless/types/types/api'
 import type { Event } from '@moatless/types/types/event'
-import type { FileSearchResponse } from '@moatless/types/types/repository'
 import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -36,7 +35,7 @@ export function useTasksList(
   options?: Omit<UseQueryOptions<TaskListResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.tasksList(params),
+    queryKey: queryKeys.tasks.list(params),
     queryFn: () => tasksApi.listTasks(params),
     ...options,
   })
@@ -47,7 +46,7 @@ export function useTask(
   options?: Omit<UseQueryOptions<Task>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.task(taskId),
+    queryKey: queryKeys.tasks.detail(taskId),
     queryFn: () => tasksApi.getTask(taskId),
     enabled: !!taskId,
     ...options,
@@ -121,10 +120,10 @@ export function useSendMessage(
       tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),
     onSuccess: async (data, variables, context) => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
       })
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
+        queryKey: queryKeys.tasks.detail(taskId),
       })
       options?.onSuccess?.(data, variables, context)
     },
@@ -143,10 +142,10 @@ export function useStopAgent(
     mutationFn: () => tasksApi.stopAgent(taskId),
     onSuccess: (data, _, context) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
       })
       queryClient.invalidateQueries({
-        queryKey: queryKeys.task(taskId),
+        queryKey: queryKeys.tasks.detail(taskId),
       })
       options?.onSuccess?.(data, undefined, context)
     },
@@ -160,7 +159,9 @@ export function useTaskEvents(
   options?: Omit<UseQueryOptions<Array<Event>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskEvents(taskId, { type }),
+    queryKey: type
+      ? ([...queryKeys.tasks.events(taskId), { type }] as const)
+      : queryKeys.tasks.events(taskId),
     queryFn: () => tasksApi.getTaskEvents(taskId, type),
     enabled: !!taskId,
     ...options,
@@ -172,24 +173,9 @@ export function useTaskGitDiff(
   options?: Omit<UseQueryOptions<GitDiffResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskGitDiff(taskId),
+    queryKey: queryKeys.tasks.gitDiff(taskId),
     queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId,
-    ...options,
-  })
-}
-
-export function useTaskFileSearch(
-  taskId: string,
-  query: string,
-  repositoryId: string,
-  options?: Omit<UseQueryOptions<FileSearchResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskFileSearch(taskId, query),
-    queryFn: () => tasksApi.searchTaskFiles(taskId, { query, repositoryId }),
-    enabled: !!taskId && !!repositoryId && query.length >= 3,
-    staleTime: 30 * 1000, // 30 seconds
     ...options,
   })
 }
@@ -199,7 +185,7 @@ export function useTaskCommands(
   options?: Omit<UseQueryOptions<TaskCommandsResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskCommands(taskId),
+    queryKey: queryKeys.tasks.commands(taskId),
     queryFn: () => tasksApi.getTaskCommands(taskId),
     enabled: !!taskId,
     ...options,
@@ -222,15 +208,15 @@ export function useMergeTask(
       tasksApi.mergeTask(taskId, { targetBranch, commitMessage }),
     onMutate: async () => {
       // Cancel any in-flight queries for this task
-      await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) })
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.detail(taskId) })
 
       // Snapshot the previous task data
-      const previousTask = queryClient.getQueryData<Task>(queryKeys.task(taskId))
+      const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 
       // Optimistically update the task status to 'merged'
       if (previousTask) {
         const updatedTask = { ...previousTask, status: 'merged' as const }
-        queryClient.setQueryData<Task>(queryKeys.task(taskId), updatedTask)
+        queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), updatedTask)
 
         // Update the task in all cached lists
         updateTaskInLists(queryClient, taskId, { status: 'merged' })
@@ -247,7 +233,7 @@ export function useMergeTask(
         'previousTask' in context &&
         context.previousTask
       ) {
-        queryClient.setQueryData(queryKeys.task(taskId), context.previousTask)
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), context.previousTask)
         updateTaskInLists(queryClient, taskId, context.previousTask)
       }
       options?.onError?.(err, variables, context)
@@ -255,7 +241,7 @@ export function useMergeTask(
     onSettled: () => {
       // Only invalidate task lists - events will handle the rest
       queryClient.invalidateQueries({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
         exact: false,
       })
     },
@@ -277,12 +263,12 @@ export function useCloseTask(
     mutationFn: () => tasksApi.closeTask(taskId),
     onMutate: async () => {
       // Snapshot the previous task data
-      const previousTask = queryClient.getQueryData<Task>(queryKeys.task(taskId))
+      const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 
       // Optimistically update the task status to 'closed'
       if (previousTask) {
         const updatedTask = { ...previousTask, status: 'closed' as const }
-        queryClient.setQueryData<Task>(queryKeys.task(taskId), updatedTask)
+        queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), updatedTask)
 
         // Update the task in all cached lists
         updateTaskInLists(queryClient, taskId, { status: 'closed' })
@@ -299,7 +285,7 @@ export function useCloseTask(
         'previousTask' in context &&
         context.previousTask
       ) {
-        queryClient.setQueryData(queryKeys.task(taskId), context.previousTask)
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), context.previousTask)
         updateTaskInLists(queryClient, taskId, context.previousTask)
       }
       options?.onError?.(err, undefined, context)
@@ -307,7 +293,7 @@ export function useCloseTask(
     onSettled: async () => {
       // Only force refetch task lists - events will handle task-specific updates
       await queryClient.refetchQueries({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
         exact: false,
         type: 'active',
       })
@@ -328,7 +314,7 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
       // Invalidate all task queries to refresh the list
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
       // Also invalidate the specific task
-      queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
       options?.onSuccess?.(data, taskId, context)
     },
     ...options,
