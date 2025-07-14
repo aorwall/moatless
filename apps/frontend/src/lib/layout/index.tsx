@@ -2,6 +2,7 @@ import { useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { AppSidebar } from '@/features/navigation/components/app-sidebar'
+import { SystemStatusWarning } from '@/features/settings/components/system-status-warning'
 import { ThemeProvider } from '@/lib/components/theme-provider'
 import { SidebarProvider, SidebarTrigger } from '@/lib/components/ui/sidebar'
 
@@ -30,6 +31,9 @@ export const Layout = ({ children }: LayoutProps) => {
                 <Header />
               </header>
             )}
+            <div className="px-6 pt-6">
+              <SystemStatusWarning />
+            </div>
             <main className="flex-1 relative">{children}</main>
           </div>
         </div>

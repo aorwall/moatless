@@ -5,8 +5,10 @@ import type {
   ApplicationSettings,
   ClaudeSettings,
   SettingsResponse,
+  SystemStatusCheck,
   UpdateSettingsRequest,
 } from '@moatless/types'
+import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
 import { logger } from '../utils/logger.js'
 
 export class SettingsService {
@@ -231,6 +233,10 @@ export class SettingsService {
     this.settingsPath = newSettingsPath
     await this.saveSettings()
     return this.getSettings()
+  }
+
+  async getSystemStatus(): Promise<SystemStatusCheck> {
+    return checkSystemStatus()
   }
 }
 

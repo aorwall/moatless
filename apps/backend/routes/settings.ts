@@ -1,6 +1,7 @@
 import {
   type SettingsResponse,
   SettingsResponseSchema,
+  SystemStatusCheckSchema,
   type UpdateSettingsRequest,
   updateSettingsSchema,
 } from '@moatless/types'
@@ -113,6 +114,36 @@ export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: str
         return c.json(settings)
       } catch (error) {
         handleServiceError(error, 'Reset settings')
+      }
+    },
+  )
+
+  // GET settings/status - Get system status
+  app.get(
+    `${prefix}/status`,
+    describeRoute({
+      description: 'Get system status including Claude and Docker availability',
+      responses: {
+        200: {
+          description: 'System status information',
+          content: {
+            'application/json': {
+              schema: resolver(SystemStatusCheckSchema) as any,
+            },
+          },
+        },
+        500: {
+          description: 'Failed to get system status',
+        },
+      },
+    }),
+    async (c) => {
+      try {
+        const settingsService = getSettingsService()
+        const status = await settingsService.getSystemStatus()
+        return c.json(status)
+      } catch (error) {
+        handleServiceError(error, 'Get system status')
       }
     },
   )

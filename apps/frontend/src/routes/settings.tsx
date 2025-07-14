@@ -13,7 +13,12 @@ import {
   useDeleteClaudeCodeSettings,
   useUpdateClaudeCodeSettings,
 } from '@/features/claude-code'
-import { useResetSettings, useSettings, useUpdateSettings } from '@/features/settings'
+import {
+  SystemStatusCard,
+  useResetSettings,
+  useSettings,
+  useUpdateSettings,
+} from '@/features/settings'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
@@ -195,6 +200,9 @@ function SettingsPage() {
     <div className="flex min-h-screen flex-col">
       <div className="flex-1 space-y-6 p-6">
         <div className="mx-auto max-w-6xl">
+          <div className="mb-6">
+            <SystemStatusCard />
+          </div>
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Application Settings */}
             <div className="space-y-6">

@@ -42,6 +42,12 @@ export const queryKeys = {
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,
     tools: () => [...queryKeys.claudeCode.all(), 'tools'] as const,
   },
+
+  settings: {
+    all: () => [...queryKeys.all, 'settings'] as const,
+    detail: () => [...queryKeys.settings.all(), 'detail'] as const,
+    systemStatus: () => [...queryKeys.settings.all(), 'system-status'] as const,
+  },
   templates: {
     all: () => [...queryKeys.all, 'templates'] as const,
     list: () => [...queryKeys.templates.all(), 'list'] as const,
