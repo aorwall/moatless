@@ -10,6 +10,7 @@ import {
 } from '@/features/tasks/contexts/task-providers'
 import { useStopAgent } from '../../hooks/use-tasks'
 import { TaskHeader } from '../task-header'
+import { createMockQuery, createMockMutation } from '@/test-utils/mocks'
 
 // Mock dependencies
 vi.mock('@tanstack/react-router', () => ({
@@ -71,25 +72,28 @@ describe('TaskHeader', () => {
       isStreaming: true,
     } as any)
 
-    vi.mocked(useServerStatus).mockReturnValue({
-      data: null,
-      isLoading: false,
-    } as any)
+    vi.mocked(useServerStatus).mockReturnValue(createMockQuery(null))
 
-    vi.mocked(useStopAgent).mockReturnValue({
-      mutate: mockStopAgent,
-      isPending: false,
-    } as any)
+    vi.mocked(useStopAgent).mockReturnValue(
+      createMockMutation({
+        mutate: mockStopAgent,
+        isPending: false,
+      })
+    )
 
-    vi.mocked(useStartServer).mockReturnValue({
-      mutate: mockStartServer,
-      isPending: false,
-    } as any)
+    vi.mocked(useStartServer).mockReturnValue(
+      createMockMutation({
+        mutate: mockStartServer,
+        isPending: false,
+      })
+    )
 
-    vi.mocked(useStopServer).mockReturnValue({
-      mutate: mockStopServer,
-      isPending: false,
-    } as any)
+    vi.mocked(useStopServer).mockReturnValue(
+      createMockMutation({
+        mutate: mockStopServer,
+        isPending: false,
+      })
+    )
   })
 
   describe('Rendering', () => {

@@ -308,44 +308,6 @@ describe('TaskList', () => {
     })
   })
 
-  describe('Time Display', () => {
-    it.skip('displays relative time correctly - FIXME: Mock data date parsing issue (TASK-012)', () => {
-      // Test hours
-      const task1 = createMockTask({
-        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
-      })
-      const { rerender } = render(<TaskList tasks={[task1]} />)
-      expect(screen.getByText('3h ago')).toBeInTheDocument()
-
-      // Test days
-      const task2 = createMockTask({
-        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-      })
-      rerender(<TaskList tasks={[task2]} />)
-      expect(screen.getByText('2d ago')).toBeInTheDocument()
-
-      // Test weeks
-      const task3 = createMockTask({
-        createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago = 1 week
-      })
-      rerender(<TaskList tasks={[task3]} />)
-      expect(screen.getByText('1w ago')).toBeInTheDocument()
-    })
-
-    it.skip('uses lastMessageAt over createdAt when available - FIXME: Mock data date parsing issue (TASK-013)', () => {
-      const task = createMockTask({
-        createdAt: new Date(Date.now() - 7200000), // 2 hours ago
-        lastMessageAt: new Date(Date.now() - 1800000), // 30 mins ago
-      })
-
-      render(<TaskList tasks={[task]} />)
-
-      // Check for minutes format - might be 29m or 30m depending on test execution time
-      expect(screen.getByText(/^\d+m ago$/)).toBeInTheDocument()
-      // Ensure it's not showing hours
-      expect(screen.queryByText(/^\d+h ago$/)).not.toBeInTheDocument()
-    })
-  })
 
   describe('Edge Cases', () => {
     it('handles missing repository data gracefully', () => {

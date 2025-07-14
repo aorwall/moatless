@@ -102,21 +102,6 @@ describe('RepositoryForm', () => {
       )
     })
 
-    it.skip('should validate required fields (FIXME: Mock ZodError throwing issue)', async () => {
-      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
-
-      // Try to submit without filling required fields
-      const submitButton = screen.getByText('Create Repository')
-      fireEvent.click(submitButton)
-
-      await customWaitFor(() => {
-        expect(mockOnSubmit).not.toHaveBeenCalled()
-      })
-
-      // The form should not submit when validation fails
-      // No need to check for specific error messages as they depend on Zod schema
-    })
-
     it('should submit valid local environment', async () => {
       render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
 
@@ -146,18 +131,6 @@ describe('RepositoryForm', () => {
           }),
         )
       })
-    })
-
-    it.skip('should handle GitHub repository configuration - FIXME: Complex dropdown interaction needed', async () => {
-      // This test is skipped because testing library has issues with Select components
-      // The dropdown functionality works in the real app but is hard to test
-      // TODO: Implement when we have better Select component testing support
-    })
-
-    it.skip('should handle Docker execution configuration - FIXME: Complex dropdown interaction needed', async () => {
-      // This test is skipped because testing library has issues with Select components
-      // The dropdown functionality works in the real app but is hard to test
-      // TODO: Implement when we have better Select component testing support
     })
 
     it('should toggle git worktrees option', async () => {
@@ -264,46 +237,5 @@ describe('RepositoryForm', () => {
       expect(submitButton).toBeDisabled()
     })
 
-    it.skip('should clear errors when user types (FIXME: Mock ZodError throwing issue)', async () => {
-      // Since we're mocking the schema validation, we can't test the actual error messages
-      // Instead, test that the form doesn't submit when fields are empty
-      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
-
-      // Submit without name to trigger validation
-      fireEvent.click(screen.getByText('Create Repository'))
-
-      await customWaitFor(() => {
-        expect(mockOnSubmit).not.toHaveBeenCalled()
-      })
-
-      // Fill in required fields
-      fireEvent.change(screen.getByLabelText(/Name/), {
-        target: { value: 'Test Repo' },
-      })
-      fireEvent.change(screen.getByLabelText(/Local Path/), {
-        target: { value: '/test/path' },
-      })
-
-      // Now it should submit
-      fireEvent.click(screen.getByText('Create Repository'))
-
-      await customWaitFor(() => {
-        expect(mockOnSubmit).toHaveBeenCalled()
-      })
-    })
-
-    it.skip('should validate with Zod schema (FIXME: Mock ZodError throwing issue)', async () => {
-      render(<RepositoryForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} mode="create" />)
-
-      // Try to submit without required fields
-      fireEvent.click(screen.getByText('Create Repository'))
-
-      await customWaitFor(() => {
-        expect(mockOnSubmit).not.toHaveBeenCalled()
-      })
-
-      // The form should not submit when validation fails
-      // Actual validation is handled by the mocked schema
-    })
   })
 })

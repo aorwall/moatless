@@ -211,21 +211,6 @@ describe('EventViewer', () => {
         })
     })
 
-    it.skip('scrolls to bottom on first visit - FIXME: Module state reset needed (TASK-001)', () => {
-      // This test depends on module-level state that's hard to reset
-      // Need to refactor visitedTasks to be testable
-    })
-
-    it.skip('does not auto-scroll on subsequent visits to same task - FIXME: Module state reset needed (TASK-001)', () => {
-      // This test depends on module-level state that's hard to reset
-      // Need to refactor visitedTasks to be testable
-    })
-
-    it.skip('auto-scrolls when new events arrive if at bottom - FIXME: useEffect timing issues (TASK-002)', () => {
-      // This test has timing issues with useEffect
-      // Need to use proper async testing utilities
-    })
-
     it('does not auto-scroll when not at bottom', async () => {
       const initialEvents = createMockEventList(5)
       vi.mocked(useTaskEvents).mockReturnValue(
