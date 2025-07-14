@@ -9,6 +9,7 @@ import type {
   WorkspaceStatusResponse,
 } from '@moatless/types/types/api'
 import type { Event } from '@moatless/types/types/event'
+import type { Message, MessagesResponse } from '@moatless/types'
 import type { FileSearchRequest, FileSearchResponse } from '@moatless/types/types/repository'
 import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import { apiClient } from '@/lib/api/client'
@@ -82,6 +83,11 @@ export const tasksApi = {
       type ? { type } : undefined,
     )
     return response.items
+  },
+
+  async getTaskMessages(taskId: string): Promise<Array<Message>> {
+    const response = await apiClient.get<MessagesResponse>(`/api/v1/tasks/${taskId}/messages`)
+    return response.messages
   },
 
   async getTaskGitDiff(taskId: string): Promise<GitDiffResponse> {

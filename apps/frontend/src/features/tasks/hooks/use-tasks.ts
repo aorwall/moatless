@@ -6,6 +6,7 @@ import type {
   TaskListResponse,
 } from '@moatless/types/types/api'
 import type { Event } from '@moatless/types/types/event'
+import type { Message } from '@moatless/types'
 import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -163,6 +164,18 @@ export function useTaskEvents(
       ? ([...queryKeys.tasks.events(taskId), { type }] as const)
       : queryKeys.tasks.events(taskId),
     queryFn: () => tasksApi.getTaskEvents(taskId, type),
+    enabled: !!taskId,
+    ...options,
+  })
+}
+
+export function useTaskMessages(
+  taskId: string,
+  options?: Omit<UseQueryOptions<Array<Message>>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.tasks.messages(taskId),
+    queryFn: () => tasksApi.getTaskMessages(taskId),
     enabled: !!taskId,
     ...options,
   })

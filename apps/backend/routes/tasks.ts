@@ -19,6 +19,7 @@ import {
   GitStatusSchema,
   MergeTaskResponseSchema,
   MergeTaskSchema,
+  MessagesResponseSchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
   ServerLogsQuerySchema,
@@ -43,6 +44,7 @@ import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
+import { createMessageService } from '../services/message.service.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { extractFilePathFromWildcard, validateRequestBody } from '../utils/route-helpers.js'
 
@@ -538,6 +540,71 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         items: events,
       }
       return c.json(response)
+    },
+  )
+
+  // Get task messages with merged tool calls
+  app.get(
+    `${prefix}/:taskId/messages`,
+    describeRoute({
+      description: 'Get all messages for a task with merged tool calls and results',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of task messages',
+          content: {
+            'application/json': {
+              schema: resolver(MessagesResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { task: taskService, event: eventService } = services
+
+      const taskId = getTaskId(c)
+
+      // Verify task exists
+      const task = await taskService.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Get all events for the task
+      const events = await eventService.getEvents(
+        taskId,
+        undefined, // no limit
+        0, // offset 0
+        undefined, // no type filter
+        task,
+      )
+
+      // Transform events to messages using the message service
+      const messageService = createMessageService()
+      const messages = messageService.transformEventsToMessages(events)
+
+      return c.json({
+        messages,
+        totalCount: messages.length,
+      })
     },
   )
 
