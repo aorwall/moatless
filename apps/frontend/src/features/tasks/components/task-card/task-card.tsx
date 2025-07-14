@@ -1,9 +1,10 @@
 import type { Task } from '@moatless/types/types/task'
 import { Link } from '@tanstack/react-router'
-import { MinifiedLastEventsDisplay } from '@/features/tasks/components/minified-event-viewer/minified-last-events-display'
+import { MinifiedEventList } from '@/features/tasks/components/minified-event-viewer/minified-event-list'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()
@@ -56,7 +57,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="truncate">{repositoryName}</span>
                 <span className="shrink-0">
-                  {getRelativeTime(task.lastMessageAt || task.createdAt)}
+                  {task.status === 'running' && lastIteration?.startTime
+                    ? formatRunningDuration(lastIteration.startTime)
+                    : getRelativeTime(task.lastMessageAt || task.createdAt)}
                 </span>
               </div>
             </div>
@@ -67,13 +70,8 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
           {task.status === 'running' ? (
             // Show events for running tasks
             eventsData && eventsData.length > 0 ? (
-              <div className="min-h-[80px]">
-                <MinifiedLastEventsDisplay
-                  events={eventsData}
-                  isRunning={true}
-                  runningStartTime={lastIteration?.startTime}
-                  latestContextTokens={lastIteration?.contextTokens}
-                />
+              <div className="min-h-[80px] max-h-[120px] overflow-y-auto">
+                <MinifiedEventList events={eventsData} />
               </div>
             ) : (
               <div className="text-sm text-muted-foreground min-h-[80px] flex items-center">
