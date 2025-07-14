@@ -476,7 +476,6 @@ src/
 │   └── [feature]/
 │       └── components/   # Feature-specific components
 │           ├── task-list.tsx
-│           ├── task-card.tsx
 │           └── ...
 └── components/          # Shared custom components (rare)
     └── brand/

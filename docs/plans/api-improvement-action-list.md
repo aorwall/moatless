@@ -96,56 +96,6 @@
 - [ ] Add proper types for all event payloads
 - [ ] Create typed service interfaces
 
-### API Consistency
-**Problem**: Inconsistent API patterns and naming.
-
-**Actions**:
-- [ ] Standardize endpoint naming (e.g., `/search-files` vs `/files/search`)
-- [ ] Consistent use of HTTP methods (POST for actions vs GET)
-- [ ] Standardize query parameter names across similar endpoints
-- [ ] Align response property names (e.g., `items` vs specific names)
-- [ ] Create naming convention guide
-
-### OpenAPI Documentation Enhancement
-**Problem**: Incomplete or missing OpenAPI documentation.
-
-**Actions**:
-- [ ] Add examples to all OpenAPI schemas
-- [ ] Document all possible error responses
-- [ ] Add descriptions to all schema properties
-- [ ] Create reusable OpenAPI components
-- [ ] Generate OpenAPI spec file for external consumption
-
-### Service Layer Abstraction
-**Problem**: Routes directly handle too much business logic.
-
-**Actions**:
-- [ ] Create clear service interfaces with TypeScript types
-- [ ] Move business logic from routes to services
-- [ ] Add proper service error types
-- [ ] Create service response types separate from API responses
-- [ ] Implement service-level validation
-
-### Middleware Enhancement
-**Problem**: Missing common middleware for cross-cutting concerns.
-
-**Actions**:
-- [ ] Create request ID middleware for tracing
-- [ ] Add request/response logging middleware
-- [ ] Implement request body size limit middleware
-- [ ] Add request timeout middleware
-- [ ] Create API versioning middleware
-
-### Testing Infrastructure
-**Problem**: Testing could be improved with better type safety.
-
-**Actions**:
-- [ ] Create type-safe test helpers for routes
-- [ ] Add schema validation tests
-- [ ] Create fixtures using schemas
-- [ ] Add API contract tests
-- [ ] Implement response schema validation in tests
-
 ## Implementation Status Summary
 
 ### ✅ Completed (Foundation Phase)
@@ -161,21 +111,7 @@
 3. Complete response schema coverage
 4. ✅ ~~File path handling patterns~~ - COMPLETED
 
-### 📋 Future Work (Lower priority)
-1. OpenAPI documentation enhancement
-2. API consistency improvements
-3. Service layer abstraction
-4. Middleware enhancement
-5. Testing infrastructure improvements
-
 ## Achievements Summary
-
-### Major Accomplishments ✅
-1. **Schema-First Architecture** - Complete migration to schema-derived types
-2. **Zero Duplication** - Eliminated all duplicate type definitions  
-3. **Centralized Patterns** - Error handling and validation utilities
-4. **Type Safety** - 100% schema validation on critical routes
-5. **Clean Architecture** - Proper separation between schemas, types, and routes
 
 ## Breaking Changes to Consider
 
@@ -191,26 +127,6 @@
 3. `routes/settings.ts` - Missing proper validation
 4. `routes/events.ts` - Needs proper typing for events
 5. `types/api.ts` - Has mixed concerns and duplications
-
-## Metrics for Success
-
-- ✅ Zero inline schemas in route files
-- ✅ Zero duplicate type definitions  
-- ✅ 100% routes with Zod validation (all major routes: tasks, workspace, settings)
-- ⚠️ Minimal `any` types in schemas (some remain for flexibility)
-- ✅ All routes with OpenAPI documentation
-- ✅ Centralized error handling in use
-- ✅ **NEW**: Consistent response formats (pagination standardized across all list endpoints)
-- ✅ **NEW**: File path handling patterns (standardized across workspace and task routes)
-- 🔄 Generated OpenAPI spec available (framework ready)
-
-### Updated Success Metrics (January 2025)
-- ✅ **API Response Standardization**: 100% list endpoints use `{items, pagination}` format
-- ✅ **Settings Route Modernization**: Full schema-first implementation
-- ✅ **File Path Consistency**: Shared helpers used across all routes
-- ✅ **Frontend Compatibility**: All frontend code updated for new API contracts
-- ✅ **Test Coverage**: All tests updated to match actual API behavior
-- ⚠️ **Query Keys Centralization**: ~95% centralized (2 hooks with hardcoded keys found)
 
 ## Frontend-Specific Action Items
 
@@ -286,58 +202,6 @@
 - [ ] Create scripts to validate type/schema alignment
 - [ ] Add tests that verify API contracts
 - [ ] Document the type generation process
-- [ ] Set up automated type checking in CI
-
-### Development Workflow
-**Actions**:
-- [ ] Create a script to generate types from schemas
-- [ ] Add pre-commit hooks to validate types
-- [ ] Create development guidelines for adding new features
-- [ ] Document the shared package usage
-- [ ] Set up type checking across packages
-
-## Recent Findings and Improvements (January 2025)
-
-### ✅ Major Accomplishments in Current Session
-1. **Complete Pagination Standardization**
-   - All list endpoints now return consistent `{items: [], pagination: {}}` format
-   - Added `hasMore` field for better UX
-   - Fixed all frontend code to use standardized response format
-   - Updated all tests to match new API contracts
-
-2. **Settings Route Modernization**
-   - Migrated from manual validation to comprehensive Zod schemas
-   - Added full OpenAPI documentation with `describeRoute`
-   - Implemented centralized error handling pattern
-   - Converted manual interfaces to schema-derived types
-   - Created reusable settings response schemas
-
-3. **File Path Handling Standardization**
-   - Eliminated duplicate file path extraction logic in tasks routes
-   - Standardized use of `extractFilePathFromWildcard` helper
-   - Consistent validation patterns across workspace and task routes
-
-### 🔍 New Issues Identified
-1. **Frontend File Naming Inconsistency**
-   - Found `settings.api.ts` vs standard `settings.ts` pattern
-   - Other API files may have similar inconsistencies
-   - **Action**: Audit all API file names for consistency
-
-2. **Test Coverage Gaps**
-   - Some integration tests expect old invalidation patterns
-   - Tests needed updates to match actual mutation behavior
-   - **Action**: Review test patterns for mutation invalidation strategies
-
-3. **Type Import Optimization Opportunities**
-   - Some frontend files could benefit from better type imports
-   - Potential for more schema-based form validation
-   - **Action**: Audit frontend type usage patterns
-
-4. **Query Keys Centralization Issues**
-   - Found hardcoded query keys in `use-repositories-settings.ts` and `use-settings.ts`
-   - Missing `settings` query key in centralized `query-keys.ts`
-   - Several unused query keys defined (agents, task iterations, etc.)
-   - **Action**: Fix hardcoded keys and clean up unused definitions
 
 ### 📈 Compliance with Best Practices
 ✅ **Following Best Practices**:
@@ -352,37 +216,3 @@
 - Some resolver type assertions still needed (`as any`)
 - File naming conventions need enforcement
 - Query keys not fully centralized (some hardcoded keys found)
-
-### 🎯 Next Recommended Actions
-1. **Complete Frontend Consistency** (High Priority)
-   - Rename `settings.api.ts` to `settings.ts`
-   - Audit and fix any other naming inconsistencies
-   - Add linting rules to enforce patterns
-
-2. **Fix Query Keys Centralization** (High Priority)
-   - Add missing `settings` query key to `query-keys.ts`
-   - Fix hardcoded query keys in repository and settings hooks
-   - Remove unused query key definitions
-   - Add ESLint rule to catch hardcoded query keys
-
-3. **Response Schema Coverage** (Medium Priority)
-   - Add schemas for event stream responses
-   - Add schemas for upload endpoint responses
-   - Complete schema coverage audit
-
-4. **Type Safety Enhancements** (Low Priority)
-   - Replace remaining `as any` type assertions
-   - Add proper Event schema to replace `z.any()`
-   - Enhance command condition typing
-
-## Notes
-
-- Start with non-breaking changes first
-- Test thoroughly after each change
-- Update frontend types after backend changes
-- Consider creating a migration guide for breaking changes
-- Set up linting rules to enforce patterns going forward
-- Prioritize user-facing improvements (optimistic updates, error handling)
-- Consider adding E2E tests for critical API flows
-- **NEW**: Pre-push hooks are effective at catching regressions
-- **NEW**: Schema standardization greatly improves type safety

@@ -48,8 +48,6 @@ export const queryKeys = {
     queryKeys.tasks.fileContent(taskId, filePath),
   taskCommands: (taskId: string) => queryKeys.tasks.commands(taskId),
 
-  agents: () => [...queryKeys.all, 'agents'] as const,
-  agentsList: () => [...queryKeys.agents(), 'list'] as const,
   repositories: () => [...queryKeys.all, 'repositories'] as const,
   repositoriesList: () => [...queryKeys.repositories(), 'list'] as const,
   repositoryDetail: (repoId: string) => [...queryKeys.repositories(), 'detail', repoId] as const,
@@ -57,16 +55,11 @@ export const queryKeys = {
     [...queryKeys.repositories(), 'file-search', repoId, query] as const,
   repositoryBranches: (repoId: string) =>
     [...queryKeys.repositories(), 'branches', repoId] as const,
-  // Legacy environment keys for backward compatibility
-  environments: () => queryKeys.repositories(),
-  environmentsList: () => queryKeys.repositoriesList(),
-  environmentDetail: (envId: string) => queryKeys.repositoryDetail(envId),
-  environmentFileSearch: (envId: string, query: string) =>
-    queryKeys.repositoryFileSearch(envId, query),
-  environmentBranches: (envId: string) => queryKeys.repositoryBranches(envId),
+
   commands: () => [...queryKeys.all, 'commands'] as const,
   commandsList: () => [...queryKeys.commands(), 'list'] as const,
   commandDetail: (commandName: string) => [...queryKeys.commands(), 'detail', commandName] as const,
+
   claudeCode: {
     all: () => [...queryKeys.all, 'claude-code'] as const,
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,

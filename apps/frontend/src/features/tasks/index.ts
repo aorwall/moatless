@@ -8,7 +8,6 @@ export { ChatView } from './components/chat-view'
 export { CreateTaskForm } from './components/create-task-form'
 export { EventViewer } from './components/event-viewer'
 export { GitDiffViewer } from './components/git-diff-viewer'
-export { TaskCard } from './components/task-card'
 export { TaskPage } from './components/task-page'
 
 // Dual-Context Pattern (simplified from Tri-Context)
