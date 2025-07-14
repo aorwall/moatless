@@ -6,7 +6,6 @@ import type {
   TaskListResponse,
 } from '@moatless/types/types/api'
 import type { Event } from '@moatless/types/types/event'
-import type { FileSearchResponse } from '@moatless/types/types/repository'
 import type { GitDiffResponse, Task } from '@moatless/types/types/task'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -163,21 +162,6 @@ export function useTaskGitDiff(
     queryKey: queryKeys.taskGitDiff(taskId),
     queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId,
-    ...options,
-  })
-}
-
-export function useTaskFileSearch(
-  taskId: string,
-  query: string,
-  repositoryId: string,
-  options?: Omit<UseQueryOptions<FileSearchResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskFileSearch(taskId, query),
-    queryFn: () => tasksApi.searchTaskFiles(taskId, { query, repositoryId }),
-    enabled: !!taskId && !!repositoryId && query.length >= 3,
-    staleTime: 30 * 1000, // 30 seconds
     ...options,
   })
 }
