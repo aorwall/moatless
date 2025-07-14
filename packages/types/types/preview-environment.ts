@@ -11,9 +11,6 @@ export interface PreviewEnvironmentMetadata {
   logFile: string
   // Used to validate the process is still the same one we started
   processStartTime?: number
-  // Proxy configuration if using proxy injection
-  proxyPort?: number
-  proxyUrl?: string
   // Environment variables used to start the server
   envVars?: Record<string, string>
   // Error information for failed startups

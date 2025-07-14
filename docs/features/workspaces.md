@@ -75,26 +75,6 @@ The workspace service provides capability checking to ensure operations are only
    ERROR:         Limited to cleanup operations
    ```
 
-## Architectural Principles
-
-### Core Design Principles
-
-1. **Complete Isolation**: Each task operates in a completely separate environment
-2. **Security by Design**: All operations are sandboxed and validated
-3. **Resource Efficiency**: Shared git objects, lazy initialization
-4. **Concurrent Safety**: Multiple agents can work simultaneously
-5. **Separation of Concerns**: Worker mode is a deployment decision, not a workspace type
-
-### Worker Mode Architecture
-
-**Important**: Worker mode is not a separate workspace type but rather a deployment architecture for Docker workspaces. When using Docker workspaces, the backend always runs inside the container (worker mode) to ensure proper isolation and security.
-
-Key principles:
-- **Single Responsibility**: DockerWorkspace handles container management, not mode detection
-- **Deployment Concern**: The decision to run in worker mode is made at the deployment/configuration level
-- **Always Worker**: Docker workspaces inherently run the backend inside containers for isolation
-- **Communication**: Host-to-container communication via HTTP and SSE is the standard pattern
-
 ## Core Architecture
 
 ### System Architecture
@@ -152,7 +132,7 @@ The workspace system architecture is organized into distinct layers:
      - Force cleanup: Always uses `force: true` internally for workspace cleanup
      - Git status checking: Conditional based on workspace type (LocalWorkspace only)
    - `apps/backend/services/task.service.ts` - Task service that requests workspace creation
-   - `apps/backend/services/agents/` - Agent implementations that execute within workspaces
+   - `apps/backend/agents/` - Agent implementations that execute within workspaces
 
 2. **Workspace Layer** - Workspace implementations
    - `apps/backend/workspaces/base.ts` - Abstract base class defining workspace interface
@@ -188,7 +168,6 @@ classDiagram
         -containerId: string
         -containerName: string
         +createContainer()
-        +copyRepositoryFiles()
     }
     
     
@@ -405,29 +384,10 @@ interface GitChanges {
 - Planning branch merges or rebases
 - Understanding sync requirements with main branch
 - Checking for merge conflicts before integration
-- Monitoring branch divergence over time
-- Coordinating with team repository state
 
 **Use GitChanges when:**
 - Tracking task iteration progress
-- Measuring development activity
 - Understanding scope of current work
-- Providing simple status indicators
-- Monitoring file change velocity
-
-#### Implementation in Task Iterations
-
-Task iterations now capture `GitChanges` instead of `GitStatus` to better reflect the actual work performed:
-
-```typescript
-interface TaskIteration {
-  // ... other fields
-  gitChanges?: GitChanges;  // Working directory changes (new)
-  // gitStatus was removed in favor of gitChanges
-}
-```
-
-This change provides a clearer picture of the work accomplished in each iteration, focusing on tangible changes rather than repository synchronization state.
 
 ### Docker Container Isolation
 
@@ -722,34 +682,6 @@ CodeExecutionSchema: {
    - `path`: Local filesystem path to repository
    - `useGitWorktrees`: Enable git worktree-based workspaces (for local mode)
    - `originalBranch`: Base branch for workspace creation
-
-## Security Architecture
-
-### Path Validation
-
-All workspace operations include strict path validation to prevent directory traversal attacks:
-
-1. **Local Workspace** (`validatePath()`)
-   - Ensures all paths resolve within workspace directory
-   - Prevents access to parent directories
-   - Validates symbolic links stay within bounds
-
-2. **Docker Workspace**
-   - Container isolation provides natural boundaries
-   - Volume mounts restricted to workspace directory
-   - No host filesystem access outside defined mounts
-
-### Process Isolation
-
-1. **Command Execution**
-   - Commands run with restricted permissions
-   - Environment variables sanitized
-   - Resource limits enforced (CPU, memory, timeout)
-
-2. **Agent Execution**
-   - Agents run within workspace context
-   - No access to host system resources
-   - File system operations sandboxed
 
 ## Integration Architecture
 
