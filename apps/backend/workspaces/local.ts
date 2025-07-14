@@ -12,6 +12,7 @@ import {
   type Workspace,
   WorkspaceStatus,
 } from '@moatless/types/types/workspace'
+import { LocalEnvironment } from '../environments/local-environment.js'
 import type { BaseAgent, EventService } from '../services/index.js'
 import {
   type GitDiffResponse,
@@ -27,15 +28,11 @@ import { BaseWorkspace, type FileSearchRequest, type FileSearchResponse } from '
 const execAsync = promisify(exec)
 
 export class LocalWorkspace extends BaseWorkspace {
-  private _runningAgent?: BaseAgent
-  private setupInProgress = false
-  private setupComplete = false
+  private environment: LocalEnvironment
   private workspacePath = ''
   private branch?: string
   private originalBranch?: string
   private branchName?: string
-  private _createdAt = new Date()
-  private _error?: string
   private logger = createTaskLogger(this.taskId)
 
   get type(): 'local' {
@@ -43,22 +40,19 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   get status(): 'initializing' | 'ready' | 'error' | 'cleaning' {
-    if (this._error) return 'error'
-    if (this.setupInProgress) return 'initializing'
-    if (this.setupComplete) return 'ready'
-    return 'initializing'
+    return this.environment.getStatus()
   }
 
   get createdAt(): Date {
-    return this._createdAt
+    return this.environment.getCreatedAt()
   }
 
   get error(): string | undefined {
-    return this._error
+    return this.environment.getError()
   }
 
   get runningAgent(): BaseAgent | undefined {
-    return this._runningAgent
+    return this.environment.isRunning() ? this.environment.getRunningAgent() : undefined
   }
 
   constructor(
@@ -83,6 +77,14 @@ export class LocalWorkspace extends BaseWorkspace {
         this.detectBranchInfoSync(existingWorkspacePath)
       }
     }
+
+    // Initialize environment
+    this.environment = new LocalEnvironment(
+      taskId,
+      repositoryConfig,
+      eventService,
+      this.workspacePath,
+    )
 
     this.logger.debug('LocalWorkspace constructor', {
       repositoryId: repositoryConfig.id,
@@ -124,9 +126,6 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   async setup(): Promise<void> {
-    this.setupInProgress = true
-    const startTime = Date.now()
-
     this.logger.info('Starting LocalWorkspace setup', {
       repositoryId: this.repositoryConfig.id,
       workspacePath: this.workspacePath,
@@ -153,27 +152,24 @@ export class LocalWorkspace extends BaseWorkspace {
         await this.extractBranchInfoFromExistingWorkspace(this.repositoryConfig)
       }
 
-      // Step 5: Mark setup as partially complete (workspace ready)
-      this.logger.info('Workspace ready, continuing with setup commands in background', {
-        workspacePath: this.workspacePath,
-      })
+      // Update environment with the resolved workspace path
+      this.environment = new LocalEnvironment(
+        this.taskId,
+        this.repositoryConfig,
+        this.eventService,
+        this.workspacePath,
+      )
 
-      // Step 5: Run setup commands in background
-      this.runSetupCommandsInBackground(startTime).catch((error) => {
-        this._error = error instanceof Error ? error.message : String(error)
-        this.logger.error('Background setup commands failed', error as Error)
+      // Step 4: Setup the environment (will run setup commands)
+      await this.environment.setup()
+
+      this.logger.info('LocalWorkspace setup completed', {
+        workspacePath: this.workspacePath,
       })
     } catch (error) {
-      const failureTime = Date.now() - startTime
-      this._error = error instanceof Error ? error.message : String(error)
-
       this.logger.error('LocalWorkspace setup failed', error as Error, {
-        setupTimeMs: failureTime,
         workspacePath: this.workspacePath,
-        setupPhase: 'initialization',
       })
-
-      this.setupInProgress = false
       throw error
     }
   }
@@ -208,81 +204,7 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  private async runSetupCommandsInBackground(startTime: number): Promise<void> {
-    try {
-      // Run setup commands if specified
-      await this.runSetupCommands()
-
-      this.setupComplete = true
-
-      const totalSetupTime = Date.now() - startTime
-      this.logger.info('LocalWorkspace setup completed successfully', {
-        setupTimeMs: totalSetupTime,
-        workspacePath: this.workspacePath,
-      })
-    } catch (error) {
-      const failureTime = Date.now() - startTime
-      this._error = error instanceof Error ? error.message : String(error)
-
-      this.logger.error('Setup commands failed', error as Error, {
-        setupTimeMs: failureTime,
-        workspacePath: this.workspacePath,
-      })
-
-      // Mark setup as failed
-      this.setupComplete = false
-      this.setupInProgress = false
-
-      throw error
-    } finally {
-      this.setupInProgress = false
-    }
-  }
-
-  private async runSetupCommands(): Promise<void> {
-    if (!this.repositoryConfig.codeExecution.setupCommands) {
-      this.logger.debug('No setup commands configured')
-      return
-    }
-
-    const commands = this.repositoryConfig.codeExecution.setupCommands.split('\n')
-    this.logger.info('Running setup commands', {
-      commandCount: commands.filter((c: string) => c.trim()).length,
-    })
-
-    for (const command of commands) {
-      const trimmedCommand = command.trim()
-      if (!trimmedCommand) continue
-
-      this.logger.debug('Executing setup command', { command: trimmedCommand })
-
-      try {
-        const result = await this.runCommand(trimmedCommand)
-
-        if (result.exitCode === 0) {
-          this.logger.info('Setup command completed successfully', {
-            command: trimmedCommand,
-            durationMs: result.durationMs,
-            outputLength: result.output.length,
-          })
-        } else {
-          this.logger.error('Setup command failed', undefined, {
-            command: trimmedCommand,
-            exitCode: result.exitCode,
-            output: result.output,
-          })
-          throw new Error(
-            `Setup command failed with exit code ${result.exitCode}: ${trimmedCommand}\n${result.output}`,
-          )
-        }
-      } catch (error) {
-        this.logger.error('Setup command execution failed', error as Error, {
-          command: trimmedCommand,
-        })
-        throw error
-      }
-    }
-  }
+  // Removed unused methods
 
   async teardown(force = false): Promise<void> {
     const startTime = Date.now()
@@ -307,20 +229,8 @@ export class LocalWorkspace extends BaseWorkspace {
       this.logger.debug('No uncommitted changes detected')
     }
 
-    // Stop the running agent if any
-    if (this._runningAgent) {
-      this.logger.debug('Stopping running agent')
-      try {
-        await this._runningAgent.stop()
-        this.logger.debug('Agent stopped successfully')
-      } catch (error) {
-        this.logger.error('Error stopping agent', error as Error)
-      }
-      this._runningAgent = undefined
-    }
-
-    // Reset setup state
-    this.setupComplete = false
+    // Teardown the environment (will stop agent and server)
+    await this.environment.teardown(force)
 
     // If we have a workspace path and worktrees are enabled, check if it needs cleanup
     if (this.workspacePath && this.repositoryConfig.useGitWorktrees) {
@@ -403,59 +313,17 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   async runCommand(command: string, timeout?: number): Promise<CommandResult> {
-    const startTime = Date.now()
-
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: this.workspacePath,
-        timeout: timeout || 120000, // Default 2 minutes
-      })
-
-      // Combine stdout and stderr
-      let output = stdout
-      if (stderr) {
-        output += output ? `\n${stderr}` : stderr
-      }
-
-      return {
-        command,
-        output,
-        exitCode: 0,
-        durationMs: Date.now() - startTime,
-      }
-    } catch (error: unknown) {
-      const errorObj = error as {
-        stdout?: string
-        stderr?: string
-        message?: string
-        code?: number
-      }
-      const output = errorObj.stdout || ''
-      const stderr = errorObj.stderr || ''
-      const combinedOutput = output + (stderr ? `\n${stderr}` : '')
-
-      return {
-        command,
-        output: combinedOutput || errorObj.message || 'Unknown error',
-        exitCode: errorObj.code || -1,
-        durationMs: Date.now() - startTime,
-      }
-    }
+    return this.environment.runCommand(command, timeout)
   }
 
   isRunning(): boolean {
-    return this._runningAgent !== undefined
+    return this.environment.isRunning()
   }
 
   getStatus(): WorkspaceStatus {
     // Check if agent is running
-    if (this._runningAgent) {
+    if (this.runningAgent) {
       return WorkspaceStatus.RUNNING
-    }
-
-    // Check if setup is in progress
-    if (this.setupInProgress) {
-      return WorkspaceStatus.SETTING_UP
     }
 
     // Check if workspace directory exists
@@ -592,22 +460,7 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   async stopAgent(): Promise<boolean> {
-    if (!this._runningAgent) {
-      this.logger.debug('No agent running to stop')
-      return false
-    }
-
-    this.logger.info('Stopping running agent')
-    try {
-      await this._runningAgent.stop()
-      this._runningAgent = undefined
-      this.logger.info('Agent stopped successfully')
-      return true
-    } catch (error) {
-      this.logger.error('Error stopping agent', error as Error)
-      this._runningAgent = undefined
-      return false
-    }
+    return this.environment.stopAgent()
   }
 
   async listFiles(relativePath = '.', recursive = false): Promise<string[]> {
@@ -728,21 +581,21 @@ export class LocalWorkspace extends BaseWorkspace {
     }
   }
 
-  // Server methods - deprecated, now handled by PreviewEnvironmentService
-  async startServer(): Promise<never> {
-    throw new Error('Server operations are now handled by PreviewEnvironmentService')
+  // Server methods - now delegated to environment
+  async startServer(): Promise<ServerStatus> {
+    return this.environment.startServer!()
   }
 
   async stopServer(): Promise<boolean> {
-    throw new Error('Server operations are now handled by PreviewEnvironmentService')
+    return this.environment.stopServer!()
   }
 
   async getServerStatus(): Promise<ServerStatus> {
-    throw new Error('Server operations are now handled by PreviewEnvironmentService')
+    return this.environment.getServerStatus!()
   }
 
-  async getServerLogs(_lines = 100): Promise<string> {
-    throw new Error('Server operations are now handled by PreviewEnvironmentService')
+  async getServerLogs(lines = 100): Promise<string> {
+    return this.environment.getServerLogs!(lines)
   }
 
   toWorkspaceInfo(): Workspace {
@@ -759,6 +612,10 @@ export class LocalWorkspace extends BaseWorkspace {
 
   getWorkspacePath(): string {
     return this.workspacePath
+  }
+
+  setRunningAgent(agent: BaseAgent): void {
+    this.environment.setRunningAgent(agent)
   }
 
   private async pathExists(filePath: string): Promise<boolean> {

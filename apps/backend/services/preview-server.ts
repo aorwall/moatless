@@ -6,6 +6,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import type { ServerStatus } from '@moatless/types/types/workspace'
 import { createTaskLogger } from '../utils/logger.js'
+import { PortAllocationService } from './port-allocation.service.js'
 
 const execAsync = promisify(exec)
 
@@ -17,22 +18,25 @@ interface ServerStartResult {
   uptime_seconds: number
 }
 
-export class ServerHandler {
+export class PreviewServer {
   private process?: ChildProcess
   private port?: number
   private pid?: number
   private logFile?: string
   private startTime?: number
-  private originalRequestedPort?: number
-  private logger = createTaskLogger('server-handler')
+  private logger = createTaskLogger('preview-server')
   private readonly portPlaceholder = '{PORT}'
+  private portAllocationService: PortAllocationService
 
   constructor(
+    private taskId: string,
     private workspacePath: string,
     private serverCommand: string,
     private envVars: Record<string, string> = {},
   ) {
-    this.logger.info('ServerHandler initialized with:', {
+    this.portAllocationService = PortAllocationService.getInstance()
+    this.logger.info('PreviewServer initialized with:', {
+      taskId,
       workspacePath,
       serverCommand,
       portPlaceholder: this.portPlaceholder,
@@ -45,10 +49,9 @@ export class ServerHandler {
       throw new Error('Server is already running')
     }
 
-    // Find available port
-    this.port = await this.findFreePort()
-    this.originalRequestedPort = this.port
-    this.logger.info('Found available port:', { port: this.port })
+    // Allocate port using port allocation service
+    this.port = await this.portAllocationService.allocatePort(this.taskId, 'preview')
+    this.logger.info('Allocated port:', { port: this.port })
 
     // Replace port placeholder in command
     const originalCommand = this.serverCommand
@@ -186,11 +189,8 @@ export class ServerHandler {
 
       this.logger.info(`Server started successfully on port ${this.port} with PID ${this.pid}`)
 
-      if (this.port !== this.originalRequestedPort) {
-        this.logger.info(
-          `Note: Server is using port ${this.port} instead of requested port ${this.originalRequestedPort}`,
-        )
-      }
+      // Update port allocation with PID
+      await this.portAllocationService.allocatePort(this.taskId, 'preview', this.pid!)
 
       return {
         running: true,
@@ -336,17 +336,7 @@ export class ServerHandler {
     }
   }
 
-  private async findFreePort(): Promise<number> {
-    return new Promise((resolve, reject) => {
-      const server = net.createServer()
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address() as net.AddressInfo
-        const port = address.port
-        server.close(() => resolve(port))
-      })
-      server.on('error', reject)
-    })
-  }
+  // Removed findFreePort - now handled by PortAllocationService
 
   private async checkPortInUse(port: number): Promise<boolean> {
     return new Promise((resolve) => {
@@ -435,6 +425,13 @@ export class ServerHandler {
   }
 
   private cleanup(): void {
+    // Release port allocation
+    if (this.port) {
+      this.portAllocationService.releasePort(this.port).catch((error) => {
+        this.logger.error('Error releasing port:', error)
+      })
+    }
+
     this.process = undefined
     this.pid = undefined
     this.port = undefined

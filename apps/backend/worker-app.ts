@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { AgentService, WorkspaceService } from './services/index.js'
+import { PreviewServer } from './services/preview-server.js'
 import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
 import { createLogger } from './utils/logger.js'
@@ -62,6 +63,9 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
   // Create agent service
   const agentService = new AgentService(storage, eventService as any, workspaceService)
+
+  // Create preview server instance for this worker
+  let previewServer: PreviewServer | undefined
 
   // Create HTTP server with proper type bindings
   const app = new Hono<{
@@ -159,6 +163,188 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      )
+    }
+  })
+
+  // Preview server endpoints
+  app.post('/server/start', async (c) => {
+    const body = await c.req.json()
+    const { serverCommand, envVars } = body
+
+    try {
+      // Get repository config from storage if available
+      let repositoryConfig: any = null
+      try {
+        const repoData = await storage.getRepository('default')
+        repositoryConfig = repoData
+      } catch (error) {
+        logger.warn('Could not load repository config, using defaults', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      // Use server command from request or fall back to repository config
+      const finalServerCommand = serverCommand || repositoryConfig?.codeExecution?.serverCommand
+      if (!finalServerCommand) {
+        return c.json(
+          {
+            success: false,
+            error: 'No server command configured',
+          },
+          400,
+        )
+      }
+
+      // Create preview server instance
+      previewServer = new PreviewServer(
+        taskId || 'worker',
+        config.workspaceDir,
+        finalServerCommand,
+        envVars || repositoryConfig?.codeExecution?.envVars || {},
+      )
+
+      const result = await previewServer.start()
+
+      logger.info('Preview server started', {
+        port: result.port,
+        pid: result.pid,
+      })
+
+      return c.json({
+        success: true,
+        running: result.running,
+        port: result.port,
+        pid: result.pid,
+        url: `http://localhost:${result.port}`,
+        uptimeSeconds: result.uptime_seconds,
+      })
+    } catch (error) {
+      logger.error('Failed to start preview server', error as Error)
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      )
+    }
+  })
+
+  app.post('/server/stop', async (c) => {
+    try {
+      if (!previewServer) {
+        return c.json({ success: true, message: 'No server running' })
+      }
+
+      const stopped = await previewServer.stop()
+      previewServer = undefined
+
+      logger.info('Preview server stopped', { success: stopped })
+
+      return c.json({
+        success: stopped,
+      })
+    } catch (error) {
+      logger.error('Failed to stop preview server', error as Error)
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      )
+    }
+  })
+
+  app.get('/server/status', async (c) => {
+    try {
+      if (!previewServer) {
+        return c.json({
+          running: false,
+          configured: false,
+          uptimeSeconds: 0,
+        })
+      }
+
+      const status = previewServer.getStatus()
+
+      return c.json(status)
+    } catch (error) {
+      logger.error('Failed to get server status', error as Error)
+      return c.json(
+        {
+          running: false,
+          configured: false,
+          uptimeSeconds: 0,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      )
+    }
+  })
+
+  app.get('/server/logs', async (c) => {
+    try {
+      const lines = Number(c.req.query('lines')) || 100
+
+      if (!previewServer) {
+        return c.json({
+          logs: 'No server running',
+        })
+      }
+
+      const logs = await previewServer.getLogs(lines)
+
+      return c.json({
+        logs,
+      })
+    } catch (error) {
+      logger.error('Failed to get server logs', error as Error)
+      return c.json(
+        {
+          logs: `Error getting logs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+        500,
+      )
+    }
+  })
+
+  // Command execution endpoint
+  app.post('/command', async (c) => {
+    const body = await c.req.json()
+    const { command, timeout } = body
+
+    try {
+      // Get workspace to execute command
+      const workspace = await workspaceService.getWorkspace(taskId!)
+      if (!workspace) {
+        return c.json(
+          {
+            exit_code: 1,
+            stdout: '',
+            stderr: 'No workspace available',
+          },
+          400,
+        )
+      }
+
+      const result = await workspace.runCommand(command, timeout)
+
+      return c.json({
+        exit_code: result.exitCode || 0,
+        stdout: result.output || '',
+        stderr: '',
+      })
+    } catch (error) {
+      logger.error('Command execution failed', error as Error)
+      return c.json(
+        {
+          exit_code: 1,
+          stdout: '',
+          stderr: error instanceof Error ? error.message : 'Unknown error',
         },
         500,
       )

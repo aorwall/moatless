@@ -1200,7 +1200,7 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
         const deletions = parseInt(parts[1], 10) || 0
         const filename = parts[2]
 
-        if (!isNaN(additions) && !isNaN(deletions)) {
+        if (!Number.isNaN(additions) && !Number.isNaN(deletions)) {
           totalAdditions += additions
           totalDeletions += deletions
           modifiedFiles.add(filename)

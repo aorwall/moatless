@@ -40,8 +40,22 @@ export const SettingsResponseSchema = z.object({
   }),
 })
 
+export const SystemStatusCheckSchema = z.object({
+  claude: z.object({
+    binPath: z.string().nullable(),
+    configPath: z.string().nullable(),
+    isValidBin: z.boolean(),
+    isValidConfig: z.boolean(),
+  }),
+  docker: z.object({
+    isRunning: z.boolean(),
+    version: z.string().nullable(),
+  }),
+})
+
 // Derived types
 export type UpdateSettingsSchemaType = z.infer<typeof updateSettingsSchema>
 export type ApplicationSettings = z.infer<typeof ApplicationSettingsSchema>
 export type ClaudeSettings = z.infer<typeof ClaudeSettingsSchema>
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>
+export type SystemStatusCheck = z.infer<typeof SystemStatusCheckSchema>

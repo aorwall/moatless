@@ -8,7 +8,7 @@ import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 // Mock child_process
-vi.mock('child_process', () => ({
+vi.mock('node:child_process', () => ({
   exec: vi.fn((_cmd, opts, cb) => {
     if (cb) {
       cb(null, { stdout: 'mocked output', stderr: '' })
@@ -19,7 +19,8 @@ vi.mock('child_process', () => ({
 }))
 
 // Mock fs promises
-vi.mock('fs', () => ({
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(() => false),
   promises: {
     access: vi.fn(() => Promise.resolve()),
     mkdir: vi.fn(() => Promise.resolve()),
@@ -45,6 +46,26 @@ vi.mock('../../utils/git-utils.js', () => ({
   hasUncommittedChanges: vi.fn().mockResolvedValue(false),
   getGitDiffString: vi.fn().mockResolvedValue(['', '']),
 }))
+
+// Mock PortAllocationService
+vi.mock('../port-allocation.service.js', () => ({
+  PortAllocationService: {
+    getInstance: vi.fn(() => ({
+      initialize: vi.fn().mockResolvedValue(undefined),
+      allocatePort: vi.fn().mockResolvedValue(8001),
+      releasePort: vi.fn().mockResolvedValue(undefined),
+      releasePortsForTask: vi.fn().mockResolvedValue(undefined),
+    })),
+  },
+}))
+
+// Mock fetch for Docker health checks
+global.fetch = vi.fn(() =>
+  Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ status: 'healthy' }),
+  } as any),
+)
 
 describe('WorkspaceService', () => {
   let service: WorkspaceService
@@ -262,7 +283,8 @@ describe('WorkspaceService', () => {
       expect(workspace.type).toBe('docker')
       expect(workspace.status).toBe('initializing')
       // Container ID will be empty until setup is called
-      expect((workspace as unknown as { containerId: string }).containerId).toBe('')
+      const dockerWorkspace = workspace as any
+      expect(dockerWorkspace.getContainerId()).toBe('')
     })
   })
 
@@ -320,12 +342,10 @@ describe('WorkspaceService', () => {
       // Verify Docker stop and rm were called
       expect(execMock).toHaveBeenCalledWith(
         expect.stringContaining('docker stop'),
-        expect.any(Object),
         expect.any(Function),
       )
       expect(execMock).toHaveBeenCalledWith(
         expect.stringContaining('docker rm'),
-        expect.any(Object),
         expect.any(Function),
       )
     })

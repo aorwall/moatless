@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as RepositoriesRouteImport } from './routes/repositories'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as RepositoriesIndexRouteImport } from './routes/repositories/index'
@@ -35,6 +36,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const RepositoriesRoute = RepositoriesRouteImport.update({
   id: '/repositories',
   path: '/repositories',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -86,6 +92,7 @@ const CommandsCommandNameRoute = CommandsCommandNameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/repositories': typeof RepositoriesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
@@ -100,6 +107,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/settings': typeof SettingsRoute
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
@@ -113,6 +121,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/repositories': typeof RepositoriesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
@@ -129,6 +138,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/dashboard'
     | '/repositories'
     | '/settings'
     | '/tasks'
@@ -143,6 +153,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/dashboard'
     | '/settings'
     | '/commands/$commandName'
     | '/commands/new'
@@ -155,6 +166,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/dashboard'
     | '/repositories'
     | '/settings'
     | '/tasks'
@@ -170,6 +182,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DashboardRoute: typeof DashboardRoute
   RepositoriesRoute: typeof RepositoriesRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
@@ -199,6 +212,13 @@ declare module '@tanstack/react-router' {
       path: '/repositories'
       fullPath: '/repositories'
       preLoaderRoute: typeof RepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -297,6 +317,7 @@ const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DashboardRoute: DashboardRoute,
   RepositoriesRoute: RepositoriesRouteWithChildren,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,

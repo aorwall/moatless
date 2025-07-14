@@ -212,15 +212,11 @@ export class WorkspaceService {
         // Create DockerWorkspace that wraps LocalWorkspace
         workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
 
-        // For Docker workspaces, ensure container is running if it was previously set up
+        // For Docker workspaces, check if container is still running
         if ((workspace as DockerWorkspace).getContainerId()) {
-          try {
-            await (workspace as DockerWorkspace).ensureContainerRunning()
-          } catch (error) {
-            workspaceLogger.warn('Container restart failed, will need to run setup again', {
-              error: error instanceof Error ? error.message : String(error),
-            })
-          }
+          workspaceLogger.info('Docker workspace has existing container', {
+            containerId: (workspace as DockerWorkspace).getContainerId(),
+          })
         }
       } else {
         workspaceLogger.debug('Creating Local workspace with existing path', {

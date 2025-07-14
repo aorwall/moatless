@@ -1,4 +1,4 @@
-import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
+import type { SettingsResponse, SystemStatusCheck, UpdateSettingsRequest } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 export const settingsApi = {
@@ -12,5 +12,9 @@ export const settingsApi = {
 
   resetSettings: async (): Promise<SettingsResponse> => {
     return apiClient.delete<SettingsResponse>('/api/v1/settings')
+  },
+
+  getSystemStatus: async (): Promise<SystemStatusCheck> => {
+    return apiClient.get<SystemStatusCheck>('/api/v1/settings/status')
   },
 }
