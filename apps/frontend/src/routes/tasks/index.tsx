@@ -22,7 +22,6 @@ function TasksIndex() {
         event.subType &&
         (event.subType === 'task:created' ||
           event.subType === 'task:updated' ||
-          event.subType === 'task:statusChanged' ||
           event.subType === 'iteration:created' ||
           event.subType === 'iteration:updated')
       ) {

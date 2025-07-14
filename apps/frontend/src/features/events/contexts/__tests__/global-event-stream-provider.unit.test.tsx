@@ -197,7 +197,7 @@ describe('GlobalEventStreamProvider', () => {
       id: 'event-1',
       type: EventType.MESSAGE,
       taskId: 'task-789',
-      subType: 'task:statusChanged',
+      subType: 'task:created',
       timestamp: Date.now(),
       data: {},
     }

@@ -125,8 +125,8 @@ export class AgentService {
         // Emit status change event
         await this.eventService.emitEvent({
           taskId,
-          type: EventType.INPUT,
-          subType: 'task:statusChanged',
+          type: EventType.TASK_STATUS,
+          subType: 'open',
           payload: {
             status: 'open',
             previousStatus,

@@ -86,7 +86,6 @@ export function GlobalEventStreamProvider({
           case 'iteration:updated':
           case 'task:created':
           case 'task:updated':
-          case 'task:statusChanged':
             queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(event.taskId) })
             queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
             break
