@@ -145,9 +145,79 @@ const serverPath = isInstalledPackage
 - Use `NODE_ENV=development` for verbose logging
 - Check `dist/server.js` directly to verify bundling
 
+## Docker Usage
+
+### Using the Packaged Application in Docker
+
+The main Dockerfile now uses the packaged application instead of building from source, which is faster and more reliable:
+
+#### Build Process & Caching Strategy
+
+The Docker build uses a multi-stage approach for optimal caching:
+
+**Stage 1: Base System** (`base-system`)
+- Ubuntu packages, Node.js, Python, Rust, Go, Java
+- Development tools and environment setup
+- This layer is cached and rarely changes
+
+**Stage 2: Application** (`final`)
+- Copies the packaged application files
+- Installs moatless-vibe globally
+- Only rebuilds when the application changes
+
+The `docker/build-worker.sh` script:
+1. Runs `pnpm build:package` to create the bundled application
+2. Builds the Docker image using cached base layers
+3. Only the application layer rebuilds on code changes
+
+#### Building the Docker Image
+
+```bash
+# Fast build (uses cache for base system)
+./docker/build-worker.sh --tag latest
+
+# Build base system separately (for CI/caching)
+./docker/build-base.sh --tag latest
+
+# Force full rebuild without cache
+./docker/build-worker.sh --tag latest --no-cache
+
+# Build for specific platform
+./docker/build-worker.sh --tag latest --platform linux/amd64,linux/arm64
+```
+
+#### Caching Benefits
+
+- **First build**: ~10-15 minutes (installs all system dependencies)
+- **Subsequent builds**: ~1-2 minutes (only rebuilds application layer)
+- **Base system changes**: Can rebuild base separately with `build-base.sh`
+- **Application changes**: Fast incremental builds
+
+#### Docker Compose
+```bash
+# Build and run with docker-compose
+docker-compose -f docker/docker-compose.npm.yml up -d
+```
+
+#### Simple Dockerfile for NPM Package
+For a minimal container using the published npm package:
+```dockerfile
+FROM node:22-slim
+RUN npm install -g moatless-vibe
+EXPOSE 8001
+CMD ["moatless-vibe", "start"]
+```
+
+### Benefits of Using NPM Package in Docker
+- **Faster builds**: No compilation required, just npm install
+- **Smaller layers**: Only runtime dependencies needed
+- **Consistent versioning**: Pin to specific npm versions
+- **Easier updates**: Just update the npm package version
+
 ## Future Improvements
 
 - Consider using `pkg` to create standalone executables
 - Implement tree-shaking for smaller frontend bundles
 - Add compression for distributed files
 - Create GitHub Actions workflow for automated publishing
+- Publish official Docker images to Docker Hub

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  moatless-vibe:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - NODE_ENV=production
+      - PORT=8001
+      - DATA_DIR=/data
+      - WORKSPACE_DIR=/workspace
+      - WORKER_MODE=true
+      # Add any other required environment variables
+      # - WORKER_API_URL=http://your-api-server:8000
+      # - WORKER_TASK_ID=your-task-id
+    volumes:
+      - ./data:/data
+      - ./workspace:/workspace
+      # Mount SSH keys if needed for git operations
+      # - ~/.ssh:/home/ubuntu/.ssh:ro
+    restart: unless-stopped

@@ -1,53 +1,10 @@
 # moatless-universal: Comprehensive development environment
 # Based on OpenAI codex-universal (MIT License)
 # https://github.com/openai/codex-universal
+# Uses pre-packaged moatless-vibe for faster builds
 
-### Stage 1: Build the application ###
-FROM ubuntu:24.04 AS builder
-
-ENV LANG="C.UTF-8"
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install base development tools and dependencies
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-        binutils \
-        build-essential \
-        curl \
-        git \
-        git-lfs \
-        gnupg2 \
-        jq \
-        ca-certificates \
-        software-properties-common \
-        wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 20 via NodeSource repository
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs
-
-# Install pnpm with corepack
-RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
-
-# Copy source code
-WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json tsconfig.node.json .npmrc ./
-COPY packages ./packages
-COPY apps ./apps
-
-# Install dependencies and build
-RUN pnpm install --frozen-lockfile
-
-# Install the Claude Code SDK binary by running pnpm postinstall manually
-# This ensures the binary is downloaded and installed
-RUN pnpm postinstall || true
-
-RUN pnpm build
-
-### Stage 2: Universal development runtime ###
-FROM ubuntu:24.04
+# Stage 1: Base system with all development tools (rarely changes)
+FROM ubuntu:24.04 AS base-system
 
 ENV LANG="C.UTF-8"
 ENV HOME=/workspace
@@ -131,10 +88,11 @@ RUN apt-get update \
         ipset \
         iproute2 \
         aggregate \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20 via NodeSource repository
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Install Node.js 22 via NodeSource repository (matches package.json requirement)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
@@ -186,23 +144,23 @@ RUN echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME \
     && usermod -s /bin/zsh $USERNAME
 
-# Set up pnpm and npm
-RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
-
-# Create directories and set permissions
-RUN mkdir -p /workspace /home/$USERNAME/.claude /data /app /commandhistory \
-    && touch /commandhistory/.bash_history \
-    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /data /app /commandhistory \
-    && chmod -R 755 /workspace /data /app
-
 # Install git-delta
 RUN ARCH=$(dpkg --print-architecture) && \
     wget "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
     dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
     rm "git-delta_0.18.2_${ARCH}.deb"
 
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
+
 # Install Claude Code CLI as root
 RUN npm install -g @anthropic-ai/claude-code
+
+# Create directories and set permissions (before user switch)
+RUN mkdir -p /workspace /home/$USERNAME/.claude /data /commandhistory \
+    && touch /commandhistory/.bash_history \
+    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /data /commandhistory \
+    && chmod -R 755 /workspace /data
 
 # Switch to non-root user
 USER $USERNAME
@@ -224,22 +182,32 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -a "export PATH='/usr/local/go/bin:/opt/go/bin:\$PATH'" \
     -x
 
-# Copy built application from builder stage
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/node_modules /app/node_modules
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/types/dist /app/packages/shared/dist
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/types/package.json /app/packages/shared/package.json
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/packages/types/node_modules /app/packages/shared/node_modules
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/dist /app/apps/backend/dist
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/package.json /app/apps/backend/package.json
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/apps/backend/node_modules /app/apps/backend/node_modules
+# Stage 2: Application layer (changes frequently)
+FROM base-system AS final
 
-# Copy entrypoint script
+# Copy entrypoint script (changes less often than app)
 USER root
 COPY docker/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Final setup
+# Copy and install the packaged moatless-vibe application
+# This is the only layer that rebuilds when the application changes
+COPY dist /tmp/moatless-vibe/dist
+COPY bin /tmp/moatless-vibe/bin
+COPY package.json README.md LICENSE /tmp/moatless-vibe/
+# Remove the prepare script that causes issues in Docker and install package
+RUN cd /tmp/moatless-vibe && \
+    node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))" && \
+    npm pack && \
+    npm install -g ./moatless-vibe-*.tgz && \
+    rm -rf /tmp/moatless-vibe
+
+# Switch to non-root user for runtime
 USER $USERNAME
+WORKDIR /workspace
+
+# Ensure npm global bin is in PATH for the ubuntu user
+ENV PATH="/usr/bin:/usr/local/bin:$PATH"
 
 # Environment variables
 ENV DEVCONTAINER=true

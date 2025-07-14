@@ -1,0 +1,75 @@
+# Node modules and build artifacts
+node_modules/
+apps/*/node_modules/
+packages/*/node_modules/
+**/node_modules/
+
+# Development files
+.git/
+.github/
+.vscode/
+.env*
+*.env
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Coverage and test files
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+**/__tests__/
+**/*.test.*
+**/*.spec.*
+
+# Build outputs (except dist/ which we need)
+apps/frontend/dist/
+apps/backend/dist/
+packages/*/dist/
+*.tsbuildinfo
+
+# Documentation and example files
+docs/
+*.md
+!README.md
+!LICENSE
+
+# Development tools
+.husky/
+.vscode/
+.idea/
+
+# Data directories
+data/
+workspaces/
+tmp/
+temp/
+
+# Package manager files (keep needed ones)
+.pnpm-store/
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+
+# Only include what we need for Docker build:
+# - dist/ (built application)
+# - bin/ (CLI entry point) 
+# - package.json (package metadata)
+# - README.md, LICENSE (package files)
+# - docker/ (Docker configuration)
+
+# Optimize Docker build context by excluding everything else
+# This reduces context size and improves cache efficiency
+**/*
+!dist/
+!bin/
+!package.json
+!README.md
+!LICENSE
+!docker/

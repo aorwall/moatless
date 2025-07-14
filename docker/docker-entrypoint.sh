@@ -25,6 +25,5 @@ echo "Workspace Dir: $WORKSPACE_DIR"
 echo "Data Dir: $DATA_DIR"
 echo "Port: $PORT"
 
-# Change to app directory and start the backend
-cd /app/apps/backend
-exec node dist/index.js
+# Start the moatless-vibe server using the globally installed npm package
+exec /usr/bin/moatless-vibe start

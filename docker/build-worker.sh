@@ -12,6 +12,7 @@ IMAGE_NAME="moatless-vibe-universal"
 TAG="latest"
 PLATFORM=""
 PUSH=false
+USE_CACHE=true
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -28,12 +29,17 @@ while [[ $# -gt 0 ]]; do
       PUSH=true
       shift
       ;;
+    --no-cache)
+      USE_CACHE=false
+      shift
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo "Options:"
       echo "  --tag TAG         Docker image tag (default: latest)"
       echo "  --platform ARCH   Build for specific platform (e.g., linux/amd64,linux/arm64)"
       echo "  --push            Push to Docker registry after building"
+      echo "  --no-cache        Build without using Docker build cache"
       echo "  --help            Show this help message"
       exit 0
       ;;
@@ -50,12 +56,26 @@ echo "Image: ${IMAGE_NAME}:${TAG}"
 # Change to repository root
 cd "$(dirname "$0")/.."
 
+# Build the npm package first
+echo -e "${YELLOW}Building npm package...${NC}"
+pnpm build:package
+if [ $? -ne 0 ]; then
+  echo -e "${RED}✗ Package build failed!${NC}"
+  exit 1
+fi
+echo -e "${GREEN}✓ Package build successful!${NC}"
+
 # Build command
 BUILD_CMD="docker build"
 
 # Add platform if specified
 if [ -n "$PLATFORM" ]; then
   BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
+fi
+
+# Add cache options
+if [ "$USE_CACHE" = false ]; then
+  BUILD_CMD="$BUILD_CMD --no-cache"
 fi
 
 # Add build arguments
