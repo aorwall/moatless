@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
-import { Home, Settings } from 'lucide-react'
-
+import { Home, Settings, Wifi, WifiOff } from 'lucide-react'
+import { useGlobalEventStream } from '@/features/events/contexts/global-event-stream-provider'
 import {
   Sidebar,
   SidebarContent,
@@ -18,6 +18,8 @@ import { SidebarRepositories } from './sidebar-repositories'
 import { SidebarTasks } from './sidebar-tasks'
 
 export function AppSidebar() {
+  const { isConnected, connectionError } = useGlobalEventStream()
+
   return (
     <Sidebar>
       <SidebarHeader>
@@ -26,6 +28,15 @@ export function AppSidebar() {
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
                 <span className="font-bold">Moatless Vibe</span>
+                {isConnected ? (
+                  <div title="Connected to event stream">
+                    <Wifi className="h-4 w-4 text-green-500" />
+                  </div>
+                ) : (
+                  <div title={connectionError?.message || 'Disconnected from event stream'}>
+                    <WifiOff className="h-4 w-4 text-red-500" />
+                  </div>
+                )}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
