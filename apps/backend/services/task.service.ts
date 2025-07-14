@@ -416,9 +416,17 @@ export class TaskService {
       const taskId = key.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
       if (task) {
-        // Filter by status if provided
-        if (!status || task.status === status) {
-          tasks.push(task)
+        // Filter by status if provided, otherwise exclude closed tasks by default
+        if (status) {
+          // If status is explicitly provided, only include tasks with that status
+          if (task.status === status) {
+            tasks.push(task)
+          }
+        } else {
+          // If no status filter, exclude closed tasks by default
+          if (task.status !== 'closed') {
+            tasks.push(task)
+          }
         }
       }
     }
