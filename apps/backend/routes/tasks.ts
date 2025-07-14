@@ -193,7 +193,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   app.get(
     prefix,
     describeRoute({
-      description: 'List all tasks with pagination and filtering',
+      description: 'List all tasks with pagination and filtering. By default, closed tasks are excluded unless a specific status filter is provided.',
       parameters: [
         {
           name: 'limit',
@@ -222,7 +222,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
           name: 'status',
           in: 'query',
           required: false,
-          description: 'Filter by task status',
+          description: 'Filter by task status. If not provided, closed tasks are excluded by default.',
           schema: {
             type: 'string',
             enum: ['open', 'running', 'error', 'merged', 'closed'],
