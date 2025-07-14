@@ -588,39 +588,23 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         throw new TaskNotFoundError(taskId)
       }
 
-      // For Claude Code tasks, read messages directly from Claude directory
-      if (task.agentType === 'claude-code') {
-        try {
-          // Get ClaudeCodeSettings from event service
-          const claudeCodeSettings = (eventService as any).claudeCodeSettings
-          const messageService = createMessageService(claudeCodeSettings)
-          const messages = await messageService.readMessagesFromClaudeDirectory(task)
-
-          return c.json({
-            messages,
-            totalCount: messages.length,
-          })
-        } catch (error) {
-          console.warn(
-            'Failed to read messages from Claude directory, falling back to event service',
-            error,
-          )
-          // Fall back to event service if direct reading fails
-        }
+      // Only support Claude Code tasks with direct directory reading
+      if (task.agentType !== 'claude-code') {
+        throw new HTTPException(400, {
+          message: 'Only Claude Code tasks are supported for message reading',
+        })
       }
 
-      // Fallback: Get all events for the task
-      const events = await eventService.getEvents(
-        taskId,
-        undefined, // no limit
-        0, // offset 0
-        undefined, // no type filter
-        task,
-      )
+      // Get ClaudeCodeSettings from event service
+      const claudeCodeSettings = (eventService as any).claudeCodeSettings
+      if (!claudeCodeSettings) {
+        throw new HTTPException(500, {
+          message: 'ClaudeCodeSettings not available',
+        })
+      }
 
-      // Transform events to messages using the message service
-      const messageService = createMessageService()
-      const messages = messageService.transformEventsToMessages(events)
+      const messageService = createMessageService(claudeCodeSettings)
+      const messages = await messageService.readMessagesFromClaudeDirectory(task)
 
       return c.json({
         messages,
