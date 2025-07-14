@@ -290,6 +290,7 @@ describe('PreviewEnvironmentService', () => {
 
       // @ts-ignore - accessing private members for testing
       service.runningServers.set('task-1', mockHandler as any)
+      // @ts-ignore - accessing private members for testing
       service.runningProxies.set('task-1', mockProxy as any)
 
       const mockWorkspace = {
@@ -509,7 +510,9 @@ describe('PreviewEnvironmentService', () => {
 
       // @ts-ignore - accessing private members for testing
       service.runningServers.set('task-1', mockHandler1 as any)
+      // @ts-ignore - accessing private members for testing
       service.runningServers.set('task-2', mockHandler2 as any)
+      // @ts-ignore - accessing private members for testing
       service.runningProxies.set('task-1', mockProxy1 as any)
 
       await service.stopAllServers()

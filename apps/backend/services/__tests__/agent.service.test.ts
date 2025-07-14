@@ -337,11 +337,13 @@ describe('AgentService', () => {
 
       // AgentService doesn't have getAgentProgress method
       // This test should verify agent is running instead
+      // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('task-1')
       expect(hasAgent).toBe(true)
     })
 
     it('should return false when no agent is running', () => {
+      // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('non-existent')
       expect(hasAgent).toBe(false)
     })
@@ -359,11 +361,13 @@ describe('AgentService', () => {
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
+      // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('task-1')
       expect(hasAgent).toBe(true)
     })
 
     it('should return false when no agent exists', () => {
+      // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('non-existent')
       expect(hasAgent).toBe(false)
     })
@@ -375,11 +379,13 @@ describe('AgentService', () => {
 
       const mockAgent = createMockAgent()
       // Remove agent from map to simulate not running
+      // @ts-ignore - accessing private members for testing
       service.runningAgents.delete('task-1')
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
+      // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('task-1')
       expect(hasAgent).toBe(false)
     })
