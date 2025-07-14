@@ -57,19 +57,20 @@ export function useTask(
 // Mutation hooks
 export function useCreateTask(
   options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
-) {
+): ReturnType<typeof useMutation<SimpleTaskResponse, Error, CreateTaskRequest>> {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<SimpleTaskResponse, Error, CreateTaskRequest>({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onSuccess: async (data, variables, context) => {
       // Add the real task data to cache and lists
-      if (data.task) {
+      const response = data as SimpleTaskResponse
+      if (response.task) {
         // Set task detail cache
-        queryClient.setQueryData(queryKeys.task(data.taskId), data.task)
+        queryClient.setQueryData(queryKeys.task(response.taskId), response.task)
 
         // Add to task lists optimistically
-        updateTaskInLists(queryClient, data.taskId, data.task, true)
+        updateTaskInLists(queryClient, response.taskId, response.task, true)
       } else {
         // Fallback: if no task data returned, invalidate to refetch
         await queryClient.invalidateQueries({
@@ -103,7 +104,18 @@ export function useSendMessage(
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutation<
+    SimpleTaskResponse,
+    Error,
+    {
+      message: string
+      resume?: boolean
+      model?: string
+      fileIds?: string[]
+      filePaths?: string[]
+      commandName?: string
+    }
+  >({
     mutationKey: ['tasks', taskId, 'sendMessage'],
     mutationFn: ({ message, resume, model, fileIds, filePaths, commandName }) =>
       tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),

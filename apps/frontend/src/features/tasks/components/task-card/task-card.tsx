@@ -38,14 +38,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   const lastIteration = task.iterations?.[task.iterations.length - 1]
 
   // Get events for running tasks
-  const { data: eventsData } = useTaskEvents(
-    task.taskId,
-    {},
-    {
-      enabled: task.status === 'running',
-      refetchInterval: false, // Real-time updates handled by global event stream
-    },
-  )
+  const { data: eventsData } = useTaskEvents(task.taskId, undefined, {
+    enabled: task.status === 'running',
+    refetchInterval: false, // Real-time updates handled by global event stream
+  })
 
   return (
     <Card className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -70,10 +66,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <CardContent className="pt-0">
           {task.status === 'running' ? (
             // Show events for running tasks
-            eventsData?.items && eventsData.items.length > 0 ? (
+            eventsData && eventsData.length > 0 ? (
               <div className="min-h-[80px]">
                 <MinifiedLastEventsDisplay
-                  events={eventsData.items}
+                  events={eventsData}
                   isRunning={true}
                   runningStartTime={lastIteration?.startTime}
                   latestContextTokens={lastIteration?.contextTokens}

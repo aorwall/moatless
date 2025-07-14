@@ -11,7 +11,7 @@ import type React from 'react'
  * @returns Wrapper component with React Query provider
  */
 export function createQueryWrapper(options?: {
-  defaultOptions?: Parameters<typeof QueryClient>[0]['defaultOptions']
+  defaultOptions?: ConstructorParameters<typeof QueryClient>[0]['defaultOptions']
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {

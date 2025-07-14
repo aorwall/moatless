@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useSearchFiles } from '@/features/environments/hooks/use-environments'
+// import { useSearchFiles } from '@/features/environments/hooks/use-environments'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
 import { createWrapper } from '@/test-utils/render'
-import { ChatInput } from '../chat-input'
+import { ChatInput } from '../index'
 
 // Mock dependencies
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
@@ -59,15 +59,15 @@ vi.mock('../selectors', () => ({
 
 describe('ChatInput File Search', () => {
   const mockRepositoriesList = vi.mocked(useRepositoriesList)
-  const mockSearchFiles = vi.mocked(useSearchFiles)
+  // const mockSearchFiles = vi.mocked(useSearchFiles)
   const mockTaskFileSearch = vi.mocked(useTaskFileSearch)
 
-  const mockFileSearchResponse = {
-    files: [
-      { path: 'src/components/Button.tsx', relativePath: 'src/components/Button.tsx' },
-      { path: 'src/utils/helpers.ts', relativePath: 'src/utils/helpers.ts' },
-    ],
-  }
+  // const mockFileSearchResponse = {
+  //   files: [
+  //     { path: 'src/components/Button.tsx', relativePath: 'src/components/Button.tsx' },
+  //     { path: 'src/utils/helpers.ts', relativePath: 'src/utils/helpers.ts' },
+  //   ],
+  // }
 
   beforeEach(() => {
     vi.clearAllMocks()

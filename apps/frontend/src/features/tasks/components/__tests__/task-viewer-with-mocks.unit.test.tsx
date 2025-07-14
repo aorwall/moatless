@@ -9,7 +9,8 @@ import {
   createQueryWrapper,
   mockResizableComponents,
 } from '@/test-utils/mocks'
-import { TaskViewer } from '../task-viewer'
+
+// import { TaskViewer } from '../task-viewer' // Component no longer exists
 
 // Mock dependencies
 vi.mock('@/features/tasks/hooks/use-tasks')

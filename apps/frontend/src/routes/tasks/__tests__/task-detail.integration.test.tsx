@@ -2,10 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useCreateTaskMessage, useTask, useTaskEvents } from '@/features/tasks/hooks/use-task-data'
-import { useServerStatus, useWorkspaceStatus } from '@/features/tasks/hooks/use-task-environment'
-import { useTaskGitDiff } from '@/features/tasks/hooks/use-task-git-diff'
-import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection'
+import { useTask, useTaskEvents, useTaskGitDiff } from '@/features/tasks/hooks/use-tasks'
+// import { useServerStatus, useWorkspaceStatus } from '@/features/tasks/hooks/use-task-environment'
+// import { useTaskSSEConnection } from '@/features/tasks/hooks/use-task-sse-connection'
 import {
   createMockGitDiff,
   createMockMessageEvent,
@@ -285,7 +284,7 @@ index 1234567..abcdefg 100644
   describe('Workspace Status', () => {
     it('displays workspace status indicators', async () => {
       const mockStatus = createMockWorkspaceStatus({
-        status: 'RUNNING',
+        status: 'running' as any,
         hasUncommittedChanges: true,
       })
 

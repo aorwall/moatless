@@ -15,7 +15,7 @@ export function createMockQuery<TData = any, TError = Error>(
   data: TData | undefined = undefined,
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
-  return {
+  const baseResult: UseQueryResult<TData, TError> = {
     data,
     error: null,
     isError: false,
@@ -23,7 +23,7 @@ export function createMockQuery<TData = any, TError = Error>(
     isLoadingError: false,
     isRefetchError: false,
     isSuccess: Boolean(data),
-    status: data ? 'success' : 'idle',
+    status: data ? 'success' : 'pending',
     dataUpdatedAt: data ? Date.now() : 0,
     errorUpdatedAt: 0,
     failureCount: 0,
@@ -35,14 +35,17 @@ export function createMockQuery<TData = any, TError = Error>(
     isInitialLoading: false,
     isPaused: false,
     isPlaceholderData: false,
-    isPreviousData: false,
     isRefetching: false,
     isStale: false,
     refetch: vi.fn().mockResolvedValue({ data, error: null, isError: false, isSuccess: true }),
     remove: vi.fn(),
     fetchStatus: 'idle',
+  }
+
+  return {
+    ...baseResult,
     ...overrides,
-  } as UseQueryResult<TData, TError>
+  }
 }
 
 /**
@@ -57,7 +60,7 @@ export function createMockLoadingQuery<TData = any, TError = Error>(
     isLoading: true,
     isInitialLoading: true,
     isFetching: true,
-    status: 'loading',
+    status: 'pending',
     fetchStatus: 'fetching',
     ...overrides,
   })
