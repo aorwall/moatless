@@ -58,6 +58,7 @@ describe('PortAllocationService - Unit Tests', () => {
     vi.mocked(mockPath.join).mockImplementation((...args) => args.join('/'))
 
     // Reset singleton
+    // @ts-ignore - accessing private members for testing
     PortAllocationService.instance = undefined as any
     service = PortAllocationService.getInstance(mockDataDir)
     await service.initialize()
@@ -211,6 +212,7 @@ describe('PortAllocationService - Unit Tests', () => {
       vi.mocked(mockFs.readFile).mockResolvedValueOnce(JSON.stringify(existingAllocations))
 
       // Create new instance to trigger loading
+      // @ts-ignore - accessing private members for testing
       PortAllocationService.instance = undefined as any
       const newService = PortAllocationService.getInstance(mockDataDir)
       await newService.initialize()
@@ -223,6 +225,7 @@ describe('PortAllocationService - Unit Tests', () => {
     it('should handle corrupted allocation file gracefully', async () => {
       vi.mocked(mockFs.readFile).mockResolvedValueOnce('invalid json')
 
+      // @ts-ignore - accessing private members for testing
       PortAllocationService.instance = undefined as any
       const newService = PortAllocationService.getInstance(mockDataDir)
       await newService.initialize()
@@ -244,6 +247,7 @@ describe('PortAllocationService - Unit Tests', () => {
     it('should handle mkdir errors during initialization', async () => {
       vi.mocked(mockFs.mkdir).mockRejectedValueOnce(new Error('Permission denied'))
 
+      // @ts-ignore - accessing private members for testing
       PortAllocationService.instance = undefined as any
       const newService = PortAllocationService.getInstance(mockDataDir)
 
@@ -291,6 +295,7 @@ describe('PortAllocationService - Unit Tests', () => {
 
       vi.mocked(mockNet.Socket).mockImplementation(() => mockSocketInstance)
 
+      // @ts-ignore - accessing private members for testing
       PortAllocationService.instance = undefined as any
       const newService = PortAllocationService.getInstance(mockDataDir)
       await newService.initialize()

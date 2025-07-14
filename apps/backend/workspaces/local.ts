@@ -52,7 +52,7 @@ export class LocalWorkspace extends BaseWorkspace {
   }
 
   get runningAgent(): BaseAgent | undefined {
-    return this.environment.isRunning() ? this.environment._runningAgent : undefined
+    return this.environment.isRunning() ? this.environment.getRunningAgent() : undefined
   }
 
   constructor(

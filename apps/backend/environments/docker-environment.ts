@@ -451,6 +451,10 @@ export class DockerEnvironment extends BaseEnvironment {
     this.runningAgent = agent
   }
 
+  getRunningAgent(): BaseAgent | undefined {
+    return this.runningAgent
+  }
+
   private async cleanup(): Promise<void> {
     if (!this.containerId) {
       return

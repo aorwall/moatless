@@ -287,6 +287,10 @@ export class LocalEnvironment extends BaseEnvironment {
     this._runningAgent = agent
   }
 
+  getRunningAgent(): BaseAgent | undefined {
+    return this._runningAgent
+  }
+
   private async pathExists(filePath: string): Promise<boolean> {
     try {
       await fs.access(filePath)
