@@ -210,6 +210,7 @@
 - ✅ **File Path Consistency**: Shared helpers used across all routes
 - ✅ **Frontend Compatibility**: All frontend code updated for new API contracts
 - ✅ **Test Coverage**: All tests updated to match actual API behavior
+- ⚠️ **Query Keys Centralization**: ~95% centralized (2 hooks with hardcoded keys found)
 
 ## Frontend-Specific Action Items
 
@@ -254,7 +255,20 @@
 - [ ] Create reusable error components
 - [ ] Handle network errors gracefully
 
-### Frontend Priority 5: React Query Optimization
+### Frontend Priority 5: Query Keys Centralization
+**Problem**: Not all query keys use the centralized system
+
+**Actions**:
+- [ ] **IDENTIFIED**: Fix hardcoded `['repositories']` in `use-repositories-settings.ts` to use `queryKeys.repositoriesList()`
+- [ ] **IDENTIFIED**: Add missing `settings` query key to `query-keys.ts`
+- [ ] **IDENTIFIED**: Update `use-settings.ts` to use centralized query key
+- [ ] **IDENTIFIED**: Remove unused query keys (agents, task iterations)
+- [ ] Add linting rule to prevent hardcoded query keys
+- [ ] Document query key naming conventions
+
+**Status**: Ready for implementation (identified during current work)
+
+### Frontend Priority 6: React Query Optimization
 **Problem**: Not all mutations use optimistic updates
 
 **Actions**:
@@ -319,6 +333,12 @@
    - Potential for more schema-based form validation
    - **Action**: Audit frontend type usage patterns
 
+4. **Query Keys Centralization Issues**
+   - Found hardcoded query keys in `use-repositories-settings.ts` and `use-settings.ts`
+   - Missing `settings` query key in centralized `query-keys.ts`
+   - Several unused query keys defined (agents, task iterations, etc.)
+   - **Action**: Fix hardcoded keys and clean up unused definitions
+
 ### 📈 Compliance with Best Practices
 ✅ **Following Best Practices**:
 - Schema-first architecture fully implemented
@@ -331,6 +351,7 @@
 - Pre-push hooks caught test failures (good safety net)
 - Some resolver type assertions still needed (`as any`)
 - File naming conventions need enforcement
+- Query keys not fully centralized (some hardcoded keys found)
 
 ### 🎯 Next Recommended Actions
 1. **Complete Frontend Consistency** (High Priority)
@@ -338,12 +359,18 @@
    - Audit and fix any other naming inconsistencies
    - Add linting rules to enforce patterns
 
-2. **Response Schema Coverage** (Medium Priority)
+2. **Fix Query Keys Centralization** (High Priority)
+   - Add missing `settings` query key to `query-keys.ts`
+   - Fix hardcoded query keys in repository and settings hooks
+   - Remove unused query key definitions
+   - Add ESLint rule to catch hardcoded query keys
+
+3. **Response Schema Coverage** (Medium Priority)
    - Add schemas for event stream responses
    - Add schemas for upload endpoint responses
    - Complete schema coverage audit
 
-3. **Type Safety Enhancements** (Low Priority)
+4. **Type Safety Enhancements** (Low Priority)
    - Replace remaining `as any` type assertions
    - Add proper Event schema to replace `z.any()`
    - Enhance command condition typing
