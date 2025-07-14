@@ -80,12 +80,7 @@ describe('event-handlers', () => {
 
   describe('shouldInvalidateTaskList', () => {
     it('should return true for status-affecting events', () => {
-      const statusEvents = [
-        { type: EventType.RESULT },
-        { type: EventType.ERROR },
-        { type: EventType.INPUT },
-        { type: EventType.TASK_STATUS },
-      ]
+      const statusEvents = [{ type: EventType.ERROR }, { type: EventType.TASK_STATUS }]
 
       statusEvents.forEach((event) => {
         expect(shouldInvalidateTaskList(event as any)).toBe(true)
@@ -98,6 +93,7 @@ describe('event-handlers', () => {
         { type: EventType.WORKSPACE },
         { type: EventType.TOOL },
         { type: EventType.SERVER },
+        { type: EventType.RESULT }, // RESULT no longer affects task status directly
       ]
 
       nonStatusEvents.forEach((event) => {

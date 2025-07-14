@@ -143,7 +143,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: EventType.INPUT,
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -154,9 +154,13 @@ describe('mergeToolEvents', () => {
         numTurns: 1,
         totalCost: 0.01,
         payload: {
-          message: 'User input',
-        },
-      },
+          type: 'user',
+          message: {
+            role: 'user',
+            content: 'User input',
+          },
+        } as ClaudeCodeSDKMessage,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)
