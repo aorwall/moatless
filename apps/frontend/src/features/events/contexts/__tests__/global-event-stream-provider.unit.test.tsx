@@ -111,7 +111,7 @@ describe('GlobalEventStreamProvider', () => {
     await waitFor(() => {
       // Should invalidate the specific task detail
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasks.detail('task-123'),
       })
 
       // Should invalidate task lists (for sidebar update)
@@ -158,15 +158,15 @@ describe('GlobalEventStreamProvider', () => {
     await waitFor(() => {
       // Task 1 invalidations
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasks.detail('task-123'),
       })
 
       // Task 2 invalidations
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-456'),
+        queryKey: queryKeys.tasks.detail('task-456'),
       })
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.taskGitDiff('task-456'),
+        queryKey: queryKeys.tasks.gitDiff('task-456'),
       })
 
       // Should not invalidate task-123 when task-456 has an event
@@ -245,10 +245,10 @@ describe('GlobalEventStreamProvider', () => {
     await waitFor(() => {
       // Should invalidate workspace-specific queries
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.taskWorkspaceStatus('task-111'),
+        queryKey: queryKeys.tasks.workspaceStatus('task-111'),
       })
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.taskGitDiff('task-111'),
+        queryKey: queryKeys.tasks.gitDiff('task-111'),
       })
 
       // Should NOT invalidate task lists

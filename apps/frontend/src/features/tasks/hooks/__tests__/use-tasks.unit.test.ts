@@ -195,10 +195,10 @@ describe('Task Hooks', () => {
 
       // Mutations invalidate both task lists and task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
       })
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasks.detail('task-123'),
       })
     })
   })
@@ -221,10 +221,10 @@ describe('Task Hooks', () => {
 
       // Mutations invalidate both task lists and task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasksList(),
+        queryKey: queryKeys.tasks.lists(),
       })
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasks.detail('task-123'),
       })
     })
   })
@@ -323,7 +323,7 @@ describe('Task Hooks', () => {
       })
 
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.taskServerStatus('task-123'),
+        queryKey: queryKeys.tasks.serverStatus('task-123'),
       })
     })
   })
@@ -343,7 +343,7 @@ describe('Task Hooks', () => {
       })
 
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.taskServerStatus('task-123'),
+        queryKey: queryKeys.tasks.serverStatus('task-123'),
       })
     })
   })
@@ -356,17 +356,17 @@ describe('Task Hooks', () => {
 
       // Set up some query data
       client.setQueryData(queryKeys.tasks.all, [])
-      client.setQueryData(queryKeys.task('task-123'), createMockTask())
-      client.setQueryData(queryKeys.taskEvents('task-123'), [])
+      client.setQueryData(queryKeys.tasks.detail('task-123'), createMockTask())
+      client.setQueryData(queryKeys.tasks.events('task-123'), [])
 
       // Invalidate parent key
       await client.invalidateQueries({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasks.detail('task-123'),
       })
 
       // Should invalidate all task-specific queries
       expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.task('task-123'),
+        queryKey: queryKeys.tasks.detail('task-123'),
       })
     })
   })

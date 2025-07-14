@@ -72,7 +72,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const [streamingEvents, setStreamingEvents] = useState<Event[]>([])
   // Task metadata query - simplified without select
   const taskQuery = useQuery({
-    queryKey: queryKeys.task(taskId),
+    queryKey: queryKeys.tasks.detail(taskId),
     queryFn: () => tasksApi.getTask(taskId),
     staleTime: 30000, // 30s - task metadata doesn't change frequently
     enabled: !!taskId && !taskId.startsWith('temp-'),
@@ -80,7 +80,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
 
   // Workspace status query - simplified without select
   const workspaceQuery = useQuery({
-    queryKey: queryKeys.taskWorkspaceStatus(taskId),
+    queryKey: queryKeys.tasks.workspaceStatus(taskId),
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId && !taskId.startsWith('temp-'),
     refetchInterval: (query) => {
@@ -97,7 +97,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
 
   // Git diff query
   const gitDiffQuery = useQuery({
-    queryKey: queryKeys.taskGitDiff(taskId),
+    queryKey: queryKeys.tasks.gitDiff(taskId),
     queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId && !taskId.startsWith('temp-'),
     staleTime: 10 * 60 * 1000, // 10 minutes - git diff doesn't change frequently
@@ -106,7 +106,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
 
   // Events query - historical events from API
   const eventsQuery = useQuery({
-    queryKey: queryKeys.taskEvents(taskId),
+    queryKey: queryKeys.tasks.events(taskId),
     queryFn: () => tasksApi.getTaskEvents(taskId),
     staleTime: Infinity, // Never stale - updated via SSE only
     enabled: !!taskId && !taskId.startsWith('temp-'),
@@ -117,7 +117,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const handleTaskEvent = useCallback(
     (event: Event) => {
       // Update historical events cache
-      queryClient.setQueryData(queryKeys.taskEvents(taskId), (old: Event[] = []) => {
+      queryClient.setQueryData(queryKeys.tasks.events(taskId), (old: Event[] = []) => {
         const eventMap = new Map(old.map((e) => [e.eventId, e]))
         eventMap.set(event.eventId, event)
         return Array.from(eventMap.values()).sort((a, b) => {
@@ -277,7 +277,7 @@ export function useWorkspaceStatus() {
 export function useWorkspaceStatusWithLoading() {
   const { taskId } = useTaskData()
   const workspaceQuery = useQuery({
-    queryKey: queryKeys.taskWorkspaceStatus(taskId),
+    queryKey: queryKeys.tasks.workspaceStatus(taskId),
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: !!taskId && !taskId.startsWith('temp-'),
     refetchInterval: (query) => {
@@ -316,7 +316,7 @@ export function useGitDiff() {
 export function useGitDiffWithLoading() {
   const { taskId } = useTaskData()
   const gitDiffQuery = useQuery({
-    queryKey: queryKeys.taskGitDiff(taskId),
+    queryKey: queryKeys.tasks.gitDiff(taskId),
     queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId && !taskId.startsWith('temp-'),
     staleTime: 10 * 60 * 1000, // 10 minutes - git diff doesn't change frequently

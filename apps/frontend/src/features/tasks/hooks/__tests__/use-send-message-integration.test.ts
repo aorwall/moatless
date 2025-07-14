@@ -201,15 +201,15 @@ describe('useSendMessage Integration Test', () => {
 
     // Mutations invalidate both task lists and task-specific queries
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.tasksList(),
+      queryKey: queryKeys.tasks.lists(),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.task(taskId),
+      queryKey: queryKeys.tasks.detail(taskId),
     })
 
     // Verify immediate refetch of task data still happens
     expect(spyRefetch).toHaveBeenCalledWith({
-      queryKey: queryKeys.task(taskId),
+      queryKey: queryKeys.tasks.detail(taskId),
     })
   })
 })

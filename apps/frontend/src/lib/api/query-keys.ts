@@ -25,24 +25,6 @@ export const queryKeys = {
     commands: (id: string) => [...queryKeys.tasks.detail(id), 'commands'] as const,
   },
 
-  // Legacy keys for backward compatibility during migration
-  tasksList: (filters?: { activeOnly?: boolean; limit?: number; offset?: number }) =>
-    queryKeys.tasks.list(filters),
-  task: (taskId: string) => queryKeys.tasks.detail(taskId),
-  taskMessages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
-    queryKeys.tasks.messages(taskId, filters),
-  taskEvents: (taskId: string, filters?: { type?: string }) =>
-    [...queryKeys.tasks.detail(taskId), 'events', filters] as const,
-  taskGitDiff: (taskId: string) => queryKeys.tasks.gitDiff(taskId),
-  taskWorkspaceStatus: (taskId: string) => queryKeys.tasks.workspaceStatus(taskId),
-  taskServerStatus: (taskId: string) => queryKeys.tasks.serverStatus(taskId),
-  taskServerLogs: (taskId: string) => queryKeys.tasks.serverLogs(taskId),
-  taskFileList: (taskId: string, path?: string, recursive?: boolean) =>
-    queryKeys.tasks.fileList(taskId, path, recursive),
-  taskFileContent: (taskId: string, filePath: string) =>
-    queryKeys.tasks.fileContent(taskId, filePath),
-  taskCommands: (taskId: string) => queryKeys.tasks.commands(taskId),
-
   repositories: () => [...queryKeys.all, 'repositories'] as const,
   repositoriesList: () => [...queryKeys.repositories(), 'list'] as const,
   repositoryDetail: (repoId: string) => [...queryKeys.repositories(), 'detail', repoId] as const,

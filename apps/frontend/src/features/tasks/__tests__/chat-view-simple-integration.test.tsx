@@ -81,15 +81,15 @@ describe('Task Viewer Integration - Query Invalidation', () => {
 
     // Mutations invalidate both task lists and task-specific queries
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.tasksList(),
+      queryKey: queryKeys.tasks.lists(),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.task(taskId),
+      queryKey: queryKeys.tasks.detail(taskId),
     })
 
     // Verify immediate refetch
     expect(spyRefetch).toHaveBeenCalledWith({
-      queryKey: queryKeys.task(taskId),
+      queryKey: queryKeys.tasks.detail(taskId),
     })
 
     // Wait for data to update

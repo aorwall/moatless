@@ -52,7 +52,6 @@ export function MessageInput({
     selectFile,
   } = useUniversalFileAutocomplete({
     repositoryId: repositoryId || '', // Provide empty string as fallback
-    taskId,
     value,
     onValueChange: onChange,
   })

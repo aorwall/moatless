@@ -10,7 +10,7 @@ export function useServerStatus(
   options?: Omit<UseQueryOptions<ServerStatus>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskServerStatus(taskId),
+    queryKey: queryKeys.tasks.serverStatus(taskId),
     queryFn: () => serverApi.getServerStatus(taskId),
     enabled: !!taskId,
     refetchInterval: (query) => {
@@ -33,11 +33,11 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
     onSuccess: async (data, taskId, context) => {
       // Only invalidate server status
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
+        queryKey: queryKeys.tasks.serverStatus(taskId),
       })
       // Force refetch the server status immediately
       await queryClient.refetchQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
+        queryKey: queryKeys.tasks.serverStatus(taskId),
       })
 
       // Show success or error toast based on server status
@@ -62,7 +62,7 @@ export function useStopServer(options?: UseMutationOptions<ServerStatus, Error, 
     onSuccess: (data, taskId, context) => {
       // Only invalidate server status
       queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
+        queryKey: queryKeys.tasks.serverStatus(taskId),
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -78,11 +78,11 @@ export function useRestartServer(options?: UseMutationOptions<ServerStatus, Erro
     onSuccess: async (data, taskId, context) => {
       // Only invalidate server status
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
+        queryKey: queryKeys.tasks.serverStatus(taskId),
       })
       // Force refetch the server status immediately
       await queryClient.refetchQueries({
-        queryKey: queryKeys.taskServerStatus(taskId),
+        queryKey: queryKeys.tasks.serverStatus(taskId),
       })
       options?.onSuccess?.(data, taskId, context)
     },
@@ -95,7 +95,7 @@ export function useServerLogs(
   options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.taskServerLogs(taskId),
+    queryKey: queryKeys.tasks.serverLogs(taskId),
     queryFn: () => serverApi.getServerLogs(taskId),
     enabled: !!taskId,
     refetchInterval: 2000, // Poll every 2 seconds

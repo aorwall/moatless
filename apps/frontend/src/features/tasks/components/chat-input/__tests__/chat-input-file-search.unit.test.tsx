@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSearchFiles } from '@/features/environments/hooks/use-environments'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useTaskFileSearch } from '@/features/tasks/hooks/use-tasks'
 import { createWrapper } from '@/test-utils/render'
 import { ChatInput } from '../chat-input'
 
@@ -14,10 +13,6 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
 
 vi.mock('@/features/environments/hooks/use-environments', () => ({
   useSearchFiles: vi.fn(),
-}))
-
-vi.mock('@/features/tasks/hooks/use-tasks', () => ({
-  useTaskFileSearch: vi.fn(),
 }))
 
 // Mock child components to avoid complex dependencies
@@ -60,7 +55,6 @@ vi.mock('../selectors', () => ({
 describe('ChatInput File Search', () => {
   const mockRepositoriesList = vi.mocked(useRepositoriesList)
   const mockSearchFiles = vi.mocked(useSearchFiles)
-  const mockTaskFileSearch = vi.mocked(useTaskFileSearch)
 
   const mockFileSearchResponse = {
     files: [
