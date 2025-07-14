@@ -56,45 +56,70 @@ This action plan addresses the testing inconsistencies and gaps discovered durin
 - ✅ Updated `vitest.config.ts` to recognize new patterns
 - ✅ Updated `package.json` test scripts for different test categories
 
+#### 6. Updated Testing Documentation ✅
+**Status**: COMPLETED  
+**Completed**: January 2025
+
+- ✅ Condensed frontend testing guidelines to 352 lines
+- ✅ Added references to Strategic Mocking Pattern document
+- ✅ Removed redundant coverage requirements and test categorization
+- ✅ Integrated backend testing guidelines references
+
 ## 🚧 Next Actions (High Priority)
 
 ### Phase 2: Adopt Mock Utilities Throughout Codebase
 **Priority**: High  
-**Goal**: Update existing tests to use centralized mocks
+**Goal**: Update ALL existing tests to use centralized mocks (48 test files)
 
-**Key Files to Update**:
-1. **API Hook Tests**:
-   - `use-tasks.unit.test.ts`
-   - `use-repositories.unit.test.tsx`
-   - `use-environments.unit.test.tsx`
-   - Replace ad-hoc mocks with `createMockQuery`, `createMockLoadingQuery`, etc.
+**Priority 1 - High Impact Routes & Integration Tests (12 files)**:
+1. `task-detail.integration.test.tsx` - Main task page integration
+2. `task-list.integration.test.tsx` - Task list page integration  
+3. `repository-form.unit.test.tsx` - Critical settings form
+4. `chat-input-integration.test.tsx` - Core chat functionality
+5. `event-list-tool-calls.integration.test.tsx` - Event system integration
+6. `chat-view-commands.integration.test.tsx` - Command system
+7. `git-diff-state-isolation.integration.test.tsx` - Git diff features
+8. `chat-view-scroll.integration.test.tsx` - Chat scrolling behavior
+9. `task-ui-provider.unit.test.tsx` - Core task state management
+10. `global-event-stream-provider.unit.test.tsx` - SSE connection management
+11. `hooks-violations-regression.integration.test.tsx` - Hook safety patterns
+12. `chat-state-isolation.integration.test.tsx` - Chat state management
 
-2. **SSE/WebSocket Tests**:
-   - `global-event-stream-provider.unit.test.tsx`
-   - `use-task-sse-connection.test.ts` (if exists)
-   - Use `createMockSSEConnection` and `MockEventSource`
+**Priority 2 - Core Component Tests (16 files)**:
+13. `task-viewer.unit.test.tsx` - Task display component
+14. `task-header.unit.test.tsx` - Task header component  
+15. `chat-input-file-search.unit.test.tsx` - File search functionality
+16. `chat-input-expandable.unit.test.tsx` - Chat input expansion
+17. `tool-call-event.unit.test.tsx` - Tool call rendering
+18. `message-event.unit.test.tsx` - Message rendering
+19. `command-buttons.unit.test.tsx` - Command button interactions
+20. `task-ui-provider-chat-state.unit.test.tsx` - Chat state provider
+21. `derived-state-patterns.unit.test.tsx` - State derivation patterns
+22. `merge-tool-events.unit.test.ts` - Event merging utility
+23. `chat-form-refactored.unit.test.tsx` - Chat form component
+24. `chat-input-task-isolation.integration.test.tsx` - Chat isolation
+25. `selectors.unit.test.tsx` - Selector utilities
+26. Plus 3 additional component tests
 
-3. **UI Component Tests**:
-   - Tests using resizable panels
-   - Tests using dialogs, selects, tabs
-   - Replace inline mocks with imports from `@/test-utils/mocks`
+**Priority 3 - Remaining Tests (20 files)**:
+29-48. All remaining test files using ad-hoc mocking patterns
 
-**Example Migration**:
+**Example Migration Pattern**:
 ```typescript
-// Before:
+// Before (ad-hoc mocking):
 vi.mocked(useTask).mockReturnValue({
   data: taskData,
   isLoading: false,
   error: null
 } as any)
 
-// After:
+// After (centralized mocks):
 import { createMockQuery } from '@/test-utils/mocks'
 vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
 ```
 
 ### Phase 3: Add Missing Test Coverage
-**Priority**: Medium  
+**Priority**: Low (after mock migration)
 **Goal**: Test uncovered critical paths
 
 **Critical Areas Needing Tests**:
@@ -113,16 +138,6 @@ vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
    - Drag-and-drop file upload
    - Keyboard shortcuts
 
-### Phase 4: Implement E2E Tests
-**Priority**: Medium  
-**Goal**: Test complete user journeys
-
-**Critical E2E Tests to Add**:
-1. `task-creation-flow.e2e.test.tsx` - Complete task creation journey
-2. `task-real-time-updates.e2e.test.tsx` - SSE updates across components
-3. `repository-management.e2e.test.tsx` - Repository CRUD operations
-4. `preview-environment.e2e.test.tsx` - Preview server lifecycle
-
 ## 📊 Success Metrics
 
 ### Achieved ✅
@@ -131,58 +146,59 @@ vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
 - ✅ Centralized mock utilities created and documented
 - ✅ Consistent test naming convention implemented
 - ✅ Updated testing guidelines with new patterns
+- ✅ Condensed frontend testing guidelines to 352 lines
+- ✅ Integrated Strategic Mocking Pattern framework
+- ✅ Cross-referenced backend testing guidelines
 
 ### In Progress 🚧
-- [ ] 50% of tests using centralized mocks (currently ~5%)
+- [ ] 100% of tests using centralized mocks (currently ~10%, 48 total files)
 - [ ] Test coverage increased to 80% (currently ~70%)
 - [ ] All critical user paths have integration tests
-- [ ] E2E test infrastructure set up
 
 ### Future Goals 🎯
 - [ ] Average test execution time < 30s for unit tests
 - [ ] Zero flaky tests in CI
 - [ ] 100% of new features have tests before merge
 - [ ] Automated test quality reports in PRs
+- [ ] E2E testing infrastructure (separate action plan)
 
 ## 📋 Implementation Checklist
 
 ### Immediate Actions (This Week)
-- [ ] Update 10 test files to use centralized mocks
-- [ ] Create example PR showing mock migration pattern
-- [ ] Document mock usage patterns in testing guide
-- [ ] Set up test coverage reporting in CI
+- [ ] Update Priority 1 test files to use centralized mocks (12 files)
+- [ ] Document mock migration examples from completed work
 
 ### Short-term (Next 2 Weeks)
-- [ ] Migrate all API hook tests to use centralized mocks
-- [ ] Add integration tests for uncovered routes
-- [ ] Set up E2E testing infrastructure
-- [ ] Create first E2E test as proof of concept
+- [ ] Update Priority 2 test files to use centralized mocks (16 files)
+- [ ] Add integration tests for any uncovered critical routes
 
 ### Long-term (Next Month)
-- [ ] Complete mock migration for all test files
-- [ ] Achieve 80% test coverage
-- [ ] Implement 5+ E2E tests for critical paths
+- [ ] Complete Priority 3 mock migration (remaining 20 files)
+- [ ] Achieve 80% test coverage through improved test quality
 - [ ] Set up automated test quality gates
 
-## 📚 Documentation Updates Needed
+## 📚 Documentation Updates
 
+### Completed ✅
 1. **Testing Guidelines** (`docs/guidelines/frontend-testing.md`):
    - ✅ Add centralized mock utilities section
    - ✅ Update test naming convention
    - ✅ Add test quality standards
-   - [ ] Add E2E testing section
-   - [ ] Add troubleshooting guide
+   - ✅ Condensed to 352 lines for better maintainability
+   - ✅ Added cross-references to Strategic Mocking Pattern
+   - ✅ Integrated backend testing guidelines references
 
-2. **Mock Utilities Documentation**:
+### Still Needed 📋
+1. **Mock Utilities Documentation**:
    - [ ] Create `docs/guidelines/mock-utilities.md`
    - [ ] Add examples for each mock type
    - [ ] Document when to use each mock pattern
    - [ ] Add migration guide from old patterns
 
-3. **Component Testing Patterns**:
+2. **Component Testing Patterns**:
    - [ ] Document SSE/WebSocket testing patterns
    - [ ] Add form testing best practices
-   - [ ] Create accessibility testing guide
+   - [ ] Add troubleshooting guide section
 
 ## 🔄 Continuous Improvement
 

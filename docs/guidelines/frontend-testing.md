@@ -305,17 +305,15 @@ vi.mock('@/features/charts/heavy-chart', () => ({
 }))
 ```
 
-### Categorize Tests by Speed
-- Unit tests: <200ms (run on git hooks)
-- Integration tests: 200ms-2s (run in CI)
-- E2E tests: >2s (run nightly)
+### Test Performance Guidelines
+For detailed test categorization by speed and backend-specific performance tiers, see [Backend Testing Guidelines](../guidelines/backend-testing.md).
 
-## Coverage Requirements
-
-- **Components**: 80% coverage
-- **Hooks**: 90% coverage
-- **Utilities**: 95% coverage
-- **Critical paths**: 90% coverage
+### Strategic Mocking Framework
+This guide follows the [Strategic Mocking Pattern](../guidelines/strategic-mocking.md) for balanced test isolation and integration. See that document for:
+- Mocking decision frameworks
+- Contract testing patterns
+- Integration test strategies
+- Mock factory patterns
 
 ## Quick Reference
 
