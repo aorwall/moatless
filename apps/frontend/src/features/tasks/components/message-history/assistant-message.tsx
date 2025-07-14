@@ -1,5 +1,5 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
-import { Bot, Terminal, ChevronRight, ChevronDown } from 'lucide-react'
+import { Terminal, ChevronRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 import { useState } from 'react'
 
@@ -31,9 +31,9 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
     if (entries.length === 0) return ''
     
     // Show only first parameter in compact view
-    const [key, value] = entries[0]
+    const [_key, value] = entries[0]
     const displayValue = typeof value === 'string' ? value : JSON.stringify(value)
-    const truncatedValue = displayValue.length > 50 ? displayValue.substring(0, 50) + '...' : displayValue
+    const truncatedValue = displayValue.length > 50 ? `${displayValue.substring(0, 50)}...` : displayValue
     
     return entries.length > 1 
       ? `${truncatedValue} +${entries.length - 1} more`
@@ -58,7 +58,7 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
             <div className="mt-1 ml-2 pl-2 border-l-2 border-border/50">
               <div className="bg-muted/30 rounded p-1.5 text-muted-foreground">
                 {displayLines.map((line, index) => (
-                  <div key={index} className="whitespace-pre-wrap break-all">
+                  <div key={`${content.tool_use_id}-${index}`} className="whitespace-pre-wrap break-all">
                     {line || ' '}
                   </div>
                 ))}
@@ -139,45 +139,35 @@ export function AssistantMessageComponent({
   const toolCalls = isStringContent ? [] : contentArray.filter((c) => c.type === 'tool_use')
 
   return (
-    <div className="flex justify-start">
-      <div className="bg-secondary rounded-lg p-3 max-w-[80%] shadow-sm">
-        <div className="flex items-center gap-2 mb-2">
-          <Bot className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-medium">Assistant</span>
-          <span className="text-xs text-muted-foreground">
-            {new Date(message.timestamp).toLocaleTimeString()}
-          </span>
+    <div className="space-y-2">
+      {/* Text content */}
+      {textContent && (
+        <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>
+      )}
+
+      {/* Tool calls */}
+      {toolCalls.length > 0 && (
+        <div className="border border-border/50 rounded-lg overflow-hidden">
+          <ToolCallSummary
+            toolCalls={toolCalls}
+            expanded={toolCallsExpanded}
+            onToggle={() => setToolCallsExpanded(!toolCallsExpanded)}
+          />
+          
+          {toolCallsExpanded && (
+            <div className="p-2 space-y-2 border-t border-border/50">
+              {toolCalls.map((toolCall) => (
+                <ToolCallComponent
+                  key={toolCall.tool_use_id}
+                  content={toolCall}
+                  expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
+                  onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
+                />
+              ))}
+            </div>
+          )}
         </div>
-
-        {/* Text content */}
-        {textContent && (
-          <div className="text-sm whitespace-pre-wrap break-words mb-3">{textContent}</div>
-        )}
-
-        {/* Tool calls */}
-        {toolCalls.length > 0 && (
-          <div className="border border-border/50 rounded-lg overflow-hidden">
-            <ToolCallSummary
-              toolCalls={toolCalls}
-              expanded={toolCallsExpanded}
-              onToggle={() => setToolCallsExpanded(!toolCallsExpanded)}
-            />
-            
-            {toolCallsExpanded && (
-              <div className="p-2 space-y-2 border-t border-border/50">
-                {toolCalls.map((toolCall) => (
-                  <ToolCallComponent
-                    key={toolCall.tool_use_id}
-                    content={toolCall}
-                    expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
-                    onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   )
 }
