@@ -37,7 +37,7 @@ const RESET = '\x1b[0m'
 
 function formatTime(timestamp: number) {
   const date = new Date(timestamp)
-  return date.toTimeString().split(' ')[0] + ' ' + date.toTimeString().split(' ')[1]
+  return `${date.toTimeString().split(' ')[0]} ${date.toTimeString().split(' ')[1]}`
 }
 
 function simplePrettifier() {
@@ -62,7 +62,7 @@ function simplePrettifier() {
         }
 
         process.stdout.write(output)
-      } catch (err) {
+      } catch (_err) {
         // Fallback to raw output if parsing fails
         process.stdout.write(chunk)
       }

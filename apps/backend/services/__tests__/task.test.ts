@@ -128,15 +128,16 @@ describe('TaskService', () => {
         getStatus: vi.fn().mockReturnValue('ready'),
       } as any)
 
-      const taskId = await taskService.createTask(request)
+      const task = await taskService.createTask(request)
 
-      expect(taskId).toBeDefined()
-      expect(taskId).toMatch(/^[0-9a-f-]+$/) // UUID pattern
+      expect(task).toBeDefined()
+      expect(task.taskId).toBeDefined()
+      expect(task.taskId).toMatch(/^[0-9a-f-]+$/) // UUID pattern
 
       // Verify task was saved first with 'open' status and 'created' iteration
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
-          taskId,
+          taskId: task.taskId,
           agentType: 'test-agent',
           repositoryId: 'env-123',
           status: 'open',
@@ -160,7 +161,7 @@ describe('TaskService', () => {
 
       // IMPORTANT: Verify workspace was created for the task
       expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
-        taskId,
+        task.taskId,
         'env-123',
         undefined,
       )
@@ -187,14 +188,14 @@ describe('TaskService', () => {
       } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
-      const taskId = await taskService.createTask(request)
+      const task = await taskService.createTask(request)
 
       // Wait for background tasks
       // Background tasks are tracked in WorkspaceService
 
       // Workspace should ALWAYS be created regardless of start flag or message
       expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
-        taskId,
+        task.taskId,
         'env-123',
         undefined,
       )
@@ -223,13 +224,13 @@ describe('TaskService', () => {
       } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
-      const taskId = await taskService.createTask(request)
+      const task = await taskService.createTask(request)
 
       // Background tasks are tracked in WorkspaceService
 
       // Verify workspace was created with the custom branch
       expect(mockWorkspaceService.createWorkspace).toHaveBeenCalledWith(
-        taskId,
+        task.taskId,
         'env-123',
         'feature/custom-branch',
       )
@@ -294,14 +295,15 @@ describe('TaskService', () => {
       } as any)
       vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValueOnce(undefined)
 
-      const taskId = await taskService.createTask(request)
+      const task = await taskService.createTask(request)
 
-      expect(taskId).toBeDefined()
+      expect(task).toBeDefined()
+      expect(task.taskId).toBeDefined()
 
       // Verify task was saved with 'open' status and 'created' iteration but not started
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
-          taskId,
+          taskId: task.taskId,
           agentType: 'test-agent',
           repositoryId: 'env-123',
           status: 'open',

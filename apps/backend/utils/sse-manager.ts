@@ -187,7 +187,7 @@ export class SSEConnectionManager {
           )
           // Close the connection
           connection.controller.close()
-        } catch (error) {
+        } catch (_error) {
           // Silently ignore errors during shutdown
         }
       }
@@ -206,7 +206,7 @@ export class SSEConnectionManager {
         )
         // Close the connection
         connection.controller.close()
-      } catch (error) {
+      } catch (_error) {
         // Silently ignore errors during shutdown
       }
     }

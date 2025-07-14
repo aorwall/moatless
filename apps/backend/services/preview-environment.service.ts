@@ -9,14 +9,15 @@ import type {
   ProcessValidation,
 } from '@moatless/types/types/preview-environment'
 import type { ServerStatus } from '@moatless/types/types/workspace'
+import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
-import { ServerHandler } from '../workspaces/server-handler.js'
 import type { PreviewProxyService } from './preview-proxy.service.js'
+import { PreviewServer } from './preview-server.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class PreviewEnvironmentService {
-  private runningServers: Map<string, ServerHandler> = new Map()
+  private runningServers: Map<string, PreviewServer> = new Map()
   private runningProxies: Map<string, PreviewProxyService> = new Map()
   private readonly previewEnvironmentsPath: string
 
@@ -25,7 +26,7 @@ export class PreviewEnvironmentService {
     private workspaceService: WorkspaceService,
   ) {
     // Initialize preview environments storage path
-    this.previewEnvironmentsPath = path.join(process.cwd(), 'data', 'preview-environments')
+    this.previewEnvironmentsPath = path.join(getDataDir(), 'preview-environments')
     this.initializeStorage()
   }
 
@@ -62,8 +63,9 @@ export class PreviewEnvironmentService {
                 port: metadata.port,
               })
 
-              // Create a ServerHandler instance for the recovered server
-              const handler = new ServerHandler(
+              // Create a PreviewServer instance for the recovered server
+              const handler = new PreviewServer(
+                taskId,
                 metadata.workspacePath,
                 metadata.command,
                 metadata.envVars || {},
@@ -127,7 +129,8 @@ export class PreviewEnvironmentService {
 
     // Create server handler
     const workspacePath = workspace.getWorkspacePath()
-    const handler = new ServerHandler(
+    const handler = new PreviewServer(
+      taskId,
       workspacePath,
       serverCommand,
       environment.codeExecution.envVars || {},
@@ -368,7 +371,8 @@ export class PreviewEnvironmentService {
       const validation = await this.validateProcess(metadata.pid, metadata.command)
       if (validation.exists && validation.isCorrectProcess) {
         // Process is still running, recover it
-        const handler = new ServerHandler(
+        const handler = new PreviewServer(
+          taskId,
           metadata.workspacePath,
           metadata.command,
           metadata.envVars || {},
@@ -409,6 +413,13 @@ export class PreviewEnvironmentService {
     if (!handler) {
       // Try to get logs from metadata
       const metadata = await this.loadPreviewEnvironmentMetadata(taskId)
+
+      // Check for logs in failed metadata
+      if (metadata?.logs) {
+        return metadata.logs
+      }
+
+      // Check for log file
       if (metadata?.logFile) {
         try {
           const content = await fs.readFile(metadata.logFile, 'utf-8')
@@ -418,7 +429,7 @@ export class PreviewEnvironmentService {
           return 'Failed to read log file'
         }
       }
-      return 'No server logs available'
+      return ''
     }
 
     return await handler.getLogs(lines)
@@ -546,9 +557,9 @@ export class PreviewEnvironmentService {
   }
 
   /**
-   * Restore ServerHandler state from metadata
+   * Restore PreviewServer state from metadata
    */
-  private restoreServerHandler(handler: ServerHandler, metadata: PreviewEnvironmentMetadata): void {
+  private restoreServerHandler(handler: PreviewServer, metadata: PreviewEnvironmentMetadata): void {
     // Use private property access to restore state
     // This is a bit hacky but necessary for recovery
     ;(handler as unknown as { port: number }).port = metadata.port

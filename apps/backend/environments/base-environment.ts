@@ -1,0 +1,81 @@
+import type { RepositoryConfig } from '@moatless/types/types/repository'
+import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
+import type { EventService } from '../services/index.js'
+
+export abstract class BaseEnvironment {
+  constructor(
+    protected readonly taskId: string,
+    protected readonly repositoryConfig: RepositoryConfig,
+    protected readonly eventService: EventService,
+  ) {}
+
+  /**
+   * Stop the running agent for this workspace
+   */
+  abstract stopAgent(): Promise<boolean>
+
+  /**
+   * Start the server if configured
+   */
+  abstract startServer?(): Promise<ServerStatus>
+
+  /**
+   * Stop the server if running
+   */
+  abstract stopServer?(): Promise<boolean>
+
+  /**
+   * Get the current server status
+   */
+  abstract getServerStatus?(): Promise<ServerStatus>
+
+  /**
+   * Get server logs
+   */
+  abstract getServerLogs?(lines?: number): Promise<string>
+
+  /**
+   * Run a command in the workspace
+   */
+  abstract runCommand(command: string, timeout?: number): Promise<CommandResult>
+
+  /**
+   * Check if an agent is currently running in this workspace
+   */
+  abstract isRunning(): boolean
+
+  /**
+   * Set up the environment (starts the environment, then run setup commands)
+   */
+  abstract setup(iterationNumber?: number): Promise<void>
+
+  /**
+   * Stop and cleanup
+   */
+  abstract teardown(force?: boolean): Promise<void>
+
+  /**
+   * Get the workspace path
+   */
+  abstract getWorkspacePath(): string
+
+  /**
+   * Get the environment type
+   */
+  abstract getType(): 'local' | 'docker'
+
+  /**
+   * Get the environment status
+   */
+  abstract getStatus(): 'initializing' | 'ready' | 'error' | 'cleaning'
+
+  /**
+   * Get any error message
+   */
+  abstract getError(): string | undefined
+
+  /**
+   * Get the creation timestamp
+   */
+  abstract getCreatedAt(): Date
+}

@@ -17,6 +17,7 @@ vi.mock('node:fs', () => ({
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
+  exec: vi.fn((_cmd, callback) => callback?.(null, { stdout: '', stderr: '' }, null)),
 }))
 
 vi.mock('../../utils/file-search.js', () => ({

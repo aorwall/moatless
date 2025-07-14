@@ -77,7 +77,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   // Clear errors when form data changes
   useEffect(() => {
     clearErrors()
-  }, [formData, clearErrors])
+  }, [clearErrors])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

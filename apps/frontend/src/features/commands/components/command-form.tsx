@@ -89,7 +89,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
   // Clear errors when form data changes
   useEffect(() => {
     clearErrors()
-  }, [formData, clearErrors])
+  }, [clearErrors])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

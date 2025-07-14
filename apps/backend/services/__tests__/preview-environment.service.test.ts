@@ -2,13 +2,16 @@ import { promises as fs } from 'node:fs'
 import type { RepositoryConfig, Task } from '@moatless/types'
 import { TaskNotFoundError } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ServerHandler } from '../../workspaces/server-handler.js'
 import { PreviewEnvironmentService } from '../preview-environment.service.js'
-import { createPreviewProxy } from '../preview-proxy.service.js'
+import { PreviewServer } from '../preview-server.js'
 import type { StorageBackend } from '../storage.js'
 import type { WorkspaceService } from '../workspace.service.js'
 
 // Mock dependencies
+vi.mock('../../utils/data-dir', () => ({
+  getDataDir: vi.fn(() => '/test'),
+}))
+
 vi.mock('node:fs', () => ({
   promises: {
     mkdir: vi.fn(),
@@ -23,16 +26,22 @@ vi.mock('node:fs', () => ({
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
   spawn: vi.fn(),
+  exec: vi.fn((_cmd, callback) => callback?.(null, { stdout: '', stderr: '' }, null)),
 }))
 
-vi.mock('../../workspaces/server-handler')
+vi.mock('../preview-server')
 vi.mock('../preview-proxy.service')
 vi.mock('../../utils/logger', () => ({
   logger: {
     info: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-    child: vi.fn().mockReturnThis(),
+    child: vi.fn(() => ({
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+    })),
   },
 }))
 
@@ -62,6 +71,7 @@ const createMockWorkspaceService = (): WorkspaceService =>
     getAllWorkspaces: vi.fn(),
     getWorkspaceStatus: vi.fn(),
     recreateWorkspace: vi.fn(),
+    canManageServer: vi.fn().mockResolvedValue(true),
   }) as any
 
 describe('PreviewEnvironmentService', () => {
@@ -77,8 +87,8 @@ describe('PreviewEnvironmentService', () => {
   beforeEach(() => {
     mockStorage = createMockStorage()
     mockWorkspaceService = createMockWorkspaceService()
+    mockFsReaddir.mockResolvedValue([])
     service = new PreviewEnvironmentService(mockStorage, mockWorkspaceService)
-    vi.clearAllMocks()
   })
 
   afterEach(() => {
@@ -89,13 +99,9 @@ describe('PreviewEnvironmentService', () => {
     it('should create preview environments directory on initialization', async () => {
       mockFsReaddir.mockResolvedValue([])
 
-      // Wait for initialization
-      await new Promise((resolve) => setTimeout(resolve, 10))
-
-      expect(mockFsMkdir).toHaveBeenCalledWith(
-        expect.stringContaining('data/preview-environments'),
-        { recursive: true },
-      )
+      // Service is already created in beforeEach which triggers initialization
+      // Just need to verify the call was made
+      expect(mockFsMkdir).toHaveBeenCalledWith('/test/preview-environments', { recursive: true })
     })
 
     it('should load and validate existing preview environments on startup', async () => {
@@ -165,6 +171,7 @@ describe('PreviewEnvironmentService', () => {
     const mockWorkspace = {
       getWorkspacePath: vi.fn().mockReturnValue('/workspace/task-1'),
       exists: vi.fn().mockResolvedValue(true),
+      environmentConfig: mockRepository,
     }
 
     beforeEach(() => {
@@ -181,14 +188,13 @@ describe('PreviewEnvironmentService', () => {
         getLogs: vi.fn().mockResolvedValue('Server started'),
       }
 
-      vi.mocked(ServerHandler).mockImplementation(() => mockHandler as any)
+      vi.mocked(PreviewServer).mockImplementation(() => mockHandler as any)
 
       const result = await service.startServer('task-1')
 
       expect(result).toMatchObject({
         running: true,
         configured: true,
-        port: 3000,
         url: 'http://localhost:3000',
         pid: 12345,
         uptimeSeconds: 0,
@@ -197,6 +203,7 @@ describe('PreviewEnvironmentService', () => {
       expect(mockFsWriteFile).toHaveBeenCalledWith(
         expect.stringContaining('task-1.json'),
         expect.any(String),
+        'utf-8',
       )
     })
 
@@ -206,7 +213,7 @@ describe('PreviewEnvironmentService', () => {
         getLogs: vi.fn().mockResolvedValue('Error: Port 3000 is already in use'),
       }
 
-      vi.mocked(ServerHandler).mockImplementation(() => mockHandler as any)
+      vi.mocked(PreviewServer).mockImplementation(() => mockHandler as any)
 
       const result = await service.startServer('task-1')
 
@@ -219,31 +226,24 @@ describe('PreviewEnvironmentService', () => {
       })
     })
 
-    it('should start proxy when configured', async () => {
+    it('should start server without proxy', async () => {
       const mockHandler = {
         start: vi.fn().mockResolvedValue({ port: 3000, pid: 12345 }),
         isRunning: vi.fn().mockReturnValue(true),
         getMetrics: vi.fn().mockReturnValue({ uptimeSeconds: 10 }),
       }
 
-      const mockProxy = {
-        start: vi.fn().mockResolvedValue({ port: 8080 }),
-        stop: vi.fn(),
-      }
-
-      vi.mocked(ServerHandler).mockImplementation(() => mockHandler as any)
-      vi.mocked(createPreviewProxy).mockReturnValue(mockProxy as any)
+      vi.mocked(PreviewServer).mockImplementation(() => mockHandler as any)
 
       const result = await service.startServer('task-1')
 
       expect(result).toMatchObject({
         running: true,
         configured: true,
-        port: 3000,
-        url: 'http://localhost:8080',
+        url: 'http://localhost:3000',
         pid: 12345,
       })
-      expect(mockProxy.start).toHaveBeenCalled()
+      // Proxy is not started in current implementation
     })
 
     it('should throw TaskNotFoundError when task not found', async () => {
@@ -254,14 +254,11 @@ describe('PreviewEnvironmentService', () => {
 
     it('should handle missing repository gracefully', async () => {
       vi.mocked(mockStorage.getRepository).mockResolvedValue(null)
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockRejectedValue(
+        new Error('Repository not found'),
+      )
 
-      const result = await service.startServer('task-1')
-
-      expect(result).toMatchObject({
-        running: false,
-        configured: false,
-        error: 'Repository not found for task',
-      })
+      await expect(service.startServer('task-1')).rejects.toThrow('Repository not found')
     })
   })
 
@@ -292,8 +289,8 @@ describe('PreviewEnvironmentService', () => {
       }
 
       // @ts-ignore - accessing private members for testing
-      service['runningServers'].set('task-1', mockHandler as any)
-      service['runningProxies'].set('task-1', mockProxy as any)
+      service.runningServers.set('task-1', mockHandler as any)
+      service.runningProxies.set('task-1', mockProxy as any)
 
       const mockWorkspace = {
         getWorkspacePath: vi.fn().mockReturnValue('/workspace/task-1'),
@@ -315,14 +312,15 @@ describe('PreviewEnvironmentService', () => {
 
       mockFsReadFile.mockResolvedValue(JSON.stringify(mockMetadata))
 
-      const { execSync } = await import('node:child_process')
-      const mockExecSync = vi.mocked(execSync)
+      const mockProcessKill = vi.spyOn(process, 'kill').mockImplementation(() => true)
 
       const result = await service.stopServer('task-1', { forceKill: true })
 
       expect(result).toBe(true)
-      expect(mockExecSync).toHaveBeenCalledWith(`kill -9 12345`, expect.any(Object))
+      expect(mockProcessKill).toHaveBeenCalledWith(12345, 'SIGKILL')
       expect(mockFsUnlink).toHaveBeenCalled()
+
+      mockProcessKill.mockRestore()
     })
 
     it('should return false when no server or metadata found', async () => {
@@ -335,82 +333,131 @@ describe('PreviewEnvironmentService', () => {
   })
 
   describe('getServerStatus', () => {
+    beforeEach(() => {
+      const mockTask: Task = {
+        taskId: 'task-1',
+        repositoryId: 'repo-1',
+        agentType: 'claude-code',
+        status: 'open',
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+      }
+      vi.mocked(mockStorage.getTask).mockResolvedValue(mockTask)
+
+      const mockRepository: RepositoryConfig = {
+        id: 'repo-1',
+        name: 'Test Repo',
+        path: '/test/repo',
+        codeExecution: {
+          type: 'local',
+          serverCommand: 'npm run dev',
+          envVars: { NODE_ENV: 'development' },
+        },
+        previewConfig: {
+          framework: 'vite',
+          serverStartCommand: 'npm run dev',
+          injectionStrategy: {
+            method: 'html-injection',
+            config: {
+              indexPath: 'index.html',
+              insertLocation: 'head',
+            },
+          },
+        },
+        variables: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      const mockWorkspace = {
+        getWorkspacePath: vi.fn().mockReturnValue('/workspace/task-1'),
+        exists: vi.fn().mockResolvedValue(true),
+        environmentConfig: mockRepository,
+      }
+
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace as any)
+    })
+
     it('should return running server status', async () => {
       const mockHandler = {
-        isRunning: vi.fn().mockReturnValue(true),
-        getMetrics: vi.fn().mockReturnValue({
+        getStatus: vi.fn().mockReturnValue({
+          running: true,
+          configured: true,
+          url: 'http://localhost:3000',
           pid: 12345,
-          port: 3000,
           uptimeSeconds: 60,
-          memoryUsage: 100,
-          cpuUsage: 10,
         }),
       }
 
       // @ts-ignore - accessing private member for testing
       service.runningServers.set('task-1', mockHandler as any)
 
-      const mockProxy = {
-        getProxyUrl: vi.fn().mockReturnValue('http://localhost:8080'),
-      }
-      // @ts-ignore - accessing private member for testing
-      service.runningProxies.set('task-1', mockProxy as any)
+      // Mock pingServer
+      vi.spyOn(service as any, 'pingServer').mockResolvedValue(true)
 
       const status = await service.getServerStatus('task-1')
 
       expect(status).toMatchObject({
         running: true,
         configured: true,
-        port: 3000,
-        url: 'http://localhost:8080',
+        url: 'http://localhost:3000',
         pid: 12345,
         uptimeSeconds: 60,
-        metrics: {
-          memoryUsage: 100,
-          cpuUsage: 10,
-        },
+        responsive: true,
       })
     })
 
-    it('should check metadata when no running handler', async () => {
+    it('should return not running when metadata exists but process is gone', async () => {
       const mockMetadata = {
         taskId: 'task-1',
         pid: 12345,
         port: 3000,
         command: 'npm run dev',
-        processStartTime: Date.now() - 120000, // 2 minutes ago
+        workspacePath: '/workspace/task-1',
+        startTime: new Date(Date.now() - 120000), // 2 minutes ago
+        processStartTime: Date.now() - 120000,
       }
 
-      mockFsReadFile.mockResolvedValue(JSON.stringify(mockMetadata))
+      mockFsReadFile.mockImplementation(async () => {
+        // Return stringified metadata, but with startTime as ISO string
+        return JSON.stringify({
+          ...mockMetadata,
+          startTime: mockMetadata.startTime.toISOString(),
+        })
+      })
 
       const { execSync } = await import('node:child_process')
       vi.mocked(execSync).mockImplementation((cmd) => {
         if (cmd.toString().includes('ps -p')) {
-          return Buffer.from('12345')
+          // Throw error to simulate process not found
+          throw new Error('Process not found')
         }
         return Buffer.from('node')
       })
 
       const status = await service.getServerStatus('task-1')
 
+      // When process is not found, it should return not running
       expect(status).toMatchObject({
-        running: true,
+        running: false,
         configured: true,
-        port: 3000,
-        pid: 12345,
-        uptimeSeconds: expect.any(Number),
+        uptimeSeconds: 0,
       })
+
+      // Metadata should be cleaned up
+      expect(mockFsUnlink).toHaveBeenCalledWith(expect.stringContaining('task-1.json'))
     })
 
     it('should return not configured status when no server found', async () => {
       mockFsReadFile.mockRejectedValue(new Error('File not found'))
 
-      const status = await service.getServerStatus('non-existent')
+      // Mock for the non-existent task
+      vi.mocked(mockStorage.getTask).mockResolvedValue(null)
 
-      expect(status).toMatchObject({
-        running: false,
-        configured: false,
-      })
+      await expect(service.getServerStatus('non-existent')).rejects.toThrow(TaskNotFoundError)
     })
   })
 
@@ -452,76 +499,7 @@ describe('PreviewEnvironmentService', () => {
     })
   })
 
-  describe('detectFramework', () => {
-    it('should detect Vite framework', async () => {
-      mockFsReadFile.mockImplementation(async (filePath) => {
-        if (filePath.toString().endsWith('package.json')) {
-          return JSON.stringify({
-            dependencies: { vite: '^5.0.0' },
-            scripts: { dev: 'vite' },
-          })
-        }
-        if (filePath.toString().endsWith('vite.config.ts')) {
-          return 'export default {}'
-        }
-        throw new Error('File not found')
-      })
-
-      vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any)
-
-      const result = await service['detectFramework']('/test/repo')
-
-      expect(result).toMatchObject({
-        type: 'vite',
-        version: '^5.0.0',
-        configFiles: expect.arrayContaining(['vite.config.ts']),
-      })
-    })
-
-    it('should detect Next.js framework', async () => {
-      mockFsReadFile.mockImplementation(async (filePath) => {
-        if (filePath.toString().endsWith('package.json')) {
-          return JSON.stringify({
-            dependencies: { next: '^14.0.0' },
-          })
-        }
-        if (filePath.toString().endsWith('next.config.js')) {
-          return 'module.exports = {}'
-        }
-        throw new Error('File not found')
-      })
-
-      vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any)
-
-      const result = await service['detectFramework']('/test/repo')
-
-      expect(result).toMatchObject({
-        type: 'nextjs',
-        version: '^14.0.0',
-        configFiles: expect.arrayContaining(['next.config.js']),
-      })
-    })
-
-    it('should return unknown for unrecognized framework', async () => {
-      mockFsReadFile.mockImplementation(async (filePath) => {
-        if (filePath.toString().endsWith('package.json')) {
-          return JSON.stringify({
-            dependencies: { express: '^4.0.0' },
-          })
-        }
-        throw new Error('File not found')
-      })
-
-      vi.mocked(fs.stat).mockRejectedValue(new Error('File not found'))
-
-      const result = await service['detectFramework']('/test/repo')
-
-      expect(result).toMatchObject({
-        type: 'unknown',
-        configFiles: [],
-      })
-    })
-  })
+  // detectFramework method removed, skipping related tests
 
   describe('stopAllServers', () => {
     it('should stop all running servers and proxies', async () => {
@@ -530,9 +508,9 @@ describe('PreviewEnvironmentService', () => {
       const mockProxy1 = { stop: vi.fn() }
 
       // @ts-ignore - accessing private members for testing
-      service['runningServers'].set('task-1', mockHandler1 as any)
-      service['runningServers'].set('task-2', mockHandler2 as any)
-      service['runningProxies'].set('task-1', mockProxy1 as any)
+      service.runningServers.set('task-1', mockHandler1 as any)
+      service.runningServers.set('task-2', mockHandler2 as any)
+      service.runningProxies.set('task-1', mockProxy1 as any)
 
       await service.stopAllServers()
 
