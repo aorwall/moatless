@@ -1,5 +1,5 @@
 import type { FileSearchResult } from '@moatless/types/types/repository'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useSearchFiles } from '@/features/repositories/hooks/use-repositories'
 
 interface UseUniversalFileAutocompleteOptions {
@@ -46,7 +46,7 @@ export function useUniversalFileAutocomplete({
     const lastAtIndex = textBeforeCursor.lastIndexOf('@')
 
     if (lastAtIndex === -1) {
-      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '' }))
+      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
       return
     }
 
@@ -56,19 +56,20 @@ export function useUniversalFileAutocomplete({
 
     if (spaceIndex !== -1) {
       // There's a space after @, so we're not in autocomplete mode
-      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '' }))
+      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
       return
     }
 
     // Extract the search term
     const searchTerm = textAfterAt
 
-    setState({
+    setState((prev) => ({
       isOpen: true,
       searchTerm,
       cursorPosition: lastAtIndex,
-      selectedIndex: 0,
-    })
+      // Reset selectedIndex when search term changes
+      selectedIndex: prev.searchTerm !== searchTerm ? 0 : prev.selectedIndex,
+    }))
   }, [])
 
   const selectFile = useCallback(
@@ -150,11 +151,6 @@ export function useUniversalFileAutocomplete({
     },
     [state.isOpen, state.selectedIndex, searchResults, selectFile],
   )
-
-  // Reset selected index when results change
-  useEffect(() => {
-    setState((prev) => ({ ...prev, selectedIndex: 0 }))
-  }, [])
 
   return {
     inputRef,
