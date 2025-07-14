@@ -348,8 +348,28 @@ export class AgentService {
               const { task: _, taskId: __, ...iterationData } = iteration
               task.iterations[iterationIndex] = iterationData
               // Update task status based on iteration result
-              task.status = event.isError || resultPayload.is_error ? 'error' : 'open'
+              const previousStatus = task.status
+              const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
+              task.status = newStatus
               await this.storage.saveTask(task)
+
+              // Emit task status change event if status actually changed
+              if (previousStatus !== newStatus) {
+                await this.eventService.emitEvent({
+                  taskId,
+                  type: EventType.TASK_STATUS,
+                  subType: newStatus,
+                  payload: {
+                    status: newStatus,
+                    previousStatus,
+                    iterationNumber: iteration.iterationNumber,
+                  },
+                  eventId: randomUUID(),
+                  timestamp: new Date(),
+                  agentType: task.agentType,
+                  isError: newStatus === 'error',
+                })
+              }
             }
           }
         }
@@ -413,8 +433,28 @@ export class AgentService {
           const { task: _, taskId: __, ...iterationData } = iteration
           task.iterations[iterationIndex] = iterationData
           // Update task status to error after failure
+          const previousStatus = task.status
           task.status = 'error'
           await this.storage.saveTask(task)
+
+          // Emit task status change event if status actually changed
+          if (previousStatus !== 'error') {
+            await this.eventService.emitEvent({
+              taskId,
+              type: EventType.TASK_STATUS,
+              subType: 'error',
+              payload: {
+                status: 'error',
+                previousStatus,
+                iterationNumber: iteration.iterationNumber,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              eventId: randomUUID(),
+              timestamp: new Date(),
+              agentType: task.agentType,
+              isError: true,
+            })
+          }
         }
       }
 

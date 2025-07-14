@@ -1,7 +1,6 @@
 import type { ClaudeCodeSDKMessage, SDKResultMessage } from './claude.js'
 
 export enum EventType {
-  INPUT = 'input',
   MESSAGE = 'message',
   START = 'start',
   STOP = 'stop',
@@ -34,13 +33,6 @@ export interface EventPayload {
 
 export interface Event extends BaseEvent {
   payload: EventPayload
-}
-
-export interface InputEvent extends BaseEvent {
-  type: EventType.INPUT
-  payload: {
-    message: string
-  }
 }
 
 export interface MessageEvent extends BaseEvent {
@@ -85,7 +77,6 @@ export interface TaskStatusEvent extends BaseEvent {
 }
 
 export type SpecificEvent =
-  | InputEvent
   | MessageEvent
   | ErrorEvent
   | WorkspaceEvent

@@ -85,17 +85,6 @@ function handleCacheInvalidation(
       }
       break;
       
-    case EventType.INPUT:
-      // Status changes affect task detail and lists
-      if (event.subtype === 'status_change') {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.taskDetail(event.taskId),
-        });
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksList(),
-        });
-      }
-      break;
   }
 }
 ```
@@ -219,7 +208,7 @@ function shouldInvalidateQuery(
   }
   
   // Don't invalidate events for status changes
-  if (dataType === 'events' && event.type === EventType.INPUT) {
+  if (dataType === 'events' && event.type === EventType.TASK_STATUS) {
     return false;
   }
   
