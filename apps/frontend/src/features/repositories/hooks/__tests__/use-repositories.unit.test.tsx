@@ -44,7 +44,6 @@ describe('useRepositories hooks', () => {
     originalBranch: 'main',
     codeExecution: {
       type: 'local' as const,
-      serverCommand: 'npm run dev',
     },
     previewConfig: {
       framework: 'vite',
@@ -52,7 +51,6 @@ describe('useRepositories hooks', () => {
     },
     createdAt: new Date(),
     updatedAt: new Date(),
-    variables: {},
   }
 
   beforeEach(() => {
@@ -135,7 +133,6 @@ describe('useRepositories hooks', () => {
         originalBranch: 'main',
         codeExecution: {
           type: 'local' as const,
-          serverCommand: 'npm run dev',
         },
       }
 

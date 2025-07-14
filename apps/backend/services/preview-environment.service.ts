@@ -119,9 +119,8 @@ export class PreviewEnvironmentService {
     const environment = workspace.environmentConfig
     const previewConfig = environment.previewConfig
 
-    // Use preview config's server command if available, otherwise fall back to codeExecution
-    const serverCommand =
-      previewConfig?.serverStartCommand || environment.codeExecution.serverCommand
+    // Use preview config's server command if available
+    const serverCommand = previewConfig?.serverStartCommand
 
     if (!serverCommand) {
       throw new WorkspaceError('No server command configured for this environment', taskId)
@@ -333,7 +332,7 @@ export class PreviewEnvironmentService {
 
     // Get workspace to check configuration
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-    const configured = Boolean(workspace.environmentConfig.codeExecution.serverCommand)
+    const configured = Boolean(workspace.environmentConfig.previewConfig?.serverStartCommand)
 
     // Check running servers
     const handler = this.runningServers.get(taskId)

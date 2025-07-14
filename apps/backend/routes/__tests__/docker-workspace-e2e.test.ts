@@ -163,7 +163,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'docker',
-        workspaceType: 'docker', // Explicitly set Docker workspace type
         dockerImage: 'moatless-vibe-universal:latest',
         setupCommands: 'echo "Docker workspace setup complete"',
       },
@@ -188,7 +187,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: createRepositoryRequest.useGitWorktrees,
       codeExecution: expect.objectContaining({
         type: 'docker',
-        workspaceType: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
       }),
     })
@@ -470,7 +468,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'docker',
-        workspaceType: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
       },
     }
@@ -545,7 +542,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'docker',
-        workspaceType: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
       },
     }

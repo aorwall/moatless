@@ -18,10 +18,34 @@ const repositoryResponseSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   path: z.string(),
-  remoteUrl: z.string().optional(),
-  branch: z.string().optional(),
-  cloneMode: z.string(),
-  setupCommands: z.array(z.string()).optional(),
+  useGitWorktrees: z.boolean().optional(),
+  originalBranch: z.string().optional(),
+  codeExecution: z.object({
+    type: z.enum(['local', 'docker']),
+    setupCommands: z.string().optional(),
+    containerName: z.string().optional(),
+    dockerImage: z.string().optional(),
+    envVars: z.record(z.string()).optional(),
+    volumes: z.array(z.string()).optional(),
+    ports: z.record(z.number()).optional(),
+    volumeMapping: z.object({
+      hostPath: z.string(),
+      containerPath: z.string(),
+    }).optional(),
+    resources: z.object({
+      cpuLimit: z.string(),
+      memoryLimit: z.string(),
+    }).optional(),
+  }),
+  previewConfig: z.object({
+    framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
+    frameworkVersion: z.string().optional(),
+    serverStartCommand: z.string().optional(),
+    injectionStrategy: z.object({
+      method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
+      config: z.record(z.any()).optional(),
+    }).optional(),
+  }).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

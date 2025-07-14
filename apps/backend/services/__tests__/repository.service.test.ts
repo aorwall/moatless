@@ -67,7 +67,6 @@ describe('RepositoryService', () => {
       originalBranch: 'main',
       codeExecution: {
         type: 'local',
-        serverCommand: 'npm run dev',
         setupCommands: 'npm install',
       },
       previewConfig: {
@@ -98,20 +97,19 @@ describe('RepositoryService', () => {
       expect(mockStorage.saveRepository).toHaveBeenCalledWith(expect.objectContaining(result))
     })
 
-    it('should use serverCommand from previewConfig if not provided', async () => {
+    it('should create repository with minimal code execution config', async () => {
       mockFsStat.mockResolvedValue({ isDirectory: () => true } as any)
       mockFsAccess.mockResolvedValue(undefined)
 
-      const requestWithoutServerCommand = {
+      const requestWithMinimalConfig = {
         ...validRequest,
         codeExecution: { type: 'local' as const, setupCommands: 'npm install' },
       }
 
-      const result = await service.createRepository(requestWithoutServerCommand)
-
-      expect(result.codeExecution.serverCommand).toBe(
-        validRequest.previewConfig?.serverStartCommand,
-      )
+      const result = await service.createRepository(requestWithMinimalConfig)
+      
+      expect(result.codeExecution.type).toBe('local')
+      expect(result.codeExecution.setupCommands).toBe('npm install')
     })
 
     it('should throw ValidationError for non-existent path', async () => {
@@ -147,7 +145,6 @@ describe('RepositoryService', () => {
         codeExecution: { type: 'local' },
         createdAt: new Date(),
         updatedAt: new Date(),
-        variables: {},
       }
       vi.mocked(mockStorage.getRepository).mockResolvedValue(mockRepo)
 
@@ -172,7 +169,6 @@ describe('RepositoryService', () => {
         codeExecution: { type: 'local' },
         createdAt: new Date('2024-01-01'),
         updatedAt: new Date(),
-        variables: {},
       }
       const repo2: RepositoryConfig = {
         id: 'repo-2',
@@ -181,7 +177,6 @@ describe('RepositoryService', () => {
         codeExecution: { type: 'local' },
         createdAt: new Date('2024-01-02'),
         updatedAt: new Date(),
-        variables: {},
       }
 
       vi.mocked(mockStorage.list).mockResolvedValue(['repositories/repo-1', 'repositories/repo-2'])
@@ -214,7 +209,6 @@ describe('RepositoryService', () => {
       codeExecution: { type: 'local' as const },
       createdAt: new Date(),
       updatedAt: new Date(),
-      variables: {},
     }
 
     it('should update repository successfully', async () => {
@@ -261,7 +255,6 @@ describe('RepositoryService', () => {
       codeExecution: { type: 'local' as const },
       createdAt: new Date(),
       updatedAt: new Date(),
-      variables: {},
     }
 
     it('should delete repository successfully', async () => {
@@ -323,7 +316,6 @@ describe('RepositoryService', () => {
       },
       createdAt: new Date(),
       updatedAt: new Date(),
-      variables: {},
     }
 
     it('should run setup commands successfully', async () => {
@@ -468,7 +460,6 @@ describe('RepositoryService', () => {
         codeExecution: { type: 'local' },
         createdAt: new Date(),
         updatedAt: new Date(),
-        variables: {},
       }
 
       vi.mocked(mockStorage.getRepository).mockResolvedValue(mockRepo)

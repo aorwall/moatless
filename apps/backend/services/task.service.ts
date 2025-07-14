@@ -317,7 +317,6 @@ export class TaskService {
         'npm install',
         {
           serverStartCommand: 'pnpm run dev',
-          serverPort: 3000,
           injectionStrategy: {
             method: 'html-injection',
           },

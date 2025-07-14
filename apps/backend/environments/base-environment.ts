@@ -1,4 +1,4 @@
-import type { RepositoryConfig } from '@moatless/types/types/repository'
+import type { RepositoryConfig } from '@moatless/types/schemas/repository.schemas'
 import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
 import type { EventService } from '../services/index.js'
 

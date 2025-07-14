@@ -136,18 +136,6 @@ export function RepositoryList({
                     </div>
                   </div>
 
-                  {Object.keys(repository.variables).length > 0 && (
-                    <div>
-                      <span className="font-medium text-muted-foreground text-sm">Variables:</span>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {Object.keys(repository.variables).map((key) => (
-                          <Badge key={key} variant="outline" className="text-xs">
-                            {key}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="text-xs text-muted-foreground">

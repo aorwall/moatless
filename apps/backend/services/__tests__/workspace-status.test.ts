@@ -73,7 +73,6 @@ describe('WorkspaceService Status Management', () => {
     codeExecution: {
       type: 'local',
     },
-    variables: {},
     createdAt: new Date(),
     updatedAt: new Date(),
   }
