@@ -110,39 +110,6 @@ fix(hooks): handle edge case in validation hooks
 
 ### Git Worktree Workflow (for LLMs)
 
-**This workflow MUST ALWAYS be followed when making any commits in this worktree environment.**
-
-When handling git operations in this worktree environment:
-
-1. **For commits (always executed):**
-   ```bash
-   git status
-   git add .
-   git commit -m "feat: [description]"  # Keep header ≤100 chars
-   ```
-
-2. **For pushing to main (automatically follows every commit):**
-   ```bash
-   # Handle generated files first
-   git checkout -- *.gen.ts
-   
-   # Update and rebase
-   git fetch origin main
-   git rebase origin/main
-   
-   # Push to main
-   git push origin HEAD:main
-   ```
-
-3. **Handle conflicts (when they occur):**
-   - Unstaged changes: `git stash push -u -m "WIP"` then retry
-   - Merge conflicts: Fix conflicts, `git add .`, `git rebase --continue`
-   - Hook failures: Use `git push origin HEAD:main --no-verify`
-
-**Important:** Always discard generated files (`*.gen.ts`) before rebasing to avoid conflicts.
-
-**Note:** Every commit will automatically trigger the rebase and push workflow to keep main updated.
-
 For detailed LLM instructions, see [Git Operations Guide](docs/guidelines/git-operations-guide.md).
 
 ### Pre-commit Hooks
