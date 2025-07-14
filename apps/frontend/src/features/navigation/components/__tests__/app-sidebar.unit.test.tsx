@@ -44,6 +44,14 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }))
 
+// Mock global event stream
+vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
+  useGlobalEventStream: () => ({
+    isConnected: true,
+    connectionError: null,
+  }),
+}))
+
 describe('AppSidebar', () => {
   it('should render all main sections', () => {
     render(<AppSidebar />)

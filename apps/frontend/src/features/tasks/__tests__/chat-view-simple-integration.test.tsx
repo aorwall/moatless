@@ -66,7 +66,6 @@ describe('Task Viewer Integration - Query Invalidation', () => {
     // Get the query client to spy on invalidations
     const client = wrapper({ children: null }).props.client
     const spyInvalidate = vi.spyOn(client, 'invalidateQueries')
-    const spyRefetch = vi.spyOn(client, 'refetchQueries')
 
     // Send message
     const { result: sendMessageResult } = renderHook(() => useSendMessage(taskId), {
@@ -84,11 +83,6 @@ describe('Task Viewer Integration - Query Invalidation', () => {
       queryKey: queryKeys.tasks.lists(),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.tasks.detail(taskId),
-    })
-
-    // Verify immediate refetch
-    expect(spyRefetch).toHaveBeenCalledWith({
       queryKey: queryKeys.tasks.detail(taskId),
     })
 

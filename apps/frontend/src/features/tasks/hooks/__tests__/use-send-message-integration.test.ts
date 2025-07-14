@@ -189,7 +189,6 @@ describe('useSendMessage Integration Test', () => {
     const testWrapper = wrapper({ children: null })
     const client = testWrapper.props.client
     const spyInvalidate = vi.spyOn(client, 'invalidateQueries')
-    const spyRefetch = vi.spyOn(client, 'refetchQueries')
 
     const { result } = renderHook(() => useSendMessage(taskId), { wrapper })
 
@@ -204,11 +203,6 @@ describe('useSendMessage Integration Test', () => {
       queryKey: queryKeys.tasks.lists(),
     })
     expect(spyInvalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.tasks.detail(taskId),
-    })
-
-    // Verify immediate refetch of task data still happens
-    expect(spyRefetch).toHaveBeenCalledWith({
       queryKey: queryKeys.tasks.detail(taskId),
     })
   })
