@@ -1,6 +1,8 @@
 import { serve } from '@hono/node-server'
 import type { TaskIteration } from '@moatless/types/types/task'
 import { Hono } from 'hono'
+import { logger as loggerMiddleware } from './middleware/logger.js'
+import { requestId } from './middleware/request-id.js'
 import { AgentService, WorkspaceService } from './services/index.js'
 import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
@@ -61,8 +63,18 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   // Create agent service
   const agentService = new AgentService(storage, eventService as any, workspaceService)
 
-  // Create HTTP server
-  const app = new Hono()
+  // Create HTTP server with proper type bindings
+  const app = new Hono<{
+    Variables: {
+      requestId: string
+    }
+  }>()
+
+  // Request ID middleware (must be first)
+  app.use('*', requestId)
+
+  // Logger middleware
+  app.use('*', loggerMiddleware)
 
   // Health check endpoint
   app.get('/health', (c) =>
