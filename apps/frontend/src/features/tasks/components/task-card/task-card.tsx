@@ -1,10 +1,13 @@
 import type { Task } from '@moatless/types/types/task'
+import type { Event, MessageEvent } from '@moatless/types/types/event'
 import { Link } from '@tanstack/react-router'
-import { MinifiedEventList } from '@/features/tasks/components/minified-event-viewer/minified-event-list'
+import { useEffect, useMemo, useState } from 'react'
+import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()
@@ -26,6 +29,21 @@ function getRelativeTime(date: Date | string): string {
   return `${years}y ago`
 }
 
+function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
+  if (event.type !== 'message') return false
+
+  const messageEvent = event as MessageEvent
+  const payload = messageEvent.payload
+
+  // Skip user messages (which are usually tool results)
+  if (payload?.type === 'user') return false
+
+  // Include assistant messages (which can be text or tool calls)
+  if (payload?.type === 'assistant') return true
+
+  return false
+}
+
 interface TaskCardProps {
   task: Task
   repositoryName: string
@@ -44,6 +62,32 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     refetchInterval: false, // Real-time updates handled by global event stream
   })
 
+  // State for live duration updates
+  const [runningDuration, setRunningDuration] = useState<string>('')
+
+  // Filter events to show only last 3 message/tool events
+  const displayedEvents = useMemo(() => {
+    if (!eventsData) return []
+    return eventsData.filter(isMessageOrToolEvent).slice(-3)
+  }, [eventsData])
+
+  // Update running duration every second for running tasks
+  useEffect(() => {
+    if (task.status !== 'running' || !lastIteration?.startTime) {
+      setRunningDuration('')
+      return
+    }
+
+    const updateDuration = () => {
+      setRunningDuration(formatRunningDuration(lastIteration.startTime))
+    }
+
+    updateDuration() // Initial update
+    const interval = setInterval(updateDuration, 1000)
+
+    return () => clearInterval(interval)
+  }, [task.status, lastIteration?.startTime])
+
   return (
     <Card className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
       <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
@@ -57,8 +101,8 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="truncate">{repositoryName}</span>
                 <span className="shrink-0">
-                  {task.status === 'running' && lastIteration?.startTime
-                    ? formatRunningDuration(lastIteration.startTime)
+                  {task.status === 'running' && runningDuration
+                    ? runningDuration
                     : getRelativeTime(task.lastMessageAt || task.createdAt)}
                 </span>
               </div>
@@ -69,9 +113,26 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <CardContent className="pt-0">
           {task.status === 'running' ? (
             // Show events for running tasks
-            eventsData && eventsData.length > 0 ? (
-              <div className="min-h-[80px] max-h-[120px] overflow-y-auto">
-                <MinifiedEventList events={eventsData} />
+            displayedEvents.length > 0 ? (
+              <div className="min-h-[80px] space-y-px">
+                {displayedEvents.map((event, index) => {
+                  const isLast = index === displayedEvents.length - 1
+                  const opacity = isLast ? 1 : 0.5 + index * 0.25
+                  const bgOpacity = isLast ? 0.5 : 0.3
+
+                  return (
+                    <div
+                      key={event.eventId}
+                      className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
+                      style={{
+                        opacity,
+                        backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
+                      }}
+                    >
+                      <MinifiedEventItem event={event} />
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground min-h-[80px] flex items-center">
