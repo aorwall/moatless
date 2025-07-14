@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeCodeAgent } from '../claude-code-agent.js'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 // Mock the Claude Code SDK
 vi.mock('@anthropic-ai/claude-code', () => ({

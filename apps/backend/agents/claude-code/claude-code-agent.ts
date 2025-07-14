@@ -2,12 +2,12 @@ import { query } from '@anthropic-ai/claude-code'
 import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/types/types/claude'
 import type { BranchNameAndSummary } from '@moatless/types/types/claude-code'
 import { type Event, EventType, type ResultEvent } from '@moatless/types/types/event'
-import { getSettingsService } from '../services/settings.service.js'
-import { calculateContextTokens } from '../utils/context-tokens.js'
-import { parseBranchNameAndSummary } from '../utils/json-parser.js'
-import { logger } from '../utils/logger.js'
-import { createBranchNamePrompt } from '../utils/prompts.js'
-import { type AgentRunOptions, BaseAgent } from './base-agent.js'
+import { getSettingsService } from '../../services/settings.service.js'
+import { calculateContextTokens } from '../../utils/context-tokens.js'
+import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
+import { logger } from '../../utils/logger.js'
+import { createBranchNamePrompt } from '../../utils/prompts.js'
+import { type AgentRunOptions, BaseAgent } from '../base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController?: AbortController

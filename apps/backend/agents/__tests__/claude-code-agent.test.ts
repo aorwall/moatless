@@ -1,6 +1,6 @@
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 import { describe, expect, it, vi } from 'vitest'
-import { ClaudeCodeAgent } from '../claude-code-agent.js'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 // Mock the @anthropic-ai/claude-code module
 vi.mock('@anthropic-ai/claude-code', () => ({

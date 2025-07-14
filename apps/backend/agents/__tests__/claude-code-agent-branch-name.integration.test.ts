@@ -1,6 +1,6 @@
 import type { BranchNameAndSummary } from '@moatless/types/types/claude-code'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ClaudeCodeAgent } from '../claude-code-agent.js'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 /**
  * Integration tests for Claude Code agent branch name generation.

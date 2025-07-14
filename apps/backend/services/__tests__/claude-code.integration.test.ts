@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ClaudeCodeAgent } from '../../agents/claude-code-agent.js'
+import { ClaudeCodeAgent } from '../../agents/claude-code/claude-code-agent.js'
 
 describe('Claude Code Integration', () => {
   let tempDir: string
