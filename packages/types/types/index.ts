@@ -38,6 +38,7 @@ export {
 } from './repository.js'
 export * from './settings.js'
 export * from './task.js'
+export * from './usage.js'
 export type {
   BaseWorkspace,
   CommandResult,
