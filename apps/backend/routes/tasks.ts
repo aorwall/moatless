@@ -588,7 +588,28 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         throw new TaskNotFoundError(taskId)
       }
 
-      // Get all events for the task
+      // For Claude Code tasks, read messages directly from Claude directory
+      if (task.agentType === 'claude-code') {
+        try {
+          // Get ClaudeCodeSettings from event service
+          const claudeCodeSettings = (eventService as any).claudeCodeSettings
+          const messageService = createMessageService(claudeCodeSettings)
+          const messages = await messageService.readMessagesFromClaudeDirectory(task)
+
+          return c.json({
+            messages,
+            totalCount: messages.length,
+          })
+        } catch (error) {
+          console.warn(
+            'Failed to read messages from Claude directory, falling back to event service',
+            error,
+          )
+          // Fall back to event service if direct reading fails
+        }
+      }
+
+      // Fallback: Get all events for the task
       const events = await eventService.getEvents(
         taskId,
         undefined, // no limit
