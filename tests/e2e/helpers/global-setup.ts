@@ -1,9 +1,9 @@
+import { type ChildProcess, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { createServer } from 'node:net'
 import type { FullConfig } from '@playwright/test'
-import { spawn, type ChildProcess } from 'node:child_process'
 
 // Store server process info globally for teardown
 declare global {
@@ -17,7 +17,7 @@ let tempDir: string
 /**
  * Find an available port starting from the given port number
  */
-async function findAvailablePort(startPort: number = 3002): Promise<number> {
+async function findAvailablePort(startPort = 3002): Promise<number> {
   for (let port = startPort; port < startPort + 100; port++) {
     if (await isPortAvailable(port)) {
       return port
@@ -32,13 +32,13 @@ async function findAvailablePort(startPort: number = 3002): Promise<number> {
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer()
-    
+
     server.listen(port, () => {
       server.close(() => {
         resolve(true)
       })
     })
-    
+
     server.on('error', () => {
       resolve(false)
     })
@@ -76,15 +76,15 @@ async function globalSetup(config: FullConfig) {
 
   // Find an available port
   const availablePort = await findAvailablePort(
-    process.env.E2E_PORT ? parseInt(process.env.E2E_PORT, 10) : 3002
+    process.env.E2E_PORT ? Number.parseInt(process.env.E2E_PORT, 10) : 3002,
   )
-  
+
   // Store the port globally for tests to use
   globalThis.__E2E_SERVER_PORT__ = availablePort
-  
+
   // Set the base URL for Playwright config
   process.env.E2E_BASE_URL = `http://127.0.0.1:${availablePort}`
-  
+
   // Start the server
   console.log(`Starting server for E2E tests on port ${availablePort}...`)
   serverProcess = spawn('node', ['apps/backend/dist/index.js'], {
@@ -111,7 +111,7 @@ async function globalSetup(config: FullConfig) {
       serverProcess.stdout.on('data', (data) => {
         const output = data.toString()
         console.log('Server:', output.trim())
-        
+
         // Look for server ready indicators
         if (output.includes('Server listening on') || output.includes('listening on port')) {
           serverReady = true
@@ -143,13 +143,15 @@ async function globalSetup(config: FullConfig) {
   // Store the server PID for cleanup
   if (serverProcess?.pid) {
     globalThis.__E2E_SERVER_PID__ = serverProcess.pid
-    console.log(`E2E setup complete. Server running on port ${availablePort} with PID: ${serverProcess.pid}`)
+    console.log(
+      `E2E setup complete. Server running on port ${availablePort} with PID: ${serverProcess.pid}`,
+    )
   } else {
     console.log(`E2E setup complete. Server running on port ${availablePort}`)
   }
-  
+
   // Give the server a moment to fully initialize
-  await new Promise(resolve => setTimeout(resolve, 2000))
+  await new Promise((resolve) => setTimeout(resolve, 2000))
 }
 
 export default globalSetup

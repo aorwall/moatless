@@ -102,7 +102,7 @@ export function createMockQueryClient() {
 // Mock for WebSocket
 export class MockWebSocket {
   url: string
-  readyState: number = 1 // OPEN
+  readyState = 1 // OPEN
   listeners: Map<string, Array<(event: MessageEvent | Event | CloseEvent) => void>> = new Map()
 
   constructor(url: string) {

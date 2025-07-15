@@ -1,13 +1,13 @@
-import type { Task } from '@moatless/types/types/task'
 import type { Event, MessageEvent } from '@moatless/types/types/event'
+import type { Task } from '@moatless/types/types/task'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
-import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()

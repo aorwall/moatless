@@ -131,7 +131,7 @@ export function ChatForm({
       // Set initial height using callback ref pattern
       node.style.height = 'auto'
       const scrollHeight = node.scrollHeight
-      const maxHeightPx = parseInt(maxHeight)
+      const maxHeightPx = Number.parseInt(maxHeight)
       const newHeight = Math.min(scrollHeight, maxHeightPx)
       node.style.height = `${newHeight}px`
     }
@@ -184,7 +184,7 @@ export function ChatForm({
     const textarea = e.target
     textarea.style.height = 'auto'
     const scrollHeight = textarea.scrollHeight
-    const maxHeightPx = parseInt(maxHeight)
+    const maxHeightPx = Number.parseInt(maxHeight)
     const newHeight = Math.min(scrollHeight, maxHeightPx)
     textarea.style.height = `${newHeight}px`
   }

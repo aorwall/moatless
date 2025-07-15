@@ -203,7 +203,7 @@ describe('Docker Workspace E2E Test', () => {
 
     const createTaskResponse = await app.inject({
       method: 'POST',
-      url: `/api/v1/tasks`,
+      url: '/api/v1/tasks',
       payload: createTaskRequest,
     })
 

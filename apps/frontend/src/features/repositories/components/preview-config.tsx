@@ -199,7 +199,7 @@ export function PreviewConfigForm({
                 placeholder="3000"
                 value={config.serverPort}
                 onChange={(e) =>
-                  setConfig({ ...config, serverPort: parseInt(e.target.value) || 3000 })
+                  setConfig({ ...config, serverPort: Number.parseInt(e.target.value) || 3000 })
                 }
               />
               <p className="text-xs text-muted-foreground">

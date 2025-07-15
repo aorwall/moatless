@@ -14,10 +14,10 @@ async function globalTeardown(config: FullConfig) {
     try {
       process.kill(globalThis.__E2E_SERVER_PID__, 'SIGTERM')
       console.log('Terminated server process:', globalThis.__E2E_SERVER_PID__)
-      
+
       // Wait a bit for graceful shutdown
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
       // Force kill if still running
       try {
         process.kill(globalThis.__E2E_SERVER_PID__, 'SIGKILL')

@@ -270,7 +270,7 @@ async function loadGitignorePatterns(dirPath: string): Promise<ReturnType<typeof
 export async function searchFilesInDirectory(
   directory: string,
   query: string,
-  limit: number = 100,
+  limit = 100,
   filePattern?: string,
 ): Promise<FileSearchResponseLegacy> {
   try {
@@ -335,7 +335,7 @@ export async function searchFilesInDirectoryNew(
   const gitignorePatterns = await loadGitignorePatterns(directory)
 
   // Recursively search through directory
-  async function searchDir(currentPath: string, relativePath: string = '') {
+  async function searchDir(currentPath: string, relativePath = '') {
     try {
       const entries = await fs.readdir(currentPath, { withFileTypes: true })
 

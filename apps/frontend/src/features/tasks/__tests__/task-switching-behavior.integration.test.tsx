@@ -26,7 +26,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
     // Simulate a complex workflow with multiple state updates
     updateChatState({
       isAtBottom: false,
-      scrollPosition: parseInt(taskName.slice(-1)) * 100,
+      scrollPosition: Number.parseInt(taskName.slice(-1)) * 100,
     })
 
     updateGitDiffState({
@@ -37,10 +37,10 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
 
     setRightPanelView('diff')
     setSelectedFile(`${taskName}/selected.ts`)
-    setSelectedIteration({ iterationNumber: parseInt(taskName.slice(-1)) } as any)
+    setSelectedIteration({ iterationNumber: Number.parseInt(taskName.slice(-1)) } as any)
     setPanelSizes({
-      left: 30 + parseInt(taskName.slice(-1)) * 10,
-      right: 70 - parseInt(taskName.slice(-1)) * 10,
+      left: 30 + Number.parseInt(taskName.slice(-1)) * 10,
+      right: 70 - Number.parseInt(taskName.slice(-1)) * 10,
     })
   }
 

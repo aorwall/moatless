@@ -23,7 +23,7 @@ export interface EventMonitor {
 export class APIEventMonitor implements EventMonitor {
   public events: Event[] = []
   public errors: string[] = []
-  public isConnected: boolean = false
+  public isConnected = false
 
   private intervalId: NodeJS.Timeout | null = null
   private seenEventIds = new Set<string>()
@@ -37,7 +37,7 @@ export class APIEventMonitor implements EventMonitor {
 
   async start(): Promise<void> {
     this.isConnected = true
-    
+
     // Poll for events every 500ms
     this.intervalId = setInterval(async () => {
       try {
@@ -49,7 +49,7 @@ export class APIEventMonitor implements EventMonitor {
   }
 
   private async fetchEvents(): Promise<void> {
-    const url = this.taskId 
+    const url = this.taskId
       ? `${this.baseURL}/api/v1/tasks/${this.taskId}/events`
       : `${this.baseURL}/api/v1/events`
 
@@ -59,7 +59,7 @@ export class APIEventMonitor implements EventMonitor {
     }
 
     const { events } = await response.json()
-    
+
     // Process only new events
     for (const event of events) {
       if (!this.seenEventIds.has(event.eventId)) {
@@ -84,7 +84,7 @@ export class APIEventMonitor implements EventMonitor {
 export class SSEEventMonitor implements EventMonitor {
   public events: Event[] = []
   public errors: string[] = []
-  public isConnected: boolean = false
+  public isConnected = false
 
   private page: Page
   private baseURL: string
@@ -101,9 +101,10 @@ export class SSEEventMonitor implements EventMonitor {
     // Inject SSE monitoring script into the page
     await this.page.addInitScript(() => {
       // Store events globally so we can access them from Playwright
-      (window as any).sseEvents = []
-      (window as any).sseErrors = []
-      (window as any).sseConnected = false
+      ;(window as any).sseEvents =
+        [](window as any).sseErrors =
+        [](window as any).sseConnected =
+          false
     })
 
     // Start the NDJSON stream connection in the browser context (matching frontend implementation)
@@ -217,23 +218,23 @@ export class SSEEventMonitor implements EventMonitor {
     `
 
     await this.page.evaluate(this.connectionScript)
-    
+
     // Wait a moment for connection to establish
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
     this.isConnected = await this.page.evaluate(() => (window as any).sseConnected)
   }
 
   async getLatestEvents(): Promise<Event[]> {
     const events = await this.page.evaluate(() => (window as any).sseEvents || [])
     this.events = events
-    
+
     // Also check for any errors
     const errors = await this.page.evaluate(() => (window as any).sseErrors || [])
     if (errors.length > 0) {
       console.log('[SSE Monitor] Errors detected:', errors)
     }
-    
+
     return events
   }
 
@@ -252,7 +253,7 @@ export class SSEEventMonitor implements EventMonitor {
     try {
       await this.page.evaluate(() => {
         if ((window as any).cleanupSSE) {
-          (window as any).cleanupSSE()
+          ;(window as any).cleanupSSE()
         }
       })
     } catch (error) {
@@ -283,8 +284,8 @@ export async function getEventStreamStatus(baseURL: string): Promise<{
 export async function waitForEvents(
   monitor: EventMonitor,
   predicate: (events: Event[]) => boolean,
-  timeoutMs: number = 30000,
-  checkIntervalMs: number = 500
+  timeoutMs = 30000,
+  checkIntervalMs = 500,
 ): Promise<Event[]> {
   const startTime = Date.now()
 
@@ -298,7 +299,7 @@ export async function waitForEvents(
       return monitor.events
     }
 
-    await new Promise(resolve => setTimeout(resolve, checkIntervalMs))
+    await new Promise((resolve) => setTimeout(resolve, checkIntervalMs))
   }
 
   throw new Error(`Timeout waiting for events. Current events: ${monitor.events.length}`)
@@ -310,15 +311,11 @@ export async function waitForEvents(
 export async function waitForEventType(
   monitor: EventMonitor,
   eventType: string,
-  timeoutMs: number = 30000
+  timeoutMs = 30000,
 ): Promise<Event> {
-  await waitForEvents(
-    monitor,
-    (events) => events.some(e => e.type === eventType),
-    timeoutMs
-  )
+  await waitForEvents(monitor, (events) => events.some((e) => e.type === eventType), timeoutMs)
 
-  const event = monitor.events.find(e => e.type === eventType)
+  const event = monitor.events.find((e) => e.type === eventType)
   if (!event) {
     throw new Error(`Event of type ${eventType} not found`)
   }
@@ -331,21 +328,21 @@ export async function waitForEventType(
 export async function waitForTaskResult(
   monitor: EventMonitor,
   taskId: string,
-  timeoutMs: number = 60000
+  timeoutMs = 60000,
 ): Promise<{ success: boolean; event: Event }> {
   await waitForEvents(
     monitor,
-    (events) => events.some(e => e.taskId === taskId && e.type === 'result'),
-    timeoutMs
+    (events) => events.some((e) => e.taskId === taskId && e.type === 'result'),
+    timeoutMs,
   )
 
-  const resultEvent = monitor.events.find(e => e.taskId === taskId && e.type === 'result')
+  const resultEvent = monitor.events.find((e) => e.taskId === taskId && e.type === 'result')
   if (!resultEvent) {
     throw new Error(`Result event for task ${taskId} not found`)
   }
 
   return {
     success: !resultEvent.isError,
-    event: resultEvent
+    event: resultEvent,
   }
 }

@@ -10,8 +10,8 @@ import { vi } from 'vitest'
  */
 export class MockEventSource extends EventEmitter {
   public url: string
-  public readyState: number = 0 // CONNECTING
-  public withCredentials: boolean = false
+  public readyState = 0 // CONNECTING
+  public withCredentials = false
   public onerror: ((event: Event) => void) | null = null
   public onmessage: ((event: MessageEvent) => void) | null = null
   public onopen: ((event: Event) => void) | null = null
@@ -74,7 +74,7 @@ export class MockEventSource extends EventEmitter {
   /**
    * Helper to simulate sending data
    */
-  simulateData(data: any, type: string = 'message') {
+  simulateData(data: any, type = 'message') {
     setTimeout(() => {
       this.triggerMessage({
         data: typeof data === 'string' ? data : JSON.stringify(data),
@@ -89,11 +89,11 @@ export class MockEventSource extends EventEmitter {
  */
 export class MockWebSocket extends EventEmitter {
   public url: string
-  public readyState: number = 0 // CONNECTING
-  public protocol: string = ''
-  public extensions: string = ''
+  public readyState = 0 // CONNECTING
+  public protocol = ''
+  public extensions = ''
   public binaryType: BinaryType = 'blob'
-  public bufferedAmount: number = 0
+  public bufferedAmount = 0
 
   public onopen: ((event: Event) => void) | null = null
   public onclose: ((event: CloseEvent) => void) | null = null
@@ -167,7 +167,7 @@ export class MockWebSocket extends EventEmitter {
   /**
    * Simulate closing the connection
    */
-  triggerClose(code: number = 1000, reason: string = 'Normal closure') {
+  triggerClose(code = 1000, reason = 'Normal closure') {
     this.readyState = 3 // CLOSED
     const event = new CloseEvent('close', { code, reason })
     if (this.onclose) {

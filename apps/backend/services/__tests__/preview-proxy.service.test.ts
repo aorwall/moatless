@@ -127,7 +127,7 @@ describe('PreviewProxyService', () => {
     })
 
     it('should inject script into HTML responses', async () => {
-      const response = await fetch(`http://localhost:9503/test.html`)
+      const response = await fetch('http://localhost:9503/test.html')
       const html = await response.text()
 
       expect(response.status).toBe(200)
@@ -137,19 +137,19 @@ describe('PreviewProxyService', () => {
 
     it('should pass through non-HTML responses unchanged', async () => {
       // Test CSS
-      const cssResponse = await fetch(`http://localhost:9503/test.css`)
+      const cssResponse = await fetch('http://localhost:9503/test.css')
       const css = await cssResponse.text()
       expect(css).toBe('body { color: red; }')
       expect(css).not.toContain(testScriptContent)
 
       // Test JSON
-      const jsonResponse = await fetch(`http://localhost:9503/api/data`)
+      const jsonResponse = await fetch('http://localhost:9503/api/data')
       const json = await jsonResponse.json()
       expect(json).toEqual({ test: 'data' })
     })
 
     it('should handle 404 responses', async () => {
-      const response = await fetch(`http://localhost:9503/not-found`)
+      const response = await fetch('http://localhost:9503/not-found')
       expect(response.status).toBe(404)
       const text = await response.text()
       expect(text).toBe('Not Found')
@@ -176,7 +176,7 @@ describe('PreviewProxyService', () => {
 
       await noBodyProxy.start()
 
-      const response = await fetch(`http://localhost:9504/`)
+      const response = await fetch('http://localhost:9504/')
       const html = await response.text()
       expect(html).toContain(testScriptContent)
       expect(html).toContain('<script>/* Test Inspector Script */</script></html>')
@@ -199,7 +199,7 @@ describe('PreviewProxyService', () => {
       )
       await proxyService.start()
 
-      const response = await fetch(`http://localhost:9505/test`)
+      const response = await fetch('http://localhost:9505/test')
       expect(response.status).toBe(500) // Internal Server Error (since proxy can't handle the error)
       const text = await response.text()
       expect(text).toBe('Internal Server Error')
@@ -215,7 +215,7 @@ describe('PreviewProxyService', () => {
       await proxyService.start()
 
       // Make request with invalid headers that might cause issues
-      const response = await fetch(`http://localhost:9506/test`, {
+      const response = await fetch('http://localhost:9506/test', {
         headers: {
           'Invalid-Header': '\n\r',
         },
@@ -247,7 +247,7 @@ describe('PreviewProxyService', () => {
         }
       })
 
-      const response = await fetch(`http://localhost:9507/with-script.html`)
+      const response = await fetch('http://localhost:9507/with-script.html')
       const html = await response.text()
 
       // Should inject before closing body tag

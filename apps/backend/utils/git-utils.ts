@@ -86,9 +86,9 @@ async function getUntrackedFilesDiff(repoPath: string): Promise<string> {
 
           // Create a diff-like output for untracked files
           untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
-          untrackedDiffs += `new file mode 100644\n`
-          untrackedDiffs += `index 0000000..0000000\n`
-          untrackedDiffs += `--- /dev/null\n`
+          untrackedDiffs += 'new file mode 100644\n'
+          untrackedDiffs += 'index 0000000..0000000\n'
+          untrackedDiffs += '--- /dev/null\n'
           untrackedDiffs += `+++ b/${filename}\n`
 
           // Add file content with + prefix
@@ -102,8 +102,8 @@ async function getUntrackedFilesDiff(repoPath: string): Promise<string> {
         } catch {
           // If we can't read the file, just add a header
           untrackedDiffs += `diff --git a/${filename} b/${filename}\n`
-          untrackedDiffs += `new file mode 100644\n`
-          untrackedDiffs += `Binary file\n`
+          untrackedDiffs += 'new file mode 100644\n'
+          untrackedDiffs += 'Binary file\n'
         }
       }
     }
@@ -153,7 +153,7 @@ export async function getBestCompareReference(
 export async function checkAndFetchOrigin(
   repoPath: string,
   baseBranch?: string,
-  shouldFetch: boolean = true,
+  shouldFetch = true,
 ): Promise<boolean> {
   try {
     await execAsync('git remote get-url origin', {
@@ -270,7 +270,7 @@ export async function createBranch(repoPath: string, branchName: string): Promis
   }
 }
 
-export async function getCommitHash(repoPath: string, short: boolean = true): Promise<string> {
+export async function getCommitHash(repoPath: string, short = true): Promise<string> {
   try {
     const command = short ? 'git rev-parse --short HEAD' : 'git rev-parse HEAD'
     const { stdout } = await execAsync(command, {
@@ -359,7 +359,7 @@ export async function hasUnmergedCommits(repoPath: string, baseBranch?: string):
       timeout: 5000,
     })
 
-    const commitCount = parseInt(stdout.trim(), 10)
+    const commitCount = Number.parseInt(stdout.trim(), 10)
     return commitCount > 0
   } catch (_error) {
     // Try with master if main fails
@@ -370,7 +370,7 @@ export async function hasUnmergedCommits(repoPath: string, baseBranch?: string):
           timeout: 5000,
         })
 
-        const commitCount = parseInt(stdout.trim(), 10)
+        const commitCount = Number.parseInt(stdout.trim(), 10)
         return commitCount > 0
       } catch {
         // If both main and master fail, assume no unmerged commits
@@ -393,7 +393,7 @@ export async function isBehindBase(repoPath: string, baseBranch?: string): Promi
       timeout: 5000,
     })
 
-    const commitCount = parseInt(stdout.trim(), 10)
+    const commitCount = Number.parseInt(stdout.trim(), 10)
     return commitCount > 0
   } catch (_error) {
     // Try with master if main fails
@@ -404,7 +404,7 @@ export async function isBehindBase(repoPath: string, baseBranch?: string): Promi
           timeout: 5000,
         })
 
-        const commitCount = parseInt(stdout.trim(), 10)
+        const commitCount = Number.parseInt(stdout.trim(), 10)
         return commitCount > 0
       } catch {
         // If both main and master fail, assume not behind
@@ -478,7 +478,7 @@ export async function getCommitCounts(
     const [behind, ahead] = stdout
       .trim()
       .split('\t')
-      .map((n) => parseInt(n, 10))
+      .map((n) => Number.parseInt(n, 10))
     return { ahead, behind }
   } catch {
     // Try with master if main fails
@@ -492,7 +492,7 @@ export async function getCommitCounts(
         const [behind, ahead] = stdout
           .trim()
           .split('\t')
-          .map((n) => parseInt(n, 10))
+          .map((n) => Number.parseInt(n, 10))
         return { ahead, behind }
       } catch {
         return { ahead: 0, behind: 0 }
@@ -647,7 +647,7 @@ export async function mergeGitBranch(
 
 export async function isBranchCheckedOut(repoPath: string, branchName: string): Promise<boolean> {
   try {
-    const { stdout } = await execAsync(`git worktree list --porcelain`, {
+    const { stdout } = await execAsync('git worktree list --porcelain', {
       cwd: repoPath,
       timeout: 10000,
     })
@@ -855,7 +855,7 @@ export async function getOriginCommitCounts(
     const [behind, ahead] = stdout
       .trim()
       .split('\t')
-      .map((n) => parseInt(n, 10))
+      .map((n) => Number.parseInt(n, 10))
 
     return { ahead, behind }
   } catch (error) {
@@ -914,11 +914,13 @@ export async function getGitDiffDetailed(
           status = 'added'
           isNewFile = true
           break
-        } else if (line.includes('deleted file mode')) {
+        }
+        if (line.includes('deleted file mode')) {
           status = 'deleted'
           isDeletedFile = true
           break
-        } else if (line.includes('rename from') || line.includes('rename to')) {
+        }
+        if (line.includes('rename from') || line.includes('rename to')) {
           status = 'renamed'
           isRenamedFile = true
           break
@@ -1196,8 +1198,8 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
     for (const line of lines) {
       const parts = line.split('\t')
       if (parts.length >= 3) {
-        const additions = parseInt(parts[0], 10) || 0
-        const deletions = parseInt(parts[1], 10) || 0
+        const additions = Number.parseInt(parts[0], 10) || 0
+        const deletions = Number.parseInt(parts[1], 10) || 0
         const filename = parts[2]
 
         if (!Number.isNaN(additions) && !Number.isNaN(deletions)) {

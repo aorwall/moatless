@@ -211,7 +211,7 @@ process.on('SIGTERM', () => {
     expect(startResult.configured).toBe(true)
 
     // Extract port from URL
-    const serverPort = parseInt(startResult.url.split(':').pop()!)
+    const serverPort = Number.parseInt(startResult.url.split(':').pop()!)
     expect(serverPort).toBeGreaterThan(0)
     console.log('Server started on port:', serverPort)
 
@@ -320,7 +320,7 @@ process.on('SIGTERM', () => {
     expect(restartResult.running).toBe(true)
     expect(restartResult.url).toMatch(/^http:\/\/localhost:\d+$/)
 
-    const restartPort = parseInt(restartResult.url.split(':').pop()!)
+    const restartPort = Number.parseInt(restartResult.url.split(':').pop()!)
     expect(restartPort).toBeGreaterThan(0) // Might be different port
 
     console.log('Server restarted successfully on port:', restartPort)
@@ -485,7 +485,7 @@ process.on('SIGTERM', () => {
       expect(startResponse.statusCode).toBe(200)
 
       const startResult = JSON.parse(startResponse.body)
-      const port = parseInt(startResult.url.split(':').pop()!)
+      const port = Number.parseInt(startResult.url.split(':').pop()!)
 
       // Wait for server to be ready
       await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -506,7 +506,7 @@ process.on('SIGTERM', () => {
         },
       )
 
-      console.log(`Server response:`, response)
+      console.log('Server response:', response)
       expect(response.port).toBe(String(port))
       expect(response.requestCount).toBe(1)
 
@@ -613,7 +613,7 @@ process.on('SIGTERM', () => {
     expect(startResponse.statusCode).toBe(200)
 
     const startResult = JSON.parse(startResponse.body)
-    const port = parseInt(startResult.url.split(':').pop()!)
+    const port = Number.parseInt(startResult.url.split(':').pop()!)
     const pid = startResult.pid
 
     console.log(`Server started with PID ${pid} on port ${port}`)
@@ -758,7 +758,7 @@ process.on('SIGTERM', () => {
     expect(firstStart.statusCode).toBe(200)
 
     const firstResult = JSON.parse(firstStart.body)
-    const firstPort = parseInt(firstResult.url.split(':').pop()!)
+    const firstPort = Number.parseInt(firstResult.url.split(':').pop()!)
     const firstPid = firstResult.pid
 
     console.log(`First server started with PID ${firstPid} on port ${firstPort}`)
@@ -773,7 +773,7 @@ process.on('SIGTERM', () => {
     const secondResult = JSON.parse(secondStart.body)
 
     // Should return the same server
-    const secondPort = parseInt(secondResult.url.split(':').pop()!)
+    const secondPort = Number.parseInt(secondResult.url.split(':').pop()!)
     expect(secondPort).toBe(firstPort)
     expect(secondResult.pid).toBe(firstPid)
     expect(secondResult.running).toBe(true)

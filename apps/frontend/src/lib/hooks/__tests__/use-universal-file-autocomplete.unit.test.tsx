@@ -1,7 +1,7 @@
-import { renderHook, act } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
-import { useUniversalFileAutocomplete } from '../use-universal-file-autocomplete'
+import { act, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { useSearchFiles } from '@/features/repositories/hooks/use-repositories'
+import { useUniversalFileAutocomplete } from '../use-universal-file-autocomplete'
 
 // Mock the API hook
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
@@ -40,7 +40,7 @@ describe('useUniversalFileAutocomplete', () => {
         repositoryId: 'test-repo',
         value: '',
         onValueChange,
-      })
+      }),
     )
 
     // Type @file to trigger autocomplete
@@ -69,7 +69,7 @@ describe('useUniversalFileAutocomplete', () => {
         repositoryId: 'test-repo',
         value: '@file',
         onValueChange,
-      })
+      }),
     )
 
     // Initialize autocomplete

@@ -351,7 +351,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
-  const port = parseInt(process.env.PORT || '8001')
+  const port = Number.parseInt(process.env.PORT || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 
   serve({

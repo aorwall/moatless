@@ -129,11 +129,9 @@ export function SidebarTasks() {
     data,
     isLoading: isLoadingTasks,
     error: tasksError,
-  } = useTasksList(
-    {
-      limit: 100,
-    }
-  )
+  } = useTasksList({
+    limit: 100,
+  })
 
   const tasks = data?.items
 

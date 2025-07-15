@@ -429,7 +429,7 @@ process.on('SIGTERM', () => {
   async function createRepository(name: string, serverCommand: string): Promise<RepositoryConfig> {
     const request: CreateRepositoryRequest = {
       name,
-      description: `Test repository for shutdown testing`,
+      description: 'Test repository for shutdown testing',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
