@@ -3,6 +3,7 @@
 export { useFileContent } from './api/use-file-content'
 export { useFileList } from './api/use-file-list'
 export { useFileSearch } from './api/use-file-search'
+export { useFileTreeWithChanges } from './api/use-file-tree-with-changes'
 
 // Components
 export { FileTree } from './components/file-tree'
