@@ -7,16 +7,17 @@ import { WorkspaceStatus } from '@moatless/types'
 import type { GitDiffResponse } from '../utils/index.js'
 import { createGitWorktree, isGitRepository, syncWithMain } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
-import type { BaseWorkspace, FileSearchRequest, FileSearchResponse } from '../workspaces/base.js'
-import { DockerWorkspace } from '../workspaces/docker.js'
-import { LocalWorkspace } from '../workspaces/local.js'
+import { Workspace } from '../workspaces/workspace.js'
+import { LocalEnvironment } from '../environments/local-environment.js'
+import { DockerEnvironment } from '../environments/docker-environment.js'
+import type { FileSearchRequest, FileSearchResponse } from '../services/file-operations.service.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
-  private activeWorkspaces: Map<string, BaseWorkspace> = new Map()
+  private activeWorkspaces: Map<string, Workspace> = new Map()
   private backgroundTasks: Map<string, Set<Promise<unknown>>> = new Map()
   private previewEnvironmentService?: PreviewEnvironmentService
 
@@ -30,7 +31,7 @@ export class WorkspaceService {
     taskId: string,
     repositoryId: string,
     branchName?: string,
-  ): Promise<BaseWorkspace> {
+  ): Promise<Workspace> {
     const repository = await this.repositoryService.getRepositoryById(repositoryId)
     if (!repository) {
       logger.error('Repository not found', undefined, { repositoryId })
@@ -40,25 +41,24 @@ export class WorkspaceService {
     // Create workspace path for local repositories
     const workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
 
-    // Always create LocalWorkspace first
-    const localWorkspace = new LocalWorkspace(
+    // Create the appropriate environment based on repository config
+    let environment
+    if (repository.codeExecution.type === 'docker') {
+      environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
+    } else {
+      environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
+    }
+
+    // Create unified workspace that composes the environment and file operations
+    const workspace = new Workspace(
       taskId,
       repository,
       this.eventService,
+      environment,
+      workspacePath,
       undefined, // originalBranch
       branchName,
-      workspacePath,
     )
-
-    // Determine workspace type from repository config code execution type
-    let workspace: BaseWorkspace
-    if (repository.codeExecution.type === 'docker') {
-      // Create DockerWorkspace that wraps LocalWorkspace
-      workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
-    } else {
-      // Use LocalWorkspace directly
-      workspace = localWorkspace
-    }
 
     this.activeWorkspaces.set(taskId, workspace)
 
@@ -145,7 +145,7 @@ export class WorkspaceService {
     }
   }
 
-  async getOrCreateWorkspace(taskId: string, branchName?: string): Promise<BaseWorkspace> {
+  async getOrCreateWorkspace(taskId: string, branchName?: string): Promise<Workspace> {
     const workspaceLogger = logger.child({ taskId })
 
     // Check if workspace already exists
@@ -191,36 +191,29 @@ export class WorkspaceService {
         existingWorkspacePath ||
         (await this.createWorkspaceRepository(repository, taskId, branchName))
 
-      // Always create LocalWorkspace first
-      const localWorkspace = new LocalWorkspace(
-        taskId,
-        repository,
-        this.eventService,
-        undefined,
-        branchName,
-        workspacePath,
-      )
-
-      let workspace: BaseWorkspace
+      // Create the appropriate environment based on repository config
+      let environment
       if (repository.codeExecution.type === 'docker') {
-        workspaceLogger.debug('Creating Docker workspace with existing path')
-        // Create DockerWorkspace that wraps LocalWorkspace
-        workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
-
-        // For Docker workspaces, check if container is still running
-        if ((workspace as DockerWorkspace).getContainerId()) {
-          workspaceLogger.info('Docker workspace has existing container', {
-            containerId: (workspace as DockerWorkspace).getContainerId(),
-          })
-        }
+        workspaceLogger.debug('Creating Docker environment with existing path')
+        environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
       } else {
-        workspaceLogger.debug('Creating Local workspace with existing path', {
+        workspaceLogger.debug('Creating Local environment with existing path', {
           branchName,
           existingWorkspacePath,
         })
-        // Use LocalWorkspace directly
-        workspace = localWorkspace
+        environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
       }
+
+      // Create unified workspace that composes the environment and file operations
+      const workspace = new Workspace(
+        taskId,
+        repository,
+        this.eventService,
+        environment,
+        workspacePath,
+        undefined, // originalBranch
+        branchName,
+      )
 
       // Store the workspace in the active workspaces map
       this.activeWorkspaces.set(taskId, workspace)
@@ -235,7 +228,7 @@ export class WorkspaceService {
     }
   }
 
-  async getWorkspace(taskId: string): Promise<BaseWorkspace | null> {
+  async getWorkspace(taskId: string): Promise<Workspace | null> {
     // Check active workspaces only
     return this.activeWorkspaces.get(taskId) || null
   }
@@ -447,11 +440,34 @@ export class WorkspaceService {
       workspace.getGitChanges(),
     ])
 
+    // Get environment information
+    const environment = workspace.getEnvironment()
+    const environmentType = environment.getType()
+    const environmentStatus = environment.getStatus()
+    const environmentError = environment.getError()
+    const environmentCreatedAt = environment.getCreatedAt()
+
+    // Check if file operations are available (workspace path exists on disk)
+    const fileOperationsAvailable = await workspace.isWorkspacePathValid()
+    
+    // Determine capabilities based on environment status and file operations availability
+    const capabilities = {
+      fileOperations: fileOperationsAvailable,
+      commandExecution: environmentStatus === 'ready',
+    }
+
     return {
       status: workspace.getStatus(),
       gitStatus,
       gitChanges,
       backgroundTaskCount,
+      environment: {
+        type: environmentType,
+        status: environmentStatus,
+        error: environmentError,
+        createdAt: environmentCreatedAt.toISOString(),
+        capabilities,
+      },
     }
   }
 

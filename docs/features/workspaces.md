@@ -4,9 +4,10 @@
 
 ### Key Files
 - **Workspace Service**: `apps/backend/services/workspace.service.ts`
-- **Base Workspace**: `apps/backend/workspaces/base.ts`
-- **Local Workspace**: `apps/backend/workspaces/local.ts`
-- **Docker Workspace**: `apps/backend/workspaces/docker.ts`
+- **Unified Workspace**: `apps/backend/workspaces/workspace.ts`
+- **File Operations**: `apps/backend/services/file-operations.service.ts`
+- **Local Environment**: `apps/backend/environments/local-environment.ts`
+- **Docker Environment**: `apps/backend/environments/docker-environment.ts`
 - **Git Utilities**: `apps/backend/utils/git-utils.ts`
 - **Workspace Routes**: `apps/backend/routes/workspace.routes.ts`
 
@@ -24,66 +25,107 @@ writeFile(taskId: string, path: string, content: string): Promise<void>
 
 ## Architecture Overview
 
-Workspaces provide isolated execution environments for AI agents using either Git worktrees (local) or Docker containers.
+Workspaces provide isolated execution environments for AI agents using either Git worktrees (local) or Docker containers. The architecture separates file operations from execution environments for better modularity.
 
 ```mermaid
 graph TB
     TS[Task Service] -->|create| WS[Workspace Service]
-    WS -->|factory| BW[Base Workspace]
-    BW -->|local| LW[Local Workspace]
-    BW -->|docker| DW[Docker Workspace]
+    WS -->|composes| W[Unified Workspace]
+    W -->|delegates file ops| FO[FileOperations]
+    W -->|delegates execution| ENV[Environment]
+    ENV -->|local| LE[LocalEnvironment]
+    ENV -->|docker| DE[DockerEnvironment]
     
-    LW -->|worktree| GIT[Git Worktrees]
-    DW -->|container| DOC[Docker Engine]
+    FO -->|uses| GIT[Git Utilities]
+    LE -->|worktree| GIT
+    DE -->|container| DOC[Docker Engine]
     
     AS[Agent Service] -->|execute in| WS
 ```
 
-## Workspace Types
+## New Architecture Design
 
-### 1. Local Workspace (Git Worktrees)
-```typescript
-// apps/backend/workspaces/local.ts
-class LocalWorkspace extends BaseWorkspace {
-  async setup() {
-    // Create git worktree
-    const branchName = `workspace-${this.taskId}`;
-    await createGitWorktree(this.repoPath, branchName, this.workspacePath);
-    
-    // Run setup commands
-    for (const cmd of this.config.setupCommands) {
-      await this.executeCommand(cmd);
+### Composition-Based Architecture
+
+```mermaid
+classDiagram
+    class Workspace {
+        +taskId: string
+        +type: 'local' | 'docker'
+        +status: WorkspaceStatus
+        +setup(): Promise~void~
+        +teardown(): Promise~void~
+        +runCommand(): Promise~CommandResult~
+        +listFiles(): Promise~string[]~
+        +readFile(): Promise~string~
+        +writeFile(): Promise~void~
+        +searchFiles(): Promise~FileSearchResponse~
+        +getGitDiff(): Promise~GitDiffResponse~
+        +getGitStatus(): Promise~GitStatus~
+        +getGitChanges(): Promise~GitChanges~
     }
-  }
-  
-  async teardown() {
-    // Remove worktree and branch
-    await removeGitWorktree(this.workspacePath);
-    await deleteBranch(this.branchName);
-  }
-}
+    
+    class FileOperations {
+        +pathExists(): Promise~boolean~
+        +isWorkspacePathValid(): Promise~boolean~
+        +listFiles(): Promise~string[]~
+        +readFile(): Promise~string~
+        +writeFile(): Promise~void~
+        +searchFiles(): Promise~FileSearchResponse~
+        +getGitDiff(): Promise~GitDiffResponse~
+        +getGitStatus(): Promise~GitStatus~
+        +getGitChanges(): Promise~GitChanges~
+        +hasUncommittedChanges(): Promise~boolean~
+    }
+    
+    class BaseEnvironment {
+        <<abstract>>
+        +getType(): 'local' | 'docker'
+        +getStatus(): EnvironmentStatus
+        +setup(): Promise~void~
+        +teardown(): Promise~void~
+        +runCommand(): Promise~CommandResult~
+        +isRunning(): boolean
+        +stopAgent(): Promise~boolean~
+    }
+    
+    class LocalEnvironment {
+        -workspacePath: string
+        +runSetupCommands()
+        +executeCommand()
+    }
+    
+    class DockerEnvironment {
+        -containerId: string
+        -containerName: string
+        +createContainer()
+        +executeInContainer()
+    }
+    
+    Workspace --> FileOperations : composes
+    Workspace --> BaseEnvironment : composes
+    BaseEnvironment <|-- LocalEnvironment
+    BaseEnvironment <|-- DockerEnvironment
 ```
 
-### 2. Docker Workspace (Container Isolation)
-```typescript
-// apps/backend/workspaces/docker.ts
-class DockerWorkspace extends BaseWorkspace {
-  async setup() {
-    // Create container
-    this.containerId = await docker.createContainer({
-      Image: this.config.dockerImage,
-      name: `moatless-task-${this.taskId}`,
-      Env: ['WORKER_MODE=true', `WORKER_TASK_ID=${this.taskId}`],
-      HostConfig: {
-        Binds: [`${this.repoPath}:/workspace`]
-      }
-    });
-    
-    await docker.startContainer(this.containerId);
-    await this.waitForHealthCheck();
-  }
-}
-```
+### Key Components
+
+1. **Unified Workspace** (`apps/backend/workspaces/workspace.ts`)
+   - Single implementation replacing LocalWorkspace and DockerWorkspace
+   - Composes FileOperations for file/git operations
+   - Composes Environment for command execution
+   - Delegates operations to appropriate services
+
+2. **FileOperations Service** (`apps/backend/services/file-operations.service.ts`)
+   - Handles all file system operations
+   - Manages git operations (diff, status, changes)
+   - Path validation and security
+   - File size limits and safety checks
+
+3. **Environment Abstractions**
+   - **LocalEnvironment**: Git worktree-based execution
+   - **DockerEnvironment**: Container-based isolation
+   - Both implement BaseEnvironment interface
 
 ## Implementation Guide
 
@@ -99,23 +141,69 @@ async createWorkspace(taskId: string, repositoryId: string) {
                process.env.DEFAULT_WORKSPACE_TYPE || 
                'local';
   
-  // Create workspace instance
-  const workspace = type === 'docker' 
-    ? new DockerWorkspace(taskId, repo)
-    : new LocalWorkspace(taskId, repo);
+  // Create environment based on type
+  const environment = type === 'docker' 
+    ? new DockerEnvironment(taskId, repo)
+    : new LocalEnvironment(taskId, repo);
   
-  // Setup workspace
+  // Create unified workspace with environment
+  const workspace = new Workspace(
+    taskId,
+    repo,
+    this.eventService,
+    environment
+  );
+  
+  // Setup workspace (delegates to environment)
   await workspace.setup();
   
   // Register workspace
   this.activeWorkspaces.set(taskId, workspace);
   
   // Save path to task
-  await this.taskService.updateWorkspacePath(taskId, workspace.getPath());
+  await this.taskService.updateWorkspacePath(taskId, workspace.getWorkspacePath());
 }
 ```
 
-### 2. Workspace Capabilities
+### 2. File Operations Delegation
+```typescript
+// Workspace delegates file operations to FileOperations service
+class Workspace {
+  private fileOperations: FileOperations;
+  
+  async readFile(path: string): Promise<string> {
+    return this.fileOperations.readFile(path);
+  }
+  
+  async writeFile(path: string, content: string): Promise<void> {
+    return this.fileOperations.writeFile(path, content);
+  }
+  
+  async getGitDiff(): Promise<GitDiffResponse> {
+    return this.fileOperations.getGitDiff();
+  }
+}
+```
+
+### 3. Command Execution Delegation
+```typescript
+// Workspace delegates execution to environment
+class Workspace {
+  private environment: BaseEnvironment;
+  
+  async runCommand(command: string, timeout?: number): Promise<CommandResult> {
+    return this.environment.runCommand(command, timeout);
+  }
+  
+  isRunning(): boolean {
+    return this.environment.isRunning();
+  }
+}
+```
+
+## Workspace Capabilities
+
+### State-Based Operations
 ```typescript
 // State-based capability checking
 interface WorkspaceCapabilities {
@@ -129,13 +217,15 @@ interface WorkspaceCapabilities {
 // Usage
 const workspace = await workspaceService.getWorkspace(taskId);
 if (workspace.canExecuteCommands()) {
-  const result = await workspace.executeCommand('npm test');
+  const result = await workspace.runCommand('npm test');
 }
 ```
 
-### 3. Git Status vs Git Changes
+## Git Operations
+
+### Git Status vs Git Changes
 ```typescript
-// GitStatus - Repository sync state
+// GitStatus - Repository sync state with base branch
 interface GitStatus {
   currentBranch: string;
   baseBranch: string;
@@ -143,14 +233,20 @@ interface GitStatus {
   commitsAhead: number;
   commitsBehind: number;
   hasUncommittedChanges: boolean;
+  hasConflicts: boolean;
+  originExists: boolean;
+  additions: number;    // vs base branch
+  deletions: number;    // vs base branch
+  modifications: number; // vs base branch
 }
 
-// GitChanges - Working directory state
+// GitChanges - Working directory state only
 interface GitChanges {
+  currentBranch: string;
   status: 'clean' | 'modified' | 'error';
-  additions: number;    // Lines added
-  deletions: number;    // Lines deleted
-  modifications: number; // Files modified
+  additions: number;    // Lines added in working dir
+  deletions: number;    // Lines deleted in working dir
+  modifications: number; // Files modified in working dir
 }
 ```
 
@@ -158,60 +254,30 @@ interface GitChanges {
 
 ### Path Validation
 ```typescript
-// Ensure operations stay within workspace
-validatePath(requestedPath: string): string {
-  const resolved = path.resolve(this.workspacePath, requestedPath);
-  if (!resolved.startsWith(this.workspacePath)) {
-    throw new Error('Path traversal detected');
+// FileOperations ensures operations stay within workspace
+async readFile(filePath: string): Promise<string> {
+  const fullPath = path.join(this.workspacePath, filePath);
+  const resolved = path.resolve(fullPath);
+  const resolvedWorkspace = path.resolve(this.workspacePath);
+  
+  if (!resolved.startsWith(resolvedWorkspace)) {
+    throw new Error('Access denied: path outside workspace');
   }
-  return resolved;
+  
+  // Continue with file read...
 }
 ```
 
-### Command Execution
+### Workspace Recreation
 ```typescript
-// Execute with timeout and resource limits
-async executeCommand(command: string, options?: ExecOptions) {
-  const timeout = options?.timeout || 30000;
-  const maxBuffer = 10 * 1024 * 1024; // 10MB
+// AgentService handles workspace recreation when path is missing
+if (!(await workspace.isWorkspacePathValid())) {
+  await this.recreateWorkspace(taskId, iteration);
+  const recreatedWorkspace = await this.workspaceService.getOrCreateWorkspace(taskId);
   
-  const result = await exec(command, {
-    cwd: this.workspacePath,
-    timeout,
-    maxBuffer,
-    shell: true
-  });
-  
-  return {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    exitCode: result.code || 0
-  };
-}
-```
-
-### Workspace Recovery
-```typescript
-// Recover workspace after crash
-async recoverWorkspace(taskId: string) {
-  const task = await this.taskService.getTask(taskId);
-  if (!task.workspacePath) return null;
-  
-  // Check if workspace still exists
-  if (await fs.pathExists(task.workspacePath)) {
-    // Recreate workspace instance
-    const workspace = new LocalWorkspace(taskId, task.repository);
-    workspace.workspacePath = task.workspacePath;
-    
-    // Verify git worktree
-    if (await isGitWorktree(task.workspacePath)) {
-      this.activeWorkspaces.set(taskId, workspace);
-      return workspace;
-    }
+  if (recreatedWorkspace.getStatus() !== WorkspaceStatus.IDLE) {
+    throw new Error('Workspace recreation failed');
   }
-  
-  // Workspace lost, recreate
-  await this.createWorkspace(taskId, task.repositoryId);
 }
 ```
 
@@ -244,6 +310,29 @@ WORKTREE_DIR=/path/to/worktrees
 DOCKER_HOST=unix:///var/run/docker.sock
 WORKER_API_URL=http://host.docker.internal:8000
 ```
+
+## Migration Notes
+
+### From Old to New Architecture
+
+**Before (Inheritance-based):**
+- `BaseWorkspace` abstract class
+- `LocalWorkspace extends BaseWorkspace`
+- `DockerWorkspace extends BaseWorkspace`
+- Mixed file and execution concerns
+
+**After (Composition-based):**
+- `Workspace` unified class
+- `FileOperations` service for file/git operations
+- `LocalEnvironment` for local execution
+- `DockerEnvironment` for container execution
+- Clean separation of concerns
+
+### Key Benefits
+1. **No Code Duplication**: Single FileOperations implementation
+2. **Better Testing**: Test file operations independently
+3. **Flexible**: Easy to add new environment types
+4. **Maintainable**: Each component has single responsibility
 
 ## Troubleshooting
 

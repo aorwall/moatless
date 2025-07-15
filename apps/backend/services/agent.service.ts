@@ -5,7 +5,6 @@ import { WorkspaceStatus } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
-import type { BaseWorkspace } from '../workspaces/base.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -194,7 +193,7 @@ export class AgentService {
     message: string,
     taskId: string,
     iteration: TaskIteration,
-    workspace: BaseWorkspace,
+    workspace: Awaited<ReturnType<WorkspaceService['getOrCreateWorkspace']>>,
     resumeSessionId?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })

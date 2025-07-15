@@ -8,7 +8,7 @@ import { build } from '../../test/helper.js'
 import { getDataDir } from '../../utils/data-dir.js'
 
 /**
- * Backend Integration Test for Upload Workflow with LocalWorkspace
+ * Backend Integration Test for Upload Workflow with Workspace
  *
  * This test verifies the complete file upload workflow:
  * 1. Create a real git repository and repository config
@@ -20,7 +20,7 @@ import { getDataDir } from '../../utils/data-dir.js'
  * 7. Cleanup verification
  */
 
-describe('Upload Integration Test with LocalWorkspace', () => {
+describe('Upload Integration Test with Workspace', () => {
   let app: any
   let tempDir: string
   let createdRepositoryId: string
@@ -115,7 +115,7 @@ describe('Upload Integration Test with LocalWorkspace', () => {
     }
   })
 
-  it('should complete full upload workflow with LocalWorkspace', async () => {
+  it('should complete full upload workflow with Workspace', async () => {
     // Step 1: Upload files to temp directory
     const textFileContent = 'Hello, this is a test document for upload workflow testing.'
     const imageFileContent = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) // PNG header
