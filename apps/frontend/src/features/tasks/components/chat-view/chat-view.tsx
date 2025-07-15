@@ -188,7 +188,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
     lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
 
   const isTaskRunning = status === 'running'
-  
+
   // Disable sending based on conditions
   const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())
 
@@ -224,9 +224,12 @@ function ChatViewComponent({ className }: ChatViewProps) {
                 <div className="px-4 py-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
                   <div className="flex items-start gap-3">
                     <div className="flex-1">
-                      <p className="text-sm text-status-warning font-medium">Previous iteration failed</p>
+                      <p className="text-sm text-status-warning font-medium">
+                        Previous iteration failed
+                      </p>
                       <p className="text-sm text-status-warning mt-1">
-                        You can choose to start fresh without context from the previous conversation.
+                        You can choose to start fresh without context from the previous
+                        conversation.
                       </p>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer">

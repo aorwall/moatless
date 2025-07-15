@@ -78,14 +78,20 @@ describe('ChatInput Task Isolation', () => {
     unmountTask1()
 
     // Render second ChatInput with task-2
-    renderChatInputWithTaskProvider('task-2', <ChatInput taskId="task-2" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />)
+    renderChatInputWithTaskProvider(
+      'task-2',
+      <ChatInput taskId="task-2" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />,
+    )
 
     // Should render successfully with different task context
     expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
   })
 
   it('should render with default model selection', () => {
-    renderChatInputWithTaskProvider('task-1', <ChatInput taskId="task-1" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />)
+    renderChatInputWithTaskProvider(
+      'task-1',
+      <ChatInput taskId="task-1" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />,
+    )
 
     // Should render with default model (Opus) - check for the combobox button with the selected value
     expect(screen.getByRole('combobox')).toBeInTheDocument()
@@ -97,7 +103,12 @@ describe('ChatInput Task Isolation', () => {
 
     renderChatInputWithTaskProvider(
       'test-task',
-      <ChatInput message="" onMessageChange={vi.fn()} onSubmit={mockOnSendMessage} taskId="test-task" />,
+      <ChatInput
+        message=""
+        onMessageChange={vi.fn()}
+        onSubmit={mockOnSendMessage}
+        taskId="test-task"
+      />,
     )
 
     // Should render main elements without errors

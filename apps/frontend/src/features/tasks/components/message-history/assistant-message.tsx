@@ -1,7 +1,7 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
-import { Button } from '@/lib/components/ui/button'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Button } from '@/lib/components/ui/button'
 
 interface AssistantMessageProps {
   message: AssistantMessage
