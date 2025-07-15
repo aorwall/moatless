@@ -1,5 +1,7 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
 import { Button } from '@/lib/components/ui/button'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface AssistantMessageProps {
   message: AssistantMessage
@@ -101,7 +103,11 @@ export function AssistantMessageComponent({
   return (
     <div className="space-y-2">
       {/* Text content */}
-      {textContent && <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>}
+      {textContent && (
+        <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+        </div>
+      )}
 
       {/* Tool calls */}
       {toolCalls.length > 0 && (
