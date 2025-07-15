@@ -29,12 +29,12 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: vi.fn(),
 }))
 
-import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+import { useParams } from '@tanstack/react-router'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
-import { useParams } from '@tanstack/react-router'
+import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 
 const createMockQueryResult = (data: any) => ({
   data,
@@ -76,15 +76,29 @@ vi.mock('../user-message', () => ({
 
 vi.mock('../assistant-message', () => ({
   AssistantMessageComponent: ({ message }: { message: Message }) => {
-    const content = Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content }]
-    const toolUses = content.filter((item): item is { type: 'tool_use'; tool_use_id?: string; tool_name?: string; tool_input?: Record<string, unknown>; text?: string; tool_result?: any } => item.type === 'tool_use')
-    
+    const content = Array.isArray(message.content)
+      ? message.content
+      : [{ type: 'text', text: message.content }]
+    const toolUses = content.filter(
+      (
+        item,
+      ): item is {
+        type: 'tool_use'
+        tool_use_id?: string
+        tool_name?: string
+        tool_input?: Record<string, unknown>
+        text?: string
+        tool_result?: any
+      } => item.type === 'tool_use',
+    )
+
     return (
       <div data-testid="assistant-message" data-message-id={message.id}>
-        {Array.isArray(message.content) 
-          ? message.content.filter(item => item.type === 'text').map((item, i) => <span key={i}>{item.text}</span>)
-          : message.content
-        }
+        {Array.isArray(message.content)
+          ? message.content
+              .filter((item) => item.type === 'text')
+              .map((item, i) => <span key={i}>{item.text}</span>)
+          : message.content}
         {toolUses.length > 0 && (
           <div data-testid="tool-calls">
             {toolUses.map((tool, i) => (
@@ -101,7 +115,7 @@ vi.mock('../assistant-message', () => ({
 
 describe('MessageHistory - Unit Tests', () => {
   const wrapper = createQueryWrapper()
-  
+
   const mockHooks = () => {
     vi.mocked(useParams).mockReturnValue({ taskId: 'test-task-id' })
     vi.mocked(useTaskData).mockReturnValue({
@@ -118,11 +132,11 @@ describe('MessageHistory - Unit Tests', () => {
       updatedAt: new Date(),
     } as any)
     vi.mocked(useChatState).mockReturnValue({
-      chatState: { 
-        scrollPosition: undefined, 
+      chatState: {
+        scrollPosition: undefined,
         isAtBottom: true,
         message: '',
-        resumeConversation: false
+        resumeConversation: false,
       },
       updateChatState: vi.fn(),
     })
@@ -146,7 +160,7 @@ describe('MessageHistory - Unit Tests', () => {
   describe('Rendering', () => {
     it('renders empty state when no messages provided', () => {
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult([]) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       expect(screen.getByText('No messages yet. Start a conversation!')).toBeInTheDocument()
@@ -163,7 +177,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       expect(screen.getByTestId('user-message')).toBeInTheDocument()
@@ -182,7 +196,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
@@ -213,7 +227,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       const messageElements = screen.getAllByTestId(/^(user|assistant)-message$/)
@@ -261,7 +275,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
@@ -284,7 +298,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       expect(screen.getByTestId('user-message')).toBeInTheDocument()
@@ -301,7 +315,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
@@ -322,7 +336,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       // Check that messages are rendered properly
@@ -346,7 +360,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       // Check that messages are rendered in proper structure
@@ -367,7 +381,7 @@ describe('MessageHistory - Unit Tests', () => {
       ]
 
       vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
-      
+
       render(<MessageHistory />, { wrapper })
 
       // Check that messages are rendered

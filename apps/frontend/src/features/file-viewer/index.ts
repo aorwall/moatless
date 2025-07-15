@@ -5,6 +5,7 @@ export { useFileList } from './api/use-file-list'
 export { useFileSearch } from './api/use-file-search'
 
 // Components
+export { FileExplorer } from './components/file-explorer'
 export { FileTree } from './components/file-tree'
 export { FileTreeItem } from './components/file-tree-item'
 export { FileTreeSkeleton } from './components/file-tree-skeleton'

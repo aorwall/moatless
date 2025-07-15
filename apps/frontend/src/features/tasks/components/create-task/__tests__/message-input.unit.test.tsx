@@ -66,7 +66,9 @@ describe('ChatInput (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(
+      <ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />,
+    )
 
     const button = screen.getByRole('button')
     fireEvent.click(button)
@@ -78,7 +80,9 @@ describe('ChatInput (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(
+      <ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />,
+    )
 
     const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
@@ -90,7 +94,9 @@ describe('ChatInput (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(
+      <ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />,
+    )
 
     const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
@@ -147,7 +153,12 @@ describe('ChatInput (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} buttonText="Submit" />,
+      <ChatInput
+        message=""
+        onMessageChange={handleChange}
+        onSubmit={handleSubmit}
+        buttonText="Submit"
+      />,
     )
 
     expect(screen.getByText('Submit')).toBeInTheDocument()
@@ -190,7 +201,12 @@ describe('ChatInput (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="150px" />,
+      <ChatInput
+        message=""
+        onMessageChange={handleChange}
+        onSubmit={handleSubmit}
+        maxHeight="150px"
+      />,
     )
 
     const textarea = screen.getByPlaceholderText('Type a message...')
@@ -223,7 +239,12 @@ describe('ChatInput (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="100px" />,
+      <ChatInput
+        message=""
+        onMessageChange={handleChange}
+        onSubmit={handleSubmit}
+        maxHeight="100px"
+      />,
     )
 
     const textarea = screen.getByPlaceholderText('Type a message...')

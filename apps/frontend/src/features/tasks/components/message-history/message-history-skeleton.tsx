@@ -4,7 +4,7 @@ export function MessageHistorySkeleton() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden p-4">
-        <div className="space-y-4 max-w-[48rem] mx-auto">
+        <div className="space-y-4">
           {/* User message skeleton */}
           <div className="flex justify-end">
             <div className="bg-primary/10 rounded-lg p-3 max-w-[80%]">

@@ -142,7 +142,12 @@ describe('Refactored ChatInput (ChatForm replacement)', () => {
     const onMessageChange = vi.fn()
 
     render(
-      <ChatInput message="" onMessageChange={onMessageChange} onSubmit={onSubmit} selectors={<></>} />,
+      <ChatInput
+        message=""
+        onMessageChange={onMessageChange}
+        onSubmit={onSubmit}
+        selectors={<></>}
+      />,
     )
 
     // Should render without selectors

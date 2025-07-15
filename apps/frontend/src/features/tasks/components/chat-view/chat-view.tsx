@@ -188,25 +188,22 @@ function ChatViewComponent({ className }: ChatViewProps) {
     lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
 
   const isTaskRunning = status === 'running'
-  
+
   // Disable sending based on conditions
   const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())
 
   return (
     <div className={`h-full flex flex-col ${className || ''}`}>
-      {/* Chat Header */}
-      <ChatHeader />
-
-      {/* Message History Component */}
-      <div className="flex-1 overflow-hidden">
+      {/* Message History Component - takes up available space and handles overflow */}
+      <div className="flex-1 overflow-hidden min-h-0">
         <ErrorBoundary componentName="Message History">
-          <MessageHistory />
+          <MessageHistory className="h-full" />
         </ErrorBoundary>
       </div>
 
-      {/* Command Buttons - shown when task is not running */}
+      {/* Command Buttons - shown when task is not running - fixed height */}
       {!isTaskRunning && availableCommands.length > 0 && (
-        <div className="border-t border-border p-4">
+        <div className="border-t border-border p-4 flex-shrink-0">
           <CommandButtons
             commands={availableCommands as Command[]}
             onCommandClick={handleCommandClick}
@@ -215,8 +212,8 @@ function ChatViewComponent({ className }: ChatViewProps) {
         </div>
       )}
 
-      {/* Chat Input Component */}
-      <div className="border-t border-border">
+      {/* Chat Input Component - always visible at bottom - fixed height */}
+      <div className="border-t border-border flex-shrink-0">
         <ErrorBoundary componentName="Chat Input">
           <div data-testid="task-chat-input" className="p-4">
             <div className="space-y-4">
@@ -224,9 +221,12 @@ function ChatViewComponent({ className }: ChatViewProps) {
                 <div className="px-4 py-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
                   <div className="flex items-start gap-3">
                     <div className="flex-1">
-                      <p className="text-sm text-status-warning font-medium">Previous iteration failed</p>
+                      <p className="text-sm text-status-warning font-medium">
+                        Previous iteration failed
+                      </p>
                       <p className="text-sm text-status-warning mt-1">
-                        You can choose to start fresh without context from the previous conversation.
+                        You can choose to start fresh without context from the previous
+                        conversation.
                       </p>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer">

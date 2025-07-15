@@ -29,12 +29,12 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: vi.fn(),
 }))
 
-import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+import { useParams } from '@tanstack/react-router'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
-import { useParams } from '@tanstack/react-router'
+import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 
 const createMockQueryResult = (data: any) => ({
   data,
@@ -86,7 +86,7 @@ vi.mock('../assistant-message', () => ({
 
 describe.skip('MessageHistory - Tool Call Grouping', () => {
   const wrapper = createQueryWrapper()
-  
+
   const mockHooks = () => {
     vi.mocked(useParams).mockReturnValue({ taskId: 'test-task-id' })
     vi.mocked(useTaskData).mockReturnValue({
@@ -103,11 +103,11 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       updatedAt: new Date(),
     } as any)
     vi.mocked(useChatState).mockReturnValue({
-      chatState: { 
-        scrollPosition: undefined, 
+      chatState: {
+        scrollPosition: undefined,
         isAtBottom: true,
         message: '',
-        resumeConversation: false
+        resumeConversation: false,
       },
       updateChatState: vi.fn(),
     })
@@ -154,7 +154,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       // Single tool call should display as normal assistant message
       expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
       expect(screen.getByTestId('assistant-message')).toHaveAttribute('data-message-id', 'msg-1')
-      
+
       // Should NOT have tool call group button (multiple tool calls indicator)
       expect(screen.queryByText(/tool calls/)).not.toBeInTheDocument()
     })
@@ -256,7 +256,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       // Should have tool call group with 3 messages
       expect(screen.getByText(/3 tool calls/)).toBeInTheDocument()
       expect(screen.getByText(/Bash, Read, Write/)).toBeInTheDocument()
-      
+
       // Should be collapsible - individual messages not visible by default
       expect(screen.queryByTestId('assistant-message')).not.toBeInTheDocument()
     })
@@ -321,11 +321,13 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       // Should have one tool call group with 2 messages (msg-1, msg-2)
       expect(screen.getByText(/2 tool calls/)).toBeInTheDocument()
       expect(screen.getByText(/Bash, Read/)).toBeInTheDocument()
-      
+
       // Text message should be separate
       const assistantMessages = screen.getAllByTestId('assistant-message')
-      expect(assistantMessages.find(el => el.getAttribute('data-message-id') === 'msg-3')).toBeInTheDocument()
-      
+      expect(
+        assistantMessages.find((el) => el.getAttribute('data-message-id') === 'msg-3'),
+      ).toBeInTheDocument()
+
       // Single tool call after text should be separate (not grouped)
       expect(screen.getAllByTestId('assistant-message')).toHaveLength(2) // msg-3 and msg-4
     })
@@ -365,7 +367,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       expect(screen.getByTestId('user-message')).toBeInTheDocument()
       expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
       expect(screen.queryByText(/tool calls/)).not.toBeInTheDocument() // No grouping for single tool call
-      
+
       // Add new messages to create multiple consecutive tool calls
       const updatedMessages: Message[] = [
         initialMessages[0], // user message
@@ -457,11 +459,11 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
 
       // Should have user message
       expect(screen.getByTestId('user-message')).toBeInTheDocument()
-      
+
       // Should have tool call group for msg-3 and msg-4
       expect(screen.getByText(/2 tool calls/)).toBeInTheDocument()
       expect(screen.getByText(/Bash, Read/)).toBeInTheDocument()
-      
+
       // Should have separate assistant messages for text content (msg-2 and msg-5)
       expect(screen.getAllByTestId('assistant-message')).toHaveLength(2)
     })
