@@ -48,7 +48,7 @@ describe('ChatInput integration', () => {
     )
 
     // The component should render without errors
-    expect(screen.getByPlaceholderText(/Type a new request/)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument()
 
     // The repositoryId should be accessible internally
     // This test verifies that the component properly extracts repositoryId from task
@@ -64,7 +64,7 @@ describe('ChatInput integration', () => {
     )
 
     // The component should render without errors even without repositoryId
-    expect(screen.getByPlaceholderText(/Type a new request/)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument()
     expect(container).toBeTruthy()
   })
 })
