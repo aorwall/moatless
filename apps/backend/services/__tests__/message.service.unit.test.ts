@@ -96,7 +96,7 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(2)
@@ -137,16 +137,15 @@ describe('MessageService Unit Tests', () => {
         timestamp: 1234567890001,
       } as unknown as SDKMessage
 
-      const fileContent = [
-        JSON.stringify(toolUseMessage),
-        JSON.stringify(toolResultMessage),
-      ].join('\n')
+      const fileContent = [JSON.stringify(toolUseMessage), JSON.stringify(toolResultMessage)].join(
+        '\n',
+      )
 
       mockFs.readFile.mockResolvedValue(fileContent)
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
@@ -169,17 +168,15 @@ describe('MessageService Unit Tests', () => {
         timestamp: 1234567890000,
       } as unknown as SDKMessage
 
-      const fileContent = [
-        '{ invalid json',
-        JSON.stringify(validMessage),
-        '{ "incomplete": ',
-      ].join('\n')
+      const fileContent = ['{ invalid json', JSON.stringify(validMessage), '{ "incomplete": '].join(
+        '\n',
+      )
 
       mockFs.readFile.mockResolvedValue(fileContent)
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
@@ -203,16 +200,15 @@ describe('MessageService Unit Tests', () => {
         timestamp: 1234567890001,
       } as unknown as SDKMessage
 
-      const fileContent = [
-        JSON.stringify(emptyUserMessage),
-        JSON.stringify(validUserMessage),
-      ].join('\n')
+      const fileContent = [JSON.stringify(emptyUserMessage), JSON.stringify(validUserMessage)].join(
+        '\n',
+      )
 
       mockFs.readFile.mockResolvedValue(fileContent)
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
@@ -226,7 +222,7 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toEqual([])
@@ -239,7 +235,7 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        taskWithoutWorkspace
+        taskWithoutWorkspace,
       )
 
       expect(result).toEqual([])
@@ -258,12 +254,569 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
       expect(result[0].timestamp).toBeInstanceOf(Date)
       expect(result[0].content).toBe('Message without timestamp')
+    })
+  })
+
+  describe('Message Parsing from Task Iterations', () => {
+    beforeEach(() => {
+      // Mock file not found to trigger fallback to task iterations
+      const enoentError = new Error('File not found')
+      ;(enoentError as any).code = 'ENOENT'
+      mockFs.readFile.mockRejectedValue(enoentError)
+    })
+
+    it('should create messages from task iterations when Claude file is not found', async () => {
+      const taskWithIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Create a new feature',
+            result: 'I have successfully created the feature as requested.',
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Add tests for the feature',
+            result: 'Tests have been added and are passing.',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithIterations,
+      )
+
+      expect(result).toHaveLength(4)
+      
+      // First iteration
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('Create a new feature')
+      expect(result[0].id).toBe('iteration-1-user')
+      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
+
+      expect(result[1].role).toBe('assistant')
+      expect(result[1].content).toBe('I have successfully created the feature as requested.')
+      expect(result[1].id).toBe('iteration-1-assistant')
+      expect(result[1].timestamp).toEqual(new Date('2024-01-01T10:01:00Z'))
+
+      // Second iteration
+      expect(result[2].role).toBe('user')
+      expect(result[2].content).toBe('Add tests for the feature')
+      expect(result[2].id).toBe('iteration-2-user')
+
+      expect(result[3].role).toBe('assistant')
+      expect(result[3].content).toBe('Tests have been added and are passing.')
+      expect(result[3].id).toBe('iteration-2-assistant')
+    })
+
+    it('should parse JSON message content from iteration result', async () => {
+      const taskWithJsonResult = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              content: 'This is the actual message content from JSON',
+              metadata: { type: 'response' },
+            }),
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithJsonResult,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('This is the actual message content from JSON')
+    })
+
+    it('should parse array-based content structure', async () => {
+      const taskWithArrayContent = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              content: [
+                { type: 'text', text: 'First part of the message.' },
+                { type: 'text', text: 'Second part of the message.' },
+                { type: 'code', code: 'console.log("ignored")' },
+              ],
+            }),
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithArrayContent,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('First part of the message.\nSecond part of the message.')
+    })
+
+    it('should handle alternative message field names', async () => {
+      const taskWithMessageField = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              message: 'Content from message field',
+            }),
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              text: 'Content from text field',
+            }),
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMessageField,
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0].content).toBe('Content from message field')
+      expect(result[1].content).toBe('Content from text field')
+    })
+
+    it('should fallback to raw result when JSON parsing fails', async () => {
+      const taskWithPlainTextResult = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: 'Plain text result that is not JSON',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithPlainTextResult,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('Plain text result that is not JSON')
+    })
+
+    it('should skip iterations without messages', async () => {
+      const taskWithEmptyIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            status: 'completed',
+            messageCount: 0,
+            costUsd: 0.01,
+            // No initialMessage or result
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:01:00Z'),
+            endTime: new Date('2024-01-01T10:02:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            initialMessage: 'Valid message',
+            result: 'Valid response',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithEmptyIterations,
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0].content).toBe('Valid message')
+      expect(result[1].content).toBe('Valid response')
+    })
+
+    it('should handle iterations with only user messages', async () => {
+      const taskWithUserOnlyIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            status: 'active',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'User message without response',
+            // No result field
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithUserOnlyIterations,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('User message without response')
+    })
+
+    it('should handle invalid JSON gracefully in iteration results', async () => {
+      const taskWithInvalidJson = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: '{ invalid json content that cannot be parsed',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithInvalidJson,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('{ invalid json content that cannot be parsed')
+    })
+  })
+
+  describe('Mixed Claude Files and Task Iterations', () => {
+    it('should combine messages from Claude files and task iterations', async () => {
+      const taskWithMixedIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'session-1',
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            // This iteration has a Claude file
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Task iteration message',
+            result: 'Task iteration response',
+            // This iteration has no Claude file
+          },
+        ],
+      } as Task
+
+      // Mock the first iteration to have a Claude file, second to not have one
+      mockFs.readFile.mockImplementation((filePath: string) => {
+        if (filePath.includes('session-1')) {
+          // Return Claude file content for first iteration
+          const sdkUserMessage = {
+            message: {
+              role: 'user',
+              content: 'Claude file user message',
+            },
+            timestamp: 1704100800000,
+          }
+          const sdkAssistantMessage = {
+            message: {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Claude file assistant message',
+                },
+              ],
+            },
+            timestamp: 1704100860000,
+          }
+          return Promise.resolve([JSON.stringify(sdkUserMessage), JSON.stringify(sdkAssistantMessage)].join('\n'))
+        }
+        // Return file not found for second iteration
+        const enoentError = new Error('File not found')
+        ;(enoentError as any).code = 'ENOENT'
+        return Promise.reject(enoentError)
+      })
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMixedIterations,
+      )
+
+      expect(result).toHaveLength(4)
+      
+      // First two messages should be from Claude file (iteration 1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('Claude file user message')
+      
+      expect(result[1].role).toBe('assistant')
+      expect(result[1].content).toBe('Claude file assistant message')
+      
+      // Last two messages should be from task iteration (iteration 2)
+      expect(result[2].role).toBe('user')
+      expect(result[2].content).toBe('Task iteration message')
+      expect(result[2].id).toBe('iteration-2-user')
+      
+      expect(result[3].role).toBe('assistant')
+      expect(result[3].content).toBe('Task iteration response')
+      expect(result[3].id).toBe('iteration-2-assistant')
+    })
+
+    it('should handle multiple iterations without Claude files', async () => {
+      const taskWithMultipleIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'session-1',
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            // This iteration has a Claude file
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'First fallback message',
+            result: 'First fallback response',
+            // This iteration has no Claude file
+          },
+          {
+            iterationNumber: 3,
+            startTime: new Date('2024-01-01T10:04:00Z'),
+            endTime: new Date('2024-01-01T10:05:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Second fallback message',
+            result: 'Second fallback response',
+            // This iteration has no Claude file
+          },
+        ],
+      } as Task
+
+      // Mock only the first iteration to have a Claude file
+      mockFs.readFile.mockImplementation((filePath: string) => {
+        if (filePath.includes('session-1')) {
+          const sdkMessage = {
+            message: {
+              role: 'user',
+              content: 'Claude file message',
+            },
+            timestamp: 1704100800000,
+          }
+          return Promise.resolve(JSON.stringify(sdkMessage))
+        }
+        // Return file not found for other iterations
+        const enoentError = new Error('File not found')
+        ;(enoentError as any).code = 'ENOENT'
+        return Promise.reject(enoentError)
+      })
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMultipleIterations,
+      )
+
+      expect(result).toHaveLength(5)
+      
+      // First message from Claude file
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('Claude file message')
+      
+      // Next four messages from task iterations 2 and 3
+      expect(result[1].role).toBe('user')
+      expect(result[1].content).toBe('First fallback message')
+      expect(result[1].id).toBe('iteration-2-user')
+      
+      expect(result[2].role).toBe('assistant')
+      expect(result[2].content).toBe('First fallback response')
+      expect(result[2].id).toBe('iteration-2-assistant')
+      
+      expect(result[3].role).toBe('user')
+      expect(result[3].content).toBe('Second fallback message')
+      expect(result[3].id).toBe('iteration-3-user')
+      
+      expect(result[4].role).toBe('assistant')
+      expect(result[4].content).toBe('Second fallback response')
+      expect(result[4].id).toBe('iteration-3-assistant')
+    })
+
+    it('should not process Claude files when workspace path is missing', async () => {
+      const taskWithoutWorkspace = {
+        ...mockTask,
+        workspacePath: undefined,
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'session-1', // Has session ID but no workspace
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Message without workspace',
+            result: 'Response without workspace',
+          },
+        ],
+      } as Task
+
+      // Mock should never be called because workspace path is missing
+      const mockReadFile = vi.fn()
+      mockFs.readFile = mockReadFile
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithoutWorkspace,
+      )
+
+      // Should only get messages from task iterations
+      expect(result).toHaveLength(2)
+      expect(result[0].content).toBe('Message without workspace')
+      expect(result[1].content).toBe('Response without workspace')
+      
+      // Verify no file reads were attempted
+      expect(mockReadFile).not.toHaveBeenCalled()
+    })
+
+    it('should maintain chronological order of messages', async () => {
+      const taskWithMixedIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            initialMessage: 'First iteration user message',
+            result: 'First iteration result',
+            // No Claude file
+          },
+          {
+            iterationNumber: 2,
+            agentSessionId: 'session-2',
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            // Has Claude file
+          },
+          {
+            iterationNumber: 3,
+            startTime: new Date('2024-01-01T10:04:00Z'),
+            endTime: new Date('2024-01-01T10:05:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            initialMessage: 'Third iteration user message',
+            result: 'Third iteration result',
+            // No Claude file
+          },
+        ],
+      } as Task
+
+      // Mock only the second iteration to have a Claude file
+      mockFs.readFile.mockImplementation((filePath: string) => {
+        if (filePath.includes('session-2')) {
+          const sdkMessage = {
+            message: {
+              role: 'user',
+              content: 'Claude file message from iteration 2',
+            },
+            timestamp: 1704100920000, // 10:02:00
+          }
+          return Promise.resolve(JSON.stringify(sdkMessage))
+        }
+        // Return file not found for other iterations
+        const enoentError = new Error('File not found')
+        ;(enoentError as any).code = 'ENOENT'
+        return Promise.reject(enoentError)
+      })
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMixedIterations,
+      )
+
+      expect(result).toHaveLength(5)
+      
+      // Verify chronological order - now properly interleaved
+      expect(result[0].content).toBe('First iteration user message') // From iteration 1's task data
+      expect(result[1].content).toBe('First iteration result') // From iteration 1's task data
+      expect(result[2].content).toBe('Claude file message from iteration 2') // From iteration 2's Claude file
+      expect(result[3].content).toBe('Third iteration user message') // From iteration 3's task data
+      expect(result[4].content).toBe('Third iteration result') // From iteration 3's task data
     })
   })
 })
