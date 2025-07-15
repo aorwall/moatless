@@ -2,12 +2,11 @@ import { exec } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { RepositoryConfig } from '@moatless/types'
-import type { CommandResult, ServerStatus } from '@moatless/types'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { BaseAgent, EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
-import { createTaskLogger } from '../utils/logger.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
+import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
 
 const execAsync = promisify(exec)
@@ -70,8 +69,15 @@ export class DockerEnvironment extends BaseEnvironment {
     this.setupInProgress = true
     const startTime = Date.now()
 
+    this.logger.info('Starting Docker environment setup', {
+      taskId: this.taskId,
+      workspacePath: this.workspacePath,
+      repositoryName: this.repositoryConfig.name,
+    })
+
     try {
       // Initialize port allocation service
+      this.logger.debug('Initializing port allocation service')
       await this.portAllocationService.initialize()
 
       // Allocate ports for worker and preview server
@@ -81,27 +87,44 @@ export class DockerEnvironment extends BaseEnvironment {
       this.workerPortMapping = { containerPort: 8001, hostPort: workerPort }
       this.previewPortMapping = { containerPort: 3000, hostPort: previewPort }
 
+      this.logger.info('Ports allocated', {
+        workerPort,
+        previewPort,
+      })
+
       this.image =
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
 
       // Create container
       this.containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
 
+      this.logger.info('Creating Docker container', {
+        containerName: this.containerName,
+        image: this.image,
+      })
+
       await this.createContainer()
+
+      this.logger.info('Starting Docker container', {
+        containerId: this.containerId,
+        containerName: this.containerName,
+      })
+
       await this.startContainer()
 
       // Wait for worker to be ready
+      this.logger.debug('Waiting for worker to be ready')
       await this.waitForWorkerReady()
 
       // Run setup commands if any are configured
       const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
       if (setupCommands.length > 0) {
         this.logger.info('Running setup commands', { commandCount: setupCommands.length })
-        
+
         for (const command of setupCommands) {
           this.logger.info(`Running setup command: ${command}`)
           const result = await this.runCommand(command, 300000) // 5 minutes timeout
-          
+
           if (result.exitCode !== 0) {
             this.logger.warn(`Setup command failed: ${command}`, {
               exitCode: result.exitCode,
@@ -109,14 +132,14 @@ export class DockerEnvironment extends BaseEnvironment {
             })
           }
         }
-        
+
         this.logger.info('Setup commands completed')
       }
 
       this.setupComplete = true
       this.setupInProgress = false
 
-      this.logger.info('DockerEnvironment setup completed', {
+      this.logger.info('DockerEnvironment setup completed successfully', {
         containerId: this.containerId,
         workerPort: this.workerPortMapping.hostPort,
         previewPort: this.previewPortMapping.hostPort,
@@ -129,6 +152,7 @@ export class DockerEnvironment extends BaseEnvironment {
       this.logger.error('DockerEnvironment setup failed', error as Error, {
         setupTimeMs: failureTime,
         containerId: this.containerId,
+        stage: this.setupInProgress ? 'setup' : 'complete',
       })
 
       this.setupInProgress = false
@@ -238,15 +262,30 @@ export class DockerEnvironment extends BaseEnvironment {
     const checkInterval = 1000 // 1 second
     let elapsed = 0
 
+    this.logger.debug('Waiting for worker to become ready', {
+      workerPort: this.workerPortMapping?.hostPort,
+      maxWaitTime,
+    })
+
     while (elapsed < maxWaitTime) {
       try {
         const response = await fetch(`http://localhost:${this.workerPortMapping?.hostPort}/health`)
         if (response.ok) {
-          this.logger.info('Worker is ready')
+          this.logger.info('Worker is ready', {
+            elapsedMs: elapsed,
+            workerPort: this.workerPortMapping?.hostPort,
+          })
           return
         }
-      } catch {
+      } catch (error) {
         // Worker not ready yet
+        if (elapsed % 5000 === 0) {
+          // Log every 5 seconds
+          this.logger.debug('Worker not ready yet, continuing to wait', {
+            elapsedMs: elapsed,
+            remainingMs: maxWaitTime - elapsed,
+          })
+        }
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -475,7 +514,11 @@ export class DockerEnvironment extends BaseEnvironment {
       const contentType = response.headers.get('content-type') || ''
       let body: string | Buffer
 
-      if (contentType.includes('text/') || contentType.includes('application/json') || contentType.includes('application/javascript')) {
+      if (
+        contentType.includes('text/') ||
+        contentType.includes('application/json') ||
+        contentType.includes('application/javascript')
+      ) {
         body = await response.text()
       } else {
         body = Buffer.from(await response.arrayBuffer())

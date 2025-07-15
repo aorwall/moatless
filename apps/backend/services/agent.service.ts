@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import {EventType, type TaskIteration, TaskNotFoundError} from '@moatless/types'
 import type { SDKResultMessage } from '@moatless/types'
-import { WorkspaceStatus } from '@moatless/types'
+import { EventType, type TaskIteration, TaskNotFoundError, WorkspaceStatus } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
@@ -58,8 +57,15 @@ export class AgentService {
     }
 
     // Get workspace and validate state
+    agentLogger.info('Getting or creating workspace for agent execution', { taskId })
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
     const status = workspace.getStatus()
+
+    agentLogger.debug('Workspace status retrieved', {
+      taskId,
+      workspaceStatus: status,
+      workspaceType: workspace.type,
+    })
 
     if (status === WorkspaceStatus.SETTING_UP) {
       throw new Error('Workspace is still setting up')
@@ -69,19 +75,30 @@ export class AgentService {
     }
 
     // Check if workspace path actually exists
-    if (!(await workspace.isWorkspacePathValid())) {
+    const isWorkspaceValid = await workspace.isWorkspacePathValid()
+    agentLogger.debug('Workspace path validation', {
+      taskId,
+      isValid: isWorkspaceValid,
+      workspacePath: workspace.getWorkspacePath(),
+    })
+
+    if (!isWorkspaceValid) {
       // Workspace metadata exists but physical path/container is missing
       // Need to recreate the workspace
+      agentLogger.warn('Workspace path invalid, recreating workspace', { taskId })
       await this.recreateWorkspace(taskId, iteration)
 
       // Get the workspace again after recreation
       const recreatedWorkspace = await this.workspaceService.getOrCreateWorkspace(taskId)
       const recreatedStatus = recreatedWorkspace.getStatus()
 
+      agentLogger.info('Workspace recreated', {
+        taskId,
+        newStatus: recreatedStatus,
+      })
+
       if (recreatedStatus !== WorkspaceStatus.IDLE) {
-        throw new Error(
-          'Workspace recreation failed - workspace not ready'
-        )
+        throw new Error('Workspace recreation failed - workspace not ready')
       }
     }
 
@@ -477,6 +494,11 @@ export class AgentService {
     agentLogger.warn('Workspace path/container missing, recreating workspace', { taskId })
 
     // Setup workspace again
+    agentLogger.debug('Calling setupWorkspace to recreate', {
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
     await this.workspaceService.setupWorkspace(taskId, iteration.iterationNumber)
 
     // Wait for workspace to be ready
@@ -484,10 +506,20 @@ export class AgentService {
     const checkInterval = 500
     const startWait = Date.now()
 
+    agentLogger.debug('Waiting for workspace to become ready', {
+      maxWaitTime,
+      checkInterval,
+    })
+
     while (Date.now() - startWait < maxWaitTime) {
       const workspace = await this.workspaceService.getWorkspace(taskId)
       if (workspace && workspace.getStatus() === WorkspaceStatus.IDLE) {
-        agentLogger.info('Workspace recreated successfully', { taskId })
+        const waitTime = Date.now() - startWait
+        agentLogger.info('Workspace recreated successfully', {
+          taskId,
+          waitTimeMs: waitTime,
+          workspaceStatus: workspace.getStatus(),
+        })
         return
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))

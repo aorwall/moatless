@@ -47,20 +47,37 @@ export class WorkspaceService {
     repositoryId: string,
     branchName?: string,
   ): Promise<Workspace> {
+    logger.info('Starting workspace creation', { taskId, repositoryId, branchName })
+
     const repository = await this.repositoryService.getRepositoryById(repositoryId)
     if (!repository) {
       logger.error('Repository not found', undefined, { repositoryId })
       throw new RepositoryNotFoundError(repositoryId)
     }
 
+    logger.debug('Repository loaded', {
+      taskId,
+      repositoryName: repository.name,
+      codeExecutionType: repository.codeExecution.type,
+      useGitWorktrees: repository.useGitWorktrees,
+    })
+
     // Create workspace path for local repositories
     const workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
 
+    logger.info('Workspace repository created', {
+      taskId,
+      workspacePath,
+      branchName,
+    })
+
     // Create the appropriate environment based on repository config
-    let environment
+    let environment: DockerEnvironment | LocalEnvironment
     if (repository.codeExecution.type === 'docker') {
+      logger.info('Creating Docker environment', { taskId, workspacePath })
       environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
     } else {
+      logger.info('Creating Local environment', { taskId, workspacePath })
       environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
     }
 
@@ -76,6 +93,12 @@ export class WorkspaceService {
     )
 
     this.activeWorkspaces.set(taskId, workspace)
+
+    logger.info('Workspace created successfully', {
+      taskId,
+      workspaceType: environment.getType(),
+      workspacePath,
+    })
 
     return workspace
   }
@@ -417,7 +440,7 @@ export class WorkspaceService {
       }
 
       // Create the appropriate environment based on repository config
-      let environment
+      let environment: DockerEnvironment | LocalEnvironment
       if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker environment with workspace path', { workspacePath })
         environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
@@ -507,7 +530,6 @@ export class WorkspaceService {
     }
   }
 
-
   async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
     if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
@@ -592,8 +614,22 @@ export class WorkspaceService {
   }
 
   async setupWorkspace(taskId: string, iterationNumber?: number): Promise<void> {
+    logger.info('Starting workspace setup', { taskId, iterationNumber })
+
     const workspace = await this.getOrCreateWorkspace(taskId)
+
+    logger.debug('Workspace retrieved, starting setup', {
+      taskId,
+      workspaceType: workspace.type,
+      currentStatus: workspace.getStatus(),
+    })
+
     await workspace.setup(iterationNumber)
+
+    logger.info('Workspace setup completed', {
+      taskId,
+      workspaceStatus: workspace.getStatus(),
+    })
 
     // Save the workspace path to the task after successful setup
     const workspacePath = workspace.getWorkspacePath()
@@ -757,7 +793,6 @@ export class WorkspaceService {
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.searchFiles(request)
   }
-
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
     if (!(await this.canManageServer(taskId))) {
