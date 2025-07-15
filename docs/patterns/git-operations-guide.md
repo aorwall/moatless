@@ -1,5 +1,30 @@
 # Git Worktree Operations - LLM Instructions
 
+## TL;DR - Safest Git Workflow for LLMs
+
+**For commits:**
+```bash
+git status
+git add .
+git commit -m "feat: description"  # ≤100 chars
+```
+
+**For push to main (safest approach):**
+```bash
+git status
+git fetch origin main
+git merge origin/main --no-edit  # Safest - preserves all changes
+git push origin HEAD:main
+```
+
+**If push fails:** Create PR instead of force pushing
+```bash
+git push -u origin feature/branch-name
+gh pr create --title "feat: description" --body "Description"
+```
+
+---
+
 ## When User Requests to Commit Changes
 
 Always follow this sequence:
@@ -50,10 +75,25 @@ Always follow this sequence:
    git checkout -b feature/descriptive-name
    ```
 
-4. **Update and rebase:**
+4. **Update and integrate safely (choose safest option):**
    ```bash
    git fetch origin main
+   
+   # Option A: Try rebase first (only if it can fast-forward)
    git rebase origin/main
+   
+   # If rebase fails with conflicts, abort and use merge instead
+   if [ $? -ne 0 ]; then
+     git rebase --abort
+     git merge origin/main --no-edit
+   fi
+   ```
+   
+   **Alternative simple approach for LLMs:**
+   ```bash
+   # Safest universal approach - always preserves changes
+   git fetch origin main
+   git merge origin/main --no-edit
    ```
 
 5. **FIRST: Push to feature branch (backup & safety):**
@@ -104,17 +144,20 @@ git push --force origin HEAD:main
    - No divergent history exists
    - Main hasn't moved since you branched
 
-2. **Clean Rebase:**
-   - `git rebase origin/main` succeeds without conflicts
-   - Creates linear history that Git can fast-forward
+2. **Clean Integration (Rebase OR Merge):**
+   - Either `git rebase origin/main` succeeds without conflicts (creates linear history)
+   - Or `git merge origin/main` succeeds (preserves all changes, creates merge commit)
 
 3. **All Checks Pass:**
    - Pre-push hooks succeed (tests, linting, type checking)
    - No permission issues exist
 
-**The magic is in the rebase:** When you `git rebase origin/main`, you're essentially saying "take my commits and replay them on top of the latest main." If this succeeds without conflicts, Git can then fast-forward main to include your commits.
+**The safest approach:** 
+- **Try rebase first** (cleaner history) - if it can fast-forward
+- **Fall back to merge** (safer, preserves all changes) - if rebase has conflicts
+- **Always use merge** if you want to guarantee no changes are lost
 
-**Example timeline:**
+**Example timeline with rebase (when possible):**
 ```
 Before rebase:
 main:    A---B---C
@@ -126,6 +169,20 @@ feature:         D'---E' (rebased onto C)
 
 After push:
 main:    A---B---C---D'---E' (fast-forward)
+```
+
+**Example timeline with merge (when rebase conflicts):**
+```
+Before merge:
+main:    A---B---C---F
+feature:     D---E (branched from B)
+
+After merge:
+main:    A---B---C---F
+feature:     D---E---M (M is merge commit)
+
+After push:
+main:    A---B---C---F---D---E---M (includes all changes)
 ```
 
 ### Alternative: Pull Request Workflow (When Checks Fail)
@@ -157,7 +214,7 @@ If pre-push hooks or tests fail:
    - Via GitHub UI after all checks pass
    - Or via CLI: `gh pr merge --merge`
 
-## When Rebase Encounters Conflicts
+## When Integration Encounters Issues
 
 ### For "unstaged changes" errors:
 ```bash
@@ -168,26 +225,45 @@ git status --porcelain
 git checkout -- *.gen.ts
 
 # Stash other changes
-git stash push -u -m "Auto-stash before rebase"
+git stash push -u -m "Auto-stash before integration"
 
-# Retry rebase
-git rebase origin/main
+# Try rebase first, fall back to merge
+git rebase origin/main || {
+  git rebase --abort
+  git merge origin/main --no-edit
+}
 
 # Restore stashed changes after success
 git stash pop
 ```
 
-### For merge conflicts:
+### For merge conflicts during rebase:
 ```bash
-# Fix conflicts in editor, then:
+# Option 1: Fix conflicts and continue rebase
 git add .
 git rebase --continue
+
+# Option 2: Abort rebase and use merge instead (safer)
+git rebase --abort
+git merge origin/main --no-edit
+# Then resolve merge conflicts normally
+git add .
+git commit --no-edit
 ```
 
-### If rebase fails completely:
+### For merge conflicts during merge:
 ```bash
+# Resolve conflicts in editor, then:
+git add .
+git commit --no-edit  # Complete the merge
+```
+
+### **Safest approach when conflicts occur:**
+```bash
+# Always abort rebase and use merge if conflicts arise
 git rebase --abort
-# Then investigate the issue manually
+git merge origin/main --no-edit
+# This preserves all changes and is much safer
 ```
 
 ## When Push Fails (Legacy Reference)
@@ -242,6 +318,9 @@ git push -u origin branch-name
 3. **Use pull requests** when tests fail - this maintains CI/CD integrity
 4. **Fix issues in separate commits** rather than amending and force pushing
 5. **Only bypass hooks** when explicitly requested and document the technical debt
+6. **Prefer merge over rebase** when in doubt - it's safer and preserves all changes
+7. **Always create backup branches** before attempting risky operations
+8. **Use `--no-edit` with merge** to avoid unnecessary editor prompts
 
 ## Pre-Operation Checklist
 
