@@ -34,6 +34,7 @@ describe('MessageService', () => {
       enableContextual: true,
       contextualTokenLimit: 2000,
       contextualSampleSize: 10,
+      claudeConfigPath: '/test/claude-config',
     }
 
     mockTask = {
@@ -42,8 +43,18 @@ describe('MessageService', () => {
       description: 'Test task description',
       repositoryId: 'test-repo',
       status: 'created',
-      iterations: [],
+      iterations: [
+        {
+          iterationNumber: 1,
+          agentSessionId: 'session-123',
+          status: 'completed',
+          message: 'Test message',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
       workspaceId: 'test-workspace',
+      workspacePath: '/test/workspace',
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -67,31 +78,27 @@ describe('MessageService', () => {
   describe('readMessagesFromClaudeDirectory', () => {
     it('should use stored settings to read messages', async () => {
       const mockFilePath = '/test/claude-events.jsonl'
-      mockGetClaudeEventsFilePath.mockReturnValue(mockFilePath)
       mockFs.readFile.mockResolvedValue('')
 
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
-      expect(mockGetClaudeEventsFilePath).toHaveBeenCalledWith(mockClaudeCodeSettings, mockTask)
       expect(result).toEqual([])
     })
   })
 
   describe('readMessagesFromClaudeDirectoryWithSettings', () => {
     it('should return empty array when no file path is available', async () => {
-      mockGetClaudeEventsFilePath.mockReturnValue(null)
+      const taskWithoutWorkspace = { ...mockTask, workspacePath: undefined }
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        taskWithoutWorkspace
       )
 
       expect(result).toEqual([])
     })
 
     it('should return empty array when file does not exist', async () => {
-      const mockFilePath = '/test/claude-events.jsonl'
-      mockGetClaudeEventsFilePath.mockReturnValue(mockFilePath)
       const enoentError = new Error('File not found')
       ;(enoentError as any).code = 'ENOENT'
       mockFs.readFile.mockRejectedValue(enoentError)
@@ -105,8 +112,6 @@ describe('MessageService', () => {
     })
 
     it('should throw error for other file system errors', async () => {
-      const mockFilePath = '/test/claude-events.jsonl'
-      mockGetClaudeEventsFilePath.mockReturnValue(mockFilePath)
       const error = new Error('Permission denied')
       mockFs.readFile.mockRejectedValue(error)
 
@@ -116,9 +121,6 @@ describe('MessageService', () => {
     })
 
     it('should parse and transform valid SDK messages', async () => {
-      const mockFilePath = '/test/claude-events.jsonl'
-      mockGetClaudeEventsFilePath.mockReturnValue(mockFilePath)
-
       const sdkUserMessage: SDKMessage = {
         message: {
           role: 'user',
@@ -170,8 +172,6 @@ describe('MessageService', () => {
     })
 
     it('should handle tool use messages with results', async () => {
-      const mockFilePath = '/test/claude-events.jsonl'
-      mockGetClaudeEventsFilePath.mockReturnValue(mockFilePath)
 
       const toolUseMessage: SDKMessage = {
         message: {
