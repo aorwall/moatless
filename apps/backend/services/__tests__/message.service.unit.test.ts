@@ -539,4 +539,247 @@ describe('MessageService Unit Tests', () => {
       expect(result[0].content).toBe('{ invalid json content that cannot be parsed')
     })
   })
+
+  describe('Mixed Claude Files and Task Iterations', () => {
+    it('should combine messages from Claude files and task iterations', async () => {
+      const taskWithMixedIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'session-1',
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            // This iteration has a Claude file
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Task iteration message',
+            result: 'Task iteration response',
+            // This iteration has no Claude file
+          },
+        ],
+      } as Task
+
+      // Mock the first iteration to have a Claude file, second to not have one
+      mockFs.readFile.mockImplementation((filePath: string) => {
+        if (filePath.includes('session-1')) {
+          // Return Claude file content for first iteration
+          const sdkUserMessage = {
+            message: {
+              role: 'user',
+              content: 'Claude file user message',
+            },
+            timestamp: 1704100800000,
+          }
+          const sdkAssistantMessage = {
+            message: {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Claude file assistant message',
+                },
+              ],
+            },
+            timestamp: 1704100860000,
+          }
+          return Promise.resolve([JSON.stringify(sdkUserMessage), JSON.stringify(sdkAssistantMessage)].join('\n'))
+        }
+        // Return file not found for second iteration
+        const enoentError = new Error('File not found')
+        ;(enoentError as any).code = 'ENOENT'
+        return Promise.reject(enoentError)
+      })
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMixedIterations,
+      )
+
+      expect(result).toHaveLength(4)
+      
+      // First two messages should be from Claude file (iteration 1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('Claude file user message')
+      
+      expect(result[1].role).toBe('assistant')
+      expect(result[1].content).toBe('Claude file assistant message')
+      
+      // Last two messages should be from task iteration (iteration 2)
+      expect(result[2].role).toBe('user')
+      expect(result[2].content).toBe('Task iteration message')
+      expect(result[2].id).toBe('iteration-2-user')
+      
+      expect(result[3].role).toBe('assistant')
+      expect(result[3].content).toBe('Task iteration response')
+      expect(result[3].id).toBe('iteration-2-assistant')
+    })
+
+    it('should handle multiple iterations without Claude files', async () => {
+      const taskWithMultipleIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'session-1',
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            // This iteration has a Claude file
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'First fallback message',
+            result: 'First fallback response',
+            // This iteration has no Claude file
+          },
+          {
+            iterationNumber: 3,
+            startTime: new Date('2024-01-01T10:04:00Z'),
+            endTime: new Date('2024-01-01T10:05:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Second fallback message',
+            result: 'Second fallback response',
+            // This iteration has no Claude file
+          },
+        ],
+      } as Task
+
+      // Mock only the first iteration to have a Claude file
+      mockFs.readFile.mockImplementation((filePath: string) => {
+        if (filePath.includes('session-1')) {
+          const sdkMessage = {
+            message: {
+              role: 'user',
+              content: 'Claude file message',
+            },
+            timestamp: 1704100800000,
+          }
+          return Promise.resolve(JSON.stringify(sdkMessage))
+        }
+        // Return file not found for other iterations
+        const enoentError = new Error('File not found')
+        ;(enoentError as any).code = 'ENOENT'
+        return Promise.reject(enoentError)
+      })
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMultipleIterations,
+      )
+
+      expect(result).toHaveLength(5)
+      
+      // First message from Claude file
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('Claude file message')
+      
+      // Next four messages from task iterations 2 and 3
+      expect(result[1].role).toBe('user')
+      expect(result[1].content).toBe('First fallback message')
+      expect(result[1].id).toBe('iteration-2-user')
+      
+      expect(result[2].role).toBe('assistant')
+      expect(result[2].content).toBe('First fallback response')
+      expect(result[2].id).toBe('iteration-2-assistant')
+      
+      expect(result[3].role).toBe('user')
+      expect(result[3].content).toBe('Second fallback message')
+      expect(result[3].id).toBe('iteration-3-user')
+      
+      expect(result[4].role).toBe('assistant')
+      expect(result[4].content).toBe('Second fallback response')
+      expect(result[4].id).toBe('iteration-3-assistant')
+    })
+
+    it('should maintain chronological order of messages', async () => {
+      const taskWithMixedIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            initialMessage: 'First iteration user message',
+            result: 'First iteration result',
+            // No Claude file
+          },
+          {
+            iterationNumber: 2,
+            agentSessionId: 'session-2',
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            // Has Claude file
+          },
+          {
+            iterationNumber: 3,
+            startTime: new Date('2024-01-01T10:04:00Z'),
+            endTime: new Date('2024-01-01T10:05:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            initialMessage: 'Third iteration user message',
+            result: 'Third iteration result',
+            // No Claude file
+          },
+        ],
+      } as Task
+
+      // Mock only the second iteration to have a Claude file
+      mockFs.readFile.mockImplementation((filePath: string) => {
+        if (filePath.includes('session-2')) {
+          const sdkMessage = {
+            message: {
+              role: 'user',
+              content: 'Claude file message from iteration 2',
+            },
+            timestamp: 1704100920000, // 10:02:00
+          }
+          return Promise.resolve(JSON.stringify(sdkMessage))
+        }
+        // Return file not found for other iterations
+        const enoentError = new Error('File not found')
+        ;(enoentError as any).code = 'ENOENT'
+        return Promise.reject(enoentError)
+      })
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMixedIterations,
+      )
+
+      expect(result).toHaveLength(5)
+      
+      // Verify chronological order
+      expect(result[0].content).toBe('Claude file message from iteration 2') // From iteration 2's Claude file
+      expect(result[1].content).toBe('First iteration user message') // From iteration 1's task data
+      expect(result[2].content).toBe('First iteration result') // From iteration 1's task data
+      expect(result[3].content).toBe('Third iteration user message') // From iteration 3's task data
+      expect(result[4].content).toBe('Third iteration result') // From iteration 3's task data
+    })
+  })
 })

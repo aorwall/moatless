@@ -45,10 +45,14 @@ export class MessageService {
       return this.createMessagesFromTaskIterations(task)
     }
 
-    // Try iterations in reverse order to get the most recent messages
-    for (const iteration of [...task.iterations].reverse()) {
+    const allMessages: Message[] = []
+    const iterationsWithoutClaudeFiles: TaskIteration[] = []
+
+    // Process all iterations in chronological order
+    for (const iteration of task.iterations) {
       const filePath = getClaudeEventsFilePath(settings, task.workspacePath, iteration)
       if (!filePath) {
+        iterationsWithoutClaudeFiles.push(iteration)
         continue
       }
 
@@ -81,14 +85,17 @@ export class MessageService {
           parseErrors,
         })
 
-        return this.transformSDKMessagesToMessages(sdkMessages)
+        // Transform and add messages from this iteration
+        const iterationMessages = this.transformSDKMessagesToMessages(sdkMessages)
+        allMessages.push(...iterationMessages)
       } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          console.debug('Claude messages file does not exist, trying next iteration', {
+          console.debug('Claude messages file does not exist for iteration', {
             taskId: task.taskId,
             filePath,
             iterationNumber: iteration.iterationNumber,
           })
+          iterationsWithoutClaudeFiles.push(iteration)
           continue
         }
 
@@ -101,14 +108,21 @@ export class MessageService {
       }
     }
 
-    // If no files exist, fall back to creating messages from task iterations
-    console.info('No Claude message files found, creating messages from task iterations', {
-      taskId: task.taskId,
-      totalIterations: task.iterations.length,
-      iterationsWithSessionIds: task.iterations.filter((iter) => iter.agentSessionId).length,
-    })
+    // Add messages from iterations without Claude files
+    if (iterationsWithoutClaudeFiles.length > 0) {
+      console.info('Creating messages from task iterations without Claude files', {
+        taskId: task.taskId,
+        totalIterations: task.iterations.length,
+        iterationsWithoutClaudeFiles: iterationsWithoutClaudeFiles.length,
+        iterationsWithClaudeFiles: task.iterations.length - iterationsWithoutClaudeFiles.length,
+      })
 
-    return this.createMessagesFromTaskIterations(task)
+      const taskWithMissingIterations = { ...task, iterations: iterationsWithoutClaudeFiles }
+      const fallbackMessages = this.createMessagesFromTaskIterations(taskWithMissingIterations)
+      allMessages.push(...fallbackMessages)
+    }
+
+    return allMessages
   }
 
   /**
