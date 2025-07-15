@@ -127,6 +127,9 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.messages(taskId),
+      })
       options?.onSuccess?.(data, variables, context)
     },
     ...options,

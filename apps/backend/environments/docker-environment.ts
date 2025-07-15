@@ -85,9 +85,7 @@ export class DockerEnvironment extends BaseEnvironment {
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
 
       // Create container
-      this.containerName = this.repositoryConfig.codeExecution.containerName
-        ? `${this.repositoryConfig.codeExecution.containerName}-${this.taskId}`
-        : generateContainerName(this.repositoryConfig.name, this.taskId)
+      this.containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
 
       await this.createContainer()
       await this.startContainer()
