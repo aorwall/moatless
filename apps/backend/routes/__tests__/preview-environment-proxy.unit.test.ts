@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 describe('Preview Environment Proxy - Unit Tests', () => {
   describe('script injection logic', () => {
