@@ -57,6 +57,7 @@ PORT=8001 pnpm dev                         # Development on port 8001
 - You MUST run `pnpm biome:check` after code changes for linting and formatting
 - You can run both `biome:fix` and `biome:check`
 - For comprehensive validation, run `pnpm check:turbo` which includes all checks (optimized for speed)
+- **Quick validation after edits**: Run `pnpm post-edit-hook` for fast formatting fixes and type checking (~100ms with caching)
 
 ## Commit Conventions
 
