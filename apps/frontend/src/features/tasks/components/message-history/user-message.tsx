@@ -8,8 +8,8 @@ interface UserMessageProps {
 
 export function UserMessageComponent({ message }: UserMessageProps) {
   return (
-    <div className="flex justify-end">
-      <div className="bg-secondary rounded-lg p-3 max-w-[80%] shadow-sm text-sm prose prose-sm dark:prose-invert max-w-none">
+    <div className="flex justify-end w-full max-w-full">
+      <div className="bg-secondary rounded-lg p-3 max-w-[80%] shadow-sm text-sm prose prose-sm dark:prose-invert prose-max-w-none">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
       </div>
     </div>

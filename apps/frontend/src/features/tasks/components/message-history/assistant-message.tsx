@@ -1,7 +1,7 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
-import { Button } from '@/lib/components/ui/button'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Button } from '@/lib/components/ui/button'
 
 interface AssistantMessageProps {
   message: AssistantMessage
@@ -40,7 +40,7 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
   }
 
   return (
-    <div className="text-xs font-mono">
+    <div className="text-xs font-mono w-full max-w-full">
       <div className="flex items-start gap-2">
         <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
         <div className="flex-1 min-w-0">
@@ -101,17 +101,17 @@ export function AssistantMessageComponent({
   const toolCalls = isStringContent ? [] : contentArray.filter((c) => c.type === 'tool_use')
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 w-full max-w-full">
       {/* Text content */}
       {textContent && (
-        <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
+        <div className="text-sm prose prose-sm dark:prose-invert prose-max-w-none w-full max-w-full">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
         </div>
       )}
 
       {/* Tool calls */}
       {toolCalls.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2 w-full max-w-full">
           {toolCalls.map((toolCall) => (
             <ToolCallComponent
               key={toolCall.tool_use_id}

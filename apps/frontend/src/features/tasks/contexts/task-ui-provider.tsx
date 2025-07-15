@@ -2,7 +2,7 @@ import type { TaskIteration } from '@moatless/types'
 import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
-type PanelView = 'events' | 'diff' | 'files' | 'preview' | 'server'
+type PanelView = 'files' | 'preview'
 
 interface ChatState {
   scrollPosition?: number
@@ -68,7 +68,7 @@ function getDefaultTaskUIState(): TaskUIState {
   }
 
   return {
-    rightPanelView: 'events',
+    rightPanelView: 'files',
     selectedIteration: undefined,
     panelSizes: {
       left: 60,

@@ -61,7 +61,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
     .join(', ')
 
   return (
-    <div className="border border-border/50 rounded-lg overflow-hidden">
+    <div className="border border-border/50 rounded-lg overflow-hidden w-full max-w-full">
       <Button
         variant="ghost"
         size="sm"
@@ -136,6 +136,20 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   useEffect(() => {
     updateChatState({ isAtBottom })
   }, [isAtBottom, updateChatState])
+
+  // Fix ScrollArea viewport styles
+  useEffect(() => {
+    if (scrollRef.current) {
+      const viewport = scrollRef.current.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
+      if (viewport) {
+        viewport.style.minWidth = '0'
+        viewport.style.width = '100%'
+        viewport.style.maxWidth = '100%'
+        viewport.style.display = 'block'
+        viewport.style.tableLayout = 'auto'
+      }
+    }
+  }, [scrollRef])
 
   // Toggle tool call expansion
   const toggleToolCallExpansion = useCallback((toolUseId: string) => {
@@ -218,9 +232,9 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   // Handle error state
   if (messagesError) {
     return (
-      <div className="h-full flex flex-col">
+      <div className={`h-full flex flex-col ${className || ''}`}>
         <div className="flex-1 overflow-hidden p-4">
-          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 max-w-[48rem] mx-auto">
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
             <div className="text-sm text-destructive text-center">
               Failed to load messages: {getErrorMessage(messagesError)}
             </div>
@@ -233,9 +247,9 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   // Show minimal UI while messages are loading for the first time
   if (isLoadingMessages && (!messages || messages.length === 0)) {
     return (
-      <div className="h-full flex flex-col">
+      <div className={`h-full flex flex-col ${className || ''}`}>
         <div className="flex-1 overflow-hidden p-4">
-          <div className="bg-secondary rounded-lg p-4 max-w-[48rem] mx-auto">
+          <div className="bg-secondary rounded-lg p-4">
             <div className="text-sm text-muted-foreground text-center">Loading messages...</div>
           </div>
         </div>
@@ -246,8 +260,8 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   return (
     <div className={`h-full flex flex-col ${className || ''}`}>
       <div className="flex-1 overflow-hidden relative">
-        <ScrollArea className="h-full w-full" ref={scrollRef}>
-          <div className="p-3 sm:p-4 lg:p-6 space-y-4 max-w-[48rem] mx-auto">
+        <ScrollArea className="h-full w-full scroll-area-constrained" ref={scrollRef}>
+          <div className="p-4 space-y-4 w-full max-w-full">
             {groupedMessages.map((item) => {
               if (Array.isArray(item)) {
                 // This is a group of tool-only messages
