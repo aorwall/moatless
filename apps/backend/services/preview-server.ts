@@ -444,4 +444,77 @@ export class PreviewServer {
       return false
     }
   }
+
+  getPort(): number | undefined {
+    return this.port
+  }
+
+  async proxyRequest(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!this.port || !this.process || this.process.exitCode !== null) {
+      throw new Error('Server is not running')
+    }
+
+    const url = `http://localhost:${this.port}${request.path}`
+    this.logger.debug('Proxying request', { url, method: request.method })
+
+    try {
+      const fetchOptions: RequestInit = {
+        method: request.method,
+        headers: request.headers,
+      }
+
+      if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+        fetchOptions.body = request.body
+      }
+
+      const response = await fetch(url, fetchOptions)
+      const responseHeaders = new Headers()
+      
+      // Copy response headers, filtering out hop-by-hop headers
+      const hopByHopHeaders = [
+        'connection',
+        'keep-alive',
+        'proxy-authenticate',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'transfer-encoding',
+        'upgrade',
+      ]
+      
+      response.headers.forEach((value, key) => {
+        if (!hopByHopHeaders.includes(key.toLowerCase())) {
+          responseHeaders.set(key, value)
+        }
+      })
+
+      // Read response body
+      const contentType = response.headers.get('content-type') || ''
+      let body: string | Buffer
+
+      if (contentType.includes('text/') || contentType.includes('application/json') || contentType.includes('application/javascript')) {
+        body = await response.text()
+      } else {
+        body = Buffer.from(await response.arrayBuffer())
+      }
+
+      return {
+        status: response.status,
+        headers: responseHeaders,
+        body,
+      }
+    } catch (error) {
+      this.logger.error('Error proxying request', error as Error)
+      throw error
+    }
+  }
 }

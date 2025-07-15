@@ -318,6 +318,55 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
+  // Proxy requests to the preview server
+  app.all('/server/proxy/*', async (c) => {
+    try {
+      if (!previewServer) {
+        return c.json(
+          {
+            error: 'No server running',
+          },
+          404,
+        )
+      }
+
+      // Get the path after /server/proxy
+      const proxyPath = c.req.path.replace('/server/proxy', '') || '/'
+      const queryString = c.req.url.split('?')[1] || ''
+      const fullPath = queryString ? `${proxyPath}?${queryString}` : proxyPath
+
+      const headers = new Headers()
+      // Copy relevant headers
+      const headersToForward = ['content-type', 'accept', 'user-agent', 'authorization', 'cookie']
+      for (const [key, value] of Object.entries(c.req.header())) {
+        if (headersToForward.includes(key.toLowerCase())) {
+          headers.set(key, value)
+        }
+      }
+
+      const result = await previewServer.proxyRequest({
+        method: c.req.method,
+        path: fullPath,
+        headers,
+        body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.text() : undefined,
+      })
+
+      // Return the proxied response
+      return new Response(result.body, {
+        status: result.status,
+        headers: result.headers,
+      })
+    } catch (error) {
+      logger.error('Failed to proxy request', error as Error)
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        502,
+      )
+    }
+  })
+
   // Command execution endpoint
   app.post('/command', async (c) => {
     const body = await c.req.json()

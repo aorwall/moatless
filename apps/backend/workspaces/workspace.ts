@@ -240,6 +240,29 @@ export class Workspace {
     return this.environment.getServerLogs(lines)
   }
 
+  getPreviewPort(): number | undefined {
+    if (!this.environment.getPreviewPort) {
+      return undefined
+    }
+    return this.environment.getPreviewPort()
+  }
+
+  async proxyPreviewRequest(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!this.environment.proxyPreviewRequest) {
+      throw new Error(`Preview proxy not supported for ${this.type} environment`)
+    }
+    return this.environment.proxyPreviewRequest(request)
+  }
+
   // ============================================
   // Status and Utility Methods
   // ============================================

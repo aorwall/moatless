@@ -35,6 +35,25 @@ export abstract class BaseEnvironment {
   abstract getServerLogs?(lines?: number): Promise<string>
 
   /**
+   * Get the preview server port
+   */
+  abstract getPreviewPort?(): number | undefined
+
+  /**
+   * Proxy requests to the preview server
+   */
+  abstract proxyPreviewRequest?(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }>
+
+  /**
    * Run a command in the workspace
    */
   abstract runCommand(command: string, timeout?: number): Promise<CommandResult>

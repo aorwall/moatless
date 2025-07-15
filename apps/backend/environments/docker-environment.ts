@@ -303,9 +303,10 @@ export class DockerEnvironment extends BaseEnvironment {
 
       const result = (await response.json()) as ServerStatus
 
-      // Update URL to use the mapped preview port
-      if (result.url && this.previewPortMapping) {
-        result.url = `http://localhost:${this.previewPortMapping.hostPort}`
+      // For proxy approach, we don't expose the direct port
+      // The preview will be accessed through the proxy endpoint
+      if (result.running) {
+        result.url = undefined // Frontend will use proxy endpoint
       }
 
       return result
@@ -378,9 +379,10 @@ export class DockerEnvironment extends BaseEnvironment {
 
       const result = (await response.json()) as ServerStatus
 
-      // Update URL to use the mapped preview port
-      if (result.url && this.previewPortMapping) {
-        result.url = `http://localhost:${this.previewPortMapping.hostPort}`
+      // For proxy approach, we don't expose the direct port
+      // The preview will be accessed through the proxy endpoint
+      if (result.running) {
+        result.url = undefined // Frontend will use proxy endpoint
       }
 
       return result
@@ -413,6 +415,61 @@ export class DockerEnvironment extends BaseEnvironment {
     } catch (error) {
       this.logger.error('Failed to get server logs', error as Error)
       return `Error getting logs: ${error}`
+    }
+  }
+
+  getPreviewPort(): number | undefined {
+    return this.previewPortMapping?.hostPort
+  }
+
+  async proxyPreviewRequest(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!this.workerPortMapping || !this.previewPortMapping) {
+      throw new Error('Preview server not running')
+    }
+
+    try {
+      // Proxy the request through the worker which will forward to the preview server
+      const response = await fetch(
+        `http://localhost:${this.workerPortMapping.hostPort}/server/proxy${request.path}`,
+        {
+          method: request.method,
+          headers: request.headers,
+          body: request.body,
+        },
+      )
+
+      const responseHeaders = new Headers()
+      response.headers.forEach((value, key) => {
+        responseHeaders.set(key, value)
+      })
+
+      // Read response body
+      const contentType = response.headers.get('content-type') || ''
+      let body: string | Buffer
+
+      if (contentType.includes('text/') || contentType.includes('application/json') || contentType.includes('application/javascript')) {
+        body = await response.text()
+      } else {
+        body = Buffer.from(await response.arrayBuffer())
+      }
+
+      return {
+        status: response.status,
+        headers: responseHeaders,
+        body,
+      }
+    } catch (error) {
+      this.logger.error('Failed to proxy preview request', error as Error)
+      throw error
     }
   }
 
