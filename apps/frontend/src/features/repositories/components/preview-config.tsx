@@ -2,8 +2,8 @@ import {
   FRAMEWORK_DEFAULT_COMMANDS,
   FRAMEWORK_OPTIONS,
   INJECTION_METHOD_OPTIONS,
-} from '@moatless/types/constants/preview-config'
-import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types/schemas/repository.schemas'
+} from '@moatless/types'
+import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types'
 import { ChevronDown, Info, Loader2, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
@@ -189,23 +189,6 @@ export function PreviewConfigForm({
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="serverPort">Server Port</Label>
-              <Input
-                id="serverPort"
-                type="number"
-                placeholder="3000"
-                value={config.serverPort}
-                onChange={(e) =>
-                  setConfig({ ...config, serverPort: Number.parseInt(e.target.value) || 3000 })
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                Used to replace {'{PORT}'} placeholders in server commands. The system always finds
-                and uses random available ports for actual binding.
-              </p>
-            </div>
-        
             <Separator />
 
             <div className="space-y-4">

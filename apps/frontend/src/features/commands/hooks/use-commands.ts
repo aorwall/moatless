@@ -2,7 +2,7 @@ import type {
   Command,
   CreateCommandRequest,
   UpdateCommandRequest,
-} from '@moatless/types/types/command'
+} from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { commandsApi } from '@/features/commands/api/commands'

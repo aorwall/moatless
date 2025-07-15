@@ -1,6 +1,6 @@
-import type { ClaudeCodeSDKMessage } from '@moatless/types/types/claude'
-import type { Event, MessageEvent } from '@moatless/types/types/event'
-import { EventType } from '@moatless/types/types/event'
+import type { ClaudeCodeSDKMessage } from '@moatless/types'
+import type { Event, MessageEvent } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { mergeToolEvents } from '../merge-tool-events'

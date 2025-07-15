@@ -1,6 +1,6 @@
-import type { ClaudeModel } from '@moatless/types/constants'
-import type { UploadFileResponse } from '@moatless/types/types/api'
-import type { Task } from '@moatless/types/types/task'
+import type { ClaudeModel } from '@moatless/types'
+import type { UploadFileResponse } from '@moatless/types'
+import type { Task } from '@moatless/types'
 import { useEffect, useState } from 'react'
 import {
   useChatMessage,

@@ -1,4 +1,4 @@
-import type { PreviewConfig } from '@moatless/types/types/repository'
+import type { PreviewConfig } from '@moatless/types'
 import { type UseMutationOptions, useMutation } from '@tanstack/react-query'
 import type { ApiError } from '@/lib/api/client'
 import { detectFramework } from '../api/detect-framework'

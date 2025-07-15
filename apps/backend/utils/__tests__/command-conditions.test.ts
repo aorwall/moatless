@@ -1,5 +1,5 @@
-import type { Command } from '@moatless/types/types/command'
-import type { Task, TaskIteration } from '@moatless/types/types/task'
+import type { Command } from '@moatless/types'
+import type { Task, TaskIteration } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { filterAvailableCommands, isCommandAvailable } from '../command-conditions.js'
 

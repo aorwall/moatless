@@ -1,4 +1,4 @@
-import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types/types/repository'
+import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types'
 import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import {

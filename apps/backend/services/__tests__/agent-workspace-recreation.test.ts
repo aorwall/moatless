@@ -1,5 +1,5 @@
 import { CriticalError } from '@moatless/types'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import { WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LocalWorkspace } from '../../workspaces/local.js'
 import { AgentService } from '../agent.service.js'

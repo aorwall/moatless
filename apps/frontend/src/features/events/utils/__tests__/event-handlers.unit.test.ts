@@ -1,4 +1,4 @@
-import { type Event, EventType } from '@moatless/types/types/event'
+import { type Event, EventType } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import {

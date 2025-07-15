@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { GitChanges, GitSyncStatus } from '@moatless/types/types/api'
+import type { GitChanges, GitSyncStatus } from '@moatless/types'
 import { logger } from './logger.js'
 
 const execAsync = promisify(exec)

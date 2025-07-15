@@ -5,16 +5,14 @@ import { RepositoryNotFoundError, ValidationError } from '@moatless/types'
 import {
   FRAMEWORK_DEFAULT_COMMANDS,
   PACKAGE_MANAGER_FILES,
-} from '@moatless/types/constants/preview-config'
-import type {
   CreateRepositoryRequest,
   PreviewConfig,
   RepositoryConfig,
-} from '@moatless/types/schemas/repository.schemas'
+} from '@moatless/types'
 import type {
   FileSearchResponse,
   SetupScriptResponse,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'

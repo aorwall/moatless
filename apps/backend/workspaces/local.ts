@@ -3,15 +3,15 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { WorkspaceError } from '@moatless/types'
-import type { GitChanges, GitStatus } from '@moatless/types/types/api'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
+import type { GitChanges, GitStatus } from '@moatless/types'
+import type { RepositoryConfig } from '@moatless/types'
 
 import {
   type CommandResult,
   type ServerStatus,
   type Workspace,
   WorkspaceStatus,
-} from '@moatless/types/types/workspace'
+} from '@moatless/types'
 import { LocalEnvironment } from '../environments/local-environment.js'
 import type { BaseAgent, EventService } from '../services/index.js'
 import {

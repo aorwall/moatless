@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types/types/task'
+import type { Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'

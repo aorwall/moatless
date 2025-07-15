@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 

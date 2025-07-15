@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
 import { createLogger } from '../utils/logger.js'
 
 /**

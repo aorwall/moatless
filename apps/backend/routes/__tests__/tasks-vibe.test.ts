@@ -1,5 +1,5 @@
-import type { CreateVibeTaskRequest } from '@moatless/types/types/api'
-import { CreateVibeTaskRequestSchema } from '@moatless/types/types/api'
+import type { CreateVibeTaskRequest } from '@moatless/types'
+import { CreateVibeTaskRequestSchema } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 
 describe('CreateVibeTaskRequest validation', () => {

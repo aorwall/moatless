@@ -1,6 +1,6 @@
 import type { ToolUseContent } from '@moatless/types'
-import type { Event, MessageEvent } from '@moatless/types/types/event'
-import { EventType } from '@moatless/types/types/event'
+import type { Event, MessageEvent } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 

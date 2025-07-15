@@ -6,7 +6,7 @@ import type {
   CreateTaskRequest,
   RepositoryConfig,
   Task,
-} from '@moatless/types/types/index'
+} from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 

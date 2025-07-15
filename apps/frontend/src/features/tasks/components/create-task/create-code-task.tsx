@@ -1,4 +1,4 @@
-import type { ClaudeModel } from '@moatless/types/constants'
+import type { ClaudeModel } from '@moatless/types'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'

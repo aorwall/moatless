@@ -1,4 +1,4 @@
-import type { Event, MessageEvent } from '@moatless/types/types/event'
+import type { Event, MessageEvent } from '@moatless/types'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
