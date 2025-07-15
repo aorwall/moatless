@@ -320,23 +320,39 @@ export class DockerEnvironment extends BaseEnvironment {
       return false
     }
 
-    this.logger.info('Stopping server via worker')
+    this.logger.info('Stopping server via worker', {
+      workerPort: this.workerPortMapping.hostPort,
+      containerId: this.containerId,
+    })
 
     try {
       const response = await fetch(
         `http://localhost:${this.workerPortMapping.hostPort}/server/stop`,
         {
           method: 'POST',
+          signal: AbortSignal.timeout(5000), // 5 second timeout
         },
       )
 
       if (!response.ok) {
+        // Handle 404 gracefully - server may already be stopped
+        if (response.status === 404) {
+          this.logger.debug('Server stop endpoint not found - server may already be stopped')
+          return true
+        }
         throw new Error(`Failed to stop server: ${response.statusText}`)
       }
 
       const result = (await response.json()) as { success: boolean }
       return result.success
     } catch (error) {
+      // Handle connection errors gracefully during shutdown
+      if (error instanceof Error) {
+        if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+          this.logger.debug('Worker container not reachable - treating as already stopped')
+          return true
+        }
+      }
       this.logger.error('Failed to stop server', error as Error)
       return false
     }
@@ -429,8 +445,12 @@ export class DockerEnvironment extends BaseEnvironment {
       // Stop agent
       await this.stopAgent()
 
-      // Stop server
-      await this.stopServer()
+      // Stop server - don't let failures here stop the teardown
+      try {
+        await this.stopServer()
+      } catch (serverError) {
+        this.logger.warn('Error stopping server during teardown (continuing)', serverError as Error)
+      }
 
       // Cleanup container
       await this.cleanup()
