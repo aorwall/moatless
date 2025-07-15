@@ -5,7 +5,6 @@ import { setupServer } from 'msw/node'
 import React from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMockQueryClient } from '@/test-utils/mocks'
 import { useTaskMessages } from '../use-tasks'
 
 // Mock data
