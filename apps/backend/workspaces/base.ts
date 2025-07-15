@@ -32,7 +32,7 @@ export abstract class BaseWorkspace {
   }
 
   abstract get type(): 'local' | 'docker'
-  abstract get status(): 'initializing' | 'ready' | 'error' | 'cleaning'
+  abstract get status(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning'
   abstract get createdAt(): Date
   abstract get error(): string | undefined
 

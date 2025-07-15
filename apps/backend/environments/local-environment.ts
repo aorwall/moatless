@@ -42,11 +42,11 @@ export class LocalEnvironment extends BaseEnvironment {
     return 'local'
   }
 
-  getStatus(): 'initializing' | 'ready' | 'error' | 'cleaning' {
+  getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     if (this._error) return 'error'
     if (this.setupInProgress) return 'initializing'
     if (this.setupComplete) return 'ready'
-    return 'initializing'
+    return 'not_setup'
   }
 
   getCreatedAt(): Date {

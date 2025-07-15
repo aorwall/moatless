@@ -3,7 +3,6 @@ import type { RepositoryConfig } from '@moatless/types'
 import {
   type CommandResult,
   type ServerStatus,
-  type Workspace,
   WorkspaceStatus,
 } from '@moatless/types'
 import { DockerEnvironment } from '../environments/docker-environment.js'
@@ -22,7 +21,7 @@ export class DockerWorkspace extends BaseWorkspace {
     return 'docker'
   }
 
-  get status(): 'initializing' | 'ready' | 'error' | 'cleaning' {
+  get status(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     return this.environment.getStatus()
   }
 
@@ -168,6 +167,8 @@ export class DockerWorkspace extends BaseWorkspace {
   getStatus(): WorkspaceStatus {
     const envStatus = this.environment.getStatus()
     switch (envStatus) {
+      case 'not_setup':
+        return WorkspaceStatus.NOT_SETUP
       case 'ready':
         return WorkspaceStatus.IDLE
       case 'initializing':
@@ -226,25 +227,9 @@ export class DockerWorkspace extends BaseWorkspace {
     return this.environment.getServerLogs!(lines)
   }
 
-  toWorkspaceInfo(): Workspace {
-    return {
-      id: this.taskId,
-      type: 'docker' as const,
-      repositoryId: this.repositoryConfig.id,
-      status: this.status,
-      createdAt: this.createdAt,
-      containerId: this.getContainerId(),
-      error: this.error,
-    }
-  }
-
   getWorkspacePath(): string {
     // Delegate to local workspace to get the actual workspace path
     return this.localWorkspace.getWorkspacePath()
-  }
-
-  setRunningAgent(agent: BaseAgent): void {
-    this.environment.setRunningAgent(agent)
   }
 
   async isWorkspacePathValid(): Promise<boolean> {
