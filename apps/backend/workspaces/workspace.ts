@@ -300,4 +300,11 @@ export class Workspace {
       ;(this.environment as any).setRunningAgent(agent)
     }
   }
+
+  /**
+   * Get the environment instance
+   */
+  getEnvironment(): BaseEnvironment {
+    return this.environment
+  }
 }

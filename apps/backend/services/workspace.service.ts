@@ -440,11 +440,34 @@ export class WorkspaceService {
       workspace.getGitChanges(),
     ])
 
+    // Get environment information
+    const environment = workspace.getEnvironment()
+    const environmentType = environment.getType()
+    const environmentStatus = environment.getStatus()
+    const environmentError = environment.getError()
+    const environmentCreatedAt = environment.getCreatedAt()
+
+    // Check if file operations are available (workspace path exists on disk)
+    const fileOperationsAvailable = await workspace.isWorkspacePathValid()
+    
+    // Determine capabilities based on environment status and file operations availability
+    const capabilities = {
+      fileOperations: fileOperationsAvailable,
+      commandExecution: environmentStatus === 'ready',
+    }
+
     return {
       status: workspace.getStatus(),
       gitStatus,
       gitChanges,
       backgroundTaskCount,
+      environment: {
+        type: environmentType,
+        status: environmentStatus,
+        error: environmentError,
+        createdAt: environmentCreatedAt.toISOString(),
+        capabilities,
+      },
     }
   }
 
