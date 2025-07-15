@@ -24,8 +24,6 @@ describe('MessageService Unit Tests', () => {
 
   beforeEach(() => {
     mockClaudeCodeSettings = {
-      anthropicApiKey: 'test-key',
-      model: 'claude-3-haiku-20240307',
       historyFile: '/test/history.jsonl',
       maxTokens: 4000,
       temperature: 0.7,
@@ -33,29 +31,30 @@ describe('MessageService Unit Tests', () => {
       contextualTokenLimit: 2000,
       contextualSampleSize: 10,
       claudeConfigPath: '/test/claude-config',
-    }
+    } as ClaudeCodeSettings
 
     mockTask = {
       taskId: 'test-task-123',
-      title: 'Test Task',
-      description: 'Test task description',
       repositoryId: 'test-repo',
-      status: 'created',
+      status: 'open',
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+      agentType: 'claude-code',
+      numTurns: 1,
+      totalCostUsd: 0.01,
       iterations: [
         {
           iterationNumber: 1,
           agentSessionId: 'session-123',
           status: 'completed',
-          message: 'Test message',
-          createdAt: new Date(),
+          startTime: new Date(),
+          messageCount: 1,
+          costUsd: 0.01,
           updatedAt: new Date(),
-        },
+        } as any,
       ],
-      workspaceId: 'test-workspace',
       workspacePath: '/test/workspace',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
+    } as Task
 
     service = new MessageService(mockClaudeCodeSettings)
     mockFs = vi.mocked(fs)
@@ -73,7 +72,7 @@ describe('MessageService Unit Tests', () => {
           content: 'Hello, how are you?',
         },
         timestamp: 1234567890000,
-      }
+      } as unknown as SDKMessage
 
       const sdkAssistantMessage: SDKMessage = {
         message: {
@@ -86,7 +85,7 @@ describe('MessageService Unit Tests', () => {
           ],
         },
         timestamp: 1234567890001,
-      }
+      } as unknown as SDKMessage
 
       const fileContent = [
         JSON.stringify(sdkUserMessage),
@@ -121,7 +120,7 @@ describe('MessageService Unit Tests', () => {
           ],
         },
         timestamp: 1234567890000,
-      }
+      } as unknown as SDKMessage
 
       const toolResultMessage: SDKMessage = {
         message: {
@@ -136,7 +135,7 @@ describe('MessageService Unit Tests', () => {
           ],
         },
         timestamp: 1234567890001,
-      }
+      } as unknown as SDKMessage
 
       const fileContent = [
         JSON.stringify(toolUseMessage),
@@ -168,7 +167,7 @@ describe('MessageService Unit Tests', () => {
           content: 'Valid message',
         },
         timestamp: 1234567890000,
-      }
+      } as unknown as SDKMessage
 
       const fileContent = [
         '{ invalid json',
@@ -194,7 +193,7 @@ describe('MessageService Unit Tests', () => {
           content: '',
         },
         timestamp: 1234567890000,
-      }
+      } as unknown as SDKMessage
 
       const validUserMessage: SDKMessage = {
         message: {
@@ -202,7 +201,7 @@ describe('MessageService Unit Tests', () => {
           content: 'Valid message',
         },
         timestamp: 1234567890001,
-      }
+      } as unknown as SDKMessage
 
       const fileContent = [
         JSON.stringify(emptyUserMessage),
@@ -252,7 +251,7 @@ describe('MessageService Unit Tests', () => {
           role: 'user',
           content: 'Message without timestamp',
         },
-      }
+      } as unknown as SDKMessage
 
       const fileContent = JSON.stringify(messageWithoutTimestamp)
       mockFs.readFile.mockResolvedValue(fileContent)
