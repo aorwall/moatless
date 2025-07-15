@@ -127,8 +127,6 @@ export function TaskHeader() {
         .join(', ')
     : ''
 
-<<<<<<< HEAD
-=======
   // Calculate metrics from iterations
   const totalTurns = iterations?.reduce((sum, iteration) => sum + iteration.messageCount, 0) || 0
   const totalCostUsd = iterations?.reduce((sum, iteration) => sum + iteration.costUsd, 0) || 0
@@ -140,8 +138,6 @@ export function TaskHeader() {
         .find((iteration) => iteration.contextTokens && iteration.contextTokens > 0)
     : undefined
   const contextTokens = lastIterationWithContext?.contextTokens
-
->>>>>>> origin/main
   return (
     <div className="h-[58px] px-4 py-2 border-b flex items-center">
       <div className="flex items-center justify-between gap-3 w-full">
@@ -164,8 +160,6 @@ export function TaskHeader() {
                 <span className="text-xs text-muted-foreground">{gitStatusInfo}</span>
               </>
             )}
-<<<<<<< HEAD
-=======
             <span className="text-muted-foreground">•</span>
             <Badge variant="outline" className="text-xs">
               {totalTurns} turns
@@ -178,7 +172,6 @@ export function TaskHeader() {
                 {contextTokens.toLocaleString()} tokens
               </Badge>
             )}
->>>>>>> origin/main
           </div>
         </div>
 
