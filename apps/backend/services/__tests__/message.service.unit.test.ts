@@ -774,10 +774,10 @@ describe('MessageService Unit Tests', () => {
 
       expect(result).toHaveLength(5)
       
-      // Verify chronological order
-      expect(result[0].content).toBe('Claude file message from iteration 2') // From iteration 2's Claude file
-      expect(result[1].content).toBe('First iteration user message') // From iteration 1's task data
-      expect(result[2].content).toBe('First iteration result') // From iteration 1's task data
+      // Verify chronological order - now properly interleaved
+      expect(result[0].content).toBe('First iteration user message') // From iteration 1's task data
+      expect(result[1].content).toBe('First iteration result') // From iteration 1's task data
+      expect(result[2].content).toBe('Claude file message from iteration 2') // From iteration 2's Claude file
       expect(result[3].content).toBe('Third iteration user message') // From iteration 3's task data
       expect(result[4].content).toBe('Third iteration result') // From iteration 3's task data
     })

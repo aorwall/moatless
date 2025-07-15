@@ -46,83 +46,126 @@ export class MessageService {
     }
 
     const allMessages: Message[] = []
-    const iterationsWithoutClaudeFiles: TaskIteration[] = []
 
     // Process all iterations in chronological order
     for (const iteration of task.iterations) {
-      const filePath = getClaudeEventsFilePath(settings, task.workspacePath, iteration)
-      if (!filePath) {
-        iterationsWithoutClaudeFiles.push(iteration)
-        continue
-      }
-
-      try {
-        const fileContent = await fs.readFile(filePath, 'utf-8')
-        const lines = fileContent.trim().split('\n').filter(Boolean)
-
-        const sdkMessages: SDKMessage[] = []
-        let parseErrors = 0
-
-        for (const line of lines) {
-          try {
-            const sdkMessage = JSON.parse(line) as SDKMessage
-            sdkMessages.push(sdkMessage)
-          } catch (parseError) {
-            parseErrors++
-            console.warn('Failed to parse Claude SDK message', {
-              taskId: task.taskId,
-              error: parseError instanceof Error ? parseError.message : String(parseError),
-            })
-          }
-        }
-
-        console.debug('Successfully read Claude messages', {
-          taskId: task.taskId,
-          filePath,
-          iterationNumber: iteration.iterationNumber,
-          totalLines: lines.length,
-          messagesRead: sdkMessages.length,
-          parseErrors,
-        })
-
-        // Transform and add messages from this iteration
-        const iterationMessages = this.transformSDKMessagesToMessages(sdkMessages)
-        allMessages.push(...iterationMessages)
-      } catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          console.debug('Claude messages file does not exist for iteration', {
-            taskId: task.taskId,
-            filePath,
-            iterationNumber: iteration.iterationNumber,
-          })
-          iterationsWithoutClaudeFiles.push(iteration)
-          continue
-        }
-
-        // For other errors, log and throw
-        console.error('Error reading Claude messages file', error as Error, {
-          taskId: task.taskId,
-          filePath,
-        })
-        throw error
-      }
-    }
-
-    // Add messages from iterations without Claude files
-    if (iterationsWithoutClaudeFiles.length > 0) {
-      console.info('Creating messages from task iterations without Claude files', {
-        taskId: task.taskId,
-        totalIterations: task.iterations.length,
-        iterationsWithoutClaudeFiles: iterationsWithoutClaudeFiles.length,
-        iterationsWithClaudeFiles: task.iterations.length - iterationsWithoutClaudeFiles.length,
-      })
-
-      const taskWithMissingIterations = { ...task, iterations: iterationsWithoutClaudeFiles }
-      const fallbackMessages = this.createMessagesFromTaskIterations(taskWithMissingIterations)
-      allMessages.push(...fallbackMessages)
+      const iterationMessages = await this.getMessagesForIteration(
+        settings,
+        task,
+        iteration,
+      )
+      allMessages.push(...iterationMessages)
     }
 
     return allMessages
+  }
+
+  /**
+   * Get messages for a single iteration - either from Claude file or task iteration data
+   */
+  private async getMessagesForIteration(
+    settings: ClaudeCodeSettings,
+    task: Task,
+    iteration: TaskIteration,
+  ): Promise<Message[]> {
+    const filePath = getClaudeEventsFilePath(settings, task.workspacePath!, iteration)
+    
+    // If no file path can be generated (e.g., no agentSessionId), fall back to task iteration
+    if (!filePath) {
+      console.debug('No Claude file path available for iteration, using task data', {
+        taskId: task.taskId,
+        iterationNumber: iteration.iterationNumber,
+      })
+      return this.createMessagesFromSingleIteration(iteration)
+    }
+
+    try {
+      // Try to read Claude file
+      const fileContent = await fs.readFile(filePath, 'utf-8')
+      const lines = fileContent.trim().split('\n').filter(Boolean)
+
+      const sdkMessages: SDKMessage[] = []
+      let parseErrors = 0
+
+      for (const line of lines) {
+        try {
+          const sdkMessage = JSON.parse(line) as SDKMessage
+          sdkMessages.push(sdkMessage)
+        } catch (parseError) {
+          parseErrors++
+          console.warn('Failed to parse Claude SDK message', {
+            taskId: task.taskId,
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          })
+        }
+      }
+
+      console.debug('Successfully read Claude messages', {
+        taskId: task.taskId,
+        filePath,
+        iterationNumber: iteration.iterationNumber,
+        totalLines: lines.length,
+        messagesRead: sdkMessages.length,
+        parseErrors,
+      })
+
+      return this.transformSDKMessagesToMessages(sdkMessages)
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        console.debug('Claude messages file does not exist for iteration, using task data', {
+          taskId: task.taskId,
+          filePath,
+          iterationNumber: iteration.iterationNumber,
+        })
+        return this.createMessagesFromSingleIteration(iteration)
+      }
+
+      // For other errors, log and throw
+      console.error('Error reading Claude messages file', error as Error, {
+        taskId: task.taskId,
+        filePath,
+      })
+      throw error
+    }
+  }
+
+  /**
+   * Create messages from a single task iteration
+   */
+  private createMessagesFromSingleIteration(iteration: TaskIteration): Message[] {
+    const messages: Message[] = []
+
+    // Skip iterations without messages
+    if (!iteration.initialMessage && !iteration.result) {
+      return messages
+    }
+
+    // Add user message if exists
+    if (iteration.initialMessage) {
+      const userMessage: UserMessage = {
+        id: `iteration-${iteration.iterationNumber}-user`,
+        role: 'user',
+        content: iteration.initialMessage,
+        timestamp: iteration.startTime,
+        eventId: `iteration-${iteration.iterationNumber}-user`,
+      }
+      messages.push(userMessage)
+    }
+
+    // Add assistant message - always try to parse message from iteration
+    const assistantContent = this.parseMessageFromIteration(iteration)
+    if (assistantContent) {
+      const assistantMessage: AssistantMessage = {
+        id: `iteration-${iteration.iterationNumber}-assistant`,
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: iteration.endTime || iteration.startTime,
+        eventId: `iteration-${iteration.iterationNumber}-assistant`,
+      }
+      messages.push(assistantMessage)
+    }
+
+    return messages
   }
 
   /**
@@ -206,35 +249,8 @@ export class MessageService {
     const messages: Message[] = []
 
     for (const iteration of task.iterations) {
-      // Skip iterations without messages
-      if (!iteration.initialMessage && !iteration.result) {
-        continue
-      }
-
-      // Add user message if exists
-      if (iteration.initialMessage) {
-        const userMessage: UserMessage = {
-          id: `iteration-${iteration.iterationNumber}-user`,
-          role: 'user',
-          content: iteration.initialMessage,
-          timestamp: iteration.startTime,
-          eventId: `iteration-${iteration.iterationNumber}-user`,
-        }
-        messages.push(userMessage)
-      }
-
-      // Add assistant message - always try to parse message from iteration
-      const assistantContent = this.parseMessageFromIteration(iteration)
-      if (assistantContent) {
-        const assistantMessage: AssistantMessage = {
-          id: `iteration-${iteration.iterationNumber}-assistant`,
-          role: 'assistant',
-          content: assistantContent,
-          timestamp: iteration.endTime || iteration.startTime,
-          eventId: `iteration-${iteration.iterationNumber}-assistant`,
-        }
-        messages.push(assistantMessage)
-      }
+      const iterationMessages = this.createMessagesFromSingleIteration(iteration)
+      messages.push(...iterationMessages)
     }
 
     console.debug('Created messages from task iterations', {
