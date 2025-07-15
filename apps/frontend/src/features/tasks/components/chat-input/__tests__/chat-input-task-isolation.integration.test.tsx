@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
 import { createMockMutationResult } from '@/test-utils/mock-mutations'
-import { ChatInput } from '../index'
+import { ChatInput } from '../chat-input'
 
 // Mock dependencies
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
