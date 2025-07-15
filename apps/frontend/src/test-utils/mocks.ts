@@ -99,6 +99,12 @@ export function createMockQueryClient() {
   }
 }
 
+// Helper to create a query wrapper for tests
+export function createQueryWrapper() {
+  const queryClient = createMockQueryClient()
+  return queryClient
+}
+
 // Mock for WebSocket
 export class MockWebSocket {
   url: string

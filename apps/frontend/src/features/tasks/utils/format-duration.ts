@@ -5,7 +5,7 @@ export function formatRunningDuration(startTime: Date | string): string {
   const startTimeDate = startTime instanceof Date ? startTime : new Date(startTime)
 
   // Validate that we have a valid date
-  if (isNaN(startTimeDate.getTime())) {
+  if (Number.isNaN(startTimeDate.getTime())) {
     return '0s'
   }
 

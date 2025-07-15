@@ -24,7 +24,7 @@ function TaskPageComponent() {
 
   // Use specialized hooks that only cause re-renders when specific data changes
   const { isLoading, error } = useTaskData() // Only re-renders on loading/error changes
-  const task = useTaskMetadata() // Get task metadata for repository ID
+  useTaskMetadata() // Get task metadata for repository ID
   const { rightPanelView, setRightPanelView } = usePanelView() // Only re-renders on panel view changes
   const { panelSizes, setPanelSizes } = usePanelSizes() // Only re-renders on panel size changes
   const { selectedFile, setSelectedFile } = useSelectedFile() // Only re-renders on file selection changes
@@ -85,13 +85,7 @@ function TaskPageComponent() {
           }}
           className="flex flex-col"
         >
-          <ErrorBoundary
-            componentName="Chat View"
-            enableTaskCreation={true}
-            repositoryId={task?.repositoryId}
-          >
-            <ChatView />
-          </ErrorBoundary>
+          <ChatView />
         </ResizablePanel>
 
         <ResizableHandle withHandle />

@@ -134,7 +134,6 @@ export function RepositoryList({
                     </div>
                   </div>
 
-
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="text-xs text-muted-foreground">
                       Created: {new Date(repository.createdAt).toLocaleDateString()}

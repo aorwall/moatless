@@ -7,7 +7,7 @@ export const STATUS_AFFECTING_EVENTS = [EventType.ERROR, EventType.TASK_STATUS] 
 // Map of actively used event types to their invalidation keys
 // These invalidation keys are for the specific task only
 export const EVENT_INVALIDATION_MAP = {
-  [EventType.MESSAGE]: [], // No invalidation needed - handled by direct cache update
+  [EventType.MESSAGE]: [queryKeys.tasks.messages], // Invalidate messages when new messages arrive
   [EventType.RESULT]: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Keep for iteration updates and git changes
   [EventType.ERROR]: [queryKeys.tasks.detail],
   [EventType.WORKSPACE]: [queryKeys.tasks.workspaceStatus, queryKeys.tasks.gitDiff],
@@ -22,7 +22,7 @@ export const EVENT_INVALIDATION_MAP = {
     queryKeys.tasks.serverStatus,
   ],
   [EventType.SERVER]: [queryKeys.tasks.serverStatus],
-  [EventType.TOOL]: [queryKeys.tasks.events],
+  [EventType.TOOL]: [queryKeys.tasks.events, queryKeys.tasks.messages], // Also invalidate messages for tool events
   [EventType.COMPLETION]: [queryKeys.tasks.detail],
 } as const
 

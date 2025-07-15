@@ -1,6 +1,10 @@
-import type { WorkspaceStatusResponse } from '@moatless/types'
-import type { Event } from '@moatless/types'
-import type { GitDiffResponse, Task, TaskIteration } from '@moatless/types'
+import type {
+  Event,
+  GitDiffResponse,
+  Task,
+  TaskIteration,
+  WorkspaceStatusResponse,
+} from '@moatless/types'
 import { useQueries } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'

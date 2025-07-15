@@ -1,5 +1,4 @@
-import { DEFAULT_CLAUDE_MODEL } from '@moatless/types'
-import { CreateTaskRequestSchema } from '@moatless/types'
+import { CreateTaskRequestSchema, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'

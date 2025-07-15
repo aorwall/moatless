@@ -1,7 +1,4 @@
-import type {
-  CreateRepositoryRequest,
-  UpdateRepositoryRequest,
-} from '@moatless/types'
+import type { CreateRepositoryRequest, UpdateRepositoryRequest } from '@moatless/types'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { RepositoryForm, useCreateRepository } from '@/features/repositories'
