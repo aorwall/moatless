@@ -851,7 +851,7 @@ export class WorkspaceService {
     taskId: string,
     rootPath = '.',
   ): Promise<FileTreeWithChangesResponse> {
-    if (!(await this.canListFiles(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
     }
 
