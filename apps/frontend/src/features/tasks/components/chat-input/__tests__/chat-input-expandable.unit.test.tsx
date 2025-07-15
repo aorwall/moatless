@@ -100,7 +100,7 @@ describe('ChatInput - Expandable Textarea', () => {
 
   describe('Default maxHeight behavior', () => {
     it('should apply default maxHeight of 200px when no prop is provided', () => {
-      renderWithProviders(<ChatInput taskId="test-task" onSendMessage={vi.fn()} />)
+      renderWithProviders(<ChatInput message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} taskId="test-task" />)
 
       const textarea = screen.getByPlaceholderText(/type a new request/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -109,7 +109,7 @@ describe('ChatInput - Expandable Textarea', () => {
     })
 
     it('should have minimum height of 40px', () => {
-      renderWithProviders(<ChatInput taskId="test-task" onSendMessage={vi.fn()} />)
+      renderWithProviders(<ChatInput message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} taskId="test-task" />)
 
       const textarea = screen.getByPlaceholderText(/type a new request/i)
       const textareaStyles = window.getComputedStyle(textarea)
@@ -121,7 +121,7 @@ describe('ChatInput - Expandable Textarea', () => {
   describe('Custom maxHeight prop', () => {
     it('should apply custom maxHeight when prop is provided', () => {
       renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="300px" />,
+        <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="300px" />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i)
@@ -140,7 +140,7 @@ describe('ChatInput - Expandable Textarea', () => {
       const { rerender } = render(
         <QueryClientProvider client={queryClient}>
           <TaskUIProvider taskId="test-task">
-            <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="150px" />
+            <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="150px" />
           </TaskUIProvider>
         </QueryClientProvider>,
       )
@@ -152,7 +152,7 @@ describe('ChatInput - Expandable Textarea', () => {
       rerender(
         <QueryClientProvider client={queryClient}>
           <TaskUIProvider taskId="test-task">
-            <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="400px" />
+            <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="400px" />
           </TaskUIProvider>
         </QueryClientProvider>,
       )
@@ -167,7 +167,7 @@ describe('ChatInput - Expandable Textarea', () => {
     it('should expand textarea height as user types', async () => {
       const user = userEvent.setup()
       renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="300px" />,
+        <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="300px" />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i) as HTMLTextAreaElement
@@ -197,7 +197,7 @@ describe('ChatInput - Expandable Textarea', () => {
     it('should stop expanding at maxHeight', async () => {
       const user = userEvent.setup()
       renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="150px" />,
+        <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="150px" />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i) as HTMLTextAreaElement
@@ -222,7 +222,7 @@ describe('ChatInput - Expandable Textarea', () => {
     it('should show scrollbar when content exceeds maxHeight', async () => {
       const user = userEvent.setup()
       renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="100px" />,
+        <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="100px" />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i) as HTMLTextAreaElement
@@ -249,7 +249,7 @@ describe('ChatInput - Expandable Textarea', () => {
     it('should reset height when content is cleared', async () => {
       const user = userEvent.setup()
       renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="200px" />,
+        <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="200px" />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i) as HTMLTextAreaElement
@@ -288,7 +288,7 @@ describe('ChatInput - Expandable Textarea', () => {
       renderWithProviders(
         <ChatInput
           taskId="task-123"
-          onSendMessage={vi.fn()}
+          message="" onMessageChange={vi.fn()} onSubmit={vi.fn()}
           maxHeight="150px"
           placeholder="Type a new request..."
         />,
@@ -302,7 +302,7 @@ describe('ChatInput - Expandable Textarea', () => {
 
     it('should work with custom maxHeight', () => {
       renderWithProviders(
-        <ChatInput taskId="test-task" onSendMessage={vi.fn()} maxHeight="300px" />,
+        <ChatInput taskId="test-task" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} maxHeight="300px" />,
       )
 
       const textarea = screen.getByPlaceholderText(/type a new request/i)

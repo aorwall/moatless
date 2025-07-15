@@ -42,14 +42,9 @@ const renderWithProviders = (component: React.ReactElement) => {
 describe('ChatInput integration', () => {
   it('should pass repositoryId from task prop to underlying components', () => {
     const taskId = 'task-123'
-    const repositoryId = 'repo-456'
-    const task = {
-      iterations: [],
-      repositoryId,
-    }
 
     const { container } = renderWithProviders(
-      <ChatInput taskId={taskId} task={task as any} taskStatus="open" onSendMessage={() => {}} />,
+      <ChatInput message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} taskId={taskId} />,
     )
 
     // The component should render without errors
@@ -65,7 +60,7 @@ describe('ChatInput integration', () => {
     const taskId = 'task-123'
 
     const { container } = renderWithProviders(
-      <ChatInput taskId={taskId} taskStatus="open" onSendMessage={() => {}} />,
+      <ChatInput message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} taskId={taskId} />,
     )
 
     // The component should render without errors even without repositoryId

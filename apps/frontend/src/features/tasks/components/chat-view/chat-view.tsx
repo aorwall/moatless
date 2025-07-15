@@ -1,4 +1,4 @@
-import type { ClaudeModel, Command, Task, UploadFileResponse } from '@moatless/types'
+import type { ClaudeModel, Command, UploadFileResponse } from '@moatless/types'
 import { useParams } from '@tanstack/react-router'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
