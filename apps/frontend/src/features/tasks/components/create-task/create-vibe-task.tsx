@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
 import { getErrorMessage } from '@/lib/utils/error'
-import { ChatUI } from '../chat-input/chat-ui'
+import { ChatInput } from '../chat-input/chat-input'
 import { GenericSelector, useModelSelector, useTemplateSelector } from '../chat-input/selectors'
 
 interface CreateVibeTaskProps {
@@ -119,7 +119,7 @@ export function CreateVibeTask({
       )}
 
       <div className={showTitle ? 'max-w-2xl mx-auto' : ''}>
-        <ChatUI
+        <ChatInput
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSubmit}

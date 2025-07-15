@@ -15,7 +15,7 @@ import {
 import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete'
 import { getErrorMessage } from '@/lib/utils/error'
 
-interface ChatUIProps {
+interface ChatInputProps {
   // Core functionality
   message: string
   onMessageChange: (message: string) => void
@@ -46,7 +46,7 @@ interface ChatUIProps {
   className?: string
 }
 
-export function ChatUI({
+export function ChatInput({
   message,
   onMessageChange,
   onSubmit,
@@ -64,7 +64,7 @@ export function ChatUI({
   onFilesChange,
   selectors,
   className = '',
-}: ChatUIProps) {
+}: ChatInputProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)

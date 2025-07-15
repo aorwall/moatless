@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { getErrorMessage } from '@/lib/utils/error'
-import { ChatUI } from '../chat-input/chat-ui'
+import { ChatInput } from '../chat-input/chat-input'
 import {
   GenericSelector,
   useBranchSelector,
@@ -123,7 +123,7 @@ export function CreateCodeTask({
       )}
 
       <div className={showTitle ? 'max-w-2xl mx-auto' : ''}>
-        <ChatUI
+        <ChatInput
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSubmit}

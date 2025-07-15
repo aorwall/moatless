@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ChatUI } from '../../chat-input/chat-ui'
+import { ChatInput } from '../../chat-input/chat-input'
 
 // Mock the file autocomplete hook
 vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({
@@ -39,12 +39,12 @@ vi.mock('@/features/uploads/hooks/use-upload', () => ({
   }),
 }))
 
-describe('ChatUI (MessageInput replacement)', () => {
+describe('ChatInput (MessageInput replacement)', () => {
   it('renders with default props', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
@@ -54,7 +54,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.change(textarea, { target: { value: 'Hello world' } })
@@ -66,7 +66,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const button = screen.getByRole('button')
     fireEvent.click(button)
@@ -78,7 +78,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
@@ -90,7 +90,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
@@ -102,7 +102,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const button = screen.getByRole('button')
     expect(button).toBeDisabled()
@@ -113,7 +113,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI
+      <ChatInput
         message="Test message"
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
@@ -130,7 +130,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI
+      <ChatInput
         message="Test message"
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
@@ -147,7 +147,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} buttonText="Submit" />,
+      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} buttonText="Submit" />,
     )
 
     expect(screen.getByText('Submit')).toBeInTheDocument()
@@ -158,7 +158,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI
+      <ChatInput
         message=""
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
@@ -174,7 +174,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI
+      <ChatInput
         message=""
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
@@ -190,7 +190,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="150px" />,
+      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="150px" />,
     )
 
     const textarea = screen.getByPlaceholderText('Type a message...')
@@ -223,7 +223,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="100px" />,
+      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="100px" />,
     )
 
     const textarea = screen.getByPlaceholderText('Type a message...')
@@ -234,7 +234,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="@test" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="@test" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     expect(screen.queryByTestId('file-autocomplete')).not.toBeInTheDocument()
   })
@@ -244,7 +244,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI
+      <ChatInput
         message=""
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
@@ -260,7 +260,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     // Should not show file upload button when enableFileUpload is false (default)
     expect(screen.queryByRole('button', { name: 'Upload file' })).not.toBeInTheDocument()
@@ -271,7 +271,7 @@ describe('ChatUI (MessageInput replacement)', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <ChatUI
+      <ChatInput
         message=""
         onMessageChange={handleChange}
         onSubmit={handleSubmit}

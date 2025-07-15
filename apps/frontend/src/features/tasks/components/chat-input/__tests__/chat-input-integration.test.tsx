@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
-import { ChatInput } from '../index'
+import { ChatInput } from '../chat-input'
 
 // Mock the API hooks
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({

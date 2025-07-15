@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { ChatUI } from '../chat-ui'
+import { ChatInput } from '../chat-input'
 import { GenericSelector } from '../selectors'
 
 // Mock the file search hooks
@@ -41,7 +41,7 @@ const renderWithProviders = (component: React.ReactElement) => {
   return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
 }
 
-describe('Refactored ChatUI (ChatForm replacement)', () => {
+describe('Refactored ChatInput (ChatForm replacement)', () => {
   it('renders with selectors', () => {
     const onSubmit = vi.fn()
     const onMessageChange = vi.fn()
@@ -57,7 +57,7 @@ describe('Refactored ChatUI (ChatForm replacement)', () => {
     ]
 
     renderWithProviders(
-      <ChatUI
+      <ChatInput
         message=""
         onMessageChange={onMessageChange}
         onSubmit={onSubmit}
@@ -106,7 +106,7 @@ describe('Refactored ChatUI (ChatForm replacement)', () => {
       const [message, setMessage] = React.useState('')
 
       return (
-        <ChatUI
+        <ChatInput
           message={message}
           onMessageChange={(newMessage) => {
             setMessage(newMessage)
@@ -142,7 +142,7 @@ describe('Refactored ChatUI (ChatForm replacement)', () => {
     const onMessageChange = vi.fn()
 
     render(
-      <ChatUI message="" onMessageChange={onMessageChange} onSubmit={onSubmit} selectors={<></>} />,
+      <ChatInput message="" onMessageChange={onMessageChange} onSubmit={onSubmit} selectors={<></>} />,
     )
 
     // Should render without selectors
