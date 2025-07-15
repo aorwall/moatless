@@ -7,6 +7,7 @@ import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
+import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
@@ -126,6 +127,18 @@ export function TaskHeader() {
         .join(', ')
     : ''
 
+  // Calculate metrics from iterations
+  const totalTurns = iterations?.reduce((sum, iteration) => sum + iteration.messageCount, 0) || 0
+  const totalCostUsd = iterations?.reduce((sum, iteration) => sum + iteration.costUsd, 0) || 0
+
+  // Get context tokens from the last iteration that has any context tokens
+  const lastIterationWithContext = iterations
+    ? [...iterations]
+        .reverse()
+        .find((iteration) => iteration.contextTokens && iteration.contextTokens > 0)
+    : undefined
+  const contextTokens = lastIterationWithContext?.contextTokens
+
   return (
     <div className="h-[58px] px-4 py-2 border-b flex items-center">
       <div className="flex items-center justify-between gap-3 w-full">
@@ -147,6 +160,18 @@ export function TaskHeader() {
                 <span className="text-muted-foreground">•</span>
                 <span className="text-xs text-muted-foreground">{gitStatusInfo}</span>
               </>
+            )}
+            <span className="text-muted-foreground">•</span>
+            <Badge variant="outline" className="text-xs">
+              {totalTurns} turns
+            </Badge>
+            <Badge variant="outline" className="text-xs">
+              ${totalCostUsd.toFixed(4)}
+            </Badge>
+            {contextTokens && (
+              <Badge variant="outline" className="text-xs">
+                {contextTokens.toLocaleString()} tokens
+              </Badge>
             )}
           </div>
         </div>
