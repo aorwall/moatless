@@ -1,11 +1,10 @@
 import { AlertCircle, Plus, RotateCcw } from 'lucide-react'
-import { Component, type ReactNode, Suspense, useState } from 'react'
+import { Component, type ReactNode, useState } from 'react'
 
 import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import { Skeleton } from '@/lib/components/ui/skeleton'
 
 // Internal task creation fallback component
 function TaskCreationFallback({
@@ -209,29 +208,4 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     return this.props.children
   }
-}
-
-// Wrapper that combines error boundary with Suspense
-export function SafeBoundary({
-  children,
-  componentName,
-  fallback,
-  loadingFallback,
-  ...errorBoundaryProps
-}: ErrorBoundaryProps & { loadingFallback?: ReactNode }) {
-  return (
-    <ErrorBoundary componentName={componentName} fallback={fallback} {...errorBoundaryProps}>
-      <Suspense
-        fallback={
-          loadingFallback || (
-            <div className="h-full flex items-center justify-center p-6">
-              <Skeleton className="h-32 w-full max-w-md" />
-            </div>
-          )
-        }
-      >
-        {children}
-      </Suspense>
-    </ErrorBoundary>
-  )
 }

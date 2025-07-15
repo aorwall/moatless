@@ -1,9 +1,9 @@
+import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types'
 import {
   FRAMEWORK_DEFAULT_COMMANDS,
   FRAMEWORK_OPTIONS,
   INJECTION_METHOD_OPTIONS,
 } from '@moatless/types'
-import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types'
 import { ChevronDown, Info, Loader2, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'

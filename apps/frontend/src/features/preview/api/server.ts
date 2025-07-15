@@ -1,5 +1,4 @@
-import type { ServerLogsResponse } from '@moatless/types'
-import type { ServerStatus } from '@moatless/types'
+import type { ServerLogsResponse, ServerStatus } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 export const serverApi = {

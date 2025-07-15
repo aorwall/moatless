@@ -1,5 +1,4 @@
-import type { GitSyncStatus } from '@moatless/types'
-import type { Task } from '@moatless/types'
+import type { GitSyncStatus, Task } from '@moatless/types'
 import { getGitSyncStatusConfig } from '@/features/tasks/utils/git-sync-status'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 

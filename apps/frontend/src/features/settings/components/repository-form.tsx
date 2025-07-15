@@ -1,13 +1,10 @@
-import {
-  CreateRepositorySchema,
-  UpdateRepositorySchema,
-} from '@moatless/types'
 import type {
   CodeExecution,
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
 } from '@moatless/types'
+import { CreateRepositorySchema, UpdateRepositorySchema } from '@moatless/types'
 
 import { useId, useState } from 'react'
 import { z } from 'zod'

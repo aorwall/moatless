@@ -85,13 +85,7 @@ function TaskPageComponent() {
           }}
           className="flex flex-col"
         >
-          <ErrorBoundary
-            componentName="Chat View"
-            enableTaskCreation={true}
-            repositoryId={task?.repositoryId}
-          >
-            <ChatView />
-          </ErrorBoundary>
+          <ChatView />
         </ResizablePanel>
 
         <ResizableHandle withHandle />

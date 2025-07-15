@@ -57,10 +57,6 @@ export function generateProjectId(workspacePath: string): string {
  * Get Claude Code events file path
  */
 export function getClaudeEventsFilePath(settings: ClaudeCodeSettings, task: Task): string | null {
-  if (!task.workspacePath) {
-    logger.warn('No workspace path for Claude Code events', { taskId: task.taskId })
-    return null
-  }
 
   // Get the last iteration with a session ID
   const lastIteration = task.iterations
@@ -77,8 +73,18 @@ export function getClaudeEventsFilePath(settings: ClaudeCodeSettings, task: Task
     return null
   }
 
+  if (!task.workspacePath) {
+    logger.warn('No workspace path found for task', {
+      taskId: task.taskId,
+    })
+    return null
+  }
+
   const projectId = generateProjectId(task.workspacePath)
   const sessionId = lastIteration.agentSessionId
+  if (!sessionId) {
+    return null
+  }
   return path.join(settings.claudeConfigPath, 'projects', projectId, `${sessionId}.jsonl`)
 }
 
@@ -105,7 +111,7 @@ export async function readClaudeCodeEvents(
     const lastIteration = task.iterations
       .slice()
       .reverse()
-      .find((iter) => iter.agentSessionId)
+      .find(iter => iter.agentSessionId)
 
     let parseErrors = 0
     for (const line of lines) {

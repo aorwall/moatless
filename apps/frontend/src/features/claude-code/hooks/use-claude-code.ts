@@ -1,7 +1,4 @@
-import type {
-  ClaudeCodeSettingsResponse,
-  UpdateClaudeCodeSettingsRequest,
-} from '@moatless/types'
+import type { ClaudeCodeSettingsResponse, UpdateClaudeCodeSettingsRequest } from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,

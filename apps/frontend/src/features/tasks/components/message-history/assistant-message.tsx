@@ -17,25 +17,24 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
   const hasResult = !!content.tool_result
   const resultLines = content.tool_result?.content?.split('\n') || []
   const shouldTruncate = resultLines.length > 3
-  const displayLines = expanded ? resultLines : resultLines.slice(0, 3)
+  const displayLines = expanded ? resultLines : resultLines.slice(0, 2)
   const hiddenLineCount = resultLines.length - 3
-  
+
   // Format tool input for display
   const formatToolInput = () => {
     if (!content.tool_input) return ''
     if (typeof content.tool_input === 'string') return content.tool_input
-    
+
     const entries = Object.entries(content.tool_input)
     if (entries.length === 0) return ''
-    
+
     // Show only first parameter in compact view
     const [_key, value] = entries[0]
     const displayValue = typeof value === 'string' ? value : JSON.stringify(value)
-    const truncatedValue = displayValue.length > 50 ? `${displayValue.substring(0, 50)}...` : displayValue
-    
-    return entries.length > 1 
-      ? `${truncatedValue} +${entries.length - 1} more`
-      : truncatedValue
+    const truncatedValue =
+      displayValue.length > 50 ? `${displayValue.substring(0, 50)}...` : displayValue
+
+    return entries.length > 1 ? `${truncatedValue} +${entries.length - 1} more` : truncatedValue
   }
 
   return (
@@ -46,17 +45,18 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
           <div className="flex items-center gap-1">
             <span className="font-medium">{content.tool_name}</span>
             {content.tool_input && (
-              <span className="text-muted-foreground truncate">
-                ({formatToolInput()})
-              </span>
+              <span className="text-muted-foreground truncate">({formatToolInput()})</span>
             )}
           </div>
 
           {hasResult && (
-            <div className="mt-1 ml-2 pl-2 border-l-2 border-border/50">
-              <div className="bg-muted/30 rounded p-1.5 text-muted-foreground">
+            <div className="mt-1">
+              <div className="bg-muted/30 p-1 text-muted-foreground">
                 {displayLines.map((line, index) => (
-                  <div key={`${content.tool_use_id}-${index}`} className="whitespace-pre-wrap break-all">
+                  <div
+                    key={`${content.tool_use_id}-${index}`}
+                    className="whitespace-pre-wrap break-all"
+                  >
                     {line || ' '}
                   </div>
                 ))}
@@ -101,9 +101,7 @@ export function AssistantMessageComponent({
   return (
     <div className="space-y-2">
       {/* Text content */}
-      {textContent && (
-        <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>
-      )}
+      {textContent && <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>}
 
       {/* Tool calls */}
       {toolCalls.length > 0 && (

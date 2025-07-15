@@ -1,10 +1,8 @@
 import type {
   CodeExecution,
   CreateRepositoryRequest,
-  UpdateRepositoryRequest,
-} from '@moatless/types'
-import type {
   RepositoryResponse,
+  UpdateRepositoryRequest,
 } from '@moatless/types'
 
 // Code execution factories

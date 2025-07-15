@@ -5,7 +5,7 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import { useParams } from '@tanstack/react-router'
-import { ArrowDown, ChevronDown, ChevronRight, Terminal } from 'lucide-react'
+import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
@@ -70,16 +70,12 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
       >
         <div className="flex items-center gap-2 w-full">
           {groupExpanded ? (
-            <ChevronDown className="h-3 w-3" />
+            <ChevronDown className="h-3 w-3  text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-3 w-3" />
+            <Terminal className="h-3 w-3 text-muted-foreground" />
           )}
-          <Terminal className="h-3 w-3 text-muted-foreground" />
           <span className="text-muted-foreground">
             {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({toolSummary})
-          </span>
-          <span className="ml-auto text-muted-foreground">
-            {groupExpanded ? 'collapse' : 'expand'}
           </span>
         </div>
       </Button>
