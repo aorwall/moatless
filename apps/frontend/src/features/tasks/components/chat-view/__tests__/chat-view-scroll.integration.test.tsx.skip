@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { render } from '@/test-utils/render'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   useEventStream,
@@ -6,8 +7,14 @@ import {
   useTaskData,
   useWorkspaceStatus,
 } from '@/features/tasks/contexts/task-providers'
-import { useSelectedIteration } from '@/features/tasks/contexts/task-ui-provider'
-import { useSendMessage, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
+import {
+  useChatMessage,
+  useChatModel,
+  useChatResumeConversation,
+  useChatState,
+  useSelectedIteration,
+} from '@/features/tasks/contexts/task-ui-provider'
+import { useSendMessage, useTaskCommands, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { ChatView } from '../chat-view'
 
 // Mock all dependencies
@@ -77,6 +84,33 @@ describe('ChatView Scroll Behavior', () => {
       setSelectedIteration: vi.fn(),
     } as any)
 
+    vi.mocked(useChatMessage).mockReturnValue({
+      message: '',
+      setMessage: vi.fn(),
+      clearMessage: vi.fn(),
+    } as any)
+
+    vi.mocked(useChatModel).mockReturnValue({
+      selectedModel: 'claude-3-5-sonnet-20241022',
+      setSelectedModel: vi.fn(),
+    } as any)
+
+    vi.mocked(useChatResumeConversation).mockReturnValue({
+      resumeConversation: false,
+      setResumeConversation: vi.fn(),
+    } as any)
+
+    vi.mocked(useChatState).mockReturnValue({
+      chatState: {
+        selectedFile: null,
+        gitDiffState: {
+          expanded: {},
+          selected: null,
+        },
+      },
+      updateChatState: vi.fn(),
+    } as any)
+
     vi.mocked(useSendMessage).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
@@ -90,6 +124,25 @@ describe('ChatView Scroll Behavior', () => {
       data: { commands: [] },
       isLoading: false,
     } as any)
+
+    vi.mocked(useTaskMessages).mockReturnValue({
+      data: [
+        {
+          id: '1',
+          role: 'user',
+          content: 'Test message',
+          timestamp: new Date(),
+        },
+        {
+          id: '2',
+          role: 'assistant',
+          content: 'Test result',
+          timestamp: new Date(),
+        },
+      ],
+      isLoading: false,
+      error: null,
+    } as any)
   })
 
   it('should render without crashing with new scroll implementation', () => {
@@ -98,7 +151,7 @@ describe('ChatView Scroll Behavior', () => {
     expect(screen.getByText('Chat Header')).toBeInTheDocument()
     expect(screen.getByText('Test message')).toBeInTheDocument()
     expect(screen.getByText('Test result')).toBeInTheDocument()
-    expect(screen.getByText('Chat Input')).toBeInTheDocument()
+    expect(screen.getByTestId('task-chat-input')).toBeInTheDocument()
   })
 
   it('should not show scroll to bottom button initially', () => {
@@ -118,6 +171,8 @@ describe('ChatView Scroll Behavior', () => {
 
     render(<ChatView />)
 
-    expect(screen.getByText('Loading...')).toBeInTheDocument()
+    // Check for skeleton loading components by class
+    const skeletons = document.querySelectorAll('.animate-pulse')
+    expect(skeletons.length).toBeGreaterThan(0)
   })
 })
