@@ -1,16 +1,31 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { CommandResult, ServerStatus } from '@moatless/types'
-import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
-import type { RepositoryConfig } from '@moatless/types'
-import { WorkspaceStatus } from '@moatless/types'
+import type {
+  CommandResult,
+  FileTreeNode,
+  FileTreeWithChangesResponse,
+  RepositoryConfig,
+  ServerStatus,
+} from '@moatless/types'
+import {
+  RepositoryNotFoundError,
+  TaskNotFoundError,
+  WorkspaceError,
+  WorkspaceStatus,
+} from '@moatless/types'
+import { DockerEnvironment } from '../environments/docker-environment.js'
+import { LocalEnvironment } from '../environments/local-environment.js'
+import type { FileSearchRequest, FileSearchResponse } from '../services/file-operations.service.js'
 import type { GitDiffResponse } from '../utils/index.js'
-import { createGitWorktree, isGitRepository, syncWithMain, getBranchList, isGitWorktree } from '../utils/index.js'
+import {
+  createGitWorktree,
+  getBranchList,
+  isGitRepository,
+  isGitWorktree,
+  syncWithMain,
+} from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
-import { LocalEnvironment } from '../environments/local-environment.js'
-import { DockerEnvironment } from '../environments/docker-environment.js'
-import type { FileSearchRequest, FileSearchResponse } from '../services/file-operations.service.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
@@ -145,7 +160,7 @@ export class WorkspaceService {
     branchName?: string,
   ): Promise<void> {
     const workspaceLogger = logger.child({ taskId })
-    
+
     // Check if workspace path exists and is a valid git worktree
     const pathExists = await this.pathExists(workspacePath)
     const isValidWorktree = pathExists && (await isGitWorktree(workspacePath))
@@ -167,11 +182,7 @@ export class WorkspaceService {
     if (branchName) {
       const branchExists = await this.checkBranchExists(repo.path, branchName)
       if (!branchExists) {
-        throw new WorkspaceError(
-          `Branch '${branchName}' does not exist in repository`,
-          taskId,
-          400,
-        )
+        throw new WorkspaceError(`Branch '${branchName}' does not exist in repository`, taskId, 400)
       }
 
       // When using an existing branch, we might need to create a new branch
@@ -215,7 +226,9 @@ export class WorkspaceService {
 
       // Find the last completed iteration with git status
       const lastCompletedIteration = task.iterations
-        .filter((iteration) => iteration.status === 'completed' && iteration.gitStatus?.currentBranch)
+        .filter(
+          (iteration) => iteration.status === 'completed' && iteration.gitStatus?.currentBranch,
+        )
         .sort((a, b) => b.iterationNumber - a.iterationNumber)[0]
 
       if (lastCompletedIteration?.gitStatus?.currentBranch) {
@@ -309,11 +322,11 @@ export class WorkspaceService {
 
       // Remove the worktree using git command
       workspaceLogger.info('Removing git worktree', { workspacePath })
-      
+
       const { exec } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execAsync = promisify(exec)
-      
+
       await execAsync(`git worktree remove "${workspacePath}" --force`, {
         cwd: repository.path,
         timeout: 10000,
@@ -377,17 +390,17 @@ export class WorkspaceService {
           workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
             existingPath: existingWorkspacePath,
           })
-          
+
           // Try to get the branch from the last completed iteration
           const lastIterationBranch = await this.getLastIterationBranch(taskId)
           const branchToUse = branchName || lastIterationBranch || undefined
-          
+
           workspaceLogger.debug('Using branch for worktree recreation', {
             providedBranch: branchName,
             lastIterationBranch,
             branchToUse,
           })
-          
+
           // Recreate the worktree at the same path
           await this.ensureWorktreeExists(repository, taskId, existingWorkspacePath, branchToUse)
         } else if (!repository.useGitWorktrees && !(await this.pathExists(existingWorkspacePath))) {
@@ -662,7 +675,7 @@ export class WorkspaceService {
 
     // Check if file operations are available (workspace path exists on disk)
     const fileOperationsAvailable = await workspace.isWorkspacePathValid()
-    
+
     // Determine capabilities based on environment status and file operations availability
     const capabilities = {
       fileOperations: fileOperationsAvailable,
@@ -875,6 +888,270 @@ export class WorkspaceService {
         `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
         taskId,
       )
+    }
+  }
+
+  /**
+   * Get file tree with git change information
+   * This combines file listing and git diff data in a single performant call
+   */
+  async getFileTreeWithChanges(
+    taskId: string,
+    rootPath = '.',
+  ): Promise<FileTreeWithChangesResponse> {
+    if (!(await this.canListFiles(taskId))) {
+      throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
+    }
+
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const workspacePath = workspace.getWorkspacePath()
+
+    if (!workspacePath) {
+      throw new WorkspaceError('Workspace path not available', taskId)
+    }
+
+    try {
+      // Parallel execution for performance
+      const [gitDiff, allFiles] = await Promise.all([
+        workspace.getGitDiff(),
+        this.getAllFiles(workspacePath, rootPath),
+      ])
+
+      // Create a map of file paths to git diff information for O(1) lookup
+      const gitFileMap = new Map<
+        string,
+        {
+          status: 'added' | 'modified' | 'deleted' | 'renamed'
+          additions: number
+          deletions: number
+          isStaged: boolean
+        }
+      >()
+
+      let totalStaged = 0
+      let totalModified = 0
+
+      for (const file of gitDiff.files) {
+        gitFileMap.set(file.filename, {
+          status: file.status,
+          additions: file.additions,
+          deletions: file.deletions,
+          isStaged: file.isStaged,
+        })
+
+        if (file.isStaged) {
+          totalStaged++
+        }
+        if (file.status === 'modified') {
+          totalModified++
+        }
+      }
+
+      // Build file tree with git change information
+      const tree = this.buildFileTree(allFiles, gitFileMap, rootPath)
+
+      const gitSummary = {
+        totalFiles: gitDiff.files.length,
+        totalAdditions: gitDiff.totalAdditions,
+        totalDeletions: gitDiff.totalDeletions,
+        totalModified,
+        totalStaged,
+        compareBase: gitDiff.compareBase,
+        hasChanges: gitDiff.files.length > 0,
+      }
+
+      return {
+        tree,
+        gitSummary,
+      }
+    } catch (error) {
+      logger.error('Failed to get file tree with changes', error as Error, { taskId })
+      throw new WorkspaceError(
+        `Failed to get file tree with changes: ${error instanceof Error ? error.message : String(error)}`,
+        taskId,
+      )
+    }
+  }
+
+  /**
+   * Efficiently get all files in the workspace
+   */
+  private async getAllFiles(workspacePath: string, rootPath: string): Promise<string[]> {
+    const fullPath = path.join(workspacePath, rootPath)
+    const allFiles: string[] = []
+
+    async function walkDir(dir: string, relativePath: string): Promise<void> {
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true })
+
+        for (const entry of entries) {
+          // Skip hidden files, node_modules, and common ignore patterns
+          if (
+            entry.name.startsWith('.') ||
+            entry.name === 'node_modules' ||
+            entry.name === '__pycache__'
+          ) {
+            continue
+          }
+
+          const fullEntryPath = path.join(dir, entry.name)
+          const relativeEntryPath = relativePath ? path.join(relativePath, entry.name) : entry.name
+
+          if (entry.isDirectory()) {
+            allFiles.push(`${relativeEntryPath}/`)
+            await walkDir(fullEntryPath, relativeEntryPath)
+          } else {
+            allFiles.push(relativeEntryPath)
+          }
+        }
+      } catch (error) {
+        // Continue on permission errors or other issues
+        logger.debug('Error reading directory', {
+          dir,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    await walkDir(fullPath, rootPath === '.' ? '' : rootPath)
+    return allFiles.sort()
+  }
+
+  /**
+   * Build hierarchical file tree with git change information
+   */
+  private buildFileTree(
+    files: string[],
+    gitFileMap: Map<
+      string,
+      {
+        status: 'added' | 'modified' | 'deleted' | 'renamed'
+        additions: number
+        deletions: number
+        isStaged: boolean
+      }
+    >,
+    rootPath: string,
+  ): FileTreeNode[] {
+    const tree: FileTreeNode[] = []
+    const nodeMap = new Map<string, FileTreeNode>()
+
+    // Create root node if needed
+    if (rootPath !== '.' && rootPath !== '') {
+      const rootNode: FileTreeNode = {
+        name: path.basename(rootPath),
+        path: rootPath,
+        type: 'directory',
+        isChanged: false,
+        children: [],
+      }
+      tree.push(rootNode)
+      nodeMap.set(rootPath, rootNode)
+    }
+
+    for (const filePath of files) {
+      const isDirectory = filePath.endsWith('/')
+      const cleanPath = isDirectory ? filePath.slice(0, -1) : filePath
+      const pathParts = cleanPath.split('/').filter((part) => part.length > 0)
+
+      // Build intermediate directories
+      let currentPath = rootPath === '.' ? '' : rootPath
+      let currentChildren = tree
+
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        const part = pathParts[i]
+        const partPath = currentPath ? path.join(currentPath, part) : part
+
+        if (!nodeMap.has(partPath)) {
+          const dirNode: FileTreeNode = {
+            name: part,
+            path: partPath,
+            type: 'directory',
+            isChanged: false,
+            children: [],
+          }
+          nodeMap.set(partPath, dirNode)
+          currentChildren.push(dirNode)
+        }
+
+        const dirNode = nodeMap.get(partPath)!
+        currentChildren = dirNode.children!
+        currentPath = partPath
+      }
+
+      // Add the file/directory node
+      const lastPart = pathParts[pathParts.length - 1]
+      const fullPath = currentPath ? path.join(currentPath, lastPart) : lastPart
+
+      if (!nodeMap.has(fullPath)) {
+        const gitInfo = gitFileMap.get(cleanPath)
+        const node: FileTreeNode = {
+          name: lastPart,
+          path: fullPath,
+          type: isDirectory ? 'directory' : 'file',
+          isChanged: !!gitInfo,
+          ...(gitInfo && {
+            gitStatus: gitInfo.status,
+            additions: gitInfo.additions,
+            deletions: gitInfo.deletions,
+            isStaged: gitInfo.isStaged,
+          }),
+          ...(isDirectory && { children: [] }),
+        }
+
+        nodeMap.set(fullPath, node)
+        currentChildren.push(node)
+
+        // Mark parent directories as changed if this file is changed
+        if (gitInfo) {
+          this.markParentDirectoriesAsChanged(nodeMap, fullPath)
+        }
+      }
+    }
+
+    // Sort children recursively
+    this.sortTreeNodes(tree)
+
+    return tree
+  }
+
+  /**
+   * Mark parent directories as changed when a child file is changed
+   */
+  private markParentDirectoriesAsChanged(
+    nodeMap: Map<string, FileTreeNode>,
+    filePath: string,
+  ): void {
+    const parts = filePath.split('/')
+
+    for (let i = parts.length - 2; i >= 0; i--) {
+      const parentPath = parts.slice(0, i + 1).join('/')
+      const parentNode = nodeMap.get(parentPath)
+
+      if (parentNode && parentNode.type === 'directory') {
+        parentNode.isChanged = true
+      }
+    }
+  }
+
+  /**
+   * Sort tree nodes with directories first, then files, alphabetically
+   */
+  private sortTreeNodes(nodes: FileTreeNode[]): void {
+    nodes.sort((a, b) => {
+      // Directories first
+      if (a.type === 'directory' && b.type === 'file') return -1
+      if (a.type === 'file' && b.type === 'directory') return 1
+
+      // Then alphabetically
+      return a.name.localeCompare(b.name)
+    })
+
+    // Recursively sort children
+    for (const node of nodes) {
+      if (node.children) {
+        this.sortTreeNodes(node.children)
+      }
     }
   }
 }
