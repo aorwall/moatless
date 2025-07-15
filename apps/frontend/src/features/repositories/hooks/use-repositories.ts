@@ -5,7 +5,7 @@ import type {
   RepositoryResponse,
   SetupScriptResponse,
   UpdateRepositoryRequest,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { repositoriesApi } from '@/features/repositories/api/repositories'

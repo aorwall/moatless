@@ -1,7 +1,7 @@
 import type {
   ClaudeCodeSettingsResponse,
   UpdateClaudeCodeSettingsRequest,
-} from '@moatless/types/types/claude-code'
+} from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,

@@ -2,10 +2,10 @@ import type {
   CodeExecution,
   CreateRepositoryRequest,
   UpdateRepositoryRequest,
-} from '@moatless/types/schemas/repository.schemas'
+} from '@moatless/types'
 import type {
   RepositoryResponse,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
 
 // Code execution factories
 export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {

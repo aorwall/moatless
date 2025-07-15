@@ -2,7 +2,7 @@ import type {
   CreateRepositoryRequest,
   RepositoryConfig,
   UpdateRepositoryRequest,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { repositoriesApi } from '@/features/repositories/api/repositories'
 import type { ApiError } from '@/lib/api/client'

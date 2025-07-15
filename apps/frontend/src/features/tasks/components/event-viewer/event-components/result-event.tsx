@@ -1,5 +1,5 @@
-import type { SDKResultMessage } from '@moatless/types/types/claude'
-import type { ResultEvent as ResultEventType } from '@moatless/types/types/event'
+import type { SDKResultMessage } from '@moatless/types'
+import type { ResultEvent as ResultEventType } from '@moatless/types'
 import { AlertCircle, CheckCircle, Clock, Coins } from 'lucide-react'
 
 import { EventHeader } from './event-header'

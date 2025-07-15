@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/types/types/api'
+import type { UploadFileResponse } from '@moatless/types'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'

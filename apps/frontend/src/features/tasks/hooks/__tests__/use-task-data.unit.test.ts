@@ -1,5 +1,5 @@
-import { EventType } from '@moatless/types/types/event'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import { EventType } from '@moatless/types'
+import { WorkspaceStatus } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'

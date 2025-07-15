@@ -1,11 +1,11 @@
-import { RepositoryConfigSchema } from '@moatless/types/schemas'
+import { RepositoryConfigSchema } from '@moatless/types'
 import type {
   CreateRepositoryRequest,
   UpdateRepositoryRequest,
-} from '@moatless/types/schemas/repository.schemas'
+} from '@moatless/types'
 import type {
   RepositoryResponse,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'

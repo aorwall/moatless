@@ -1,5 +1,5 @@
-import type { Event, MessageEvent } from '@moatless/types/types/event'
-import type { Task } from '@moatless/types/types/task'
+import type { Event, MessageEvent } from '@moatless/types'
+import type { Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
