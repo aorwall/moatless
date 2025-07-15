@@ -35,7 +35,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
       expandedPaths: new Set([`${taskName}/src/`, `${taskName}/tests/`]),
     })
 
-    setRightPanelView('diff')
+    setRightPanelView('files')
     setSelectedFile(`${taskName}/selected.ts`)
     setSelectedIteration({ iterationNumber: Number.parseInt(taskName.slice(-1)) } as any)
     setPanelSizes({
@@ -51,7 +51,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
       selectedFileKey: undefined,
       expandedPaths: new Set(),
     })
-    setRightPanelView('events')
+    setRightPanelView('preview')
     setSelectedFile('')
     setSelectedIteration(undefined)
     setPanelSizes({ left: 60, right: 40 })

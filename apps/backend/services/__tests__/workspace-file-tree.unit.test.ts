@@ -96,8 +96,8 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
     mockStorage.getTask.mockResolvedValue(mockTask)
     mockRepositoryService.getRepositoryById.mockResolvedValue(mockRepository)
     
-    // Mock canListFiles to return true by default
-    vi.spyOn(workspaceService, 'canListFiles').mockResolvedValue(true)
+    // Mock canPerformFileOperations to return true by default
+    vi.spyOn(workspaceService, 'canPerformFileOperations').mockResolvedValue(true)
   })
 
   describe('getFileTreeWithChanges', () => {
@@ -178,8 +178,8 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
     })
 
     it('should throw error if cannot list files', async () => {
-      // Mock canListFiles to return false
-      vi.spyOn(workspaceService, 'canListFiles').mockResolvedValue(false)
+      // Mock canPerformFileOperations to return false
+      vi.spyOn(workspaceService, 'canPerformFileOperations').mockResolvedValue(false)
 
       await expect(workspaceService.getFileTreeWithChanges('task-1')).rejects.toThrow(
         'Cannot list files: workspace not ready'
