@@ -7,7 +7,7 @@ import {
 } from '@/features/tasks/contexts/task-ui-provider'
 import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 
-import { ChatForm } from './chat-form'
+import { ChatUI } from './chat-ui'
 import { GenericSelector, useModelSelector } from './selectors'
 
 interface ChatInputProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -159,7 +159,7 @@ export function ChatInput({
             </div>
           </div>
         )}
-        <ChatForm
+        <ChatUI
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSendMessage}
@@ -172,6 +172,7 @@ export function ChatInput({
           running={isRunning}
           loading={isPending}
           maxHeight={maxHeight}
+          enableFileUpload={true}
           files={uploadedFiles}
           onFilesChange={setUploadedFiles}
           selectors={<GenericSelector {...modelSelector} />}

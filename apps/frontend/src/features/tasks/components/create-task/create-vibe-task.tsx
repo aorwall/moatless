@@ -1,10 +1,10 @@
-import type { ClaudeModel } from '@moatless/types'
+import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
 import { getErrorMessage } from '@/lib/utils/error'
+import { ChatUI } from '../chat-input/chat-ui'
 import { GenericSelector, useModelSelector, useTemplateSelector } from '../chat-input/selectors'
-import { MessageInput } from './message-input'
 
 interface CreateVibeTaskProps {
   className?: string
@@ -24,6 +24,7 @@ export function CreateVibeTask({
   onSuccess,
 }: CreateVibeTaskProps) {
   const [message, setMessage] = useState(defaultMessage || '')
+  const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
 
   // Initialize model selector with saved value
   const initialModel = (() => {
@@ -84,6 +85,9 @@ export function CreateVibeTask({
     // Generate a repository name based on template and timestamp
     const repositoryName = `${templateSelector.value}-${Date.now()}`
 
+    // Extract file paths from uploaded files
+    const filePaths = uploadedFiles.map((f) => f.absolutePath)
+
     createVibeTask.mutate(
       {
         agentType: 'claude-code',
@@ -91,12 +95,13 @@ export function CreateVibeTask({
         repositoryName,
         message: message.trim(),
         model: modelSelector.value,
-        filePaths: [],
+        filePaths,
         start: true,
       },
       {
         onSuccess: () => {
           setMessage('')
+          setUploadedFiles([])
           onSuccess?.()
         },
       },
@@ -114,15 +119,18 @@ export function CreateVibeTask({
       )}
 
       <div className={showTitle ? 'max-w-2xl mx-auto' : ''}>
-        <MessageInput
-          value={message}
-          onChange={setMessage}
+        <ChatUI
+          message={message}
+          onMessageChange={setMessage}
           onSubmit={handleSubmit}
           disabled={isSendDisabled}
           placeholder="Describe what you want to build from this template..."
           buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}
           loading={createVibeTask.isPending}
           maxHeight={maxHeight}
+          enableFileUpload={true}
+          files={uploadedFiles}
+          onFilesChange={setUploadedFiles}
           selectors={
             <>
               <GenericSelector {...templateSelector} />
