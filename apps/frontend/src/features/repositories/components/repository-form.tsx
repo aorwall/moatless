@@ -1,11 +1,9 @@
-import { RepositoryConfigSchema } from '@moatless/types'
 import type {
   CreateRepositoryRequest,
+  RepositoryResponse,
   UpdateRepositoryRequest,
 } from '@moatless/types'
-import type {
-  RepositoryResponse,
-} from '@moatless/types'
+import { CreateRepositorySchema, UpdateRepositorySchema } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'
@@ -57,9 +55,9 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     ...getInitialRepositoryData(repository),
   }))
 
-
-  // Use schema validation
-  const { errors, validate, clearErrors } = useZodForm({ schema: RepositoryConfigSchema })
+  // Use appropriate schema validation based on create vs edit mode
+  const schema = isEdit ? UpdateRepositorySchema : CreateRepositorySchema
+  const { errors, validate, clearErrors } = useZodForm({ schema })
 
   useEffect(() => {
     if (repository) {
@@ -93,17 +91,20 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     const result = validate(repositoryData)
 
     if (!result.success) {
-      // Show first error as a toast
-      const firstError = result.error.errors[0]
-      if (firstError) {
-        toast.error(firstError.message)
+      // Show a helpful error message for validation failures
+      const errorCount = result.error.errors.length
+      if (errorCount === 1) {
+        const error = result.error.errors[0]
+        const fieldName = error.path[0] || 'field'
+        toast.error(`Please check the ${fieldName} field: ${error.message}`)
+      } else {
+        toast.error(`Please check the form for ${errorCount} validation errors`)
       }
       return
     }
 
     onSubmit(result.data)
   }
-
 
   return (
     <div className="container mx-auto py-6 max-w-4xl">
@@ -149,7 +150,6 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
               }
               pathError={errors.path}
             />
-
           </CardContent>
         </Card>
 

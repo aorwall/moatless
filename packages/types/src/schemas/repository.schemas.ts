@@ -1,5 +1,15 @@
 import { z } from 'zod'
 
+// Repository name validation - allows URL-safe names or GitHub-style owner/repo format
+const repositoryNameSchema = z
+  .string()
+  .min(1, 'Repository name is required')
+  .max(255, 'Repository name must be less than 255 characters')
+  .regex(
+    /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$|^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?\/[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$/,
+    'Repository name must be URL-safe (letters, numbers, dots, hyphens, underscores) or in GitHub format (owner/repo). Cannot start or end with special characters.',
+  )
+
 // Script injection strategy schema
 export const ScriptInjectionStrategySchema = z.object({
   method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
@@ -41,13 +51,13 @@ export const CodeExecutionSchema = z.object({
 // Repository schemas - merged repository fields directly into RepositoryConfig
 export const RepositoryConfigSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: repositoryNameSchema,
   description: z.string().optional(),
   // Repository fields moved here
   path: z.string(),
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
-  
+
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
   createdAt: z.date(),
@@ -55,7 +65,7 @@ export const RepositoryConfigSchema = z.object({
 })
 
 export const CreateRepositorySchema = z.object({
-  name: z.string(),
+  name: repositoryNameSchema,
   description: z.string().optional(),
   // Repository fields
   path: z.string(),
@@ -67,7 +77,7 @@ export const CreateRepositorySchema = z.object({
 })
 
 export const UpdateRepositorySchema = z.object({
-  name: z.string().optional(),
+  name: repositoryNameSchema.optional(),
   description: z.string().optional(),
   // Repository fields
   path: z.string().optional(),
