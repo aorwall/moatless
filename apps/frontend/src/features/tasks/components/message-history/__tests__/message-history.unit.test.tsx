@@ -1,8 +1,40 @@
-import type { Message } from '@moatless/types'
+import type { AssistantMessage, Message } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createQueryWrapper } from '@/test-utils/mocks'
 import { MessageHistory } from '../message-history'
+
+// Mock the hooks
+vi.mock('@/features/tasks/hooks/use-tasks', () => ({
+  useTaskMessages: vi.fn(),
+}))
+
+vi.mock('@/features/tasks/contexts/task-providers', () => ({
+  useTaskData: vi.fn(),
+}))
+
+vi.mock('@/features/tasks/contexts/task-ui-provider', () => ({
+  useChatState: vi.fn(),
+}))
+
+vi.mock('@/features/tasks/hooks/use-auto-scroll', () => ({
+  useAutoScroll: vi.fn(),
+}))
+
+vi.mock('@/features/tasks/hooks/use-scroll-manager', () => ({
+  useScrollManager: vi.fn(),
+}))
+
+vi.mock('@tanstack/react-router', () => ({
+  useParams: vi.fn(),
+}))
+
+import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+import { useTaskData } from '@/features/tasks/contexts/task-providers'
+import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
+import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
+import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
+import { useParams } from '@tanstack/react-router'
 
 // Mock the child components to focus on MessageHistory logic
 vi.mock('../user-message', () => ({
@@ -32,9 +64,29 @@ vi.mock('../assistant-message', () => ({
 
 describe('MessageHistory - Unit Tests', () => {
   const { wrapper } = createQueryWrapper()
+  
+  const mockHooks = () => {
+    vi.mocked(useParams).mockReturnValue({ taskId: 'test-task-id' })
+    vi.mocked(useTaskData).mockReturnValue({
+      taskId: 'test-task-id',
+      isLoading: false,
+    })
+    vi.mocked(useChatState).mockReturnValue({
+      chatState: { scrollPosition: undefined, isAtBottom: true },
+      updateChatState: vi.fn(),
+    })
+    vi.mocked(useAutoScroll).mockReturnValue({
+      scrollRef: { current: null },
+    })
+    vi.mocked(useScrollManager).mockReturnValue({
+      isAtBottom: true,
+      scrollToBottom: vi.fn(),
+    })
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockHooks()
   })
 
   describe('Rendering', () => {
