@@ -2,8 +2,10 @@ import type { Message } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
+import React from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createQueryWrapper } from '@/test-utils/mocks'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMockQueryClient } from '@/test-utils/mocks'
 import { useTaskMessages } from '../use-tasks'
 
 // Mock data
@@ -94,7 +96,17 @@ const server = setupServer(
 )
 
 describe('useTaskMessages Hook - Integration Tests', () => {
-  const { wrapper } = createQueryWrapper()
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+  
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  )
 
   beforeEach(() => {
     server.listen({ onUnhandledRequest: 'error' })

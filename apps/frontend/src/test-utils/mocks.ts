@@ -1,7 +1,5 @@
 import type { MockedFunction } from 'vitest'
 import { vi } from 'vitest'
-import React from 'react'
-import { QueryClientProvider } from '@tanstack/react-query'
 
 // Mock for SSE connections
 export class MockSSEConnection {
@@ -104,9 +102,7 @@ export function createMockQueryClient() {
 // Helper to create a query wrapper for tests
 export function createQueryWrapper() {
   const queryClient = createMockQueryClient()
-  return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient as any}>{children}</QueryClientProvider>
-  )
+  return queryClient
 }
 
 // Mock for WebSocket
