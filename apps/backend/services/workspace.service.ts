@@ -447,7 +447,7 @@ export class WorkspaceService {
   }
 
   // Workspace capability methods
-  async canListFiles(taskId: string): Promise<boolean> {
+  async canPerformFileOperations(taskId: string): Promise<boolean> {
     const task = await this.storage.getTask(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
@@ -455,25 +455,8 @@ export class WorkspaceService {
 
     try {
       const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getStatus()
-      // Files can be listed if workspace exists and is at least setting up
-      return status !== WorkspaceStatus.NOT_SETUP
-    } catch {
-      return false
-    }
-  }
-
-  async canReadWriteFiles(taskId: string): Promise<boolean> {
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    try {
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getStatus()
-      // Files can be read/written if workspace is setting up, idle, or running
-      return status !== WorkspaceStatus.NOT_SETUP
+      // Check if file operations are available (workspace path exists on disk)
+      return await workspace.isWorkspacePathValid()
     } catch {
       return false
     }
@@ -511,25 +494,9 @@ export class WorkspaceService {
     }
   }
 
-  async canAccessGit(taskId: string): Promise<boolean> {
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    try {
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getStatus()
-      // Git operations available when workspace exists and is at least setting up
-      return status !== WorkspaceStatus.NOT_SETUP
-    } catch {
-      return false
-    }
-  }
 
   async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
-    // Task validation is now handled in canListFiles, but we still check capability
-    if (!(await this.canListFiles(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
@@ -537,7 +504,7 @@ export class WorkspaceService {
   }
 
   async readFile(taskId: string, filePath: string): Promise<string> {
-    if (!(await this.canReadWriteFiles(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot read file: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
@@ -545,7 +512,7 @@ export class WorkspaceService {
   }
 
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
-    if (!(await this.canReadWriteFiles(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot write file: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
@@ -553,7 +520,7 @@ export class WorkspaceService {
   }
 
   async getGitDiff(taskId: string): Promise<GitDiffResponse> {
-    if (!(await this.canAccessGit(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
@@ -771,28 +738,13 @@ export class WorkspaceService {
   }
 
   async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
-    if (!(await this.canSearchFiles(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot search files: workspace not ready', taskId)
     }
     const workspace = await this.getOrCreateWorkspace(taskId)
     return workspace.searchFiles(request)
   }
 
-  async canSearchFiles(taskId: string): Promise<boolean> {
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    try {
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getStatus()
-      // Files can be searched if workspace exists and is at least setting up
-      return status !== WorkspaceStatus.NOT_SETUP
-    } catch {
-      return false
-    }
-  }
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
     if (!(await this.canManageServer(taskId))) {
@@ -852,7 +804,7 @@ export class WorkspaceService {
       throw new WorkspaceError('Workspace path not available', taskId)
     }
 
-    if (!(await this.canAccessGit(taskId))) {
+    if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
     }
 
