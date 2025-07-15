@@ -16,6 +16,7 @@ export * from './claude-code.js'
 export * from './claude-content.js'
 export * from './command.js'
 export * from './event.js'
+export * from './message.js'
 export * from './preview-environment.js'
 export {
   BranchListResponse,
