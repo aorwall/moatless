@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
+import type { RepositoryConfig } from '@moatless/types/schemas/repository.schemas'
 import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
 import type { BaseAgent, EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
@@ -346,7 +346,7 @@ export class DockerEnvironment extends BaseEnvironment {
     if (!this.workerPortMapping) {
       return {
         running: false,
-        configured: !!this.repositoryConfig.codeExecution.serverCommand,
+        configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
         uptimeSeconds: 0,
       }
     }
@@ -372,7 +372,7 @@ export class DockerEnvironment extends BaseEnvironment {
       this.logger.error('Failed to get server status', error as Error)
       return {
         running: false,
-        configured: !!this.repositoryConfig.codeExecution.serverCommand,
+        configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
         uptimeSeconds: 0,
       }
     }

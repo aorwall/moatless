@@ -1,8 +1,10 @@
 import type {
   CodeExecution,
   CreateRepositoryRequest,
-  RepositoryResponse,
   UpdateRepositoryRequest,
+} from '@moatless/types/schemas/repository.schemas'
+import type {
+  RepositoryResponse,
 } from '@moatless/types/types/repository'
 
 // Code execution factories
@@ -39,10 +41,6 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
     path: '/Users/developer/projects/test-app',
     useGitWorktrees: false,
     codeExecution: createMockLocalCodeExecution(),
-    variables: {
-      NODE_ENV: 'test',
-      API_URL: 'http://localhost:3000',
-    },
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
     ...overrides,
@@ -59,9 +57,6 @@ export function createMockCreateRepositoryRequest(
     path: '/Users/developer/projects/test-app',
     useGitWorktrees: false,
     codeExecution: createMockLocalCodeExecution(),
-    variables: {
-      NODE_ENV: 'development',
-    },
     ...overrides,
   }
 }

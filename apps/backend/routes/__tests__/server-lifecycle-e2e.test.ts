@@ -130,7 +130,6 @@ process.on('SIGTERM', () => {
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Repository ready for server"',
-        serverCommand: 'node server.js {PORT}',
       },
     }
 
@@ -348,7 +347,6 @@ process.exit(1);
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        serverCommand: 'node bad-server.js {PORT}',
       },
     }
 
@@ -439,7 +437,6 @@ process.on('SIGTERM', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        serverCommand: 'node tracking-server.js {PORT}',
       },
     }
 
@@ -571,7 +568,6 @@ process.on('SIGTERM', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        serverCommand: 'node persistent-server.js {PORT}',
       },
     }
 
@@ -724,8 +720,7 @@ process.on('SIGTERM', () => {
             useGitWorktrees: false,
             codeExecution: {
               type: 'local',
-              serverCommand: 'node singleton-server.js {PORT}',
-            },
+                  },
           },
         })
       ).body,
@@ -820,8 +815,7 @@ server.listen(port, () => {
             useGitWorktrees: false,
             codeExecution: {
               type: 'local',
-              serverCommand: 'node orphan-server.js {PORT}',
-            },
+                  },
           },
         })
       ).body,

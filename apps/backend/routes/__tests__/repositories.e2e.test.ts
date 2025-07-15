@@ -110,10 +110,6 @@ describe('Repository Routes E2E', () => {
           type: 'local',
           setupCommands: 'echo "Setting up test repository"',
         },
-        variables: {
-          TEST_VAR: 'test-value',
-          NODE_ENV: 'test',
-        },
       }
 
       const createResponse = await app.inject({
@@ -133,7 +129,6 @@ describe('Repository Routes E2E', () => {
         path: createRequest.path,
         useGitWorktrees: createRequest.useGitWorktrees,
         codeExecution: createRequest.codeExecution,
-        variables: createRequest.variables,
       })
       expect(createdRepo.id).toBeDefined()
       expect(createdRepo.createdAt).toBeDefined()
@@ -222,10 +217,6 @@ describe('Repository Routes E2E', () => {
             '3000': 3000,
             '8080': 8080,
           },
-        },
-        variables: {
-          API_KEY: 'test-api-key',
-          DATABASE_URL: 'postgresql://localhost:5432/testdb',
         },
       }
 

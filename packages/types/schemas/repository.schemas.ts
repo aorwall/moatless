@@ -11,17 +11,13 @@ export const PreviewConfigSchema = z.object({
   framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
   frameworkVersion: z.string().optional(),
   serverStartCommand: z.string().optional(),
-  serverPort: z.number().optional(),
   injectionStrategy: ScriptInjectionStrategySchema.optional(),
-  autoDetected: z.boolean().optional(),
 })
 
 // Code execution schema
 export const CodeExecutionSchema = z.object({
   type: z.enum(['local', 'docker']),
   setupCommands: z.string().optional(),
-  serverCommand: z.string().optional(),
-  serverLogFile: z.string().optional(),
   // Docker-specific fields
   containerName: z.string().optional(),
   dockerImage: z.string().optional(),
@@ -40,8 +36,6 @@ export const CodeExecutionSchema = z.object({
       memoryLimit: z.string(),
     })
     .optional(),
-  // Workspace type configuration
-  workspaceType: z.enum(['local', 'docker']).optional(), // Default set at global level
 })
 
 // Repository schemas - merged repository fields directly into RepositoryConfig
@@ -53,10 +47,9 @@ export const RepositoryConfigSchema = z.object({
   path: z.string(),
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
-  // Original fields
+  
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
-  variables: z.record(z.string()),
   createdAt: z.date(),
   updatedAt: z.date(),
 })
@@ -71,7 +64,6 @@ export const CreateRepositorySchema = z.object({
   // Original fields
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
-  variables: z.record(z.string()).optional(),
 })
 
 export const UpdateRepositorySchema = z.object({
@@ -84,7 +76,6 @@ export const UpdateRepositorySchema = z.object({
   // Original fields
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
-  variables: z.record(z.string()).optional(),
 })
 
 // Other schemas

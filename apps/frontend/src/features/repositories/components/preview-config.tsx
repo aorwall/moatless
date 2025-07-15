@@ -3,7 +3,7 @@ import {
   FRAMEWORK_OPTIONS,
   INJECTION_METHOD_OPTIONS,
 } from '@moatless/types/constants/preview-config'
-import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types/types/repository'
+import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types/schemas/repository.schemas'
 import { ChevronDown, Info, Loader2, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
@@ -41,7 +41,6 @@ export function PreviewConfigForm({
     framework: previewConfig?.framework,
     frameworkVersion: previewConfig?.frameworkVersion || '',
     serverStartCommand: previewConfig?.serverStartCommand || '',
-    serverPort: previewConfig?.serverPort || 3000,
     injectionStrategy: previewConfig?.injectionStrategy || {
       method: 'html-injection',
       config: {},
@@ -62,7 +61,6 @@ export function PreviewConfigForm({
         setConfig({
           ...config,
           ...detected,
-          autoDetected: true,
         })
       }
     } finally {
@@ -103,7 +101,7 @@ export function PreviewConfigForm({
               Configure how the preview environment works for this repository
             </CardDescription>
           </div>
-          {config.autoDetected && (
+          {config.framework && (
             <Badge variant="secondary" className="text-xs">
               Auto-detected
             </Badge>
@@ -207,7 +205,7 @@ export function PreviewConfigForm({
                 and uses random available ports for actual binding.
               </p>
             </div>
-
+        
             <Separator />
 
             <div className="space-y-4">

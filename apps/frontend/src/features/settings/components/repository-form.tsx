@@ -72,8 +72,6 @@ export function RepositoryForm({
     dockerSetupCommands: '',
     dockerVolumes: [] as Array<string>,
     dockerPorts: {} as Record<string, number>,
-    // Variables
-    variables: {} as Record<string, string>,
   })
 
   const getRepositoryFields = (repo: RepositoryResponse) => {
@@ -123,7 +121,6 @@ export function RepositoryForm({
       codeExecutionType: exec.type,
       ...getRepositoryFields(initialData),
       ...getExecutionFields(exec),
-      variables: initialData.variables || {},
     }
   }
 
@@ -140,7 +137,6 @@ export function RepositoryForm({
           path: formData.localPath,
           useGitWorktrees: formData.useGitWorktrees || undefined,
           codeExecution: createCodeExecution(),
-          variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
         CreateRepositorySchema.parse(request)
       } else {
@@ -150,7 +146,6 @@ export function RepositoryForm({
           path: formData.localPath,
           useGitWorktrees: formData.useGitWorktrees || undefined,
           codeExecution: createCodeExecution(),
-          variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
         UpdateRepositorySchema.parse(request)
       }
@@ -211,7 +206,6 @@ export function RepositoryForm({
             path: formData.localPath,
             useGitWorktrees: formData.useGitWorktrees || undefined,
             codeExecution: createCodeExecution(),
-            variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
           } as CreateRepositoryRequest)
         : ({
             name: formData.name,
@@ -219,7 +213,6 @@ export function RepositoryForm({
             path: formData.localPath,
             useGitWorktrees: formData.useGitWorktrees || undefined,
             codeExecution: createCodeExecution(),
-            variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
           } as UpdateRepositoryRequest)
 
     onSubmit(request)

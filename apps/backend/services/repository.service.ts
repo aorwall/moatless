@@ -8,9 +8,11 @@ import {
 } from '@moatless/types/constants/preview-config'
 import type {
   CreateRepositoryRequest,
-  FileSearchResponse,
   PreviewConfig,
   RepositoryConfig,
+} from '@moatless/types/schemas/repository.schemas'
+import type {
+  FileSearchResponse,
   SetupScriptResponse,
 } from '@moatless/types/types/repository'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
@@ -27,12 +29,6 @@ export class RepositoryService {
     // Auto-detect framework for local repositories if not provided
     const previewConfig = request.previewConfig
 
-    // Set serverCommand from preview config if available and not already set
-    let serverCommand = request.codeExecution.serverCommand
-    if (!serverCommand && previewConfig?.serverStartCommand) {
-      serverCommand = previewConfig.serverStartCommand
-    }
-
     const repository: RepositoryConfig = {
       id: randomUUID(),
       name: request.name,
@@ -40,12 +36,8 @@ export class RepositoryService {
       path: request.path,
       useGitWorktrees: request.useGitWorktrees,
       originalBranch: request.originalBranch,
-      codeExecution: {
-        ...request.codeExecution,
-        serverCommand,
-      },
+      codeExecution: request.codeExecution,
       previewConfig,
-      variables: request.variables || {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
