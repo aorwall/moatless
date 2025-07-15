@@ -80,14 +80,3 @@ export class ValidationError extends MoatlessError {
     super(message, ERROR_CODES.VALIDATION_ERROR, 400, { errors })
   }
 }
-
-export class CriticalError extends MoatlessError {
-  constructor(
-    message: string,
-    public readonly taskId: string,
-    public readonly iteration?: unknown,
-  ) {
-    super(message, ERROR_CODES.AGENT_EXECUTION_ERROR, 500, { taskId, iteration })
-    this.name = 'CriticalError'
-  }
-}

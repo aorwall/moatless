@@ -1,4 +1,3 @@
-import { CriticalError } from '@moatless/types'
 import { WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LocalWorkspace } from '../../workspaces/local.js'
@@ -198,7 +197,7 @@ describe('AgentService - Workspace Recreation', () => {
     vi.spyOn(
       agentService as unknown as { recreateWorkspace: () => Promise<void> },
       'recreateWorkspace',
-    ).mockRejectedValue(new CriticalError('Workspace recreation timeout', taskId, iteration))
+    ).mockRejectedValue(new Error('Workspace recreation timeout'))
 
     // Execute agent - should fail due to workspace recreation timeout
     await expect(agentService.executeAgent(taskId, 'test message', iteration)).rejects.toThrow(
