@@ -72,6 +72,23 @@ export class FileOperations {
   }
 
   /**
+   * Check if the workspace path exists and is a valid git worktree
+   */
+  async isValidWorktree(): Promise<boolean> {
+    if (!this.workspacePath) return false
+
+    try {
+      await fs.access(this.workspacePath)
+      // Check if it's a git worktree by looking for .git file (not directory)
+      const gitPath = path.join(this.workspacePath, '.git')
+      const gitStat = await fs.stat(gitPath)
+      return gitStat.isFile() // Worktrees have .git file, main repos have .git directory
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * List files in the workspace
    */
   async listFiles(relativePath = '.', recursive = false): Promise<string[]> {
@@ -246,12 +263,15 @@ export class FileOperations {
   async getGitStatus(): Promise<GitStatus> {
     // If workspace doesn't exist or is not set up, return defaults
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+      this.logger.warn('Workspace path does not exist when getting git status', {
+        workspacePath: this.workspacePath,
+      })
       return {
         currentBranch: 'unknown',
         baseBranch: 'main',
         hasUncommittedChanges: false,
         hasConflicts: false,
-        status: 'synced',
+        status: 'error',
         commitsAhead: 0,
         commitsBehind: 0,
         originExists: false,
@@ -324,6 +344,9 @@ export class FileOperations {
   async getGitChanges(): Promise<GitChanges> {
     // If workspace doesn't exist or is not set up, return defaults
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+      this.logger.warn('Workspace path does not exist when getting git changes', {
+        workspacePath: this.workspacePath,
+      })
       return {
         currentBranch: 'unknown',
         status: 'error',
@@ -354,6 +377,28 @@ export class FileOperations {
    */
   getWorkspacePath(): string {
     return this.workspacePath
+  }
+
+  /**
+   * Get the current commit hash
+   */
+  async getCurrentCommitHash(): Promise<string | null> {
+    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+      this.logger.warn('Workspace path does not exist when getting commit hash', {
+        workspacePath: this.workspacePath,
+      })
+      return null
+    }
+
+    try {
+      const { getCommitHash } = await import('../utils/git-utils.js')
+      return await getCommitHash(this.workspacePath, true) // Use short hash
+    } catch (error) {
+      this.logger.error('Failed to get commit hash', error as Error, {
+        workspacePath: this.workspacePath,
+      })
+      return null
+    }
   }
 
   /**

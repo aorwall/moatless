@@ -5,7 +5,7 @@ import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moa
 import type { RepositoryConfig } from '@moatless/types'
 import { WorkspaceStatus } from '@moatless/types'
 import type { GitDiffResponse } from '../utils/index.js'
-import { createGitWorktree, isGitRepository, syncWithMain } from '../utils/index.js'
+import { createGitWorktree, isGitRepository, syncWithMain, getBranchList, isGitWorktree } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
@@ -90,19 +90,8 @@ export class WorkspaceService {
       throw new WorkspaceError(`Repository path ${repo.path} is not a git repository`, taskId, 400)
     }
 
-    // Create worktree if it doesn't exist
-    if (!(await this.pathExists(workspacePath))) {
-      if (branchName) {
-        // When using an existing branch, we might need to create a new branch
-        // if the existing one is already checked out
-        const newBranchName = this.getBranchName(taskId)
-        await createGitWorktree(repo.path, workspacePath, branchName, newBranchName)
-      } else {
-        // Create a new branch for this task
-        const newBranchName = this.getBranchName(taskId)
-        await createGitWorktree(repo.path, workspacePath, undefined, newBranchName)
-      }
-    }
+    // Create worktree if it doesn't exist or recreate if removed
+    await this.ensureWorktreeExists(repo, taskId, workspacePath, branchName)
 
     return workspacePath
   }
@@ -142,6 +131,200 @@ export class WorkspaceService {
       return true
     } catch {
       return false
+    }
+  }
+
+  /**
+   * Ensures that a worktree exists at the given path, recreating it if necessary.
+   * This handles cases where the worktree directory was removed externally (e.g., git worktree remove).
+   */
+  private async ensureWorktreeExists(
+    repo: RepositoryConfig,
+    taskId: string,
+    workspacePath: string,
+    branchName?: string,
+  ): Promise<void> {
+    const workspaceLogger = logger.child({ taskId })
+    
+    // Check if workspace path exists and is a valid git worktree
+    const pathExists = await this.pathExists(workspacePath)
+    const isValidWorktree = pathExists && (await isGitWorktree(workspacePath))
+
+    if (isValidWorktree) {
+      workspaceLogger.debug('Worktree already exists and is valid', { workspacePath })
+      return
+    }
+
+    if (pathExists && !isValidWorktree) {
+      workspaceLogger.warn('Workspace path exists but is not a valid worktree, will recreate', {
+        workspacePath,
+      })
+    } else {
+      workspaceLogger.info('Worktree does not exist, creating new one', { workspacePath })
+    }
+
+    // If branchName is provided, check if it exists
+    if (branchName) {
+      const branchExists = await this.checkBranchExists(repo.path, branchName)
+      if (!branchExists) {
+        throw new WorkspaceError(
+          `Branch '${branchName}' does not exist in repository`,
+          taskId,
+          400,
+        )
+      }
+
+      // When using an existing branch, we might need to create a new branch
+      // if the existing one is already checked out
+      const newBranchName = this.getBranchName(taskId)
+      await createGitWorktree(repo.path, workspacePath, branchName, newBranchName)
+    } else {
+      // Create a new branch for this task
+      const newBranchName = this.getBranchName(taskId)
+      await createGitWorktree(repo.path, workspacePath, undefined, newBranchName)
+    }
+
+    workspaceLogger.info('Worktree created successfully', { workspacePath, branchName })
+  }
+
+  /**
+   * Checks if a branch exists in the repository
+   */
+  private async checkBranchExists(repoPath: string, branchName: string): Promise<boolean> {
+    try {
+      const branches = await getBranchList(repoPath)
+      return branches.includes(branchName)
+    } catch (error) {
+      logger.error('Failed to check branch existence', error as Error, {
+        repoPath,
+        branchName,
+      })
+      return false
+    }
+  }
+
+  /**
+   * Gets the branch name from the last completed iteration, or null if none exists
+   */
+  private async getLastIterationBranch(taskId: string): Promise<string | null> {
+    try {
+      const task = await this.storage.getTask(taskId)
+      if (!task || !task.iterations || task.iterations.length === 0) {
+        return null
+      }
+
+      // Find the last completed iteration with git status
+      const lastCompletedIteration = task.iterations
+        .filter((iteration) => iteration.status === 'completed' && iteration.gitStatus?.currentBranch)
+        .sort((a, b) => b.iterationNumber - a.iterationNumber)[0]
+
+      if (lastCompletedIteration?.gitStatus?.currentBranch) {
+        logger.debug('Found branch from last completed iteration', {
+          taskId,
+          iterationNumber: lastCompletedIteration.iterationNumber,
+          branch: lastCompletedIteration.gitStatus.currentBranch,
+        })
+        return lastCompletedIteration.gitStatus.currentBranch
+      }
+
+      return null
+    } catch (error) {
+      logger.error('Failed to get last iteration branch', error as Error, { taskId })
+      return null
+    }
+  }
+
+  /**
+   * Removes a worktree directory if it exists and worktrees are enabled.
+   * This should only be called when tasks are closed or deleted, not during regular teardown.
+   */
+  async removeWorktree(taskId: string): Promise<void> {
+    const workspaceLogger = logger.child({ taskId })
+
+    try {
+      // Get the task to find the workspace path
+      const task = await this.storage.getTask(taskId)
+      if (!task || !task.workspacePath) {
+        workspaceLogger.debug('No workspace path found for task, skipping worktree removal')
+        return
+      }
+
+      const workspacePath = task.workspacePath
+      await this.removeWorktreeIfExists(taskId, workspacePath)
+    } catch (error) {
+      workspaceLogger.error('Failed to remove worktree', error as Error, { taskId })
+      // Don't rethrow - worktree removal failure shouldn't block task operations
+    }
+  }
+
+  /**
+   * Internal helper to remove a worktree directory if it exists and worktrees are enabled
+   */
+  private async removeWorktreeIfExists(taskId: string, workspacePath: string): Promise<void> {
+    if (!workspacePath) {
+      return
+    }
+
+    const workspaceLogger = logger.child({ taskId })
+
+    try {
+      // Check if path exists
+      if (!(await this.pathExists(workspacePath))) {
+        workspaceLogger.debug('Worktree path does not exist, skipping removal', { workspacePath })
+        return
+      }
+
+      // Check if it's a git worktree
+      if (!(await isGitWorktree(workspacePath))) {
+        workspaceLogger.debug('Path is not a git worktree, skipping removal', { workspacePath })
+        return
+      }
+
+      // Get the repository path to run git worktree remove
+      const task = await this.storage.getTask(taskId)
+      if (!task) {
+        workspaceLogger.warn('Task not found, cannot determine repository for worktree removal', {
+          workspacePath,
+        })
+        return
+      }
+
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        workspaceLogger.warn('Repository not found, cannot remove worktree', {
+          repositoryId: task.repositoryId,
+          workspacePath,
+        })
+        return
+      }
+
+      // Only remove if worktrees are enabled for this repository
+      if (!repository.useGitWorktrees) {
+        workspaceLogger.debug('Git worktrees disabled for repository, skipping removal', {
+          repositoryId: repository.id,
+          workspacePath,
+        })
+        return
+      }
+
+      // Remove the worktree using git command
+      workspaceLogger.info('Removing git worktree', { workspacePath })
+      
+      const { exec } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execAsync = promisify(exec)
+      
+      await execAsync(`git worktree remove "${workspacePath}" --force`, {
+        cwd: repository.path,
+        timeout: 10000,
+      })
+
+      workspaceLogger.info('Git worktree removed successfully', { workspacePath })
+    } catch (error) {
+      workspaceLogger.error('Failed to remove git worktree', error as Error, {
+        workspacePath,
+        // Continue with cleanup even if worktree removal fails
+      })
     }
   }
 
@@ -186,18 +369,48 @@ export class WorkspaceService {
     })
 
     try {
-      // For existing workspaces, create the workspace path if not already set
-      const workspacePath =
-        existingWorkspacePath ||
-        (await this.createWorkspaceRepository(repository, taskId, branchName))
+      // For existing workspaces, validate the workspace path and recreate if necessary
+      let workspacePath: string
+      if (existingWorkspacePath) {
+        // Check if the existing workspace path is still valid
+        if (repository.useGitWorktrees && !(await isGitWorktree(existingWorkspacePath))) {
+          workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
+            existingPath: existingWorkspacePath,
+          })
+          
+          // Try to get the branch from the last completed iteration
+          const lastIterationBranch = await this.getLastIterationBranch(taskId)
+          const branchToUse = branchName || lastIterationBranch || undefined
+          
+          workspaceLogger.debug('Using branch for worktree recreation', {
+            providedBranch: branchName,
+            lastIterationBranch,
+            branchToUse,
+          })
+          
+          // Recreate the worktree at the same path
+          await this.ensureWorktreeExists(repository, taskId, existingWorkspacePath, branchToUse)
+        } else if (!repository.useGitWorktrees && !(await this.pathExists(existingWorkspacePath))) {
+          throw new WorkspaceError(
+            `Workspace path does not exist and worktrees are disabled: ${existingWorkspacePath}`,
+            taskId,
+            400,
+          )
+        }
+        workspacePath = existingWorkspacePath
+      } else {
+        // Create new workspace path
+        workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
+      }
 
       // Create the appropriate environment based on repository config
       let environment
       if (repository.codeExecution.type === 'docker') {
-        workspaceLogger.debug('Creating Docker environment with existing path')
+        workspaceLogger.debug('Creating Docker environment with workspace path', { workspacePath })
         environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
       } else {
-        workspaceLogger.debug('Creating Local environment with existing path', {
+        workspaceLogger.debug('Creating Local environment with workspace path', {
+          workspacePath,
           branchName,
           existingWorkspacePath,
         })

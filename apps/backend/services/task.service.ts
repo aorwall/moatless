@@ -755,8 +755,11 @@ export class TaskService {
   async deleteTask(taskId: string): Promise<void> {
     await this.getTask(taskId)
 
-    // Clean up workspace
+    // Clean up workspace (stops agents, servers, containers, etc.)
     await this.workspaceService.cleanupWorkspace(taskId)
+
+    // Remove worktree since the task is being permanently deleted
+    await this.workspaceService.removeWorktree(taskId)
 
     // Delete task data
     await this.storage.delete(`tasks/${taskId}`)
@@ -783,6 +786,9 @@ export class TaskService {
 
     // Clean up workspace (this will teardown the workspace)
     await this.workspaceService.cleanupWorkspace(taskId)
+
+    // Remove worktree since the task is being closed
+    await this.workspaceService.removeWorktree(taskId)
 
     // Update task status to closed
     const previousStatus = task.status

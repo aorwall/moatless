@@ -327,6 +327,12 @@ export class AgentService {
               deletions: iteration.gitChanges?.deletions,
               modifications: iteration.gitChanges?.modifications,
             })
+
+            // Get current commit hash
+            iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
+            agentLogger.debug('Captured commit hash for iteration', {
+              commitHash: iteration.commitHash,
+            })
           } catch (error) {
             agentLogger.warn('Failed to capture git status/changes for iteration', {
               error: error instanceof Error ? error.message : String(error),
@@ -410,6 +416,12 @@ export class AgentService {
           additions: iteration.gitChanges?.additions,
           deletions: iteration.gitChanges?.deletions,
           modifications: iteration.gitChanges?.modifications,
+        })
+
+        // Get current commit hash
+        iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
+        agentLogger.debug('Captured commit hash for failed iteration', {
+          commitHash: iteration.commitHash,
         })
       } catch (syncError) {
         agentLogger.warn('Failed to capture git status/changes for failed iteration', {

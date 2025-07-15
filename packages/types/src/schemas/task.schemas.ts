@@ -51,6 +51,7 @@ export const TaskIterationSchema = z.object({
   result: z.string().optional(),
   durationMs: z.number().optional(),
   gitDiff: z.string().optional(),
+  commitHash: z.string().optional(),
   merged: z.boolean().optional(),
   agentSessionId: z.string().optional(),
   model: z.string().optional(),

@@ -179,6 +179,10 @@ export class Workspace {
     return this.fileOperations.getGitChanges()
   }
 
+  async getCurrentCommitHash(): Promise<string | null> {
+    return this.fileOperations.getCurrentCommitHash()
+  }
+
   getWorkspacePath(): string {
     return this.fileOperations.getWorkspacePath()
   }
