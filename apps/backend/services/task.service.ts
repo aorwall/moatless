@@ -698,9 +698,7 @@ export class TaskService {
       isError: false,
     })
 
-    // Pass the full iteration object with task reference
-    iteration.task = metadata
-    iteration.taskId = taskId
+    // Iteration is created and will be added to task.iterations
 
     // Prepend result if needed
     const finalMessage = prependedResult
@@ -715,35 +713,29 @@ export class TaskService {
 
         // Update status to error on agent failure
         try {
-          const updatedTask = await this.storage.getTask(taskId)
-          if (updatedTask) {
-            const updatedIteration = updatedTask.iterations.find(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (updatedIteration) {
-              const previousStatus = updatedTask.status
-              updatedTask.status = 'error'
-              updatedIteration.status = 'error'
+          const previousStatus = metadata.status
+          metadata.status = 'error'
+          iteration.status = 'error'
+          iteration.result = error instanceof Error ? error.message : String(error)
 
-              await this.storage.saveTask(updatedTask)
+          await this.storage.saveTask(metadata)
 
-              // Emit error event
-              await this.eventService.emitEvent({
-                eventId: randomUUID(),
-                taskId,
-                type: EventType.TASK_STATUS,
-                subType: 'error',
-                isError: true,
-                agentType: updatedTask.agentType,
-                payload: {
-                  status: 'error',
-                  previousStatus,
-                  error: error instanceof Error ? error.message : String(error),
-                  iterationNumber: iteration.iterationNumber,
-                },
-              })
-            }
-          }
+          // Emit error event
+          await this.eventService.emitEvent({
+            eventId: randomUUID(),
+            taskId,
+            type: EventType.TASK_STATUS,
+            subType: 'error',
+            isError: true,
+            agentType: metadata.agentType,
+            payload: {
+              status: 'error',
+              previousStatus,
+              error: error instanceof Error ? error.message : String(error),
+              iterationNumber: iteration.iterationNumber,
+            },
+          })
+
         } catch (saveError) {
           logger.error('Failed to update task status after agent error', saveError as Error)
         }
