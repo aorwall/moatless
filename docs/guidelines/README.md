@@ -24,3 +24,4 @@ This directory contains documentation for architectural patterns used across mul
 
 ### API & Backend Patterns
 - [API Patterns and Best Practices](api-best-practices.md) - Schema-first API architecture and implementation patterns
+- [Schema Design Patterns](schema-design-patterns.md) - Zod schema design principles and anti-patterns
