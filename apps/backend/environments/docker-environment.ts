@@ -418,6 +418,10 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
+  getPreviewPort(): number | undefined {
+    return this.previewPortMapping?.hostPort
+  }
+
   async proxyPreviewRequest(request: {
     method: string
     path: string

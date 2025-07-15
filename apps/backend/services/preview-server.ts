@@ -445,6 +445,10 @@ export class PreviewServer {
     }
   }
 
+  getPort(): number | undefined {
+    return this.port
+  }
+
   async proxyRequest(request: {
     method: string
     path: string

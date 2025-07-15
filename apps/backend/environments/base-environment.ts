@@ -35,6 +35,11 @@ export abstract class BaseEnvironment {
   abstract getServerLogs?(lines?: number): Promise<string>
 
   /**
+   * Get the preview server port
+   */
+  abstract getPreviewPort?(): number | undefined
+
+  /**
    * Proxy requests to the preview server
    */
   abstract proxyPreviewRequest?(request: {

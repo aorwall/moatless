@@ -8,6 +8,7 @@ import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
+import { proxy } from 'hono/proxy'
 import type { AppBindings } from '../app.js'
 
 export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, prefix: string) {
@@ -276,11 +277,11 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
     },
   )
 
-  // Proxy requests to the preview server
+  // Proxy requests to the preview server with script injection
   app.all(
     `${prefix}/:taskId/proxy/*`,
     describeRoute({
-      description: 'Proxy requests to the preview server',
+      description: 'Proxy requests to the preview server with script injection',
       parameters: [
         {
           name: 'taskId',
@@ -314,25 +315,85 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
         throw new HTTPException(400, { message: 'Task ID is required' })
       }
 
+      // Check if server is running
+      if (!(await services.workspace.canManageServer(taskId))) {
+        throw new HTTPException(404, { message: 'Preview capability not available for this task' })
+      }
+
+      const serverStatus = await services.workspace.getServerStatus(taskId)
+      if (!serverStatus.running) {
+        throw new HTTPException(404, { message: 'Preview server not running' })
+      }
+
       // Get the path after /proxy/
       const proxyPath = c.req.path.split(`/${taskId}/proxy/`)[1] || ''
       const queryString = c.req.url.split('?')[1] || ''
       const fullPath = queryString ? `/${proxyPath}?${queryString}` : `/${proxyPath}`
 
       try {
-        // Proxy the request to the preview server
-        const response = await services.workspace.proxyPreviewRequest(taskId, {
-          method: c.req.method,
-          path: fullPath,
-          headers: c.req.raw.headers,
-          body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.raw.text() : undefined,
+        // Get the workspace and preview port
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const serverPort = workspace.getPreviewPort()
+        
+        if (!serverPort) {
+          throw new HTTPException(404, { message: 'Preview server port not available' })
+        }
+        
+        // Use Hono's proxy helper
+        const response = await proxy(`http://localhost:${serverPort}${fullPath}`, {
+          headers: {
+            ...c.req.header(),
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Forwarded-Host': c.req.header('host'),
+          },
         })
 
-        // Return the proxied response
-        return new Response(response.body, {
-          status: response.status,
-          headers: response.headers,
-        })
+        // Check if it's an HTML response that we want to inject scripts into
+        const contentType = response.headers.get('content-type') || ''
+        if (contentType.includes('text/html')) {
+          // Read the HTML content
+          const html = await response.text()
+          
+          // Create the injection script
+          const injectedScript = `
+            <script>
+              console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
+              
+              // Send a message to parent to confirm script is loaded
+              window.addEventListener('load', () => {
+                if (window.parent && window.parent !== window) {
+                  window.parent.postMessage({
+                    type: 'INSPECTOR_SCRIPT_LOADED',
+                    payload: { version: '1.0.0', taskId: '${taskId}' },
+                    source: 'preview-iframe'
+                  }, '*');
+                }
+              });
+            </script>
+          `
+          
+          // Inject the script before </head> or at the beginning of <body>
+          let modifiedHtml = html
+          if (html.includes('</head>')) {
+            modifiedHtml = html.replace('</head>', `${injectedScript}</head>`)
+          } else if (html.includes('<body>')) {
+            modifiedHtml = html.replace('<body>', `<body>${injectedScript}`)
+          } else {
+            // Fallback: add at the beginning
+            modifiedHtml = `${injectedScript}${html}`
+          }
+
+          return new Response(modifiedHtml, {
+            status: response.status,
+            headers: {
+              ...Object.fromEntries(response.headers.entries()),
+              'content-length': modifiedHtml.length.toString(),
+            },
+          })
+        }
+
+        // Return unmodified response for non-HTML content
+        return response
       } catch (error) {
         if (error instanceof Error && error.message.includes('not running')) {
           throw new HTTPException(404, { message: 'Preview server not running' })

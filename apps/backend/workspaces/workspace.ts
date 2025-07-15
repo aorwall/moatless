@@ -236,6 +236,13 @@ export class Workspace {
     return this.environment.getServerLogs(lines)
   }
 
+  getPreviewPort(): number | undefined {
+    if (!this.environment.getPreviewPort) {
+      return undefined
+    }
+    return this.environment.getPreviewPort()
+  }
+
   async proxyPreviewRequest(request: {
     method: string
     path: string

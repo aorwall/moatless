@@ -245,6 +245,10 @@ export class LocalEnvironment extends BaseEnvironment {
     return this.previewServer.getLogs(lines)
   }
 
+  getPreviewPort(): number | undefined {
+    return this.previewServer?.getPort()
+  }
+
   async proxyPreviewRequest(request: {
     method: string
     path: string
