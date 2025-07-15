@@ -258,11 +258,19 @@ describe('MessageHistory - Unit Tests', () => {
         id: `msg-${i}`,
         role: i % 2 === 0 ? 'user' : 'assistant',
         content: `Message ${i}`,
-        timestamp: new Date(Date.now() + i * 1000).toISOString(),
+        timestamp: new Date(Date.now() + i * 1000),
         toolCalls: [],
       }))
 
-      const { container } = render(<MessageHistory messages={messages} />, { wrapper })
+      // Mock the useTaskMessages hook to return our test messages
+      vi.mocked(useTaskMessages).mockReturnValue({
+        data: messages,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      const { container } = render(<MessageHistory />, { wrapper })
 
       // Should render all messages
       expect(screen.getAllByTestId(/^(user|assistant)-message$/)).toHaveLength(100)
@@ -274,8 +282,15 @@ describe('MessageHistory - Unit Tests', () => {
 
   describe('Error handling', () => {
     it('handles null/undefined messages gracefully', () => {
-      // @ts-expect-error Testing runtime safety
-      render(<MessageHistory messages={null} />, { wrapper })
+      // Mock useTaskMessages to return null/undefined
+      vi.mocked(useTaskMessages).mockReturnValue({
+        data: null,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<MessageHistory />, { wrapper })
 
       expect(screen.getByText('No messages yet')).toBeInTheDocument()
     })
@@ -286,12 +301,20 @@ describe('MessageHistory - Unit Tests', () => {
           id: 'msg-1',
           role: 'user',
           // Missing content
-          timestamp: '2024-01-01T10:00:00Z',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
           toolCalls: [],
         },
       ] as Message[]
 
-      render(<MessageHistory messages={messages} />, { wrapper })
+      // Mock useTaskMessages to return malformed messages
+      vi.mocked(useTaskMessages).mockReturnValue({
+        data: messages,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<MessageHistory />, { wrapper })
 
       expect(screen.getByTestId('user-message')).toBeInTheDocument()
     })

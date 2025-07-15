@@ -26,7 +26,7 @@ vi.mock('../../chat-input/chat-input', () => ({
       <input
         data-testid="message-input"
         placeholder="Type a message..."
-        onChange={(e) => {
+        onChange={(_e) => {
           // Simulate input change
         }}
       />

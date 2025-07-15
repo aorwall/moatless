@@ -370,7 +370,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('handles very long taskId', async () => {
-      const longTaskId = 'task-' + 'a'.repeat(1000)
+      const longTaskId = `task-${'a'.repeat(1000)}`
 
       server.use(
         http.get(`/api/v1/tasks/${longTaskId}/messages`, () => {
