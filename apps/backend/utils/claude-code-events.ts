@@ -54,38 +54,19 @@ export function generateProjectId(workspacePath: string): string {
 }
 
 /**
- * Get Claude Code events file path
+ * Get Claude Code events file path for a specific iteration
  */
-export function getClaudeEventsFilePath(settings: ClaudeCodeSettings, task: Task): string | null {
-
-  // Get the last iteration with a session ID
-  const lastIteration = task.iterations
-    .slice()
-    .reverse()
-    .find((iter) => iter.agentSessionId)
-
-  if (!lastIteration?.agentSessionId) {
-    logger.warn('No iteration with Claude Code session ID found', {
-      taskId: task.taskId,
-      totalIterations: task.iterations.length,
-      iterationsWithSessionIds: task.iterations.filter((iter) => iter.agentSessionId).length,
-    })
+export function getClaudeEventsFilePath(
+  settings: ClaudeCodeSettings, 
+  workspacePath: string,
+  iteration: Task['iterations'][0]
+): string | null {
+  if (!iteration.agentSessionId) {
     return null
   }
 
-  if (!task.workspacePath) {
-    logger.warn('No workspace path found for task', {
-      taskId: task.taskId,
-    })
-    return null
-  }
-
-  const projectId = generateProjectId(task.workspacePath)
-  const sessionId = lastIteration.agentSessionId
-  if (!sessionId) {
-    return null
-  }
-  return path.join(settings.claudeConfigPath, 'projects', projectId, `${sessionId}.jsonl`)
+  const projectId = generateProjectId(workspacePath)
+  return path.join(settings.claudeConfigPath, 'projects', projectId, `${iteration.agentSessionId}.jsonl`)
 }
 
 /**
@@ -95,63 +76,74 @@ export async function readClaudeCodeEvents(
   settings: ClaudeCodeSettings,
   task: Task,
 ): Promise<Event[]> {
-  const filePath = getClaudeEventsFilePath(settings, task)
-  if (!filePath) {
-    logger.warn('Cannot read Claude Code events - no file path available', {
+  if (!task.workspacePath) {
+    logger.warn('No workspace path found for task', {
       taskId: task.taskId,
     })
     return []
   }
 
-  try {
-    const fileContent = await fs.readFile(filePath, 'utf-8')
-    const lines = fileContent.trim().split('\n').filter(Boolean)
-
-    const events: Event[] = []
-    const lastIteration = task.iterations
-      .slice()
-      .reverse()
-      .find(iter => iter.agentSessionId)
-
-    let parseErrors = 0
-    for (const line of lines) {
-      try {
-        const sdkMessage = JSON.parse(line) as SDKMessage
-        const event = sdkMessageToEvent(sdkMessage, task.taskId, lastIteration?.iterationNumber)
-        events.push(event)
-      } catch (parseError) {
-        parseErrors++
-        logger.warn('Failed to parse Claude Code SDK message', {
-          taskId: task.taskId,
-          error: parseError instanceof Error ? parseError.message : String(parseError),
-        })
-      }
+  // Try iterations in reverse order
+  for (const iteration of [...task.iterations].reverse()) {
+    const filePath = getClaudeEventsFilePath(settings, task.workspacePath, iteration)
+    if (!filePath) {
+      continue
     }
 
-    logger.debug('Successfully read Claude Code events', {
-      taskId: task.taskId,
-      filePath,
-      totalLines: lines.length,
-      eventsRead: events.length,
-      parseErrors,
-    })
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8')
+      const lines = fileContent.trim().split('\n').filter(Boolean)
 
-    return events
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      logger.debug('Claude Code events file does not exist', {
+      const events: Event[] = []
+      let parseErrors = 0
+
+      for (const line of lines) {
+        try {
+          const sdkMessage = JSON.parse(line) as SDKMessage
+          const event = sdkMessageToEvent(sdkMessage, task.taskId, iteration.iterationNumber)
+          events.push(event)
+        } catch (parseError) {
+          parseErrors++
+          logger.warn('Failed to parse Claude Code SDK message', {
+            taskId: task.taskId,
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          })
+        }
+      }
+
+      logger.debug('Successfully read Claude Code events', {
+        taskId: task.taskId,
+        filePath,
+        totalLines: lines.length,
+        eventsRead: events.length,
+        parseErrors,
+      })
+
+      return events
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        logger.debug('Claude Code events file does not exist, trying next iteration', {
+          taskId: task.taskId,
+          filePath,
+          iterationNumber: iteration.iterationNumber,
+        })
+        continue
+      }
+
+      logger.error('Error reading Claude Code events file', error as Error, {
         taskId: task.taskId,
         filePath,
       })
-      return []
+      throw error
     }
-
-    logger.error('Error reading Claude Code events file', error as Error, {
-      taskId: task.taskId,
-      filePath,
-    })
-    throw error
   }
+
+  logger.warn('No Claude Code events files found for any iteration', {
+    taskId: task.taskId,
+    totalIterations: task.iterations.length,
+    iterationsWithSessionIds: task.iterations.filter((iter) => iter.agentSessionId).length,
+  })
+  return []
 }
 
 /**
