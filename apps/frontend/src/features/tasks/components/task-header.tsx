@@ -105,8 +105,15 @@ export function TaskHeader() {
     return null
   }
 
-  // Calculate total cost from iterations
+  // Calculate metrics from iterations
+  const totalTurns = iterations.reduce((sum, iteration) => sum + iteration.messageCount, 0)
   const totalCostUsd = iterations.reduce((sum, iteration) => sum + iteration.costUsd, 0)
+
+  // Get context tokens from the last iteration that has any context tokens
+  const lastIterationWithContext = [...iterations]
+    .reverse()
+    .find((iteration) => iteration.contextTokens && iteration.contextTokens > 0)
+  const contextTokens = lastIterationWithContext?.contextTokens
 
   return (
     <header className="border-b">
@@ -124,8 +131,11 @@ export function TaskHeader() {
               </span>
               <span className="truncate">{agentType}</span>
               <StatusBadge status={status} />
-              <Badge variant="outline">{iterations.length} turns</Badge>
+              <Badge variant="outline">{totalTurns} turns</Badge>
               <Badge variant="outline">${totalCostUsd.toFixed(4)}</Badge>
+              {contextTokens && (
+                <Badge variant="outline">{contextTokens.toLocaleString()} tokens</Badge>
+              )}
             </div>
           </div>
         </div>
