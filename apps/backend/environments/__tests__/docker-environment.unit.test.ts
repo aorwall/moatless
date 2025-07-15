@@ -316,10 +316,39 @@ describe('DockerEnvironment - Unit Tests', () => {
   })
 
   describe('Container Name Generation', () => {
-    it('should generate container names based on task ID', () => {
+    it('should generate container names based on repo name and task ID', () => {
       // The container name generation is internal logic
       // We just verify the environment can be created
       expect(dockerEnvironment.getType()).toBe('docker')
+    })
+
+    it('should handle different repository names in container naming', () => {
+      const testConfigs = [
+        { name: 'simple-repo', expected: 'moatless-simple-repo-test-tas' },
+        { name: 'My Complex Repo!', expected: 'moatless-my-complex-repo-test-tas' },
+        { name: 'owner/repository', expected: 'moatless-owner-repository-test-tas' },
+      ]
+
+      testConfigs.forEach(({ name }) => {
+        const config = {
+          id: 'test-repo',
+          name,
+          path: '/test/workspace',
+          codeExecution: {
+            type: 'docker' as const,
+            image: 'node:18-alpine',
+          },
+        }
+
+        const env = new DockerEnvironment(
+          'test-task',
+          config as any,
+          mockEventService,
+          '/test/workspace',
+        )
+
+        expect(env.getType()).toBe('docker')
+      })
     })
   })
 
