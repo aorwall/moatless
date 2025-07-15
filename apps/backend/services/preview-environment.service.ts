@@ -7,8 +7,8 @@ import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
   ProcessValidation,
-} from '@moatless/types/types/preview-environment'
-import type { ServerStatus } from '@moatless/types/types/workspace'
+} from '@moatless/types'
+import type { ServerStatus } from '@moatless/types'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { PreviewProxyService } from './preview-proxy.service.js'

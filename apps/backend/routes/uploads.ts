@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { UploadFileResponseSchema } from '@moatless/types/schemas'
+import { UploadFileResponseSchema } from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'

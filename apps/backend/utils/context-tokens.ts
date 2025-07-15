@@ -1,4 +1,4 @@
-import type { ClaudeCodeSDKMessage } from '@moatless/types/types/claude'
+import type { ClaudeCodeSDKMessage } from '@moatless/types'
 
 /**
  * Calculate context tokens from a Claude Code SDK message

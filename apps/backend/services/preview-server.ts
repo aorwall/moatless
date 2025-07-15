@@ -4,7 +4,7 @@ import * as net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { ServerStatus } from '@moatless/types/types/workspace'
+import type { ServerStatus } from '@moatless/types'
 import { createTaskLogger } from '../utils/logger.js'
 import { PortAllocationService } from './port-allocation.service.js'
 

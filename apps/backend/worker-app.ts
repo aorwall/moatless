@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import type { TaskIteration } from '@moatless/types/types/task'
+import type { TaskIteration } from '@moatless/types'
 import { Hono } from 'hono'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
