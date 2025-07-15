@@ -96,7 +96,7 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(2)
@@ -137,16 +137,15 @@ describe('MessageService Unit Tests', () => {
         timestamp: 1234567890001,
       } as unknown as SDKMessage
 
-      const fileContent = [
-        JSON.stringify(toolUseMessage),
-        JSON.stringify(toolResultMessage),
-      ].join('\n')
+      const fileContent = [JSON.stringify(toolUseMessage), JSON.stringify(toolResultMessage)].join(
+        '\n',
+      )
 
       mockFs.readFile.mockResolvedValue(fileContent)
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
@@ -169,17 +168,15 @@ describe('MessageService Unit Tests', () => {
         timestamp: 1234567890000,
       } as unknown as SDKMessage
 
-      const fileContent = [
-        '{ invalid json',
-        JSON.stringify(validMessage),
-        '{ "incomplete": ',
-      ].join('\n')
+      const fileContent = ['{ invalid json', JSON.stringify(validMessage), '{ "incomplete": '].join(
+        '\n',
+      )
 
       mockFs.readFile.mockResolvedValue(fileContent)
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
@@ -203,16 +200,15 @@ describe('MessageService Unit Tests', () => {
         timestamp: 1234567890001,
       } as unknown as SDKMessage
 
-      const fileContent = [
-        JSON.stringify(emptyUserMessage),
-        JSON.stringify(validUserMessage),
-      ].join('\n')
+      const fileContent = [JSON.stringify(emptyUserMessage), JSON.stringify(validUserMessage)].join(
+        '\n',
+      )
 
       mockFs.readFile.mockResolvedValue(fileContent)
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
@@ -226,7 +222,7 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toEqual([])
@@ -239,7 +235,7 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        taskWithoutWorkspace
+        taskWithoutWorkspace,
       )
 
       expect(result).toEqual([])
@@ -258,12 +254,289 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectoryWithSettings(
         mockClaudeCodeSettings,
-        mockTask
+        mockTask,
       )
 
       expect(result).toHaveLength(1)
       expect(result[0].timestamp).toBeInstanceOf(Date)
       expect(result[0].content).toBe('Message without timestamp')
+    })
+  })
+
+  describe('Message Parsing from Task Iterations', () => {
+    beforeEach(() => {
+      // Mock file not found to trigger fallback to task iterations
+      const enoentError = new Error('File not found')
+      ;(enoentError as any).code = 'ENOENT'
+      mockFs.readFile.mockRejectedValue(enoentError)
+    })
+
+    it('should create messages from task iterations when Claude file is not found', async () => {
+      const taskWithIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Create a new feature',
+            result: 'I have successfully created the feature as requested.',
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Add tests for the feature',
+            result: 'Tests have been added and are passing.',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithIterations,
+      )
+
+      expect(result).toHaveLength(4)
+      
+      // First iteration
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('Create a new feature')
+      expect(result[0].id).toBe('iteration-1-user')
+      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
+
+      expect(result[1].role).toBe('assistant')
+      expect(result[1].content).toBe('I have successfully created the feature as requested.')
+      expect(result[1].id).toBe('iteration-1-assistant')
+      expect(result[1].timestamp).toEqual(new Date('2024-01-01T10:01:00Z'))
+
+      // Second iteration
+      expect(result[2].role).toBe('user')
+      expect(result[2].content).toBe('Add tests for the feature')
+      expect(result[2].id).toBe('iteration-2-user')
+
+      expect(result[3].role).toBe('assistant')
+      expect(result[3].content).toBe('Tests have been added and are passing.')
+      expect(result[3].id).toBe('iteration-2-assistant')
+    })
+
+    it('should parse JSON message content from iteration result', async () => {
+      const taskWithJsonResult = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              content: 'This is the actual message content from JSON',
+              metadata: { type: 'response' },
+            }),
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithJsonResult,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('This is the actual message content from JSON')
+    })
+
+    it('should parse array-based content structure', async () => {
+      const taskWithArrayContent = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              content: [
+                { type: 'text', text: 'First part of the message.' },
+                { type: 'text', text: 'Second part of the message.' },
+                { type: 'code', code: 'console.log("ignored")' },
+              ],
+            }),
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithArrayContent,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('First part of the message.\nSecond part of the message.')
+    })
+
+    it('should handle alternative message field names', async () => {
+      const taskWithMessageField = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              message: 'Content from message field',
+            }),
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:02:00Z'),
+            endTime: new Date('2024-01-01T10:03:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: JSON.stringify({
+              text: 'Content from text field',
+            }),
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithMessageField,
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0].content).toBe('Content from message field')
+      expect(result[1].content).toBe('Content from text field')
+    })
+
+    it('should fallback to raw result when JSON parsing fails', async () => {
+      const taskWithPlainTextResult = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: 'Plain text result that is not JSON',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithPlainTextResult,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('Plain text result that is not JSON')
+    })
+
+    it('should skip iterations without messages', async () => {
+      const taskWithEmptyIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            status: 'completed',
+            messageCount: 0,
+            costUsd: 0.01,
+            // No initialMessage or result
+          },
+          {
+            iterationNumber: 2,
+            startTime: new Date('2024-01-01T10:01:00Z'),
+            endTime: new Date('2024-01-01T10:02:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            initialMessage: 'Valid message',
+            result: 'Valid response',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithEmptyIterations,
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0].content).toBe('Valid message')
+      expect(result[1].content).toBe('Valid response')
+    })
+
+    it('should handle iterations with only user messages', async () => {
+      const taskWithUserOnlyIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            status: 'active',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'User message without response',
+            // No result field
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithUserOnlyIterations,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('User message without response')
+    })
+
+    it('should handle invalid JSON gracefully in iteration results', async () => {
+      const taskWithInvalidJson = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0.01,
+            result: '{ invalid json content that cannot be parsed',
+          },
+        ],
+      } as Task
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithInvalidJson,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toBe('{ invalid json content that cannot be parsed')
     })
   })
 })
