@@ -119,7 +119,7 @@ export class RepositoryService {
   }
 
   async runSetupScript(repository: RepositoryConfig): Promise<SetupScriptResponse> {
-    if (!repository.codeExecution.setupCommands) {
+    if (!repository.codeExecution.setupCommands || repository.codeExecution.setupCommands.length === 0) {
       return {
         success: true,
         commands: [],
@@ -127,9 +127,6 @@ export class RepositoryService {
     }
 
     const commands = repository.codeExecution.setupCommands
-      .split('\n')
-      .map((cmd: string) => cmd.trim())
-      .filter((cmd: string) => cmd.length > 0)
 
     const results = []
     let allSucceeded = true

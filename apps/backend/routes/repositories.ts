@@ -22,7 +22,7 @@ const repositoryResponseSchema = z.object({
   originalBranch: z.string().optional(),
   codeExecution: z.object({
     type: z.enum(['local', 'docker']),
-    setupCommands: z.string().optional(),
+    setupCommands: z.array(z.string()).optional(),
     containerName: z.string().optional(),
     dockerImage: z.string().optional(),
     envVars: z.record(z.string()).optional(),

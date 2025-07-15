@@ -27,7 +27,7 @@ export const PreviewConfigSchema = z.object({
 // Code execution schema
 export const CodeExecutionSchema = z.object({
   type: z.enum(['local', 'docker']),
-  setupCommands: z.string().optional(),
+  setupCommands: z.array(z.string()).optional(),
   // Docker-specific fields
   containerName: z.string().optional(),
   dockerImage: z.string().optional(),

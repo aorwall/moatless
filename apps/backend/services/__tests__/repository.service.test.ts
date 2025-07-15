@@ -67,7 +67,7 @@ describe('RepositoryService', () => {
       originalBranch: 'main',
       codeExecution: {
         type: 'local',
-        setupCommands: 'npm install',
+        setupCommands: ['npm install'],
       },
       previewConfig: {
         framework: 'vite',
@@ -103,13 +103,13 @@ describe('RepositoryService', () => {
 
       const requestWithMinimalConfig = {
         ...validRequest,
-        codeExecution: { type: 'local' as const, setupCommands: 'npm install' },
+        codeExecution: { type: 'local' as const, setupCommands: ['npm install'] },
       }
 
       const result = await service.createRepository(requestWithMinimalConfig)
       
       expect(result.codeExecution.type).toBe('local')
-      expect(result.codeExecution.setupCommands).toBe('npm install')
+      expect(result.codeExecution.setupCommands).toEqual(['npm install'])
     })
 
     it('should throw ValidationError for non-existent path', async () => {
@@ -312,7 +312,7 @@ describe('RepositoryService', () => {
       path: '/test/repo',
       codeExecution: {
         type: 'local',
-        setupCommands: 'npm install\nnpm run build',
+        setupCommands: ['npm install', 'npm run build'],
       },
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -384,7 +384,7 @@ describe('RepositoryService', () => {
 
       const result = await service.runSetupScript({
         ...mockRepo,
-        codeExecution: { type: 'local', setupCommands: 'invalid-command' },
+        codeExecution: { type: 'local', setupCommands: ['invalid-command'] },
       })
 
       expect(result.success).toBe(false)

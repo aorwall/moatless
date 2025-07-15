@@ -164,7 +164,7 @@ describe('Docker Workspace E2E Test', () => {
       codeExecution: {
         type: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
-        setupCommands: 'echo "Docker workspace setup complete"',
+        setupCommands: ['echo "Docker workspace setup complete"'],
       },
     }
 

@@ -431,7 +431,7 @@ process.on('SIGTERM', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Environment ready"',
+        setupCommands: ['echo "Environment ready"'],
       },
     }
 

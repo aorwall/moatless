@@ -433,7 +433,7 @@ export class TaskService {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: template.setupCommand,
+        setupCommands: template.setupCommand ? [template.setupCommand] : undefined,
       },
       previewConfig: template.previewConfig,
     })

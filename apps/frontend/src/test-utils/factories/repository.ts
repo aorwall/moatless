@@ -9,7 +9,7 @@ import type {
 export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {
   return {
     type: 'local',
-    setupCommands: 'npm install\nnpm run build',
+    setupCommands: ['npm install', 'npm run build'],
     ...overrides,
   }
 }
@@ -18,7 +18,7 @@ export function createMockDockerCodeExecution(overrides?: Partial<CodeExecution>
   return {
     type: 'docker',
     dockerImage: 'node:18-alpine',
-    setupCommands: 'npm ci',
+    setupCommands: ['npm ci'],
     envVars: {
       NODE_ENV: 'production',
     },

@@ -94,6 +94,26 @@ export class DockerEnvironment extends BaseEnvironment {
       // Wait for worker to be ready
       await this.waitForWorkerReady()
 
+      // Run setup commands if any are configured
+      const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
+      if (setupCommands.length > 0) {
+        this.logger.info('Running setup commands', { commandCount: setupCommands.length })
+        
+        for (const command of setupCommands) {
+          this.logger.info(`Running setup command: ${command}`)
+          const result = await this.runCommand(command, 300000) // 5 minutes timeout
+          
+          if (result.exitCode !== 0) {
+            this.logger.warn(`Setup command failed: ${command}`, {
+              exitCode: result.exitCode,
+              output: result.output,
+            })
+          }
+        }
+        
+        this.logger.info('Setup commands completed')
+      }
+
       this.setupComplete = true
       this.setupInProgress = false
 
