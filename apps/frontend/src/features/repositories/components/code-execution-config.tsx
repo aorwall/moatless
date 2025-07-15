@@ -34,7 +34,6 @@ interface CodeExecutionConfigProps {
   repositoryId?: string
 }
 
-
 interface SetupOutputSheetProps {
   showSetupOutput: boolean
   setShowSetupOutput: (show: boolean) => void
@@ -50,7 +49,6 @@ interface EnvironmentVariablesProps {
   onAddEnvVar: () => void
   onRemoveEnvVar: (key: string) => void
 }
-
 
 function SetupOutputSheet({
   showSetupOutput,
@@ -266,7 +264,6 @@ export function CodeExecutionConfig({
     })
   }
 
-
   return (
     <>
       <Card>
@@ -284,7 +281,6 @@ export function CodeExecutionConfig({
                   onValueChange={(value: 'local' | 'docker') =>
                     setFormData({ ...formData, type: value })
                   }
-                  disabled
                 >
                   <SelectTrigger id={executionTypeId}>
                     <SelectValue />
@@ -295,7 +291,7 @@ export function CodeExecutionConfig({
                   </SelectContent>
                 </Select>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Execution type cannot be changed after creation
+                  Choose between local execution or Docker containerized execution
                 </p>
               </div>
 
@@ -325,7 +321,6 @@ export function CodeExecutionConfig({
                   Commands to run when setting up the repository (one per line)
                 </p>
               </div>
-
 
               <EnvironmentVariables
                 envVars={formData.env_vars}
