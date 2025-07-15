@@ -99,6 +99,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
 function MessageHistoryComponent({ className }: MessageHistoryProps) {
   const params = useParams({ from: '/tasks/$taskId' })
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
+  const [initialMessageCount, setInitialMessageCount] = useState<number | null>(null)
 
   // Use specialized hooks from tri-context pattern
   const { taskId, isLoading: isLoadingTask } = useTaskData()
@@ -120,6 +121,13 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
     dependencies: [messages], // Re-evaluate scroll when messages change
   })
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Track initial message count on mount
+  useEffect(() => {
+    if (messages && initialMessageCount === null) {
+      setInitialMessageCount(messages.length)
+    }
+  }, [messages, initialMessageCount])
 
   // Custom hooks for extracted functionality
   const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
@@ -148,14 +156,17 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
     const groups: Array<Message | AssistantMessage[]> = []
     let currentToolGroup: AssistantMessage[] = []
+    const shouldGroupMessages = initialMessageCount !== null
 
-    messages.forEach((message) => {
+    messages.forEach((message, index) => {
       if (message.role === 'user') {
-        // If we have accumulated tool messages, push them as a group
-        if (currentToolGroup.length > 0) {
+        // If we have accumulated tool messages, push them as a group (only if more than 1)
+        if (currentToolGroup.length > 1) {
           groups.push(currentToolGroup)
-          currentToolGroup = []
+        } else if (currentToolGroup.length === 1) {
+          groups.push(currentToolGroup[0])
         }
+        currentToolGroup = []
         groups.push(message)
       } else {
         const assistantMsg = message as AssistantMessage
@@ -166,27 +177,38 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
           assistantMsg.content.length > 0 &&
           assistantMsg.content.every((c: AssistantMessageContent) => c.type === 'tool_use')
 
-        if (hasOnlyToolCalls) {
+        // Only group messages that were present on mount OR new messages if view is open
+        const shouldGroup =
+          shouldGroupMessages &&
+          (index < (initialMessageCount || 0) || initialMessageCount === messages.length)
+
+        if (hasOnlyToolCalls && shouldGroup) {
           currentToolGroup.push(assistantMsg)
         } else {
-          // This message has text content
-          // Push any accumulated tool group first
-          if (currentToolGroup.length > 0) {
+          // This message has text content or shouldn't be grouped
+          // Push any accumulated tool group first (only if more than 1 message)
+          if (currentToolGroup.length > 1) {
             groups.push(currentToolGroup)
-            currentToolGroup = []
+          } else if (currentToolGroup.length === 1) {
+            // Single tool call message - don't group
+            groups.push(currentToolGroup[0])
           }
+          currentToolGroup = []
           groups.push(assistantMsg)
         }
       }
     })
 
-    // Push any remaining tool group
-    if (currentToolGroup.length > 0) {
+    // Push any remaining tool group (only if more than 1 message)
+    if (currentToolGroup.length > 1) {
       groups.push(currentToolGroup)
+    } else if (currentToolGroup.length === 1) {
+      // Single tool call message - don't group
+      groups.push(currentToolGroup[0])
     }
 
     return groups
-  }, [messages])
+  }, [messages, initialMessageCount])
 
   // Show skeleton during initial load
   if (isLoadingTask || !taskId) {
