@@ -195,7 +195,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   app.get(
     prefix,
     describeRoute({
-      description: 'List all tasks with pagination and filtering',
+      description:
+        'List all tasks with pagination and filtering. By default, closed tasks are excluded unless a specific status filter is provided.',
       parameters: [
         {
           name: 'limit',
@@ -224,7 +225,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
           name: 'status',
           in: 'query',
           required: false,
-          description: 'Filter by task status',
+          description:
+            'Filter by task status. If not provided, closed tasks are excluded by default.',
           schema: {
             type: 'string',
             enum: ['open', 'running', 'error', 'merged', 'closed'],
@@ -1191,19 +1193,18 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
         if ((workspaceStatus as any).gitStatus) {
           return c.json((workspaceStatus as any).gitStatus)
-        } else {
-          // If git status is not available, return a default response
-          return c.json({
-            currentBranch: 'unknown',
-            baseBranch: 'main',
-            hasUncommittedChanges: false,
-            hasConflicts: false,
-            status: 'error',
-            commitsAhead: 0,
-            commitsBehind: 0,
-            originExists: false,
-          })
         }
+        // If git status is not available, return a default response
+        return c.json({
+          currentBranch: 'unknown',
+          baseBranch: 'main',
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          status: 'error',
+          commitsAhead: 0,
+          commitsBehind: 0,
+          originExists: false,
+        })
       } catch (error) {
         if (error instanceof TaskNotFoundError) {
           throw new HTTPException(404, { message: 'Task not found' })

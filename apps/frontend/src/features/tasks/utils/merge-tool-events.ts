@@ -3,8 +3,8 @@ import type {
   ClaudeCodeSDKMessage,
   SDKAssistantMessage,
   SDKUserMessage,
-} from '@moatless/types/types/claude'
-import type { Event, MessageEvent } from '@moatless/types/types/event'
+} from '@moatless/types'
+import type { Event, MessageEvent } from '@moatless/types'
 
 export interface MergedEvent extends Event {
   toolResult?: Event

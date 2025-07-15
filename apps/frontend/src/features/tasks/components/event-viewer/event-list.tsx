@@ -3,7 +3,7 @@ import type {
   Event,
   MessageEvent as MessageEventType,
   ResultEvent as ResultEventType,
-} from '@moatless/types/types/event'
+} from '@moatless/types'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 

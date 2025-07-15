@@ -1,6 +1,5 @@
-import { promises as fs } from 'node:fs'
 import { spawn } from 'node:child_process'
-import os from 'node:os'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 /**
@@ -85,8 +84,8 @@ export async function createTestTask(
   baseURL: string,
   repositoryId: string,
   message: string,
-  agentType: string = 'claude-code',
-  start: boolean = true,
+  agentType = 'claude-code',
+  start = true,
 ): Promise<TestTask> {
   const response = await fetch(`${baseURL}/api/v1/tasks`, {
     method: 'POST',
@@ -123,7 +122,7 @@ export async function deleteTestTask(baseURL: string, taskId: string): Promise<v
       method: 'POST',
     })
     // Give it a moment to stop
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
   } catch (error) {
     // Task might not be running
   }
@@ -162,7 +161,7 @@ export async function deleteTestRepository(baseURL: string, repositoryId: string
 export async function waitForTaskCompletion(
   baseURL: string,
   taskId: string,
-  maxWaitMs: number = 60000,
+  maxWaitMs = 60000,
 ): Promise<{ success: boolean; result?: any; error?: string }> {
   const startTime = Date.now()
   const pollInterval = 1000 // 1 second
@@ -172,7 +171,7 @@ export async function waitForTaskCompletion(
       const response = await fetch(`${baseURL}/api/v1/tasks/${taskId}/events`)
       if (response.ok) {
         const { events } = await response.json()
-        
+
         // Look for result events
         for (const event of events) {
           if (event.type === 'result') {
@@ -187,7 +186,7 @@ export async function waitForTaskCompletion(
       console.warn('Error polling for task completion:', error)
     }
 
-    await new Promise(resolve => setTimeout(resolve, pollInterval))
+    await new Promise((resolve) => setTimeout(resolve, pollInterval))
   }
 
   return { success: false, error: 'Timeout waiting for task completion' }

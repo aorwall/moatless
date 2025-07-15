@@ -1,4 +1,4 @@
-import type { Event, EventType } from '@moatless/types/types/event'
+import type { Event, EventType } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'

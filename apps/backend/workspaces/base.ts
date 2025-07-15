@@ -1,6 +1,6 @@
-import type { GitChanges, GitStatus } from '@moatless/types/types/api'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
-import type { CommandResult, ServerStatus, WorkspaceStatus } from '@moatless/types/types/workspace'
+import type { GitChanges, GitStatus } from '@moatless/types'
+import type { RepositoryConfig } from '@moatless/types'
+import type { CommandResult, ServerStatus, WorkspaceStatus } from '@moatless/types'
 import type { EventService } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
 

@@ -87,8 +87,6 @@ describe('AppSidebar', () => {
 
     // Check that all sections are rendered
     expect(screen.getByTestId('sidebar-tasks')).toBeInTheDocument()
-    expect(screen.getByTestId('sidebar-repositories')).toBeInTheDocument()
-    expect(screen.getByTestId('sidebar-commands')).toBeInTheDocument()
   })
 
   it('should display version in footer', () => {

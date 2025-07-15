@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types/types/task'
+import type { Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -125,52 +125,18 @@ function SidebarTaskItem({
 export function SidebarTasks() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
 
-  // Fetch all non-closed tasks with a higher limit to ensure we get all active tasks
   const {
     data,
     isLoading: isLoadingTasks,
     error: tasksError,
-  } = useTasksList(
-    {
-      limit: 100, // Increase limit to ensure we get all active tasks
-    },
-    {
-      // Refetch disabled since GlobalEventStreamProvider handles invalidation
-      refetchInterval: false,
-    },
-  )
+  } = useTasksList({
+    limit: 100,
+  })
 
   const tasks = data?.items
 
   // Fetch repositories to map IDs to names
   const { data: repositories } = useRepositoriesList()
-
-  // Filter out closed tasks and sort by last_message_at, with open/running tasks first
-  // NOTE: This approach has a limitation - we're fetching up to 100 tasks from the backend
-  // and then filtering/sorting on the client. If there are many closed/merged tasks,
-  // some open tasks might not appear. A better solution would be to support status
-  // filtering on the backend to exclude closed tasks.
-  const sortedTasks =
-    tasks
-      ?.filter((task: Task) => task.status !== 'closed') // Filter out closed tasks
-      ?.sort((a: Task, b: Task) => {
-        // First sort by active status (open/running tasks come first)
-        const aActive = a.status === 'open' || a.status === 'running'
-        const bActive = b.status === 'open' || b.status === 'running'
-
-        if (aActive && !bActive) {
-          return -1
-        }
-        if (!aActive && bActive) {
-          return 1
-        }
-        // Then by last_message_at
-        return (
-          new Date(b.lastMessageAt || b.createdAt).getTime() -
-          new Date(a.lastMessageAt || a.createdAt).getTime()
-        )
-      })
-      .slice(0, 20) || []
 
   // Create a map of repository IDs to names
   const repositoryMap =
@@ -260,9 +226,9 @@ export function SidebarTasks() {
           </Tooltip>
         </div>
         <SidebarGroupContent>
-          {sortedTasks.length > 0 ? (
+          {tasks && tasks.length > 0 ? (
             <SidebarMenu>
-              {sortedTasks.map((task: Task) => {
+              {tasks.map((task: Task) => {
                 const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
                 return (
                   <SidebarTaskItem key={task.taskId} task={task} repositoryName={repositoryName} />

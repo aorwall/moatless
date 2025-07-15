@@ -1,5 +1,5 @@
-import type { Event } from '@moatless/types/types/event'
-import { EventType } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { queryKeys } from '@/lib/api/query-keys'
 
 export const STATUS_AFFECTING_EVENTS = [EventType.ERROR, EventType.TASK_STATUS] as const

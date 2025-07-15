@@ -36,7 +36,7 @@ const start = async () => {
     appServices = appWithServices
     const { app } = appWithServices
 
-    const port = parseInt(process.env.PORT || '8000', 10)
+    const port = Number.parseInt(process.env.PORT || '8000', 10)
     const host = process.env.HOST || '0.0.0.0'
 
     // Setup graceful shutdown handlers

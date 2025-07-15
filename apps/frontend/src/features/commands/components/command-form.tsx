@@ -1,9 +1,9 @@
-import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types/schemas'
+import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types'
 import type {
   Command,
   CreateCommandRequest,
   UpdateCommandRequest,
-} from '@moatless/types/types/command'
+} from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import * as LucideIcons from 'lucide-react'
 import { useEffect, useId, useState } from 'react'

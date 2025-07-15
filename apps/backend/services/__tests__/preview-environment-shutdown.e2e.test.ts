@@ -127,8 +127,8 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'server2.js'), serverCode2)
 
     // Create environments and tasks
-    const env1 = await createRepository('Test Repository 1', 'node server1.js {PORT}')
-    const env2 = await createRepository('Test Repository 2', 'node server2.js {PORT}')
+    const env1 = await createRepository('Test Repository 1')
+    const env2 = await createRepository('Test Repository 2')
 
     const task1 = await createTask(env1.id)
     const task2 = await createTask(env2.id)
@@ -224,7 +224,6 @@ process.on('SIGTERM', () => {
     // Create environment and task
     const repo = await createRepository(
       'Stubborn Test Environment',
-      'node stubborn-server.js {PORT}',
     )
     const task = await createTask(repo.id)
 
@@ -298,7 +297,6 @@ process.on('SIGTERM', () => {
     // Create environment and task
     const repo = await createRepository(
       'Orphan Test Environment',
-      'node orphan-test-server.js {PORT}',
     )
     const task = await createTask(repo.id)
 
@@ -380,7 +378,6 @@ process.on('SIGTERM', () => {
     // Create environment and task
     const repo = await createRepository(
       'Signal Test Environment',
-      'node signal-test-server.js {PORT}',
     )
     const task = await createTask(repo.id)
 
@@ -426,16 +423,15 @@ process.on('SIGTERM', () => {
   }, 30000)
 
   // Helper functions
-  async function createRepository(name: string, serverCommand: string): Promise<RepositoryConfig> {
+  async function createRepository(name: string): Promise<RepositoryConfig> {
     const request: CreateRepositoryRequest = {
       name,
-      description: `Test repository for shutdown testing`,
+      description: 'Test repository for shutdown testing',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
         setupCommands: 'echo "Environment ready"',
-        serverCommand,
       },
     }
 

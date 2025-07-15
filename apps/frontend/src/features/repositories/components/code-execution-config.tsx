@@ -2,20 +2,12 @@ import type {
   CodeExecution,
   SetupScriptCommand,
   SetupScriptResponse,
-} from '@moatless/types/types/repository'
-import { AlertCircle, CheckCircle, HelpCircle, Play, Terminal, XCircle } from 'lucide-react'
+} from '@moatless/types'
+import { CheckCircle, Play, Terminal, XCircle } from 'lucide-react'
 import { useId, useState } from 'react'
 import { useRunSetupScript } from '@/features/repositories/hooks/use-repositories'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
@@ -42,11 +34,6 @@ interface CodeExecutionConfigProps {
   repositoryId?: string
 }
 
-interface ServerCommandExamplesProps {
-  showServerExamples: boolean
-  setShowServerExamples: (show: boolean) => void
-}
-
 interface SetupOutputSheetProps {
   showSetupOutput: boolean
   setShowSetupOutput: (show: boolean) => void
@@ -61,76 +48,6 @@ interface EnvironmentVariablesProps {
   setEnvVarValue: (value: string) => void
   onAddEnvVar: () => void
   onRemoveEnvVar: (key: string) => void
-}
-
-function ServerCommandExamples({
-  showServerExamples,
-  setShowServerExamples,
-}: ServerCommandExamplesProps) {
-  const examples = [
-    {
-      title: 'Vite',
-      command: 'npm run dev -- --port {PORT}',
-      description: 'For Vite-based projects (Vue, React, etc.)',
-    },
-    {
-      title: 'Next.js',
-      command: 'next dev -p {PORT}',
-      description: 'For Next.js applications',
-    },
-    {
-      title: 'Python HTTP Server',
-      command: 'python -m http.server {PORT}',
-      description: 'Simple HTTP server for static files',
-    },
-    {
-      title: 'Flask',
-      command: 'flask run --port {PORT}',
-      description: 'For Flask applications',
-    },
-    {
-      title: 'Django',
-      command: 'python manage.py runserver 0.0.0.0:{PORT}',
-      description: 'For Django applications',
-    },
-    {
-      title: 'Node.js (with nodemon)',
-      command: 'nodemon --port {PORT} server.js',
-      description: 'For Node.js applications with auto-reload',
-    },
-  ]
-
-  return (
-    <Dialog open={showServerExamples} onOpenChange={setShowServerExamples}>
-      <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-5 w-5 p-0">
-          <HelpCircle className="h-4 w-4" />
-          <span className="sr-only">Show examples</span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Server Command Examples</DialogTitle>
-          <DialogDescription>
-            The server command should include{' '}
-            <code className="bg-muted px-1 py-0.5 rounded">{'{PORT}'}</code> as a placeholder for
-            the port number.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 mt-4">
-          <div className="space-y-3">
-            {examples.map((example) => (
-              <div key={example.title} className="rounded-lg border p-4 space-y-2">
-                <p className="font-medium">{example.title}</p>
-                <code className="block bg-muted p-2 rounded text-sm">{example.command}</code>
-                <p className="text-sm text-muted-foreground">{example.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
 }
 
 function SetupOutputSheet({
@@ -276,12 +193,10 @@ export function CodeExecutionConfig({
   const executionTypeId = useId()
   const imageId = useId()
   const setupCommandsId = useId()
-  const serverCommandId = useId()
 
   const [formData, setFormData] = useState({
     type: codeExecution.type,
     setup_commands: codeExecution.setupCommands || '',
-    server_command: codeExecution.serverCommand || '',
     env_vars: codeExecution.envVars || {},
     dockerImage: codeExecution.dockerImage || 'moatless-vibe-universal:latest',
   })
@@ -290,8 +205,6 @@ export function CodeExecutionConfig({
   const [envVarValue, setEnvVarValue] = useState('')
   const [showSetupOutput, setShowSetupOutput] = useState(false)
   const [setupScriptResult, setSetupScriptResult] = useState<SetupScriptResponse | null>(null)
-  const [serverCommandError, setServerCommandError] = useState<string | null>(null)
-  const [showServerExamples, setShowServerExamples] = useState(false)
 
   const runSetupScript = useRunSetupScript({
     onSuccess: (data: SetupScriptResponse) => {
@@ -304,7 +217,6 @@ export function CodeExecutionConfig({
     const updatedExecution: CodeExecution = {
       type: formData.type,
       setupCommands: formData.setup_commands || undefined,
-      serverCommand: formData.server_command || undefined,
       envVars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
     }
 
@@ -352,16 +264,6 @@ export function CodeExecutionConfig({
     })
   }
 
-  const handleServerCommandChange = (value: string) => {
-    setFormData({ ...formData, server_command: value })
-    // Validate server command
-    if (value && !value.includes('{PORT}')) {
-      setServerCommandError('Server command must include {PORT} placeholder')
-    } else {
-      setServerCommandError(null)
-    }
-  }
-
   return (
     <>
       <Card>
@@ -379,7 +281,6 @@ export function CodeExecutionConfig({
                   onValueChange={(value: 'local' | 'docker') =>
                     setFormData({ ...formData, type: value })
                   }
-                  disabled
                 >
                   <SelectTrigger id={executionTypeId}>
                     <SelectValue />
@@ -390,7 +291,7 @@ export function CodeExecutionConfig({
                   </SelectContent>
                 </Select>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Execution type cannot be changed after creation
+                  Choose between local execution or Docker containerized execution
                 </p>
               </div>
 
@@ -421,36 +322,6 @@ export function CodeExecutionConfig({
                 </p>
               </div>
 
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Label htmlFor={serverCommandId}>Server Command</Label>
-                  <ServerCommandExamples
-                    showServerExamples={showServerExamples}
-                    setShowServerExamples={setShowServerExamples}
-                  />
-                </div>
-                <Input
-                  id={serverCommandId}
-                  value={formData.server_command}
-                  onChange={(e) => handleServerCommandChange(e.target.value)}
-                  placeholder="npm run dev -- --port {PORT}"
-                  className={serverCommandError ? 'border-destructive' : ''}
-                />
-                <div className="space-y-1 mt-2">
-                  {serverCommandError && (
-                    <div className="flex items-center gap-2 text-sm text-destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <span>{serverCommandError}</span>
-                    </div>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    Command to start a development server. Use{' '}
-                    <code className="bg-muted px-1 py-0.5 rounded">{'{PORT}'}</code> as a
-                    placeholder for the port number.
-                  </p>
-                </div>
-              </div>
-
               <EnvironmentVariables
                 envVars={formData.env_vars}
                 envVarKey={envVarKey}
@@ -463,7 +334,7 @@ export function CodeExecutionConfig({
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button type="submit" disabled={isSubmitting || !!serverCommandError}>
+              <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
               </Button>
               {repositoryId && (

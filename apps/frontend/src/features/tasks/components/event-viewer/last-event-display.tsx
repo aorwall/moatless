@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
 import { useEffect, useRef, useState } from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 import { EventList } from './event-list'

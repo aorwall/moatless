@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/types/types/api'
+import type { UploadFileResponse } from '@moatless/types'
 import type { UseMutationOptions } from '@tanstack/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { uploadsApi } from '../api/uploads'

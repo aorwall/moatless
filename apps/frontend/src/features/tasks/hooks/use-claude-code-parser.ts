@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
 import { useMemo } from 'react'
 
 export interface ParsedMessage {

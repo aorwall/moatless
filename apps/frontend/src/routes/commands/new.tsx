@@ -1,5 +1,5 @@
-import { getErrorMessage } from '@moatless/types/types/api-errors'
-import type { CreateCommandRequest } from '@moatless/types/types/command'
+import { getErrorMessage } from '@moatless/types'
+import type { CreateCommandRequest } from '@moatless/types'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 

@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
-import type { CreateVibeTaskRequest } from '@moatless/types/types/api'
-import type { Command } from '@moatless/types/types/command'
-import { EventType } from '@moatless/types/types/event'
-import { RepositoryTemplate } from '@moatless/types/types/repository'
-import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/types/types/task'
+import type { CreateVibeTaskRequest } from '@moatless/types'
+import type { Command } from '@moatless/types'
+import { EventType } from '@moatless/types'
+import { RepositoryTemplate } from '@moatless/types'
+import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/types'
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
@@ -163,6 +163,46 @@ export class TaskService {
           await this.startTask(taskId)
         } catch (error) {
           logger.error('Failed to start task after workspace setup', error as Error, { taskId })
+
+          // Update task status to error when agent fails to start
+          try {
+            const task = await this.storage.getTask(taskId)
+            if (task) {
+              const previousStatus = task.status
+              task.status = 'error'
+
+              // Also update the iteration status to error if it exists
+              if (task.iterations.length > 0) {
+                const lastIteration = task.iterations[task.iterations.length - 1]
+                if (lastIteration.status === 'active') {
+                  lastIteration.status = 'error'
+                }
+              }
+
+              await this.storage.saveTask(task)
+
+              // Emit error event
+              await this.eventService.emitEvent({
+                eventId: randomUUID(),
+                taskId,
+                type: EventType.TASK_STATUS,
+                subType: 'error',
+                isError: true,
+                agentType: task.agentType,
+                payload: {
+                  status: 'error',
+                  previousStatus,
+                  error: error instanceof Error ? error.message : String(error),
+                },
+              })
+            }
+          } catch (updateError) {
+            logger.error(
+              'Failed to update task status after agent start failure',
+              updateError as Error,
+              { taskId },
+            )
+          }
           // Don't throw here - workspace was set up successfully
         }
       }
@@ -275,17 +315,46 @@ export class TaskService {
           undefined,
           lastIteration.model,
         )
-        .catch((error) => {
+        .catch(async (error) => {
           logger.error('Failed to execute agent during task start', error as Error, {
             taskId,
             iterationNumber: lastIteration.iterationNumber,
           })
-          // Update status back to open on error
-          task.status = 'open'
-          lastIteration.status = 'error'
-          this.storage.saveTask(task).catch((saveError) => {
+
+          // Update status to error on agent failure
+          try {
+            const updatedTask = await this.storage.getTask(taskId)
+            if (updatedTask) {
+              const updatedIteration = updatedTask.iterations.find(
+                (it) => it.iterationNumber === lastIteration.iterationNumber,
+              )
+              if (updatedIteration) {
+                const previousStatus = updatedTask.status
+                updatedTask.status = 'error'
+                updatedIteration.status = 'error'
+
+                await this.storage.saveTask(updatedTask)
+
+                // Emit error event
+                await this.eventService.emitEvent({
+                  eventId: randomUUID(),
+                  taskId,
+                  type: EventType.TASK_STATUS,
+                  subType: 'error',
+                  isError: true,
+                  agentType: updatedTask.agentType,
+                  payload: {
+                    status: 'error',
+                    previousStatus,
+                    error: error instanceof Error ? error.message : String(error),
+                    iterationNumber: lastIteration.iterationNumber,
+                  },
+                })
+              }
+            }
+          } catch (saveError) {
             logger.error('Failed to update task status after agent error', saveError as Error)
-          })
+          }
         })
 
       // Track the background agent execution
@@ -317,7 +386,6 @@ export class TaskService {
         'npm install',
         {
           serverStartCommand: 'pnpm run dev',
-          serverPort: 3000,
           injectionStrategy: {
             method: 'html-injection',
           },
@@ -416,9 +484,17 @@ export class TaskService {
       const taskId = key.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
       if (task) {
-        // Filter by status if provided
-        if (!status || task.status === status) {
-          tasks.push(task)
+        // Filter by status if provided, otherwise exclude closed tasks by default
+        if (status) {
+          // If status is explicitly provided, only include tasks with that status
+          if (task.status === status) {
+            tasks.push(task)
+          }
+        } else {
+          // If no status filter, exclude closed tasks by default
+          if (task.status !== 'closed') {
+            tasks.push(task)
+          }
         }
       }
     }
@@ -634,14 +710,43 @@ export class TaskService {
     // Execute agent through AgentService in background
     const backgroundTask = this.agentService
       .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
-      .catch((error) => {
+      .catch(async (error) => {
         logger.error('Background agent execution failed', error as Error, { taskId })
-        // Update status back on error
-        metadata.status = 'open'
-        iteration.status = 'error'
-        this.storage.saveTask(metadata).catch((saveError) => {
+
+        // Update status to error on agent failure
+        try {
+          const updatedTask = await this.storage.getTask(taskId)
+          if (updatedTask) {
+            const updatedIteration = updatedTask.iterations.find(
+              (it) => it.iterationNumber === iteration.iterationNumber,
+            )
+            if (updatedIteration) {
+              const previousStatus = updatedTask.status
+              updatedTask.status = 'error'
+              updatedIteration.status = 'error'
+
+              await this.storage.saveTask(updatedTask)
+
+              // Emit error event
+              await this.eventService.emitEvent({
+                eventId: randomUUID(),
+                taskId,
+                type: EventType.TASK_STATUS,
+                subType: 'error',
+                isError: true,
+                agentType: updatedTask.agentType,
+                payload: {
+                  status: 'error',
+                  previousStatus,
+                  error: error instanceof Error ? error.message : String(error),
+                  iterationNumber: iteration.iterationNumber,
+                },
+              })
+            }
+          }
+        } catch (saveError) {
           logger.error('Failed to update task status after agent error', saveError as Error)
-        })
+        }
       })
 
     // Track the background task in WorkspaceService for status reporting

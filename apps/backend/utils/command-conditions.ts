@@ -7,14 +7,14 @@
  * 3. Logs will show which conditions pass/fail for each command
  */
 
-import type { Command } from '@moatless/types/types/command'
-import type { Task, TaskIteration } from '@moatless/types/types/task'
+import type { Command } from '@moatless/types'
+import type { Task, TaskIteration } from '@moatless/types'
 
 interface CommandAvailabilityContext {
   task?: Task
   lastIteration?: TaskIteration
   workspaceHasChanges?: boolean
-  gitStatus?: import('@moatless/types/types/api').GitStatus
+  gitStatus?: import('@moatless/types').GitStatus
 }
 
 // Debug logging flag - set to true to enable detailed command filtering logs

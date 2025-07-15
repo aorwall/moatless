@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/types/types/api'
+import type { UploadFileResponse } from '@moatless/types'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -131,7 +131,7 @@ export function ChatForm({
       // Set initial height using callback ref pattern
       node.style.height = 'auto'
       const scrollHeight = node.scrollHeight
-      const maxHeightPx = parseInt(maxHeight)
+      const maxHeightPx = Number.parseInt(maxHeight)
       const newHeight = Math.min(scrollHeight, maxHeightPx)
       node.style.height = `${newHeight}px`
     }
@@ -184,7 +184,7 @@ export function ChatForm({
     const textarea = e.target
     textarea.style.height = 'auto'
     const scrollHeight = textarea.scrollHeight
-    const maxHeightPx = parseInt(maxHeight)
+    const maxHeightPx = Number.parseInt(maxHeight)
     const newHeight = Math.min(scrollHeight, maxHeightPx)
     textarea.style.height = `${newHeight}px`
   }

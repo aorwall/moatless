@@ -1,9 +1,11 @@
-import { RepositoryConfigSchema } from '@moatless/types/schemas'
+import { RepositoryConfigSchema } from '@moatless/types'
 import type {
   CreateRepositoryRequest,
-  RepositoryResponse,
   UpdateRepositoryRequest,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
+import type {
+  RepositoryResponse,
+} from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'
@@ -25,7 +27,6 @@ interface RepositoryFormProps {
 type FormData = {
   name: string
   description: string
-  variables: Record<string, string>
   path: string
   useGitWorktrees: boolean
 }
@@ -53,12 +54,9 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   const [formData, setFormData] = useState<FormData>(() => ({
     name: repository?.name || '',
     description: repository?.description || '',
-    variables: repository?.variables || {},
     ...getInitialRepositoryData(repository),
   }))
 
-  const [envVarKey, setEnvVarKey] = useState('')
-  const [envVarValue, setEnvVarValue] = useState('')
 
   // Use schema validation
   const { errors, validate, clearErrors } = useZodForm({ schema: RepositoryConfigSchema })
@@ -68,7 +66,6 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
       setFormData({
         name: repository.name,
         description: repository.description || '',
-        variables: repository.variables || {},
         ...getInitialRepositoryData(repository),
       })
     }
@@ -90,7 +87,6 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
       codeExecution: {
         type: 'local',
       },
-      variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
     }
 
     // Validate using schema
@@ -108,27 +104,6 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     onSubmit(result.data)
   }
 
-  const handleAddEnvVar = () => {
-    if (envVarKey && envVarValue) {
-      setFormData({
-        ...formData,
-        variables: {
-          ...formData.variables,
-          [envVarKey]: envVarValue,
-        },
-      })
-      setEnvVarKey('')
-      setEnvVarValue('')
-    }
-  }
-
-  const handleRemoveEnvVar = (key: string) => {
-    const { [key]: _, ...rest } = formData.variables
-    setFormData({
-      ...formData,
-      variables: rest,
-    })
-  }
 
   return (
     <div className="container mx-auto py-6 max-w-4xl">
@@ -175,53 +150,6 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
               pathError={errors.path}
             />
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Repository Variables</Label>
-              </div>
-              <div className="space-y-2">
-                {Object.entries(formData.variables).map(([key, value]) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <Input value={key} disabled className="flex-1" />
-                    <Input value={value} disabled className="flex-1" />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRemoveEnvVar(key)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))}
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Variable name"
-                    value={envVarKey}
-                    onChange={(e) => setEnvVarKey(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Input
-                    placeholder="Variable value"
-                    value={envVarValue}
-                    onChange={(e) => setEnvVarValue(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddEnvVar}
-                    disabled={!(envVarKey && envVarValue)}
-                  >
-                    Add
-                  </Button>
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                Repository-specific variables that will be available during execution
-              </p>
-            </div>
           </CardContent>
         </Card>
 

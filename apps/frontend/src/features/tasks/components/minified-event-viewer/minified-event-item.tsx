@@ -1,5 +1,5 @@
 import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/types'
-import type { Event, MessageEvent } from '@moatless/types/types/event'
+import type { Event, MessageEvent } from '@moatless/types'
 import {
   Bot,
   Code2,

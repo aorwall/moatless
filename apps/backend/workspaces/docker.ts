@@ -1,11 +1,11 @@
-import type { GitChanges, GitStatus } from '@moatless/types/types/api'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
+import type { GitChanges, GitStatus } from '@moatless/types'
+import type { RepositoryConfig } from '@moatless/types'
 import {
   type CommandResult,
   type ServerStatus,
   type Workspace,
   WorkspaceStatus,
-} from '@moatless/types/types/workspace'
+} from '@moatless/types'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import type { BaseAgent, EventService } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'

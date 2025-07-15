@@ -4,7 +4,7 @@ import type {
   CommandsFile,
   CreateCommandRequest,
   UpdateCommandRequest,
-} from '@moatless/types/types/command'
+} from '@moatless/types'
 import type { StorageBackend } from './storage.js'
 
 const COMMANDS_FILE = 'commands'

@@ -1,5 +1,5 @@
-import type { Task } from '@moatless/types/types/task'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import type { Task } from '@moatless/types'
+import { WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 

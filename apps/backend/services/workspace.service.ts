@@ -2,8 +2,8 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { CommandResult, ServerStatus } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import type { RepositoryConfig } from '@moatless/types'
+import { WorkspaceStatus } from '@moatless/types'
 import type { GitDiffResponse } from '../utils/index.js'
 import { createGitWorktree, isGitRepository, syncWithMain } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
@@ -13,7 +13,6 @@ import { LocalWorkspace } from '../workspaces/local.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
-import { getSettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
@@ -51,13 +50,9 @@ export class WorkspaceService {
       workspacePath,
     )
 
-    // Determine workspace type from repository config or global default
-    const settingsService = getSettingsService()
-    const globalDefaultWorkspaceType = settingsService.getDefaultWorkspaceType()
-    const workspaceType = repository.codeExecution.workspaceType || globalDefaultWorkspaceType
-
+    // Determine workspace type from repository config code execution type
     let workspace: BaseWorkspace
-    if (workspaceType === 'docker') {
+    if (repository.codeExecution.type === 'docker') {
       // Create DockerWorkspace that wraps LocalWorkspace
       workspace = new DockerWorkspace(taskId, repository, this.eventService, localWorkspace)
     } else {
@@ -156,7 +151,7 @@ export class WorkspaceService {
     // Check if workspace already exists
     const existing = this.activeWorkspaces.get(taskId)
     if (existing) {
-      workspaceLogger.debug(`Workspace already exists, returning existing instance`, {
+      workspaceLogger.debug('Workspace already exists, returning existing instance', {
         status: existing.getStatus(),
       })
       return existing
@@ -326,11 +321,7 @@ export class WorkspaceService {
     }
   }
 
-  async listFiles(
-    taskId: string,
-    relativePath: string = '.',
-    recursive: boolean = false,
-  ): Promise<string[]> {
+  async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
     // Task validation is now handled in canListFiles, but we still check capability
     if (!(await this.canListFiles(taskId))) {
       throw new WorkspaceError('Cannot list files: workspace not ready', taskId)

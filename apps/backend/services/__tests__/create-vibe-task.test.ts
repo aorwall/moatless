@@ -1,4 +1,4 @@
-import type { CreateVibeTaskRequest } from '@moatless/types/types/api'
+import type { CreateVibeTaskRequest } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
@@ -105,7 +105,6 @@ describe('TaskService - createVibeTask', () => {
         },
         previewConfig: {
           serverStartCommand: 'npm run dev',
-          serverPort: 3000,
           injectionStrategy: {
             method: 'html-injection',
           },
@@ -154,7 +153,6 @@ describe('TaskService - createVibeTask', () => {
         },
         previewConfig: {
           serverStartCommand: 'npm run dev',
-          serverPort: 3000,
           injectionStrategy: {
             method: 'html-injection',
           },
@@ -228,8 +226,7 @@ describe('TaskService - createVibeTask', () => {
           }),
           previewConfig: expect.objectContaining({
             serverStartCommand: 'npm run dev',
-            serverPort: 3000,
-          }),
+            }),
         }),
       )
     })

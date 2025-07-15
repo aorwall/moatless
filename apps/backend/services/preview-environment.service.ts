@@ -7,8 +7,8 @@ import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
   ProcessValidation,
-} from '@moatless/types/types/preview-environment'
-import type { ServerStatus } from '@moatless/types/types/workspace'
+} from '@moatless/types'
+import type { ServerStatus } from '@moatless/types'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { PreviewProxyService } from './preview-proxy.service.js'
@@ -119,9 +119,8 @@ export class PreviewEnvironmentService {
     const environment = workspace.environmentConfig
     const previewConfig = environment.previewConfig
 
-    // Use preview config's server command if available, otherwise fall back to codeExecution
-    const serverCommand =
-      previewConfig?.serverStartCommand || environment.codeExecution.serverCommand
+    // Use preview config's server command if available
+    const serverCommand = previewConfig?.serverStartCommand
 
     if (!serverCommand) {
       throw new WorkspaceError('No server command configured for this environment', taskId)
@@ -333,7 +332,7 @@ export class PreviewEnvironmentService {
 
     // Get workspace to check configuration
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-    const configured = Boolean(workspace.environmentConfig.codeExecution.serverCommand)
+    const configured = Boolean(workspace.environmentConfig.previewConfig?.serverStartCommand)
 
     // Check running servers
     const handler = this.runningServers.get(taskId)
@@ -392,10 +391,9 @@ export class PreviewEnvironmentService {
           uptimeSeconds: uptime,
           responsive,
         } as ServerStatus
-      } else {
-        // Clean up invalid metadata
-        await this.deletePreviewEnvironmentMetadata(taskId)
       }
+      // Clean up invalid metadata
+      await this.deletePreviewEnvironmentMetadata(taskId)
     }
 
     return {
@@ -499,7 +497,7 @@ export class PreviewEnvironmentService {
         // If URL starts with http://, port is at index 2
         // If URL is just localhost:port, port is at index 1
         const portString = url.startsWith('http://') ? parts[2] : parts[parts.length - 1]
-        const port = parseInt(portString, 10)
+        const port = Number.parseInt(portString, 10)
 
         // Validate port range
         if (Number.isNaN(port) || port < 0 || port > 65535) {

@@ -74,7 +74,7 @@ export class PreviewProxyService {
     const requestUrl = new URL(req.url || '/', targetUrl)
 
     // Copy query parameters
-    requestUrl.search = new URL(req.url || '/', `http://localhost`).search
+    requestUrl.search = new URL(req.url || '/', 'http://localhost').search
 
     const options: http.RequestOptions = {
       hostname: targetUrl.hostname,
@@ -165,7 +165,7 @@ export function createPreviewProxy(
   targetUrl: string,
   scriptContent: string,
   logger: Logger,
-  basePort: number = 9000,
+  basePort = 9000,
 ): PreviewProxyService {
   // Use the provided port directly
   return new PreviewProxyService({

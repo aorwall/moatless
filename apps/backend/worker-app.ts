@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import type { TaskIteration } from '@moatless/types/types/task'
+import type { TaskIteration } from '@moatless/types'
 import { Hono } from 'hono'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
@@ -351,7 +351,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
-  const port = parseInt(process.env.PORT || '8001')
+  const port = Number.parseInt(process.env.PORT || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 
   serve({

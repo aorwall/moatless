@@ -1,4 +1,4 @@
-import type { Command } from '@moatless/types/types/command'
+import type { Command } from '@moatless/types'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CommandButtons } from '../command-buttons'

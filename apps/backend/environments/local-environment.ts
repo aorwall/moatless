@@ -1,8 +1,8 @@
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
-import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
+import type { RepositoryConfig } from '@moatless/types'
+import type { CommandResult, ServerStatus } from '@moatless/types'
 import type { BaseAgent, EventService } from '../services/index.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { createTaskLogger } from '../utils/logger.js'
@@ -167,7 +167,7 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async startServer(): Promise<ServerStatus> {
-    const serverCommand = this.repositoryConfig.codeExecution.serverCommand
+    const serverCommand = this.repositoryConfig.previewConfig?.serverStartCommand
     if (!serverCommand) {
       throw new Error('No server command configured')
     }
@@ -221,7 +221,7 @@ export class LocalEnvironment extends BaseEnvironment {
 
   async getServerStatus(): Promise<ServerStatus> {
     if (!this.previewServer) {
-      const hasServerCommand = !!this.repositoryConfig.codeExecution.serverCommand
+      const hasServerCommand = !!this.repositoryConfig.previewConfig?.serverStartCommand
       return {
         running: false,
         configured: hasServerCommand,

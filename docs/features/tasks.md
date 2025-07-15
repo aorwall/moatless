@@ -135,8 +135,9 @@ stateDiagram-v2
     [*] --> Open: User creates task
     Open --> Running: Task/iteration started
     Running --> Open: Iteration complete
-    Running --> Error: Execution failed
-    Error --> Open: User continues or resets
+    Running --> Error: Agent execution failed
+    Error --> Running: User continues or retries
+    Error --> Open: User resets or sends new message
     Open --> Merged: Changes integrated
     Open --> Closed: Task abandoned
     Merged --> [*]
@@ -146,6 +147,14 @@ stateDiagram-v2
         Task created with workspace
         and iteration in 'created' status
         ready for execution.
+    end note
+    
+    note right of Error
+        Task status set to 'error' when:
+        - Agent fails to start
+        - Agent execution fails
+        - Workspace setup fails
+        Iteration status also set to 'error'
     end note
 ```
 
@@ -184,7 +193,11 @@ stateDiagram-v2
 
 - **Open**: The initial state of a task after its workspace has been successfully created. The task is ready to accept messages or be explicitly started.
 - **Running**: The task is actively processing a message with an AI agent. The UI is locked from sending new messages, but the agent can be stopped.
-- **Error**: The last agent iteration failed. The user can inspect the error and choose to continue the conversation or start fresh.
+- **Error**: The task has encountered an error during execution. This can happen when:
+  - The agent fails to start during task initialization
+  - The agent execution fails during processing
+  - The workspace setup fails during task creation
+  Both the task status and the current iteration status are set to 'error'. The user can inspect the error and choose to continue the conversation, retry, or start fresh.
 - **Merged**: The changes generated in the task's workspace have been successfully merged into the target branch of the main repository. This is a terminal success state.
 - **Closed**: The task has been manually closed by the user. The associated workspace is torn down. This is a terminal failure/abandonment state.
 

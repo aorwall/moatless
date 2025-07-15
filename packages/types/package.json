@@ -11,40 +11,40 @@
       "import": "./dist/index.js"
     },
     "./constants": {
-      "types": "./dist/constants/index.d.ts",
-      "import": "./dist/constants/index.js"
+      "types": "./dist/src/constants/index.d.ts",
+      "import": "./dist/src/constants/index.js"
     },
     "./constants/errors": {
-      "types": "./dist/constants/errors.d.ts",
-      "import": "./dist/constants/errors.js"
+      "types": "./dist/src/constants/errors.d.ts",
+      "import": "./dist/src/constants/errors.js"
     },
     "./constants/preview-config": {
-      "types": "./dist/constants/preview-config.d.ts",
-      "import": "./dist/constants/preview-config.js"
+      "types": "./dist/src/constants/preview-config.d.ts",
+      "import": "./dist/src/constants/preview-config.js"
     },
     "./types": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
+      "types": "./dist/src/types/index.d.ts",
+      "import": "./dist/src/types/index.js"
     },
     "./types/*": {
-      "types": "./dist/types/*.d.ts",
-      "import": "./dist/types/*.js"
+      "types": "./dist/src/types/*.d.ts",
+      "import": "./dist/src/types/*.js"
     },
     "./schemas": {
-      "types": "./dist/schemas/index.d.ts",
-      "import": "./dist/schemas/index.js"
+      "types": "./dist/src/schemas/index.d.ts",
+      "import": "./dist/src/schemas/index.js"
     },
     "./schemas/*": {
-      "types": "./dist/schemas/*.d.ts",
-      "import": "./dist/schemas/*.js"
+      "types": "./dist/src/schemas/*.d.ts",
+      "import": "./dist/src/schemas/*.js"
     },
     "./utils": {
-      "types": "./dist/utils/index.d.ts",
-      "import": "./dist/utils/index.js"
+      "types": "./dist/src/utils/index.d.ts",
+      "import": "./dist/src/utils/index.js"
     },
     "./utils/*": {
-      "types": "./dist/utils/*.d.ts",
-      "import": "./dist/utils/*.js"
+      "types": "./dist/src/utils/*.d.ts",
+      "import": "./dist/src/utils/*.js"
     }
   },
   "scripts": {

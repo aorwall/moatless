@@ -1,4 +1,4 @@
-import type { PreviewConfig } from '@moatless/types/types/repository'
+import type { PreviewConfig } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 export interface DetectFrameworkResponse {

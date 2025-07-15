@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/types/types/repository'
+import type { FileSearchResult } from '@moatless/types'
 import { AlertCircle, FileIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { getErrorMessage } from '@/lib/utils/error'
