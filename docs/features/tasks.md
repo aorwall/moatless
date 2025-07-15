@@ -1,281 +1,261 @@
 # Task Architecture
 
-## Overview
+## Quick Reference
 
-The Task system is the central orchestration layer in Moatless Vibe, managing AI agent interactions through a sophisticated event-driven architecture. It coordinates isolated workspaces, tracks conversation history, and streams real-time updates while maintaining high performance through strategic caching and a refined frontend state management pattern.
+### Key Files
+- **Task Service**: `apps/backend/services/task.service.ts`
+- **Task Routes**: `apps/backend/routes/tasks.ts`
+- **Task Types**: `packages/types/src/types/task.types.ts`
+- **UI Context**: `apps/frontend/src/features/tasks/contexts/task-ui-provider.tsx`
+- **Data Context**: `apps/frontend/src/features/tasks/contexts/task-data-provider.tsx`
+- **Task Providers**: `apps/frontend/src/features/tasks/contexts/task-providers.tsx`
 
-## Architectural Overview
-
-### System Position & Responsibilities
-
-```mermaid
-graph TB
-    subgraph "User Interface Layer"
-        UI[React Application]
-        SSE[Global SSE Client]
-    end
-    
-    subgraph "Task Orchestration Layer"
-        TC[Task Controller]
-        TS[Task Service]
-        ES[Event Service]
-    end
-    
-    subgraph "Execution Layer"
-        AS[Agent Service]
-        WS[Workspace Service]
-        PS[Preview Service]
-    end
-    
-    subgraph "Storage Layer"
-        FS[File Storage]
-        ES2[Event Store]
-    end
-    
-    UI --> TC
-    SSE --> ES
-    TC --> TS
-    TS --> AS
-    TS --> WS
-    ES --> SSE
-    AS --> ES
-    WS --> ES
-    TS --> FS
-    ES --> ES2
-    
-    style TS fill:#f9f,stroke:#333,stroke-width:4px
-    style ES fill:#bbf,stroke:#333,stroke-width:2px
-```
-
-#### Layer Breakdown
-
-**User Interface Layer**
-- **React Application** (`apps/frontend/src/features/tasks/`): Provides the user interface for task management.
-- **Global SSE Client** (`apps/frontend/src/features/events`): A single, global SSE connection that receives events for all tasks.
-
-**Task Orchestration Layer**
-- **Task Controller** (`apps/backend/routes/tasks.ts`): HTTP endpoints for task operations.
-- **Task Service** (`apps/backend/services/task.service.ts`): Core business logic for task lifecycle management.
-- **Event Service** (`apps/backend/services/event.service.ts`): Manages event streaming and persistence.
-
-**Execution Layer**
-- **Agent Service** (`apps/backend/services/agent.service.ts`): Integrates with AI providers (e.g., Claude).
-- **Workspace Service** (`apps/backend/services/workspace.service.ts`): Manages isolated git worktrees for each task.
-- **Preview Service** (`apps/backend/services/preview.service.ts`): Handles development server instances for live previews.
-
-**Storage Layer**
-- **File Storage** (`data/` directory): JSON-based persistence for tasks and metadata.
-- **Event Store** (`data/events/`): Time-series storage for all task-related events.
-
-### Core Architectural Patterns
-
-```mermaid
-graph LR
-    subgraph "Event-Driven Architecture"
-        E1[User Action]
-        E2[Task Event]
-        E3[Cache Update]
-        E4[UI Refresh]
-        E1 --> E2
-        E2 --> E3
-        E3 --> E4
-    end
-    
-    subgraph "Tri-Context Pattern"
-        DC[Data Context<br/>Server State via React Query]
-        EC[Events Context<br/>Real-time Updates via SSE]
-        UC[UI Context<br/>Isolated Local State via React Context]
-    end
-    
-    subgraph "Optimistic Updates"
-        O1[Immediate UI Update]
-        O2[Background Sync]
-        O3[Conflict Resolution]
-        O1 --> O2
-        O2 --> O3
-    end
-```
-
-## Frontend: The Dual-Context Pattern
-
-To achieve high performance and prevent unnecessary re-renders, the frontend employs a "Dual-Context Pattern". This pattern separates different types of state into two distinct React contexts, ensuring that components only re-render when the specific data they subscribe to changes.
-
-This pattern is implemented via the `<TaskProviders>` component (`apps/frontend/src/features/tasks/contexts/task-providers.tsx`), which composes the two context providers.
-
-### 1. TaskUIProvider: Local UI State
-
-- **File**: `apps/frontend/src/features/tasks/contexts/task-ui-provider.tsx`
-- **Responsibility**: Manages pure UI state that is local to the client and specific to each task. This includes things like panel visibility, selected items, and scroll positions.
-- **Implementation**: This provider uses a `useState` hook holding a `Map<string, TaskUIState>`, where the key is the `taskId`. This provides **complete state isolation** between tasks. When you switch from one task to another, the UI state for the previous task is preserved in the map, and the state for the new task is loaded (or initialized to default).
-- **Hooks**: Provides specialized hooks like `usePanelView()`, `useChatState()`, and `useGitDiffState()` that allow components to subscribe to only the slice of UI state they need, preventing re-renders from unrelated state changes.
-
-### 2. TaskDataProvider: Server State & Events
-
-- **File**: `apps/frontend/src/features/tasks/contexts/task-data-provider.tsx`
-- **Responsibility**: Manages all server-side data including task metadata, workspace status, git diffs, and events. It handles both historical events (from API) and live streaming events (from SSE).
-- **Implementation**: Built on top of `react-query`, it manages multiple data sources with appropriate caching strategies:
-  - **Task metadata**: Fetched with 30s stale time (rarely changes)
-  - **Workspace status**: Conditional polling when in transitional states
-  - **Git diff**: Cached for 10 minutes
-  - **Events**: Never stale, updated only via SSE
-- **Event Handling**: 
-  - Maintains two event lists: `events` (historical from API) and `streamingEvents` (recent from SSE)
-  - Subscribes to the global event stream and updates both caches
-  - Streaming events are kept for components like the minified event viewer
-- **Hooks**: Provides specialized hooks for different data slices: `useTaskStatus()`, `useWorkspaceStatus()`, `useEventStream()`, `useStreamingStatus()`, etc.
-
-This separation ensures that high-frequency event updates don't cause components that only care about stable metadata or UI state to re-render unnecessarily.
-
-## Backend: Task Lifecycle & Services
-
-### Task Lifecycle Management
-
-```mermaid
-stateDiagram-v2
-    [*] --> Open: User creates task
-    Open --> Running: Task/iteration started
-    Running --> Open: Iteration complete
-    Running --> Error: Agent execution failed
-    Error --> Running: User continues or retries
-    Error --> Open: User resets or sends new message
-    Open --> Merged: Changes integrated
-    Open --> Closed: Task abandoned
-    Merged --> [*]
-    Closed --> [*]
-
-    note right of Open
-        Task created with workspace
-        and iteration in 'created' status
-        ready for execution.
-    end note
-    
-    note right of Error
-        Task status set to 'error' when:
-        - Agent fails to start
-        - Agent execution fails
-        - Workspace setup fails
-        Iteration status also set to 'error'
-    end note
-```
-
-#### Task Creation and Iteration Flow
-
-The task creation process has been refactored to provide better separation of concerns and error handling:
-
-1. **Task Creation**: Creates task metadata and first iteration with `'created'` status (if message provided)
-2. **Task Persistence**: Saves task to storage before any workspace operations
-3. **Workspace Creation**: Creates and sets up the isolated git workspace
-4. **Task Starting**: Optionally starts the task if `shouldStart` is enabled
-
-#### Iteration Status Lifecycle
-
-Task iterations now follow a more explicit status lifecycle:
-
-```mermaid
-stateDiagram-v2
-    [*] --> created: Iteration created
-    created --> active: Task started
-    active --> completed: Execution successful
-    active --> error: Execution failed
-    active --> failed: Critical failure
-    error --> active: Retry/continue
-    completed --> [*]
-    failed --> [*]
-```
-
-- **created**: Iteration has been created but not yet started
-- **active**: Iteration is currently being executed by the agent
-- **completed**: Iteration finished successfully
-- **error**: Iteration encountered an error but can be retried
-- **failed**: Iteration failed critically and cannot be retried
-
-#### Lifecycle State Details
-
-- **Open**: The initial state of a task after its workspace has been successfully created. The task is ready to accept messages or be explicitly started.
-- **Running**: The task is actively processing a message with an AI agent. The UI is locked from sending new messages, but the agent can be stopped.
-- **Error**: The task has encountered an error during execution. This can happen when:
-  - The agent fails to start during task initialization
-  - The agent execution fails during processing
-  - The workspace setup fails during task creation
-  Both the task status and the current iteration status are set to 'error'. The user can inspect the error and choose to continue the conversation, retry, or start fresh.
-- **Merged**: The changes generated in the task's workspace have been successfully merged into the target branch of the main repository. This is a terminal success state.
-- **Closed**: The task has been manually closed by the user. The associated workspace is torn down. This is a terminal failure/abandonment state.
-
-### Core Services
-
-- **TaskService (`task.service.ts`)**: The central orchestrator.
-  - `createTask`: Creates the task record with initial iteration in `'created'` status, saves to storage, then creates workspace. Optionally starts the task if `shouldStart` is enabled.
-  - `startTask`: Explicitly starts a task by finding the last iteration with `'created'` status and activating it. Returns 400 if no `'created'` iteration exists.
-  - `createVibeTask`: A specialized creator that clones a repository from a predefined template to create a new, self-contained environment for a task.
-  - `sendMessage`: Creates a new iteration with `'created'` status, saves the task, then immediately starts the iteration by updating to `'active'` and executing the agent.
-  - `closeTask`: Handles the teardown of a task, including stopping the agent, stopping the preview server, and cleaning up the workspace.
-  - `getAvailableCommands`: Determines which contextual commands are available to the user based on the task's current state.
-
-- **EventService (`event.service.ts`)**: The heart of the real-time system. It persists events and broadcasts them to the frontend via an SSE (Server-Sent Events) stream.
-
-- **WorkspaceService (`workspace.service.ts`)**: Manages the filesystem environments for tasks. It creates git worktrees, reads/writes files, executes commands, and manages the lifecycle of preview servers.
-
-## Event-Driven Cache Invalidation
-
-The frontend relies on events from the backend to keep its data fresh without constant polling.
-
-```mermaid
-graph TB
-    subgraph "Event Flow"
-        UA[User Action]
-        TS[Task Service]
-        AS[Agent Service]
-        ES[Event Service]
-        SSE[Global SSE Stream]
-        TEP[TaskEventsProvider]
-        RQ[React Query Cache]
-        UI[UI Components]
-    end
-    
-    UA -->|1. Send Message| TS
-    TS -->|2. Create Iteration| AS
-    AS -->|3. Emit Events| ES
-    ES -->|4. Stream to All Clients| SSE
-    SSE -->|5. Filter & Handle Event| TEP
-    TEP -->|6. Invalidate Queries| RQ
-    RQ -->|7. Re-render| UI
-```
-
-#### Cache Invalidation Implementation
-
-- **Global Stream**: A single, persistent SSE connection is established for the application (`apps/frontend/src/features/events/contexts/global-event-stream-provider.tsx`).
-- **Centralized Invalidation**: The `GlobalEventStreamProvider` handles all cache invalidation for events with a `taskId`:
-  1.  It uses a mapping (`getInvalidationKeys`) to determine which queries are affected by each event type.
-  2.  It triggers `queryClient.invalidateQueries` for the affected queries, including task details and task lists.
-  3.  The hierarchical query key structure ensures that invalidating a parent key (e.g., `tasks.detail(id)`) automatically invalidates all child queries.
-- **Task Event Subscription**: `TaskDataProvider` subscribes to task-specific events and updates both the historical event cache and the streaming events list.
-
-## Command System
-
-The task system includes a context-aware command system that displays relevant actions based on the current workspace and task state.
-
-#### Command Structure
-
-Commands are defined in `packages/types/types/command.ts` and have conditions that determine their visibility.
-
+### Core Methods
 ```typescript
-interface Command {
-  name: string;
-  description: string;
-  prompt: string;
-  conditions?: {
-    requiresUncommittedChanges?: boolean;
-    requiresAheadOfMain?: boolean;
-    requiresLastIterationError?: boolean;
-    // ... and more
+// Task Service
+createTask(data: CreateTaskDto): Promise<Task>
+startTask(taskId: string): Promise<Task>
+sendMessage(taskId: string, message: string): Promise<void>
+closeTask(taskId: string): Promise<void>
+getAvailableCommands(taskId: string): Promise<Command[]>
+
+// Frontend Hooks
+useTaskData(): { task, events, workspace, gitDiff, streamingEvents }
+useTaskUI(): { panels, chat, selection, methods }
+```
+
+## Architecture Overview
+
+Tasks orchestrate AI agent interactions through an event-driven system with sophisticated frontend state management using the Dual-Context Pattern.
+
+```mermaid
+graph TB
+    UI[React UI] -->|dual context| TC[Task Contexts]
+    TC -->|queries| RQ[React Query]
+    TC -->|SSE| ES[Event Stream]
+    
+    RQ -->|API| TS[Task Service]
+    ES -->|events| TS
+    
+    TS -->|execute| AS[Agent Service]
+    TS -->|manage| WS[Workspace Service]
+    AS -->|emit| EV[Event Service]
+```
+
+## The Dual-Context Pattern
+
+Separates UI state from server state to prevent unnecessary re-renders:
+
+### 1. TaskUIProvider (Local UI State)
+```typescript
+// apps/frontend/src/features/tasks/contexts/task-ui-provider.tsx
+interface TaskUIState {
+  panels: {
+    selectedPanel: PanelType;
+    eventViewerExpanded: boolean;
   };
-  icon?: string; // Lucide icon name
-  variant?: string; // Button variant
+  chat: {
+    scrollPosition: number;
+    selectedIteration: string | null;
+  };
+  gitDiff: {
+    selectedFile: string | null;
+    expandedFiles: Set<string>;
+  };
+}
+
+// Usage
+const { panels, chat } = useTaskUI();
+```
+
+### 2. TaskDataProvider (Server State)
+```typescript
+// apps/frontend/src/features/tasks/contexts/task-data-provider.tsx
+interface TaskDataContext {
+  task: UseQueryResult<Task>;
+  events: UseQueryResult<TaskEvent[]>;
+  workspace: UseQueryResult<WorkspaceStatus>;
+  gitDiff: UseQueryResult<GitDiff>;
+  streamingEvents: TaskEvent[]; // Recent SSE events
+}
+
+// Usage
+const { task, events, streamingEvents } = useTaskData();
+```
+
+## Implementation Guide
+
+### 1. Task Creation Flow
+```typescript
+// Frontend
+const { mutate: createTask } = useCreateTask();
+createTask({
+  repositoryId: repoId,
+  message: 'Fix the login bug',
+  mode: 'code',
+  shouldStart: true // Auto-start with agent
+});
+
+// Backend: apps/backend/services/task.service.ts
+async createTask(data: CreateTaskDto) {
+  // Create task with first iteration
+  const task = {
+    id: generateId(),
+    status: 'open',
+    iterations: [{
+      id: generateId(),
+      message: data.message,
+      status: 'created'
+    }],
+    ...data
+  };
+  
+  // Save before workspace operations
+  await this.storage.save(`tasks/${task.id}.json`, task);
+  
+  // Create workspace
+  await this.workspaceService.createWorkspace(task.id, data.repositoryId);
+  
+  // Optionally start immediately
+  if (data.shouldStart) {
+    await this.startTask(task.id);
+  }
+  
+  return task;
 }
 ```
 
-#### Filtering and Execution
+### 2. Task Lifecycle States
+```mermaid
+stateDiagram-v2
+    [*] --> Open: Create task
+    Open --> Running: Start/send message
+    Running --> Open: Complete
+    Running --> Error: Fail
+    Error --> Running: Retry
+    Open --> Merged: Merge changes
+    Open --> Closed: Abandon
+```
 
-1.  **Backend Filtering**: The `taskService.getAvailableCommands(taskId)` method is called by the frontend. It uses the `filterAvailableCommands` utility to return only the commands whose conditions are met by the current task and workspace state.
-2.  **UI Display**: The `CommandButtons` component (`apps/frontend/src/features/tasks/components/chat-view/command-buttons.tsx`) renders the filtered commands.
-3.  **Execution**: When a command button is clicked, its `prompt` is sent to the agent via the standard `sendMessage` flow, but with an added `commandName` parameter.
+### 3. Iteration Status Flow
+```typescript
+// Iteration statuses
+type IterationStatus = 'created' | 'active' | 'completed' | 'error' | 'failed';
+
+// Status transitions
+async sendMessage(taskId: string, message: string) {
+  // Create iteration with 'created' status
+  const iteration = {
+    id: generateId(),
+    message,
+    status: 'created'
+  };
+  
+  task.iterations.push(iteration);
+  await this.save(task);
+  
+  // Immediately activate and execute
+  iteration.status = 'active';
+  task.status = 'running';
+  
+  await this.agentService.executeAgent(taskId, iteration.id, message);
+}
+```
+
+### 4. Event-Driven Updates
+```typescript
+// Backend emits events
+await this.eventService.emitEvent({
+  taskId,
+  type: EventType.MESSAGE,
+  payload: { content: 'Processing...' }
+});
+
+// Frontend receives via SSE
+const handleTaskEvent = (event: TaskEvent) => {
+  // Update event cache
+  queryClient.setQueryData(
+    queryKeys.taskEvents(taskId),
+    (old) => [...(old || []), event]
+  );
+  
+  // Update streaming events
+  setStreamingEvents(prev => [...prev.slice(-99), event]);
+};
+```
+
+## Common Patterns
+
+### Using Task Contexts
+```typescript
+// Wrap components with providers
+<TaskProviders taskId={taskId}>
+  <TaskDetail />
+</TaskProviders>
+
+// Inside components
+function TaskDetail() {
+  const { task, events } = useTaskData();
+  const { panels, setPanelView } = useTaskUI();
+  
+  if (task.isLoading) return <Skeleton />;
+  
+  return (
+    <div>
+      <h1>{task.data.title}</h1>
+      <EventViewer events={events.data} />
+    </div>
+  );
+}
+```
+
+### Command System Integration
+```typescript
+// Backend filters available commands
+getAvailableCommands(taskId: string) {
+  const task = await this.getTask(taskId);
+  const workspace = await this.workspaceService.getStatus(taskId);
+  
+  return commands.filter(cmd => 
+    evaluateConditions(cmd.conditions, task, workspace)
+  );
+}
+
+// Frontend displays filtered commands
+<CommandButtons 
+  commands={availableCommands}
+  onExecute={(prompt) => sendMessage(taskId, prompt)}
+/>
+```
+
+### Optimistic Updates
+```typescript
+const sendMessage = useMutation({
+  mutationFn: api.sendMessage,
+  onMutate: async ({ message }) => {
+    // Optimistically add iteration
+    await queryClient.cancelQueries(queryKeys.task(taskId));
+    const previous = queryClient.getQueryData(queryKeys.task(taskId));
+    
+    queryClient.setQueryData(queryKeys.task(taskId), old => ({
+      ...old,
+      iterations: [...old.iterations, { message, status: 'active' }]
+    }));
+    
+    return { previous };
+  },
+  onError: (err, vars, context) => {
+    // Rollback on error
+    queryClient.setQueryData(queryKeys.task(taskId), context.previous);
+  }
+});
+```
+
+## Troubleshooting
+
+| Issue | Check | Solution |
+|-------|-------|----------|
+| UI not updating | SSE connection | Check global event stream status |
+| Wrong UI state | Context isolation | Verify TaskProviders wrapping |
+| Stale data | Cache invalidation | Check EVENT_INVALIDATION_MAP |
+| Lost UI state | Task switching | UI state persists in Map per task |

@@ -110,7 +110,7 @@ fix(hooks): handle edge case in validation hooks
 
 ### Git Worktree Workflow (for LLMs)
 
-For detailed LLM instructions, see [Git Operations Guide](docs/guidelines/git-operations-guide.md).
+For detailed LLM instructions, see [Git Operations Patterns](docs/patterns/git-operations-guide.md).
 
 ### Pre-commit Hooks
 - **pre-push**: Runs fast tests (`pnpm test:fast`) before pushing
@@ -228,7 +228,9 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 ### API Integration Patterns
 
 #### Data Fetching with TanStack Query
-All API calls should use TanStack Query hooks for consistent caching, error handling, and loading states:
+All API calls should use TanStack Query hooks for consistent caching, error handling, and loading states.
+
+**📌 Pattern Reference**: For advanced React Query patterns including optimistic updates, infinite queries, and complex caching strategies, see [React Query Patterns](docs/patterns/react-query.md).
 
 ```typescript
 // Use query hooks for GET requests
@@ -243,7 +245,9 @@ const createTask = useCreateTask({
 ```
 
 #### Query Key Management
-Query keys are centralized in `src/lib/api/query-keys.ts`:
+Query keys are centralized in `src/lib/api/query-keys.ts`.
+
+**📌 Pattern Reference**: For smart cache invalidation strategies based on events and data dependencies, see [Cache Invalidation Pattern](docs/patterns/cache-invalidation.md).
 ```typescript
 // Task queries
 queryKeys.tasks() // All task queries
@@ -302,13 +306,19 @@ Routes in this application follow a simple, direct pattern where route files han
 - Reusable business logic
 
 #### Task Context Pattern
-The task detail page uses a React Context to manage and share task-related data across components:
+The task detail page uses a React Context to manage and share task-related data across components.
+
+**📌 Pattern Reference**: For performance-optimized context management with separated concerns, see [Tri-Context Pattern](docs/patterns/tri-context.md).
 
 **Context Structure (`/features/tasks/contexts/task-context.tsx`)**:
 - Centralizes all task data fetching (metadata, events, git diff, workspace status)
 - Manages SSE connections for real-time updates
 - Handles UI state (selected iteration, panel views)
 - Provides error and loading states
+
+**📌 Pattern References**: 
+- For SSE connection management and reconnection logic, see [SSE Management Pattern](docs/patterns/sse-management.md)
+- For event-driven updates across components, see [Event-Driven Architecture](docs/patterns/event-driven.md)
 
 **Components Using Task Context**:
 - `TaskHeader` - Displays task metadata and controls
@@ -384,6 +394,8 @@ return <TaskList tasks={data} />;
 
 **Error Boundary Usage:**
 React Error Boundaries are used to catch JavaScript errors in component trees, log errors, and display fallback UI instead of crashing the entire application.
+
+**📌 Pattern Reference**: For comprehensive error handling strategies including recovery mechanisms and error boundary composition, see [Error Handling Pattern](docs/patterns/error-handling.md).
 
 ```typescript
 import { ErrorBoundary } from '@/lib/components/error-boundary';
@@ -506,12 +518,18 @@ import { SafeBoundary } from '@/lib/components/error-boundary-with-fallback';
   - Use React state for local UI state
   - Avoid redundant state storage
 
+**📌 Pattern Reference**: For computing values without effects and avoiding unnecessary state, see [Derived State Pattern](docs/patterns/derived-state.md).
+
 ### Best Practices
 
 1. **API Integration**:
    - Always use React Query hooks instead of direct API calls
    - Implement optimistic updates for better UX
    - Use proper error boundaries
+
+**📌 Pattern References**: 
+- For API design and implementation patterns, see [API Best Practices](docs/patterns/api-best-practices.md)
+- For schema design with Zod, see [Schema Design Patterns](docs/patterns/schema-design-patterns.md)
 
 2. **Performance**:
    - Leverage React Query's caching capabilities
@@ -575,7 +593,7 @@ pnpm test:ui
 
 ### Backend Testing Strategy
 
-The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles. For detailed backend testing guidelines, see [Backend Testing Guidelines](docs/guidelines/backend-testing.md).
+The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles. For detailed backend testing patterns, see [Backend Testing Patterns](docs/patterns/backend-testing.md).
 
 #### Test Naming Conventions
 - **Unit Tests**: `*.test.ts` or `*.unit.test.ts` (fast, <200ms)
@@ -620,7 +638,9 @@ The `.husky/pre-push` hook uses `pnpm test:fast` which excludes integration and 
 ### Testing Strategy & Guidelines
 
 #### Layered Testing Approach
-This project uses a layered testing strategy that balances speed, reliability, and comprehensive coverage:
+This project uses a layered testing strategy that balances speed, reliability, and comprehensive coverage.
+
+**📌 Pattern Reference**: For strategic mocking approaches and testing best practices, see [Strategic Mocking Pattern](docs/patterns/strategic-mocking.md).
 
 1. **Unit Tests** - Individual component and hook testing with full mocking
 2. **Integration Tests** - Route and feature testing with minimal strategic mocking  
@@ -666,7 +686,7 @@ it('displays task data through component hierarchy', () => {
 });
 ```
 
-#### Testing Guidelines
+#### Testing Patterns
 - Use `.test.ts` or `.test.tsx` file extensions
 - Test behavior, not implementation details
 - **Prioritize integration over isolation** for route and page components
@@ -676,6 +696,64 @@ it('displays task data through component hierarchy', () => {
 - Use contract tests to verify component interfaces
 - **Note**: `any` types are allowed in test files (`**/*.test.ts`, `**/*.test.tsx`, `**/__tests__/**/*`)
 
-### Comprehensive Testing Guide
-For detailed testing patterns, mocking strategies, and best practices, see the [Testing Guide](docs/guidelines/frontend-testing.md).
+### Comprehensive Testing Patterns
+For detailed testing patterns, mocking strategies, and best practices, see the [Frontend Testing Patterns](docs/patterns/frontend-testing.md).
+
+## Architectural Patterns Quick Reference
+
+This section helps you quickly identify which architectural patterns to use for specific tasks. These patterns are battle-tested solutions to common challenges in this codebase.
+
+### When to Use Each Pattern
+
+| **Task/Problem** | **Pattern to Use** | **Key Indicators** | **Documentation** |
+|------------------|-------------------|--------------------|--------------------|
+| Managing multiple React contexts with performance issues | Tri-Context Pattern | - Components re-rendering unnecessarily<br>- Need to separate data, actions, and UI state<br>- Performance degradation with context updates | [docs/patterns/tri-context.md](docs/patterns/tri-context.md) |
+| Implementing real-time features with SSE | SSE Management Pattern | - Need server-sent events<br>- Real-time data updates<br>- Building chat or live features | [docs/patterns/sse-management.md](docs/patterns/sse-management.md) |
+| Managing server state and API calls | React Query Patterns | - Fetching data from APIs<br>- Need caching and synchronization<br>- Implementing mutations | [docs/patterns/react-query.md](docs/patterns/react-query.md) |
+| Invalidating caches based on events | Smart Cache Invalidation | - Complex data dependencies<br>- Event-driven updates<br>- Need selective cache updates | [docs/patterns/cache-invalidation.md](docs/patterns/cache-invalidation.md) |
+| Building event-driven features | Event-Driven Architecture | - Decoupled component communication<br>- Central event handling<br>- Cross-feature notifications | [docs/patterns/event-driven.md](docs/patterns/event-driven.md) |
+| Computing values from props/state | Derived State Pattern | - Tempted to use useEffect for calculations<br>- Need computed values<br>- Dependent calculations | [docs/patterns/derived-state.md](docs/patterns/derived-state.md) |
+| Handling errors gracefully | Error Boundary Strategies | - Need fallback UI<br>- Component error isolation<br>- Recovery mechanisms | [docs/patterns/error-handling.md](docs/patterns/error-handling.md) |
+| Writing effective tests | Strategic Mocking Pattern | - Testing complex components<br>- Balance between speed and coverage<br>- Integration vs unit tests | [docs/patterns/strategic-mocking.md](docs/patterns/strategic-mocking.md) |
+| Testing backend services | Backend Testing Patterns | - Testing Node.js services<br>- Need fast/slow test separation<br>- Testing with file system operations | [docs/patterns/backend-testing.md](docs/patterns/backend-testing.md) |
+| Testing frontend components | Frontend Testing Patterns | - Testing React components<br>- Component integration tests<br>- Mocking strategies | [docs/patterns/frontend-testing.md](docs/patterns/frontend-testing.md) |
+| E2E testing with Playwright | Playwright E2E Testing | - End-to-end test scenarios<br>- Browser automation<br>- User journey testing | [docs/patterns/playwright-e2e-testing-guide.md](docs/patterns/playwright-e2e-testing-guide.md) |
+| Styling components | Styling Patterns | - CSS-in-JS decisions<br>- Tailwind CSS usage<br>- Component styling strategies | [docs/patterns/styling-guide.md](docs/patterns/styling-guide.md) |
+| Handling git operations as an LLM | Git Operations Guide | - User requests to commit changes<br>- User wants to push to main<br>- LLM handling git worktrees | [docs/patterns/git-operations-guide.md](docs/patterns/git-operations-guide.md) |
+| Designing APIs and schemas | API & Schema Patterns | - Building new endpoints<br>- Defining data structures<br>- Type-safe validation | [docs/patterns/api-best-practices.md](docs/patterns/api-best-practices.md)<br>[docs/patterns/schema-design-patterns.md](docs/patterns/schema-design-patterns.md) |
+
+### Pattern Decision Tree
+
+```
+Are you building a new feature?
+├─ Yes → Does it need real-time updates?
+│   ├─ Yes → Use SSE Management Pattern
+│   └─ No → Does it fetch data from APIs?
+│       ├─ Yes → Use React Query Patterns
+│       └─ No → Continue to state management
+│
+├─ Are you fixing performance issues?
+│   ├─ Context re-rendering → Use Tri-Context Pattern
+│   ├─ Unnecessary calculations → Use Derived State Pattern
+│   └─ Cache problems → Use Smart Cache Invalidation
+│
+└─ Are you handling errors?
+    ├─ Component crashes → Use Error Boundary Strategies
+    └─ API errors → See React Query error handling
+```
+
+### Common Pattern Combinations
+
+1. **Real-time Task Features**: SSE Management + Event-Driven + Cache Invalidation
+2. **Data-Heavy Pages**: React Query + Tri-Context + Derived State
+3. **Complex Forms**: React Query mutations + Error Handling + Event-Driven updates
+4. **Performance Optimization**: Tri-Context + Derived State + Strategic component splitting
+
+### Pattern Anti-Patterns to Avoid
+
+- **DON'T** use `useEffect` for derived values → Use Derived State Pattern
+- **DON'T** manually manage loading/error states → Use React Query Patterns
+- **DON'T** put all state in one context → Use Tri-Context Pattern
+- **DON'T** catch errors with try/catch everywhere → Use Error Boundary Strategies
+- **DON'T** mock everything in tests → Use Strategic Mocking Pattern
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { CriticalError, EventType, type TaskIteration } from '@moatless/types'
+import {EventType, type TaskIteration, TaskNotFoundError} from '@moatless/types'
 import type { SDKResultMessage } from '@moatless/types'
 import { WorkspaceStatus } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
@@ -32,7 +32,7 @@ export class AgentService {
     // Get task and repository config
     const task = await this.storage.getTask(taskId)
     if (!task) {
-      throw new CriticalError('Task not found', taskId, iteration)
+      throw new TaskNotFoundError('Task not found')
     }
 
     // Execute agent directly
@@ -54,7 +54,7 @@ export class AgentService {
 
     // Validate that no agent is currently running for this task
     if (this.runningAgents.has(taskId)) {
-      throw new CriticalError('Agent is already running', taskId, iteration)
+      throw new Error('Agent is already running')
     }
 
     // Get workspace and validate state
@@ -62,10 +62,10 @@ export class AgentService {
     const status = workspace.getStatus()
 
     if (status === WorkspaceStatus.SETTING_UP) {
-      throw new CriticalError('Workspace is still setting up', taskId, iteration)
+      throw new Error('Workspace is still setting up')
     }
     if (status === WorkspaceStatus.RUNNING) {
-      throw new CriticalError('Agent is already running', taskId, iteration)
+      throw new Error('Agent is already running')
     }
 
     // Check if workspace path actually exists
@@ -79,10 +79,8 @@ export class AgentService {
       const recreatedStatus = recreatedWorkspace.getStatus()
 
       if (recreatedStatus !== WorkspaceStatus.IDLE) {
-        throw new CriticalError(
-          'Workspace recreation failed - workspace not ready',
-          taskId,
-          iteration,
+        throw new Error(
+          'Workspace recreation failed - workspace not ready'
         )
       }
     }
@@ -454,10 +452,7 @@ export class AgentService {
         }
       }
 
-      // Re-throw critical errors
-      if (error instanceof CriticalError) {
-        throw error
-      }
+      throw error
     }
   }
 
@@ -486,7 +481,7 @@ export class AgentService {
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
     }
 
-    throw new CriticalError('Workspace recreation timeout', taskId, iteration)
+    throw new Error('Workspace recreation timeout')
   }
 }
 

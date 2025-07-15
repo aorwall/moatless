@@ -90,12 +90,32 @@ Tests must follow strict naming conventions to ensure proper categorization and 
 
 ### Test Categories & Performance Tiers
 
+#### Test Classification Decision Tree
+```
+Does the test perform any I/O operations?
+├─ No → FAST Test (use *.test.ts)
+└─ Yes → What type of I/O?
+    ├─ File system only → MODERATE Test (use *.integration.test.ts)
+    ├─ Network calls → MODERATE Test (use *.integration.test.ts)
+    ├─ Process spawning → SLOW Test (use *.e2e.test.ts)
+    └─ Real server startup → SLOW Test (use *.e2e.test.ts)
+```
+
 #### 1. FAST Tests (<200ms) - Run on every push
-Pure unit tests with full mocking:
-- Service unit tests (business logic only)
-- Utility function tests
-- Pure function tests
-- Tests with mocked external dependencies
+
+**Concrete Criteria - Must meet ALL**:
+- Zero file system operations (no fs.readFile, fs.writeFile, etc.)
+- Zero network calls (no fetch, axios, http requests)
+- Zero process spawning (no child_process, execa)
+- All external dependencies are mocked
+- No setTimeout/setInterval/real timers
+- No database connections
+
+**Examples of FAST tests**:
+- Service unit tests with mocked storage
+- Utility function tests (pure functions)
+- Business logic tests with mocked dependencies
+- Data transformation tests
 
 ```typescript
 // Example: Fast unit test
@@ -120,11 +140,21 @@ describe('TaskService - Unit Tests', () => {
 ```
 
 #### 2. MODERATE Tests (200ms-2s) - Run in CI
-Integration tests with minimal mocking:
-- Route handler tests (with mocked services)
-- Service integration tests (with real file system)
-- Database operation tests
-- Git operation tests
+
+**Concrete Criteria - Must meet ALL**:
+- Performs file system operations OR
+- Makes local network calls (localhost only) OR
+- Uses real database connections OR
+- Executes git commands
+- Does NOT spawn long-running processes
+- Does NOT start real servers
+- Completes within 2 seconds
+
+**Examples of MODERATE tests**:
+- Route handler tests with real app instance
+- Service tests with real file system access
+- Database CRUD operation tests
+- Git command execution tests (add, commit, diff)
 
 ```typescript
 // Example: Integration test
@@ -147,12 +177,22 @@ describe('Task Routes - Integration Tests', () => {
 ```
 
 #### 3. SLOW Tests (>2s) - Run separately or nightly
-E2E and server lifecycle tests:
-- Real server startup/shutdown tests
-- Complete workflow tests
-- Real process spawning tests
-- Preview environment tests
-- WebSocket/SSE connection tests
+
+**Concrete Criteria - ANY of these**:
+- Starts a real HTTP/WebSocket server
+- Spawns child processes that run >2 seconds
+- Makes external network calls (non-localhost)
+- Tests complete user workflows end-to-end
+- Requires multiple service interactions
+- Tests process lifecycle (startup/shutdown)
+- Establishes persistent connections (SSE/WebSocket)
+
+**Examples of SLOW tests**:
+- Server startup and graceful shutdown tests
+- Complete task execution workflow tests
+- Preview environment lifecycle tests
+- Real agent process spawning tests
+- SSE/WebSocket connection establishment tests
 
 ```typescript
 // Example: E2E test

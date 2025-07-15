@@ -1,11 +1,32 @@
 # Tri-Context Pattern
 
+## When to Use This Pattern
+
+### Decision Criteria
+Use the Tri-Context pattern when ALL of these conditions are met:
+1. You have ≥10 components consuming the same context
+2. Update frequency is >10 updates per second for any data stream
+3. You observe unnecessary re-renders in React DevTools Profiler
+4. Different components need different subsets of the context data
+
+### Do NOT use this pattern when:
+1. You have <10 components consuming the context
+2. All components need all the data
+3. Update frequency is <10 updates per second
+4. The context data is already minimal (<5 properties)
+
 ## Problem
 
 In complex React applications with real-time data, a single context provider can cause performance issues:
 - High-frequency updates (like streaming events) trigger re-renders of all consuming components
 - Components that only need stable data get re-rendered unnecessarily
 - UI responsiveness degrades as data volume increases
+
+### Specific Indicators:
+- React DevTools shows >50ms render times for context consumers
+- Chrome Performance tab shows >60% time in React reconciliation
+- Components flash/flicker during streaming updates
+- User interactions feel sluggish during data updates
 
 ## Solution
 
@@ -88,6 +109,39 @@ function TaskPanel() {
   return isPanelOpen ? <Panel /> : null;
 }
 ```
+
+## Implementation Decision Tree
+
+```
+Is your data real-time streaming?
+├─ Yes → Put in Events Context
+│   └─ Examples: SSE events, WebSocket messages, live logs
+├─ No → Is it UI-only state?
+│   ├─ Yes → Put in UI Context
+│   │   └─ Examples: modal open/close, selected tab, expanded panels
+│   └─ No → Put in Data Context
+│       └─ Examples: user profile, task details, API responses
+```
+
+## Context Separation Rules
+
+### Data Context Must Include:
+- Server-fetched data that changes infrequently (<1 update per second)
+- Data from React Query hooks
+- Computed values that depend on server data
+- Loading and error states for server data
+
+### Events Context Must Include:
+- SSE/WebSocket event streams
+- Any data updating >1 time per second
+- Connection status for real-time connections
+- Event history arrays that grow over time
+
+### UI Context Must Include:
+- Component visibility states (isOpen, isExpanded)
+- User selections (selectedId, activeTab)
+- Form draft states not yet submitted
+- Pure client-side preferences
 
 ## Real-World Example
 

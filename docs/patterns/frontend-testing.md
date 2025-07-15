@@ -134,27 +134,79 @@ vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
 
 ## Key Testing Principles
 
-### 1. Strategic Mocking
+### 1. Strategic Mocking - Decision Tree
 
-**✅ Mock These:**
-- External API calls
-- SSE/WebSocket connections
-- Complex UI libraries (resizable panels, etc.)
-- Third-party services
+```
+Is it an external dependency?
+├─ Yes → Is it one of these?
+│   ├─ HTTP API call (fetch, axios) → Mock with createMockQuery()
+│   ├─ SSE/WebSocket → Mock with createMockSSEConnection()
+│   ├─ Browser API (localStorage, etc.) → Mock with vi.stubGlobal()
+│   └─ Third-party service → Mock the service module
+└─ No → Is it a UI library component?
+    ├─ Yes → Does it have these characteristics?
+    │   ├─ Requires DOM measurements → Mock it
+    │   ├─ Has complex internal state → Mock it
+    │   ├─ Uses ResizeObserver/IntersectionObserver → Mock it
+    │   └─ Simple display component → DO NOT mock
+    └─ No → DO NOT mock (test real integration)
+```
 
-**❌ Don't Mock These:**
-- Your own components (for integration tests)
-- Simple UI components
-- Business logic
+### Concrete Mocking Rules
+
+**ALWAYS Mock These (External Dependencies)**:
+- `fetch()`, `axios`, or any HTTP client
+- `EventSource` for SSE connections
+- `WebSocket` connections
+- `window.localStorage`, `window.sessionStorage`
+- External authentication services
+- File upload/download APIs
+- Browser notifications API
+
+**ALWAYS Mock These UI Libraries**:
+- `@/lib/components/ui/resizable` - Uses ResizeObserver
+- `react-virtualized` or similar - Complex viewport calculations
+- `react-beautiful-dnd` - Drag state management
+- Chart/graph libraries - Canvas/SVG rendering
+- Rich text editors - Complex DOM manipulation
+
+**NEVER Mock These**:
+- Components in the same feature folder
+- React hooks from the same codebase
+- Simple UI components (Button, Input, Card)
+- Utility functions
+- Type definitions or constants
 
 ### 2. Test Behavior, Not Implementation
 
-```typescript
-// ❌ BAD: Testing implementation
-expect(component.state.isLoading).toBe(true)
+**Concrete Rule**: Test what users see and interact with, not how the code works internally.
 
-// ✅ GOOD: Testing behavior
+**Test These (Observable Behavior)**:
+- DOM elements rendered: `screen.getByText()`, `screen.getByRole()`
+- User interactions: `userEvent.click()`, `userEvent.type()`
+- Visual states: presence/absence of elements
+- Text content displayed to users
+- Form submission results
+- Navigation changes
+
+**Do NOT Test These (Implementation Details)**:
+- Component state variables
+- Hook return values directly
+- Private methods
+- Redux store state directly
+- CSS class names (unless they affect behavior)
+- Function call counts (unless testing error retry logic)
+
+```typescript
+// ❌ BAD: Testing implementation details
+expect(component.state.isLoading).toBe(true)
+expect(mockSetState).toHaveBeenCalledWith({ open: true })
+expect(wrapper.find('.modal-wrapper').hasClass('active')).toBe(true)
+
+// ✅ GOOD: Testing observable behavior
 expect(screen.getByTestId('loading-spinner')).toBeInTheDocument()
+expect(screen.getByRole('dialog')).toBeInTheDocument()
+expect(screen.queryByText('Modal Content')).toBeVisible()
 ```
 
 ### 3. Integration Testing Pattern
@@ -215,10 +267,26 @@ it('updates when SSE event received', async () => {
 
 ## Test Quality Standards
 
-- **No placeholder tests** - No `expect(true).toBe(true)`
-- **No skipped tests** - Fix or remove them
-- **Use centralized mocks** - Import from `@/test-utils/mocks`
-- **Test real behavior** - Not just rendering
+### Mandatory Test Requirements
+
+**Every test MUST**:
+1. Assert on actual behavior (no `expect(true).toBe(true)`)
+2. Use centralized mock utilities from `@/test-utils/mocks`
+3. Clean up after itself (no test pollution)
+4. Complete within 1 second (move to integration if slower)
+
+**Test Coverage Minimums**:
+- User-facing components: ≥80% coverage
+- Hooks with business logic: ≥90% coverage
+- Utility functions: 100% coverage
+- Pure functions: 100% coverage
+
+**Forbidden Patterns**:
+- `.skip()` or `.only()` in committed code
+- `console.log()` statements (use `debug()` from testing-library)
+- `any` type assertions in expectations
+- Hardcoded timeouts > 1000ms
+- Direct module state mutation
 
 ## Troubleshooting
 

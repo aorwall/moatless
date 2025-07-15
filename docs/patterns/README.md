@@ -1,6 +1,6 @@
-# Shared Architectural Patterns
+# Architectural Patterns for LLMs
 
-This directory contains documentation for architectural patterns used across multiple components in the Moatless Vibe. These patterns represent proven solutions to common challenges in our system.
+This directory contains architectural patterns specifically written for LLMs (Language Learning Models) to understand and implement correctly when working with this codebase. Each pattern includes concrete code examples and clear implementation instructions.
 
 ## Pattern Index
 
