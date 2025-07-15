@@ -14,7 +14,7 @@ import {
   type SDKUserMessage,
 } from '@moatless/types'
 import type { ClaudeCodeSettings } from '@moatless/types/types/claude'
-import type { Task } from '@moatless/types/types/task'
+import type { Task, TaskIteration } from '@moatless/types/types/task'
 import { getClaudeEventsFilePath } from '../utils/claude-code-events.js'
 
 export class MessageService {
@@ -209,12 +209,13 @@ export class MessageService {
         messages.push(userMessage)
       }
 
-      // Add assistant message if exists
-      if (iteration.result) {
+      // Add assistant message - always try to parse message from iteration
+      const assistantContent = this.parseMessageFromIteration(iteration)
+      if (assistantContent) {
         const assistantMessage: AssistantMessage = {
           id: `iteration-${iteration.iterationNumber}-assistant`,
           role: 'assistant',
-          content: iteration.result,
+          content: assistantContent,
           timestamp: iteration.endTime || iteration.startTime,
           eventId: `iteration-${iteration.iterationNumber}-assistant`,
         }
@@ -229,6 +230,51 @@ export class MessageService {
     })
 
     return messages
+  }
+
+  /**
+   * Parse message content from a task iteration
+   * Tries to extract the actual message from the iteration result
+   */
+  private parseMessageFromIteration(iteration: TaskIteration): string | null {
+    if (!iteration.result) {
+      return null
+    }
+
+    // Try to parse the result as a message object first
+    try {
+      const parsed = JSON.parse(iteration.result)
+
+      // Check if it's a message object with content
+      if (parsed && typeof parsed === 'object') {
+        // Look for common message content fields
+        if (typeof parsed.content === 'string') {
+          return parsed.content
+        }
+        if (typeof parsed.message === 'string') {
+          return parsed.message
+        }
+        if (typeof parsed.text === 'string') {
+          return parsed.text
+        }
+        // If it's an array, try to extract text content
+        if (Array.isArray(parsed.content)) {
+          const textContent = parsed.content
+            .filter((item: any) => item && typeof item === 'object' && item.type === 'text')
+            .map((item: any) => item.text)
+            .filter((text: any) => typeof text === 'string')
+            .join('\n')
+          if (textContent.trim()) {
+            return textContent
+          }
+        }
+      }
+    } catch {
+      // If parsing fails, treat as plain text
+    }
+
+    // If not parseable as JSON or no structured content found, return the raw result
+    return iteration.result
   }
 
   private transformSDKAssistantMessage(
