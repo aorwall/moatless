@@ -68,24 +68,24 @@ describe('ChatInput Task Isolation', () => {
     // Render first ChatInput with task-1
     const { unmount: unmountTask1 } = renderChatInputWithTaskProvider(
       'task-1',
-      <ChatInput taskId="task-1" onSendMessage={vi.fn()} />,
+      <ChatInput taskId="task-1" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />,
     )
 
     // Should render successfully
-    expect(screen.getByPlaceholderText(/type a new request/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
 
     // Unmount first task
     unmountTask1()
 
     // Render second ChatInput with task-2
-    renderChatInputWithTaskProvider('task-2', <ChatInput taskId="task-2" onSendMessage={vi.fn()} />)
+    renderChatInputWithTaskProvider('task-2', <ChatInput taskId="task-2" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />)
 
     // Should render successfully with different task context
-    expect(screen.getByPlaceholderText(/type a new request/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
   })
 
   it('should render with default model selection', () => {
-    renderChatInputWithTaskProvider('task-1', <ChatInput taskId="task-1" onSendMessage={vi.fn()} />)
+    renderChatInputWithTaskProvider('task-1', <ChatInput taskId="task-1" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />)
 
     // Should render with default model (Opus) - check for the combobox button with the selected value
     expect(screen.getByRole('combobox')).toBeInTheDocument()
@@ -97,11 +97,11 @@ describe('ChatInput Task Isolation', () => {
 
     renderChatInputWithTaskProvider(
       'test-task',
-      <ChatInput taskId="test-task" onSendMessage={mockOnSendMessage} />,
+      <ChatInput message="" onMessageChange={vi.fn()} onSubmit={mockOnSendMessage} taskId="test-task" />,
     )
 
     // Should render main elements without errors
-    expect(screen.getByPlaceholderText(/type a new request/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
     expect(screen.getByRole('combobox')).toHaveTextContent('Claude Opus 4')
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /upload file/i })).toBeInTheDocument()
