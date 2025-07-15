@@ -151,7 +151,7 @@ export class WorkspaceService {
     // Check if workspace already exists
     const existing = this.activeWorkspaces.get(taskId)
     if (existing) {
-      workspaceLogger.debug(`Workspace already exists, returning existing instance`, {
+      workspaceLogger.debug('Workspace already exists, returning existing instance', {
         status: existing.getStatus(),
       })
       return existing
@@ -321,11 +321,7 @@ export class WorkspaceService {
     }
   }
 
-  async listFiles(
-    taskId: string,
-    relativePath: string = '.',
-    recursive: boolean = false,
-  ): Promise<string[]> {
+  async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
     // Task validation is now handled in canListFiles, but we still check capability
     if (!(await this.canListFiles(taskId))) {
       throw new WorkspaceError('Cannot list files: workspace not ready', taskId)

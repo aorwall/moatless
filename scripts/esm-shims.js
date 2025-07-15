@@ -1,6 +1,6 @@
 import { createRequire } from 'module'
-import { fileURLToPath } from 'url'
 import { dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 // Only define if not already defined
 if (typeof globalThis.__filename === 'undefined') {

@@ -242,7 +242,7 @@ exit 1
   async function createRepository(name: string): Promise<RepositoryConfig> {
     const request: CreateRepositoryRequest = {
       name,
-      description: `Test repository for error handling`,
+      description: 'Test repository for error handling',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {

@@ -391,10 +391,9 @@ export class PreviewEnvironmentService {
           uptimeSeconds: uptime,
           responsive,
         } as ServerStatus
-      } else {
-        // Clean up invalid metadata
-        await this.deletePreviewEnvironmentMetadata(taskId)
       }
+      // Clean up invalid metadata
+      await this.deletePreviewEnvironmentMetadata(taskId)
     }
 
     return {
@@ -498,7 +497,7 @@ export class PreviewEnvironmentService {
         // If URL starts with http://, port is at index 2
         // If URL is just localhost:port, port is at index 1
         const portString = url.startsWith('http://') ? parts[2] : parts[parts.length - 1]
-        const port = parseInt(portString, 10)
+        const port = Number.parseInt(portString, 10)
 
         // Validate port range
         if (Number.isNaN(port) || port < 0 || port > 65535) {

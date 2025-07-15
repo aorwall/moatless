@@ -75,7 +75,7 @@ export class RepositoryTemplate {
   constructor(
     id: string,
     name: string,
-    gitUrl: string = 'https://github.com/aorwall/hello-world-ui.git',
+    gitUrl = 'https://github.com/aorwall/hello-world-ui.git',
     setupCommand?: string,
     previewConfig?: PreviewConfig,
   ) {

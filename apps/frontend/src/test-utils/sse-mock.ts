@@ -15,7 +15,7 @@ export function createSSEMock() {
 
   class MockEventSource implements MockSSEConnection {
     url: string
-    readyState: number = 1 // OPEN
+    readyState = 1 // OPEN
     onopen: ((event: Event) => void) | null = null
     onmessage: ((event: MessageEvent) => void) | null = null
     onerror: ((event: Event) => void) | null = null

@@ -91,7 +91,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       if (error instanceof Error && error.message.includes('Claude Code process exited')) {
         // Parse exit code from error message if available
         const exitCodeMatch = error.message.match(/code (\d+)/)
-        const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : null
+        const exitCode = exitCodeMatch ? Number.parseInt(exitCodeMatch[1]) : null
 
         // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected when stopping
         const isExpectedExitCode = exitCode === 143 || exitCode === 130
@@ -114,13 +114,12 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         // Only throw if it's truly unexpected
         throw error
-      } else {
-        agentLogger.error('Error in SDK query loop', error as Error, {
-          stopRequested: this.stopRequested,
-          sessionId: this.sessionId,
-        })
-        throw error
       }
+      agentLogger.error('Error in SDK query loop', error as Error, {
+        stopRequested: this.stopRequested,
+        sessionId: this.sessionId,
+      })
+      throw error
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
@@ -144,7 +143,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   private createEventWithContextTokens(
     payload: ClaudeCodeSDKMessage,
     type: EventType,
-    isError: boolean = false,
+    isError = false,
   ): Event {
     const contextTokens = calculateContextTokens(payload)
 
@@ -312,13 +311,12 @@ export class ClaudeCodeAgent extends BaseAgent {
       if (parseResult.found && parseResult.data) {
         agentLogger.debug('Successfully parsed branch name and summary', parseResult.data)
         return parseResult.data
-      } else {
-        agentLogger.warn('Failed to parse branch name and summary', {
-          error: parseResult.error,
-          response: responseText,
-        })
-        return null
       }
+      agentLogger.warn('Failed to parse branch name and summary', {
+        error: parseResult.error,
+        response: responseText,
+      })
+      return null
     } catch (error) {
       agentLogger.error('Error in getBranchNameAndSummary', error as Error)
       throw error

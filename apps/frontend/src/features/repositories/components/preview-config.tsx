@@ -189,6 +189,23 @@ export function PreviewConfigForm({
               </p>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="serverPort">Server Port</Label>
+              <Input
+                id="serverPort"
+                type="number"
+                placeholder="3000"
+                value={config.serverPort}
+                onChange={(e) =>
+                  setConfig({ ...config, serverPort: Number.parseInt(e.target.value) || 3000 })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Used to replace {'{PORT}'} placeholders in server commands. The system always finds
+                and uses random available ports for actual binding.
+              </p>
+            </div>
+        
             <Separator />
 
             <div className="space-y-4">

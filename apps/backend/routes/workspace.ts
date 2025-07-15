@@ -401,19 +401,18 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
 
         if ((workspaceStatus as any).gitStatus) {
           return c.json((workspaceStatus as any).gitStatus)
-        } else {
-          // If git status is not available, return a default response
-          return c.json({
-            currentBranch: 'unknown',
-            baseBranch: 'main',
-            hasUncommittedChanges: false,
-            hasConflicts: false,
-            status: 'error',
-            commitsAhead: 0,
-            commitsBehind: 0,
-            originExists: false,
-          })
         }
+        // If git status is not available, return a default response
+        return c.json({
+          currentBranch: 'unknown',
+          baseBranch: 'main',
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          status: 'error',
+          commitsAhead: 0,
+          commitsBehind: 0,
+          originExists: false,
+        })
       } catch (error) {
         handleServiceError(error, 'Get workspace status')
       }

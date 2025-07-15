@@ -40,9 +40,8 @@ export function RepositoryList({
     const { codeExecution } = repo
     if (codeExecution.type === 'local') {
       return <Badge variant="secondary">Local</Badge>
-    } else {
-      return <Badge variant="secondary">Docker</Badge>
     }
+    return <Badge variant="secondary">Docker</Badge>
   }
 
   const getRepositoryInfo = (repo: RepositoryResponse) => {
@@ -53,9 +52,8 @@ export function RepositoryList({
     const { codeExecution } = repo
     if (codeExecution.type === 'local') {
       return 'Local execution'
-    } else {
-      return codeExecution.dockerImage || 'Docker'
     }
+    return codeExecution.dockerImage || 'Docker'
   }
 
   if (isLoading) {
@@ -71,8 +69,8 @@ export function RepositoryList({
           {[1, 2, 3].map((i) => (
             <Card key={i} className="animate-pulse">
               <CardContent className="p-6">
-                <div className="h-4 bg-muted rounded w-1/4 mb-2"></div>
-                <div className="h-3 bg-muted rounded w-1/2"></div>
+                <div className="h-4 bg-muted rounded w-1/4 mb-2" />
+                <div className="h-3 bg-muted rounded w-1/2" />
               </CardContent>
             </Card>
           ))}

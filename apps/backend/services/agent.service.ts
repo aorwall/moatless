@@ -26,7 +26,7 @@ export class AgentService {
     taskId: string,
     message: string,
     iteration: TaskIteration,
-    agentType: string = 'claude-code',
+    agentType = 'claude-code',
     resumeSessionId?: string,
     model?: string,
   ): Promise<void> {
@@ -47,7 +47,7 @@ export class AgentService {
     taskId: string,
     message: string,
     iteration: TaskIteration,
-    agentType: string = 'claude-code',
+    agentType = 'claude-code',
     resumeSessionId?: string,
     model?: string,
   ): Promise<void> {
@@ -184,9 +184,8 @@ export class AgentService {
       // TODO: Get claude options from storage/config
       const options = model ? { model } : {} // Pass model in options if provided
       return new ClaudeCodeAgent(taskId, options)
-    } else {
-      throw new Error(`Unknown agent type: ${agentType}`)
     }
+    throw new Error(`Unknown agent type: ${agentType}`)
   }
 
   /**

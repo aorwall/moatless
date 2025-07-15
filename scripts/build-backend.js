@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import esbuild from 'esbuild'
-import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import esbuild from 'esbuild'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -10,7 +10,7 @@ const rootDir = join(__dirname, '..')
 
 async function buildBackend() {
   console.log('🔨 Bundling backend with esbuild...')
-  
+
   try {
     await esbuild.build({
       entryPoints: [join(rootDir, 'apps/backend/index.ts')],
@@ -37,7 +37,7 @@ async function buildBackend() {
       },
       inject: ['./scripts/esm-shims.js'],
     })
-    
+
     console.log('✅ Backend bundled successfully')
   } catch (error) {
     console.error('❌ Backend bundling failed:', error)

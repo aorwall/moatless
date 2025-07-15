@@ -180,9 +180,8 @@ export class PreviewServer {
           throw new Error(
             `Server failed to start. Exit code: ${this.process.exitCode}. Check logs at ${this.logFile}. Recent logs: ${errorLogs}`,
           )
-        } else {
-          this.logger.info(`Parent process exited but server is running on port ${this.port}`)
         }
+        this.logger.info(`Parent process exited but server is running on port ${this.port}`)
       }
 
       await logStream.close()
@@ -324,12 +323,11 @@ export class PreviewServer {
         // Use tail on Unix
         const { stdout } = await execAsync(`tail -n ${lines} "${this.logFile}"`)
         return stdout
-      } else {
-        // On Windows, read the whole file
-        const content = await fs.readFile(this.logFile, 'utf-8')
-        const allLines = content.split('\n')
-        return allLines.slice(-lines).join('\n')
       }
+      // On Windows, read the whole file
+      const content = await fs.readFile(this.logFile, 'utf-8')
+      const allLines = content.split('\n')
+      return allLines.slice(-lines).join('\n')
     } catch (error) {
       this.logger.error('Error reading logs:', error as Error)
       return `Error reading logs: ${error}`
@@ -410,7 +408,7 @@ export class PreviewServer {
         const matches = [...content.matchAll(pattern)]
         if (matches.length > 0) {
           // Return the last match (most recent)
-          const port = parseInt(matches[matches.length - 1][1], 10)
+          const port = Number.parseInt(matches[matches.length - 1][1], 10)
           this.logger.debug(`Detected port ${port} from logs using pattern: ${pattern}`)
           return port
         }

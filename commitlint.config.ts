@@ -4,12 +4,8 @@ const CommitLintConfiguration = {
   rules: {
     'scope-case': [2, 'always', 'kebab-case'],
     // add your own scope here if needed
-    'scope-enum': [
-      2,
-      'always',
-      ['features', 'layout', 'routes', 'styles', 'utils', 'hooks'],
-    ],
+    'scope-enum': [2, 'always', ['features', 'layout', 'routes', 'styles', 'utils', 'hooks']],
   },
-};
+}
 
-export default CommitLintConfiguration;
+export default CommitLintConfiguration

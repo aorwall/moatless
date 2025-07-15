@@ -108,7 +108,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const eventsQuery = useQuery({
     queryKey: queryKeys.tasks.events(taskId),
     queryFn: () => tasksApi.getTaskEvents(taskId),
-    staleTime: Infinity, // Never stale - updated via SSE only
+    staleTime: Number.POSITIVE_INFINITY, // Never stale - updated via SSE only
     enabled: !!taskId && !taskId.startsWith('temp-'),
     // No polling - events are updated via SSE
   })

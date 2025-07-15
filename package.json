@@ -55,7 +55,7 @@
     "test:coverage": "turbo run test:coverage",
     "type:check": "turbo run type:check",
     "biome:check": "biome check",
-    "biome:fix": "biome check --write",
+    "biome:fix": "cd apps/frontend && biome check --write && cd ../backend && biome check --write && cd ../../packages/types && biome check --write",
     "format": "biome check --write",
     "check:turbo": "turbo run biome:check type:check test:fast",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",

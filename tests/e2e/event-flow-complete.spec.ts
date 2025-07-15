@@ -1,28 +1,27 @@
-import { test, expect } from '@playwright/test'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { expect, test } from '@playwright/test'
 import {
-  setupTempGitRepo,
+  APIEventMonitor,
+  getEventStreamStatus,
+  SSEEventMonitor,
+  waitForEventType,
+  waitForTaskResult,
+} from './helpers/event-monitors'
+import {
   createTestRepository,
   createTestTask,
-  deleteTestTask,
   deleteTestRepository,
+  deleteTestTask,
+  setupTempGitRepo,
   type TestRepository,
   type TestTask,
 } from './helpers/test-server'
-import {
-  APIEventMonitor,
-  SSEEventMonitor,
-  getEventStreamStatus,
-  waitForEventType,
-  waitForTaskResult,
-  type Event,
-} from './helpers/event-monitors'
 
 /**
  * Comprehensive E2E Test for Event Flow Architecture
- * 
+ *
  * This test verifies the complete event-driven architecture by:
  * 1. Running real Claude Code agents on actual tasks
  * 2. Monitoring events through both backend API and frontend SSE
@@ -59,27 +58,27 @@ test.describe('Complete Event Flow E2E', () => {
     repositoryA = await createTestRepository(baseURL, 'E2E Repository A', tempDirA)
     repositoryB = await createTestRepository(baseURL, 'E2E Repository B', tempDirB)
 
-    console.log('Created repositories:', { 
-      repositoryA: repositoryA.id, 
-      repositoryB: repositoryB.id 
+    console.log('Created repositories:', {
+      repositoryA: repositoryA.id,
+      repositoryB: repositoryB.id,
     })
 
     // Initialize event monitors
     apiMonitor = new APIEventMonitor(baseURL)
     sseMonitorGlobal = new SSEEventMonitor(page, baseURL)
-    
+
     // Start monitoring
     await apiMonitor.start()
-    
+
     // Navigate to the application to establish frontend context
     await page.goto('/')
-    
+
     // Start SSE monitoring
     await sseMonitorGlobal.start()
-    
+
     // Verify initial connection
     expect(await sseMonitorGlobal.checkConnection()).toBe(true)
-    
+
     console.log('Event monitors initialized and connected')
   })
 
@@ -128,7 +127,7 @@ test.describe('Complete Event Flow E2E', () => {
     if (!apiMonitor || !sseMonitorGlobal) {
       throw new Error('Event monitors not initialized')
     }
-    
+
     // Step 1: Create two tasks with different agents and different objectives
     console.log('Creating Task A: File creation task')
     taskA = await createTestTask(
@@ -136,16 +135,16 @@ test.describe('Complete Event Flow E2E', () => {
       repositoryA.id,
       'Create a Python file called calculator.py with basic arithmetic functions (add, subtract, multiply, divide)',
       'claude-code',
-      true
+      true,
     )
 
-    console.log('Creating Task B: Documentation task')  
+    console.log('Creating Task B: Documentation task')
     taskB = await createTestTask(
       baseURL,
       repositoryB.id,
       'Create a markdown file called FEATURES.md that lists the key features of this project',
       'claude-code',
-      true
+      true,
     )
 
     console.log('Tasks created:', { taskA: taskA.taskId, taskB: taskB.taskId })
@@ -160,41 +159,41 @@ test.describe('Complete Event Flow E2E', () => {
     if (sseErrors.length > 0) {
       console.log('SSE Connection Errors:', sseErrors)
     }
-    
+
     // Wait for both tasks to start processing
     console.log('Waiting for tasks to start processing...')
-    
+
     // Add a small delay to allow events to flow
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
     // Check if we have any events at all
     await sseMonitorGlobal.getLatestEvents()
     console.log('Current SSE events count:', sseMonitorGlobal.events.length)
-    
+
     await Promise.all([
-      waitForEventType(apiMonitor, 'message', 30000).catch(e => 
-        console.warn('Task start monitoring timed out:', e.message)
+      waitForEventType(apiMonitor, 'message', 30000).catch((e) =>
+        console.warn('Task start monitoring timed out:', e.message),
       ),
-      waitForEventType(sseMonitorGlobal, 'message', 30000).catch(e => {
+      waitForEventType(sseMonitorGlobal, 'message', 30000).catch((e) => {
         console.warn('SSE global start monitoring timed out:', e.message)
         console.log('SSE events at timeout:', sseMonitorGlobal.events.length)
         return null
-      })
+      }),
     ])
 
     // Step 4: Monitor event stream status during execution
     let streamStatus = await getEventStreamStatus(baseURL)
     console.log('Initial stream status:', streamStatus)
-    
+
     expect(streamStatus.globalConnections).toBeGreaterThan(0)
     expect(streamStatus.totalConnections).toBeGreaterThan(0)
 
     // Step 5: Wait for both tasks to complete
     console.log('Waiting for tasks to complete...')
-    
+
     const [resultA, resultB] = await Promise.allSettled([
       waitForTaskResult(apiMonitor, taskA.taskId, 90000),
-      waitForTaskResult(apiMonitor, taskB.taskId, 90000)
+      waitForTaskResult(apiMonitor, taskB.taskId, 90000),
     ])
 
     // Log results for debugging
@@ -214,8 +213,14 @@ test.describe('Complete Event Flow E2E', () => {
     const calculatorPath = path.join(tempDirA, 'calculator.py')
     const featuresPath = path.join(tempDirB, 'FEATURES.md')
 
-    const calculatorExists = await fs.access(calculatorPath).then(() => true).catch(() => false)
-    const featuresExists = await fs.access(featuresPath).then(() => true).catch(() => false)
+    const calculatorExists = await fs
+      .access(calculatorPath)
+      .then(() => true)
+      .catch(() => false)
+    const featuresExists = await fs
+      .access(featuresPath)
+      .then(() => true)
+      .catch(() => false)
 
     // At least one task should succeed (tests can be flaky with real agents)
     const anyTaskSucceeded = calculatorExists || featuresExists
@@ -237,30 +242,30 @@ test.describe('Complete Event Flow E2E', () => {
 
     // Step 7: Verify event cross-visibility
     console.log('Verifying event cross-visibility...')
-    
+
     // Get final events from all monitors
     await sseMonitorGlobal.getLatestEvents()
     await sseMonitorTaskA.getLatestEvents()
 
     // Verify API monitor captured events from both tasks
-    const apiEventsTaskA = apiMonitor.events.filter(e => e.taskId === taskA.taskId)
-    const apiEventsTaskB = apiMonitor.events.filter(e => e.taskId === taskB.taskId)
+    const apiEventsTaskA = apiMonitor.events.filter((e) => e.taskId === taskA.taskId)
+    const apiEventsTaskB = apiMonitor.events.filter((e) => e.taskId === taskB.taskId)
 
     expect(apiEventsTaskA.length).toBeGreaterThan(0)
     expect(apiEventsTaskB.length).toBeGreaterThan(0)
     console.log('✅ API monitor captured events from both tasks')
 
-    // Verify global SSE monitor captured events from both tasks  
-    const globalEventsTaskA = sseMonitorGlobal.events.filter(e => e.taskId === taskA.taskId)
-    const globalEventsTaskB = sseMonitorGlobal.events.filter(e => e.taskId === taskB.taskId)
+    // Verify global SSE monitor captured events from both tasks
+    const globalEventsTaskA = sseMonitorGlobal.events.filter((e) => e.taskId === taskA.taskId)
+    const globalEventsTaskB = sseMonitorGlobal.events.filter((e) => e.taskId === taskB.taskId)
 
     expect(globalEventsTaskA.length).toBeGreaterThan(0)
     expect(globalEventsTaskB.length).toBeGreaterThan(0)
     console.log('✅ Global SSE monitor captured events from both tasks')
 
     // Verify task-specific SSE monitor only captured events from Task A
-    const taskSpecificEvents = sseMonitorTaskA.events.filter(e => e.taskId === taskA.taskId)
-    const taskSpecificEventsOther = sseMonitorTaskA.events.filter(e => e.taskId === taskB.taskId)
+    const taskSpecificEvents = sseMonitorTaskA.events.filter((e) => e.taskId === taskA.taskId)
+    const taskSpecificEventsOther = sseMonitorTaskA.events.filter((e) => e.taskId === taskB.taskId)
 
     expect(taskSpecificEvents.length).toBeGreaterThan(0)
     expect(taskSpecificEventsOther.length).toBe(0)
@@ -268,16 +273,17 @@ test.describe('Complete Event Flow E2E', () => {
 
     // Step 8: Verify event types and structure
     const allEvents = [...apiMonitor.events]
-    const eventTypes = [...new Set(allEvents.map(e => e.type))]
-    
+    const eventTypes = [...new Set(allEvents.map((e) => e.type))]
+
     console.log('Event types captured:', eventTypes)
-    
+
     // Should have key event types
     expect(eventTypes).toContain('message')
-    expect(eventTypes.some(type => type === 'result' || type.includes('result'))).toBe(true)
+    expect(eventTypes.some((type) => type === 'result' || type.includes('result'))).toBe(true)
 
     // Verify event structure
-    for (const event of allEvents.slice(0, 5)) { // Check first 5 events
+    for (const event of allEvents.slice(0, 5)) {
+      // Check first 5 events
       expect(event).toHaveProperty('eventId')
       expect(event).toHaveProperty('taskId')
       expect(event).toHaveProperty('type')
@@ -289,8 +295,8 @@ test.describe('Complete Event Flow E2E', () => {
     console.log('✅ Event structure validation passed')
 
     // Step 9: Verify event ordering
-    const taskAEvents = allEvents.filter(e => e.taskId === taskA.taskId)
-    const taskBEvents = allEvents.filter(e => e.taskId === taskB.taskId)
+    const taskAEvents = allEvents.filter((e) => e.taskId === taskA.taskId)
+    const taskBEvents = allEvents.filter((e) => e.taskId === taskB.taskId)
 
     // Events within each task should be chronologically ordered
     for (let i = 1; i < taskAEvents.length; i++) {
@@ -307,8 +313,8 @@ test.describe('Complete Event Flow E2E', () => {
     console.log('✅ Event ordering validation passed')
 
     // Step 10: Verify consistent event IDs across monitors
-    const apiEventIds = new Set(apiMonitor.events.map(e => e.eventId))
-    const sseEventIds = new Set(sseMonitorGlobal.events.map(e => e.eventId))
+    const apiEventIds = new Set(apiMonitor.events.map((e) => e.eventId))
+    const sseEventIds = new Set(sseMonitorGlobal.events.map((e) => e.eventId))
 
     // Global SSE events should be a subset of API events (due to potential timing differences)
     let matchingEventIds = 0
@@ -326,13 +332,13 @@ test.describe('Complete Event Flow E2E', () => {
     // Step 11: Final stream status check
     streamStatus = await getEventStreamStatus(baseURL)
     console.log('Final stream status:', streamStatus)
-    
+
     // Should still have active connections
     expect(streamStatus.totalConnections).toBeGreaterThan(0)
 
     // Step 12: Test frontend navigation and event updates
     console.log('Testing frontend navigation...')
-    
+
     // Navigate to tasks page
     await page.goto('/tasks')
     await page.waitForLoadState('networkidle')
@@ -366,38 +372,38 @@ test.describe('Complete Event Flow E2E', () => {
     if (!repositoryA) {
       throw new Error('Repository A not created')
     }
-    
+
     // Create a single task for this test
     taskA = await createTestTask(
       baseURL,
       repositoryA.id,
       'Create a simple hello.txt file with "Hello World" content',
       'claude-code',
-      true
+      true,
     )
 
     // Ensure monitors exist
     if (!apiMonitor || !sseMonitorGlobal) {
       throw new Error('Event monitors not initialized')
     }
-    
+
     // Wait for initial events
     await waitForEventType(apiMonitor, 'message', 30000)
-    
+
     const initialEventCount = sseMonitorGlobal.events.length
     console.log('Initial SSE events:', initialEventCount)
 
     // Simulate connection interruption by stopping and restarting SSE
     console.log('Testing connection resilience...')
     await sseMonitorGlobal.cleanup()
-    
+
     // Wait a moment
     await page.waitForTimeout(2000)
-    
+
     // Restart SSE connection
     sseMonitorGlobal = new SSEEventMonitor(page, baseURL)
     await sseMonitorGlobal.start()
-    
+
     expect(await sseMonitorGlobal.checkConnection()).toBe(true)
     console.log('✅ SSE connection restored successfully')
 
@@ -408,14 +414,17 @@ test.describe('Complete Event Flow E2E', () => {
     // Verify we continued receiving events after reconnection
     await sseMonitorGlobal.getLatestEvents()
     const finalEventCount = sseMonitorGlobal.events.length
-    
+
     expect(finalEventCount).toBeGreaterThan(0)
     console.log(`✅ Received ${finalEventCount} events after reconnection`)
 
     // Verify file was created
     const helloPath = path.join(tempDirA, 'hello.txt')
-    const helloExists = await fs.access(helloPath).then(() => true).catch(() => false)
-    
+    const helloExists = await fs
+      .access(helloPath)
+      .then(() => true)
+      .catch(() => false)
+
     if (helloExists) {
       const content = await fs.readFile(helloPath, 'utf-8')
       expect(content.toLowerCase()).toContain('hello')
