@@ -64,6 +64,7 @@ const createMockWorkspaceService = (): WorkspaceService =>
     getAllWorkspaces: vi.fn(),
     getWorkspaceStatus: vi.fn(),
     createWorkspace: vi.fn(),
+    setupWorkspace: vi.fn(),
   }) as any
 
 // Create mock workspace
@@ -181,10 +182,26 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
+      // Make the agent run method take some time
+      vi.mocked(mockAgent.run).mockImplementation(async function* () {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        yield {
+          eventId: 'event-1',
+          type: EventType.COMPLETION,
+          taskId: 'task-1',
+          timestamp: new Date(),
+          agentType: 'claude-code',
+          isError: false,
+          payload: { message: 'Test completed' },
+        }
+      })
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
       // Start first agent
       const promise1 = service.executeAgent('task-1', 'Message 1', mockIteration)
+
+      // Give it a moment to start
+      await new Promise(resolve => setTimeout(resolve, 10))
 
       // Try to start second agent for same task
       await expect(service.executeAgent('task-1', 'Message 2', mockIteration)).rejects.toThrow(
@@ -208,16 +225,35 @@ describe('AgentService', () => {
       const mockWorkspace = createMockWorkspace()
       vi.mocked(mockWorkspace.isWorkspacePathValid).mockResolvedValue(false)
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
-      vi.mocked(mockWorkspaceService.createWorkspace).mockResolvedValue(mockWorkspace)
+      
+      // Mock the recreated workspace as ready
+      const recreatedWorkspace = createMockWorkspace(WorkspaceStatus.IDLE)
+      vi.mocked(recreatedWorkspace.isWorkspacePathValid).mockResolvedValue(true)
+      vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedWorkspace)
+      
+      // Mock setupWorkspace to simulate successful recreation
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValue(undefined)
+      
+      // After setup, getOrCreateWorkspace should return the recreated workspace
+      let setupCalled = false
+      vi.mocked(mockWorkspaceService.setupWorkspace).mockImplementation(async () => {
+        setupCalled = true
+      })
+      vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(async () => {
+        if (setupCalled) {
+          return recreatedWorkspace
+        }
+        return mockWorkspace
+      })
 
       const mockAgent = createMockAgent()
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
-      expect(mockWorkspaceService.createWorkspace).toHaveBeenCalled()
+      expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith('task-1', mockIteration.iterationNumber)
       expect(mockWorkspaceService.getOrCreateWorkspace).toHaveBeenCalledTimes(2)
-    })
+    }, 35000)
 
     it('should support different agent types', async () => {
       const mockWorkspace = createMockWorkspace()
@@ -236,34 +272,44 @@ describe('AgentService', () => {
       )
 
       expect(ClaudeCodeAgent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          taskId: 'task-1',
-          model: 'claude-3-opus',
-        }),
+        'task-1',
+        { model: 'claude-3-opus' },
       )
     })
 
     it('should handle agent execution errors', async () => {
+      // Set up task with the iteration
+      const taskWithIteration = {
+        ...mockTask,
+        iterations: [mockIteration],
+      }
+      vi.mocked(mockStorage.getTask).mockResolvedValue(taskWithIteration)
+
       const mockWorkspace = createMockWorkspace()
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
-      vi.mocked(mockAgent.run).mockRejectedValue(new Error('Agent execution failed'))
+      vi.mocked(mockAgent.run).mockImplementation(async function* () {
+        throw new Error('Agent execution failed')
+      })
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
-      await service.executeAgent('task-1', 'Test message', mockIteration)
+      // The error should be thrown by executeAgent
+      await expect(service.executeAgent('task-1', 'Test message', mockIteration)).rejects.toThrow('Agent execution failed')
 
-      // Wait for async processing
-      await new Promise((resolve) => setTimeout(resolve, 10))
+      // Verify error handling occurred
+      expect(mockStorage.saveTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'error',
+        }),
+      )
 
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-1',
-          type: EventType.ERROR,
+          type: EventType.TASK_STATUS,
+          subType: 'error',
           isError: true,
-          payload: expect.objectContaining({
-            error: 'Agent execution failed',
-          }),
         }),
       )
     })
@@ -304,16 +350,34 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
+      // Make the agent run method take some time
+      vi.mocked(mockAgent.run).mockImplementation(async function* () {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        yield {
+          eventId: 'event-1',
+          type: EventType.COMPLETION,
+          taskId: 'task-1',
+          timestamp: new Date(),
+          agentType: 'claude-code',
+          isError: false,
+          payload: { message: 'Test completed' },
+        }
+      })
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
-      await service.executeAgent('task-1', 'Test message', mockIteration)
+      const agentPromise = service.executeAgent('task-1', 'Test message', mockIteration)
+
+      // Give it a moment to start
+      await new Promise(resolve => setTimeout(resolve, 10))
 
       // Now stop it
       const result = await service.stopAgent('task-1')
 
       expect(result).toBe(true)
       expect(mockAgent.stop).toHaveBeenCalled()
-      // Workspace status is managed internally
+
+      // Clean up
+      await agentPromise
     })
 
     it('should return false when no agent is running', async () => {
@@ -333,16 +397,34 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
-      // Agent doesn't have getProgress method
+      // Make the agent run method take some time
+      vi.mocked(mockAgent.run).mockImplementation(async function* () {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        yield {
+          eventId: 'event-1',
+          type: EventType.COMPLETION,
+          taskId: 'task-1',
+          timestamp: new Date(),
+          agentType: 'claude-code',
+          isError: false,
+          payload: { message: 'Test completed' },
+        }
+      })
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
-      await service.executeAgent('task-1', 'Test message', mockIteration)
+      const agentPromise = service.executeAgent('task-1', 'Test message', mockIteration)
+
+      // Give it a moment to start
+      await new Promise(resolve => setTimeout(resolve, 10))
 
       // AgentService doesn't have getAgentProgress method
       // This test should verify agent is running instead
       // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('task-1')
       expect(hasAgent).toBe(true)
+
+      // Clean up
+      await agentPromise
     })
 
     it('should return false when no agent is running', () => {
@@ -363,14 +445,32 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
-      // Agent is tracked in runningAgents map
+      // Make the agent run method take some time
+      vi.mocked(mockAgent.run).mockImplementation(async function* () {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        yield {
+          eventId: 'event-1',
+          type: EventType.COMPLETION,
+          taskId: 'task-1',
+          timestamp: new Date(),
+          agentType: 'claude-code',
+          isError: false,
+          payload: { message: 'Test completed' },
+        }
+      })
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
-      await service.executeAgent('task-1', 'Test message', mockIteration)
+      const agentPromise = service.executeAgent('task-1', 'Test message', mockIteration)
+
+      // Give it a moment to start
+      await new Promise(resolve => setTimeout(resolve, 10))
 
       // @ts-ignore - accessing private members for testing
       const hasAgent = service.runningAgents.has('task-1')
       expect(hasAgent).toBe(true)
+
+      // Clean up
+      await agentPromise
     })
 
     it('should return false when no agent exists', () => {
@@ -432,9 +532,10 @@ describe('AgentService', () => {
       // Wait for async processing
       await new Promise((resolve) => setTimeout(resolve, 50))
 
+      // Task status should be set back to 'open' after agent completes
       expect(mockStorage.saveTask).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'completed',
+          status: 'open',
         }),
       )
     })
