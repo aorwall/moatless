@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { MessageInput } from '../message-input'
+import { ChatUI } from '../../chat-input/chat-ui'
 
 // Mock the file autocomplete hook
 vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({
@@ -31,24 +31,32 @@ vi.mock('@/features/tasks/components/file-autocomplete', () => ({
   ),
 }))
 
-describe('MessageInput', () => {
+// Mock upload hook
+vi.mock('@/features/uploads/hooks/use-upload', () => ({
+  useUploadFile: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
+}))
+
+describe('ChatUI (MessageInput replacement)', () => {
   it('renders with default props', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
-    expect(screen.getByPlaceholderText('Type your message...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
   })
 
-  it('calls onChange when typing', () => {
+  it('calls onMessageChange when typing', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
-    const textarea = screen.getByPlaceholderText('Type your message...')
+    const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.change(textarea, { target: { value: 'Hello world' } })
 
     expect(handleChange).toHaveBeenCalledWith('Hello world')
@@ -58,7 +66,7 @@ describe('MessageInput', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="Test message" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const button = screen.getByRole('button')
     fireEvent.click(button)
@@ -70,9 +78,9 @@ describe('MessageInput', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="Test message" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
-    const textarea = screen.getByPlaceholderText('Type your message...')
+    const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
 
     expect(handleSubmit).toHaveBeenCalled()
@@ -82,19 +90,19 @@ describe('MessageInput', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="Test message" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="Test message" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
-    const textarea = screen.getByPlaceholderText('Type your message...')
+    const textarea = screen.getByPlaceholderText('Type a message...')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
 
     expect(handleSubmit).not.toHaveBeenCalled()
   })
 
-  it('disables submit button when value is empty', () => {
+  it('disables submit button when message is empty', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     const button = screen.getByRole('button')
     expect(button).toBeDisabled()
@@ -105,9 +113,9 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value="Test message"
-        onChange={handleChange}
+      <ChatUI
+        message="Test message"
+        onMessageChange={handleChange}
         onSubmit={handleSubmit}
         disabled={true}
       />,
@@ -122,15 +130,15 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value="Test message"
-        onChange={handleChange}
+      <ChatUI
+        message="Test message"
+        onMessageChange={handleChange}
         onSubmit={handleSubmit}
         loading={true}
       />,
     )
 
-    const textarea = screen.getByPlaceholderText('Type your message...')
+    const textarea = screen.getByPlaceholderText('Type a message...')
     expect(textarea).toBeDisabled()
   })
 
@@ -139,7 +147,7 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} buttonText="Submit" />,
+      <ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} buttonText="Submit" />,
     )
 
     expect(screen.getByText('Submit')).toBeInTheDocument()
@@ -150,9 +158,9 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value=""
-        onChange={handleChange}
+      <ChatUI
+        message=""
+        onMessageChange={handleChange}
         onSubmit={handleSubmit}
         selectors={<div data-testid="test-selector">Test Selector</div>}
       />,
@@ -166,9 +174,9 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value=""
-        onChange={handleChange}
+      <ChatUI
+        message=""
+        onMessageChange={handleChange}
         onSubmit={handleSubmit}
         placeholder="Custom placeholder"
       />,
@@ -182,10 +190,10 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} maxHeight="150px" />,
+      <ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="150px" />,
     )
 
-    const textarea = screen.getByPlaceholderText('Type your message...')
+    const textarea = screen.getByPlaceholderText('Type a message...')
 
     // Initially should have minimum height
     expect(textarea.style.minHeight).toBe('40px')
@@ -215,10 +223,10 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput value="" onChange={handleChange} onSubmit={handleSubmit} maxHeight="100px" />,
+      <ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} maxHeight="100px" />,
     )
 
-    const textarea = screen.getByPlaceholderText('Type your message...')
+    const textarea = screen.getByPlaceholderText('Type a message...')
     expect(textarea.style.maxHeight).toBe('100px')
   })
 
@@ -226,7 +234,7 @@ describe('MessageInput', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
-    render(<MessageInput value="@test" onChange={handleChange} onSubmit={handleSubmit} />)
+    render(<ChatUI message="@test" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
     expect(screen.queryByTestId('file-autocomplete')).not.toBeInTheDocument()
   })
@@ -236,15 +244,42 @@ describe('MessageInput', () => {
     const handleSubmit = vi.fn()
 
     render(
-      <MessageInput
-        value=""
-        onChange={handleChange}
+      <ChatUI
+        message=""
+        onMessageChange={handleChange}
         onSubmit={handleSubmit}
         repositoryId="repo-123"
       />,
     )
 
     // The component should render without errors when repositoryId is provided
-    expect(screen.getByPlaceholderText('Type your message...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+  })
+
+  it('does not show file upload button by default', () => {
+    const handleChange = vi.fn()
+    const handleSubmit = vi.fn()
+
+    render(<ChatUI message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
+
+    // Should not show file upload button when enableFileUpload is false (default)
+    expect(screen.queryByRole('button', { name: 'Upload file' })).not.toBeInTheDocument()
+  })
+
+  it('shows file upload button when enableFileUpload is true', () => {
+    const handleChange = vi.fn()
+    const handleSubmit = vi.fn()
+
+    render(
+      <ChatUI
+        message=""
+        onMessageChange={handleChange}
+        onSubmit={handleSubmit}
+        enableFileUpload={true}
+      />,
+    )
+
+    // Should show file upload button when enableFileUpload is true
+    expect(screen.getByRole('button', { name: 'Upload file' })).toBeInTheDocument()
   })
 })
