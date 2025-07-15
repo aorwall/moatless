@@ -449,7 +449,10 @@ export class DockerEnvironment extends BaseEnvironment {
       try {
         await this.stopServer()
       } catch (serverError) {
-        this.logger.warn('Error stopping server during teardown (continuing)', serverError as Error)
+        this.logger.warn('Error stopping server during teardown (continuing)', {
+          error: (serverError as Error).message,
+          stack: (serverError as Error).stack,
+        })
       }
 
       // Cleanup container

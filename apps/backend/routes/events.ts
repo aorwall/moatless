@@ -85,12 +85,15 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
       } as ReadableStreamDefaultController
       sseManager.connectGlobal(connectionId, controller)
 
+      // Handle client disconnect (this is tricky in Hono, we'll rely on the stream closing)
+      const abortController = new AbortController()
+
       // Subscribe to all task events
       const unsubscribe = eventService.subscribeAll((event) => {
         // Send all events without any filtering
         try {
-          // Check if writer is still writable before writing
-          if (writer.locked || abortController.signal.aborted) {
+          // Check if connection is aborted before writing
+          if (abortController.signal.aborted) {
             return
           }
           writer.write(new TextEncoder().encode(`${JSON.stringify(event)}\n`))
@@ -109,8 +112,8 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
       // Keep connection alive with periodic pings
       const pingInterval = setInterval(() => {
         try {
-          // Check if writer is still writable before writing
-          if (writer.locked || abortController.signal.aborted) {
+          // Check if connection is aborted before writing
+          if (abortController.signal.aborted) {
             clearInterval(pingInterval)
             return
           }
@@ -130,8 +133,6 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
         }
       }, 30000)
 
-      // Handle client disconnect (this is tricky in Hono, we'll rely on the stream closing)
-      const abortController = new AbortController()
       c.req.raw.signal?.addEventListener('abort', () => {
         unsubscribe()
         sseManager.disconnectGlobal(connectionId)
