@@ -1,0 +1,383 @@
+import type { Message, UserMessage, AssistantMessage } from '@moatless/types'
+import type { UseQueryResult } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
+import { MessageHistory } from '../message-history'
+import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+
+// Mock the hook
+vi.mock('@/features/tasks/hooks/use-tasks')
+vi.mock('@/features/tasks/contexts/task-providers')
+vi.mock('@/features/tasks/contexts/task-ui-provider')
+vi.mock('@/features/tasks/hooks/use-auto-scroll')
+vi.mock('@/features/tasks/hooks/use-scroll-manager')
+vi.mock('@tanstack/react-router')
+
+// Mock the child components to focus on MessageHistory logic
+vi.mock('../user-message', () => ({
+  UserMessageComponent: ({ message }: { message: UserMessage }) => (
+    <div data-testid="user-message" data-message-id={message.id}>
+      {message.content}
+    </div>
+  ),
+}))
+
+vi.mock('../assistant-message', () => ({
+  AssistantMessageComponent: ({ message }: { message: AssistantMessage }) => {
+    const hasToolCalls = Array.isArray(message.content) && 
+      message.content.some(c => c.type === 'tool_use')
+    return (
+      <div data-testid="assistant-message" data-message-id={message.id}>
+        {typeof message.content === 'string' ? message.content : 
+          message.content.find(c => c.type === 'text')?.text || ''}
+        {hasToolCalls && (
+          <div data-testid="tool-calls">
+            {message.content.filter(c => c.type === 'tool_use').map((content, index) => (
+              <div key={index} data-testid={`tool-${content.tool_use_id}`}>
+                {content.tool_name}({JSON.stringify(content.tool_input)})
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  },
+}))
+
+// Helper to create proper UseQueryResult mock
+function createMockQueryResult<T>(overrides: Partial<UseQueryResult<T>> = {}): UseQueryResult<T> {
+  return {
+    data: undefined,
+    dataUpdatedAt: Date.now(),
+    error: null,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    fetchStatus: 'idle',
+    isError: false,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isInitialLoading: false,
+    isLoading: false,
+    isLoadingError: false,
+    isPaused: false,
+    isPending: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isRefetching: false,
+    isStale: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+    status: 'success',
+    ...overrides,
+  } as UseQueryResult<T>
+}
+
+describe('MessageHistory - Unit Tests', () => {
+  let queryClient: QueryClient
+  let wrapper: ({ children }: { children: React.ReactNode }) => React.ReactElement
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    
+    wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+    
+    // Mock context providers
+    vi.mocked(require('@/features/tasks/contexts/task-providers').useTaskData).mockReturnValue({
+      taskId: 'test-task-id',
+      isLoading: false,
+    })
+    
+    vi.mocked(require('@/features/tasks/contexts/task-ui-provider').useChatState).mockReturnValue({
+      chatState: { scrollPosition: undefined, isAtBottom: true },
+      updateChatState: vi.fn(),
+    })
+    
+    // Mock hooks
+    vi.mocked(require('@/features/tasks/hooks/use-auto-scroll').useAutoScroll).mockReturnValue({
+      scrollRef: { current: null },
+    })
+    
+    vi.mocked(require('@/features/tasks/hooks/use-scroll-manager').useScrollManager).mockReturnValue({
+      isAtBottom: true,
+      scrollToBottom: vi.fn(),
+    })
+    
+    vi.mocked(require('@tanstack/react-router').useParams).mockReturnValue({
+      taskId: 'test-task-id',
+    })
+  })
+
+  describe('Rendering', () => {
+    it('renders empty state when no messages provided', () => {
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: [],
+        })
+      )
+      
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByText('No messages yet. Start a conversation!')).toBeInTheDocument()
+    })
+
+    it('renders single user message', () => {
+      const messages: UserMessage[] = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'Hello, can you help me?',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+        },
+      ]
+      
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByTestId('user-message')).toBeInTheDocument()
+      expect(screen.getByText('Hello, can you help me?')).toBeInTheDocument()
+      expect(screen.getByTestId('user-message')).toHaveAttribute('data-message-id', 'msg-1')
+    })
+
+    it('renders single assistant message', () => {
+      const messages: AssistantMessage[] = [
+        {
+          id: 'msg-1',
+          role: 'assistant',
+          content: 'I can help you with that.',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+        },
+      ]
+      
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
+      expect(screen.getByText('I can help you with that.')).toBeInTheDocument()
+      expect(screen.getByTestId('assistant-message')).toHaveAttribute('data-message-id', 'msg-1')
+    })
+
+    it('renders multiple messages in correct order', () => {
+      const messages: Message[] = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'First message',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: 'Second message',
+          timestamp: new Date('2024-01-01T10:01:00Z'),
+        },
+        {
+          id: 'msg-3',
+          role: 'user',
+          content: 'Third message',
+          timestamp: new Date('2024-01-01T10:02:00Z'),
+        },
+      ]
+      
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      const messageElements = screen.getAllByTestId(/^(user|assistant)-message$/)
+      expect(messageElements).toHaveLength(3)
+
+      // Check order is preserved
+      expect(messageElements[0]).toHaveAttribute('data-message-id', 'msg-1')
+      expect(messageElements[1]).toHaveAttribute('data-message-id', 'msg-2')
+      expect(messageElements[2]).toHaveAttribute('data-message-id', 'msg-3')
+    })
+
+    it('renders assistant message with tool calls', () => {
+      const messages: AssistantMessage[] = [
+        {
+          id: 'msg-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: "I'll run a command for you.",
+            },
+            {
+              type: 'tool_use',
+              tool_name: 'Bash',
+              tool_use_id: 'tool-1',
+              tool_input: { command: 'ls -la' },
+            },
+            {
+              type: 'tool_use',
+              tool_name: 'Read',
+              tool_use_id: 'tool-2',
+              tool_input: { file_path: './README.md' },
+            },
+          ],
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+        },
+      ]
+      
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
+      expect(screen.getByText("I'll run a command for you.")).toBeInTheDocument()
+
+      // Check tool calls are rendered
+      expect(screen.getByTestId('tool-calls')).toBeInTheDocument()
+      expect(screen.getByTestId('tool-tool-1')).toBeInTheDocument()
+      expect(screen.getByTestId('tool-tool-2')).toBeInTheDocument()
+    })
+
+    it('handles messages with undefined tool calls', () => {
+      const messages: AssistantMessage[] = [
+        {
+          id: 'msg-1',
+          role: 'assistant',
+          content: 'Simple message',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+        },
+      ]
+      
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByTestId('assistant-message')).toBeInTheDocument()
+      expect(screen.getByText('Simple message')).toBeInTheDocument()
+      expect(screen.queryByTestId('tool-calls')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Loading and Error States', () => {
+    it('shows loading state during initial load', () => {
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: undefined,
+          isLoading: true,
+          isSuccess: false,
+          status: 'pending',
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByText('Loading messages...')).toBeInTheDocument()
+    })
+
+    it('shows error state when messages fail to load', () => {
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: undefined,
+          isLoading: false,
+          isError: true,
+          isSuccess: false,
+          error: new Error('Failed to fetch messages'),
+          status: 'error',
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByText(/Failed to load messages/)).toBeInTheDocument()
+    })
+
+    it('handles null/undefined messages gracefully', () => {
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: null,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByText('No messages yet. Start a conversation!')).toBeInTheDocument()
+    })
+  })
+
+  describe('Performance', () => {
+    it('renders many messages efficiently', () => {
+      const messages: Message[] = Array.from({ length: 100 }, (_, i) => ({
+        id: `msg-${i}`,
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i}`,
+        timestamp: new Date(Date.now() + i * 1000),
+      } as Message))
+
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      const { container } = render(<MessageHistory />, { wrapper })
+
+      // Should render all messages
+      expect(screen.getAllByTestId(/^(user|assistant)-message$/)).toHaveLength(100)
+
+      // Container should be present
+      expect(container.firstChild).toBeInTheDocument()
+    })
+  })
+
+  describe('Error handling', () => {
+    it('handles malformed message objects', () => {
+      const messages = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: '',  // Empty content
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+        },
+      ] as Message[]
+
+      vi.mocked(useTaskMessages).mockReturnValue(
+        createMockQueryResult({
+          data: messages,
+        })
+      )
+
+      render(<MessageHistory />, { wrapper })
+
+      expect(screen.getByTestId('user-message')).toBeInTheDocument()
+    })
+  })
+})

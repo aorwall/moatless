@@ -46,7 +46,7 @@ describe('event-handlers', () => {
       expect(keys[1]('task-456')).toEqual(queryKeys.tasks.gitDiff('task-456'))
     })
 
-    it('should return empty array for MESSAGE event', () => {
+    it('should return correct invalidation keys for MESSAGE event', () => {
       const event: Event = {
         eventId: 'event-3',
         type: EventType.MESSAGE,
@@ -57,7 +57,8 @@ describe('event-handlers', () => {
       }
 
       const keys = getInvalidationKeys(event)
-      expect(keys).toHaveLength(0)
+      expect(keys).toHaveLength(1)
+      expect(keys[0]).toBe(queryKeys.tasks.messages)
     })
 
     it('should return correct invalidation keys for WORKSPACE event', () => {
