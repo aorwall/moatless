@@ -42,13 +42,13 @@ export function FileTreeItem({
       return node.isChanged ? (
         <FolderIcon className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
       ) : (
-        <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <FolderIcon className="h-4 w-4 shrink-0" />
       )
     }
 
     // File icons based on git status
     if (!node.isChanged) {
-      return <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+      return <File className="h-4 w-4 shrink-0" />
     }
 
     switch (node.gitStatus) {
@@ -59,7 +59,7 @@ export function FileTreeItem({
       case 'deleted':
         return <FileX className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
       default:
-        return <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+        return <File className="h-4 w-4 shrink-0" />
     }
   }
 
@@ -81,7 +81,12 @@ export function FileTreeItem({
         )}
         {node.type === 'file' && <div className="w-4" />}
         {getIcon()}
-        <span className={cn('text-sm whitespace-nowrap', node.isChanged && 'font-medium')}>
+        <span
+          className={cn(
+            'text-sm whitespace-nowrap text-foreground',
+            node.isChanged && 'font-medium',
+          )}
+        >
           {node.name}
         </span>
       </div>

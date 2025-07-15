@@ -57,10 +57,10 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
       </div>
       <div className="flex-1 overflow-auto">
         <div className="min-w-max">
-          {data.tree.map((item) => (
+          {data.tree.map((item: FileTreeNodeType) => (
             <TreeNode
               key={item.path}
-              item={item}
+              item={{ ...item, level: 0 }}
               selectedPath={selectedPath}
               onFileSelect={handleFileSelect}
             />
@@ -76,7 +76,7 @@ function TreeNode({
   selectedPath,
   onFileSelect,
 }: {
-  item: FileTreeNodeType
+  item: FileTreeNodeType & { level?: number }
   selectedPath: string | null
   onFileSelect: (path: string) => void
 }) {
@@ -121,14 +121,17 @@ function TreeNode({
           type="button"
           onClick={() => onFileSelect(item.path)}
           className={cn(
-            'w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap',
+            'w-full flex items-center justify-between gap-2 px-2 py-1 text-sm rounded-sm hover:bg-accent transition-colors whitespace-nowrap',
             selectedPath === item.path && 'bg-accent',
-            item.isChanged && 'font-medium',
           )}
+          style={{ paddingLeft: `${(item.level || 0) * 12 + 8}px` }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <div className="w-4" />
             {getFileIcon()}
-            <span className="text-left">{item.name}</span>
+            <span className={cn('text-left text-foreground', item.isChanged && 'font-medium')}>
+              {item.name}
+            </span>
           </div>
           {getStatusBadge()}
         </button>
@@ -148,19 +151,22 @@ function TreeNode({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap"
+            className="w-full flex items-center gap-1 px-2 py-1 text-sm rounded-sm hover:bg-accent transition-colors whitespace-nowrap"
+            style={{ paddingLeft: `${(item.level || 0) * 12 + 8}px` }}
           >
             <ChevronRight className="h-4 w-4 flex-shrink-0 transition-transform data-[state=open]:rotate-90" />
             {folderIcon}
-            <span className={cn('text-left', item.isChanged && 'font-medium')}>{item.name}</span>
+            <span className={cn('text-left text-foreground', item.isChanged && 'font-medium')}>
+              {item.name}
+            </span>
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="pl-4">
+          <div>
             {item.children?.map((subItem: FileTreeNodeType) => (
               <TreeNode
                 key={subItem.path}
-                item={subItem}
+                item={{ ...subItem, level: (item.level || 0) + 1 }}
                 selectedPath={selectedPath}
                 onFileSelect={onFileSelect}
               />
