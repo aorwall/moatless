@@ -339,13 +339,9 @@ describe('WorkspaceService', () => {
       await workspace.setup()
       await service.cleanupWorkspace('test-task-cleanup-docker')
 
-      // Verify Docker stop and rm were called
+      // Verify Docker stop was called (rm only happens on setup errors)
       expect(execMock).toHaveBeenCalledWith(
         expect.stringContaining('docker stop'),
-        expect.any(Function),
-      )
-      expect(execMock).toHaveBeenCalledWith(
-        expect.stringContaining('docker rm'),
         expect.any(Function),
       )
     })

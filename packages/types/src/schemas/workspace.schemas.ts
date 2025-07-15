@@ -8,7 +8,13 @@ export const WorkspaceStatusSchema = z.enum(['not_setup', 'setting_up', 'idle', 
 
 export const WorkspaceTypeSchema = z.enum(['local', 'docker'])
 
-export const WorkspaceStateSchema = z.enum(['initializing', 'ready', 'error', 'cleaning'])
+export const WorkspaceStateSchema = z.enum([
+  'not_setup',
+  'initializing',
+  'ready',
+  'error',
+  'cleaning',
+])
 
 // ============================================
 // Workspace Schemas

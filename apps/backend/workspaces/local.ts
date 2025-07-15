@@ -39,7 +39,7 @@ export class LocalWorkspace extends BaseWorkspace {
     return 'local'
   }
 
-  get status(): 'initializing' | 'ready' | 'error' | 'cleaning' {
+  get status(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     return this.environment.getStatus()
   }
 

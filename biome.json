@@ -8,7 +8,31 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["apps/**/*", "packages/**/*", "bin/**/*", ".lintstagedrc.json", "docs/**/*"]
+    "includes": [
+      "apps/**/src/**/*",
+      "apps/**/routes/**/*",
+      "apps/**/services/**/*",
+      "apps/**/utils/**/*",
+      "apps/**/agents/**/*",
+      "apps/**/environments/**/*",
+      "apps/**/workspaces/**/*",
+      "apps/**/middleware/**/*",
+      "apps/**/templates/**/*",
+      "apps/**/test/**/*",
+      "apps/**/*.ts",
+      "apps/**/*.tsx",
+      "apps/**/*.js",
+      "apps/**/*.json",
+      "!apps/**/dist/**/*",
+      "packages/**/src/**/*",
+      "packages/**/*.ts",
+      "packages/**/*.js",
+      "packages/**/*.json",
+      "!packages/**/dist/**/*",
+      "bin/**/*",
+      ".lintstagedrc.json",
+      "docs/**/*"
+    ]
   },
   "formatter": {
     "enabled": true,

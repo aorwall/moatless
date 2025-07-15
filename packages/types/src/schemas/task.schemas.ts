@@ -104,9 +104,6 @@ export const TaskIterationSchema = z.object({
     })
     .optional(),
   willNotResume: z.boolean().optional(),
-  // Runtime properties (not persisted)
-  task: z.any().optional(),
-  taskId: z.string().optional(),
 })
 
 export const TaskResponseSchema = z.object({
