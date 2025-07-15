@@ -7,6 +7,7 @@ import type { CommandResult, ServerStatus } from '@moatless/types'
 import type { BaseAgent, EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
 import { createTaskLogger } from '../utils/logger.js'
+import { generateContainerName } from '../utils/docker-container-name.js'
 import { BaseEnvironment } from './base-environment.js'
 
 const execAsync = promisify(exec)
@@ -84,9 +85,7 @@ export class DockerEnvironment extends BaseEnvironment {
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
 
       // Create container
-      this.containerName = this.repositoryConfig.codeExecution.containerName
-        ? `${this.repositoryConfig.codeExecution.containerName}-${this.taskId}`
-        : `moatless-task-${this.taskId}`
+      this.containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
 
       await this.createContainer()
       await this.startContainer()

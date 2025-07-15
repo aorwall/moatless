@@ -29,7 +29,6 @@ export const CodeExecutionSchema = z.object({
   type: z.enum(['local', 'docker']),
   setupCommands: z.array(z.string()).optional(),
   // Docker-specific fields
-  containerName: z.string().optional(),
   dockerImage: z.string().optional(),
   envVars: z.record(z.string()).optional(),
   volumes: z.array(z.string()).optional(),

@@ -86,6 +86,37 @@ export const WorkspaceCapabilitiesSchema = z.object({
 // We re-export them here for consistency
 
 // ============================================
+// File Tree with Git Changes Schema
+// ============================================
+
+export const GitChangeStatusSchema = z.enum(['added', 'modified', 'deleted', 'renamed'])
+
+export const FileTreeNodeSchema: z.ZodType<any> = z.lazy(() => z.object({
+  name: z.string(),
+  path: z.string(),
+  type: z.enum(['file', 'directory']),
+  isChanged: z.boolean(),
+  gitStatus: GitChangeStatusSchema.optional(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
+  isStaged: z.boolean().optional(),
+  children: z.array(FileTreeNodeSchema).optional(),
+}))
+
+export const FileTreeWithChangesResponseSchema = z.object({
+  tree: z.array(FileTreeNodeSchema),
+  gitSummary: z.object({
+    totalFiles: z.number(),
+    totalAdditions: z.number(),
+    totalDeletions: z.number(),
+    totalModified: z.number(),
+    totalStaged: z.number(),
+    compareBase: z.string(),
+    hasChanges: z.boolean(),
+  }),
+})
+
+// ============================================
 // Derived Types
 // ============================================
 
@@ -100,6 +131,9 @@ export type WorkspaceFile = z.infer<typeof WorkspaceFileSchema>
 export type WorkspaceChange = z.infer<typeof WorkspaceChangeSchema>
 export type WorkspaceFileSearchResult = z.infer<typeof WorkspaceFileSearchResultSchema>
 export type WorkspaceCapabilities = z.infer<typeof WorkspaceCapabilitiesSchema>
+export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>
+export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
+export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
 
 // ============================================
 // Helper Functions (these remain as utilities)

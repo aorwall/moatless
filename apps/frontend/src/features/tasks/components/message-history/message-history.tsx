@@ -140,7 +140,9 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   // Fix ScrollArea viewport styles
   useEffect(() => {
     if (scrollRef.current) {
-      const viewport = scrollRef.current.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
+      const viewport = scrollRef.current.querySelector(
+        '[data-slot="scroll-area-viewport"]',
+      ) as HTMLElement
       if (viewport) {
         viewport.style.minWidth = '0'
         viewport.style.width = '100%'

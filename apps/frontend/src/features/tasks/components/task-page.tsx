@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview, useServerStatus } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -23,10 +23,15 @@ function TaskPageComponent() {
     enabled: rightPanelView === 'preview',
   })
 
-  // Compute constraints for the left panel width in pixels
-  const calculatePanelSizeConstraints = useCallback((windowWidth: number) => {
+  // Track window width with a single state update
+  const [windowWidth, setWindowWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1200,
+  )
+
+  // Derive panel constraints from window width - no separate state needed
+  const panelConstraints = useMemo(() => {
     const minWidthPx = 300
-    const maxWidthPx = 600
+    const maxWidthPx = 800
     const defaultWidthPx = 600
 
     // Convert pixel values to percentages
@@ -38,62 +43,51 @@ function TaskPageComponent() {
     )
 
     return { minSizePercent, maxSizePercent, defaultSizePercent }
-  }, [])
+  }, [windowWidth])
 
-  const [panelConstraints, setPanelConstraints] = useState(() => {
-    const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
-    return calculatePanelSizeConstraints(windowWidth)
-  })
+  // Debounce window resize updates
+  const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // Update constraints on window resize
   useEffect(() => {
     const handleResize = () => {
-      const windowWidth = window.innerWidth
-      setPanelConstraints(calculatePanelSizeConstraints(windowWidth))
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current)
+      }
+      resizeTimeoutRef.current = setTimeout(() => {
+        setWindowWidth(window.innerWidth)
+      }, 150) // Debounce by 150ms
     }
 
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [calculatePanelSizeConstraints])
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Handle panel resize with pixel constraints
   const handleLeftPanelResize = useCallback(
     (size: number) => {
-      const windowWidth = window.innerWidth
       const panelWidthPx = (windowWidth * size) / 100
 
-      // Constrain to 300-600px range
-      const constrainedWidthPx = Math.max(300, Math.min(600, panelWidthPx))
+      // Constrain to 300-800px range
+      const constrainedWidthPx = Math.max(300, Math.min(800, panelWidthPx))
       const constrainedSizePercent = (constrainedWidthPx / windowWidth) * 100
 
       setPanelSizes({ left: constrainedSizePercent, right: 100 - constrainedSizePercent })
-      localStorage.setItem('leftPanelSize', constrainedSizePercent.toString())
     },
-    [setPanelSizes],
+    [windowWidth, setPanelSizes],
   )
 
+  // Set initial panel sizes on mount
   useEffect(() => {
-    // Restore panel sizes from localStorage on mount only
-    const restorePanelSizes = () => {
-      const savedLeftSize = localStorage.getItem('leftPanelSize')
-      if (savedLeftSize) {
-        const windowWidth = window.innerWidth
-        const savedSizePercent = Number(savedLeftSize)
-        const savedWidthPx = (windowWidth * savedSizePercent) / 100
-
-        // Ensure saved size is within constraints
-        const constrainedWidthPx = Math.max(300, Math.min(600, savedWidthPx))
-        const constrainedSizePercent = (constrainedWidthPx / windowWidth) * 100
-
-        setPanelSizes({
-          left: constrainedSizePercent,
-          right: 100 - constrainedSizePercent,
-        })
-      }
-    }
-
-    restorePanelSizes()
-  }, [setPanelSizes])
+    setPanelSizes({
+      left: panelConstraints.defaultSizePercent,
+      right: 100 - panelConstraints.defaultSizePercent,
+    })
+  }, [panelConstraints.defaultSizePercent, setPanelSizes])
 
   if (error) {
     return <ErrorAlert error={error} />
