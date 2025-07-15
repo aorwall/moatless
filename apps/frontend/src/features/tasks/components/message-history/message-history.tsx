@@ -1,8 +1,14 @@
-import type { AssistantMessage, AssistantMessageContent, Message, UserMessage } from '@moatless/types'
+import type {
+  AssistantMessage,
+  AssistantMessageContent,
+  Message,
+  UserMessage,
+} from '@moatless/types'
 import { useParams } from '@tanstack/react-router'
 import { ArrowDown, ChevronDown, ChevronRight, Terminal } from 'lucide-react'
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
+import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
@@ -25,10 +31,10 @@ interface ToolCallGroupProps {
 
 function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCallGroupProps) {
   const [groupExpanded, setGroupExpanded] = useState(false)
-  
+
   // Extract all tool calls from all messages
   const allToolCalls: Array<{ message: AssistantMessage; content: AssistantMessageContent }> = []
-  messages.forEach(message => {
+  messages.forEach((message) => {
     if (typeof message.content !== 'string') {
       message.content.forEach((content: AssistantMessageContent) => {
         if (content.type === 'tool_use') {
@@ -37,20 +43,23 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
       })
     }
   })
-  
+
   // Count tools by name
-  const toolCounts = allToolCalls.reduce((acc, { content }) => {
-    const name = content.tool_name || 'Unknown'
-    acc[name] = (acc[name] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
-  
+  const toolCounts = allToolCalls.reduce(
+    (acc, { content }) => {
+      const name = content.tool_name || 'Unknown'
+      acc[name] = (acc[name] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
   const totalCalls = allToolCalls.length
   const toolSummary = Object.entries(toolCounts)
     .sort(([, a], [, b]) => b - a)
-    .map(([name, count]) => count > 1 ? `${count} ${name}` : name)
+    .map(([name, count]) => (count > 1 ? `${count} ${name}` : name))
     .join(', ')
-  
+
   return (
     <div className="border border-border/50 rounded-lg overflow-hidden">
       <Button
@@ -60,7 +69,11 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
         className="w-full justify-start p-2 h-auto font-mono text-xs hover:bg-muted/50"
       >
         <div className="flex items-center gap-2 w-full">
-          {groupExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          {groupExpanded ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
           <Terminal className="h-3 w-3 text-muted-foreground" />
           <span className="text-muted-foreground">
             {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({toolSummary})
@@ -70,7 +83,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
           </span>
         </div>
       </Button>
-      
+
       {groupExpanded && (
         <div className="p-2 space-y-2 border-t border-border/50">
           {messages.map((message) => (
@@ -93,11 +106,7 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
   // Use specialized hooks from tri-context pattern
   const { taskId, isLoading: isLoadingTask } = useTaskData()
-  const { scrollRef } = useAutoScroll()
-  const bottomRef = useRef<HTMLDivElement>(null)
-
-  // Custom hooks for extracted functionality
-  const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
+  const { chatState, updateChatState } = useChatState()
 
   // Fetch messages for this task
   const {
@@ -107,6 +116,22 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   } = useTaskMessages(params.taskId, {
     enabled: !!params.taskId,
   }) as { data: Message[] | undefined; isLoading: boolean; error: unknown }
+
+  // Initialize auto-scroll with proper options
+  const { scrollRef } = useAutoScroll({
+    // Scroll on mount only if there's no saved scroll position
+    scrollOnMount: chatState.scrollPosition === undefined,
+    dependencies: [messages], // Re-evaluate scroll when messages change
+  })
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Custom hooks for extracted functionality
+  const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
+
+  // Update chat state when scroll position changes
+  useEffect(() => {
+    updateChatState({ isAtBottom })
+  }, [isAtBottom, updateChatState])
 
   // Toggle tool call expansion
   const toggleToolCallExpansion = useCallback((toolUseId: string) => {
@@ -120,6 +145,52 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
       return newSet
     })
   }, [])
+
+  // Group consecutive assistant messages with only tool calls
+  const groupedMessages = React.useMemo(() => {
+    if (!messages) return []
+
+    const groups: Array<Message | AssistantMessage[]> = []
+    let currentToolGroup: AssistantMessage[] = []
+
+    messages.forEach((message) => {
+      if (message.role === 'user') {
+        // If we have accumulated tool messages, push them as a group
+        if (currentToolGroup.length > 0) {
+          groups.push(currentToolGroup)
+          currentToolGroup = []
+        }
+        groups.push(message)
+      } else {
+        const assistantMsg = message as AssistantMessage
+        // Check if this message contains only tool calls (no text content)
+        const hasOnlyToolCalls =
+          typeof assistantMsg.content !== 'string' &&
+          Array.isArray(assistantMsg.content) &&
+          assistantMsg.content.length > 0 &&
+          assistantMsg.content.every((c: AssistantMessageContent) => c.type === 'tool_use')
+
+        if (hasOnlyToolCalls) {
+          currentToolGroup.push(assistantMsg)
+        } else {
+          // This message has text content
+          // Push any accumulated tool group first
+          if (currentToolGroup.length > 0) {
+            groups.push(currentToolGroup)
+            currentToolGroup = []
+          }
+          groups.push(assistantMsg)
+        }
+      }
+    })
+
+    // Push any remaining tool group
+    if (currentToolGroup.length > 0) {
+      groups.push(currentToolGroup)
+    }
+
+    return groups
+  }, [messages])
 
   // Show skeleton during initial load
   if (isLoadingTask || !taskId) {
@@ -140,51 +211,6 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
       </div>
     )
   }
-
-  // Group consecutive assistant messages with only tool calls
-  const groupedMessages = React.useMemo(() => {
-    if (!messages) return []
-    
-    const groups: Array<Message | AssistantMessage[]> = []
-    let currentToolGroup: AssistantMessage[] = []
-    
-    messages.forEach((message) => {
-      if (message.role === 'user') {
-        // If we have accumulated tool messages, push them as a group
-        if (currentToolGroup.length > 0) {
-          groups.push(currentToolGroup)
-          currentToolGroup = []
-        }
-        groups.push(message)
-      } else {
-        const assistantMsg = message as AssistantMessage
-        // Check if this message contains only tool calls (no text content)
-        const hasOnlyToolCalls = typeof assistantMsg.content !== 'string' && 
-          Array.isArray(assistantMsg.content) &&
-          assistantMsg.content.length > 0 &&
-          assistantMsg.content.every((c: AssistantMessageContent) => c.type === 'tool_use')
-        
-        if (hasOnlyToolCalls) {
-          currentToolGroup.push(assistantMsg)
-        } else {
-          // This message has text content
-          // Push any accumulated tool group first
-          if (currentToolGroup.length > 0) {
-            groups.push(currentToolGroup)
-            currentToolGroup = []
-          }
-          groups.push(assistantMsg)
-        }
-      }
-    })
-    
-    // Push any remaining tool group
-    if (currentToolGroup.length > 0) {
-      groups.push(currentToolGroup)
-    }
-    
-    return groups
-  }, [messages])
 
   // Show minimal UI while messages are loading for the first time
   if (isLoadingMessages && (!messages || messages.length === 0)) {
@@ -207,7 +233,7 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
             {groupedMessages.map((item) => {
               if (Array.isArray(item)) {
                 // This is a group of tool-only messages
-                const groupKey = item.map(m => m.id).join('-')
+                const groupKey = item.map((m) => m.id).join('-')
                 return (
                   <ToolCallGroup
                     key={groupKey}
@@ -216,18 +242,18 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
                     onToggleToolCall={toggleToolCallExpansion}
                   />
                 )
-              } else if (item.role === 'user') {
-                return <UserMessageComponent key={item.id} message={item as UserMessage} />
-              } else {
-                return (
-                  <AssistantMessageComponent
-                    key={item.id}
-                    message={item as AssistantMessage}
-                    expandedToolCalls={expandedToolCalls}
-                    onToggleToolCall={toggleToolCallExpansion}
-                  />
-                )
               }
+              if (item.role === 'user') {
+                return <UserMessageComponent key={item.id} message={item as UserMessage} />
+              }
+              return (
+                <AssistantMessageComponent
+                  key={item.id}
+                  message={item as AssistantMessage}
+                  expandedToolCalls={expandedToolCalls}
+                  onToggleToolCall={toggleToolCallExpansion}
+                />
+              )
             })}
 
             {/* Empty state */}
