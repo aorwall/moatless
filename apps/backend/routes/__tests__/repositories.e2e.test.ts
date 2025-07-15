@@ -108,7 +108,7 @@ describe('Repository Routes E2E', () => {
         useGitWorktrees: false,
         codeExecution: {
           type: 'local',
-          setupCommands: 'echo "Setting up test repository"',
+          setupCommands: ['echo "Setting up test repository"'],
         },
       }
 
@@ -208,7 +208,7 @@ describe('Repository Routes E2E', () => {
         codeExecution: {
           type: 'docker',
           dockerImage: 'moatless-vibe-universal:latest',
-          setupCommands: 'npm ci\nnpm run build',
+          setupCommands: ['npm ci', 'npm run build'],
           envVars: {
             NODE_ENV: 'production',
             PORT: '3000',

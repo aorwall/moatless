@@ -192,7 +192,9 @@ export function CodeExecutionConfig({
 
   const [formData, setFormData] = useState({
     type: codeExecution.type,
-    setup_commands: codeExecution.setupCommands || '',
+    setup_commands: Array.isArray(codeExecution.setupCommands) 
+      ? codeExecution.setupCommands.join('\n') 
+      : '',
     env_vars: codeExecution.envVars || {},
     dockerImage: codeExecution.dockerImage || 'moatless-vibe-universal:latest',
   })
@@ -212,7 +214,9 @@ export function CodeExecutionConfig({
   const buildCodeExecution = (): CodeExecution => {
     const updatedExecution: CodeExecution = {
       type: formData.type,
-      setupCommands: formData.setup_commands || undefined,
+      setupCommands: formData.setup_commands 
+        ? formData.setup_commands.split('\n').map(cmd => cmd.trim()).filter(cmd => cmd.length > 0)
+        : undefined,
       envVars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
     }
 

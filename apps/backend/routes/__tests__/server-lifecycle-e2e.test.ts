@@ -129,7 +129,7 @@ process.on('SIGTERM', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Repository ready for server"',
+        setupCommands: ['echo "Repository ready for server"'],
       },
     }
 

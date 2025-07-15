@@ -131,7 +131,7 @@ describe('Complete Workflow E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Repository setup complete"',
+        setupCommands: ['echo "Repository setup complete"'],
       },
     }
 
@@ -403,7 +403,7 @@ describe('Complete Workflow E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Setup complete"',
+        setupCommands: ['echo "Setup complete"'],
       },
     }
 
@@ -496,7 +496,7 @@ describe('Complete Workflow E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Setup complete"',
+        setupCommands: ['echo "Setup complete"'],
       },
     }
 

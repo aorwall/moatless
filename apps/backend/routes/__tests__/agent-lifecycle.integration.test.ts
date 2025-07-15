@@ -150,7 +150,7 @@ describe('Agent Lifecycle Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Repository ready for agent lifecycle test"',
+        setupCommands: ['echo "Repository ready for agent lifecycle test"'],
       },
     }
 
