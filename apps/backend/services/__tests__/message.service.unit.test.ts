@@ -710,6 +710,43 @@ describe('MessageService Unit Tests', () => {
       expect(result[4].id).toBe('iteration-3-assistant')
     })
 
+    it('should not process Claude files when workspace path is missing', async () => {
+      const taskWithoutWorkspace = {
+        ...mockTask,
+        workspacePath: undefined,
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'session-1', // Has session ID but no workspace
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Message without workspace',
+            result: 'Response without workspace',
+          },
+        ],
+      } as Task
+
+      // Mock should never be called because workspace path is missing
+      const mockReadFile = vi.fn()
+      mockFs.readFile = mockReadFile
+
+      const result = await service.readMessagesFromClaudeDirectoryWithSettings(
+        mockClaudeCodeSettings,
+        taskWithoutWorkspace,
+      )
+
+      // Should only get messages from task iterations
+      expect(result).toHaveLength(2)
+      expect(result[0].content).toBe('Message without workspace')
+      expect(result[1].content).toBe('Response without workspace')
+      
+      // Verify no file reads were attempted
+      expect(mockReadFile).not.toHaveBeenCalled()
+    })
+
     it('should maintain chronological order of messages', async () => {
       const taskWithMixedIterations = {
         ...mockTask,
