@@ -14,7 +14,6 @@ import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
 import { GenericSelector, useModelSelector } from '../chat-input/selectors'
 import { MessageHistory } from '../message-history'
-import { ChatHeader } from './chat-header'
 import { CommandButtons } from './command-buttons'
 
 interface ChatViewProps {

@@ -2,11 +2,8 @@ import { useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { AppSidebar } from '@/features/navigation/components/app-sidebar'
-import { SystemStatusWarning } from '@/features/settings/components/system-status-warning'
 import { ThemeProvider } from '@/lib/components/theme-provider'
-import {SidebarInset, SidebarProvider, SidebarTrigger} from '@/lib/components/ui/sidebar'
-
-import { Header } from './components/header'
+import { SidebarProvider } from '@/lib/components/ui/sidebar'
 
 type LayoutProps = {
   children: ReactNode
