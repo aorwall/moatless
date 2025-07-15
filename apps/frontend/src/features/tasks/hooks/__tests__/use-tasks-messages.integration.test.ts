@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
-import { setupServer } from 'msw/node'
 import type { Message } from '@moatless/types'
-import { useTaskMessages } from '../use-tasks'
+import { renderHook, waitFor } from '@testing-library/react'
+import { HttpResponse, http } from 'msw'
+import { setupServer } from 'msw/node'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createQueryWrapper } from '@/test-utils/mocks'
+import { useTaskMessages } from '../use-tasks'
 
 // Mock data
 const mockMessages: Message[] = [
@@ -12,80 +12,85 @@ const mockMessages: Message[] = [
     id: 'msg-1',
     role: 'user',
     content: 'Hello, can you help me with this task?',
-    timestamp: '2024-01-01T10:00:00Z',
-    toolCalls: []
+    timestamp: new Date('2024-01-01T10:00:00Z'),
   },
   {
     id: 'msg-2',
     role: 'assistant',
-    content: 'I\'ll help you with that. Let me run some commands first.',
-    timestamp: '2024-01-01T10:01:00Z',
-    toolCalls: [
+    content: [
       {
-        id: 'tool-1',
-        name: 'Bash',
-        arguments: { command: 'ls -la' },
-        result: 'total 8\ndrwxr-xr-x 3 user user 4096 Jan  1 10:00 .\ndrwxr-xr-x 3 user user 4096 Jan  1 09:59 ..'
-      }
-    ]
+        type: 'text',
+        text: "I'll help you with that. Let me run some commands first.",
+      },
+      {
+        type: 'tool_use',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls -la' },
+        tool_use_id: 'tool-1',
+        tool_result: {
+          content:
+            'total 8\ndrwxr-xr-x 3 user user 4096 Jan  1 10:00 .\ndrwxr-xr-x 3 user user 4096 Jan  1 09:59 ..',
+        },
+      },
+    ],
+    timestamp: new Date('2024-01-01T10:01:00Z'),
   },
   {
     id: 'msg-3',
     role: 'user',
-    content: 'Thanks! That\'s helpful.',
-    timestamp: '2024-01-01T10:02:00Z',
-    toolCalls: []
-  }
+    content: "Thanks! That's helpful.",
+    timestamp: new Date('2024-01-01T10:02:00Z'),
+  },
 ]
 
 // Setup MSW server
 const server = setupServer(
   // Success response
   http.get('/api/v1/tasks/:taskId/messages', ({ params }) => {
-    const { taskId } = params
-    
+    const { taskId } = params as { taskId: string }
+
     if (taskId === 'valid-task') {
       return HttpResponse.json({
         success: true,
-        data: mockMessages
+        data: mockMessages,
       })
     }
-    
+
     if (taskId === 'empty-task') {
       return HttpResponse.json({
         success: true,
-        data: []
+        data: [],
       })
     }
-    
+
     if (taskId === 'error-task') {
       return HttpResponse.json(
         {
           success: false,
-          error: 'Task not found'
+          error: 'Task not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
-    
+
     if (taskId === 'server-error-task') {
       return HttpResponse.json(
         {
           success: false,
-          error: 'Internal server error'
+          error: 'Internal server error',
         },
-        { status: 500 }
+        { status: 500 },
       )
     }
-    
+
     return HttpResponse.json(
       {
         success: false,
-        error: 'Task not found'
+        error: 'Task not found',
       },
-      { status: 404 }
+      { status: 404 },
     )
-  })
+  }),
 )
 
 describe('useTaskMessages Hook - Integration Tests', () => {
@@ -106,10 +111,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
 
   describe('Successful data fetching', () => {
     it('fetches and returns task messages', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       // Initially loading
       expect(result.current.isLoading).toBe(true)
@@ -129,10 +131,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('handles empty messages array', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('empty-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('empty-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -144,10 +143,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('includes proper React Query metadata', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -164,10 +160,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
 
   describe('Error handling', () => {
     it('handles 404 task not found error', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('error-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('error-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -180,10 +173,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('handles 500 server error', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('server-error-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('server-error-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -198,13 +188,10 @@ describe('useTaskMessages Hook - Integration Tests', () => {
       server.use(
         http.get('/api/v1/tasks/:taskId/messages', () => {
           return HttpResponse.error()
-        })
+        }),
       )
 
-      const { result } = renderHook(
-        () => useTaskMessages('network-error-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('network-error-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -219,10 +206,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
   describe('Caching behavior', () => {
     it('caches data between hook instances', async () => {
       // First hook instance
-      const { result: result1 } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result: result1 } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       await waitFor(() => {
         expect(result1.current.isLoading).toBe(false)
@@ -231,10 +215,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
       expect(result1.current.data).toHaveLength(3)
 
       // Second hook instance should use cached data
-      const { result: result2 } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result: result2 } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       // Should immediately have data from cache
       expect(result2.current.data).toHaveLength(3)
@@ -243,15 +224,9 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('handles different task IDs separately', async () => {
-      const { result: result1 } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result: result1 } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
-      const { result: result2 } = renderHook(
-        () => useTaskMessages('empty-task'),
-        { wrapper }
-      )
+      const { result: result2 } = renderHook(() => useTaskMessages('empty-task'), { wrapper })
 
       await waitFor(() => {
         expect(result1.current.isLoading).toBe(false)
@@ -265,10 +240,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
 
   describe('Loading states', () => {
     it('shows initial loading state', () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       expect(result.current.isLoading).toBe(true)
       expect(result.current.isFetching).toBe(true)
@@ -277,10 +249,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('transitions from loading to success', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       // Initial state
       expect(result.current.status).toBe('pending')
@@ -296,10 +265,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('transitions from loading to error', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('error-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('error-task'), { wrapper })
 
       // Initial state
       expect(result.current.status).toBe('pending')
@@ -317,10 +283,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
 
   describe('Refetch behavior', () => {
     it('supports manual refetch', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -336,10 +299,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('handles refetch errors gracefully', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -348,11 +308,8 @@ describe('useTaskMessages Hook - Integration Tests', () => {
       // Change server to return error for refetch
       server.use(
         http.get('/api/v1/tasks/valid-task/messages', () => {
-          return HttpResponse.json(
-            { success: false, error: 'Server error' },
-            { status: 500 }
-          )
-        })
+          return HttpResponse.json({ success: false, error: 'Server error' }, { status: 500 })
+        }),
       )
 
       // Refetch should handle error
@@ -364,10 +321,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
 
   describe('Type safety', () => {
     it('returns properly typed message data', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages('valid-task'),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages('valid-task'), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
@@ -379,13 +333,17 @@ describe('useTaskMessages Hook - Integration Tests', () => {
       expect(messages[0].id).toBe('msg-1')
       expect(messages[0].role).toBe('user')
       expect(messages[0].content).toBe('Hello, can you help me with this task?')
-      expect(messages[0].timestamp).toBe('2024-01-01T10:00:00Z')
-      expect(messages[0].toolCalls).toEqual([])
+      expect(messages[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
 
-      expect(messages[1].toolCalls[0].id).toBe('tool-1')
-      expect(messages[1].toolCalls[0].name).toBe('Bash')
-      expect(messages[1].toolCalls[0].arguments).toEqual({ command: 'ls -la' })
-      expect(messages[1].toolCalls[0].result).toBeTruthy()
+      // Check assistant message with tool use
+      expect(messages[1].role).toBe('assistant')
+      expect(Array.isArray(messages[1].content)).toBe(true)
+      const content = messages[1].content as any[]
+      expect(content[0].type).toBe('text')
+      expect(content[1].type).toBe('tool_use')
+      expect(content[1].tool_name).toBe('Bash')
+      expect(content[1].tool_input).toEqual({ command: 'ls -la' })
+      expect(content[1].tool_result).toBeTruthy()
     })
   })
 
@@ -394,7 +352,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
       const { result } = renderHook(
         // @ts-expect-error Testing runtime behavior
         () => useTaskMessages(undefined),
-        { wrapper }
+        { wrapper },
       )
 
       // Hook should be disabled when taskId is undefined
@@ -404,10 +362,7 @@ describe('useTaskMessages Hook - Integration Tests', () => {
     })
 
     it('handles empty string taskId', async () => {
-      const { result } = renderHook(
-        () => useTaskMessages(''),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages(''), { wrapper })
 
       // Should not make request with empty taskId
       expect(result.current.data).toBeUndefined()
@@ -416,20 +371,17 @@ describe('useTaskMessages Hook - Integration Tests', () => {
 
     it('handles very long taskId', async () => {
       const longTaskId = 'task-' + 'a'.repeat(1000)
-      
+
       server.use(
         http.get(`/api/v1/tasks/${longTaskId}/messages`, () => {
           return HttpResponse.json({
             success: true,
-            data: []
+            data: [],
           })
-        })
+        }),
       )
 
-      const { result } = renderHook(
-        () => useTaskMessages(longTaskId),
-        { wrapper }
-      )
+      const { result } = renderHook(() => useTaskMessages(longTaskId), { wrapper })
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false)
