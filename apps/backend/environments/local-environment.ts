@@ -229,7 +229,12 @@ export class LocalEnvironment extends BaseEnvironment {
       }
     }
 
-    return this.previewServer.getStatus(true)
+    const status = this.previewServer.getStatus(true)
+    // For proxy approach, we don't expose the direct URL
+    if (status.running) {
+      status.url = undefined // Frontend will use proxy endpoint
+    }
+    return status
   }
 
   async getServerLogs(lines = 100): Promise<string> {
@@ -238,6 +243,23 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     return this.previewServer.getLogs(lines)
+  }
+
+  async proxyPreviewRequest(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!this.previewServer) {
+      throw new Error('Preview server not running')
+    }
+
+    return this.previewServer.proxyRequest(request)
   }
 
   async stopAgent(): Promise<boolean> {

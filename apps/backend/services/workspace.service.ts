@@ -519,6 +519,27 @@ export class WorkspaceService {
     return this.previewEnvironmentService.getServerStatus(taskId)
   }
 
+  async proxyPreviewRequest(
+    taskId: string,
+    request: {
+      method: string
+      path: string
+      headers: Headers
+      body?: string
+    },
+  ): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!(await this.canManageServer(taskId))) {
+      throw new WorkspaceError('Preview capability not available for this task', taskId)
+    }
+
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    return workspace.proxyPreviewRequest(request)
+  }
+
   // Background task tracking methods
   public trackBackgroundTask(taskId: string, task: Promise<unknown>): void {
     if (!this.backgroundTasks.has(taskId)) {

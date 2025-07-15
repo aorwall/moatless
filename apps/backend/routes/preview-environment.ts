@@ -275,4 +275,70 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
       })
     },
   )
+
+  // Proxy requests to the preview server
+  app.all(
+    `${prefix}/:taskId/proxy/*`,
+    describeRoute({
+      description: 'Proxy requests to the preview server',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Proxied response',
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task not found or server not running',
+        },
+        502: {
+          description: 'Bad gateway - preview server error',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = c.req.param('taskId')
+      if (!taskId) {
+        throw new HTTPException(400, { message: 'Task ID is required' })
+      }
+
+      // Get the path after /proxy/
+      const proxyPath = c.req.path.split(`/${taskId}/proxy/`)[1] || ''
+      const queryString = c.req.url.split('?')[1] || ''
+      const fullPath = queryString ? `/${proxyPath}?${queryString}` : `/${proxyPath}`
+
+      try {
+        // Proxy the request to the preview server
+        const response = await services.workspace.proxyPreviewRequest(taskId, {
+          method: c.req.method,
+          path: fullPath,
+          headers: c.req.raw.headers,
+          body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.raw.text() : undefined,
+        })
+
+        // Return the proxied response
+        return new Response(response.body, {
+          status: response.status,
+          headers: response.headers,
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not running')) {
+          throw new HTTPException(404, { message: 'Preview server not running' })
+        }
+        throw new HTTPException(502, { message: 'Error proxying request to preview server' })
+      }
+    },
+  )
 }
