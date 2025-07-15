@@ -5,7 +5,6 @@ import { WorkspaceStatus } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
-import type { BaseWorkspace } from '../workspaces/base.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -196,7 +195,7 @@ export class AgentService {
     message: string,
     taskId: string,
     iteration: TaskIteration,
-    workspace: BaseWorkspace,
+    workspace: Awaited<ReturnType<WorkspaceService['getOrCreateWorkspace']>>,
     resumeSessionId?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
@@ -343,9 +342,8 @@ export class AgentService {
               (it) => it.iterationNumber === iteration.iterationNumber,
             )
             if (iterationIndex >= 0) {
-              // Remove runtime properties to avoid circular references
-              const { task: _, taskId: __, ...iterationData } = iteration
-              task.iterations[iterationIndex] = iterationData
+              // Update the iteration data
+              task.iterations[iterationIndex] = iteration
               // Update task status based on iteration result
               const previousStatus = task.status
               const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
@@ -428,9 +426,8 @@ export class AgentService {
           (it) => it.iterationNumber === iteration.iterationNumber,
         )
         if (iterationIndex >= 0) {
-          // Remove runtime properties to avoid circular references
-          const { task: _, taskId: __, ...iterationData } = iteration
-          task.iterations[iterationIndex] = iterationData
+          // Update the iteration data
+          task.iterations[iterationIndex] = iteration
           // Update task status to error after failure
           const previousStatus = task.status
           task.status = 'error'

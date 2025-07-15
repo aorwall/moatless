@@ -3,7 +3,7 @@ import { CriticalError, EventType, WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BaseAgent } from '../../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../../agents/claude-code/claude-code-agent.js'
-import type { BaseWorkspace } from '../../workspaces/base.js'
+import type { Workspace } from '../../workspaces/workspace.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
@@ -20,7 +20,7 @@ vi.mock('../../utils/logger', () => ({
   },
 }))
 
-vi.mock('../agents/claude-code-agent')
+vi.mock('../../agents/claude-code/claude-code-agent.js')
 
 // Create mock storage
 const createMockStorage = (): StorageBackend => ({
@@ -62,7 +62,7 @@ const createMockWorkspaceService = (): WorkspaceService =>
   }) as any
 
 // Create mock workspace
-const createMockWorkspace = (status: WorkspaceStatus = WorkspaceStatus.IDLE): BaseWorkspace =>
+const createMockWorkspace = (status: WorkspaceStatus = WorkspaceStatus.IDLE): Workspace =>
   ({
     getStatus: vi.fn().mockReturnValue(status),
     isWorkspacePathValid: vi.fn().mockResolvedValue(true),

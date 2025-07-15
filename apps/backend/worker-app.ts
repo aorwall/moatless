@@ -8,7 +8,8 @@ import { PreviewServer } from './services/preview-server.js'
 import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
 import { createLogger } from './utils/logger.js'
-import { LocalWorkspace } from './workspaces/local.js'
+import { Workspace } from './workspaces/workspace.js'
+import { LocalEnvironment } from './environments/local-environment.js'
 
 export interface WorkerModeConfig {
   apiUrl: string
@@ -24,7 +25,7 @@ export interface WorkerModeConfig {
  * to execute agent tasks. It uses:
  * - WorkerEventService to forward events to the main backend
  * - FileStorage with a mounted data volume for persistence
- * - LocalWorkspace for agent execution within the container
+ * - Workspace with LocalEnvironment for agent execution within the container
  */
 export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   const logger = createLogger()
@@ -46,17 +47,22 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   const dataDir = config.dataDir || '/data'
   const storage = new FileStorage(dataDir)
 
-  // Create workspace service that only uses LocalWorkspace
+  // Create workspace service that uses Workspace with LocalEnvironment
   const workspaceService = new WorkspaceService(null as any, eventService as any, storage)
 
-  // Override workspace factory to always use LocalWorkspace
+  // Override workspace factory to always use LocalEnvironment in worker mode
   workspaceService.createWorkspace = async (taskId: string, repositoryConfig: any) => {
-    return new LocalWorkspace(
+    const environment = new LocalEnvironment(
       taskId,
       repositoryConfig,
       eventService as any,
-      undefined,
-      undefined,
+      config.workspaceDir,
+    )
+    return new Workspace(
+      taskId,
+      repositoryConfig,
+      eventService as any,
+      environment,
       config.workspaceDir,
     )
   }

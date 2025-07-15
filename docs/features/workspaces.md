@@ -93,9 +93,10 @@ graph TB
     end
     
     subgraph "Workspace Layer"
-        WM[Workspace Manager]
-        LW[Local Workspace]
-        DW[Docker Workspace]
+        W[Workspace]
+        FO[FileOperations]
+        LE[LocalEnvironment]
+        DE[DockerEnvironment]
     end
     
     subgraph "Infrastructure Layer"
@@ -109,16 +110,18 @@ graph TB
     TS --> WS
     AS --> WS
     
-    WS --> WM
-    WM --> LW
-    WM --> DW
+    WS --> W
+    W --> FO
+    W --> LE
+    W --> DE
     
-    LW --> GIT
-    LW --> FS
-    DW --> DOC
+    FO --> GIT
+    FO --> FS
+    LE --> FS
+    DE --> DOC
     
     style WS fill:#f9f,stroke:#333,stroke-width:4px
-    style WM fill:#bbf,stroke:#333,stroke-width:2px
+    style W fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 **Implementation Details:**
@@ -134,117 +137,161 @@ The workspace system architecture is organized into distinct layers:
    - `apps/backend/services/task.service.ts` - Task service that requests workspace creation
    - `apps/backend/agents/` - Agent implementations that execute within workspaces
 
-2. **Workspace Layer** - Workspace implementations
-   - `apps/backend/workspaces/base.ts` - Abstract base class defining workspace interface
-   - `apps/backend/workspaces/local.ts` - Local filesystem workspace using git worktrees
-   - `apps/backend/workspaces/docker.ts` - Docker container-based workspace implementation
+2. **Workspace Layer** - Unified workspace implementation
+   - `apps/backend/workspaces/workspace.ts` - Unified workspace class that composes FileOperations and Environment
+   - `apps/backend/services/file-operations.service.ts` - Service handling all file and git operations
+   - `apps/backend/environments/local-environment.ts` - Local execution environment
+   - `apps/backend/environments/docker-environment.ts` - Docker container execution environment
 
 3. **Infrastructure Layer** - Low-level utilities
    - `apps/backend/utils/git-utils.ts` - Git operations including worktree management
    - `apps/backend/utils/file-search.ts` - File system search utilities
 
-### Workspace Hierarchy
+### Workspace Architecture
 
 ```mermaid
 classDiagram
-    class BaseWorkspace {
-        <<abstract>>
+    class Workspace {
         +taskId: string
+        +type: 'local' | 'docker'
         +status: WorkspaceStatus
         +setup(): Promise~void~
         +teardown(): Promise~void~
-        +executeCommand(): Promise~CommandResult~
+        +runCommand(): Promise~CommandResult~
         +listFiles(): Promise~FileInfo[]~
+        +readFile(): Promise~string~
+        +writeFile(): Promise~void~
+        +searchFiles(): Promise~FileSearchResponse~
+        +getGitDiff(): Promise~GitDiffResponse~
+        +getGitStatus(): Promise~GitStatus~
+        +getGitChanges(): Promise~GitChanges~
     }
     
-    class LocalWorkspace {
+    class FileOperations {
+        +pathExists(): Promise~boolean~
+        +isWorkspacePathValid(): Promise~boolean~
+        +listFiles(): Promise~string[]~
+        +readFile(): Promise~string~
+        +writeFile(): Promise~void~
+        +searchFiles(): Promise~FileSearchResponse~
+        +getGitDiff(): Promise~GitDiffResponse~
+        +getGitStatus(): Promise~GitStatus~
+        +getGitChanges(): Promise~GitChanges~
+        +hasUncommittedChanges(): Promise~boolean~
+    }
+    
+    class BaseEnvironment {
+        <<abstract>>
+        +getType(): 'local' | 'docker'
+        +getStatus(): EnvironmentStatus
+        +setup(): Promise~void~
+        +teardown(): Promise~void~
+        +runCommand(): Promise~CommandResult~
+        +isRunning(): boolean
+        +stopAgent(): Promise~boolean~
+        +startServer?(): Promise~ServerStatus~
+        +stopServer?(): Promise~boolean~
+        +getServerStatus?(): Promise~ServerStatus~
+        +getServerLogs?(): Promise~string~
+    }
+    
+    class LocalEnvironment {
         -workspacePath: string
-        -branchName: string
-        +createGitWorktree()
         +runSetupCommands()
+        +executeCommand()
     }
     
-    class DockerWorkspace {
+    class DockerEnvironment {
         -containerId: string
         -containerName: string
         +createContainer()
+        +executeInContainer()
     }
     
-    
-    BaseWorkspace <|-- LocalWorkspace
-    BaseWorkspace <|-- DockerWorkspace
+    Workspace --> FileOperations : composes
+    Workspace --> BaseEnvironment : composes
+    BaseEnvironment <|-- LocalEnvironment
+    BaseEnvironment <|-- DockerEnvironment
 ```
 
-**Workspace Class Implementation Details:**
+**New Workspace Architecture Implementation Details:**
 
-1. **BaseWorkspace Abstract Class** (`apps/backend/workspaces/base.ts`)
-   - Defines common interface for all workspace types
-   - Properties:
+1. **Unified Workspace Class** (`apps/backend/workspaces/workspace.ts`)
+   - Single implementation that composes FileOperations and Environment
+   - **Properties:**
      - `taskId`: Unique identifier linking to task
      - `repositoryConfig`: Configuration from repository service
-     - `eventService`: For emitting workspace events
-   - Abstract methods that subclasses must implement:
-     - `setup()`: Initialize workspace environment
-     - `teardown()`: Clean up resources
-     - `runCommand()`: Execute shell commands
-     - `listFiles()`: Directory traversal
-     - `readFile()`: File content retrieval
-     - `writeFile()`: File modification
+     - `environment`: Either LocalEnvironment or DockerEnvironment
+     - `fileOperations`: FileOperations service instance
+   - **Key Methods:**
+     - `setup()`: Coordinates environment setup and file operations validation
+     - `teardown()`: Orchestrates cleanup of both environment and file operations
+     - `toWorkspaceInfo()`: Converts to storage-compatible object
+     - `getStatus()`: Maps environment status to workspace status
+   - **File Operations (delegated to FileOperations service):**
+     - `listFiles()`, `readFile()`, `writeFile()`: File system operations
      - `searchFiles()`: File search functionality
-     - `getGitDiff()`: Version control changes
-     - `isWorkspacePathValid()`: Check if workspace path/container is valid
-     - `toWorkspaceInfo()`: Convert to storage-compatible object
-     - `getWorkspacePath()`: Get workspace path or container ID
-   - Optional server management methods:
-     - `startServer()`: Start development server
-     - `stopServer()`: Stop development server
-     - `restartServer()`: Restart development server
-     - `getServerStatus()`: Get server running status
-     - `getServerLogs()`: Retrieve server logs
+     - `getGitDiff()`, `getGitStatus()`, `getGitChanges()`: Git operations
+     - `hasUncommittedChanges()`: Git status checking
+     - `isWorkspacePathValid()`: Workspace path validation
+   - **Environment Operations (delegated to Environment):**
+     - `runCommand()`: Execute shell commands
+     - `isRunning()`: Check if agent is running
+     - `stopAgent()`: Stop running agent
+     - `startServer()`, `stopServer()`, `getServerStatus()`, `getServerLogs()`: Server management
 
-2. **LocalWorkspace Implementation** (`apps/backend/workspaces/local.ts`)
-   - Uses git worktrees for isolation
-   - Key methods:
-     - `createGitWorktree()`: Sets up isolated git working directory
-     - `runSetupCommands()`: Executes npm install, pip install, etc.
-     - `validatePath()`: Ensures operations stay within workspace
-     - `executeCommand()`: Runs commands with timeout and resource limits
-     - `getGitStatus()`: Returns detailed git sync status with origin
-     - `hasUnmergedCommits()`: Checks for commits not in base branch
-     - `isBehindBase()`: Checks if workspace is behind base branch
-     - `getOriginSyncStatus()`: Gets sync status with origin remote
-   - State management:
+2. **FileOperations Service** (`apps/backend/services/file-operations.service.ts`)
+   - **Purpose:** Handles all file system and git operations within a workspace
+   - **Core Operations:**
+     - `pathExists()`: Check if file/directory exists
+     - `isWorkspacePathValid()`: Validates workspace path and git repository
+     - `listFiles()`: Directory traversal with security checks
+     - `readFile()`: File content retrieval with size limits (10MB)
+     - `writeFile()`: File modification with path validation
+     - `searchFiles()`: File search using existing utilities
+   - **Git Operations:**
+     - `getGitDiff()`: Gets detailed git diff using existing utils
+     - `getGitStatus()`: Returns comprehensive git status vs base branch
+     - `getGitChanges()`: Returns working directory changes
+     - `hasUncommittedChanges()`: Checks for uncommitted changes
+   - **Security Features:**
+     - Path traversal protection using `path.resolve()` checks
+     - Workspace boundary enforcement
+     - File size limits for read operations
+
+3. **LocalEnvironment Implementation** (`apps/backend/environments/local-environment.ts`)
+   - **Purpose:** Handles local command execution and process management
+   - **Key Methods:**
+     - `setup()`: Runs setup commands in background
+     - `teardown()`: Stops processes and cleans up
+     - `runCommand()`: Executes commands with timeout and resource limits
+     - `isRunning()`: Checks if agent is running
+     - `stopAgent()`: Stops running agent
+   - **State Management:**
      - Tracks setup progress with `setupInProgress` and `setupComplete` flags
-     - Monitors running processes
+     - Monitors running processes and agents
      - Manages background tasks
-     - Auto-recreates missing worktrees during setup
-   - Branch detection:
-     - Intelligently detects existing branches from workspace paths
-     - Handles recovery when worktree is missing but branch exists
-   - Server management:
-     - Methods delegate to PreviewEnvironmentService
-     - Throws errors directing users to use preview environment endpoints
+   - **Server Management:**
+     - Optional preview server management
+     - Integrates with PreviewEnvironmentService
 
-3. **DockerWorkspace Implementation** (`apps/backend/workspaces/docker.ts`)
-   - Container-based isolation that always runs in worker mode
-   - Key methods:
+4. **DockerEnvironment Implementation** (`apps/backend/environments/docker-environment.ts`)
+   - **Purpose:** Handles Docker container-based execution
+   - **Key Methods:**
+     - `setup()`: Creates and starts Docker container
+     - `teardown()`: Stops and removes container
+     - `runCommand()`: Executes commands inside container
      - `createContainer()`: Docker container initialization
-     - `executeInContainer()`: Runs commands inside Docker
-     - `getContainerLogs()`: Retrieves execution logs
-   - Architecture:
-     - Runs the entire backend inside the container
-     - Uses SSE (Server-Sent Events) for real-time event streaming
-     - HTTP communication with worker backend on port 8001
-     - Health check polling during setup
-     - Agent execution triggered via HTTP endpoints
-     - Maintains `eventStreamController` for SSE connections
-   - File Operations:
-     - Uses `WorkspaceFileOperations` utility class for direct file access
-     - All file operations happen within the container
-   - Container lifecycle:
+     - `getContainerId()`: Returns container ID
+   - **Container Management:**
      - Creates named containers per task: `moatless-task-<task-id>`
      - Manages volume mounts and environment variables
      - Uses custom Docker image with backend pre-installed
+   - **Worker Mode Architecture:**
+     - Runs entire backend inside the container
+     - HTTP communication with worker backend on port 8001
+     - Health check polling during setup
+     - Port allocation for worker and preview services
 
 ## Isolation Architecture
 
