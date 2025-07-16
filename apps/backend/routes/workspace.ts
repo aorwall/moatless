@@ -12,6 +12,8 @@ import {
   GitStatusSchema,
   SyncWorkspaceResponseSchema,
   TaskFileSearchSchema,
+  WorkspaceSetupRequestSchema,
+  WorkspaceSetupResponseSchema,
   WorkspaceStatusResponseSchema,
 } from '@moatless/types'
 import type { Hono } from 'hono'
@@ -587,6 +589,63 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.runCommand(taskId, command, timeout)
       return c.json(result)
+    },
+  )
+
+  // Setup workspace
+  app.post(
+    `${prefix}/:taskId/setup`,
+    describeRoute({
+      description: 'Setup workspace environment for a task',
+      parameters: [CommonParameters.taskId],
+      requestBody: {
+        description: 'Workspace setup parameters',
+        content: {
+          'application/json': {
+            schema: resolver(WorkspaceSetupRequestSchema) as any,
+          },
+        },
+        required: false,
+      },
+      responses: {
+        200: {
+          description: 'Workspace setup result',
+          content: {
+            'application/json': {
+              schema: resolver(WorkspaceSetupResponseSchema),
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task not found',
+        },
+        500: {
+          description: 'Setup failed',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = getTaskId(c)
+
+      try {
+        const body = await c.req.json().catch(() => ({}))
+        const validatedBody = WorkspaceSetupRequestSchema.parse(body)
+        const { iterationNumber } = validatedBody
+
+        await services.workspace.setupWorkspace(taskId, iterationNumber)
+
+        return c.json({
+          success: true,
+          message: 'Workspace setup completed successfully',
+          status: 'idle',
+        })
+      } catch (error) {
+        handleServiceError(error, 'Setup workspace')
+      }
     },
   )
 }
