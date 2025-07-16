@@ -2,8 +2,8 @@
 
 /* Base styles for the diff viewer */
 .github-diff-file {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo,
-    monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 .github-diff-header {
