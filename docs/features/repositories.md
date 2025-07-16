@@ -13,12 +13,12 @@
 ### Core Methods
 ```typescript
 // Repository Service
-getRepositories(): Promise<Repository[]>
-getRepository(id: string): Promise<Repository | null>
+listRepositories(): Promise<Repository[]>
+getRepositoryById(id: string): Promise<Repository | null>
 createRepository(data: CreateRepositoryDto): Promise<Repository>
 updateRepository(id: string, data: UpdateRepositoryDto): Promise<Repository>
 deleteRepository(id: string): Promise<void>
-detectFramework(workspaceDir: string): Promise<FrameworkConfig>
+verifyRepositorySetup(id: string): Promise<WorkspaceStatusResponse>
 ```
 
 ## Architecture Overview

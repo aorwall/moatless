@@ -1,5 +1,5 @@
 import type { Task, TaskIteration } from '@moatless/types'
-import { EventType, WorkspaceStatus } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BaseAgent } from '../../agents/base-agent.js'
 import type { BaseEnvironment } from '../../environments/base-environment.js'
@@ -88,10 +88,7 @@ const createMockEnvironment = (mockAgent?: BaseAgent): BaseEnvironment =>
   }) as any
 
 // Create mock workspace
-const createMockWorkspace = (
-  status: WorkspaceStatus = WorkspaceStatus.IDLE,
-  mockAgent?: BaseAgent,
-): Workspace => {
+const createMockWorkspace = (status = 'idle', mockAgent?: BaseAgent): Workspace => {
   const mockEnvironment = createMockEnvironment(mockAgent)
   return {
     getStatus: vi.fn().mockReturnValue(status),
@@ -169,7 +166,7 @@ describe('AgentService', () => {
 
     it('should execute agent successfully', async () => {
       const mockAgent = createMockAgent()
-      const mockWorkspace = createMockWorkspace(WorkspaceStatus.IDLE, mockAgent)
+      const mockWorkspace = createMockWorkspace('idle', mockAgent)
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       // Mock agent run to return events
@@ -230,7 +227,7 @@ describe('AgentService', () => {
     })
 
     it('should throw error if workspace is setting up', async () => {
-      const mockWorkspace = createMockWorkspace(WorkspaceStatus.SETTING_UP)
+      const mockWorkspace = createMockWorkspace('setting_up')
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       await expect(service.executeAgent('task-1', 'Test message', mockIteration)).rejects.toThrow(
@@ -244,7 +241,7 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       // Mock the recreated workspace as ready
-      const recreatedWorkspace = createMockWorkspace(WorkspaceStatus.IDLE)
+      const recreatedWorkspace = createMockWorkspace('idle')
       vi.mocked(recreatedWorkspace.isWorkspacePathValid).mockResolvedValue(true)
       vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedWorkspace)
 

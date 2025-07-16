@@ -4,8 +4,9 @@ import type {
   SimpleTaskResponse,
   Task,
   TaskIteration,
+  WorkspaceStatus,
 } from '@moatless/types'
-import { EventType, WorkspaceStatus } from '@moatless/types'
+import { EventType } from '@moatless/types'
 
 // Re-export repository factories
 export * from './factories/repository'
@@ -108,7 +109,7 @@ export function createMockWorkspaceStatus(
   overrides?: Partial<MockWorkspaceStatusResponse>,
 ): MockWorkspaceStatusResponse {
   return {
-    status: WorkspaceStatus.IDLE,
+    status: 'idle' as const,
     hasUncommittedChanges: false,
     hasUnmergedCommits: false,
     isBehindBase: false,

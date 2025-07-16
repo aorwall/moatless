@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { SDKResultMessage } from '@moatless/types'
-import { EventType, type TaskIteration, TaskNotFoundError, WorkspaceStatus } from '@moatless/types'
+import { EventType, type TaskIteration, TaskNotFoundError } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
 import { logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
@@ -66,10 +66,10 @@ export class AgentService {
       workspaceType: workspace.type,
     })
 
-    if (status === WorkspaceStatus.SETTING_UP) {
+    if (status === 'setting_up') {
       throw new Error('Workspace is still setting up')
     }
-    if (status === WorkspaceStatus.RUNNING) {
+    if (status === 'running') {
       throw new Error('Agent is already running')
     }
 
@@ -96,7 +96,7 @@ export class AgentService {
         newStatus: recreatedStatus,
       })
 
-      if (recreatedStatus !== WorkspaceStatus.IDLE) {
+      if (recreatedStatus !== 'idle') {
         throw new Error('Workspace recreation failed - workspace not ready')
       }
     }
@@ -504,7 +504,7 @@ export class AgentService {
 
     while (Date.now() - startWait < maxWaitTime) {
       const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace && workspace.getStatus() === WorkspaceStatus.IDLE) {
+      if (workspace && workspace.getStatus() === 'idle') {
         const waitTime = Date.now() - startWait
         agentLogger.info('Workspace recreated successfully', {
           taskId,

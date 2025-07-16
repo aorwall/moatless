@@ -1,5 +1,10 @@
-import { WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanupTestDataDir, setupTestDataDir } from '../../test/helpers/data-dir.helper.js'
+import {
+  createMockDockerWorkspace,
+  createMockWorkspace,
+  createMockWorkspaceWithInvalidPath,
+} from '../../test/mocks/workspace.mock.js'
 import type { Workspace } from '../../workspaces/workspace.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
@@ -30,7 +35,12 @@ describe('AgentService - Workspace Recreation', () => {
     updatedAt: new Date(),
   }
 
-  beforeEach(() => {
+  let tempDataDir: string
+
+  beforeEach(async () => {
+    // Setup test data directory
+    tempDataDir = await setupTestDataDir('agent-workspace')
+
     // Setup mock storage
     mockStorage = {
       save: vi.fn(),
@@ -60,31 +70,27 @@ describe('AgentService - Workspace Recreation', () => {
       emitEvent: vi.fn(),
     } as unknown as EventService
 
-    // Setup mock workspace
-    mockWorkspace = {
+    // Setup mock workspace using factory
+    mockWorkspace = createMockWorkspaceWithInvalidPath({
       id: taskId,
-      type: 'local',
-      status: 'ready',
       repositoryId: mockRepository.id,
-      getStatus: vi.fn().mockReturnValue(WorkspaceStatus.IDLE),
-      isWorkspacePathValid: vi.fn().mockResolvedValue(false),
       getWorkspacePath: vi.fn().mockReturnValue(testWorkspacePath),
-      setup: vi.fn().mockResolvedValue(undefined),
-      setRunningAgent: vi.fn(),
-    } as unknown as Workspace
+    })
 
     // Setup mock workspace service
     mockWorkspaceService = {
       getOrCreateWorkspace: vi.fn().mockResolvedValue(mockWorkspace),
       getWorkspace: vi.fn().mockResolvedValue(mockWorkspace),
       setupWorkspace: vi.fn().mockResolvedValue(undefined),
+      removeWorktree: vi.fn(),
     } as unknown as WorkspaceService
 
     agentService = new AgentService(mockStorage, mockEventService, mockWorkspaceService)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.clearAllMocks()
+    await cleanupTestDataDir(tempDataDir)
   })
 
   it('should detect missing workspace path and trigger recreation', async () => {
@@ -100,12 +106,13 @@ describe('AgentService - Workspace Recreation', () => {
     // Mock workspace path doesn't exist
     vi.mocked(mockWorkspace.isWorkspacePathValid).mockResolvedValue(false)
 
-    // Mock the recreated workspace
-    const recreatedWorkspace = {
-      ...mockWorkspace,
-      getStatus: vi.fn().mockReturnValue(WorkspaceStatus.IDLE),
+    // Mock the recreated workspace with valid path
+    const recreatedWorkspace = createMockWorkspace({
+      id: taskId,
+      repositoryId: mockRepository.id,
+      getWorkspacePath: vi.fn().mockReturnValue(testWorkspacePath),
       isWorkspacePathValid: vi.fn().mockResolvedValue(true),
-    }
+    })
 
     // Setup getOrCreateWorkspace to return recreated workspace after setupWorkspace is called
     let setupWorkspaceCalled = false
@@ -115,27 +122,12 @@ describe('AgentService - Workspace Recreation', () => {
 
     vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(async () => {
       if (setupWorkspaceCalled) {
-        return recreatedWorkspace as unknown as Workspace
+        return recreatedWorkspace
       }
       return mockWorkspace
     })
 
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(
-      recreatedWorkspace as unknown as Workspace,
-    )
-
-    // Mock agent creation
-    const mockAgent = {
-      run: vi.fn().mockImplementation(async function* () {
-        yield { type: 'test', payload: {} }
-      }),
-      getSessionId: vi.fn(),
-      stop: vi.fn(),
-    }
-    vi.spyOn(
-      agentService as unknown as { createAgent: () => Promise<unknown> },
-      'createAgent',
-    ).mockResolvedValue(mockAgent)
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedWorkspace)
 
     // Execute agent - should detect missing path and recreate
     await agentService.executeAgent(taskId, 'test message', iteration)
@@ -170,13 +162,13 @@ describe('AgentService - Workspace Recreation', () => {
     vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValue(undefined)
 
     // Mock getWorkspace to return workspace that's still not ready
-    const notReadyWorkspace = {
-      ...mockWorkspace,
-      getStatus: vi.fn().mockReturnValue(WorkspaceStatus.SETTING_UP),
-    }
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(
-      notReadyWorkspace as unknown as Workspace,
-    )
+    const notReadyWorkspace = createMockWorkspace({
+      id: taskId,
+      repositoryId: mockRepository.id,
+      getStatus: vi.fn().mockReturnValue('setting_up'),
+      isWorkspacePathValid: vi.fn().mockResolvedValue(false),
+    })
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(notReadyWorkspace)
 
     // Execute agent - should fail due to workspace recreation timeout
     await expect(agentService.executeAgent(taskId, 'test message', iteration)).rejects.toThrow(
@@ -200,21 +192,15 @@ describe('AgentService - Workspace Recreation', () => {
       initialMessage: 'test message',
     }
 
-    // Mock workspace path exists
-    vi.mocked(mockWorkspace.isWorkspacePathValid).mockResolvedValue(true)
+    // Update mock workspace to have valid path
+    const validWorkspace = createMockWorkspace({
+      id: taskId,
+      repositoryId: mockRepository.id,
+      getWorkspacePath: vi.fn().mockReturnValue(testWorkspacePath),
+      isWorkspacePathValid: vi.fn().mockResolvedValue(true),
+    })
 
-    // Mock agent creation
-    const mockAgent = {
-      run: vi.fn().mockImplementation(async function* () {
-        yield { type: 'test', payload: {} }
-      }),
-      getSessionId: vi.fn(),
-      stop: vi.fn(),
-    }
-    vi.spyOn(
-      agentService as unknown as { createAgent: () => Promise<unknown> },
-      'createAgent',
-    ).mockResolvedValue(mockAgent)
+    vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(validWorkspace)
 
     // Execute agent - should proceed without recreation
     await agentService.executeAgent(taskId, 'test message', iteration)
@@ -236,24 +222,21 @@ describe('AgentService - Workspace Recreation', () => {
       initialMessage: 'test message',
     }
 
-    // Setup Docker workspace mock
-    const dockerWorkspace = {
-      ...mockWorkspace,
-      type: 'docker',
-      getStatus: vi.fn().mockReturnValue(WorkspaceStatus.IDLE),
+    // Setup Docker workspace mock with invalid path
+    const dockerWorkspace = createMockDockerWorkspace({
+      id: taskId,
+      repositoryId: mockRepository.id,
       isWorkspacePathValid: vi.fn().mockResolvedValue(false),
-    }
+    })
 
-    vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(
-      dockerWorkspace as unknown as Workspace,
-    )
+    vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(dockerWorkspace)
 
     // Mock successful recreation
-    const recreatedDockerWorkspace = {
-      ...dockerWorkspace,
-      getStatus: vi.fn().mockReturnValue(WorkspaceStatus.IDLE),
+    const recreatedDockerWorkspace = createMockDockerWorkspace({
+      id: taskId,
+      repositoryId: mockRepository.id,
       isWorkspacePathValid: vi.fn().mockResolvedValue(true),
-    }
+    })
 
     // Setup recreation flow
     let setupCalled = false
@@ -263,27 +246,12 @@ describe('AgentService - Workspace Recreation', () => {
 
     vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockImplementation(async () => {
       if (setupCalled) {
-        return recreatedDockerWorkspace as unknown as Workspace
+        return recreatedDockerWorkspace
       }
-      return dockerWorkspace as unknown as Workspace
+      return dockerWorkspace
     })
 
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(
-      recreatedDockerWorkspace as unknown as Workspace,
-    )
-
-    // Mock agent
-    const mockAgent = {
-      run: vi.fn().mockImplementation(async function* () {
-        yield { type: 'test', payload: {} }
-      }),
-      getSessionId: vi.fn(),
-      stop: vi.fn(),
-    }
-    vi.spyOn(
-      agentService as unknown as { createAgent: () => Promise<unknown> },
-      'createAgent',
-    ).mockResolvedValue(mockAgent)
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedDockerWorkspace)
 
     // Execute
     await agentService.executeAgent(taskId, 'test message', iteration)

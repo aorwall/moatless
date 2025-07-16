@@ -246,7 +246,7 @@ describe('WorkspaceService', () => {
       // Setup the workspace so file operations can work
       await workspace.setup()
 
-      const files = await service.listFiles('test-task')
+      const files = await workspace.listFiles()
 
       expect(files).toContain('test1.js')
       expect(files).toContain('test2.js')
@@ -267,10 +267,10 @@ describe('WorkspaceService', () => {
 
       // Write file
       const content = 'console.log("Hello, world!");'
-      await service.writeFile('test-task', 'test.js', content)
+      await workspace.writeFile('test.js', content)
 
       // Read file - mock should return 'file content'
-      const readContent = await service.readFile('test-task', 'test.js')
+      const readContent = await workspace.readFile('test.js')
       expect(readContent).toBe('file content') // From our mock
     })
 
@@ -281,13 +281,11 @@ describe('WorkspaceService', () => {
       await workspace.setup()
 
       // Attempt path traversal
-      await expect(service.readFile('test-task', '../../../etc/passwd')).rejects.toThrow(
+      await expect(workspace.readFile('../../../etc/passwd')).rejects.toThrow('Access denied')
+
+      await expect(workspace.writeFile('../../../etc/passwd', 'malicious')).rejects.toThrow(
         'Access denied',
       )
-
-      await expect(
-        service.writeFile('test-task', '../../../etc/passwd', 'malicious'),
-      ).rejects.toThrow('Access denied')
     })
   })
 

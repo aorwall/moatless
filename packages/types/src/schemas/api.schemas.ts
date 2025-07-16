@@ -189,9 +189,6 @@ export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
 export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>
 
-// Workspace Sync Types
-export type SyncWorkspaceResponse = z.infer<typeof SyncWorkspaceResponseSchema>
-
 // ============================================
 // Pagination Response Types
 // ============================================
@@ -287,21 +284,6 @@ export const StreamStatusResponseSchema = z.object({
   taskEventCounts: z.record(z.string(), z.number()),
   totalConnections: z.number(),
   totalEventCount: z.number(),
-})
-
-// ============================================
-// Workspace Sync Schemas
-// ============================================
-
-// Sync with Main Response Schema
-export const SyncWorkspaceResponseSchema = z.object({
-  success: z.boolean().describe('Whether the sync was successful'),
-  conflicts: z.boolean().describe('Whether conflicts were detected'),
-  message: z.string().describe('Description of the sync result'),
-  commitsBehind: z.number().describe('Number of commits workspace is behind').optional(),
-  commitsAhead: z.number().describe('Number of commits workspace is ahead').optional(),
-  filesWithConflicts: z.array(z.string()).describe('Files that have conflicts').optional(),
-  unmergedPaths: z.array(z.string()).describe('Paths that could not be merged').optional(),
 })
 
 // ============================================
