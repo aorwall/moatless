@@ -1,11 +1,11 @@
+import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types'
 import {
   FRAMEWORK_DEFAULT_COMMANDS,
   FRAMEWORK_OPTIONS,
   INJECTION_METHOD_OPTIONS,
-} from '@moatless/types/constants/preview-config'
-import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types/types/repository'
+} from '@moatless/types'
 import { ChevronDown, Info, Loader2, Wand2 } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -37,11 +37,17 @@ export function PreviewConfigForm({
 }: PreviewConfigFormProps) {
   const [isDetecting, setIsDetecting] = useState(false)
   const [showInjectionDetails, setShowInjectionDetails] = useState(false)
+
+  // Generate unique IDs for form elements
+  const frameworkId = useId()
+  const frameworkVersionId = useId()
+  const serverStartCommandId = useId()
+  const injectionMethodId = useId()
+  const indexPathId = useId()
   const [config, setConfig] = useState<PreviewConfig>({
     framework: previewConfig?.framework,
     frameworkVersion: previewConfig?.frameworkVersion || '',
     serverStartCommand: previewConfig?.serverStartCommand || '',
-    serverPort: previewConfig?.serverPort || 3000,
     injectionStrategy: previewConfig?.injectionStrategy || {
       method: 'html-injection',
       config: {},
@@ -62,7 +68,6 @@ export function PreviewConfigForm({
         setConfig({
           ...config,
           ...detected,
-          autoDetected: true,
         })
       }
     } finally {
@@ -82,7 +87,9 @@ export function PreviewConfigForm({
       // Set default server command if none is set or if it's the default for another framework
       serverStartCommand:
         !config.serverStartCommand ||
-        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(config.serverStartCommand as any)
+        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(
+          config.serverStartCommand as (typeof FRAMEWORK_DEFAULT_COMMANDS)[keyof typeof FRAMEWORK_DEFAULT_COMMANDS],
+        )
           ? defaultCommand
           : config.serverStartCommand,
     })
@@ -103,7 +110,7 @@ export function PreviewConfigForm({
               Configure how the preview environment works for this repository
             </CardDescription>
           </div>
-          {config.autoDetected && (
+          {config.framework && (
             <Badge variant="secondary" className="text-xs">
               Auto-detected
             </Badge>
@@ -139,9 +146,9 @@ export function PreviewConfigForm({
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="framework">Framework</Label>
+                <Label htmlFor={frameworkId}>Framework</Label>
                 <Select value={config.framework} onValueChange={handleFrameworkChange}>
-                  <SelectTrigger id="framework">
+                  <SelectTrigger id={frameworkId}>
                     <SelectValue placeholder="Select framework" />
                   </SelectTrigger>
                   <SelectContent>
@@ -155,9 +162,9 @@ export function PreviewConfigForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="frameworkVersion">Framework Version</Label>
+                <Label htmlFor={frameworkVersionId}>Framework Version</Label>
                 <Input
-                  id="frameworkVersion"
+                  id={frameworkVersionId}
                   placeholder="e.g., 5.0.0"
                   value={config.frameworkVersion}
                   onChange={(e) => setConfig({ ...config, frameworkVersion: e.target.value })}
@@ -169,9 +176,9 @@ export function PreviewConfigForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="serverStartCommand">Server Start Command</Label>
+              <Label htmlFor={serverStartCommandId}>Server Start Command</Label>
               <Input
-                id="serverStartCommand"
+                id={serverStartCommandId}
                 placeholder="e.g., npm run dev"
                 value={config.serverStartCommand}
                 onChange={(e) => setConfig({ ...config, serverStartCommand: e.target.value })}
@@ -188,23 +195,6 @@ export function PreviewConfigForm({
                     </code>
                   </span>
                 )}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="serverPort">Server Port</Label>
-              <Input
-                id="serverPort"
-                type="number"
-                placeholder="3000"
-                value={config.serverPort}
-                onChange={(e) =>
-                  setConfig({ ...config, serverPort: parseInt(e.target.value) || 3000 })
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                Used to replace {'{PORT}'} placeholders in server commands. The system always finds
-                and uses random available ports for actual binding.
               </p>
             </div>
 
@@ -280,7 +270,7 @@ export function PreviewConfigForm({
               </Collapsible>
 
               <div className="space-y-2">
-                <Label htmlFor="injectionMethod">Injection Method</Label>
+                <Label htmlFor={injectionMethodId}>Injection Method</Label>
                 <Select
                   value={config.injectionStrategy?.method || 'html-injection'}
                   onValueChange={(value) =>
@@ -293,7 +283,7 @@ export function PreviewConfigForm({
                     })
                   }
                 >
-                  <SelectTrigger id="injectionMethod">
+                  <SelectTrigger id={injectionMethodId}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -345,9 +335,9 @@ export function PreviewConfigForm({
 
               {config.injectionStrategy?.method === 'html-injection' && (
                 <div className="space-y-2">
-                  <Label htmlFor="indexPath">HTML File Path</Label>
+                  <Label htmlFor={indexPathId}>HTML File Path</Label>
                   <Input
-                    id="indexPath"
+                    id={indexPathId}
                     placeholder="e.g., index.html or public/index.html"
                     value={config.injectionStrategy.config?.indexPath || ''}
                     onChange={(e) =>

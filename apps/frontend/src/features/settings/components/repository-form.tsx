@@ -1,13 +1,10 @@
-import {
-  CreateRepositorySchema,
-  UpdateRepositorySchema,
-} from '@moatless/types/schemas/repository.schemas'
 import type {
   CodeExecution,
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
+import { CreateRepositorySchema, UpdateRepositorySchema } from '@moatless/types'
 
 import { useId, useState } from 'react'
 import { z } from 'zod'
@@ -72,8 +69,6 @@ export function RepositoryForm({
     dockerSetupCommands: '',
     dockerVolumes: [] as Array<string>,
     dockerPorts: {} as Record<string, number>,
-    // Variables
-    variables: {} as Record<string, string>,
   })
 
   const getRepositoryFields = (repo: RepositoryResponse) => {
@@ -90,7 +85,7 @@ export function RepositoryForm({
   const getExecutionFields = (exec: CodeExecution) => {
     if (exec.type === 'local') {
       return {
-        localSetupCommands: exec.setupCommands || '',
+        localSetupCommands: Array.isArray(exec.setupCommands) ? exec.setupCommands.join('\n') : '',
         dockerImage: '',
         dockerEnvVars: {} as Record<string, string>,
         dockerSetupCommands: '',
@@ -103,7 +98,7 @@ export function RepositoryForm({
       localSetupCommands: '',
       dockerImage: exec.dockerImage || '',
       dockerEnvVars: exec.envVars || {},
-      dockerSetupCommands: exec.setupCommands || '',
+      dockerSetupCommands: Array.isArray(exec.setupCommands) ? exec.setupCommands.join('\n') : '',
       dockerVolumes: exec.volumes || [],
       dockerPorts: exec.ports || {},
     }
@@ -123,7 +118,6 @@ export function RepositoryForm({
       codeExecutionType: exec.type,
       ...getRepositoryFields(initialData),
       ...getExecutionFields(exec),
-      variables: initialData.variables || {},
     }
   }
 
@@ -140,7 +134,6 @@ export function RepositoryForm({
           path: formData.localPath,
           useGitWorktrees: formData.useGitWorktrees || undefined,
           codeExecution: createCodeExecution(),
-          variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
         CreateRepositorySchema.parse(request)
       } else {
@@ -150,7 +143,6 @@ export function RepositoryForm({
           path: formData.localPath,
           useGitWorktrees: formData.useGitWorktrees || undefined,
           codeExecution: createCodeExecution(),
-          variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
         }
         UpdateRepositorySchema.parse(request)
       }
@@ -159,7 +151,7 @@ export function RepositoryForm({
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {}
-        error.errors.forEach((err: z.ZodIssue) => {
+        error.issues.forEach((err: z.ZodIssue) => {
           const path = err.path.join('.')
           if (path === 'name') {
             newErrors.name = err.message
@@ -182,7 +174,12 @@ export function RepositoryForm({
     if (formData.codeExecutionType === 'local') {
       return {
         type: 'local',
-        setupCommands: formData.localSetupCommands || undefined,
+        setupCommands: formData.localSetupCommands
+          ? formData.localSetupCommands
+              .split('\n')
+              .map((cmd) => cmd.trim())
+              .filter((cmd) => cmd.length > 0)
+          : undefined,
       }
     }
 
@@ -190,7 +187,12 @@ export function RepositoryForm({
       type: 'docker',
       dockerImage: formData.dockerImage,
       envVars: formData.dockerEnvVars,
-      setupCommands: formData.dockerSetupCommands || undefined,
+      setupCommands: formData.dockerSetupCommands
+        ? formData.dockerSetupCommands
+            .split('\n')
+            .map((cmd) => cmd.trim())
+            .filter((cmd) => cmd.length > 0)
+        : undefined,
       volumes: formData.dockerVolumes.length > 0 ? formData.dockerVolumes : undefined,
       ports: Object.keys(formData.dockerPorts).length > 0 ? formData.dockerPorts : undefined,
     }
@@ -211,7 +213,6 @@ export function RepositoryForm({
             path: formData.localPath,
             useGitWorktrees: formData.useGitWorktrees || undefined,
             codeExecution: createCodeExecution(),
-            variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
           } as CreateRepositoryRequest)
         : ({
             name: formData.name,
@@ -219,7 +220,6 @@ export function RepositoryForm({
             path: formData.localPath,
             useGitWorktrees: formData.useGitWorktrees || undefined,
             codeExecution: createCodeExecution(),
-            variables: Object.keys(formData.variables).length > 0 ? formData.variables : undefined,
           } as UpdateRepositoryRequest)
 
     onSubmit(request)

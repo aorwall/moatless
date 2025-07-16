@@ -6,7 +6,7 @@ import { render } from '@/test-utils/render'
 import { RepositoryForm } from '../repository-form'
 
 // Mock heavy operations to improve test performance
-vi.mock('@moatless/types/schemas', () => ({
+vi.mock('@moatless/types', () => ({
   repositoryFormSchema: {
     parse: vi.fn((data) => data),
     safeParse: vi.fn((data) => ({ success: true, data })),
@@ -14,7 +14,7 @@ vi.mock('@moatless/types/schemas', () => ({
 }))
 
 // Mock the schema imports used in the component
-vi.mock('@moatless/types/schemas/repository.schemas', () => ({
+vi.mock('@moatless/types', () => ({
   CreateRepositorySchema: {
     parse: vi.fn((data) => {
       // Basic validation for required fields - throw if validation fails

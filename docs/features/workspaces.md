@@ -1,741 +1,394 @@
 # Workspace Architecture
 
-## Table of Contents
-1. [Overview](#overview)
-2. [Architectural Principles](#architectural-principles)
-3. [Core Architecture](#core-architecture)
-4. [Isolation Architecture](#isolation-architecture)
-5. [Lifecycle Management](#lifecycle-management)
-6. [Security Architecture](#security-architecture)
-7. [Integration Architecture](#integration-architecture)
-8. [Performance & Scalability](#performance--scalability)
-9. [Monitoring & Observability](#monitoring--observability)
-10. [Best Practices](#best-practices)
+> **Note**: This document is intended to be read by LLMs (Language Learning Models) to understand the workspace system implementation, patterns, and troubleshooting approaches.
 
-## Overview
+## Quick Reference
 
-### Purpose
-The Workspace system creates **isolated execution environments** for AI agents, enabling safe and concurrent task execution while maintaining complete separation between tasks and protecting the main repository.
+### Key Files
+- **Workspace Service**: `apps/backend/services/workspace.service.ts`
+- **Unified Workspace**: `apps/backend/workspaces/workspace.ts`
+- **File Operations**: `apps/backend/services/file-operations.service.ts`
+- **Local Environment**: `apps/backend/environments/local-environment.ts`
+- **Docker Environment**: `apps/backend/environments/docker-environment.ts`
+- **Git Utilities**: `apps/backend/utils/git-utils.ts`
+- **Workspace Routes**: `apps/backend/routes/workspace.routes.ts`
 
-### Key Capabilities
-```mermaid
-graph TB
-    subgraph "Workspace Capabilities"
-        ISO[Isolation & Security]
-        GIT[Git Worktree Management]
-        EXE[Command Execution]
-        FS[File System Operations]
-        LC[Lifecycle Management]
-        MON[Resource Monitoring]
-    end
-    
-    ISO --> |"Process isolation"| EXE
-    ISO --> |"Path sandboxing"| FS
-    GIT --> |"Branch isolation"| LC
-    LC --> |"Setup/Teardown"| MON
-```
+### Core Methods
+**Workspace Service** (`apps/backend/services/workspace.service.ts`):
+- `createWorkspace()` (lines 30-66) - Creates new workspace with environment
+- `cleanupWorkspace()` (lines 560-590) - Environment cleanup only, no worktree removal
+- `removeWorktree()` (lines 241-258) - Worktree removal for task close/delete only
+- `getOrCreateWorkspace()` (lines 308-370) - Gets existing or creates new workspace
+- `ensureWorktreeExists()` (lines 143-188) - Recreates missing worktrees
+- `getLastIterationBranch()` (lines 209-235) - Gets branch from last completed iteration
+- `removeWorktreeIfExists()` (lines 263-306) - Internal worktree removal helper
 
-### Strategic Value
-- **Complete Task Isolation**: Every task operates in its own environment
-- **Concurrent Execution**: Multiple agents work simultaneously without conflicts
-- **Version Control Safety**: Git worktrees prevent code conflicts
-- **Resource Management**: Controlled allocation and cleanup
-- **Security Boundaries**: Sandboxed execution prevents system access
+## Architecture Overview
 
-### Workspace Capabilities
-
-The workspace service provides capability checking to ensure operations are only performed when the workspace is in an appropriate state:
-
-1. **File Operations** (`apps/backend/services/workspace.service.ts`)
-   - `canListFiles()`: Available when workspace exists (any state except NOT_SETUP)
-   - `canReadWriteFiles()`: Available during setup, idle, or running states
-   - `canSearchFiles()`: Available when workspace is initialized
-
-2. **Command Execution**
-   - `canExecuteCommands()`: Only when workspace is in IDLE state
-   - Prevents command execution during setup or when agent is running
-   - Ensures exclusive access to command execution
-
-3. **Git Operations**
-   - `canAccessGit()`: Available when workspace exists
-   - Includes diff generation, branch info, commit status
-   - Works even during active development
-
-4. **Server Management** (Preview Environments)
-   - `canManageServer()`: Available in IDLE or RUNNING states
-   - Start/stop/restart development servers
-   - Port forwarding and log access
-
-5. **State-Based Availability**
-   ```
-   NOT_SETUP:     No operations available
-   SETTING_UP:    File operations only
-   IDLE:          All operations available
-   RUNNING:       File/git operations, no commands
-   ERROR:         Limited to cleanup operations
-   ```
-
-## Core Architecture
-
-### System Architecture
+Workspaces provide isolated execution environments for AI agents using either Git worktrees (local) or Docker containers. The architecture separates file operations from execution environments for better modularity.
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        UI[UI Components]
-        API[API Client]
-    end
+    TS[Task Service] -->|create| WS[Workspace Service]
+    WS -->|composes| W[Unified Workspace]
+    W -->|delegates file ops| FO[FileOperations]
+    W -->|delegates execution| ENV[Environment]
+    ENV -->|local| LE[LocalEnvironment]
+    ENV -->|docker| DE[DockerEnvironment]
     
-    subgraph "Service Layer"
-        WS[Workspace Service]
-        TS[Task Service]
-        AS[Agent Service]
-    end
+    FO -->|uses| GIT[Git Utilities]
+    LE -->|worktree| GIT
+    DE -->|container| DOC[Docker Engine]
     
-    subgraph "Workspace Layer"
-        WM[Workspace Manager]
-        LW[Local Workspace]
-        DW[Docker Workspace]
-    end
-    
-    subgraph "Infrastructure Layer"
-        GIT[Git Worktrees]
-        FS[File System]
-        DOC[Docker Engine]
-    end
-    
-    UI --> API
-    API --> WS
-    TS --> WS
-    AS --> WS
-    
-    WS --> WM
-    WM --> LW
-    WM --> DW
-    
-    LW --> GIT
-    LW --> FS
-    DW --> DOC
-    
-    style WS fill:#f9f,stroke:#333,stroke-width:4px
-    style WM fill:#bbf,stroke:#333,stroke-width:2px
+    AS[Agent Service] -->|execute in| WS
 ```
 
-**Implementation Details:**
+## New Architecture Design
 
-The workspace system architecture is organized into distinct layers:
-
-1. **Service Layer** - Core business logic
-   - `apps/backend/services/workspace.service.ts` - Main workspace service orchestrating all workspace operations
-     - Worker mode selection: Uses `repository.codeExecution.workspaceType` OR `process.env.DEFAULT_WORKSPACE_TYPE`
-     - Setup persistence: Saves workspace path to task storage after successful setup
-     - Force cleanup: Always uses `force: true` internally for workspace cleanup
-     - Git status checking: Conditional based on workspace type (LocalWorkspace only)
-   - `apps/backend/services/task.service.ts` - Task service that requests workspace creation
-   - `apps/backend/agents/` - Agent implementations that execute within workspaces
-
-2. **Workspace Layer** - Workspace implementations
-   - `apps/backend/workspaces/base.ts` - Abstract base class defining workspace interface
-   - `apps/backend/workspaces/local.ts` - Local filesystem workspace using git worktrees
-   - `apps/backend/workspaces/docker.ts` - Docker container-based workspace implementation
-
-3. **Infrastructure Layer** - Low-level utilities
-   - `apps/backend/utils/git-utils.ts` - Git operations including worktree management
-   - `apps/backend/utils/file-search.ts` - File system search utilities
-
-### Workspace Hierarchy
+### Composition-Based Architecture
 
 ```mermaid
 classDiagram
-    class BaseWorkspace {
-        <<abstract>>
+    class Workspace {
         +taskId: string
+        +type: 'local' | 'docker'
         +status: WorkspaceStatus
         +setup(): Promise~void~
         +teardown(): Promise~void~
-        +executeCommand(): Promise~CommandResult~
-        +listFiles(): Promise~FileInfo[]~
+        +runCommand(): Promise~CommandResult~
+        +listFiles(): Promise~string[]~
+        +readFile(): Promise~string~
+        +writeFile(): Promise~void~
+        +searchFiles(): Promise~FileSearchResponse~
+        +getGitDiff(): Promise~GitDiffResponse~
+        +getGitStatus(): Promise~GitStatus~
+        +getGitChanges(): Promise~GitChanges~
+        +getCurrentCommitHash(): Promise~string~
     }
     
-    class LocalWorkspace {
+    class FileOperations {
+        +pathExists(): Promise~boolean~
+        +isWorkspacePathValid(): Promise~boolean~
+        +listFiles(): Promise~string[]~
+        +readFile(): Promise~string~
+        +writeFile(): Promise~void~
+        +searchFiles(): Promise~FileSearchResponse~
+        +getGitDiff(): Promise~GitDiffResponse~
+        +getGitStatus(): Promise~GitStatus~
+        +getGitChanges(): Promise~GitChanges~
+        +hasUncommittedChanges(): Promise~boolean~
+        +getCurrentCommitHash(): Promise~string~
+        +isValidWorktree(): Promise~boolean~
+    }
+    
+    class BaseEnvironment {
+        <<abstract>>
+        +getType(): 'local' | 'docker'
+        +getStatus(): EnvironmentStatus
+        +setup(): Promise~void~
+        +teardown(): Promise~void~
+        +runCommand(): Promise~CommandResult~
+        +isRunning(): boolean
+        +stopAgent(): Promise~boolean~
+    }
+    
+    class LocalEnvironment {
         -workspacePath: string
-        -branchName: string
-        +createGitWorktree()
         +runSetupCommands()
+        +executeCommand()
     }
     
-    class DockerWorkspace {
+    class DockerEnvironment {
         -containerId: string
         -containerName: string
         +createContainer()
+        +executeInContainer()
     }
     
-    
-    BaseWorkspace <|-- LocalWorkspace
-    BaseWorkspace <|-- DockerWorkspace
+    Workspace --> FileOperations : composes
+    Workspace --> BaseEnvironment : composes
+    BaseEnvironment <|-- LocalEnvironment
+    BaseEnvironment <|-- DockerEnvironment
 ```
 
-**Workspace Class Implementation Details:**
+### Key Components
 
-1. **BaseWorkspace Abstract Class** (`apps/backend/workspaces/base.ts`)
-   - Defines common interface for all workspace types
-   - Properties:
-     - `taskId`: Unique identifier linking to task
-     - `repositoryConfig`: Configuration from repository service
-     - `eventService`: For emitting workspace events
-   - Abstract methods that subclasses must implement:
-     - `setup()`: Initialize workspace environment
-     - `teardown()`: Clean up resources
-     - `runCommand()`: Execute shell commands
-     - `listFiles()`: Directory traversal
-     - `readFile()`: File content retrieval
-     - `writeFile()`: File modification
-     - `searchFiles()`: File search functionality
-     - `getGitDiff()`: Version control changes
-     - `isWorkspacePathValid()`: Check if workspace path/container is valid
-     - `toWorkspaceInfo()`: Convert to storage-compatible object
-     - `getWorkspacePath()`: Get workspace path or container ID
-   - Optional server management methods:
-     - `startServer()`: Start development server
-     - `stopServer()`: Stop development server
-     - `restartServer()`: Restart development server
-     - `getServerStatus()`: Get server running status
-     - `getServerLogs()`: Retrieve server logs
+1. **Unified Workspace** (`apps/backend/workspaces/workspace.ts`)
+   - Single implementation replacing LocalWorkspace and DockerWorkspace
+   - Composes FileOperations for file/git operations
+   - Composes Environment for command execution
+   - Delegates operations to appropriate services
 
-2. **LocalWorkspace Implementation** (`apps/backend/workspaces/local.ts`)
-   - Uses git worktrees for isolation
-   - Key methods:
-     - `createGitWorktree()`: Sets up isolated git working directory
-     - `runSetupCommands()`: Executes npm install, pip install, etc.
-     - `validatePath()`: Ensures operations stay within workspace
-     - `executeCommand()`: Runs commands with timeout and resource limits
-     - `getGitStatus()`: Returns detailed git sync status with origin
-     - `hasUnmergedCommits()`: Checks for commits not in base branch
-     - `isBehindBase()`: Checks if workspace is behind base branch
-     - `getOriginSyncStatus()`: Gets sync status with origin remote
-   - State management:
-     - Tracks setup progress with `setupInProgress` and `setupComplete` flags
-     - Monitors running processes
-     - Manages background tasks
-     - Auto-recreates missing worktrees during setup
-   - Branch detection:
-     - Intelligently detects existing branches from workspace paths
-     - Handles recovery when worktree is missing but branch exists
-   - Server management:
-     - Methods delegate to PreviewEnvironmentService
-     - Throws errors directing users to use preview environment endpoints
+2. **FileOperations Service** (`apps/backend/services/file-operations.service.ts`)
+   - Handles all file system operations
+   - Manages git operations (diff, status, changes, commit hash)
+   - Path validation and security
+   - File size limits and safety checks
+   - **NEW**: `getCurrentCommitHash()` method
+   - **NEW**: `isValidWorktree()` method for validation
 
-3. **DockerWorkspace Implementation** (`apps/backend/workspaces/docker.ts`)
-   - Container-based isolation that always runs in worker mode
-   - Key methods:
-     - `createContainer()`: Docker container initialization
-     - `executeInContainer()`: Runs commands inside Docker
-     - `getContainerLogs()`: Retrieves execution logs
-   - Architecture:
-     - Runs the entire backend inside the container
-     - Uses SSE (Server-Sent Events) for real-time event streaming
-     - HTTP communication with worker backend on port 8001
-     - Health check polling during setup
-     - Agent execution triggered via HTTP endpoints
-     - Maintains `eventStreamController` for SSE connections
-   - File Operations:
-     - Uses `WorkspaceFileOperations` utility class for direct file access
-     - All file operations happen within the container
-   - Container lifecycle:
-     - Creates named containers per task: `moatless-task-<task-id>`
-     - Manages volume mounts and environment variables
-     - Uses custom Docker image with backend pre-installed
+3. **Environment Abstractions**
+   - **LocalEnvironment**: Git worktree-based execution
+   - **DockerEnvironment**: Container-based isolation
+   - Both implement BaseEnvironment interface
 
-## Isolation Architecture
+## Critical Implementation Details
 
-### Git Worktree Isolation
+### Workspace Lifecycle Management
 
-```mermaid
-graph TB
-    subgraph "Main Repository"
-        MAIN[Main Branch]
-        OBJ[Git Objects]
-        REF[References]
-    end
-    
-    subgraph "Workspace A"
-        WA[Worktree A]
-        BA[Branch: workspace-123]
-        FA[Files & Changes]
-    end
-    
-    subgraph "Workspace B"
-        WB[Worktree B]
-        BB[Branch: workspace-456]
-        FB[Files & Changes]
-    end
-    
-    subgraph "Workspace C"
-        WC[Worktree C]
-        BC[Branch: workspace-789]
-        FC[Files & Changes]
-    end
-    
-    OBJ --> |"Shared objects"| WA
-    OBJ --> |"Shared objects"| WB
-    OBJ --> |"Shared objects"| WC
-    
-    WA --> BA
-    WB --> BB
-    WC --> BC
-    
-    style OBJ fill:#f96,stroke:#333,stroke-width:2px
-```
+#### 1. Workspace Creation and Recreation
+**Logic Location**: `apps/backend/services/workspace.service.ts:282-299`
 
-**Git Worktree Implementation Details:**
+When workspace path is missing, the system automatically recreates it:
+- Checks if path exists and is valid worktree using `isGitWorktree()` from git-utils
+- Gets branch from last completed iteration via `getLastIterationBranch()`
+- Uses priority: explicit branchName → last iteration branch → undefined (creates new)
+- Calls `ensureWorktreeExists()` to recreate worktree at same path
 
-Git worktrees provide workspace isolation through separate working directories while sharing the same git repository objects. Here's how it works:
+#### 2. Task Iteration Git Tracking
+**Schema Location**: `packages/types/src/schemas/task.schemas.ts:54` (commitHash field)
+**Capture Location**: `apps/backend/services/agent.service.ts:311-335` (success) and `apps/backend/services/agent.service.ts:399-425` (failure)
 
-1. **Worktree Creation** (`apps/backend/utils/git-utils.ts:createGitWorktree()`)
-   - Each task gets its own worktree with a dedicated branch
-   - Branch naming convention: `workspace-<task-id>`
-   - Worktree path: `<repo-parent>/<repo-name>-workspace-<task-id>`
-   - Creation command: `git worktree add -b "workspace-<task-id>" "<path>"`
-   - Handles existing branch conflicts by creating alternative names
-   - Detects if branch is already checked out in another worktree
+Each task iteration stores:
+- `commitHash` - Commit hash when iteration completes (NEW)
+- `gitStatus` - Sync state with base branch
+- `gitChanges` - Working directory changes
 
-2. **Branch Isolation** (`apps/backend/workspaces/local.ts`)
-   - Each workspace operates on its own branch
-   - Changes are isolated from main repository and other workspaces
-   - Prevents conflicts between concurrent AI agents
-   - Branches can be merged back to main when task completes
-   - Auto-recovery: Recreates missing worktrees if branch still exists
+Agent service captures git info on iteration completion by calling:
+- `workspace.getGitStatus()` → `fileOperations.getGitStatus()`
+- `workspace.getGitChanges()` → `fileOperations.getGitChanges()`
+- `workspace.getCurrentCommitHash()` → `fileOperations.getCurrentCommitHash()`
 
-3. **Git Utilities** (`apps/backend/utils/git-utils.ts`)
-   - **Origin-Aware Operations**: Most functions prioritize `origin/branch` over local branches
-   - **Comprehensive Status**: `getComprehensiveGitStatus()` provides detailed sync information:
-     - Current branch and tracking status
-     - Commits ahead/behind origin
-     - Modified files and staging area
-     - Untracked files
-   - **Worktree Management**:
-     - `isGitWorktree()`: Detects if path is a worktree
-     - `isBranchCheckedOut()`: Checks if branch is in use
-     - `getWorktreeBranch()`: Retrieves branch name from worktree
-   - **Advanced Diff**: `getGitDiffDetailed()` returns structured diff with:
-     - File-by-file changes
-     - Full file contents for new/deleted files
-     - Line-by-line modifications
-   - **Origin Sync Functions**:
-     - `fetchLatestFromOrigin()`: Updates from remote
-     - `isOriginBranch()`: Checks if branch exists on origin
-     - `getOriginBranchName()`: Gets corresponding origin branch
+#### 3. Workspace Cleanup vs Worktree Removal
+**CRITICAL DISTINCTION:**
+
+**cleanupWorkspace()** (`apps/backend/services/workspace.service.ts:560-590`):
+- ONLY handles environment cleanup via `workspace.teardown(true)`
+- Stops agents and servers (delegated to environment implementations)
+- Removes Docker containers (if Docker environment)
+- Cleans up processes and resources
+- DOES NOT remove worktree directories
+- Removes workspace from `activeWorkspaces` map
+
+**removeWorktree()** (`apps/backend/services/workspace.service.ts:241-258`):
+- ONLY called when tasks are closed/deleted
+- Executes `git worktree remove "${workspacePath}" --force` (line 294)
+- Includes comprehensive validation and error handling
+- Separate operation from environment cleanup
+
+#### 4. When Each Method is Called
+**Task deletion** (`apps/backend/services/task.service.ts:755-767`):
+- Line 759: `cleanupWorkspace(taskId)` - Stop processes
+- Line 762: `removeWorktree(taskId)` - Remove worktree
+
+**Task closure** (`apps/backend/services/task.service.ts:769-815`):
+- Line 788: `cleanupWorkspace(taskId)` - Stop processes
+- Line 791: `removeWorktree(taskId)` - Remove worktree
+
+**Agent restart/other operations**:
+- Only calls `cleanupWorkspace(taskId)` - Stop processes only
+- No worktree removal
+
+### 5. Missing Workspace Path Recovery
+**Implementation**: `apps/backend/services/workspace.service.ts:280-305`
+
+System handles missing workspace paths automatically:
+- If `repository.useGitWorktrees` enabled and path is not valid worktree:
+  - Gets branch from last completed iteration
+  - Calls `ensureWorktreeExists()` to recreate at same path
+- If worktrees disabled but path missing:
+  - Throws `WorkspaceError` (lines 300-304)
+- Includes comprehensive logging for debugging (lines 291-295)
+
+## Implementation Guide
+
+### 1. Workspace Creation Flow
+**Implementation**: `apps/backend/services/workspace.service.ts:30-66`
+
+Process:
+1. Get repository config via `repositoryService.getRepositoryById()` (line 35)
+2. Create workspace repository path via `createWorkspaceRepository()` (line 42)
+3. Determine environment type from `repository.codeExecution.type` (line 46)
+4. Create environment instance (`DockerEnvironment` or `LocalEnvironment`) (lines 47-50)
+5. Create unified workspace composing environment and file operations (lines 53-61)
+6. Register in `activeWorkspaces` map (line 63)
+7. Return workspace instance for further setup by caller
+
+### 2. File Operations Delegation
+**Implementation**: `apps/backend/workspaces/workspace.ts:150-188`
+
+Workspace delegates all file operations to FileOperations service:
+- `readFile()` (line 162) → `fileOperations.readFile()`
+- `writeFile()` (line 167) → `fileOperations.writeFile()`
+- `getGitDiff()` (line 154) → `fileOperations.getGitDiff()`
+- `getGitStatus()` (line 174) → `fileOperations.getGitStatus()`
+- `getGitChanges()` (line 178) → `fileOperations.getGitChanges()`
+- `getCurrentCommitHash()` (line 182) → `fileOperations.getCurrentCommitHash()`
+
+FileOperations service handles path validation, security checks, and git operations.
+
+### 3. Command Execution Delegation
+**Implementation**: `apps/backend/workspaces/workspace.ts:194-210`
+
+Workspace delegates command execution to environment:
+- `runCommand()` (line 194) → `environment.runCommand()`
+- `isRunning()` (line 198) → `environment.isRunning()`
+- `setup()` (line 74) → `environment.setup()`
+- `teardown()` (line 139) → `environment.teardown()`
+
+Environment implementations:
+- `LocalEnvironment` (`apps/backend/environments/local-environment.ts`)
+- `DockerEnvironment` (`apps/backend/environments/docker-environment.ts`)
+
+## Workspace Capabilities
+
+### State-Based Operations
+**Implementation**: `apps/backend/services/workspace.service.ts:355-402`
+
+Capability checking methods:
+- `canListFiles()` (lines 355-369) - NOT_SETUP → false, others → true
+- `canReadWriteFiles()` (lines 371-385) - SETUP, IDLE, RUNNING → true
+- `canExecuteCommands()` (lines 387-401) - Only IDLE → true
+- `canAccessGit()` (lines 419-433) - Exists → true
+- `canManageServer()` (lines 403-417) - IDLE, RUNNING → true
+
+Each method validates task existence and workspace status before allowing operations.
+
+## Git Operations
 
 ### Git Status vs Git Changes
+**Schema Location**: `packages/types/src/schemas/task.schemas.ts:233-245` (GitStatus)
+**Implementation**: `apps/backend/services/file-operations.service.ts:263-318` (getGitStatus) and `apps/backend/services/file-operations.service.ts:344-372` (getGitChanges)
 
-The workspace system provides two distinct ways to track repository state, each serving different purposes:
+**GitStatus** - Repository sync state with base branch:
+- Tracks sync with origin/main branch
+- Includes commits ahead/behind counts
+- Shows conflicts and uncommitted changes
+- Counts file additions/deletions/modifications vs base branch
 
-#### GitStatus - Repository Synchronization State
-**Purpose**: Tracks synchronization status with base branch and origin remote
-**Use Case**: Understanding branch relationships and merge requirements
+**GitChanges** - Working directory state only:
+- Shows current working directory changes
+- Tracks lines added/deleted/modified in working dir
+- Status: 'clean' | 'modified' | 'error'
 
-```typescript
-interface GitStatus {
-  currentBranch: string;          // Current workspace branch
-  baseBranch: string;             // Base branch (usually main/master)
-  hasUncommittedChanges: boolean; // Working directory dirty state
-  hasConflicts: boolean;          // Merge conflicts detected
-  status: GitSyncStatus;          // Sync state: 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
-  commitsAhead: number;           // Commits ahead of base branch
-  commitsBehind: number;          // Commits behind base branch
-  originExists: boolean;          // Origin remote availability
-  additions?: number;             // File changes vs base branch
-  deletions?: number;             // File deletions vs base branch
-  modifications?: number;         // File modifications vs base branch
-}
-```
+Both are captured and stored in task iterations for continuity.
 
-**Key Characteristics:**
-- Compares current branch to base branch (e.g., main)
-- Tracks branch divergence and merge requirements
-- Includes origin remote synchronization state
-- Shows relationship between workspace and main repository
-- Used for understanding branch management needs
+## Common Patterns
 
-#### GitChanges - Working Directory State
-**Purpose**: Tracks actual changes in the working directory
-**Use Case**: Understanding current work progress and file modifications
+### Path Validation
+**Implementation**: `apps/backend/services/file-operations.service.ts:133-175`
 
-```typescript
-interface GitChanges {
-  currentBranch: string;    // Current workspace branch
-  status: string;           // Simple status: 'clean' | 'modified' | 'error'
-  additions: number;        // Lines added in working directory
-  deletions: number;        // Lines deleted in working directory
-  modifications: number;    // Files modified in working directory
-}
-```
+FileOperations ensures all operations stay within workspace:
+- Joins relative path with workspace path
+- Resolves both paths to prevent traversal attacks
+- Validates resolved path starts with workspace path
+- Throws "Access denied" error for paths outside workspace
+- Applied to all file operations (read, write, list)
 
-**Key Characteristics:**
-- Focuses on working directory state only
-- Counts actual line changes and file modifications
-- Includes staged, unstaged, and untracked changes
-- Independent of base branch comparison
-- Reflects immediate development activity
+### Workspace Recreation
+**Validation**: `apps/backend/services/file-operations.service.ts:61-72` (isWorkspacePathValid)
+**Recreation**: `apps/backend/services/workspace.service.ts:143-188` (ensureWorktreeExists)
 
-#### When to Use Each
+System automatically handles workspace recreation:
+- `isWorkspacePathValid()` checks if path exists and is git repository
+- `getOrCreateWorkspace()` automatically calls `ensureWorktreeExists()` when needed
+- `ensureWorktreeExists()` handles the recreation logic:
+  - Validates branch existence using `checkBranchExists()` (lines 193-204)
+  - Uses `createGitWorktree()` from git-utils to create worktree
+  - Handles branch conflicts by creating new branch if needed
+  - Comprehensive error handling and logging
 
-**Use GitStatus when:**
-- Planning branch merges or rebases
-- Understanding sync requirements with main branch
-- Checking for merge conflicts before integration
+## Configuration
 
-**Use GitChanges when:**
-- Tracking task iteration progress
-- Understanding scope of current work
+### Repository Configuration
+**Schema Location**: `packages/types/src/schemas/repository.schemas.ts`
 
-### Docker Container Isolation
+Key configuration fields:
+- `workspaceType` - 'local' or 'docker'
+- `dockerImage` - Required for docker workspaces
+- `setupCommands` - Commands run during environment setup
+- `environmentVariables` - Environment variables for workspace
+- `useGitWorktrees` - Enable/disable git worktree usage
+- `workerResources` - CPU/memory limits for containers
 
-```mermaid
-graph TB
-    subgraph "Host System"
-        HS[Host OS]
-        HF[Host File System]
-        NET[Network Stack]
-    end
-    
-    subgraph "Container A"
-        CA[Isolated Process]
-        FA[Container FS]
-        NA[Network Namespace]
-        RA[Resource Limits]
-    end
-    
-    subgraph "Container B"
-        CB[Isolated Process]
-        FB[Container FS]
-        NB[Network Namespace]
-        RB[Resource Limits]
-    end
-    
-    HS --> |"Process isolation"| CA
-    HS --> |"Process isolation"| CB
-    HF --> |"Mount namespace"| FA
-    HF --> |"Mount namespace"| FB
-    NET --> |"Network isolation"| NA
-    NET --> |"Network isolation"| NB
-    
-    style CA fill:#9f9,stroke:#333,stroke-width:2px
-    style CB fill:#9f9,stroke:#333,stroke-width:2px
-```
+### Environment Variables
+**Usage**: `apps/backend/services/workspace.service.ts:130-136` (WORKTREE_DIR)
 
-**Docker Container Implementation Details:**
+Key environment variables:
+- `DEFAULT_WORKSPACE_TYPE` - Default to 'local' if not specified in repo
+- `WORKTREE_DIR` - Custom worktree directory (default: ../)
+- `DOCKER_HOST` - Docker daemon connection
+- `WORKER_API_URL` - URL for Docker worker communication
 
-Docker provides complete process and resource isolation for workspace execution. Docker workspaces always operate in worker mode, where the backend runs inside the container:
+## Migration Notes
 
-1. **Container Creation** (`apps/backend/workspaces/docker.ts:setup()`)
-   - Container naming: `moatless-task-<task-id>`
-   - Uses custom Docker image with backend pre-installed
-   - Mounts workspace at `/workspace` and data at `/data`
-   - Starts backend automatically (no `sleep infinity`)
+### From Old to New Architecture
 
-2. **Worker Mode Architecture**
-   - **Backend in Container**: Full backend runs inside Docker container
-   - **SSE Communication**: Real-time event streaming from container to host
-   - **HTTP API**: Worker exposes endpoints on port 8001:
-     - `/health`: Health check endpoint
-     - `/execute`: Run commands
-     - `/execute-agent`: Execute AI agents
-     - `/stop-agent`: Stop running agents
-     - `/events/stream`: SSE event stream
-   - **Health Monitoring**: Polls `/health` during setup (max 30 attempts)
-   - **Event Streaming**: Maintains persistent SSE connection for real-time updates
-   - **Resource Limits**: Configurable CPU and memory limits
-   - **Environment Variables**:
-     - `WORKER_MODE=true`: Indicates worker mode
-     - `WORKER_API_URL`: API URL for host communication
-     - `WORKER_TASK_ID`: Task identifier
-     - `WORKSPACE_DIR=/workspace`: Working directory
-     - `DATA_DIR=/data`: Data storage directory
+**Before (Inheritance-based):**
+- `BaseWorkspace` abstract class
+- `LocalWorkspace extends BaseWorkspace`
+- `DockerWorkspace extends BaseWorkspace`
+- Mixed file and execution concerns
 
-## Lifecycle Management
+**After (Composition-based):**
+- `Workspace` unified class
+- `FileOperations` service for file/git operations
+- `LocalEnvironment` for local execution
+- `DockerEnvironment` for container execution
+- Clean separation of concerns
 
-### Workspace Creation Flow
+### Key Benefits
+1. **No Code Duplication**: Single FileOperations implementation
+2. **Better Testing**: Test file operations independently
+3. **Flexible**: Easy to add new environment types
+4. **Maintainable**: Each component has single responsibility
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant TaskService
-    participant WorkspaceService
-    participant GitWorktree
-    participant FileSystem
-    
-    Client->>TaskService: Create task
-    TaskService->>WorkspaceService: Request workspace
-    
-    alt Git Worktree Strategy
-        WorkspaceService->>GitWorktree: Create worktree
-        GitWorktree->>GitWorktree: New branch
-        GitWorktree->>FileSystem: Create directory
-        GitWorktree-->>WorkspaceService: Worktree ready
-    else Docker Strategy
-        WorkspaceService->>Docker: Create container
-        Docker->>Docker: Setup isolation
-        Docker-->>WorkspaceService: Container ready
-    end
-    
-    WorkspaceService->>WorkspaceService: Run setup commands
-    WorkspaceService-->>TaskService: Workspace ready
-    TaskService-->>Client: Task created
-```
+## Common Issues and Solutions
 
-**Detailed Workspace Creation Process:**
+### Workspace Path Issues
+| Issue | Root Cause | Action |
+|-------|------------|------------|
+| "Workspace path does not exist" | Worktree removed externally | Call `getOrCreateWorkspace()` - it auto-recreates |
+| "Branch 'X' does not exist" | Branch was deleted | Check git history, use different branch or create new |
+| "Workspace not ready" | Environment not setup | Wait for setup completion or call `setupWorkspace()` |
+| "Cannot execute commands" | Workspace not IDLE | Check status, wait for completion |
+| "Worktree conflicts" | Branch already checked out | System creates new branch automatically |
 
-1. **Task Creation** (`apps/backend/services/task.service.ts`)
-   - Client initiates task creation through API endpoint
-   - Task service validates repository configuration
-   - Generates unique task ID for workspace isolation
+### Git Worktree States
+| State | Description | Response |
+|-------|-------------|-------------|
+| Missing directory | Worktree removed by `git worktree remove` | Normal - system recreates automatically |
+| Invalid .git file | Worktree corrupted | System detects and recreates |
+| Branch mismatch | Different branch than expected | Uses last iteration branch or creates new |
+| Repository not found | Repo config invalid | Check repository configuration |
 
-2. **Workspace Request** (`apps/backend/services/workspace.service.ts:createWorkspace()`)
-   - WorkspaceService receives task ID and repository ID
-   - Retrieves repository configuration to determine workspace type
-   - Workspace type selection logic:
-     - First checks `repository.codeExecution.workspaceType`
-     - Falls back to `process.env.DEFAULT_WORKSPACE_TYPE` if not specified
-     - Options: `local` (git worktree) or `docker` (container with worker mode)
-   - Validates prerequisites (Docker installed for container workspaces)
-   - Stores workspace path in task metadata after successful setup
+### Task Lifecycle States
+| Operation | Workspace Action | Worktree Action |
+|-----------|------------------|------------------|
+| Task creation | `createWorkspace()` | Creates new worktree |
+| Task running | `cleanupWorkspace()` only | No worktree changes |
+| Task closing | `cleanupWorkspace()` + `removeWorktree()` | Removes worktree |
+| Task deletion | `cleanupWorkspace()` + `removeWorktree()` | Removes worktree |
+| Agent restart | `cleanupWorkspace()` only | No worktree changes |
 
-3. **Git Worktree Creation** (for Local workspaces)
-   - **Path Generation** (`workspace.service.ts:createWorkspaceRepository()`)
-     - Constructs workspace path: `<WORKTREE_DIR>/<repo-name>-workspace-<task-id>`
-     - Default worktree directory: `../` relative to repository path
-     - Can be overridden with `WORKTREE_DIR` environment variable
-   
-   - **Branch Creation** (`utils/git-utils.ts:createGitWorktree()`)
-     - Creates new branch named `workspace-<task-id>`
-     - If branch exists and is checked out, creates alternative branch
-     - Executes: `git worktree add -b "<branch-name>" "<workspace-path>"`
-   
-   - **Validation**
-     - Verifies repository is a git repository
-     - Ensures worktree directory exists and is writable
-     - Handles existing worktrees gracefully
+### Branch Selection Logic
+**Implementation**: `apps/backend/services/workspace.service.ts:287-295`
 
-4. **Docker Container Creation** (for Docker workspaces)
-   - **Container Setup** (`apps/backend/workspaces/docker.ts:setup()`)
-     - Creates container with name `moatless-task-<task-id>`
-     - Uses Docker image with backend pre-installed
-     - Mounts volumes:
-       - Repository path to `/workspace`
-       - Data directory to `/data`
-     - Sets environment variables:
-       - `WORKER_MODE=true`
-       - `WORKER_API_URL` for host communication
-       - `WORKER_TASK_ID` for task identification
-       - Authentication credentials (Claude API keys)
-   
-   - **Container Initialization**
-     - Starts backend automatically (image ENTRYPOINT)
-     - Waits for health check at `http://localhost:8001/health`
-     - Executes setup commands defined in repository config
-     - No file copying needed - workspace is mounted directly
+Priority order for branch selection:
+1. Explicit branchName parameter (if provided)
+2. Last completed iteration branch via `getLastIterationBranch()` (lines 209-235)
+3. Create new branch (workspace-{taskId})
 
-5. **Setup Commands Execution**
-   - **Local Workspace** (`apps/backend/workspaces/local.ts:runSetupCommandsInBackground()`)
-     - Runs commands like `npm install`, `pip install`, etc.
-     - Executes in background to allow immediate workspace availability
-     - Emits events for command progress tracking
-   
-   - **Docker Workspace**
-     - Runs setup commands inside container
-     - Each command execution is tracked and logged
-     - Failures in setup commands mark workspace as errored
+Branch validation (`checkBranchExists()` lines 193-204):
+- Uses `getBranchList()` from git-utils to get all branches
+- If branch exists: Use it (may create new branch if already checked out)
+- If branch missing: Fail with clear error
+- If no branch specified: Create new branch using `getBranchName()` (line 112)
 
-6. **Workspace Registration**
-   - Workspace instance stored in `activeWorkspaces` Map
-   - Workspace path saved to task metadata for recovery
-   - Status transitions from `initializing` to `ready`
-
-### Workspace Teardown Flow
-
-```mermaid
-graph TB
-    subgraph "Teardown Process"
-        CHECK[Check Status]
-        SAVE[Save Changes?]
-        STOP[Stop Processes]
-        CLEAN[Clean Resources]
-        REMOVE[Remove Workspace]
-    end
-    
-    subgraph "Git Cleanup"
-        GIT1[Remove Worktree]
-        GIT2[Delete Branch]
-        GIT3[Prune References]
-    end
-    
-    subgraph "Docker Cleanup"
-        DOC1[Stop Container]
-        DOC2[Remove Container]
-        DOC3[Clean Volumes]
-    end
-    
-    CHECK --> SAVE
-    SAVE --> |"Has changes"| STOP
-    SAVE --> |"No changes"| STOP
-    STOP --> CLEAN
-    CLEAN --> |"Git workspace"| GIT1
-    CLEAN --> |"Docker workspace"| DOC1
-    GIT1 --> GIT2
-    GIT2 --> GIT3
-    DOC1 --> DOC2
-    DOC2 --> DOC3
-    GIT3 --> REMOVE
-    DOC3 --> REMOVE
-```
-
-**Detailed Workspace Teardown Process:**
-
-1. **Cleanup Initiation** (`apps/backend/services/workspace.service.ts:cleanupWorkspace()`)
-   - Triggered when task completes, fails, or is manually stopped
-   - Logs cleanup start time for performance tracking
-   - Retrieves workspace from `activeWorkspaces` Map
-
-2. **Status Verification**
-   - Checks current workspace status and type
-   - Determines if force cleanup is needed (always true in current implementation)
-   - Captures workspace path before cleanup for logging
-
-3. **Local Workspace Teardown** (`apps/backend/workspaces/local.ts:teardown()`)
-   - **Process Termination**
-     - Stops any running agent processes
-     - Kills server processes if preview environment is active
-     - Ensures all child processes are terminated
-   
-   - **Git Worktree Removal** (`utils/git-utils.ts:removeGitWorktree()`)
-     - Executes: `git worktree remove --force "<workspace-path>"`
-     - Force flag ensures removal even with uncommitted changes
-     - Handles cases where worktree is already removed
-   
-   - **Branch Cleanup**
-     - Deletes workspace branch: `git branch -D workspace-<task-id>`
-     - Prunes worktree references: `git worktree prune`
-     - Cleans up any dangling references
-
-4. **Docker Workspace Teardown** (`apps/backend/workspaces/docker.ts:teardown()`)
-   - **Container Stopping**
-     - Gracefully stops container: `docker stop "<container-id>"`
-     - Waits for container to stop with timeout
-     - Force kills if graceful stop fails
-   
-   - **Container Removal**
-     - Removes container: `docker rm -f "<container-id>"`
-     - Cleans up associated volumes if configured
-     - Removes any temporary files created during execution
-   
-   - **Resource Cleanup**
-     - Releases allocated ports
-     - Cleans up network configurations
-     - Removes any created volumes
-
-5. **Workspace Deregistration**
-   - Removes workspace from `activeWorkspaces` Map
-   - Updates task metadata to reflect workspace removal
-   - Emits workspace deleted event for audit trail
-
-6. **Error Handling During Teardown**
-   - Catches and logs all errors without rethrowing
-   - Ensures workspace is removed from active list even if teardown fails
-   - Provides detailed error logging for debugging
-   - Total cleanup time is tracked and logged
-
-## Repository Configuration
-
-### Workspace Configuration Schema
-
-The repository configuration schema (`packages/types/schemas/repository.schemas.ts`) defines how workspaces are configured:
-
-```typescript
-CodeExecutionSchema: {
-  type: 'local' | 'docker',
-  workspaceType?: 'local' | 'docker',  // Explicit workspace type
-  dockerImage?: string,                 // Docker image with backend
-  workerResources?: {                   // Resource limits for containers
-    cpuLimit?: string,
-    memoryLimit?: string
-  },
-  setupCommands: string[],
-  environmentVariables?: Record<string, string>
-}
-```
-
-### Configuration Fields
-
-1. **Workspace Type Selection**
-   - `type`: Legacy field for basic workspace type
-   - `workspaceType`: Explicit workspace type selection (takes precedence)
-   - Falls back to `DEFAULT_WORKSPACE_TYPE` environment variable
-   - Options: `local` or `docker`
-
-2. **Docker Configuration**
-   - `dockerImage`: Docker image with backend pre-installed (required for Docker workspaces)
-   - `workerResources`: CPU and memory limits for containers
-   - Docker workspaces always run in worker mode with backend inside container
-
-3. **Repository Fields** (merged into RepositoryConfig)
-   - `path`: Local filesystem path to repository
-   - `useGitWorktrees`: Enable git worktree-based workspaces (for local mode)
-   - `originalBranch`: Base branch for workspace creation
-
-## Integration Architecture
-
-### Preview Environment Integration
-
-Workspaces integrate with the Preview Environment service for development server management:
-
-1. **Server Operations**
-   - Workspace delegates server management to PreviewEnvironmentService
-   - Maintains separation of concerns
-   - Enables port forwarding and log access
-
-2. **Lifecycle Coordination**
-   - Preview environments tied to workspace lifecycle
-   - Automatic cleanup on workspace teardown
-   - Server processes managed independently
-
-### Event System Integration
-
-Workspaces emit events throughout their lifecycle. All workspace events use `EventType.WORKSPACE` with various subtypes:
-
-#### Event Structure
-```typescript
-{
-  eventId: string,              // Unique event ID (UUID)
-  agentType: 'system',          // Always 'system' for workspace events
-  type: EventType.WORKSPACE,    // Event type constant
-  subType: string,              // Specific workspace action
-  taskId: string,               // Associated task ID
-  iterationId?: number,         // Optional iteration number
-  timestamp: Date,              // Event timestamp
-  isError: boolean,             // Error flag
-  payload: object               // Event-specific data
-}
-```
-
-#### Currently Implemented Events
-
-**Note**: Currently, only Docker workspaces emit events. Local workspaces rely on logging instead of event emission.
-
-1. **Setup Lifecycle Events** (Docker only)
-   - `setup_completed`: Docker container setup successful
-     - Payload: `{ containerId: string }`
-     - Emitted when container is created and started
-   
-   - `setup_failed`: Docker container setup failed
-     - Payload: `{ error: string }`
-     - Emitted when container creation or startup fails
-
-2. **Command Execution Events** (Docker only)
-   - `command_completed`: Setup command executed successfully
-     - Payload: `{ command: string, durationMs: number }`
-     - Emitted for each successful setup command
-   
-   - `command_failed`: Setup command execution failed
-     - Payload: `{ command: string, error: string, exitCode?: number }`
-     - Emitted when a setup command fails or throws an error
+### Important Implementation Notes
+1. **Never manually call `removeWorktree()`** - only TaskService does this
+2. **Always use `getOrCreateWorkspace()`** - it handles missing paths automatically
+3. **Check `repository.useGitWorktrees`** before worktree operations
+4. **Teardown ≠ Worktree removal** - they are separate operations
+5. **Task iterations store git state** - use for branch continuity
+6. **Missing workspace paths are normal** - system handles gracefully

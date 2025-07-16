@@ -117,7 +117,6 @@ describe('Graceful Shutdown', () => {
       } as any
 
       // Access private field for testing
-
       ;(workspaceService as any).activeWorkspaces.set('test-task-1', mockWorkspace)
 
       // Run graceful shutdown

@@ -1,15 +1,15 @@
-import type { ClaudeModel } from '@moatless/types/constants'
+import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { getErrorMessage } from '@/lib/utils/error'
+import { ChatInput } from '../chat-input/chat-input'
 import {
   GenericSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
 } from '../chat-input/selectors'
-import { MessageInput } from './message-input'
 
 interface CreateCodeTaskProps {
   className?: string
@@ -31,6 +31,7 @@ export function CreateCodeTask({
   onSuccess,
 }: CreateCodeTaskProps) {
   const [message, setMessage] = useState(defaultMessage || '')
+  const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
 
   // Initialize model selector with saved value
   const initialModel = (() => {
@@ -89,18 +90,22 @@ export function CreateCodeTask({
       return
     }
 
+    // Extract file paths from uploaded files
+    const filePaths = uploadedFiles.map((f) => f.absolutePath)
+
     createTask.mutate(
       {
         agentType: 'claude-code',
         message: message.trim(),
         repositoryId: repoSelector.value,
         model: modelSelector.value,
-        filePaths: [],
+        filePaths,
         originalBranch: branchSelector.value,
       },
       {
         onSuccess: () => {
           setMessage('')
+          setUploadedFiles([])
           onSuccess?.()
         },
       },
@@ -118,9 +123,9 @@ export function CreateCodeTask({
       )}
 
       <div className={showTitle ? 'max-w-2xl mx-auto' : ''}>
-        <MessageInput
-          value={message}
-          onChange={setMessage}
+        <ChatInput
+          message={message}
+          onMessageChange={setMessage}
           onSubmit={handleSubmit}
           disabled={isSendDisabled}
           placeholder="Describe your coding task or feature... (use @ to reference files)"
@@ -128,6 +133,9 @@ export function CreateCodeTask({
           loading={createTask.isPending}
           maxHeight={maxHeight}
           repositoryId={repoSelector.value}
+          enableFileUpload={true}
+          files={uploadedFiles}
+          onFilesChange={setUploadedFiles}
           selectors={
             <>
               <GenericSelector {...repoSelector} />

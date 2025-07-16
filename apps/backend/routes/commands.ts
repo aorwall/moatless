@@ -1,6 +1,5 @@
-import { CommandNotFoundError } from '@moatless/types'
-import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types/schemas/command.schemas'
-import type { CommandList } from '@moatless/types/types/command'
+import type { CommandList } from '@moatless/types'
+import { CommandNotFoundError, CreateCommandSchema, UpdateCommandSchema } from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'

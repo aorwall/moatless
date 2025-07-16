@@ -1,6 +1,9 @@
-import type { WorkspaceStatusResponse } from '@moatless/types/types/api'
-import type { Event } from '@moatless/types/types/event'
-import type { GitDiffResponse, TaskIteration } from '@moatless/types/types/task'
+import type {
+  Event,
+  GitDiffResponse,
+  TaskIteration,
+  WorkspaceStatusResponse,
+} from '@moatless/types'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createContext,
@@ -32,6 +35,7 @@ interface TaskDataContextValue {
   workspaceReady: boolean
   workspaceHasChanges: boolean
   workspaceGitStatus: WorkspaceStatusResponse['gitStatus'] | undefined
+  workspaceEnvironment: WorkspaceStatusResponse['environment'] | undefined
 
   // Derived flags for components (stable primitives)
   canExecute: boolean
@@ -108,7 +112,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const eventsQuery = useQuery({
     queryKey: queryKeys.tasks.events(taskId),
     queryFn: () => tasksApi.getTaskEvents(taskId),
-    staleTime: Infinity, // Never stale - updated via SSE only
+    staleTime: Number.POSITIVE_INFINITY, // Never stale - updated via SSE only
     enabled: !!taskId && !taskId.startsWith('temp-'),
     // No polling - events are updated via SSE
   })
@@ -177,6 +181,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       hasChanges:
         workspace.gitStatus?.hasUncommittedChanges || workspace.gitStatus?.hasConflicts || false,
       gitStatus: workspace.gitStatus,
+      environment: workspace.environment,
     }
   }, [workspaceQuery.data])
 
@@ -215,6 +220,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       workspaceReady: workspacePrimitives?.isReady ?? false,
       workspaceHasChanges: workspacePrimitives?.hasChanges ?? false,
       workspaceGitStatus: workspacePrimitives?.gitStatus,
+      workspaceEnvironment: workspacePrimitives?.environment,
 
       // Derived flags (stable primitives)
       canExecute: taskPrimitives?.canExecute ?? false,

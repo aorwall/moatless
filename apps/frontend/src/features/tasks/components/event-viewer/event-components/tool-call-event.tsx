@@ -1,5 +1,5 @@
+import type { Event, MessageEvent } from '@moatless/types'
 import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/types'
-import type { Event, MessageEvent } from '@moatless/types/types/event'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'

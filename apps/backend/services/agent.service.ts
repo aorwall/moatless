@@ -1,11 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { CriticalError, EventType, type TaskIteration } from '@moatless/types'
-import type { SDKResultMessage } from '@moatless/types/types/claude'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import type { SDKResultMessage } from '@moatless/types'
+import { EventType, type TaskIteration, TaskNotFoundError, WorkspaceStatus } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
-import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
-import type { BaseWorkspace } from '../workspaces/base.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -26,14 +23,14 @@ export class AgentService {
     taskId: string,
     message: string,
     iteration: TaskIteration,
-    agentType: string = 'claude-code',
+    agentType = 'claude-code',
     resumeSessionId?: string,
     model?: string,
   ): Promise<void> {
     // Get task and repository config
     const task = await this.storage.getTask(taskId)
     if (!task) {
-      throw new CriticalError('Task not found', taskId, iteration)
+      throw new TaskNotFoundError('Task not found')
     }
 
     // Execute agent directly
@@ -47,7 +44,7 @@ export class AgentService {
     taskId: string,
     message: string,
     iteration: TaskIteration,
-    agentType: string = 'claude-code',
+    agentType = 'claude-code',
     resumeSessionId?: string,
     model?: string,
   ): Promise<void> {
@@ -55,48 +52,68 @@ export class AgentService {
 
     // Validate that no agent is currently running for this task
     if (this.runningAgents.has(taskId)) {
-      throw new CriticalError('Agent is already running', taskId, iteration)
+      throw new Error('Agent is already running')
     }
 
     // Get workspace and validate state
+    agentLogger.info('Getting or creating workspace for agent execution', { taskId })
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
     const status = workspace.getStatus()
 
+    agentLogger.debug('Workspace status retrieved', {
+      taskId,
+      workspaceStatus: status,
+      workspaceType: workspace.type,
+    })
+
     if (status === WorkspaceStatus.SETTING_UP) {
-      throw new CriticalError('Workspace is still setting up', taskId, iteration)
+      throw new Error('Workspace is still setting up')
     }
     if (status === WorkspaceStatus.RUNNING) {
-      throw new CriticalError('Agent is already running', taskId, iteration)
+      throw new Error('Agent is already running')
     }
 
     // Check if workspace path actually exists
-    if (!(await workspace.isWorkspacePathValid())) {
+    const isWorkspaceValid = await workspace.isWorkspacePathValid()
+    agentLogger.debug('Workspace path validation', {
+      taskId,
+      isValid: isWorkspaceValid,
+      workspacePath: workspace.getWorkspacePath(),
+    })
+
+    if (!isWorkspaceValid) {
       // Workspace metadata exists but physical path/container is missing
       // Need to recreate the workspace
+      agentLogger.warn('Workspace path invalid, recreating workspace', { taskId })
       await this.recreateWorkspace(taskId, iteration)
 
       // Get the workspace again after recreation
       const recreatedWorkspace = await this.workspaceService.getOrCreateWorkspace(taskId)
       const recreatedStatus = recreatedWorkspace.getStatus()
 
+      agentLogger.info('Workspace recreated', {
+        taskId,
+        newStatus: recreatedStatus,
+      })
+
       if (recreatedStatus !== WorkspaceStatus.IDLE) {
-        throw new CriticalError(
-          'Workspace recreation failed - workspace not ready',
-          taskId,
-          iteration,
-        )
+        throw new Error('Workspace recreation failed - workspace not ready')
       }
     }
 
-    agentLogger.info('Creating agent', {
+    agentLogger.info('Getting environment from workspace', {
       agentType,
       workspaceStatus: status,
       hasResumeSession: !!resumeSessionId,
       model,
     })
 
-    // Create agent
-    const agent = await this.createAgent(agentType, taskId, model)
+    // Get environment from workspace
+    const environment = workspace.getEnvironment()
+
+    // Create agent using environment
+    const options = model ? { model } : {}
+    const agent = await environment.createAgent(agentType, options)
 
     // Track the running agent
     this.runningAgents.set(taskId, agent)
@@ -125,8 +142,8 @@ export class AgentService {
         // Emit status change event
         await this.eventService.emitEvent({
           taskId,
-          type: EventType.INPUT,
-          subType: 'task:statusChanged',
+          type: EventType.TASK_STATUS,
+          subType: 'open',
           payload: {
             status: 'open',
             previousStatus,
@@ -177,19 +194,6 @@ export class AgentService {
   }
 
   /**
-   * Create an agent instance
-   */
-  private async createAgent(agentType: string, taskId: string, model?: string): Promise<BaseAgent> {
-    if (agentType === 'claude-code') {
-      // TODO: Get claude options from storage/config
-      const options = model ? { model } : {} // Pass model in options if provided
-      return new ClaudeCodeAgent(taskId, options)
-    } else {
-      throw new Error(`Unknown agent type: ${agentType}`)
-    }
-  }
-
-  /**
    * Process agent execution and handle events
    */
   private async runAgentExecution(
@@ -197,7 +201,7 @@ export class AgentService {
     message: string,
     taskId: string,
     iteration: TaskIteration,
-    workspace: BaseWorkspace,
+    workspace: Awaited<ReturnType<WorkspaceService['getOrCreateWorkspace']>>,
     resumeSessionId?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
@@ -234,7 +238,7 @@ export class AgentService {
         })
       }
 
-      // Process agent events
+      // Process agent events using agent's run method directly
       for await (const event of agent.run(finalMessage, runOptions)) {
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
@@ -331,6 +335,12 @@ export class AgentService {
               deletions: iteration.gitChanges?.deletions,
               modifications: iteration.gitChanges?.modifications,
             })
+
+            // Get current commit hash
+            iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
+            agentLogger.debug('Captured commit hash for iteration', {
+              commitHash: iteration.commitHash,
+            })
           } catch (error) {
             agentLogger.warn('Failed to capture git status/changes for iteration', {
               error: error instanceof Error ? error.message : String(error),
@@ -344,12 +354,31 @@ export class AgentService {
               (it) => it.iterationNumber === iteration.iterationNumber,
             )
             if (iterationIndex >= 0) {
-              // Remove runtime properties to avoid circular references
-              const { task: _, taskId: __, ...iterationData } = iteration
-              task.iterations[iterationIndex] = iterationData
+              // Update the iteration data
+              task.iterations[iterationIndex] = iteration
               // Update task status based on iteration result
-              task.status = event.isError || resultPayload.is_error ? 'error' : 'open'
+              const previousStatus = task.status
+              const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
+              task.status = newStatus
               await this.storage.saveTask(task)
+
+              // Emit task status change event if status actually changed
+              if (previousStatus !== newStatus) {
+                await this.eventService.emitEvent({
+                  taskId,
+                  type: EventType.TASK_STATUS,
+                  subType: newStatus,
+                  payload: {
+                    status: newStatus,
+                    previousStatus,
+                    iterationNumber: iteration.iterationNumber,
+                  },
+                  eventId: randomUUID(),
+                  timestamp: new Date(),
+                  agentType: task.agentType,
+                  isError: newStatus === 'error',
+                })
+              }
             }
           }
         }
@@ -396,6 +425,12 @@ export class AgentService {
           deletions: iteration.gitChanges?.deletions,
           modifications: iteration.gitChanges?.modifications,
         })
+
+        // Get current commit hash
+        iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
+        agentLogger.debug('Captured commit hash for failed iteration', {
+          commitHash: iteration.commitHash,
+        })
       } catch (syncError) {
         agentLogger.warn('Failed to capture git status/changes for failed iteration', {
           syncError: syncError instanceof Error ? syncError.message : String(syncError),
@@ -409,19 +444,35 @@ export class AgentService {
           (it) => it.iterationNumber === iteration.iterationNumber,
         )
         if (iterationIndex >= 0) {
-          // Remove runtime properties to avoid circular references
-          const { task: _, taskId: __, ...iterationData } = iteration
-          task.iterations[iterationIndex] = iterationData
+          // Update the iteration data
+          task.iterations[iterationIndex] = iteration
           // Update task status to error after failure
+          const previousStatus = task.status
           task.status = 'error'
           await this.storage.saveTask(task)
+
+          // Emit task status change event if status actually changed
+          if (previousStatus !== 'error') {
+            await this.eventService.emitEvent({
+              taskId,
+              type: EventType.TASK_STATUS,
+              subType: 'error',
+              payload: {
+                status: 'error',
+                previousStatus,
+                iterationNumber: iteration.iterationNumber,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              eventId: randomUUID(),
+              timestamp: new Date(),
+              agentType: task.agentType,
+              isError: true,
+            })
+          }
         }
       }
 
-      // Re-throw critical errors
-      if (error instanceof CriticalError) {
-        throw error
-      }
+      throw error
     }
   }
 
@@ -434,6 +485,11 @@ export class AgentService {
     agentLogger.warn('Workspace path/container missing, recreating workspace', { taskId })
 
     // Setup workspace again
+    agentLogger.debug('Calling setupWorkspace to recreate', {
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
     await this.workspaceService.setupWorkspace(taskId, iteration.iterationNumber)
 
     // Wait for workspace to be ready
@@ -441,16 +497,26 @@ export class AgentService {
     const checkInterval = 500
     const startWait = Date.now()
 
+    agentLogger.debug('Waiting for workspace to become ready', {
+      maxWaitTime,
+      checkInterval,
+    })
+
     while (Date.now() - startWait < maxWaitTime) {
       const workspace = await this.workspaceService.getWorkspace(taskId)
       if (workspace && workspace.getStatus() === WorkspaceStatus.IDLE) {
-        agentLogger.info('Workspace recreated successfully', { taskId })
+        const waitTime = Date.now() - startWait
+        agentLogger.info('Workspace recreated successfully', {
+          taskId,
+          waitTimeMs: waitTime,
+          workspaceStatus: workspace.getStatus(),
+        })
         return
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
     }
 
-    throw new CriticalError('Workspace recreation timeout', taskId, iteration)
+    throw new Error('Workspace recreation timeout')
   }
 }
 

@@ -1,18 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { RepositoryNotFoundError, ValidationError } from '@moatless/types'
+import type { FileSearchResponse, SetupScriptResponse } from '@moatless/types'
 import {
+  type CreateRepositoryRequest,
   FRAMEWORK_DEFAULT_COMMANDS,
   PACKAGE_MANAGER_FILES,
-} from '@moatless/types/constants/preview-config'
-import type {
-  CreateRepositoryRequest,
-  FileSearchResponse,
-  PreviewConfig,
-  RepositoryConfig,
-  SetupScriptResponse,
-} from '@moatless/types/types/repository'
+  type PreviewConfig,
+  type RepositoryConfig,
+  RepositoryNotFoundError,
+  ValidationError,
+} from '@moatless/types'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
@@ -27,12 +25,6 @@ export class RepositoryService {
     // Auto-detect framework for local repositories if not provided
     const previewConfig = request.previewConfig
 
-    // Set serverCommand from preview config if available and not already set
-    let serverCommand = request.codeExecution.serverCommand
-    if (!serverCommand && previewConfig?.serverStartCommand) {
-      serverCommand = previewConfig.serverStartCommand
-    }
-
     const repository: RepositoryConfig = {
       id: randomUUID(),
       name: request.name,
@@ -40,12 +32,8 @@ export class RepositoryService {
       path: request.path,
       useGitWorktrees: request.useGitWorktrees,
       originalBranch: request.originalBranch,
-      codeExecution: {
-        ...request.codeExecution,
-        serverCommand,
-      },
+      codeExecution: request.codeExecution,
       previewConfig,
-      variables: request.variables || {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -129,7 +117,10 @@ export class RepositoryService {
   }
 
   async runSetupScript(repository: RepositoryConfig): Promise<SetupScriptResponse> {
-    if (!repository.codeExecution.setupCommands) {
+    if (
+      !repository.codeExecution.setupCommands ||
+      repository.codeExecution.setupCommands.length === 0
+    ) {
       return {
         success: true,
         commands: [],
@@ -137,9 +128,6 @@ export class RepositoryService {
     }
 
     const commands = repository.codeExecution.setupCommands
-      .split('\n')
-      .map((cmd: string) => cmd.trim())
-      .filter((cmd: string) => cmd.length > 0)
 
     const results = []
     let allSucceeded = true

@@ -83,7 +83,6 @@ export function mockEventSource() {
 // Mock fetch for API calls
 export function mockFetch() {
   const fetchMock = vi.fn()
-  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
   ;(global as any).fetch = fetchMock
   return fetchMock
 }
@@ -99,10 +98,16 @@ export function createMockQueryClient() {
   }
 }
 
+// Helper to create a query wrapper for tests
+export function createQueryWrapper() {
+  const queryClient = createMockQueryClient()
+  return queryClient
+}
+
 // Mock for WebSocket
 export class MockWebSocket {
   url: string
-  readyState: number = 1 // OPEN
+  readyState = 1 // OPEN
   listeners: Map<string, Array<(event: MessageEvent | Event | CloseEvent) => void>> = new Map()
 
   constructor(url: string) {

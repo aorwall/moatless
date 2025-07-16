@@ -1,14 +1,14 @@
 import { serve } from '@hono/node-server'
-import type { TaskIteration } from '@moatless/types/types/task'
 import { Hono } from 'hono'
+import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
-import { AgentService, WorkspaceService } from './services/index.js'
+import { WorkspaceService } from './services/index.js'
 import { PreviewServer } from './services/preview-server.js'
 import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
 import { createLogger } from './utils/logger.js'
-import { LocalWorkspace } from './workspaces/local.js'
+import { Workspace } from './workspaces/workspace.js'
 
 export interface WorkerModeConfig {
   apiUrl: string
@@ -24,7 +24,7 @@ export interface WorkerModeConfig {
  * to execute agent tasks. It uses:
  * - WorkerEventService to forward events to the main backend
  * - FileStorage with a mounted data volume for persistence
- * - LocalWorkspace for agent execution within the container
+ * - Workspace with LocalEnvironment for agent execution within the container
  */
 export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   const logger = createLogger()
@@ -46,23 +46,29 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   const dataDir = config.dataDir || '/data'
   const storage = new FileStorage(dataDir)
 
-  // Create workspace service that only uses LocalWorkspace
+  // Create workspace service that uses Workspace with LocalEnvironment
   const workspaceService = new WorkspaceService(null as any, eventService as any, storage)
 
-  // Override workspace factory to always use LocalWorkspace
+  // Override workspace factory to always use LocalEnvironment in worker mode
   workspaceService.createWorkspace = async (taskId: string, repositoryConfig: any) => {
-    return new LocalWorkspace(
+    const environment = new LocalEnvironment(
       taskId,
       repositoryConfig,
       eventService as any,
-      undefined,
-      undefined,
+      config.workspaceDir,
+    )
+    return new Workspace(
+      taskId,
+      repositoryConfig,
+      eventService as any,
+      environment,
       config.workspaceDir,
     )
   }
 
-  // Create agent service
-  const agentService = new AgentService(storage, eventService as any, workspaceService)
+  // Store single agent instance for this worker (only one agent can run at a time)
+  let agentInstance: { agent: any; agentType: string; taskId: string; createdAt: Date } | null =
+    null
 
   // Create preview server instance for this worker
   let previewServer: PreviewServer | undefined
@@ -91,31 +97,52 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }),
   )
 
-  // Agent execution endpoint
-  app.post('/execute-agent', async (c) => {
+  // Create agent endpoint (for Docker environment)
+  app.post('/create-agent', async (c) => {
     const body = await c.req.json()
-    const { taskId, message, iteration, agentType, resumeSessionId, model } = body
+    const { taskId, agentType, options } = body
 
-    logger.info('Received agent execution request', {
+    logger.info('Received agent creation request', {
       taskId,
       agentType,
-      iterationNumber: iteration.iterationNumber,
     })
 
     try {
-      await agentService.executeAgent(
-        taskId,
-        message,
-        iteration as TaskIteration,
-        agentType || 'claude-code',
-        resumeSessionId,
-        model,
-      )
+      // Get workspace to create agent
+      const workspace = await workspaceService.getWorkspace(taskId)
+      if (!workspace) {
+        return c.json(
+          {
+            success: false,
+            error: 'Workspace not found',
+          },
+          404,
+        )
+      }
 
-      logger.info('Agent execution completed', { taskId })
-      return c.json({ success: true })
+      // Get environment from workspace
+      const environment = workspace.getEnvironment()
+
+      // Create agent using environment
+      const agent = await environment.createAgent(agentType || 'claude-code', options)
+
+      // Store agent instance (replacing any existing one)
+      agentInstance = {
+        agent,
+        agentType: agentType || 'claude-code',
+        taskId,
+        createdAt: new Date(),
+      }
+
+      logger.info('Agent created successfully', { taskId, agentType })
+
+      return c.json({
+        success: true,
+        agentType: agentType || 'claude-code',
+        sessionId: agent.getSessionId(),
+      })
     } catch (error) {
-      logger.error('Agent execution failed', error as Error, { taskId })
+      logger.error('Agent creation failed', error as Error, { taskId })
       return c.json(
         {
           success: false,
@@ -126,6 +153,85 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
+  // Agent execution endpoint with SSE streaming
+  app.post('/execute-agent', async (c) => {
+    const body = await c.req.json()
+    const { taskId, message, agentType, runOptions } = body
+
+    logger.info('Received agent execution request', {
+      taskId,
+      agentType,
+      workspaceDir: runOptions?.workspaceDir,
+    })
+
+    // Set up SSE response
+    c.header('Content-Type', 'text/event-stream')
+    c.header('Cache-Control', 'no-cache')
+    c.header('Connection', 'keep-alive')
+
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // Get workspace to execute agent
+          const workspace = await workspaceService.getWorkspace(taskId)
+          if (!workspace) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'error', message: 'Workspace not found' })}\n\n`,
+              ),
+            )
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+            return
+          }
+
+          // Get stored agent instance
+          if (!agentInstance || agentInstance.taskId !== taskId) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'error', message: 'Agent not found. Create agent first.' })}\n\n`,
+              ),
+            )
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+            return
+          }
+
+          const { agent } = agentInstance
+
+          // Execute agent and stream events directly
+          for await (const event of agent.run(message, runOptions || {})) {
+            const data = `data: ${JSON.stringify(event)}\n\n`
+            controller.enqueue(encoder.encode(data))
+
+            // Update session ID if captured
+            if (event.type === 'session' && event.sessionId) {
+              agent.sessionId = event.sessionId
+            }
+          }
+
+          // Send completion signal
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+
+          logger.info('Agent execution completed', { taskId })
+        } catch (error) {
+          logger.error('Agent execution failed', error as Error, { taskId })
+          const errorEvent = {
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(stream)
+  })
+
   // Stop agent endpoint
   app.post('/stop-agent', async (c) => {
     const body = await c.req.json()
@@ -134,8 +240,18 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.info('Received agent stop request', { taskId })
 
     try {
-      // Stop the agent
-      const agentStopped = await agentService.stopAgent(taskId)
+      // Get stored agent instance
+      let agentStopped = false
+
+      if (agentInstance && agentInstance.taskId === taskId) {
+        // Stop the agent instance
+        await agentInstance.agent.stop()
+        agentStopped = true
+
+        // Clear the agent instance
+        agentInstance = null
+        logger.info('Agent instance stopped and removed', { taskId })
+      }
 
       // Also stop the workspace if it exists
       let workspaceStopped = false
@@ -159,6 +275,73 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       })
     } catch (error) {
       logger.error('Agent stop failed', error as Error, { taskId })
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      )
+    }
+  })
+
+  // Get agent session ID endpoint
+  app.get('/agent-session/:taskId', async (c) => {
+    const { taskId } = c.req.param()
+
+    try {
+      if (!agentInstance || agentInstance.taskId !== taskId) {
+        return c.json(
+          {
+            success: false,
+            error: 'Agent not found',
+          },
+          404,
+        )
+      }
+
+      return c.json({
+        success: true,
+        sessionId: agentInstance.agent.getSessionId(),
+        agentType: agentInstance.agentType,
+        createdAt: agentInstance.createdAt,
+      })
+    } catch (error) {
+      logger.error('Failed to get agent session', error as Error, { taskId })
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      )
+    }
+  })
+
+  // Get branch name and summary from agent endpoint
+  app.post('/agent-branch-summary', async (c) => {
+    const body = await c.req.json()
+    const { taskId, message, options } = body
+
+    try {
+      if (!agentInstance || agentInstance.taskId !== taskId) {
+        return c.json(
+          {
+            success: false,
+            error: 'Agent not found',
+          },
+          404,
+        )
+      }
+
+      const result = await agentInstance.agent.getBranchNameAndSummary(message, options)
+
+      return c.json({
+        success: true,
+        result,
+      })
+    } catch (error) {
+      logger.error('Failed to get branch summary from agent', error as Error, { taskId })
       return c.json(
         {
           success: false,
@@ -312,6 +495,55 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
+  // Proxy requests to the preview server
+  app.all('/server/proxy/*', async (c) => {
+    try {
+      if (!previewServer) {
+        return c.json(
+          {
+            error: 'No server running',
+          },
+          404,
+        )
+      }
+
+      // Get the path after /server/proxy
+      const proxyPath = c.req.path.replace('/server/proxy', '') || '/'
+      const queryString = c.req.url.split('?')[1] || ''
+      const fullPath = queryString ? `${proxyPath}?${queryString}` : proxyPath
+
+      const headers = new Headers()
+      // Copy relevant headers
+      const headersToForward = ['content-type', 'accept', 'user-agent', 'authorization', 'cookie']
+      for (const [key, value] of Object.entries(c.req.header())) {
+        if (headersToForward.includes(key.toLowerCase())) {
+          headers.set(key, value)
+        }
+      }
+
+      const result = await previewServer.proxyRequest({
+        method: c.req.method,
+        path: fullPath,
+        headers,
+        body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.text() : undefined,
+      })
+
+      // Return the proxied response
+      return new Response(result.body, {
+        status: result.status,
+        headers: result.headers,
+      })
+    } catch (error) {
+      logger.error('Failed to proxy request', error as Error)
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        502,
+      )
+    }
+  })
+
   // Command execution endpoint
   app.post('/command', async (c) => {
     const body = await c.req.json()
@@ -351,7 +583,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
-  const port = parseInt(process.env.PORT || '8001')
+  const port = Number.parseInt(process.env.PORT || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 
   serve({

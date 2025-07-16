@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types/types/task'
+import type { Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -7,10 +7,7 @@ import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import {
-  formatGitSyncDetails,
-  getGitSyncStatusConfig,
-} from '@/features/tasks/utils/git-sync-status'
+import { formatGitSyncDetails } from '@/features/tasks/utils/git-sync-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -48,19 +45,12 @@ function getRelativeTime(date: Date | string): string {
 }
 
 // Component for rendering individual task item with git sync status
-function SidebarTaskItem({
-  task,
-  repositoryName,
-}: {
-  task: any // Using any to match existing code style
-  repositoryName: string
-}) {
+function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
   const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
 
-  // Get git sync status from the last iteration for tooltip
+  // Get git status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
-  const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
-  const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
+  const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
 
   return (
     <SidebarMenuItem>
@@ -77,20 +67,12 @@ function SidebarTaskItem({
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="text-xs">
-                      {task.status === 'open' && gitSyncConfig ? (
-                        <div>
-                          <p className="font-medium">{gitSyncConfig.tooltip}</p>
-                          {gitSyncStatus && (
-                            <p className="text-muted-foreground">
-                              {formatGitSyncDetails(gitSyncStatus)}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="font-medium">{task.status}</p>
-                        </div>
-                      )}
+                      <div>
+                        <p className="font-medium">{task.status}</p>
+                        {gitStatus && (
+                          <p className="text-muted-foreground">{formatGitSyncDetails(gitStatus)}</p>
+                        )}
+                      </div>
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -125,52 +107,18 @@ function SidebarTaskItem({
 export function SidebarTasks() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
 
-  // Fetch all non-closed tasks with a higher limit to ensure we get all active tasks
   const {
     data,
     isLoading: isLoadingTasks,
     error: tasksError,
-  } = useTasksList(
-    {
-      limit: 100, // Increase limit to ensure we get all active tasks
-    },
-    {
-      // Refetch disabled since GlobalEventStreamProvider handles invalidation
-      refetchInterval: false,
-    },
-  )
+  } = useTasksList({
+    limit: 100,
+  })
 
   const tasks = data?.items
 
   // Fetch repositories to map IDs to names
   const { data: repositories } = useRepositoriesList()
-
-  // Filter out closed tasks and sort by last_message_at, with open/running tasks first
-  // NOTE: This approach has a limitation - we're fetching up to 100 tasks from the backend
-  // and then filtering/sorting on the client. If there are many closed/merged tasks,
-  // some open tasks might not appear. A better solution would be to support status
-  // filtering on the backend to exclude closed tasks.
-  const sortedTasks =
-    tasks
-      ?.filter((task: Task) => task.status !== 'closed') // Filter out closed tasks
-      ?.sort((a: Task, b: Task) => {
-        // First sort by active status (open/running tasks come first)
-        const aActive = a.status === 'open' || a.status === 'running'
-        const bActive = b.status === 'open' || b.status === 'running'
-
-        if (aActive && !bActive) {
-          return -1
-        }
-        if (!aActive && bActive) {
-          return 1
-        }
-        // Then by last_message_at
-        return (
-          new Date(b.lastMessageAt || b.createdAt).getTime() -
-          new Date(a.lastMessageAt || a.createdAt).getTime()
-        )
-      })
-      .slice(0, 20) || []
 
   // Create a map of repository IDs to names
   const repositoryMap =
@@ -260,9 +208,9 @@ export function SidebarTasks() {
           </Tooltip>
         </div>
         <SidebarGroupContent>
-          {sortedTasks.length > 0 ? (
+          {tasks && tasks.length > 0 ? (
             <SidebarMenu>
-              {sortedTasks.map((task: Task) => {
+              {tasks.map((task: Task) => {
                 const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
                 return (
                   <SidebarTaskItem key={task.taskId} task={task} repositoryName={repositoryName} />

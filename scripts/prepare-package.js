@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { cpSync, mkdirSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { execSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 
 const rootDir = process.cwd()
 const distDir = join(rootDir, 'dist')

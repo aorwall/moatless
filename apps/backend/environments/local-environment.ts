@@ -1,9 +1,10 @@
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
-import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
-import type { BaseAgent, EventService } from '../services/index.js'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
+import type { EventService } from '../services/index.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
@@ -42,11 +43,11 @@ export class LocalEnvironment extends BaseEnvironment {
     return 'local'
   }
 
-  getStatus(): 'initializing' | 'ready' | 'error' | 'cleaning' {
+  getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     if (this._error) return 'error'
     if (this.setupInProgress) return 'initializing'
     if (this.setupComplete) return 'ready'
-    return 'initializing'
+    return 'not_setup'
   }
 
   getCreatedAt(): Date {
@@ -151,15 +152,16 @@ export class LocalEnvironment extends BaseEnvironment {
         durationMs: 0,
         command,
       }
-    } catch (error: any) {
-      this.logger.error('Command execution failed', error, {
+    } catch (error) {
+      const execError = error as Error & { code?: number; stdout?: string; stderr?: string }
+      this.logger.error('Command execution failed', execError, {
         command,
         workspacePath: this.workspacePath,
       })
 
       return {
-        exitCode: error.code || 1,
-        output: error.stdout?.trim() || error.message || '',
+        exitCode: execError.code || 1,
+        output: execError.stdout?.trim() || execError.message || '',
         durationMs: 0,
         command,
       }
@@ -167,7 +169,7 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async startServer(): Promise<ServerStatus> {
-    const serverCommand = this.repositoryConfig.codeExecution.serverCommand
+    const serverCommand = this.repositoryConfig.previewConfig?.serverStartCommand
     if (!serverCommand) {
       throw new Error('No server command configured')
     }
@@ -221,7 +223,7 @@ export class LocalEnvironment extends BaseEnvironment {
 
   async getServerStatus(): Promise<ServerStatus> {
     if (!this.previewServer) {
-      const hasServerCommand = !!this.repositoryConfig.codeExecution.serverCommand
+      const hasServerCommand = !!this.repositoryConfig.previewConfig?.serverStartCommand
       return {
         running: false,
         configured: hasServerCommand,
@@ -229,7 +231,12 @@ export class LocalEnvironment extends BaseEnvironment {
       }
     }
 
-    return this.previewServer.getStatus(true)
+    const status = this.previewServer.getStatus(true)
+    // For proxy approach, we don't expose the direct URL
+    if (status.running) {
+      status.url = undefined // Frontend will use proxy endpoint
+    }
+    return status
   }
 
   async getServerLogs(lines = 100): Promise<string> {
@@ -238,6 +245,36 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     return this.previewServer.getLogs(lines)
+  }
+
+  getPreviewPort(): number | undefined {
+    return this.previewServer?.getPort()
+  }
+
+  async proxyPreviewRequest(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!this.previewServer) {
+      throw new Error('Preview server not running')
+    }
+
+    return this.previewServer.proxyRequest(request)
+  }
+
+  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+    this.logger.info('Creating agent', { agentType, taskId: this.taskId })
+
+    if (agentType === 'claude-code') {
+      return new ClaudeCodeAgent(this.taskId, options)
+    }
+    throw new Error(`Unknown agent type: ${agentType}`)
   }
 
   async stopAgent(): Promise<boolean> {

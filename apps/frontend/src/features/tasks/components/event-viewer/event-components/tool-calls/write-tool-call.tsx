@@ -28,7 +28,7 @@ export function WriteToolCall({ input, name }: WriteToolCallProps): ReactNode {
     // Create a unified diff format for a new file (all additions)
     const lines = content.split('\n')
     const diff = [
-      `--- /dev/null`,
+      '--- /dev/null',
       `+++ b/${fileName}`,
       `@@ -0,0 +1,${lines.length} @@`,
       ...lines.map((line) => `+ ${line}`),

@@ -6,7 +6,7 @@ import type {
   CreateTaskRequest,
   RepositoryConfig,
   Task,
-} from '@moatless/types/types/index'
+} from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 
@@ -150,7 +150,7 @@ describe('Agent Lifecycle Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Repository ready for agent lifecycle test"',
+        setupCommands: ['echo "Repository ready for agent lifecycle test"'],
       },
     }
 
@@ -368,7 +368,7 @@ describe('Agent Lifecycle Test', () => {
         },
       })
       expect(sendMessageResponse.statusCode).toBe(200)
-      console.log(`  - Started agent with message`)
+      console.log('  - Started agent with message')
 
       // Wait for agent to start
       await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -387,7 +387,7 @@ describe('Agent Lifecycle Test', () => {
         url: `/api/v1/tasks/${createdTaskId}/stop`,
       })
       expect(stopResponse.statusCode).toBe(200)
-      console.log(`  - Stopped agent`)
+      console.log('  - Stopped agent')
 
       // Wait longer before next cycle to ensure clean shutdown
       await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -398,7 +398,7 @@ describe('Agent Lifecycle Test', () => {
         url: `/api/v1/tasks/${createdTaskId}`,
       })
       expect(taskResponse.statusCode).toBe(200)
-      console.log(`  - Server still responsive`)
+      console.log('  - Server still responsive')
     }
 
     console.log('\n✅ Successfully completed multiple agent start/stop cycles')

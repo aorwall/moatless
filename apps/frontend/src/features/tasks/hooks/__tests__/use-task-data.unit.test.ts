@@ -1,5 +1,4 @@
-import { EventType } from '@moatless/types/types/event'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import { EventType, WorkspaceStatus } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'
@@ -52,6 +51,15 @@ describe('useTaskData', () => {
         commitsAhead: 0,
         commitsBehind: 0,
         originExists: true,
+      },
+      environment: {
+        type: 'local' as const,
+        status: 'ready' as const,
+        createdAt: new Date().toISOString(),
+        capabilities: {
+          fileOperations: true,
+          commandExecution: true,
+        },
       },
     }
 
@@ -119,6 +127,15 @@ describe('useTaskData', () => {
         originExists: true,
       },
       backgroundTaskCount: 0,
+      environment: {
+        type: 'local' as const,
+        status: 'ready' as const,
+        createdAt: new Date().toISOString(),
+        capabilities: {
+          fileOperations: true,
+          commandExecution: true,
+        },
+      },
     })
 
     // Render the hook

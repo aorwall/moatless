@@ -79,7 +79,10 @@ export function Pagination({
           {paginationRange.map((pageNumber, index) => {
             if (pageNumber === 'dots') {
               return (
-                <div key={`dots-${index}`} className="flex size-9 items-center justify-center">
+                <div
+                  key={`dots-${index}-${paginationRange[index - 1]}-${paginationRange[index + 1]}`}
+                  className="flex size-9 items-center justify-center"
+                >
                   <MoreHorizontal className="size-4 text-muted-foreground" />
                 </div>
               )

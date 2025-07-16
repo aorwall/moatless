@@ -1,13 +1,13 @@
-import { isToolUseContent } from '@moatless/types'
 import type {
   Event,
   MessageEvent as MessageEventType,
   ResultEvent as ResultEventType,
-} from '@moatless/types/types/event'
+} from '@moatless/types'
+import { isToolUseContent } from '@moatless/types'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 
-import { InputEvent, MessageEvent, ResultEvent, WorkspaceEvent } from './event-components'
+import { MessageEvent, ResultEvent, WorkspaceEvent } from './event-components'
 import { ToolCallEvent } from './event-components/tool-call-event'
 
 interface EventListProps {
@@ -48,8 +48,6 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
     switch (event.type) {
       case 'workspace':
         return <WorkspaceEvent event={event} />
-      case 'input':
-        return <InputEvent event={event} />
       case 'message':
         // Check if it's a merged event with tool result
         if ('toolResult' in event) {

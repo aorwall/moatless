@@ -2,10 +2,12 @@ import { exec } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { RepositoryConfig } from '@moatless/types/types/repository'
-import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
-import type { BaseAgent, EventService } from '../services/index.js'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import { ProxyAgent } from '../agents/proxy-agent.js'
+import type { EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
+import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
 
@@ -42,11 +44,11 @@ export class DockerEnvironment extends BaseEnvironment {
     return 'docker'
   }
 
-  getStatus(): 'initializing' | 'ready' | 'error' | 'cleaning' {
+  getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     if (this._error) return 'error'
     if (this.setupInProgress) return 'initializing'
     if (this.setupComplete) return 'ready'
-    return 'initializing'
+    return 'not_setup'
   }
 
   getCreatedAt(): Date {
@@ -65,12 +67,27 @@ export class DockerEnvironment extends BaseEnvironment {
     return this.containerId
   }
 
+  getPort(): number | undefined {
+    return this.previewPortMapping?.hostPort
+  }
+
+  getImage(): string {
+    return this.image
+  }
+
   async setup(_iterationNumber?: number): Promise<void> {
     this.setupInProgress = true
     const startTime = Date.now()
 
+    this.logger.info('Starting Docker environment setup', {
+      taskId: this.taskId,
+      workspacePath: this.workspacePath,
+      repositoryName: this.repositoryConfig.name,
+    })
+
     try {
       // Initialize port allocation service
+      this.logger.debug('Initializing port allocation service')
       await this.portAllocationService.initialize()
 
       // Allocate ports for worker and preview server
@@ -80,24 +97,59 @@ export class DockerEnvironment extends BaseEnvironment {
       this.workerPortMapping = { containerPort: 8001, hostPort: workerPort }
       this.previewPortMapping = { containerPort: 3000, hostPort: previewPort }
 
+      this.logger.info('Ports allocated', {
+        workerPort,
+        previewPort,
+      })
+
       this.image =
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
 
       // Create container
-      this.containerName = this.repositoryConfig.codeExecution.containerName
-        ? `${this.repositoryConfig.codeExecution.containerName}-${this.taskId}`
-        : `moatless-task-${this.taskId}`
+      this.containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
+
+      this.logger.info('Creating Docker container', {
+        containerName: this.containerName,
+        image: this.image,
+      })
 
       await this.createContainer()
+
+      this.logger.info('Starting Docker container', {
+        containerId: this.containerId,
+        containerName: this.containerName,
+      })
+
       await this.startContainer()
 
       // Wait for worker to be ready
+      this.logger.debug('Waiting for worker to be ready')
       await this.waitForWorkerReady()
+
+      // Run setup commands if any are configured
+      const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
+      if (setupCommands.length > 0) {
+        this.logger.info('Running setup commands', { commandCount: setupCommands.length })
+
+        for (const command of setupCommands) {
+          this.logger.info(`Running setup command: ${command}`)
+          const result = await this.runCommand(command, 300000) // 5 minutes timeout
+
+          if (result.exitCode !== 0) {
+            this.logger.warn(`Setup command failed: ${command}`, {
+              exitCode: result.exitCode,
+              output: result.output,
+            })
+          }
+        }
+
+        this.logger.info('Setup commands completed')
+      }
 
       this.setupComplete = true
       this.setupInProgress = false
 
-      this.logger.info('DockerEnvironment setup completed', {
+      this.logger.info('DockerEnvironment setup completed successfully', {
         containerId: this.containerId,
         workerPort: this.workerPortMapping.hostPort,
         previewPort: this.previewPortMapping.hostPort,
@@ -110,6 +162,7 @@ export class DockerEnvironment extends BaseEnvironment {
       this.logger.error('DockerEnvironment setup failed', error as Error, {
         setupTimeMs: failureTime,
         containerId: this.containerId,
+        stage: this.setupInProgress ? 'setup' : 'complete',
       })
 
       this.setupInProgress = false
@@ -219,15 +272,30 @@ export class DockerEnvironment extends BaseEnvironment {
     const checkInterval = 1000 // 1 second
     let elapsed = 0
 
+    this.logger.debug('Waiting for worker to become ready', {
+      workerPort: this.workerPortMapping?.hostPort,
+      maxWaitTime,
+    })
+
     while (elapsed < maxWaitTime) {
       try {
         const response = await fetch(`http://localhost:${this.workerPortMapping?.hostPort}/health`)
         if (response.ok) {
-          this.logger.info('Worker is ready')
+          this.logger.info('Worker is ready', {
+            elapsedMs: elapsed,
+            workerPort: this.workerPortMapping?.hostPort,
+          })
           return
         }
-      } catch {
+      } catch (_error) {
         // Worker not ready yet
+        if (elapsed % 5000 === 0) {
+          // Log every 5 seconds
+          this.logger.debug('Worker not ready yet, continuing to wait', {
+            elapsedMs: elapsed,
+            remainingMs: maxWaitTime - elapsed,
+          })
+        }
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -303,9 +371,10 @@ export class DockerEnvironment extends BaseEnvironment {
 
       const result = (await response.json()) as ServerStatus
 
-      // Update URL to use the mapped preview port
-      if (result.url && this.previewPortMapping) {
-        result.url = `http://localhost:${this.previewPortMapping.hostPort}`
+      // For proxy approach, we don't expose the direct port
+      // The preview will be accessed through the proxy endpoint
+      if (result.running) {
+        result.url = undefined // Frontend will use proxy endpoint
       }
 
       return result
@@ -320,23 +389,39 @@ export class DockerEnvironment extends BaseEnvironment {
       return false
     }
 
-    this.logger.info('Stopping server via worker')
+    this.logger.info('Stopping server via worker', {
+      workerPort: this.workerPortMapping.hostPort,
+      containerId: this.containerId,
+    })
 
     try {
       const response = await fetch(
         `http://localhost:${this.workerPortMapping.hostPort}/server/stop`,
         {
           method: 'POST',
+          signal: AbortSignal.timeout(5000), // 5 second timeout
         },
       )
 
       if (!response.ok) {
+        // Handle 404 gracefully - server may already be stopped
+        if (response.status === 404) {
+          this.logger.debug('Server stop endpoint not found - server may already be stopped')
+          return true
+        }
         throw new Error(`Failed to stop server: ${response.statusText}`)
       }
 
       const result = (await response.json()) as { success: boolean }
       return result.success
     } catch (error) {
+      // Handle connection errors gracefully during shutdown
+      if (error instanceof Error) {
+        if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+          this.logger.debug('Worker container not reachable - treating as already stopped')
+          return true
+        }
+      }
       this.logger.error('Failed to stop server', error as Error)
       return false
     }
@@ -346,7 +431,7 @@ export class DockerEnvironment extends BaseEnvironment {
     if (!this.workerPortMapping) {
       return {
         running: false,
-        configured: !!this.repositoryConfig.codeExecution.serverCommand,
+        configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
         uptimeSeconds: 0,
       }
     }
@@ -362,9 +447,10 @@ export class DockerEnvironment extends BaseEnvironment {
 
       const result = (await response.json()) as ServerStatus
 
-      // Update URL to use the mapped preview port
-      if (result.url && this.previewPortMapping) {
-        result.url = `http://localhost:${this.previewPortMapping.hostPort}`
+      // For proxy approach, we don't expose the direct port
+      // The preview will be accessed through the proxy endpoint
+      if (result.running) {
+        result.url = undefined // Frontend will use proxy endpoint
       }
 
       return result
@@ -372,7 +458,7 @@ export class DockerEnvironment extends BaseEnvironment {
       this.logger.error('Failed to get server status', error as Error)
       return {
         running: false,
-        configured: !!this.repositoryConfig.codeExecution.serverCommand,
+        configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
         uptimeSeconds: 0,
       }
     }
@@ -400,6 +486,99 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
+  getPreviewPort(): number | undefined {
+    return this.previewPortMapping?.hostPort
+  }
+
+  async proxyPreviewRequest(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }> {
+    if (!this.workerPortMapping || !this.previewPortMapping) {
+      throw new Error('Preview server not running')
+    }
+
+    try {
+      // Proxy the request through the worker which will forward to the preview server
+      const response = await fetch(
+        `http://localhost:${this.workerPortMapping.hostPort}/server/proxy${request.path}`,
+        {
+          method: request.method,
+          headers: request.headers,
+          body: request.body,
+        },
+      )
+
+      const responseHeaders = new Headers()
+      response.headers.forEach((value, key) => {
+        responseHeaders.set(key, value)
+      })
+
+      // Read response body
+      const contentType = response.headers.get('content-type') || ''
+      let body: string | Buffer
+
+      if (
+        contentType.includes('text/') ||
+        contentType.includes('application/json') ||
+        contentType.includes('application/javascript')
+      ) {
+        body = await response.text()
+      } else {
+        body = Buffer.from(await response.arrayBuffer())
+      }
+
+      return {
+        status: response.status,
+        headers: responseHeaders,
+        body,
+      }
+    } catch (error) {
+      this.logger.error('Failed to proxy preview request', error as Error)
+      throw error
+    }
+  }
+
+  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+    this.logger.info('Creating agent for Docker environment', { agentType, taskId: this.taskId })
+
+    // Make HTTP request to worker to create agent
+    const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/create-agent`
+
+    const response = await fetch(workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentType, taskId: this.taskId, options }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to create agent in worker: ${error}`)
+    }
+
+    const result = (await response.json()) as {
+      success: boolean
+      agentType: string
+      sessionId?: string
+    }
+
+    // Return a proxy agent that delegates to the worker
+    return new ProxyAgent({
+      taskId: this.taskId,
+      agentType,
+      workerPort: this.workerPortMapping?.hostPort!,
+      sessionId: result.sessionId,
+      options,
+      logger: this.logger,
+    })
+  }
+
   async stopAgent(): Promise<boolean> {
     if (!this.runningAgent) {
       return false
@@ -408,7 +587,20 @@ export class DockerEnvironment extends BaseEnvironment {
     this.logger.info('Stopping running agent')
 
     try {
-      await this.runningAgent.stop()
+      // Make HTTP request to worker to stop agent
+      const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/stop-agent`
+
+      const response = await fetch(workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: this.taskId }),
+      })
+
+      if (!response.ok) {
+        const error = await response.text()
+        this.logger.error('Failed to stop agent in worker', new Error(error))
+      }
+
       this.runningAgent = undefined
       return true
     } catch (error) {
@@ -429,8 +621,15 @@ export class DockerEnvironment extends BaseEnvironment {
       // Stop agent
       await this.stopAgent()
 
-      // Stop server
-      await this.stopServer()
+      // Stop server - don't let failures here stop the teardown
+      try {
+        await this.stopServer()
+      } catch (serverError) {
+        this.logger.warn('Error stopping server during teardown (continuing)', {
+          error: (serverError as Error).message,
+          stack: (serverError as Error).stack,
+        })
+      }
 
       // Cleanup container
       await this.cleanup()

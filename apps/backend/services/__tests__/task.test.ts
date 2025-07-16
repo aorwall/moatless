@@ -1,5 +1,5 @@
+import type { CreateTaskRequest, Task } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
-import type { CreateTaskRequest, Task } from '@moatless/types/types/task'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'

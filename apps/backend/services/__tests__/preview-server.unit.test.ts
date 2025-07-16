@@ -142,6 +142,42 @@ describe('PreviewServer - Unit Tests', () => {
     })
   })
 
+  describe('Port Management', () => {
+    it('should return undefined port when server is not running', () => {
+      const port = previewServer.getPort()
+      expect(port).toBeUndefined()
+    })
+
+    it('should return port when server has allocated port', () => {
+      // Simulate port allocation by setting internal port
+      // This would normally happen during start()
+      ;(previewServer as any).port = 3000
+
+      const port = previewServer.getPort()
+      expect(port).toBe(3000)
+    })
+
+    it('should return correct port after multiple allocations', () => {
+      // Test different port values
+      const testPorts = [3000, 3001, 4000, 8080]
+
+      testPorts.forEach((testPort) => {
+        ;(previewServer as any).port = testPort
+        expect(previewServer.getPort()).toBe(testPort)
+      })
+    })
+
+    it('should return undefined when port is reset', () => {
+      // Set a port first
+      ;(previewServer as any).port = 3000
+      expect(previewServer.getPort()).toBe(3000)
+
+      // Reset port (happens during stop)
+      ;(previewServer as any).port = undefined
+      expect(previewServer.getPort()).toBeUndefined()
+    })
+  })
+
   describe('Configuration Validation', () => {
     it('should handle workspace path correctly', () => {
       new PreviewServer('task', '/different/workspace/path', 'npm start')

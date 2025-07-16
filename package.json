@@ -21,7 +21,10 @@
     "onlyBuiltDependencies": [
       "@tailwindcss/oxide",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "prismjs@<1.30.0": ">=1.30.0"
+    }
   },
   "bin": {
     "moatless-vibe": "./bin/cli.js"
@@ -54,44 +57,44 @@
     "test:ui": "turbo run test:ui",
     "test:coverage": "turbo run test:coverage",
     "type:check": "turbo run type:check",
-    "biome:check": "biome check",
-    "biome:fix": "biome check --write",
-    "format": "biome check --write",
+    "biome:check": "biome check --diagnostic-level=error",
+    "biome:fix": "./scripts/biome-fix.sh",
     "check:turbo": "turbo run biome:check type:check test:fast",
+    "post-edit-hook": "./scripts/validate-code.sh",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.0.0-beta.6",
-    "@commitlint/cli": "^19.7.2",
-    "@commitlint/config-conventional": "^19.7.2",
-    "@playwright/test": "^1.48.2",
+    "@biomejs/biome": "2.1.1",
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@playwright/test": "^1.54.1",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^24.0.3",
-    "@types/react": "^19.1.7",
+    "@types/node": "^24.0.14",
+    "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.5.2",
+    "@vitejs/plugin-react": "^4.6.0",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
-    "concurrently": "^9.0.0",
+    "concurrently": "^9.2.0",
     "esbuild": "^0.25.6",
     "husky": "^9.1.7",
-    "lint-staged": "^15.3.0",
+    "lint-staged": "^16.1.2",
     "pino-pretty": "^13.0.0",
-    "tsx": "^4.0.0",
-    "turbo": "^2.3.3",
-    "typescript": "^5.7.2",
-    "vite": "^6.1.0",
+    "tsx": "^4.20.3",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.4",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.2.3",
-    "ws": "^8.18.2"
+    "vitest": "^3.2.4",
+    "ws": "^8.18.3"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^1.0.33",
+    "@anthropic-ai/claude-code": "^1.0.53",
     "dockerode": "^4.0.7",
     "pino-pretty": "^13.0.0"
   }

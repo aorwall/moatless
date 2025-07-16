@@ -53,7 +53,7 @@ function TestComponent({ taskId }: { taskId: string }) {
       <button
         type="button"
         data-testid="update-panel-view"
-        onClick={() => setRightPanelView('diff')}
+        onClick={() => setRightPanelView('files')}
       >
         Update Panel View
       </button>
@@ -82,7 +82,7 @@ describe('TaskUIProvider', () => {
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0')
     expect(screen.getByTestId('selected-file-key')).toHaveTextContent('none')
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('events')
+    expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none')
   })
 
@@ -132,7 +132,7 @@ describe('TaskUIProvider', () => {
       screen.getByTestId('update-iteration').click()
     })
 
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('diff')
+    expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('2')
   })
 
@@ -194,7 +194,7 @@ describe('TaskUIProvider State Isolation', () => {
     // Initial state should be default
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true') // default
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('events') // default
+    expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // default
 
     // Start with task-1, update its state
     act(() => {
@@ -216,7 +216,7 @@ describe('TaskUIProvider State Isolation', () => {
     })
 
     // Verify task-1 panel state is updated
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('diff')
+    expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
 
     // Switch to task-2 (should have default state)
     act(() => {
@@ -227,7 +227,7 @@ describe('TaskUIProvider State Isolation', () => {
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-2')
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true') // default
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('events') // default
+    expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // default
 
     // Update task-2 state differently
     act(() => {
@@ -245,7 +245,7 @@ describe('TaskUIProvider State Isolation', () => {
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-1')
     expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('false') // preserved
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2') // preserved
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('diff') // preserved
+    expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // preserved
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none') // task-1 didn't set this
 
     // Switch back to task-2 (should preserve its state)

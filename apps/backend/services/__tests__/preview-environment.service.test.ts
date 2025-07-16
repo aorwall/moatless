@@ -149,7 +149,6 @@ describe('PreviewEnvironmentService', () => {
       path: '/test/repo',
       codeExecution: {
         type: 'local',
-        serverCommand: 'npm run dev',
         envVars: { NODE_ENV: 'development' },
       },
       previewConfig: {
@@ -163,7 +162,6 @@ describe('PreviewEnvironmentService', () => {
           },
         },
       },
-      variables: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -354,7 +352,6 @@ describe('PreviewEnvironmentService', () => {
         path: '/test/repo',
         codeExecution: {
           type: 'local',
-          serverCommand: 'npm run dev',
           envVars: { NODE_ENV: 'development' },
         },
         previewConfig: {
@@ -368,7 +365,6 @@ describe('PreviewEnvironmentService', () => {
             },
           },
         },
-        variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }

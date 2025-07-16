@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { ChatForm } from '../chat-form'
+import { ChatInput } from '../chat-input'
 import { GenericSelector } from '../selectors'
 
 // Mock the file search hooks
@@ -41,7 +41,7 @@ const renderWithProviders = (component: React.ReactElement) => {
   return render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>)
 }
 
-describe('Refactored ChatForm', () => {
+describe('Refactored ChatInput (ChatForm replacement)', () => {
   it('renders with selectors', () => {
     const onSubmit = vi.fn()
     const onMessageChange = vi.fn()
@@ -57,28 +57,30 @@ describe('Refactored ChatForm', () => {
     ]
 
     renderWithProviders(
-      <ChatForm
+      <ChatInput
         message=""
         onMessageChange={onMessageChange}
         onSubmit={onSubmit}
         placeholder="Type a message..."
         buttonText="Send"
-        selectors={[
-          <GenericSelector
-            key="repo"
-            value=""
-            onChange={() => {}}
-            placeholder="Select repository"
-            items={repoItems}
-          />,
-          <GenericSelector
-            key="model"
-            value="model1"
-            onChange={() => {}}
-            placeholder="Select model"
-            items={modelItems}
-          />,
-        ]}
+        selectors={
+          <>
+            <GenericSelector
+              key="repo"
+              value=""
+              onChange={() => {}}
+              placeholder="Select repository"
+              items={repoItems}
+            />
+            <GenericSelector
+              key="model"
+              value="model1"
+              onChange={() => {}}
+              placeholder="Select model"
+              items={modelItems}
+            />
+          </>
+        }
       />,
     )
 
@@ -104,7 +106,7 @@ describe('Refactored ChatForm', () => {
       const [message, setMessage] = React.useState('')
 
       return (
-        <ChatForm
+        <ChatInput
           message={message}
           onMessageChange={(newMessage) => {
             setMessage(newMessage)
@@ -113,7 +115,7 @@ describe('Refactored ChatForm', () => {
           onSubmit={onSubmit}
           placeholder="Type a message..."
           buttonText="Send"
-          selectors={[]}
+          selectors={null}
         />
       )
     }
@@ -140,7 +142,12 @@ describe('Refactored ChatForm', () => {
     const onMessageChange = vi.fn()
 
     render(
-      <ChatForm message="" onMessageChange={onMessageChange} onSubmit={onSubmit} selectors={[]} />,
+      <ChatInput
+        message=""
+        onMessageChange={onMessageChange}
+        onSubmit={onSubmit}
+        selectors={null}
+      />,
     )
 
     // Should render without selectors

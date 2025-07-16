@@ -17,7 +17,7 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
         },
         requestId,
       },
-      error.statusCode as any,
+      error.statusCode as Parameters<typeof c.json>[1],
     )
   }
 

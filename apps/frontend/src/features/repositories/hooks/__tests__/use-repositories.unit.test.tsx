@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/types/types/repository'
+import type { RepositoryResponse } from '@moatless/types'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -44,7 +44,6 @@ describe('useRepositories hooks', () => {
     originalBranch: 'main',
     codeExecution: {
       type: 'local' as const,
-      serverCommand: 'npm run dev',
     },
     previewConfig: {
       framework: 'vite',
@@ -52,7 +51,6 @@ describe('useRepositories hooks', () => {
     },
     createdAt: new Date(),
     updatedAt: new Date(),
-    variables: {},
   }
 
   beforeEach(() => {
@@ -135,7 +133,6 @@ describe('useRepositories hooks', () => {
         originalBranch: 'main',
         codeExecution: {
           type: 'local' as const,
-          serverCommand: 'npm run dev',
         },
       }
 

@@ -1,16 +1,21 @@
 import type {
   CreateTaskRequest,
+  Event,
   EventListResponse,
+  FileSearchRequest,
+  FileSearchResponse,
+  GitDiffResponse,
   MergeTaskResponse,
+  Message,
+  MessagesResponse,
   SimpleTaskResponse,
   StopAgentResponse,
+  Task,
   TaskCommandsResponse,
   TaskListResponse,
+  WorkspaceSetupResponse,
   WorkspaceStatusResponse,
-} from '@moatless/types/types/api'
-import type { Event } from '@moatless/types/types/event'
-import type { FileSearchRequest, FileSearchResponse } from '@moatless/types/types/repository'
-import type { GitDiffResponse, Task } from '@moatless/types/types/task'
+} from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 export const tasksApi = {
@@ -84,6 +89,11 @@ export const tasksApi = {
     return response.items
   },
 
+  async getTaskMessages(taskId: string): Promise<Array<Message>> {
+    const response = await apiClient.get<MessagesResponse>(`/api/v1/tasks/${taskId}/messages`)
+    return response.messages
+  },
+
   async getTaskGitDiff(taskId: string): Promise<GitDiffResponse> {
     return await apiClient.get<GitDiffResponse>(`/api/v1/tasks/${taskId}/git-diff`)
   },
@@ -94,6 +104,10 @@ export const tasksApi = {
 
   async getTaskWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     return await apiClient.get<WorkspaceStatusResponse>(`/api/v1/tasks/${taskId}/workspace-status`)
+  },
+
+  async setupWorkspace(taskId: string): Promise<WorkspaceSetupResponse> {
+    return await apiClient.post<WorkspaceSetupResponse>(`/api/v1/tasks/${taskId}/setup`, {})
   },
 
   async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {

@@ -79,24 +79,24 @@ const pinoLogger = (() => {
   if (process.env.USE_JSON_LOGGING === 'true') {
     // Explicit JSON logging
     return pino(baseOptions)
-  } else if (isProductionBuild && process.env.USE_JSON_LOGGING !== 'false') {
+  }
+  if (isProductionBuild && process.env.USE_JSON_LOGGING !== 'false') {
     // In production/built environment, use simple prettifier by default
     return pino(baseOptions, simplePrettifier())
-  } else {
-    // In development or when explicitly requested, use pino-pretty transport
-    return pino({
-      ...baseOptions,
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'HH:MM:ss Z',
-          ignore: 'pid,hostname',
-          singleLine: false,
-        },
-      },
-    })
   }
+  // In development or when explicitly requested, use pino-pretty transport
+  return pino({
+    ...baseOptions,
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss Z',
+        ignore: 'pid,hostname',
+        singleLine: false,
+      },
+    },
+  })
 })()
 
 // Create a wrapper to maintain backward compatibility with existing code

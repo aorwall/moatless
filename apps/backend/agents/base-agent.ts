@@ -1,5 +1,4 @@
-import type { BranchNameAndSummary } from '@moatless/types/types/claude-code'
-import type { Event } from '@moatless/types/types/event'
+import type { BranchNameAndSummary, Event } from '@moatless/types'
 
 export interface AgentOptions {
   model?: string
@@ -32,7 +31,6 @@ export abstract class BaseAgent {
   abstract run(message: string, options?: AgentRunOptions): AsyncGenerator<Event>
   abstract stop(): Promise<void>
   abstract getAgentType(): string
-  abstract sendMessage(message: string, options?: AgentRunOptions): Promise<string>
   abstract getBranchNameAndSummary(
     message: string,
     options?: AgentRunOptions,

@@ -1,8 +1,12 @@
-import type { Task } from '@moatless/types/types/task'
+import type { Event, MessageEvent, Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
-import { MinifiedLastEventsDisplay } from '@/features/tasks/components/minified-event-viewer/minified-last-events-display'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
+import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
+import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
+import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 
 function getRelativeTime(date: Date | string): string {
@@ -25,6 +29,21 @@ function getRelativeTime(date: Date | string): string {
   return `${years}y ago`
 }
 
+function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
+  if (event.type !== 'message') return false
+
+  const messageEvent = event as MessageEvent
+  const payload = messageEvent.payload
+
+  // Skip user messages (which are usually tool results)
+  if (payload?.type === 'user') return false
+
+  // Include assistant messages (which can be text or tool calls)
+  if (payload?.type === 'assistant') return true
+
+  return false
+}
+
 interface TaskCardProps {
   task: Task
   repositoryName: string
@@ -37,11 +56,68 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]
 
-  // Get events for running tasks
+  // Get initial events for running tasks
   const { data: eventsData } = useTaskEvents(task.taskId, undefined, {
     enabled: task.status === 'running',
     refetchInterval: false, // Real-time updates handled by global event stream
   })
+
+  // State for live duration updates
+  const [runningDuration, setRunningDuration] = useState<string>('')
+
+  // State for real-time events
+  const [realtimeEvents, setRealtimeEvents] = useState<Event[]>([])
+
+  // Subscribe to real-time events for this task
+  const handleNewEvent = useCallback(
+    (event: Event) => {
+      if (task.status === 'running' && isMessageOrToolEvent(event)) {
+        setRealtimeEvents((prev) => [...prev, event])
+      }
+    },
+    [task.status],
+  )
+
+  useTaskEventSubscription(task.taskId, handleNewEvent)
+
+  // Combine initial events with real-time events
+  const allEvents = useMemo(() => {
+    const events = [...(eventsData || []), ...realtimeEvents]
+    // Remove duplicates based on eventId
+    const uniqueEvents = events.filter(
+      (event, index, self) => index === self.findIndex((e) => e.eventId === event.eventId),
+    )
+    return uniqueEvents
+  }, [eventsData, realtimeEvents])
+
+  // Filter events to show only last 3 message/tool events
+  const displayedEvents = useMemo(() => {
+    return allEvents.filter(isMessageOrToolEvent).slice(-3)
+  }, [allEvents])
+
+  // Reset realtime events when task status changes
+  useEffect(() => {
+    if (task.status !== 'running') {
+      setRealtimeEvents([])
+    }
+  }, [task.status])
+
+  // Update running duration every second for running tasks
+  useEffect(() => {
+    if (task.status !== 'running' || !lastIteration?.startTime) {
+      setRunningDuration('')
+      return
+    }
+
+    const updateDuration = () => {
+      setRunningDuration(formatRunningDuration(lastIteration.startTime))
+    }
+
+    updateDuration() // Initial update
+    const interval = setInterval(updateDuration, 1000)
+
+    return () => clearInterval(interval)
+  }, [task.status, lastIteration?.startTime])
 
   return (
     <Card className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -56,7 +132,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="truncate">{repositoryName}</span>
                 <span className="shrink-0">
-                  {getRelativeTime(task.lastMessageAt || task.createdAt)}
+                  {task.status === 'running' && runningDuration
+                    ? runningDuration
+                    : getRelativeTime(task.lastMessageAt || task.createdAt)}
                 </span>
               </div>
             </div>
@@ -66,14 +144,26 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <CardContent className="pt-0">
           {task.status === 'running' ? (
             // Show events for running tasks
-            eventsData && eventsData.length > 0 ? (
-              <div className="min-h-[80px]">
-                <MinifiedLastEventsDisplay
-                  events={eventsData}
-                  isRunning={true}
-                  runningStartTime={lastIteration?.startTime}
-                  latestContextTokens={lastIteration?.contextTokens}
-                />
+            displayedEvents.length > 0 ? (
+              <div className="min-h-[80px] space-y-px">
+                {displayedEvents.map((event, index) => {
+                  const isLast = index === displayedEvents.length - 1
+                  const opacity = isLast ? 1 : 0.5 + index * 0.25
+                  const bgOpacity = isLast ? 0.5 : 0.3
+
+                  return (
+                    <div
+                      key={event.eventId}
+                      className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
+                      style={{
+                        opacity,
+                        backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
+                      }}
+                    >
+                      <MinifiedEventItem event={event} />
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground min-h-[80px] flex items-center">

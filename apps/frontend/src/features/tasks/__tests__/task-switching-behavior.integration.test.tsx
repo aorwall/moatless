@@ -26,7 +26,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
     // Simulate a complex workflow with multiple state updates
     updateChatState({
       isAtBottom: false,
-      scrollPosition: parseInt(taskName.slice(-1)) * 100,
+      scrollPosition: Number.parseInt(taskName.slice(-1)) * 100,
     })
 
     updateGitDiffState({
@@ -35,12 +35,12 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
       expandedPaths: new Set([`${taskName}/src/`, `${taskName}/tests/`]),
     })
 
-    setRightPanelView('diff')
+    setRightPanelView('files')
     setSelectedFile(`${taskName}/selected.ts`)
-    setSelectedIteration({ iterationNumber: parseInt(taskName.slice(-1)) } as any)
+    setSelectedIteration({ iterationNumber: Number.parseInt(taskName.slice(-1)) } as any)
     setPanelSizes({
-      left: 30 + parseInt(taskName.slice(-1)) * 10,
-      right: 70 - parseInt(taskName.slice(-1)) * 10,
+      left: 30 + Number.parseInt(taskName.slice(-1)) * 10,
+      right: 70 - Number.parseInt(taskName.slice(-1)) * 10,
     })
   }
 
@@ -51,7 +51,7 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
       selectedFileKey: undefined,
       expandedPaths: new Set(),
     })
-    setRightPanelView('events')
+    setRightPanelView('preview')
     setSelectedFile('')
     setSelectedIteration(undefined)
     setPanelSizes({ left: 60, right: 40 })

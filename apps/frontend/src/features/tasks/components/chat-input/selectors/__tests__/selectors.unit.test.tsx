@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS } from '@moatless/types/constants'
+import { CLAUDE_MODELS } from '@moatless/types'
 import { act, render, renderHook, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GenericSelector } from '../generic-selector'

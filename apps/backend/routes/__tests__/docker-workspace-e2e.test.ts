@@ -9,7 +9,7 @@ import type {
   Event,
   RepositoryConfig,
   Task,
-} from '@moatless/types/types/index'
+} from '@moatless/types'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 import { logger } from '../../utils/logger.js'
@@ -163,9 +163,8 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'docker',
-        workspaceType: 'docker', // Explicitly set Docker workspace type
         dockerImage: 'moatless-vibe-universal:latest',
-        setupCommands: 'echo "Docker workspace setup complete"',
+        setupCommands: ['echo "Docker workspace setup complete"'],
       },
     }
 
@@ -188,7 +187,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: createRepositoryRequest.useGitWorktrees,
       codeExecution: expect.objectContaining({
         type: 'docker',
-        workspaceType: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
       }),
     })
@@ -203,7 +201,7 @@ describe('Docker Workspace E2E Test', () => {
 
     const createTaskResponse = await app.inject({
       method: 'POST',
-      url: `/api/v1/tasks`,
+      url: '/api/v1/tasks',
       payload: createTaskRequest,
     })
 
@@ -222,7 +220,7 @@ describe('Docker Workspace E2E Test', () => {
     )
     const containerName = containerList.trim()
     expect(containerName).toBeTruthy()
-    expect(containerName).toContain('moatless-task')
+    expect(containerName).toContain('moatless-docker-e2e-test-repository')
     logger.info('Docker container created:', { containerName })
 
     // Step 4: Verify task was created and has initial state
@@ -470,7 +468,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'docker',
-        workspaceType: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
       },
     }
@@ -545,7 +542,6 @@ describe('Docker Workspace E2E Test', () => {
       useGitWorktrees: false,
       codeExecution: {
         type: 'docker',
-        workspaceType: 'docker',
         dockerImage: 'moatless-vibe-universal:latest',
       },
     }

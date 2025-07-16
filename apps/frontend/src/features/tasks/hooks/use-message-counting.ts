@@ -1,5 +1,5 @@
-import type { Event } from '@moatless/types/types/event'
-import { EventType } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { useMemo } from 'react'
 
 interface UseMessageCountingProps {

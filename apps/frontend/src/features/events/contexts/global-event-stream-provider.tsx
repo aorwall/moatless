@@ -1,4 +1,4 @@
-import type { Event, EventType } from '@moatless/types/types/event'
+import type { Event, EventType } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -86,7 +86,6 @@ export function GlobalEventStreamProvider({
           case 'iteration:updated':
           case 'task:created':
           case 'task:updated':
-          case 'task:statusChanged':
             queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(event.taskId) })
             queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
             break

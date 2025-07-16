@@ -473,7 +473,7 @@ function SettingsPage() {
                             onChange={(e) =>
                               setClaudeUserModifications((prev) => ({
                                 ...prev,
-                                maxTurns: e.target.value ? parseInt(e.target.value) : null,
+                                maxTurns: e.target.value ? Number.parseInt(e.target.value) : null,
                               }))
                             }
                           />
@@ -490,7 +490,7 @@ function SettingsPage() {
                             onChange={(e) =>
                               setClaudeUserModifications((prev) => ({
                                 ...prev,
-                                maxThinkingTokens: parseInt(e.target.value) || 8000,
+                                maxThinkingTokens: Number.parseInt(e.target.value) || 8000,
                               }))
                             }
                           />

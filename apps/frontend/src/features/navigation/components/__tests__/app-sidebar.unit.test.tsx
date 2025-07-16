@@ -44,6 +44,14 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }))
 
+// Mock global event stream
+vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
+  useGlobalEventStream: () => ({
+    isConnected: true,
+    connectionError: null,
+  }),
+}))
+
 describe('AppSidebar', () => {
   it('should render all main sections', () => {
     render(<AppSidebar />)
@@ -79,8 +87,6 @@ describe('AppSidebar', () => {
 
     // Check that all sections are rendered
     expect(screen.getByTestId('sidebar-tasks')).toBeInTheDocument()
-    expect(screen.getByTestId('sidebar-repositories')).toBeInTheDocument()
-    expect(screen.getByTestId('sidebar-commands')).toBeInTheDocument()
   })
 
   it('should display version in footer', () => {

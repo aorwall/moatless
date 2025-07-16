@@ -1,20 +1,10 @@
-/**
- * Command availability filtering logic
- *
- * To enable debug logging:
- * 1. Set DEBUG_COMMAND_FILTERING = true below
- * 2. Open browser console to see detailed logs of command filtering decisions
- * 3. Logs will show which conditions pass/fail for each command
- */
-
-import type { Command } from '@moatless/types/types/command'
-import type { Task, TaskIteration } from '@moatless/types/types/task'
+import type { Command, Task, TaskIteration } from '@moatless/types'
 
 interface CommandAvailabilityContext {
   task?: Task
   lastIteration?: TaskIteration
   workspaceHasChanges?: boolean
-  gitStatus?: import('@moatless/types/types/api').GitStatus
+  gitStatus?: import('@moatless/types').GitStatus
 }
 
 // Debug logging flag - set to true to enable detailed command filtering logs

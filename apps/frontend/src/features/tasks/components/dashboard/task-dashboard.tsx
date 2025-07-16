@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types/types/task'
+import type { Task } from '@moatless/types'
 import { useMemo } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskCard } from '@/features/tasks/components/task-card'

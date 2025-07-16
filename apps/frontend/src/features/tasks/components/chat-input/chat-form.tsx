@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/types/types/api'
+import type { UploadFileResponse } from '@moatless/types'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -131,7 +131,7 @@ export function ChatForm({
       // Set initial height using callback ref pattern
       node.style.height = 'auto'
       const scrollHeight = node.scrollHeight
-      const maxHeightPx = parseInt(maxHeight)
+      const maxHeightPx = Number.parseInt(maxHeight)
       const newHeight = Math.min(scrollHeight, maxHeightPx)
       node.style.height = `${newHeight}px`
     }
@@ -184,7 +184,7 @@ export function ChatForm({
     const textarea = e.target
     textarea.style.height = 'auto'
     const scrollHeight = textarea.scrollHeight
-    const maxHeightPx = parseInt(maxHeight)
+    const maxHeightPx = Number.parseInt(maxHeight)
     const newHeight = Math.min(scrollHeight, maxHeightPx)
     textarea.style.height = `${newHeight}px`
   }
@@ -241,7 +241,7 @@ export function ChatForm({
 
   return (
     <form
-      className="group flex flex-col gap-2 rounded-3xl border border-border bg-muted p-3 relative"
+      className="group flex flex-col gap-2 rounded-3xl border border-border bg-card p-3 relative"
       onSubmit={handleSubmit}
       ref={formRef}
     >
@@ -254,7 +254,7 @@ export function ChatForm({
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto"
+            className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto"
             style={{ minHeight: '40px', maxHeight }}
             disabled={loading}
           />
@@ -281,7 +281,7 @@ export function ChatForm({
             return (
               <div
                 key={file.id}
-                className="flex items-center gap-1 px-2 py-1 bg-muted-foreground/10 rounded text-xs"
+                className="flex items-center gap-1 px-2 py-1 bg-secondary/10 rounded text-xs"
               >
                 {isImage && imageUrl && (
                   <img
@@ -294,7 +294,7 @@ export function ChatForm({
                 <button
                   type="button"
                   onClick={() => removeFile(file.id)}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -345,7 +345,7 @@ export function ChatForm({
                     type="submit"
                     disabled={disabled}
                     size="sm"
-                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-muted-foreground/30 text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-muted-foreground/10 hover:border-muted-foreground/40"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-border text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground hover:border-accent"
                   >
                     <span>{buttonText}</span>
                     <Circle className="h-3 w-3 text-muted-foreground" />

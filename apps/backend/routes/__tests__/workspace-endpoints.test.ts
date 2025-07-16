@@ -1,5 +1,5 @@
-import type { Task } from '@moatless/types/types/task'
-import { WorkspaceStatus } from '@moatless/types/types/workspace'
+import type { Task } from '@moatless/types'
+import { WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
@@ -57,9 +57,7 @@ describe('Workspace Endpoints', () => {
       hasUncommittedChanges: false,
       backgroundTaskCount: 0,
     })
-    vi.spyOn(app.services.workspace, 'canListFiles').mockResolvedValue(true)
-    vi.spyOn(app.services.workspace, 'canReadWriteFiles').mockResolvedValue(true)
-    vi.spyOn(app.services.workspace, 'canSearchFiles').mockResolvedValue(true)
+    vi.spyOn(app.services.workspace, 'canPerformFileOperations').mockResolvedValue(true)
     vi.spyOn(app.services.workspace, 'listFiles').mockResolvedValue(['file1.ts', 'file2.ts'])
     vi.spyOn(app.services.workspace, 'readFile').mockResolvedValue('console.log("test");')
     vi.spyOn(app.services.workspace, 'writeFile').mockResolvedValue(undefined)

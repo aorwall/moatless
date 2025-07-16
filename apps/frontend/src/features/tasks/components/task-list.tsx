@@ -1,5 +1,4 @@
-import type { GitSyncStatus } from '@moatless/types/types/api'
-import type { Task } from '@moatless/types/types/task'
+import type { GitSyncStatus, Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'

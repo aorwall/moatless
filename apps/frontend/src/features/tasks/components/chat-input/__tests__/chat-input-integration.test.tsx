@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TaskUIProvider } from '@/features/tasks/contexts/task-ui-provider'
-import { ChatInput } from '../index'
+import { ChatInput } from '../chat-input'
 
 // Mock the API hooks
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
@@ -42,18 +42,13 @@ const renderWithProviders = (component: React.ReactElement) => {
 describe('ChatInput integration', () => {
   it('should pass repositoryId from task prop to underlying components', () => {
     const taskId = 'task-123'
-    const repositoryId = 'repo-456'
-    const task = {
-      iterations: [],
-      repositoryId,
-    }
 
     const { container } = renderWithProviders(
-      <ChatInput taskId={taskId} task={task as any} taskStatus="open" onSendMessage={() => {}} />,
+      <ChatInput message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} taskId={taskId} />,
     )
 
     // The component should render without errors
-    expect(screen.getByPlaceholderText(/Type a new request/)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument()
 
     // The repositoryId should be accessible internally
     // This test verifies that the component properly extracts repositoryId from task
@@ -65,11 +60,11 @@ describe('ChatInput integration', () => {
     const taskId = 'task-123'
 
     const { container } = renderWithProviders(
-      <ChatInput taskId={taskId} taskStatus="open" onSendMessage={() => {}} />,
+      <ChatInput message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} taskId={taskId} />,
     )
 
     // The component should render without errors even without repositoryId
-    expect(screen.getByPlaceholderText(/Type a new request/)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument()
     expect(container).toBeTruthy()
   })
 })

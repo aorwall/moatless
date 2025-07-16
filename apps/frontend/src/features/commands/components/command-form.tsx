@@ -1,9 +1,5 @@
-import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types/schemas'
-import type {
-  Command,
-  CreateCommandRequest,
-  UpdateCommandRequest,
-} from '@moatless/types/types/command'
+import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/types'
+import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import * as LucideIcons from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
@@ -58,6 +54,16 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
   const nameId = useId()
   const descriptionId = useId()
   const promptId = useId()
+  const requiresUncommittedChangesId = useId()
+  const requiresCommittedChangesId = useId()
+  const requiresBehindMainId = useId()
+  const requiresAheadOfMainId = useId()
+  const requiresDivergedId = useId()
+  const requiresTaskNotRunningId = useId()
+  const requiresLastIterationErrorId = useId()
+  const requiresLastIterationSuccessId = useId()
+  const iconId = useId()
+  const variantId = useId()
 
   const [formData, setFormData] = useState<FormData>({
     name: command?.name || '',
@@ -117,7 +123,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
 
     if (!result.success) {
       // Show first error as a toast
-      const firstError = result.error.errors[0]
+      const firstError = result.error.issues[0]
       if (firstError) {
         toast.error(firstError.message)
       }
@@ -205,7 +211,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresUncommittedChanges"
+                  id={requiresUncommittedChangesId}
                   checked={formData.conditions?.requiresUncommittedChanges || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -218,7 +224,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                   }
                 />
                 <Label
-                  htmlFor="requiresUncommittedChanges"
+                  htmlFor={requiresUncommittedChangesId}
                   className="text-sm font-normal cursor-pointer"
                 >
                   Requires uncommitted changes
@@ -226,7 +232,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresCommittedChanges"
+                  id={requiresCommittedChangesId}
                   checked={formData.conditions?.requiresCommittedChanges || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -239,7 +245,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                   }
                 />
                 <Label
-                  htmlFor="requiresCommittedChanges"
+                  htmlFor={requiresCommittedChangesId}
                   className="text-sm font-normal cursor-pointer"
                 >
                   Requires committed changes
@@ -247,7 +253,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresBehindMain"
+                  id={requiresBehindMainId}
                   checked={formData.conditions?.requiresBehindMain || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -259,13 +265,16 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     })
                   }
                 />
-                <Label htmlFor="requiresBehindMain" className="text-sm font-normal cursor-pointer">
+                <Label
+                  htmlFor={requiresBehindMainId}
+                  className="text-sm font-normal cursor-pointer"
+                >
                   Requires branch behind main
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresAheadOfMain"
+                  id={requiresAheadOfMainId}
                   checked={formData.conditions?.requiresAheadOfMain || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -277,13 +286,16 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     })
                   }
                 />
-                <Label htmlFor="requiresAheadOfMain" className="text-sm font-normal cursor-pointer">
+                <Label
+                  htmlFor={requiresAheadOfMainId}
+                  className="text-sm font-normal cursor-pointer"
+                >
                   Requires branch ahead of main
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresDiverged"
+                  id={requiresDivergedId}
                   checked={formData.conditions?.requiresDiverged || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -295,7 +307,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     })
                   }
                 />
-                <Label htmlFor="requiresDiverged" className="text-sm font-normal cursor-pointer">
+                <Label htmlFor={requiresDivergedId} className="text-sm font-normal cursor-pointer">
                   Requires branch diverged from main
                 </Label>
               </div>
@@ -307,7 +319,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresTaskNotRunning"
+                  id={requiresTaskNotRunningId}
                   checked={formData.conditions?.requiresTaskNotRunning || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -320,7 +332,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                   }
                 />
                 <Label
-                  htmlFor="requiresTaskNotRunning"
+                  htmlFor={requiresTaskNotRunningId}
                   className="text-sm font-normal cursor-pointer"
                 >
                   Requires task not running
@@ -328,7 +340,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresLastIterationError"
+                  id={requiresLastIterationErrorId}
                   checked={formData.conditions?.requiresLastIterationError || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -341,7 +353,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                   }
                 />
                 <Label
-                  htmlFor="requiresLastIterationError"
+                  htmlFor={requiresLastIterationErrorId}
                   className="text-sm font-normal cursor-pointer"
                 >
                   Requires last iteration had error
@@ -349,7 +361,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="requiresLastIterationSuccess"
+                  id={requiresLastIterationSuccessId}
                   checked={formData.conditions?.requiresLastIterationSuccess || false}
                   onCheckedChange={(checked) =>
                     setFormData({
@@ -362,7 +374,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                   }
                 />
                 <Label
-                  htmlFor="requiresLastIterationSuccess"
+                  htmlFor={requiresLastIterationSuccessId}
                   className="text-sm font-normal cursor-pointer"
                 >
                   Requires last iteration was successful
@@ -380,19 +392,24 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="icon">Icon</Label>
+            <Label htmlFor={iconId}>Icon</Label>
             <Select
               value={formData.icon || 'none'}
               onValueChange={(value) =>
                 setFormData({ ...formData, icon: value === 'none' ? '' : value })
               }
             >
-              <SelectTrigger id="icon">
+              <SelectTrigger id={iconId}>
                 <SelectValue placeholder="Select an icon (optional)">
                   {formData.icon && (
                     <div className="flex items-center gap-2">
                       {(() => {
-                        const IconComponent = (LucideIcons as any)[formData.icon]
+                        const IconComponent = (
+                          LucideIcons as unknown as Record<
+                            string,
+                            React.ComponentType<{ className?: string }>
+                          >
+                        )[formData.icon]
                         return IconComponent ? <IconComponent className="h-4 w-4" /> : null
                       })()}
                       <span>{formData.icon}</span>
@@ -470,7 +487,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="variant">Button Style</Label>
+            <Label htmlFor={variantId}>Button Style</Label>
             <Select
               value={formData.variant || 'default'}
               onValueChange={(value) =>
@@ -480,7 +497,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                 })
               }
             >
-              <SelectTrigger id="variant">
+              <SelectTrigger id={variantId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

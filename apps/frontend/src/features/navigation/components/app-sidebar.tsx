@@ -13,8 +13,6 @@ import {
   SidebarMenuItem,
 } from '@/lib/components/ui/sidebar'
 
-import { SidebarCommands } from './sidebar-commands'
-import { SidebarRepositories } from './sidebar-repositories'
 import { SidebarTasks } from './sidebar-tasks'
 
 export function AppSidebar() {
@@ -68,8 +66,6 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarTasks />
-        <SidebarRepositories />
-        <SidebarCommands />
       </SidebarContent>
 
       <SidebarFooter>

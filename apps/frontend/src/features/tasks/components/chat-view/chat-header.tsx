@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types/types/task'
+import type { Task } from '@moatless/types'
 import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'

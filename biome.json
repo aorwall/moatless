@@ -3,11 +3,18 @@
   "vcs": {
     "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": true
+    "useIgnoreFile": true,
+    "defaultBranch": "main"
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["apps/**/*", "packages/**/*", "bin/**/*", ".lintstagedrc.json", "docs/**/*"]
+    "includes": [
+      "apps/frontend/src/**",
+      "apps/backend/**/*.ts",
+      "apps/backend/**/*.js",
+      "!apps/backend/dist/**",
+      "packages/*/src/**"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -34,7 +41,17 @@
       "recommended": true,
       "style": {
         "noNonNullAssertion": "off",
-        "useImportType": "error"
+        "useImportType": "error",
+        "noParameterAssign": "error",
+        "useAsConstAssertion": "error",
+        "useDefaultParameterLast": "error",
+        "useEnumInitializers": "error",
+        "useSelfClosingElements": "error",
+        "useSingleVarDeclarator": "error",
+        "noUnusedTemplateLiteral": "error",
+        "useNumberNamespace": "error",
+        "noInferrableTypes": "error",
+        "noUselessElse": "error"
       },
       "correctness": {
         "noUnusedImports": "error",
@@ -73,21 +90,11 @@
       }
     },
     {
-      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*"],
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*", "**/test-utils/**/*"],
       "linter": {
         "rules": {
           "suspicious": {
             "noExplicitAny": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["apps/backend/routes/**/*"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noExplicitAny": "warn"
           }
         }
       }

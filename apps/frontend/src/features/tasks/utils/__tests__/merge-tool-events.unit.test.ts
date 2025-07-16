@@ -1,6 +1,5 @@
-import type { ClaudeCodeSDKMessage } from '@moatless/types/types/claude'
-import type { Event, MessageEvent } from '@moatless/types/types/event'
-import { EventType } from '@moatless/types/types/event'
+import type { ClaudeCodeSDKMessage, Event, MessageEvent } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { mergeToolEvents } from '../merge-tool-events'
@@ -143,7 +142,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: EventType.INPUT,
+        type: EventType.MESSAGE,
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -154,9 +153,13 @@ describe('mergeToolEvents', () => {
         numTurns: 1,
         totalCost: 0.01,
         payload: {
-          message: 'User input',
-        },
-      },
+          type: 'user',
+          message: {
+            role: 'user',
+            content: 'User input',
+          },
+        } as ClaudeCodeSDKMessage,
+      } as unknown as MessageEvent,
     ]
 
     const merged = mergeToolEvents(events)

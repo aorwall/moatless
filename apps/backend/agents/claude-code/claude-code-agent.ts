@@ -1,7 +1,6 @@
 import { query } from '@anthropic-ai/claude-code'
-import type { ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/types/types/claude'
-import type { BranchNameAndSummary } from '@moatless/types/types/claude-code'
-import { type Event, EventType, type ResultEvent } from '@moatless/types/types/event'
+import type { BranchNameAndSummary, ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/types'
+import { type Event, EventType, type ResultEvent } from '@moatless/types'
 import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
@@ -27,11 +26,31 @@ export class ClaudeCodeAgent extends BaseAgent {
       component: 'ClaudeCodeAgent',
     })
 
+    agentLogger.info('Starting Claude Code agent execution', {
+      taskId: this.taskId,
+      iterationNumber: runOptions.iterationNumber,
+      hasResumeSession: !!runOptions.resume,
+      workspaceDir: runOptions.workspaceDir,
+    })
+
     try {
       const sdkOptions = this.buildSDKOptions(runOptions)
 
+      agentLogger.debug('SDK options built', {
+        model: sdkOptions.model,
+        allowedTools: sdkOptions.allowedTools,
+        permissionMode: sdkOptions.permissionMode,
+        cwd: sdkOptions.cwd,
+        resume: sdkOptions.resume,
+      })
+
       let eventCount = 0
       let hasStartedProcessing = false
+
+      agentLogger.info('Initiating Claude Code SDK query', {
+        promptLength: message.length,
+        taskId: this.taskId,
+      })
 
       // Use the SDK query function
       for await (const sdkMessage of query({
@@ -53,7 +72,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         if (!this.sessionId && sdkMessage.session_id) {
           this.sessionId = sdkMessage.session_id
-          agentLogger.debug('Session ID captured from SDK', { sessionId: this.sessionId })
+          agentLogger.info('Session ID captured from SDK', { sessionId: this.sessionId })
         }
 
         // Mark that we've started processing beyond init
@@ -63,6 +82,10 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         if (sdkMessage.type === 'result') {
           const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
+          agentLogger.info('Received result message from SDK', {
+            isError,
+            subtype: 'subtype' in sdkMessage ? sdkMessage.subtype : undefined,
+          })
           yield this.createEventWithContextTokens(
             sdkMessage,
             EventType.RESULT,
@@ -91,7 +114,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       if (error instanceof Error && error.message.includes('Claude Code process exited')) {
         // Parse exit code from error message if available
         const exitCodeMatch = error.message.match(/code (\d+)/)
-        const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : null
+        const exitCode = exitCodeMatch ? Number.parseInt(exitCodeMatch[1]) : null
 
         // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected when stopping
         const isExpectedExitCode = exitCode === 143 || exitCode === 130
@@ -114,13 +137,12 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         // Only throw if it's truly unexpected
         throw error
-      } else {
-        agentLogger.error('Error in SDK query loop', error as Error, {
-          stopRequested: this.stopRequested,
-          sessionId: this.sessionId,
-        })
-        throw error
       }
+      agentLogger.error('Error in SDK query loop', error as Error, {
+        stopRequested: this.stopRequested,
+        sessionId: this.sessionId,
+      })
+      throw error
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
@@ -144,7 +166,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   private createEventWithContextTokens(
     payload: ClaudeCodeSDKMessage,
     type: EventType,
-    isError: boolean = false,
+    isError = false,
   ): Event {
     const contextTokens = calculateContextTokens(payload)
 
@@ -166,12 +188,29 @@ export class ClaudeCodeAgent extends BaseAgent {
     const settingsService = getSettingsService()
     const claudeSettings = settingsService.getClaudeSettings()
 
+    const agentLogger = logger.child({
+      taskId: this.taskId,
+      component: 'ClaudeCodeAgent',
+    })
+
+    agentLogger.debug('Building SDK options', {
+      hasClaudeSettings: !!claudeSettings,
+      hasBinDir: !!claudeSettings.binDir,
+      hasConfigDir: !!claudeSettings.configDir,
+    })
+
     // Set environment variables for Claude Code if provided by settings
     if (claudeSettings.binDir && claudeSettings.binDir.trim() !== '') {
       process.env.CLAUDE_BIN_DIR = claudeSettings.binDir
+      agentLogger.debug('Set CLAUDE_BIN_DIR environment variable', {
+        binDir: claudeSettings.binDir,
+      })
     }
     if (claudeSettings.configDir && claudeSettings.configDir.trim() !== '') {
       process.env.CLAUDE_CONFIG_DIR = claudeSettings.configDir
+      agentLogger.debug('Set CLAUDE_CONFIG_DIR environment variable', {
+        configDir: claudeSettings.configDir,
+      })
     }
 
     const sdkOptions: ClaudeCodeOptions = {
@@ -190,13 +229,11 @@ export class ClaudeCodeAgent extends BaseAgent {
       sdkOptions.resume = runOptions.resume
     }
 
-    const agentLogger = logger.child({
-      taskId: this.taskId,
-      component: 'ClaudeCodeAgent',
-    })
-
-    agentLogger.debug('Built SDK options', {
-      sdkOptions,
+    agentLogger.info('Built SDK options successfully', {
+      model: sdkOptions.model,
+      cwd: sdkOptions.cwd,
+      hasResumeSession: !!sdkOptions.resume,
+      allowedToolsCount: sdkOptions.allowedTools?.length,
     })
 
     return sdkOptions
@@ -312,13 +349,12 @@ export class ClaudeCodeAgent extends BaseAgent {
       if (parseResult.found && parseResult.data) {
         agentLogger.debug('Successfully parsed branch name and summary', parseResult.data)
         return parseResult.data
-      } else {
-        agentLogger.warn('Failed to parse branch name and summary', {
-          error: parseResult.error,
-          response: responseText,
-        })
-        return null
       }
+      agentLogger.warn('Failed to parse branch name and summary', {
+        error: parseResult.error,
+        response: responseText,
+      })
+      return null
     } catch (error) {
       agentLogger.error('Error in getBranchNameAndSummary', error as Error)
       throw error

@@ -22,12 +22,14 @@ vi.mock('node:child_process', () => ({
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(() => false),
   promises: {
-    access: vi.fn(() => Promise.resolve()),
+    access: vi.fn().mockResolvedValue(undefined), // Always allow access
     mkdir: vi.fn(() => Promise.resolve()),
     writeFile: vi.fn(() => Promise.resolve()),
     readFile: vi.fn(() => Promise.resolve('file content')),
     rm: vi.fn(() => Promise.resolve()),
-    stat: vi.fn(() => Promise.resolve({ isFile: () => false, isDirectory: () => true })),
+    stat: vi.fn(() =>
+      Promise.resolve({ isFile: () => false, isDirectory: () => true, size: 1024 }),
+    ),
     readdir: vi.fn(() => Promise.resolve([])),
   },
 }))
@@ -36,15 +38,42 @@ vi.mock('node:fs', () => ({
 vi.mock('../../utils/git-utils.js', () => ({
   getCurrentBranch: vi.fn().mockResolvedValue('main'),
   createBranch: vi.fn().mockResolvedValue(undefined),
+  createGitWorktree: vi.fn().mockResolvedValue(undefined),
   getGitDiffFiles: vi.fn().mockResolvedValue({
     files: [],
     totalChanges: 0,
     totalAdditions: 0,
     totalDeletions: 0,
   }),
+  getGitDiffDetailed: vi.fn().mockResolvedValue({
+    files: [],
+    summary: { insertions: 0, deletions: 0, filesChanged: 0 },
+  }),
+  getOriginSyncStatus: vi.fn().mockResolvedValue({
+    currentBranch: 'main',
+    baseBranch: 'main',
+    hasUncommittedChanges: false,
+    status: 'synced',
+    commitsAhead: 0,
+    commitsBehind: 0,
+    originExists: true,
+  }),
+  getWorkingDirectoryChanges: vi.fn().mockResolvedValue({
+    currentBranch: 'main',
+    status: 'clean',
+    additions: 0,
+    deletions: 0,
+    modifications: 0,
+  }),
+  checkForConflicts: vi.fn().mockResolvedValue(false),
   isGitRepository: vi.fn().mockResolvedValue(true),
   hasUncommittedChanges: vi.fn().mockResolvedValue(false),
   getGitDiffString: vi.fn().mockResolvedValue(['', '']),
+  searchFilesInDirectoryNew: vi.fn().mockResolvedValue({
+    results: [],
+    totalFound: 0,
+    query: '',
+  }),
 }))
 
 // Mock PortAllocationService
@@ -97,10 +126,18 @@ describe('WorkspaceService', () => {
     variables: {},
     createdAt: new Date(),
     updatedAt: new Date(),
+    useGitWorktrees: false, // Add this to disable git worktrees in tests
   }
 
   beforeEach(async () => {
     tempDir = path.join(process.cwd(), `temp-test-${Date.now()}`)
+
+    // Ensure fs.access mock always succeeds
+    vi.mocked(fs.access).mockResolvedValue(undefined)
+
+    // Ensure isGitRepository mock always returns true
+    const { isGitRepository } = await import('../../utils/git-utils.js')
+    vi.mocked(isGitRepository).mockResolvedValue(true)
 
     // Mock storage
     storage = {
@@ -156,7 +193,7 @@ describe('WorkspaceService', () => {
 
       expect(retrievedWorkspace.id).toBe('test-task')
       expect(retrievedWorkspace.type).toBe('local')
-      expect(retrievedWorkspace.getStatus()).toBe('idle') // Status when workspace path exists
+      expect(retrievedWorkspace.getStatus()).toBe('not_setup') // Status before setup is called
       expect(retrievedWorkspace.repositoryId).toBe(mockRepository.id)
       expect(retrievedWorkspace.getWorkspacePath()).toBe('/test/repo')
     })
@@ -168,7 +205,6 @@ describe('WorkspaceService', () => {
       expect(workspacePath).toBe(tempDir)
 
       // Clear active workspaces to simulate restart
-
       ;(service as unknown as { activeWorkspaces: Map<string, unknown> }).activeWorkspaces.clear()
 
       // Second creation should use saved path
@@ -207,12 +243,8 @@ describe('WorkspaceService', () => {
 
       const workspace = await service.getOrCreateWorkspace('test-task')
 
-      // Manually set the workspace path to our temp directory for testing
-
-      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).workspacePath =
-        tempDir
-      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).setupComplete =
-        true
+      // Setup the workspace so file operations can work
+      await workspace.setup()
 
       const files = await service.listFiles('test-task')
 
@@ -225,16 +257,13 @@ describe('WorkspaceService', () => {
       vi.mocked(fs.stat).mockResolvedValueOnce({
         isFile: () => true,
         isDirectory: () => false,
+        size: 1024, // Add size property required by FileOperations
       } as any)
 
       const workspace = await service.getOrCreateWorkspace('test-task')
 
-      // Manually set the workspace path to our temp directory for testing
-
-      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).workspacePath =
-        tempDir
-      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).setupComplete =
-        true
+      // Setup the workspace so file operations can work
+      await workspace.setup()
 
       // Write file
       const content = 'console.log("Hello, world!");'
@@ -248,12 +277,8 @@ describe('WorkspaceService', () => {
     it('should prevent path traversal attacks', async () => {
       const workspace = await service.getOrCreateWorkspace('test-task')
 
-      // Manually set the workspace path to our temp directory for testing
-
-      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).workspacePath =
-        tempDir
-      ;(workspace as unknown as { workspacePath: string; setupComplete: boolean }).setupComplete =
-        true
+      // Setup the workspace so file operations can work
+      await workspace.setup()
 
       // Attempt path traversal
       await expect(service.readFile('test-task', '../../../etc/passwd')).rejects.toThrow(
@@ -281,10 +306,13 @@ describe('WorkspaceService', () => {
       const workspace = await service.getOrCreateWorkspace('test-task')
 
       expect(workspace.type).toBe('docker')
-      expect(workspace.status).toBe('initializing')
+      expect(workspace.status).toBe('not_setup') // Status before setup is called
       // Container ID will be empty until setup is called
-      const dockerWorkspace = workspace as any
-      expect(dockerWorkspace.getContainerId()).toBe('')
+      const workspaceInfo = workspace.toWorkspaceInfo()
+      expect(workspaceInfo.type).toBe('docker')
+      if (workspaceInfo.type === 'docker') {
+        expect(workspaceInfo.containerId).toBe('')
+      }
     })
   })
 
@@ -296,6 +324,14 @@ describe('WorkspaceService', () => {
         const callback = (cb || opts) as any
         callback(null, { stdout: 'success', stderr: '' })
       }) as any)
+
+      // Mock fs.access to make tempDir accessible
+      vi.mocked(fs.access).mockImplementation(async (path) => {
+        if (path === tempDir) {
+          return Promise.resolve()
+        }
+        return Promise.resolve() // Allow access to all paths for testing
+      })
 
       const workspace = await service.getOrCreateWorkspace('test-task-cleanup-local')
       await workspace.setup()
@@ -322,6 +358,11 @@ describe('WorkspaceService', () => {
         },
       })
 
+      // Mock fs.access to make all paths accessible
+      vi.mocked(fs.access).mockImplementation(async () => {
+        return Promise.resolve() // Allow access to all paths for testing
+      })
+
       // Mock exec
       const execMock = vi.mocked(child_process.exec)
       const containerId = 'abc123'
@@ -339,13 +380,9 @@ describe('WorkspaceService', () => {
       await workspace.setup()
       await service.cleanupWorkspace('test-task-cleanup-docker')
 
-      // Verify Docker stop and rm were called
+      // Verify Docker stop was called (rm only happens on setup errors)
       expect(execMock).toHaveBeenCalledWith(
         expect.stringContaining('docker stop'),
-        expect.any(Function),
-      )
-      expect(execMock).toHaveBeenCalledWith(
-        expect.stringContaining('docker rm'),
         expect.any(Function),
       )
     })

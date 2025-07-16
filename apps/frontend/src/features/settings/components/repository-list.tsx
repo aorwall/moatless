@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/types/types/repository'
+import type { RepositoryResponse } from '@moatless/types'
 import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -40,9 +40,8 @@ export function RepositoryList({
     const { codeExecution } = repo
     if (codeExecution.type === 'local') {
       return <Badge variant="secondary">Local</Badge>
-    } else {
-      return <Badge variant="secondary">Docker</Badge>
     }
+    return <Badge variant="secondary">Docker</Badge>
   }
 
   const getRepositoryInfo = (repo: RepositoryResponse) => {
@@ -53,9 +52,8 @@ export function RepositoryList({
     const { codeExecution } = repo
     if (codeExecution.type === 'local') {
       return 'Local execution'
-    } else {
-      return codeExecution.dockerImage || 'Docker'
     }
+    return codeExecution.dockerImage || 'Docker'
   }
 
   if (isLoading) {
@@ -71,8 +69,8 @@ export function RepositoryList({
           {[1, 2, 3].map((i) => (
             <Card key={i} className="animate-pulse">
               <CardContent className="p-6">
-                <div className="h-4 bg-muted rounded w-1/4 mb-2"></div>
-                <div className="h-3 bg-muted rounded w-1/2"></div>
+                <div className="h-4 bg-muted rounded w-1/4 mb-2" />
+                <div className="h-3 bg-muted rounded w-1/2" />
               </CardContent>
             </Card>
           ))}
@@ -135,19 +133,6 @@ export function RepositoryList({
                       <div className="mt-1">{getExecutionInfo(repository)}</div>
                     </div>
                   </div>
-
-                  {Object.keys(repository.variables).length > 0 && (
-                    <div>
-                      <span className="font-medium text-muted-foreground text-sm">Variables:</span>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {Object.keys(repository.variables).map((key) => (
-                          <Badge key={key} variant="outline" className="text-xs">
-                            {key}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="text-xs text-muted-foreground">

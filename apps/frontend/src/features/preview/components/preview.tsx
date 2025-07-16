@@ -1,12 +1,11 @@
 import { useParams } from '@tanstack/react-router'
-import { Loader2, Play, RefreshCw } from 'lucide-react'
+import { Loader2, Play } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
-import { useRestartServer, useStartServer } from '@/features/preview'
+import { useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
 import { PreviewProvider, usePreview } from '../hooks/use-preview'
-import { usePreviewConnection } from '../hooks/use-preview-connection'
 import type { PreviewProps } from '../types'
 import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
@@ -18,7 +17,6 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const params = useParams({ from: '/tasks/$taskId' })
   const startServer = useStartServer()
-  const restartServer = useRestartServer()
 
   const {
     currentPath,
@@ -36,7 +34,8 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     updateHeartbeat,
   } = usePreview()
 
-  const { isConnected } = usePreviewConnection(config.url)
+  // Use proxy endpoint for connection check - we're always connected if server is running
+  const isConnected = serverStatus?.running || false
 
   // Update config when props change
   useEffect(() => {
@@ -155,8 +154,8 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     toggleSelector(isInspectorActive)
   }, [isInspectorActive, toggleSelector])
 
-  // Construct full URL
-  const fullUrl = `${config.url}${currentPath}`
+  // Construct proxy URL using the task ID and proxy endpoint
+  const proxyUrl = `/api/v1/tasks/${params.taskId}/proxy${currentPath}`
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) {
@@ -187,10 +186,6 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
   const handleStartServer = useCallback(() => {
     startServer.mutate(params.taskId)
   }, [params.taskId, startServer])
-
-  const handleRestartServer = useCallback(() => {
-    restartServer.mutate(params.taskId)
-  }, [params.taskId, restartServer])
 
   return (
     <div
@@ -230,38 +225,6 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
               </div>
             )}
 
-            {serverStatus?.running && !isConnected && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground">
-                      Cannot connect to preview server at {config.url}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      The server is running but connection failed
-                    </p>
-                  </div>
-                  <Button
-                    onClick={handleRestartServer}
-                    disabled={restartServer.isPending}
-                    size="sm"
-                  >
-                    {restartServer.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Restarting Server...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Restart Server
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
             {error && isConnected && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                 <div className="text-center space-y-2">
@@ -274,7 +237,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
               <>
                 <iframe
                   ref={iframeRef}
-                  src={fullUrl}
+                  src={proxyUrl}
                   title="Application Preview"
                   sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
                   onLoad={handleIframeLoad}

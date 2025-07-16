@@ -3,7 +3,7 @@ import {
   CLAUDE_MODELS,
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
-} from '@moatless/types/constants'
+} from '@moatless/types'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useTemplatesList } from '@/features/templates'

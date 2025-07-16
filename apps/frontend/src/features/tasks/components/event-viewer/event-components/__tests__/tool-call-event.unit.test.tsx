@@ -1,5 +1,5 @@
-import type { Event } from '@moatless/types/types/event'
-import { EventType } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'

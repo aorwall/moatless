@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { StreamStatusResponseSchema } from '@moatless/types/schemas'
+import { StreamStatusResponseSchema } from '@moatless/types'
 import type { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
@@ -85,21 +85,38 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
       } as ReadableStreamDefaultController
       sseManager.connectGlobal(connectionId, controller)
 
+      // Handle client disconnect (this is tricky in Hono, we'll rely on the stream closing)
+      const abortController = new AbortController()
+
       // Subscribe to all task events
       const unsubscribe = eventService.subscribeAll((event) => {
         // Send all events without any filtering
         try {
+          // Check if connection is aborted before writing
+          if (abortController.signal.aborted) {
+            return
+          }
           writer.write(new TextEncoder().encode(`${JSON.stringify(event)}\n`))
           // Increment event count for this connection
           sseManager.incrementGlobalEventCount()
         } catch (error) {
-          console.error('Failed to send global event over SSE', error)
+          // Handle WritableStream closed errors gracefully
+          if (error instanceof TypeError && error.message.includes('WritableStream')) {
+            logger.debug('SSE connection closed, ignoring write error')
+          } else {
+            console.error('Failed to send global event over SSE', error)
+          }
         }
       })
 
       // Keep connection alive with periodic pings
       const pingInterval = setInterval(() => {
         try {
+          // Check if connection is aborted before writing
+          if (abortController.signal.aborted) {
+            clearInterval(pingInterval)
+            return
+          }
           // Send a ping event for NDJSON format
           const pingEvent = {
             type: 'ping',
@@ -107,13 +124,15 @@ export async function registerEventRoutes(app: Hono<AppBindings>, prefix: string
           }
           logger.debug('Sending ping event', { pingEvent })
           writer.write(new TextEncoder().encode(`${JSON.stringify(pingEvent)}\n`))
-        } catch (_error) {
+        } catch (error) {
           clearInterval(pingInterval)
+          // Handle WritableStream closed errors gracefully
+          if (error instanceof TypeError && error.message.includes('WritableStream')) {
+            logger.debug('SSE connection closed during ping, stopping pings')
+          }
         }
       }, 30000)
 
-      // Handle client disconnect (this is tricky in Hono, we'll rely on the stream closing)
-      const abortController = new AbortController()
       c.req.raw.signal?.addEventListener('abort', () => {
         unsubscribe()
         sseManager.disconnectGlobal(connectionId)

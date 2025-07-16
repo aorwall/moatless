@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/types/types/repository'
+import type { RepositoryResponse } from '@moatless/types'
 import {
   Select,
   SelectContent,

@@ -8,7 +8,9 @@ export interface UseZodFormOptions<T extends z.ZodType> {
 
 export interface UseZodFormReturn<T extends z.ZodType> {
   errors: Partial<Record<keyof z.infer<T>, string>>
-  validate: (data: unknown) => z.SafeParseReturnType<z.infer<T>, z.infer<T>>
+  validate: (
+    data: unknown,
+  ) => { success: true; data: z.infer<T> } | { success: false; error: z.ZodError<z.infer<T>> }
   handleSubmit: (data: unknown) => Promise<boolean>
   clearErrors: () => void
   setFieldError: (field: keyof z.infer<T>, error: string) => void
@@ -32,7 +34,7 @@ export function useZodForm<T extends z.ZodType>({
         const fieldErrors: Partial<Record<keyof z.infer<T>, string>> = {}
 
         // Convert Zod errors to field-specific errors
-        for (const error of result.error.errors) {
+        for (const error of result.error.issues) {
           const path = error.path[0] as keyof z.infer<T>
           if (path && !fieldErrors[path]) {
             fieldErrors[path] = error.message

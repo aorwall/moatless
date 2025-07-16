@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types/types/event'
+import type { Event } from '@moatless/types'
 import { useMemo } from 'react'
 
 export interface ParsedMessage {
@@ -31,7 +31,7 @@ export interface ParsedEvent {
   eventId: string
   timestamp: string
   isError: boolean
-  type: 'message' | 'start' | 'stop' | 'error' | 'input' | 'result' | 'environment' | 'other'
+  type: 'message' | 'start' | 'stop' | 'error' | 'result' | 'environment' | 'other'
   data: ParsedMessage | Record<string, unknown>
 }
 
@@ -159,8 +159,6 @@ const getEventType = (eventType: string): ParsedEvent['type'] => {
       return 'stop'
     case 'error':
       return 'error'
-    case 'input':
-      return 'input'
     case 'result':
       return 'result'
     case 'environment':
@@ -203,55 +201,6 @@ export interface StandaloneEvent {
 
 export type DisplayEvent = EventGroup | StandaloneEvent
 
-const findNextResultIndex = (events: Array<ParsedEvent>, startIndex: number): number => {
-  for (let j = startIndex + 1; j < events.length; j++) {
-    if (events[j].type === 'result') {
-      return j
-    }
-    // Stop if we encounter another input event
-    if (events[j].type === 'input') {
-      break
-    }
-  }
-  return -1
-}
-
-const createEventGroup = (
-  events: Array<ParsedEvent>,
-  inputIndex: number,
-  resultIndex: number,
-): EventGroup => {
-  const intermediateEvents = events
-    .slice(inputIndex + 1, resultIndex)
-    .filter((e) => e.type !== 'input' && e.type !== 'result')
-
-  return {
-    type: 'group',
-    inputEvent: events[inputIndex],
-    resultEvent: events[resultIndex],
-    intermediateEvents,
-  }
-}
-
-const processInputEvent = (
-  events: Array<ParsedEvent>,
-  index: number,
-): { displayEvent: DisplayEvent; nextIndex: number } => {
-  const resultIndex = findNextResultIndex(events, index)
-
-  if (resultIndex !== -1) {
-    return {
-      displayEvent: createEventGroup(events, index, resultIndex),
-      nextIndex: resultIndex + 1,
-    }
-  }
-
-  return {
-    displayEvent: { type: 'standalone', event: events[index] },
-    nextIndex: index + 1,
-  }
-}
-
 export const groupEvents = (events: Array<ParsedEvent>): Array<DisplayEvent> => {
   const result: Array<DisplayEvent> = []
   let i = 0
@@ -259,14 +208,8 @@ export const groupEvents = (events: Array<ParsedEvent>): Array<DisplayEvent> => 
   while (i < events.length) {
     const event = events[i]
 
-    if (event.type === 'input') {
-      const { displayEvent, nextIndex } = processInputEvent(events, i)
-      result.push(displayEvent)
-      i = nextIndex
-    } else {
-      result.push({ type: 'standalone', event })
-      i++
-    }
+    result.push({ type: 'standalone', event })
+    i++
   }
 
   return result

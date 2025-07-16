@@ -3,13 +3,13 @@ import type {
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
-} from '@moatless/types/types/repository'
+} from '@moatless/types'
 
 // Code execution factories
 export function createMockLocalCodeExecution(overrides?: Partial<CodeExecution>): CodeExecution {
   return {
     type: 'local',
-    setupCommands: 'npm install\nnpm run build',
+    setupCommands: ['npm install', 'npm run build'],
     ...overrides,
   }
 }
@@ -18,7 +18,7 @@ export function createMockDockerCodeExecution(overrides?: Partial<CodeExecution>
   return {
     type: 'docker',
     dockerImage: 'node:18-alpine',
-    setupCommands: 'npm ci',
+    setupCommands: ['npm ci'],
     envVars: {
       NODE_ENV: 'production',
     },
@@ -39,10 +39,6 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
     path: '/Users/developer/projects/test-app',
     useGitWorktrees: false,
     codeExecution: createMockLocalCodeExecution(),
-    variables: {
-      NODE_ENV: 'test',
-      API_URL: 'http://localhost:3000',
-    },
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
     ...overrides,
@@ -59,9 +55,6 @@ export function createMockCreateRepositoryRequest(
     path: '/Users/developer/projects/test-app',
     useGitWorktrees: false,
     codeExecution: createMockLocalCodeExecution(),
-    variables: {
-      NODE_ENV: 'development',
-    },
     ...overrides,
   }
 }

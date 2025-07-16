@@ -1,5 +1,4 @@
-import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
-import { CreateTaskRequestSchema } from '@moatless/types/schemas'
+import { CreateTaskRequestSchema, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -59,7 +58,7 @@ export function CreateTaskForm() {
 
     if (!result.success) {
       // Show first error as a toast
-      const firstError = result.error.errors[0]
+      const firstError = result.error.issues[0]
       if (firstError) {
         toast.error(firstError.message)
       }

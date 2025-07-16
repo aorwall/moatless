@@ -75,10 +75,7 @@ describe('Preview Environment Error Handling', () => {
 
   it('should return error state when server command fails', async () => {
     // Create a repository with an invalid server command
-    const repository = await createRepository(
-      'Invalid Command Test',
-      'invalid-command-that-does-not-exist {PORT}',
-    )
+    const repository = await createRepository('Invalid Command Test')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup
@@ -124,7 +121,7 @@ exit 1
     await fs.writeFile(scriptPath, failingScript)
     await fs.chmod(scriptPath, 0o755)
 
-    const repository = await createRepository('Failing Server Test', `${scriptPath} {PORT}`)
+    const repository = await createRepository('Failing Server Test')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup
@@ -170,7 +167,7 @@ exit 1
 
     await fs.writeFile(path.join(tempDir, 'package.json'), packageJsonContent)
 
-    const repository = await createRepository('NPM Command Error Test', 'pnpm start:frontend')
+    const repository = await createRepository('NPM Command Error Test')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup
@@ -206,7 +203,7 @@ exit 1
 
   it('should return correct server status after failed startup', async () => {
     // Test that subsequent status checks work correctly after a failed startup
-    const repository = await createRepository('Status After Failure Test', 'nonexistent-command')
+    const repository = await createRepository('Status After Failure Test')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup
@@ -240,16 +237,15 @@ exit 1
   }, 30000)
 
   // Helper functions
-  async function createRepository(name: string, serverCommand: string): Promise<RepositoryConfig> {
+  async function createRepository(name: string): Promise<RepositoryConfig> {
     const request: CreateRepositoryRequest = {
       name,
-      description: `Test repository for error handling`,
+      description: 'Test repository for error handling',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "Environment ready"',
-        serverCommand,
+        setupCommands: ['echo "Environment ready"'],
       },
     }
 

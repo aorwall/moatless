@@ -1,12 +1,14 @@
 import type {
   CreateTaskRequest,
+  Event,
+  GitDiffResponse,
   MergeTaskResponse,
+  Message,
   SimpleTaskResponse,
+  Task,
   TaskCommandsResponse,
   TaskListResponse,
-} from '@moatless/types/types/api'
-import type { Event } from '@moatless/types/types/event'
-import type { GitDiffResponse, Task } from '@moatless/types/types/task'
+} from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
@@ -125,6 +127,9 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.messages(taskId),
+      })
       options?.onSuccess?.(data, variables, context)
     },
     ...options,
@@ -163,6 +168,18 @@ export function useTaskEvents(
       ? ([...queryKeys.tasks.events(taskId), { type }] as const)
       : queryKeys.tasks.events(taskId),
     queryFn: () => tasksApi.getTaskEvents(taskId, type),
+    enabled: !!taskId,
+    ...options,
+  })
+}
+
+export function useTaskMessages(
+  taskId: string,
+  options?: Omit<UseQueryOptions<Array<Message>>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.tasks.messages(taskId),
+    queryFn: () => tasksApi.getTaskMessages(taskId),
     enabled: !!taskId,
     ...options,
   })

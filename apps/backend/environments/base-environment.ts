@@ -1,5 +1,5 @@
-import type { RepositoryConfig } from '@moatless/types/types/repository'
-import type { CommandResult, ServerStatus } from '@moatless/types/types/workspace'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { EventService } from '../services/index.js'
 
 export abstract class BaseEnvironment {
@@ -8,6 +8,11 @@ export abstract class BaseEnvironment {
     protected readonly repositoryConfig: RepositoryConfig,
     protected readonly eventService: EventService,
   ) {}
+
+  /**
+   * Create an agent instance for execution
+   */
+  abstract createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent>
 
   /**
    * Stop the running agent for this workspace
@@ -33,6 +38,25 @@ export abstract class BaseEnvironment {
    * Get server logs
    */
   abstract getServerLogs?(lines?: number): Promise<string>
+
+  /**
+   * Get the preview server port
+   */
+  abstract getPreviewPort?(): number | undefined
+
+  /**
+   * Proxy requests to the preview server
+   */
+  abstract proxyPreviewRequest?(request: {
+    method: string
+    path: string
+    headers: Headers
+    body?: string
+  }): Promise<{
+    status: number
+    headers: Headers
+    body: string | Buffer
+  }>
 
   /**
    * Run a command in the workspace
@@ -67,7 +91,7 @@ export abstract class BaseEnvironment {
   /**
    * Get the environment status
    */
-  abstract getStatus(): 'initializing' | 'ready' | 'error' | 'cleaning'
+  abstract getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning'
 
   /**
    * Get any error message

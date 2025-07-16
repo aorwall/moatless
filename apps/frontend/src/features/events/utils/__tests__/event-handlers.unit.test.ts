@@ -1,4 +1,4 @@
-import { type Event, EventType } from '@moatless/types/types/event'
+import { type Event, EventType } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
@@ -46,7 +46,7 @@ describe('event-handlers', () => {
       expect(keys[1]('task-456')).toEqual(queryKeys.tasks.gitDiff('task-456'))
     })
 
-    it('should return empty array for MESSAGE event', () => {
+    it('should return correct invalidation keys for MESSAGE event', () => {
       const event: Event = {
         eventId: 'event-3',
         type: EventType.MESSAGE,
@@ -57,7 +57,8 @@ describe('event-handlers', () => {
       }
 
       const keys = getInvalidationKeys(event)
-      expect(keys).toHaveLength(0)
+      expect(keys).toHaveLength(1)
+      expect(keys[0]).toBe(queryKeys.tasks.messages)
     })
 
     it('should return correct invalidation keys for WORKSPACE event', () => {
@@ -72,20 +73,16 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      expect(keys).toHaveLength(2)
+      expect(keys).toHaveLength(3)
       expect(keys[0]('task-999')).toEqual(queryKeys.tasks.workspaceStatus('task-999'))
-      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.gitDiff('task-999'))
+      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.workspaceSetup('task-999'))
+      expect(keys[2]('task-999')).toEqual(queryKeys.tasks.gitDiff('task-999'))
     })
   })
 
   describe('shouldInvalidateTaskList', () => {
     it('should return true for status-affecting events', () => {
-      const statusEvents = [
-        { type: EventType.RESULT },
-        { type: EventType.ERROR },
-        { type: EventType.INPUT },
-        { type: EventType.TASK_STATUS },
-      ]
+      const statusEvents = [{ type: EventType.ERROR }, { type: EventType.TASK_STATUS }]
 
       statusEvents.forEach((event) => {
         expect(shouldInvalidateTaskList(event as any)).toBe(true)
@@ -98,6 +95,7 @@ describe('event-handlers', () => {
         { type: EventType.WORKSPACE },
         { type: EventType.TOOL },
         { type: EventType.SERVER },
+        { type: EventType.RESULT }, // RESULT no longer affects task status directly
       ]
 
       nonStatusEvents.forEach((event) => {

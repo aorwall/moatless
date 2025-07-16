@@ -36,7 +36,7 @@ const start = async () => {
     appServices = appWithServices
     const { app } = appWithServices
 
-    const port = parseInt(process.env.PORT || '8000', 10)
+    const port = Number.parseInt(process.env.PORT || '8000', 10)
     const host = process.env.HOST || '0.0.0.0'
 
     // Setup graceful shutdown handlers
@@ -105,7 +105,28 @@ const start = async () => {
 
     // Handle unhandled promise rejections
     process.on('unhandledRejection', (reason, promise) => {
-      logger.error(`Unhandled Rejection at: ${String(promise)} reason: ${String(reason)}`)
+      // Better error logging for unhandled rejections
+      if (reason instanceof Error) {
+        logger.error('Unhandled Rejection:', {
+          error: reason.message,
+          stack: reason.stack,
+          name: reason.name,
+          promise: String(promise),
+        })
+      } else {
+        logger.error(`Unhandled Rejection at: ${String(promise)} reason: ${String(reason)}`)
+      }
+
+      // Special handling for WritableStream errors during shutdown
+      if (
+        reason instanceof TypeError &&
+        reason.message.includes('WritableStream') &&
+        isShuttingDown
+      ) {
+        logger.debug('Ignoring WritableStream error during shutdown')
+        return
+      }
+
       // Don't exit the process - allow the server to continue running
     })
 
@@ -129,7 +150,7 @@ const start = async () => {
     })
 
     // Add error handling for server
-    server.on('error', (error: any) => {
+    server.on('error', (error: Error & { code?: string; syscall?: string; port?: number }) => {
       logger.error('Server error:', error)
       if (error.code === 'EADDRINUSE') {
         logger.error(`Port ${port} is already in use`)
