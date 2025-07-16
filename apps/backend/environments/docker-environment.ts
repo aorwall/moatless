@@ -561,12 +561,18 @@ export class DockerEnvironment extends BaseEnvironment {
       throw new Error(`Failed to create agent in worker: ${error}`)
     }
 
+    const result = await response.json()
     const taskId = this.taskId
+    const workerPort = this.workerPortMapping?.hostPort
+    const logger = this.logger
 
-    // Return a proxy agent that will delegate to the worker
-    class ProxyAgent extends BaseAgent {
+    // Return a stateful proxy agent that delegates to the worker
+    class StatefulProxyAgent extends BaseAgent {
+      private remoteSessionId?: string
+
       constructor() {
         super(taskId, options)
+        this.remoteSessionId = result.sessionId
       }
 
       async *run(_message: string, _runOptions?: AgentRunOptions): AsyncGenerator<Event> {
@@ -575,23 +581,92 @@ export class DockerEnvironment extends BaseEnvironment {
       }
 
       async stop(): Promise<void> {
-        // Will be handled by stopAgent
+        try {
+          const stopUrl = `http://localhost:${workerPort}/stop-agent`
+          const response = await fetch(stopUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId }),
+          })
+
+          if (!response.ok) {
+            const error = await response.text()
+            throw new Error(`Failed to stop agent in worker: ${error}`)
+          }
+        } catch (error) {
+          logger.error('Error stopping remote agent', error as Error)
+          throw error
+        }
       }
 
       getAgentType(): string {
         return agentType
       }
 
-      async sendMessage(_message: string, _options?: AgentRunOptions): Promise<string> {
-        throw new Error('Not implemented for Docker environment')
+      getSessionId(): string | undefined {
+        return this.remoteSessionId
       }
 
-      async getBranchNameAndSummary(): Promise<null> {
-        throw new Error('Not implemented for Docker environment')
+      async updateSessionId(): Promise<void> {
+        try {
+          const sessionUrl = `http://localhost:${workerPort}/agent-session/${taskId}`
+          const response = await fetch(sessionUrl)
+
+          if (response.ok) {
+            const result = await response.json()
+            this.remoteSessionId = result.sessionId
+          }
+        } catch (error) {
+          logger.warn('Failed to update session ID', error as Error)
+        }
+      }
+
+      async sendMessage(message: string, options?: AgentRunOptions): Promise<string> {
+        try {
+          const messageUrl = `http://localhost:${workerPort}/agent-message`
+          const response = await fetch(messageUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, message, options }),
+          })
+
+          if (!response.ok) {
+            const error = await response.text()
+            throw new Error(`Failed to send message to agent: ${error}`)
+          }
+
+          const result = await response.json()
+          return result.response
+        } catch (error) {
+          logger.error('Error sending message to remote agent', error as Error)
+          throw error
+        }
+      }
+
+      async getBranchNameAndSummary(message: string, options?: AgentRunOptions): Promise<null> {
+        try {
+          const branchUrl = `http://localhost:${workerPort}/agent-branch-summary`
+          const response = await fetch(branchUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, message, options }),
+          })
+
+          if (!response.ok) {
+            const error = await response.text()
+            throw new Error(`Failed to get branch summary from agent: ${error}`)
+          }
+
+          const result = await response.json()
+          return result.result
+        } catch (error) {
+          logger.error('Error getting branch summary from remote agent', error as Error)
+          throw error
+        }
       }
     }
 
-    return new ProxyAgent()
+    return new StatefulProxyAgent()
   }
 
   async *executeAgent(
@@ -662,6 +737,12 @@ export class DockerEnvironment extends BaseEnvironment {
             }
             try {
               const event = JSON.parse(data) as Event
+
+              // Sync session ID changes from worker to proxy agent
+              if (event.type === 'session' && event.sessionId && 'updateSessionId' in agent) {
+                await (agent as any).updateSessionId()
+              }
+
               yield event
             } catch (error) {
               this.logger.error('Failed to parse event from worker', error as Error, { data })
