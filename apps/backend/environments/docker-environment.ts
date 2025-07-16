@@ -2,8 +2,9 @@ import { exec } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { CommandResult, Event, RepositoryConfig, ServerStatus } from '@moatless/types'
-import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../agents/base-agent.js'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import { ProxyAgent } from '../agents/proxy-agent.js'
 import type { EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
@@ -566,166 +567,16 @@ export class DockerEnvironment extends BaseEnvironment {
       agentType: string
       sessionId?: string
     }
-    const taskId = this.taskId
-    const workerPort = this.workerPortMapping?.hostPort
-    const logger = this.logger
 
-    // Return a stateful proxy agent that delegates to the worker
-    class StatefulProxyAgent extends BaseAgent {
-      private remoteSessionId?: string
-
-      constructor() {
-        super(taskId, options)
-        this.remoteSessionId = result.sessionId
-      }
-
-      async *run(message: string, runOptions?: AgentRunOptions): AsyncGenerator<Event> {
-        try {
-          // Make HTTP request to worker to execute agent
-          const workerUrl = `http://localhost:${workerPort}/execute-agent`
-
-          const response = await fetch(workerUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'text/event-stream',
-            },
-            body: JSON.stringify({
-              agentType,
-              taskId,
-              message,
-              runOptions: {
-                ...runOptions,
-                workspaceDir: '/workspace',
-              },
-            }),
-          })
-
-          if (!response.ok) {
-            const error = await response.text()
-            throw new Error(`Failed to execute agent in worker: ${error}`)
-          }
-
-          // Parse SSE stream from worker
-          const reader = response.body?.getReader()
-          const decoder = new TextDecoder()
-
-          if (!reader) {
-            throw new Error('No response body')
-          }
-
-          let buffer = ''
-
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() || ''
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6)
-                if (data === '[DONE]') {
-                  return
-                }
-                try {
-                  const parsedData = JSON.parse(data)
-
-                  // Check if this is a session event (special case not in EventType enum)
-                  if (parsedData.type === 'session' && parsedData.sessionId) {
-                    this.remoteSessionId = parsedData.sessionId
-                  }
-
-                  // Yield the event regardless of type
-                  const event = parsedData as Event
-
-                  yield event
-                } catch (error) {
-                  logger.error('Failed to parse event from worker', error as Error, { data })
-                }
-              }
-            }
-          }
-        } catch (error) {
-          logger.error('Error executing agent via proxy', error as Error)
-          throw error
-        }
-      }
-
-      async stop(): Promise<void> {
-        try {
-          const stopUrl = `http://localhost:${workerPort}/stop-agent`
-          const response = await fetch(stopUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId }),
-          })
-
-          if (!response.ok) {
-            const error = await response.text()
-            throw new Error(`Failed to stop agent in worker: ${error}`)
-          }
-        } catch (error) {
-          logger.error('Error stopping remote agent', error as Error)
-          throw error
-        }
-      }
-
-      getAgentType(): string {
-        return agentType
-      }
-
-      getSessionId(): string | undefined {
-        return this.remoteSessionId
-      }
-
-      async updateSessionId(): Promise<void> {
-        try {
-          const sessionUrl = `http://localhost:${workerPort}/agent-session/${taskId}`
-          const response = await fetch(sessionUrl)
-
-          if (response.ok) {
-            const result = (await response.json()) as {
-              success: boolean
-              sessionId?: string
-              agentType?: string
-              createdAt?: Date
-            }
-            this.remoteSessionId = result.sessionId
-          }
-        } catch (error) {
-          logger.warn('Failed to update session ID', {
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-
-      async getBranchNameAndSummary(message: string, options?: AgentRunOptions): Promise<null> {
-        try {
-          const branchUrl = `http://localhost:${workerPort}/agent-branch-summary`
-          const response = await fetch(branchUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId, message, options }),
-          })
-
-          if (!response.ok) {
-            const error = await response.text()
-            throw new Error(`Failed to get branch summary from agent: ${error}`)
-          }
-
-          const result = (await response.json()) as { success: boolean; result: null }
-          return result.result
-        } catch (error) {
-          logger.error('Error getting branch summary from remote agent', error as Error)
-          throw error
-        }
-      }
-    }
-
-    return new StatefulProxyAgent()
+    // Return a proxy agent that delegates to the worker
+    return new ProxyAgent({
+      taskId: this.taskId,
+      agentType,
+      workerPort: this.workerPortMapping?.hostPort!,
+      sessionId: result.sessionId,
+      options,
+      logger: this.logger,
+    })
   }
 
   async stopAgent(): Promise<boolean> {
