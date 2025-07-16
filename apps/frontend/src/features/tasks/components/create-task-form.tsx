@@ -58,7 +58,7 @@ export function CreateTaskForm() {
 
     if (!result.success) {
       // Show first error as a toast
-      const firstError = result.error.errors[0]
+      const firstError = result.error.issues[0]
       if (firstError) {
         toast.error(firstError.message)
       }

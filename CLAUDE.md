@@ -191,13 +191,15 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 │       ├── dist/            # Build output
 │       └── package.json     # Backend package configuration
 ├── packages/                 # Shared packages
-│   └── types/              # Shared code between frontend and backend
-│       ├── types/           # Shared TypeScript types
-│       ├── constants/       # Shared constants
-│       ├── schemas/         # Validation schemas
-│       ├── utils/           # Shared utilities
-│       ├── index.ts         # Package exports
-│       └── package.json     # Shared package configuration
+│   └── types/              # @moatless/types - Shared code between frontend and backend
+│       ├── src/            # Source code (imported as @moatless/types)
+│       │   ├── types/      # Shared TypeScript types
+│       │   ├── constants/  # Shared constants
+│       │   ├── schemas/    # Validation schemas
+│       │   ├── utils/      # Shared utilities
+│       │   └── index.ts    # Main exports
+│       ├── dist/           # Build output
+│       └── package.json    # Package configuration
 ├── data/                    # Persistent data storage (created at runtime)
 │   ├── events/                # Task events
 │   ├── repositories/          # Repository configurations

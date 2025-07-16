@@ -123,7 +123,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
 
     if (!result.success) {
       // Show first error as a toast
-      const firstError = result.error.errors[0]
+      const firstError = result.error.issues[0]
       if (firstError) {
         toast.error(firstError.message)
       }
@@ -405,7 +405,10 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
                     <div className="flex items-center gap-2">
                       {(() => {
                         const IconComponent = (
-                          LucideIcons as Record<string, React.ComponentType<{ className?: string }>>
+                          LucideIcons as unknown as Record<
+                            string,
+                            React.ComponentType<{ className?: string }>
+                          >
                         )[formData.icon]
                         return IconComponent ? <IconComponent className="h-4 w-4" /> : null
                       })()}

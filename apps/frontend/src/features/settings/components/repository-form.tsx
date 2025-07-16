@@ -151,7 +151,7 @@ export function RepositoryForm({
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {}
-        error.errors.forEach((err: z.ZodIssue) => {
+        error.issues.forEach((err: z.ZodIssue) => {
           const path = err.path.join('.')
           if (path === 'name') {
             newErrors.name = err.message

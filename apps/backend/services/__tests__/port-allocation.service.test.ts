@@ -282,7 +282,7 @@ describe('PortAllocationService - Unit Tests', () => {
       // Mock port availability to return false (ports are in use)
       const mockSocketInstance = {
         setTimeout: vi.fn(),
-        on: vi.fn((event: string, callback: Function) => {
+        on: vi.fn((event: string, callback: () => void) => {
           if (event === 'connect') {
             // Simulate port in use by triggering connect
             setTimeout(() => callback(), 0)

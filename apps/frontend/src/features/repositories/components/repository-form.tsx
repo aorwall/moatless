@@ -92,11 +92,11 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
 
     if (!result.success) {
       // Show a helpful error message for validation failures
-      const errorCount = result.error.errors.length
+      const errorCount = result.error.issues.length
       if (errorCount === 1) {
-        const error = result.error.errors[0]
+        const error = result.error.issues[0]
         const fieldName = error.path[0] || 'field'
-        toast.error(`Please check the ${fieldName} field: ${error.message}`)
+        toast.error(`Please check the ${String(fieldName)} field: ${error.message}`)
       } else {
         toast.error(`Please check the form for ${errorCount} validation errors`)
       }

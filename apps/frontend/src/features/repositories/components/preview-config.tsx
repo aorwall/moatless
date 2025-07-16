@@ -87,7 +87,9 @@ export function PreviewConfigForm({
       // Set default server command if none is set or if it's the default for another framework
       serverStartCommand:
         !config.serverStartCommand ||
-        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(config.serverStartCommand as string)
+        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(
+          config.serverStartCommand as (typeof FRAMEWORK_DEFAULT_COMMANDS)[keyof typeof FRAMEWORK_DEFAULT_COMMANDS],
+        )
           ? defaultCommand
           : config.serverStartCommand,
     })

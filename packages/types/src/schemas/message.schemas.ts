@@ -22,7 +22,7 @@ const AssistantMessageContentSchema = z.object({
   type: z.enum(['text', 'tool_use']),
   text: z.string().optional(),
   tool_name: z.string().optional(),
-  tool_input: z.record(z.unknown()).optional(),
+  tool_input: z.record(z.string(), z.unknown()).optional(),
   tool_use_id: z.string().optional(),
   tool_result: ToolResultSchema.optional(),
 })

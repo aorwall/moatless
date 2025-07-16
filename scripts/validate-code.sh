@@ -13,6 +13,9 @@ NC='\033[0m' # No Color
 echo "${YELLOW}🔍 Running post-edit validation...${NC}"
 echo "${YELLOW}This checks for issues that may have been introduced by recent code changes.${NC}"
 echo ""
+echo "${YELLOW}⚠️  If you are still working on code changes, some errors below may be temporary.${NC}"
+echo "${YELLOW}   Continue with your planned fixes before addressing these errors.${NC}"
+echo ""
 
 # Track if any errors occurred
 HAS_ERRORS=0

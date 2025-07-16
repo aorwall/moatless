@@ -290,6 +290,15 @@ describe('AgentService', () => {
 
       const mockAgent = createMockAgent()
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
+        yield {
+          eventId: 'error-1',
+          type: EventType.ERROR,
+          taskId: 'task-1',
+          timestamp: new Date(),
+          agentType: 'claude-code',
+          isError: true,
+          payload: { message: 'Agent execution failed' },
+        }
         throw new Error('Agent execution failed')
       })
       vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)

@@ -25,9 +25,9 @@ const repositoryResponseSchema = z.object({
     setupCommands: z.array(z.string()).optional(),
     containerName: z.string().optional(),
     dockerImage: z.string().optional(),
-    envVars: z.record(z.string()).optional(),
+    envVars: z.record(z.string(), z.string()).optional(),
     volumes: z.array(z.string()).optional(),
-    ports: z.record(z.number()).optional(),
+    ports: z.record(z.string(), z.number()).optional(),
     volumeMapping: z
       .object({
         hostPath: z.string(),
@@ -49,7 +49,7 @@ const repositoryResponseSchema = z.object({
       injectionStrategy: z
         .object({
           method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
-          config: z.record(z.any()).optional(),
+          config: z.record(z.string(), z.any()).optional(),
         })
         .optional(),
     })

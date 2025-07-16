@@ -282,16 +282,16 @@ export function tokenizeHunks(hunks: Array<Hunk>, filePath?: string): HunkTokens
     for (const change of hunk.changes) {
       if (change.type === 'normal') {
         // Normal lines appear in both old and new
-        const tokens = tokenizeLine(change.content, language)
+        const tokens = tokenizeLine(change.content || '', language)
         allOldLines.push(tokens)
         allNewLines.push(tokens)
       } else if (change.type === 'delete') {
         // Delete lines only appear in old
-        const tokens = tokenizeLine(change.content, language)
+        const tokens = tokenizeLine(change.content || '', language)
         allOldLines.push(tokens)
       } else if (change.type === 'insert') {
         // Insert lines only appear in new
-        const tokens = tokenizeLine(change.content, language)
+        const tokens = tokenizeLine(change.content || '', language)
         allNewLines.push(tokens)
       }
     }

@@ -249,7 +249,7 @@ export interface PaginatedResponse<T> {
 export const ApiResponseErrorSchema = z.object({
   code: z.string(),
   message: z.string(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const ApiErrorResponseSchema = z.object({
@@ -262,7 +262,7 @@ export const ApiValidationErrorSchema = ApiResponseErrorSchema.extend({
   code: z.literal('VALIDATION_ERROR'),
   details: z.object({
     errors: z.union([
-      z.record(z.string()),
+      z.record(z.string(), z.string()),
       z.array(
         z.object({
           path: z.union([z.string(), z.array(z.string())]),
@@ -309,8 +309,8 @@ export const EventStreamMessageSchema = z.object({
 export const StreamStatusResponseSchema = z.object({
   globalConnections: z.number(),
   globalEventCount: z.number(),
-  taskConnections: z.record(z.number()),
-  taskEventCounts: z.record(z.number()),
+  taskConnections: z.record(z.string(), z.number()),
+  taskEventCounts: z.record(z.string(), z.number()),
   totalConnections: z.number(),
   totalEventCount: z.number(),
 })

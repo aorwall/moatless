@@ -13,7 +13,7 @@ const repositoryNameSchema = z
 // Script injection strategy schema
 export const ScriptInjectionStrategySchema = z.object({
   method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
-  config: z.record(z.any()).optional(),
+  config: z.record(z.string(), z.any()).optional(),
 })
 
 // Preview repository configuration
@@ -30,9 +30,9 @@ export const CodeExecutionSchema = z.object({
   setupCommands: z.array(z.string()).optional(),
   // Docker-specific fields
   dockerImage: z.string().optional(),
-  envVars: z.record(z.string()).optional(),
+  envVars: z.record(z.string(), z.string()).optional(),
   volumes: z.array(z.string()).optional(),
-  ports: z.record(z.number()).optional(),
+  ports: z.record(z.string(), z.number()).optional(),
   volumeMapping: z
     .object({
       hostPath: z.string(),
