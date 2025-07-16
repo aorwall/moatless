@@ -1,12 +1,32 @@
-import type { GitChanges, GitStatus } from '@moatless/types'
-import type { RepositoryConfig } from '@moatless/types'
-import type { CommandResult, ServerStatus, Workspace as WorkspaceInfo } from '@moatless/types'
+import type {
+  CommandResult,
+  GitChanges,
+  GitStatus,
+  RepositoryConfig,
+  ServerStatus,
+  Workspace as WorkspaceInfo,
+} from '@moatless/types'
 import { WorkspaceStatus } from '@moatless/types'
-import type { BaseAgent, EventService } from '../services/index.js'
-import { FileOperations, type FileSearchRequest, type FileSearchResponse } from '../services/file-operations.service.js'
 import type { BaseEnvironment } from '../environments/base-environment.js'
+import type { DockerEnvironment } from '../environments/docker-environment.js'
+import type { LocalEnvironment } from '../environments/local-environment.js'
+import {
+  FileOperations,
+  type FileSearchRequest,
+  type FileSearchResponse,
+} from '../services/file-operations.service.js'
+import type { BaseAgent, EventService } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
+
+// Type guards for environment types
+function isLocalEnvironment(env: BaseEnvironment): env is LocalEnvironment {
+  return env.getType() === 'local'
+}
+
+function isDockerEnvironment(env: BaseEnvironment): env is DockerEnvironment {
+  return env.getType() === 'docker'
+}
 
 /**
  * Unified Workspace implementation that composes FileOperations and Environment.
@@ -48,7 +68,15 @@ export class Workspace {
   }
 
   get runningAgent(): BaseAgent | undefined {
-    return this.environment.isRunning() ? (this.environment as any).getRunningAgent?.() : undefined
+    if (!this.environment.isRunning()) {
+      return undefined
+    }
+
+    if (isLocalEnvironment(this.environment) || isDockerEnvironment(this.environment)) {
+      return this.environment.getRunningAgent()
+    }
+
+    return undefined
   }
 
   constructor(
@@ -62,7 +90,7 @@ export class Workspace {
   ) {
     // Initialize logger
     this.logger = createTaskLogger(taskId)
-    
+
     // Initialize FileOperations with the workspace path from environment
     const initialWorkspacePath = workspacePath || environment.getWorkspacePath()
     this.fileOperations = new FileOperations(taskId, initialWorkspacePath, originalBranch)
@@ -308,14 +336,25 @@ export class Workspace {
         type: 'local' as const,
         path: this.getWorkspacePath(),
       }
-    } else {
+    }
+
+    if (isDockerEnvironment(this.environment)) {
       return {
         ...baseInfo,
         type: 'docker' as const,
-        containerId: (this.environment as any).getContainerId?.() || '',
-        port: (this.environment as any).getPort?.(),
-        image: (this.environment as any).getImage?.(),
+        containerId: this.environment.getContainerId() || '',
+        port: this.environment.getPort(),
+        image: this.environment.getImage(),
       }
+    }
+
+    // Fallback for unknown environment types
+    return {
+      ...baseInfo,
+      type: 'docker' as const,
+      containerId: '',
+      port: undefined,
+      image: undefined,
     }
   }
 
@@ -323,8 +362,8 @@ export class Workspace {
    * Set running agent (delegated to environment if it supports it)
    */
   setRunningAgent(agent: BaseAgent): void {
-    if ((this.environment as any).setRunningAgent) {
-      ;(this.environment as any).setRunningAgent(agent)
+    if (isLocalEnvironment(this.environment) || isDockerEnvironment(this.environment)) {
+      this.environment.setRunningAgent(agent)
     }
   }
 

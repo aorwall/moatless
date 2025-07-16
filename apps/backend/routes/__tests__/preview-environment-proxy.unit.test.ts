@@ -5,7 +5,7 @@ describe('Preview Environment Proxy - Unit Tests', () => {
     it('should inject script before closing head tag', () => {
       const html = '<html><head><title>Test</title></head><body>Content</body></html>'
       const taskId = 'test-task-123'
-      
+
       const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
@@ -22,9 +22,9 @@ describe('Preview Environment Proxy - Unit Tests', () => {
               });
             </script>
           `
-      
+
       const modifiedHtml = html.replace('</head>', `${injectedScript}</head>`)
-      
+
       expect(modifiedHtml).toContain(injectedScript)
       expect(modifiedHtml).toContain('🚀 Moatless Preview Script Injected for task: test-task-123')
       expect(modifiedHtml).toContain('INSPECTOR_SCRIPT_LOADED')
@@ -35,15 +35,15 @@ describe('Preview Environment Proxy - Unit Tests', () => {
     it('should inject script at beginning of body when no head tag', () => {
       const html = '<html><body>Content</body></html>'
       const taskId = 'test-task-456'
-      
+
       const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
             </script>
           `
-      
+
       const modifiedHtml = html.replace('<body>', `<body>${injectedScript}`)
-      
+
       expect(modifiedHtml).toContain(injectedScript)
       expect(modifiedHtml).toContain('🚀 Moatless Preview Script Injected for task: test-task-456')
       expect(modifiedHtml).toMatch(/<body>[\s\S]*<script>[\s\S]*console\.log[\s\S]*<\/script>/)
@@ -52,15 +52,15 @@ describe('Preview Environment Proxy - Unit Tests', () => {
     it('should inject script at beginning when no head or body tags', () => {
       const html = '<div>Just content</div>'
       const taskId = 'test-task-789'
-      
+
       const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
             </script>
           `
-      
+
       const modifiedHtml = `${injectedScript}${html}`
-      
+
       expect(modifiedHtml).toContain(injectedScript)
       expect(modifiedHtml).toContain('🚀 Moatless Preview Script Injected for task: test-task-789')
       expect(modifiedHtml.trim().startsWith('<script>')).toBe(true)
@@ -69,15 +69,15 @@ describe('Preview Environment Proxy - Unit Tests', () => {
     it('should handle special characters in taskId', () => {
       const html = '<html><head></head><body></body></html>'
       const taskId = 'test-task-with-special-chars-123_ABC'
-      
+
       const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
             </script>
           `
-      
+
       const modifiedHtml = html.replace('</head>', `${injectedScript}</head>`)
-      
+
       expect(modifiedHtml).toContain('test-task-with-special-chars-123_ABC')
       expect(modifiedHtml).not.toContain('undefined')
     })
@@ -96,15 +96,15 @@ describe('Preview Environment Proxy - Unit Tests', () => {
         </html>
       `
       const taskId = 'preservation-test'
-      
+
       const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
             </script>
           `
-      
+
       const modifiedHtml = html.replace('</head>', `${injectedScript}</head>`)
-      
+
       expect(modifiedHtml).toContain("console.log('existing script');")
       expect(modifiedHtml).toContain("console.log('body script');")
       expect(modifiedHtml).toContain('<h1>Test Content</h1>')
@@ -114,15 +114,15 @@ describe('Preview Environment Proxy - Unit Tests', () => {
     it('should handle empty HTML gracefully', () => {
       const html = ''
       const taskId = 'empty-test'
-      
+
       const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
             </script>
           `
-      
+
       const modifiedHtml = `${injectedScript}${html}`
-      
+
       expect(modifiedHtml).toBe(injectedScript)
       expect(modifiedHtml).toContain('🚀 Moatless Preview Script Injected for task: empty-test')
     })
@@ -134,10 +134,10 @@ describe('Preview Environment Proxy - Unit Tests', () => {
         'text/html',
         'text/html; charset=utf-8',
         'text/html; charset=UTF-8',
-        'text/html;charset=utf-8'
+        'text/html;charset=utf-8',
       ]
-      
-      htmlContentTypes.forEach(contentType => {
+
+      htmlContentTypes.forEach((contentType) => {
         expect(contentType.toLowerCase().includes('text/html')).toBe(true)
       })
     })
@@ -150,10 +150,10 @@ describe('Preview Environment Proxy - Unit Tests', () => {
         'text/javascript',
         'image/png',
         'application/pdf',
-        'text/plain'
+        'text/plain',
       ]
-      
-      nonHtmlContentTypes.forEach(contentType => {
+
+      nonHtmlContentTypes.forEach((contentType) => {
         expect(contentType.includes('text/html')).toBe(false)
       })
     })
@@ -165,9 +165,9 @@ describe('Preview Environment Proxy - Unit Tests', () => {
       const expectedPayload = {
         type: 'INSPECTOR_SCRIPT_LOADED',
         payload: { version: '1.0.0', taskId: taskId },
-        source: 'preview-iframe'
+        source: 'preview-iframe',
       }
-      
+
       expect(expectedPayload.type).toBe('INSPECTOR_SCRIPT_LOADED')
       expect(expectedPayload.payload.taskId).toBe(taskId)
       expect(expectedPayload.payload.version).toBe('1.0.0')

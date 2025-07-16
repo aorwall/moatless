@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Event, EventType } from '@moatless/types'
-import type { ClaudeCodeSettings } from '@moatless/types'
-import type { Task } from '@moatless/types'
+import type { ClaudeCodeSettings, Event, EventType, Task } from '@moatless/types'
 import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
 import type { StorageBackend } from './storage.js'
 

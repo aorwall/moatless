@@ -222,9 +222,7 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'stubborn-server.js'), stubbornServerCode)
 
     // Create environment and task
-    const repo = await createRepository(
-      'Stubborn Test Environment',
-    )
+    const repo = await createRepository('Stubborn Test Environment')
     const task = await createTask(repo.id)
 
     // Wait for workspace setup
@@ -295,9 +293,7 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'orphan-test-server.js'), serverCode)
 
     // Create environment and task
-    const repo = await createRepository(
-      'Orphan Test Environment',
-    )
+    const repo = await createRepository('Orphan Test Environment')
     const task = await createTask(repo.id)
 
     // Wait for workspace setup
@@ -376,9 +372,7 @@ process.on('SIGTERM', () => {
     await fs.writeFile(path.join(tempDir, 'signal-test-server.js'), serverCode)
 
     // Create environment and task
-    const repo = await createRepository(
-      'Signal Test Environment',
-    )
+    const repo = await createRepository('Signal Test Environment')
     const task = await createTask(repo.id)
 
     // Wait for workspace setup

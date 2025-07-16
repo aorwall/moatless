@@ -720,7 +720,7 @@ process.on('SIGTERM', () => {
             useGitWorktrees: false,
             codeExecution: {
               type: 'local',
-                  },
+            },
           },
         })
       ).body,
@@ -815,7 +815,7 @@ server.listen(port, () => {
             useGitWorktrees: false,
             codeExecution: {
               type: 'local',
-                  },
+            },
           },
         })
       ).body,

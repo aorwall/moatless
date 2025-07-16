@@ -48,13 +48,7 @@ function getRelativeTime(date: Date | string): string {
 }
 
 // Component for rendering individual task item with git sync status
-function SidebarTaskItem({
-  task,
-  repositoryName,
-}: {
-  task: any // Using any to match existing code style
-  repositoryName: string
-}) {
+function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
   const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
 
   // Get git sync status from the last iteration for tooltip

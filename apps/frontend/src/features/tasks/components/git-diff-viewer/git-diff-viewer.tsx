@@ -97,10 +97,9 @@ function FileDiff({ file, isExpanded, onToggle, fileKey }: FileDiffProps) {
             optimizeSelection
             renderToken={(token, defaultRender) => {
               // Handle prism tokens with className for syntax highlighting
-              if ((token as any).type === 'prism' && (token as any).className) {
-                return (
-                  <span className={(token as any).className}>{(token as any).value || ''}</span>
-                )
+              const prismToken = token as { type?: string; className?: string; value?: string }
+              if (prismToken.type === 'prism' && prismToken.className) {
+                return <span className={prismToken.className}>{prismToken.value || ''}</span>
               }
               return defaultRender(token, 0)
             }}

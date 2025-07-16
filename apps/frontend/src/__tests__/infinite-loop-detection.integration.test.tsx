@@ -83,8 +83,10 @@ describe('Infinite Loop Detection Tests', () => {
         <div data-testid="chat-view">
           <div>At bottom: {isAtBottom.toString()}</div>
           <div>Commands: {availableCommands.length}</div>
-          <button onClick={() => handleCommandClick({ name: 'test' })}>Test Command</button>
-          <button onClick={() => handleSendMessage('test', 'message', () => {})}>
+          <button type="button" onClick={() => handleCommandClick({ name: 'test' })}>
+            Test Command
+          </button>
+          <button type="button" onClick={() => handleSendMessage('test', 'message', () => {})}>
             Send Message
           </button>
         </div>

@@ -1,9 +1,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
-import type { ClaudeCodeSettings } from '@moatless/types'
+import type { ClaudeCodeSettings, Task } from '@moatless/types'
 import { type Event, EventType, type ResultEvent } from '@moatless/types'
-import type { Task } from '@moatless/types'
 import { calculateContextTokens } from './context-tokens.js'
 import { logger } from './logger.js'
 
@@ -57,16 +56,21 @@ export function generateProjectId(workspacePath: string): string {
  * Get Claude Code events file path for a specific iteration
  */
 export function getClaudeEventsFilePath(
-  settings: ClaudeCodeSettings, 
+  settings: ClaudeCodeSettings,
   workspacePath: string,
-  iteration: Task['iterations'][0]
+  iteration: Task['iterations'][0],
 ): string | null {
   if (!iteration.agentSessionId) {
     return null
   }
 
   const projectId = generateProjectId(workspacePath)
-  return path.join(settings.claudeConfigPath, 'projects', projectId, `${iteration.agentSessionId}.jsonl`)
+  return path.join(
+    settings.claudeConfigPath,
+    'projects',
+    projectId,
+    `${iteration.agentSessionId}.jsonl`,
+  )
 }
 
 /**
@@ -95,7 +99,7 @@ export async function readClaudeCodeEvents(
       const lines = fileContent.trim().split('\n').filter(Boolean)
 
       const events: Event[] = []
-      let parseErrors = 0
+      let _parseErrors = 0
 
       for (const line of lines) {
         try {
@@ -103,21 +107,13 @@ export async function readClaudeCodeEvents(
           const event = sdkMessageToEvent(sdkMessage, task.taskId, iteration.iterationNumber)
           events.push(event)
         } catch (parseError) {
-          parseErrors++
+          _parseErrors++
           logger.warn('Failed to parse Claude Code SDK message', {
             taskId: task.taskId,
             error: parseError instanceof Error ? parseError.message : String(parseError),
           })
         }
       }
-
-      logger.debug('Successfully read Claude Code events', {
-        taskId: task.taskId,
-        filePath,
-        totalLines: lines.length,
-        eventsRead: events.length,
-        parseErrors,
-      })
 
       return events
     } catch (error) {

@@ -107,7 +107,7 @@ describe('RepositoryService', () => {
       }
 
       const result = await service.createRepository(requestWithMinimalConfig)
-      
+
       expect(result.codeExecution.type).toBe('local')
       expect(result.codeExecution.setupCommands).toEqual(['npm install'])
     })

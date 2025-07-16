@@ -85,9 +85,7 @@ export function RepositoryForm({
   const getExecutionFields = (exec: CodeExecution) => {
     if (exec.type === 'local') {
       return {
-        localSetupCommands: Array.isArray(exec.setupCommands) 
-          ? exec.setupCommands.join('\n') 
-          : '',
+        localSetupCommands: Array.isArray(exec.setupCommands) ? exec.setupCommands.join('\n') : '',
         dockerImage: '',
         dockerEnvVars: {} as Record<string, string>,
         dockerSetupCommands: '',
@@ -100,9 +98,7 @@ export function RepositoryForm({
       localSetupCommands: '',
       dockerImage: exec.dockerImage || '',
       dockerEnvVars: exec.envVars || {},
-      dockerSetupCommands: Array.isArray(exec.setupCommands) 
-        ? exec.setupCommands.join('\n') 
-        : '',
+      dockerSetupCommands: Array.isArray(exec.setupCommands) ? exec.setupCommands.join('\n') : '',
       dockerVolumes: exec.volumes || [],
       dockerPorts: exec.ports || {},
     }
@@ -178,8 +174,11 @@ export function RepositoryForm({
     if (formData.codeExecutionType === 'local') {
       return {
         type: 'local',
-        setupCommands: formData.localSetupCommands 
-          ? formData.localSetupCommands.split('\n').map(cmd => cmd.trim()).filter(cmd => cmd.length > 0)
+        setupCommands: formData.localSetupCommands
+          ? formData.localSetupCommands
+              .split('\n')
+              .map((cmd) => cmd.trim())
+              .filter((cmd) => cmd.length > 0)
           : undefined,
       }
     }
@@ -188,8 +187,11 @@ export function RepositoryForm({
       type: 'docker',
       dockerImage: formData.dockerImage,
       envVars: formData.dockerEnvVars,
-      setupCommands: formData.dockerSetupCommands 
-        ? formData.dockerSetupCommands.split('\n').map(cmd => cmd.trim()).filter(cmd => cmd.length > 0)
+      setupCommands: formData.dockerSetupCommands
+        ? formData.dockerSetupCommands
+            .split('\n')
+            .map((cmd) => cmd.trim())
+            .filter((cmd) => cmd.length > 0)
         : undefined,
       volumes: formData.dockerVolumes.length > 0 ? formData.dockerVolumes : undefined,
       ports: Object.keys(formData.dockerPorts).length > 0 ? formData.dockerPorts : undefined,

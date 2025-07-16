@@ -11,12 +11,12 @@ export const dateSchema = z
 // JSON serialization helpers
 export function toJSON<T>(data: T): string {
   const seen = new WeakSet()
-  
+
   return JSON.stringify(data, (_key, value) => {
     if (value instanceof Date) {
       return value.toISOString()
     }
-    
+
     // Handle circular references
     if (typeof value === 'object' && value !== null) {
       if (seen.has(value)) {
@@ -24,7 +24,7 @@ export function toJSON<T>(data: T): string {
       }
       seen.add(value)
     }
-    
+
     return value
   })
 }

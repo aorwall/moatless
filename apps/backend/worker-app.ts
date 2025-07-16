@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import type { TaskIteration } from '@moatless/types'
 import { Hono } from 'hono'
+import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { AgentService, WorkspaceService } from './services/index.js'
@@ -9,7 +10,6 @@ import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
 import { createLogger } from './utils/logger.js'
 import { Workspace } from './workspaces/workspace.js'
-import { LocalEnvironment } from './environments/local-environment.js'
 
 export interface WorkerModeConfig {
   apiUrl: string

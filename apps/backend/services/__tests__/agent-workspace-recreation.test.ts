@@ -1,6 +1,6 @@
 import { WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Workspace } from '../../workspaces/workspace.js'
+import type { Workspace } from '../../workspaces/workspace.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
@@ -120,7 +120,9 @@ describe('AgentService - Workspace Recreation', () => {
       return mockWorkspace
     })
 
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedWorkspace as unknown as Workspace)
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(
+      recreatedWorkspace as unknown as Workspace,
+    )
 
     // Mock agent creation
     const mockAgent = {
@@ -166,13 +168,15 @@ describe('AgentService - Workspace Recreation', () => {
 
     // Mock setupWorkspace to succeed but workspace still not ready
     vi.mocked(mockWorkspaceService.setupWorkspace).mockResolvedValue(undefined)
-    
+
     // Mock getWorkspace to return workspace that's still not ready
     const notReadyWorkspace = {
       ...mockWorkspace,
       getStatus: vi.fn().mockReturnValue(WorkspaceStatus.SETTING_UP),
     }
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(notReadyWorkspace as unknown as Workspace)
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(
+      notReadyWorkspace as unknown as Workspace,
+    )
 
     // Execute agent - should fail due to workspace recreation timeout
     await expect(agentService.executeAgent(taskId, 'test message', iteration)).rejects.toThrow(
@@ -180,7 +184,10 @@ describe('AgentService - Workspace Recreation', () => {
     )
 
     // Verify workspace setup was attempted
-    expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(taskId, iteration.iterationNumber)
+    expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(
+      taskId,
+      iteration.iterationNumber,
+    )
   }, 35000) // Increase timeout for this test since it waits for recreation
 
   it('should handle workspace path that exists correctly', async () => {
@@ -237,7 +244,9 @@ describe('AgentService - Workspace Recreation', () => {
       isWorkspacePathValid: vi.fn().mockResolvedValue(false),
     }
 
-    vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(dockerWorkspace as unknown as Workspace)
+    vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValueOnce(
+      dockerWorkspace as unknown as Workspace,
+    )
 
     // Mock successful recreation
     const recreatedDockerWorkspace = {
@@ -259,7 +268,9 @@ describe('AgentService - Workspace Recreation', () => {
       return dockerWorkspace as unknown as Workspace
     })
 
-    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(recreatedDockerWorkspace as unknown as Workspace)
+    vi.mocked(mockWorkspaceService.getWorkspace).mockResolvedValue(
+      recreatedDockerWorkspace as unknown as Workspace,
+    )
 
     // Mock agent
     const mockAgent = {
@@ -279,6 +290,9 @@ describe('AgentService - Workspace Recreation', () => {
 
     // Verify recreation happened
     expect(dockerWorkspace.isWorkspacePathValid).toHaveBeenCalled()
-    expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(taskId, iteration.iterationNumber)
+    expect(mockWorkspaceService.setupWorkspace).toHaveBeenCalledWith(
+      taskId,
+      iteration.iterationNumber,
+    )
   })
 })

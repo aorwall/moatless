@@ -27,7 +27,9 @@ vi.mock('node:fs', () => ({
     writeFile: vi.fn(() => Promise.resolve()),
     readFile: vi.fn(() => Promise.resolve('file content')),
     rm: vi.fn(() => Promise.resolve()),
-    stat: vi.fn(() => Promise.resolve({ isFile: () => false, isDirectory: () => true, size: 1024 })),
+    stat: vi.fn(() =>
+      Promise.resolve({ isFile: () => false, isDirectory: () => true, size: 1024 }),
+    ),
     readdir: vi.fn(() => Promise.resolve([])),
   },
 }))
@@ -129,10 +131,10 @@ describe('WorkspaceService', () => {
 
   beforeEach(async () => {
     tempDir = path.join(process.cwd(), `temp-test-${Date.now()}`)
-    
+
     // Ensure fs.access mock always succeeds
     vi.mocked(fs.access).mockResolvedValue(undefined)
-    
+
     // Ensure isGitRepository mock always returns true
     const { isGitRepository } = await import('../../utils/git-utils.js')
     vi.mocked(isGitRepository).mockResolvedValue(true)

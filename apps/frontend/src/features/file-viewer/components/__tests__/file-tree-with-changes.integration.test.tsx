@@ -1,7 +1,7 @@
+import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { createWrapper } from '@/test-utils/render'
 import { useFileTreeWithChanges } from '../../api/use-file-tree-with-changes'
 import { FileTree } from '../file-tree'
@@ -84,7 +84,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Check header with git summary
     expect(screen.getByText('Files')).toBeInTheDocument()
@@ -110,7 +112,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Check that files have different colors/icons based on git status
     // (This would be more comprehensive with actual DOM inspection)
@@ -131,7 +135,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Check for staged badge
     expect(screen.getByText('staged')).toBeInTheDocument()
@@ -145,7 +151,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Check for addition/deletion counts
     expect(screen.getByText('+5 -2')).toBeInTheDocument() // modified file
@@ -162,7 +170,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     } as any)
 
     const user = userEvent.setup()
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Click on a file
     const modifiedFile = screen.getByText('modified-file.ts')
@@ -180,7 +190,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     } as any)
 
     const user = userEvent.setup()
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Directory should be expanded initially (because it contains changes)
     expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
@@ -201,7 +213,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: false,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Should show loading skeleton
     expect(screen.getByTestId('file-tree-skeleton')).toBeInTheDocument()
@@ -216,7 +230,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: false,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Should show error message
     expect(screen.getByText(/Failed to fetch file tree/)).toBeInTheDocument()
@@ -243,7 +259,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     expect(screen.getByText('No files found')).toBeInTheDocument()
   })
@@ -276,7 +294,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Should not show git summary when no changes
     expect(screen.queryByText(/changed/)).not.toBeInTheDocument()
@@ -293,7 +313,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     } as any)
 
     const user = userEvent.setup()
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Click on a file
     const modifiedFile = screen.getByText('modified-file.ts')
@@ -351,7 +373,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       isSuccess: true,
     } as any)
 
-    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, { wrapper: createWrapper() })
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
 
     // Should show nested structure
     expect(screen.getByText('src')).toBeInTheDocument()

@@ -1,5 +1,4 @@
-import type { RepositoryConfig } from '@moatless/types'
-import type { CommandResult, ServerStatus } from '@moatless/types'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { EventService } from '../services/index.js'
 
 export abstract class BaseEnvironment {

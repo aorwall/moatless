@@ -304,7 +304,7 @@ describe('MessageService Unit Tests', () => {
       )
 
       expect(result).toHaveLength(4)
-      
+
       // First iteration
       expect(result[0].role).toBe('user')
       expect(result[0].content).toBe('Create a new feature')
@@ -592,7 +592,9 @@ describe('MessageService Unit Tests', () => {
             },
             timestamp: 1704100860000,
           }
-          return Promise.resolve([JSON.stringify(sdkUserMessage), JSON.stringify(sdkAssistantMessage)].join('\n'))
+          return Promise.resolve(
+            [JSON.stringify(sdkUserMessage), JSON.stringify(sdkAssistantMessage)].join('\n'),
+          )
         }
         // Return file not found for second iteration
         const enoentError = new Error('File not found')
@@ -606,19 +608,19 @@ describe('MessageService Unit Tests', () => {
       )
 
       expect(result).toHaveLength(4)
-      
+
       // First two messages should be from Claude file (iteration 1)
       expect(result[0].role).toBe('user')
       expect(result[0].content).toBe('Claude file user message')
-      
+
       expect(result[1].role).toBe('assistant')
       expect(result[1].content).toBe('Claude file assistant message')
-      
+
       // Last two messages should be from task iteration (iteration 2)
       expect(result[2].role).toBe('user')
       expect(result[2].content).toBe('Task iteration message')
       expect(result[2].id).toBe('iteration-2-user')
-      
+
       expect(result[3].role).toBe('assistant')
       expect(result[3].content).toBe('Task iteration response')
       expect(result[3].id).toBe('iteration-2-assistant')
@@ -687,24 +689,24 @@ describe('MessageService Unit Tests', () => {
       )
 
       expect(result).toHaveLength(5)
-      
+
       // First message from Claude file
       expect(result[0].role).toBe('user')
       expect(result[0].content).toBe('Claude file message')
-      
+
       // Next four messages from task iterations 2 and 3
       expect(result[1].role).toBe('user')
       expect(result[1].content).toBe('First fallback message')
       expect(result[1].id).toBe('iteration-2-user')
-      
+
       expect(result[2].role).toBe('assistant')
       expect(result[2].content).toBe('First fallback response')
       expect(result[2].id).toBe('iteration-2-assistant')
-      
+
       expect(result[3].role).toBe('user')
       expect(result[3].content).toBe('Second fallback message')
       expect(result[3].id).toBe('iteration-3-user')
-      
+
       expect(result[4].role).toBe('assistant')
       expect(result[4].content).toBe('Second fallback response')
       expect(result[4].id).toBe('iteration-3-assistant')
@@ -742,7 +744,7 @@ describe('MessageService Unit Tests', () => {
       expect(result).toHaveLength(2)
       expect(result[0].content).toBe('Message without workspace')
       expect(result[1].content).toBe('Response without workspace')
-      
+
       // Verify no file reads were attempted
       expect(mockReadFile).not.toHaveBeenCalled()
     })
@@ -810,7 +812,7 @@ describe('MessageService Unit Tests', () => {
       )
 
       expect(result).toHaveLength(5)
-      
+
       // Verify chronological order - now properly interleaved
       expect(result[0].content).toBe('First iteration user message') // From iteration 1's task data
       expect(result[1].content).toBe('First iteration result') // From iteration 1's task data

@@ -1,8 +1,7 @@
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
-import type { RepositoryConfig } from '@moatless/types'
-import type { CommandResult, ServerStatus } from '@moatless/types'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { BaseAgent, EventService } from '../services/index.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { createTaskLogger } from '../utils/logger.js'
@@ -151,15 +150,16 @@ export class LocalEnvironment extends BaseEnvironment {
         durationMs: 0,
         command,
       }
-    } catch (error: any) {
-      this.logger.error('Command execution failed', error, {
+    } catch (error) {
+      const execError = error as Error & { code?: number; stdout?: string; stderr?: string }
+      this.logger.error('Command execution failed', execError, {
         command,
         workspacePath: this.workspacePath,
       })
 
       return {
-        exitCode: error.code || 1,
-        output: error.stdout?.trim() || error.message || '',
+        exitCode: execError.code || 1,
+        output: execError.stdout?.trim() || execError.message || '',
         durationMs: 0,
         command,
       }

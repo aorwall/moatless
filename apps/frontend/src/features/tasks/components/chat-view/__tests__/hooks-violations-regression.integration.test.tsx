@@ -148,7 +148,9 @@ describe('ChatView Hooks Violations Regression Tests', () => {
       return (
         <div data-testid="test-component">
           Commands: {availableCommands.length}
-          <button onClick={() => handleCommandClick({ name: 'test' })}>Test Command</button>
+          <button type="button" onClick={() => handleCommandClick({ name: 'test' })}>
+            Test Command
+          </button>
         </div>
       )
     }

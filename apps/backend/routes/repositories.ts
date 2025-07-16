@@ -1,10 +1,10 @@
+import type { RepositoryList } from '@moatless/types'
 import {
-  RepositoryNotFoundError,
   CreateRepositorySchema,
   FileSearchSchema,
+  RepositoryNotFoundError,
   UpdateRepositorySchema,
 } from '@moatless/types'
-import type { RepositoryList } from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
@@ -28,24 +28,32 @@ const repositoryResponseSchema = z.object({
     envVars: z.record(z.string()).optional(),
     volumes: z.array(z.string()).optional(),
     ports: z.record(z.number()).optional(),
-    volumeMapping: z.object({
-      hostPath: z.string(),
-      containerPath: z.string(),
-    }).optional(),
-    resources: z.object({
-      cpuLimit: z.string(),
-      memoryLimit: z.string(),
-    }).optional(),
+    volumeMapping: z
+      .object({
+        hostPath: z.string(),
+        containerPath: z.string(),
+      })
+      .optional(),
+    resources: z
+      .object({
+        cpuLimit: z.string(),
+        memoryLimit: z.string(),
+      })
+      .optional(),
   }),
-  previewConfig: z.object({
-    framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
-    frameworkVersion: z.string().optional(),
-    serverStartCommand: z.string().optional(),
-    injectionStrategy: z.object({
-      method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
-      config: z.record(z.any()).optional(),
-    }).optional(),
-  }).optional(),
+  previewConfig: z
+    .object({
+      framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
+      frameworkVersion: z.string().optional(),
+      serverStartCommand: z.string().optional(),
+      injectionStrategy: z
+        .object({
+          method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
+          config: z.record(z.any()).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

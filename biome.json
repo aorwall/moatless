@@ -24,6 +24,7 @@
       "apps/**/*.js",
       "apps/**/*.json",
       "!apps/**/dist/**/*",
+      "!apps/**/coverage/**/*",
       "packages/**/src/**/*",
       "packages/**/*.ts",
       "packages/**/*.js",
@@ -108,7 +109,7 @@
       }
     },
     {
-      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*"],
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*", "**/test-utils/**/*"],
       "linter": {
         "rules": {
           "suspicious": {

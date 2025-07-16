@@ -152,7 +152,7 @@ describe('PreviewServer - Unit Tests', () => {
       // Simulate port allocation by setting internal port
       // This would normally happen during start()
       ;(previewServer as any).port = 3000
-      
+
       const port = previewServer.getPort()
       expect(port).toBe(3000)
     })
@@ -160,8 +160,8 @@ describe('PreviewServer - Unit Tests', () => {
     it('should return correct port after multiple allocations', () => {
       // Test different port values
       const testPorts = [3000, 3001, 4000, 8080]
-      
-      testPorts.forEach(testPort => {
+
+      testPorts.forEach((testPort) => {
         ;(previewServer as any).port = testPort
         expect(previewServer.getPort()).toBe(testPort)
       })
@@ -171,8 +171,9 @@ describe('PreviewServer - Unit Tests', () => {
       // Set a port first
       ;(previewServer as any).port = 3000
       expect(previewServer.getPort()).toBe(3000)
-      
+
       // Reset port (happens during stop)
+
       ;(previewServer as any).port = undefined
       expect(previewServer.getPort()).toBeUndefined()
     })

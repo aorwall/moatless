@@ -2,13 +2,13 @@ import { execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import path from 'node:path'
-import { TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
   ProcessValidation,
+  ServerStatus,
 } from '@moatless/types'
-import type { ServerStatus } from '@moatless/types'
+import { TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { PreviewProxyService } from './preview-proxy.service.js'

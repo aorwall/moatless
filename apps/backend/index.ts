@@ -116,7 +116,7 @@ const start = async () => {
       } else {
         logger.error(`Unhandled Rejection at: ${String(promise)} reason: ${String(reason)}`)
       }
-      
+
       // Special handling for WritableStream errors during shutdown
       if (
         reason instanceof TypeError &&
@@ -126,7 +126,7 @@ const start = async () => {
         logger.debug('Ignoring WritableStream error during shutdown')
         return
       }
-      
+
       // Don't exit the process - allow the server to continue running
     })
 
@@ -150,7 +150,7 @@ const start = async () => {
     })
 
     // Add error handling for server
-    server.on('error', (error: any) => {
+    server.on('error', (error: Error & { code?: string; syscall?: string; port?: number }) => {
       logger.error('Server error:', error)
       if (error.code === 'EADDRINUSE') {
         logger.error(`Port ${port} is already in use`)

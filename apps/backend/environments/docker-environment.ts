@@ -277,7 +277,7 @@ export class DockerEnvironment extends BaseEnvironment {
           })
           return
         }
-      } catch (error) {
+      } catch (_error) {
         // Worker not ready yet
         if (elapsed % 5000 === 0) {
           // Log every 5 seconds

@@ -150,9 +150,7 @@ describe('FileOperations Service', () => {
           { name: 'file1.ts', isDirectory: () => false } as any,
           { name: 'subdir', isDirectory: () => true } as any,
         ])
-        .mockResolvedValueOnce([
-          { name: 'nested.js', isDirectory: () => false } as any,
-        ])
+        .mockResolvedValueOnce([{ name: 'nested.js', isDirectory: () => false } as any])
 
       const files = await fileOps.listFiles('.', true)
 
@@ -160,7 +158,9 @@ describe('FileOperations Service', () => {
     })
 
     it('should prevent path traversal attacks', async () => {
-      await expect(fileOps.listFiles('../..')).rejects.toThrow('Access denied: Path outside workspace')
+      await expect(fileOps.listFiles('../..')).rejects.toThrow(
+        'Access denied: Path outside workspace',
+      )
     })
 
     it('should handle single file path', async () => {
@@ -186,15 +186,12 @@ describe('FileOperations Service', () => {
       const content = await fileOps.readFile('test.txt')
 
       expect(content).toBe('file content')
-      expect(fs.readFile).toHaveBeenCalledWith(
-        path.join(workspacePath, 'test.txt'),
-        'utf-8'
-      )
+      expect(fs.readFile).toHaveBeenCalledWith(path.join(workspacePath, 'test.txt'), 'utf-8')
     })
 
     it('should prevent reading files outside workspace', async () => {
       await expect(fileOps.readFile('../../../etc/passwd')).rejects.toThrow(
-        'Access denied: path outside workspace'
+        'Access denied: path outside workspace',
       )
     })
 
@@ -220,7 +217,7 @@ describe('FileOperations Service', () => {
       vi.mocked(fs.stat).mockRejectedValue({ code: 'ENOENT' })
 
       await expect(fileOps.readFile('nonexistent.txt')).rejects.toThrow(
-        'File not found: nonexistent.txt'
+        'File not found: nonexistent.txt',
       )
     })
   })
@@ -232,20 +229,19 @@ describe('FileOperations Service', () => {
 
       await fileOps.writeFile('test.txt', 'new content')
 
-      expect(fs.mkdir).toHaveBeenCalledWith(
-        path.dirname(path.join(workspacePath, 'test.txt')),
-        { recursive: true }
-      )
+      expect(fs.mkdir).toHaveBeenCalledWith(path.dirname(path.join(workspacePath, 'test.txt')), {
+        recursive: true,
+      })
       expect(fs.writeFile).toHaveBeenCalledWith(
         path.join(workspacePath, 'test.txt'),
         'new content',
-        'utf-8'
+        'utf-8',
       )
     })
 
     it('should prevent writing files outside workspace', async () => {
       await expect(fileOps.writeFile('../../../etc/passwd', 'malicious')).rejects.toThrow(
-        'Access denied: path outside workspace'
+        'Access denied: path outside workspace',
       )
     })
 
@@ -255,10 +251,9 @@ describe('FileOperations Service', () => {
 
       await fileOps.writeFile('deep/nested/file.txt', 'content')
 
-      expect(fs.mkdir).toHaveBeenCalledWith(
-        path.join(workspacePath, 'deep/nested'),
-        { recursive: true }
-      )
+      expect(fs.mkdir).toHaveBeenCalledWith(path.join(workspacePath, 'deep/nested'), {
+        recursive: true,
+      })
     })
   })
 
@@ -286,7 +281,7 @@ describe('FileOperations Service', () => {
       vi.mocked(fs.access).mockRejectedValue(new Error('ENOENT'))
 
       await expect(fileOps.searchFiles({ query: 'test' })).rejects.toThrow(
-        'Workspace path does not exist'
+        'Workspace path does not exist',
       )
     })
   })
@@ -296,9 +291,7 @@ describe('FileOperations Service', () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
       const { getGitDiffDetailed } = await import('../../utils/git-utils.js')
       vi.mocked(getGitDiffDetailed).mockResolvedValue({
-        files: [
-          { path: 'test.ts', status: 'modified', additions: 5, deletions: 2 },
-        ],
+        files: [{ path: 'test.ts', status: 'modified', additions: 5, deletions: 2 }],
         summary: { insertions: 5, deletions: 2, filesChanged: 1 },
       } as any)
 
@@ -339,8 +332,10 @@ describe('FileOperations Service', () => {
   describe('getGitStatus', () => {
     it('should return git status with file counts', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import('../../utils/git-utils.js')
-      
+      const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import(
+        '../../utils/git-utils.js'
+      )
+
       vi.mocked(getOriginSyncStatus).mockResolvedValue({
         currentBranch: 'feature-branch',
         baseBranch: 'main',
@@ -350,9 +345,9 @@ describe('FileOperations Service', () => {
         commitsBehind: 0,
         originExists: true,
       } as any)
-      
+
       vi.mocked(checkForConflicts).mockResolvedValue(false)
-      
+
       vi.mocked(getGitDiffDetailed).mockResolvedValue({
         files: [
           { path: 'new.ts', status: 'added' },
@@ -405,7 +400,7 @@ describe('FileOperations Service', () => {
     it('should return working directory changes', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
       const { getWorkingDirectoryChanges } = await import('../../utils/git-utils.js')
-      
+
       vi.mocked(getWorkingDirectoryChanges).mockResolvedValue({
         currentBranch: 'feature-branch',
         status: 'modified',

@@ -75,9 +75,7 @@ describe('Preview Environment Error Handling', () => {
 
   it('should return error state when server command fails', async () => {
     // Create a repository with an invalid server command
-    const repository = await createRepository(
-      'Invalid Command Test',
-    )
+    const repository = await createRepository('Invalid Command Test')
     const task = await createTask(repository.id)
 
     // Wait for workspace setup

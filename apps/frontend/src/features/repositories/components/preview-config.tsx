@@ -5,7 +5,7 @@ import {
   INJECTION_METHOD_OPTIONS,
 } from '@moatless/types'
 import { ChevronDown, Info, Loader2, Wand2 } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -37,6 +37,13 @@ export function PreviewConfigForm({
 }: PreviewConfigFormProps) {
   const [isDetecting, setIsDetecting] = useState(false)
   const [showInjectionDetails, setShowInjectionDetails] = useState(false)
+
+  // Generate unique IDs for form elements
+  const frameworkId = useId()
+  const frameworkVersionId = useId()
+  const serverStartCommandId = useId()
+  const injectionMethodId = useId()
+  const indexPathId = useId()
   const [config, setConfig] = useState<PreviewConfig>({
     framework: previewConfig?.framework,
     frameworkVersion: previewConfig?.frameworkVersion || '',
@@ -80,7 +87,7 @@ export function PreviewConfigForm({
       // Set default server command if none is set or if it's the default for another framework
       serverStartCommand:
         !config.serverStartCommand ||
-        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(config.serverStartCommand as any)
+        Object.values(FRAMEWORK_DEFAULT_COMMANDS).includes(config.serverStartCommand as string)
           ? defaultCommand
           : config.serverStartCommand,
     })
@@ -137,9 +144,9 @@ export function PreviewConfigForm({
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="framework">Framework</Label>
+                <Label htmlFor={frameworkId}>Framework</Label>
                 <Select value={config.framework} onValueChange={handleFrameworkChange}>
-                  <SelectTrigger id="framework">
+                  <SelectTrigger id={frameworkId}>
                     <SelectValue placeholder="Select framework" />
                   </SelectTrigger>
                   <SelectContent>
@@ -153,9 +160,9 @@ export function PreviewConfigForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="frameworkVersion">Framework Version</Label>
+                <Label htmlFor={frameworkVersionId}>Framework Version</Label>
                 <Input
-                  id="frameworkVersion"
+                  id={frameworkVersionId}
                   placeholder="e.g., 5.0.0"
                   value={config.frameworkVersion}
                   onChange={(e) => setConfig({ ...config, frameworkVersion: e.target.value })}
@@ -167,9 +174,9 @@ export function PreviewConfigForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="serverStartCommand">Server Start Command</Label>
+              <Label htmlFor={serverStartCommandId}>Server Start Command</Label>
               <Input
-                id="serverStartCommand"
+                id={serverStartCommandId}
                 placeholder="e.g., npm run dev"
                 value={config.serverStartCommand}
                 onChange={(e) => setConfig({ ...config, serverStartCommand: e.target.value })}
@@ -261,7 +268,7 @@ export function PreviewConfigForm({
               </Collapsible>
 
               <div className="space-y-2">
-                <Label htmlFor="injectionMethod">Injection Method</Label>
+                <Label htmlFor={injectionMethodId}>Injection Method</Label>
                 <Select
                   value={config.injectionStrategy?.method || 'html-injection'}
                   onValueChange={(value) =>
@@ -274,7 +281,7 @@ export function PreviewConfigForm({
                     })
                   }
                 >
-                  <SelectTrigger id="injectionMethod">
+                  <SelectTrigger id={injectionMethodId}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -326,9 +333,9 @@ export function PreviewConfigForm({
 
               {config.injectionStrategy?.method === 'html-injection' && (
                 <div className="space-y-2">
-                  <Label htmlFor="indexPath">HTML File Path</Label>
+                  <Label htmlFor={indexPathId}>HTML File Path</Label>
                   <Input
-                    id="indexPath"
+                    id={indexPathId}
                     placeholder="e.g., index.html or public/index.html"
                     value={config.injectionStrategy.config?.indexPath || ''}
                     onChange={(e) =>

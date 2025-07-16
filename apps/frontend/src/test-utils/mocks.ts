@@ -83,7 +83,6 @@ export function mockEventSource() {
 // Mock fetch for API calls
 export function mockFetch() {
   const fetchMock = vi.fn()
-  // biome-ignore lint/suspicious/noExplicitAny: Mock for testing
   ;(global as any).fetch = fetchMock
   return fetchMock
 }

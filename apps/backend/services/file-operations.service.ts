@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { WorkspaceError } from '@moatless/types'
 import type { GitChanges, GitStatus } from '@moatless/types'
+import { WorkspaceError } from '@moatless/types'
 import {
   type GitDiffResponse,
   getGitDiffDetailed,

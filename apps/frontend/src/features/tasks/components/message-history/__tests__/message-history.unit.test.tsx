@@ -97,12 +97,14 @@ vi.mock('../assistant-message', () => ({
         {Array.isArray(message.content)
           ? message.content
               .filter((item) => item.type === 'text')
-              .map((item, i) => <span key={i}>{item.text}</span>)
+              .map((item, i) => (
+                <span key={`text-${i}-${item.text?.substring(0, 10)}`}>{item.text}</span>
+              ))
           : message.content}
         {toolUses.length > 0 && (
           <div data-testid="tool-calls">
-            {toolUses.map((tool, i) => (
-              <div key={i} data-testid={`tool-${tool.tool_use_id}`}>
+            {toolUses.map((tool) => (
+              <div key={tool.tool_use_id} data-testid={`tool-${tool.tool_use_id}`}>
                 {tool.tool_name}({JSON.stringify(tool.tool_input)})
               </div>
             ))}

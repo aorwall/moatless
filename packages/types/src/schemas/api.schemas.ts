@@ -148,12 +148,14 @@ export const WorkspaceStatusResponseSchema = z.object({
       commandExecution: z.boolean(),
     }),
   }),
-  gitChanges: z.object({
-    totalChanges: z.number(),
-    totalAdditions: z.number(),
-    totalDeletions: z.number(),
-    files: z.array(z.string()),
-  }).optional(),
+  gitChanges: z
+    .object({
+      totalChanges: z.number(),
+      totalAdditions: z.number(),
+      totalDeletions: z.number(),
+      files: z.array(z.string()),
+    })
+    .optional(),
 })
 
 // ============================================

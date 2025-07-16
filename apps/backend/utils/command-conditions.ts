@@ -1,14 +1,4 @@
-/**
- * Command availability filtering logic
- *
- * To enable debug logging:
- * 1. Set DEBUG_COMMAND_FILTERING = true below
- * 2. Open browser console to see detailed logs of command filtering decisions
- * 3. Logs will show which conditions pass/fail for each command
- */
-
-import type { Command } from '@moatless/types'
-import type { Task, TaskIteration } from '@moatless/types'
+import type { Command, Task, TaskIteration } from '@moatless/types'
 
 interface CommandAvailabilityContext {
   task?: Task

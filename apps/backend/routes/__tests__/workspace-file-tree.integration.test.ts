@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FileTreeWithChangesResponse } from '@moatless/types'
-import { build } from '../../test/helper.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { TestApp } from '../../test/helper.js'
+import { build } from '../../test/helper.js'
 
 describe('Workspace File Tree Routes - Integration Tests', () => {
   let app: TestApp
@@ -16,7 +16,7 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
     // Setup temp directories
     tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-file-tree-test-'))
     tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'test-repo-'))
-    taskId = 'test-task-' + Date.now()
+    taskId = `test-task-${Date.now()}`
 
     process.env.DATA_DIR = tempDataDir
 
@@ -43,7 +43,7 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
 
       expect(response.status).toBe(200)
 
-      const data = await response.json() as FileTreeWithChangesResponse
+      const data = (await response.json()) as FileTreeWithChangesResponse
 
       expect(data).toMatchObject({
         tree: expect.arrayContaining([
@@ -72,12 +72,10 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
     })
 
     it('should handle query parameters correctly', async () => {
-      const response = await app.request(
-        `/api/v1/tasks/${taskId}/file-tree-with-changes?path=src`
-      )
+      const response = await app.request(`/api/v1/tasks/${taskId}/file-tree-with-changes?path=src`)
 
       expect(response.status).toBe(200)
-      const data = await response.json() as FileTreeWithChangesResponse
+      const data = (await response.json()) as FileTreeWithChangesResponse
       expect(data.tree).toBeDefined()
     })
 
@@ -90,20 +88,20 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
       const response = await app.request(`/api/v1/tasks/${taskId}/file-tree-with-changes`)
       expect(response.status).toBe(200)
 
-      const data = await response.json() as FileTreeWithChangesResponse
+      const data = (await response.json()) as FileTreeWithChangesResponse
 
       // Find files with different statuses
       const allFiles = flattenFileTree(data.tree)
 
-      const addedFile = allFiles.find(f => f.name === 'added-file.txt')
+      const addedFile = allFiles.find((f) => f.name === 'added-file.txt')
       expect(addedFile?.gitStatus).toBe('added')
       expect(addedFile?.isChanged).toBe(true)
 
-      const modifiedFile = allFiles.find(f => f.name === 'modified-file.txt')
+      const modifiedFile = allFiles.find((f) => f.name === 'modified-file.txt')
       expect(modifiedFile?.gitStatus).toBe('modified')
       expect(modifiedFile?.isChanged).toBe(true)
 
-      const stagedFile = allFiles.find(f => f.name === 'staged-file.txt')
+      const stagedFile = allFiles.find((f) => f.name === 'staged-file.txt')
       expect(stagedFile?.isStaged).toBe(true)
       expect(stagedFile?.isChanged).toBe(true)
     })
@@ -111,16 +109,19 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
     it('should return hierarchical tree structure', async () => {
       // Create nested directory structure
       await fs.mkdir(path.join(tempRepoDir, 'src', 'components'), { recursive: true })
-      await fs.writeFile(path.join(tempRepoDir, 'src', 'components', 'Button.tsx'), 'export const Button = () => null')
+      await fs.writeFile(
+        path.join(tempRepoDir, 'src', 'components', 'Button.tsx'),
+        'export const Button = () => null',
+      )
       await fs.writeFile(path.join(tempRepoDir, 'src', 'index.ts'), 'export * from "./components"')
 
       const response = await app.request(`/api/v1/tasks/${taskId}/file-tree-with-changes`)
       expect(response.status).toBe(200)
 
-      const data = await response.json() as FileTreeWithChangesResponse
+      const data = (await response.json()) as FileTreeWithChangesResponse
 
       // Find src directory
-      const srcDir = data.tree.find(node => node.name === 'src' && node.type === 'directory')
+      const srcDir = data.tree.find((node) => node.name === 'src' && node.type === 'directory')
       expect(srcDir).toBeDefined()
       expect(srcDir?.children).toBeDefined()
       expect(srcDir?.children?.length).toBeGreaterThan(0)
@@ -139,13 +140,13 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
 
     it('should handle empty repository correctly', async () => {
       // Create empty task workspace
-      const emptyTaskId = 'empty-task-' + Date.now()
+      const emptyTaskId = `empty-task-${Date.now()}`
       await createTestTask(emptyTaskId, tempRepoDir, true) // empty = true
 
       const response = await app.request(`/api/v1/tasks/${emptyTaskId}/file-tree-with-changes`)
       expect(response.status).toBe(200)
 
-      const data = await response.json() as FileTreeWithChangesResponse
+      const data = (await response.json()) as FileTreeWithChangesResponse
       expect(data.tree).toEqual([])
       expect(data.gitSummary.hasChanges).toBe(false)
       expect(data.gitSummary.totalFiles).toBe(0)
@@ -153,14 +154,23 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
 
     it('should return correct summary statistics', async () => {
       // Create known file changes
-      await createFileWithGitStatus(tempRepoDir, 'file1.txt', 'added', { additions: 10, deletions: 0 })
-      await createFileWithGitStatus(tempRepoDir, 'file2.txt', 'modified', { additions: 5, deletions: 3 })
-      await createFileWithGitStatus(tempRepoDir, 'file3.txt', 'staged', { additions: 2, deletions: 1 })
+      await createFileWithGitStatus(tempRepoDir, 'file1.txt', 'added', {
+        additions: 10,
+        deletions: 0,
+      })
+      await createFileWithGitStatus(tempRepoDir, 'file2.txt', 'modified', {
+        additions: 5,
+        deletions: 3,
+      })
+      await createFileWithGitStatus(tempRepoDir, 'file3.txt', 'staged', {
+        additions: 2,
+        deletions: 1,
+      })
 
       const response = await app.request(`/api/v1/tasks/${taskId}/file-tree-with-changes`)
       expect(response.status).toBe(200)
 
-      const data = await response.json() as FileTreeWithChangesResponse
+      const data = (await response.json()) as FileTreeWithChangesResponse
 
       expect(data.gitSummary.totalFiles).toBe(3)
       expect(data.gitSummary.totalAdditions).toBe(17) // 10 + 5 + 2
@@ -198,10 +208,7 @@ async function createTestRepository(repoPath: string): Promise<void> {
 
   const repoDir = path.join(process.env.DATA_DIR!, 'repositories')
   await fs.mkdir(repoDir, { recursive: true })
-  await fs.writeFile(
-    path.join(repoDir, 'test-repo.json'),
-    JSON.stringify(repoConfig, null, 2)
-  )
+  await fs.writeFile(path.join(repoDir, 'test-repo.json'), JSON.stringify(repoConfig, null, 2))
 }
 
 async function createTestTask(taskId: string, workspacePath: string, empty = false): Promise<void> {
@@ -216,17 +223,14 @@ async function createTestTask(taskId: string, workspacePath: string, empty = fal
 
   const tasksDir = path.join(process.env.DATA_DIR!, 'tasks')
   await fs.mkdir(tasksDir, { recursive: true })
-  await fs.writeFile(
-    path.join(tasksDir, `${taskId}.json`),
-    JSON.stringify(taskData, null, 2)
-  )
+  await fs.writeFile(path.join(tasksDir, `${taskId}.json`), JSON.stringify(taskData, null, 2))
 }
 
 async function createFileWithGitStatus(
   repoPath: string,
   filename: string,
   status: 'added' | 'modified' | 'staged',
-  stats?: { additions: number; deletions: number }
+  stats?: { additions: number; deletions: number },
 ): Promise<void> {
   const { exec } = await import('node:child_process')
   const { promisify } = await import('node:util')
@@ -264,11 +268,10 @@ function flattenFileTree(tree: any[]): any[] {
   return result
 }
 
-
 async function cleanupTempDir(dirPath: string): Promise<void> {
   try {
     await fs.rm(dirPath, { recursive: true, force: true })
-  } catch (error) {
+  } catch (_error) {
     // Ignore cleanup errors
   }
 }

@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, Task, Workspace } from '@moatless/types'
-import type { RepositoryConfig } from '@moatless/types'
+import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
 import { fromJSON, toJSON } from '@moatless/types'
 import { getDataDir, logger } from '../utils/index.js'
 

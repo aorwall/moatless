@@ -226,7 +226,7 @@ describe('TaskService - createVibeTask', () => {
           }),
           previewConfig: expect.objectContaining({
             serverStartCommand: 'npm run dev',
-            }),
+          }),
         }),
       )
     })

@@ -115,7 +115,7 @@ describe('Refactored ChatInput (ChatForm replacement)', () => {
           onSubmit={onSubmit}
           placeholder="Type a message..."
           buttonText="Send"
-          selectors={<></>}
+          selectors={null}
         />
       )
     }
@@ -146,7 +146,7 @@ describe('Refactored ChatInput (ChatForm replacement)', () => {
         message=""
         onMessageChange={onMessageChange}
         onSubmit={onSubmit}
-        selectors={<></>}
+        selectors={null}
       />,
     )
 

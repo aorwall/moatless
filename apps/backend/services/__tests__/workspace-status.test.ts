@@ -1,5 +1,4 @@
-import type { RepositoryConfig } from '@moatless/types'
-import type { Task } from '@moatless/types'
+import type { RepositoryConfig, Task } from '@moatless/types'
 import { WorkspaceStatus } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventService } from '../event.service.js'

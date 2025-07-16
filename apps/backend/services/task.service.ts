@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { TaskNotFoundError, ValidationError } from '@moatless/types'
-import type { CreateVibeTaskRequest } from '@moatless/types'
-import type { Command } from '@moatless/types'
-import { EventType } from '@moatless/types'
-import { RepositoryTemplate } from '@moatless/types'
-import type { CreateTaskRequest, Task, TaskIteration } from '@moatless/types'
+import type {
+  Command,
+  CreateTaskRequest,
+  CreateVibeTaskRequest,
+  Task,
+  TaskIteration,
+} from '@moatless/types'
+import { EventType, RepositoryTemplate, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
@@ -735,7 +737,6 @@ export class TaskService {
               iterationNumber: iteration.iterationNumber,
             },
           })
-
         } catch (saveError) {
           logger.error('Failed to update task status after agent error', saveError as Error)
         }

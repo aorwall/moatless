@@ -126,7 +126,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
 
       expect(response.status).toBe(200)
 
-      const result = await response.json() as any
+      const result = (await response.json()) as any
       expect(result.success).toBe(true)
       expect(result.data).toHaveLength(2)
 
@@ -169,7 +169,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
 
       expect(response.status).toBe(404)
 
-      const result = await response.json() as any
+      const result = (await response.json()) as any
       expect(result.success).toBe(false)
       expect(result.error).toContain('Task not found')
     })
@@ -188,7 +188,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
 
       expect(response.status).toBe(200)
 
-      const result = await response.json() as any
+      const result = (await response.json()) as any
       expect(result.success).toBe(true)
       expect(result.data).toHaveLength(0)
     })
@@ -202,7 +202,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
 
       expect(response.status).toBe(500)
 
-      const result = await response.json() as any
+      const result = (await response.json()) as any
       expect(result.success).toBe(false)
       expect(result.error).toContain('Internal server error')
     })
@@ -272,7 +272,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
 
       expect(response.status).toBe(200)
 
-      const result = await response.json() as any
+      const result = (await response.json()) as any
       expect(result.success).toBe(true)
       expect(result.data).toHaveLength(2) // Only message events
       expect(result.data[0].content).toBe('User message')

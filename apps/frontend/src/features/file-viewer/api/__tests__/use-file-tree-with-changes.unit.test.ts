@@ -1,6 +1,6 @@
+import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 import { createWrapper } from '@/test-utils/render'
 import { useFileTreeWithChanges } from '../use-file-tree-with-changes'
@@ -88,23 +88,24 @@ describe('useFileTreeWithChanges', () => {
 
     const { result } = renderHook(
       () => useFileTreeWithChanges({ taskId: mockTaskId, path: 'src' }),
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     )
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true)
     })
 
-    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/tasks/test-task-123/file-tree-with-changes?path=src')
+    expect(apiClient.get).toHaveBeenCalledWith(
+      '/api/v1/tasks/test-task-123/file-tree-with-changes?path=src',
+    )
   })
 
   it('should not include path parameter when path is default', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(mockFileTreeResponse)
 
-    const { result } = renderHook(
-      () => useFileTreeWithChanges({ taskId: mockTaskId, path: '.' }),
-      { wrapper: createWrapper() }
-    )
+    const { result } = renderHook(() => useFileTreeWithChanges({ taskId: mockTaskId, path: '.' }), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true)

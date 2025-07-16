@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RepositoryConfig } from '@moatless/types'
-import { WorkspaceService } from '../workspace.service.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Workspace } from '../../workspaces/workspace.js'
+import { WorkspaceService } from '../workspace.service.js'
 
 // Mock the workspace class
 vi.mock('../../workspaces/workspace.js')
@@ -60,13 +60,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
     diffString: 'mock diff string',
   }
 
-  const mockFileList = [
-    'src/',
-    'src/file1.ts',
-    'src/file2.ts',
-    'package.json',
-    'README.md',
-  ]
+  const mockFileList = ['src/', 'src/file1.ts', 'src/file2.ts', 'package.json', 'README.md']
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -95,7 +89,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
     // Setup common mocks
     mockStorage.getTask.mockResolvedValue(mockTask)
     mockRepositoryService.getRepositoryById.mockResolvedValue(mockRepository)
-    
+
     // Mock canPerformFileOperations to return true by default
     vi.spyOn(workspaceService, 'canPerformFileOperations').mockResolvedValue(true)
   })
@@ -130,7 +124,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
       const result = await workspaceService.getFileTreeWithChanges('task-1')
 
       // Find the src directory
-      const srcDir = result.tree.find(node => node.name === 'src' && node.type === 'directory')
+      const srcDir = result.tree.find((node) => node.name === 'src' && node.type === 'directory')
       expect(srcDir).toBeDefined()
       expect(srcDir?.isChanged).toBe(true) // Should be marked as changed since it contains changed files
       expect(srcDir?.children).toBeDefined()
@@ -160,7 +154,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
       const result = await workspaceService.getFileTreeWithChanges('task-1')
 
       // Find package.json which is not in the git diff
-      const packageFile = result.tree.find(node => node.name === 'package.json')
+      const packageFile = result.tree.find((node) => node.name === 'package.json')
       expect(packageFile).toBeDefined()
       expect(packageFile?.isChanged).toBe(false)
       expect(packageFile?.gitStatus).toBeUndefined()
@@ -173,7 +167,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
       mockWorkspace.getWorkspacePath.mockReturnValue('')
 
       await expect(workspaceService.getFileTreeWithChanges('task-1')).rejects.toThrow(
-        'Cannot list files: workspace not ready'
+        'Cannot list files: workspace not ready',
       )
     })
 
@@ -182,7 +176,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
       vi.spyOn(workspaceService, 'canPerformFileOperations').mockResolvedValue(false)
 
       await expect(workspaceService.getFileTreeWithChanges('task-1')).rejects.toThrow(
-        'Cannot list files: workspace not ready'
+        'Cannot list files: workspace not ready',
       )
     })
 
@@ -235,7 +229,7 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
 
       const result = await workspaceService.getFileTreeWithChanges('task-1')
 
-      const srcDir = result.tree.find(node => node.name === 'src')
+      const srcDir = result.tree.find((node) => node.name === 'src')
       expect(srcDir?.isChanged).toBe(true) // Parent should be marked as changed
 
       const utilsDir = srcDir?.children?.find((node: any) => node.name === 'utils')
@@ -265,8 +259,8 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
       expect(result.gitSummary.totalStaged).toBe(0)
 
       // All files should be marked as unchanged
-      const allFiles = result.tree.flatMap(node => [node, ...(node.children || [])])
-      const changedFiles = allFiles.filter(node => node.isChanged)
+      const allFiles = result.tree.flatMap((node) => [node, ...(node.children || [])])
+      const changedFiles = allFiles.filter((node) => node.isChanged)
       expect(changedFiles).toHaveLength(0)
     })
   })

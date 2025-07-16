@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Set up mocks before any imports
 vi.mock('node:util', () => {
@@ -15,10 +15,10 @@ vi.mock('node:child_process', () => ({
 
 // Import after mocks are set up
 import {
-  generateContainerName,
   containerExists,
-  getContainerStatus,
+  generateContainerName,
   getContainerIdByName,
+  getContainerStatus,
   validateContainerLabels,
 } from '../docker-container.js'
 
@@ -49,9 +49,10 @@ describe('Docker Container Utilities', () => {
     })
 
     it('should handle very long repository names by truncating', () => {
-      const longName = 'this-is-a-very-long-repository-name-that-exceeds-normal-length-limits-and-should-be-truncated-properly-to-fit-within-docker-container-naming-constraints-which-have-a-maximum-of-255-characters-total-for-the-container-name'
+      const longName =
+        'this-is-a-very-long-repository-name-that-exceeds-normal-length-limits-and-should-be-truncated-properly-to-fit-within-docker-container-naming-constraints-which-have-a-maximum-of-255-characters-total-for-the-container-name'
       const result = generateContainerName(longName, 'task-12345678901234567890')
-      
+
       expect(result.length).toBeLessThanOrEqual(255)
       expect(result).toMatch(/^moatless-.+-task-123$/)
       expect(result).not.toMatch(/-$/) // Should not end with hyphen after truncation

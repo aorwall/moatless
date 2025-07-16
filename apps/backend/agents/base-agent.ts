@@ -1,5 +1,4 @@
-import type { BranchNameAndSummary } from '@moatless/types'
-import type { Event } from '@moatless/types'
+import type { BranchNameAndSummary, Event } from '@moatless/types'
 
 export interface AgentOptions {
   model?: string

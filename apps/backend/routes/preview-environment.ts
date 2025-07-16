@@ -6,9 +6,9 @@ import {
 } from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { proxy } from 'hono/proxy'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
-import { proxy } from 'hono/proxy'
 import type { AppBindings } from '../app.js'
 
 export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, prefix: string) {
@@ -334,11 +334,11 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
         // Get the workspace and preview port
         const workspace = await services.workspace.getOrCreateWorkspace(taskId)
         const serverPort = workspace.getPreviewPort()
-        
+
         if (!serverPort) {
           throw new HTTPException(404, { message: 'Preview server port not available' })
         }
-        
+
         // Use Hono's proxy helper
         const response = await proxy(`http://localhost:${serverPort}${fullPath}`, {
           headers: {
@@ -353,7 +353,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
         if (contentType.includes('text/html')) {
           // Read the HTML content
           const html = await response.text()
-          
+
           // Create the injection script
           const injectedScript = `
             <script>
@@ -371,7 +371,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
               });
             </script>
           `
-          
+
           // Inject the script before </head> or at the beginning of <body>
           let modifiedHtml = html
           if (html.includes('</head>')) {

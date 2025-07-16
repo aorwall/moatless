@@ -38,7 +38,15 @@ export function CommandButtons({ commands, onCommandClick, disabled }: CommandBu
           return (
             <Button
               key={command.name}
-              variant={(command.variant as any) || 'outline'}
+              variant={
+                (command.variant as
+                  | 'default'
+                  | 'destructive'
+                  | 'outline'
+                  | 'secondary'
+                  | 'ghost'
+                  | 'link') || 'outline'
+              }
               size="sm"
               onClick={() => onCommandClick(command)}
               disabled={disabled}

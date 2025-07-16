@@ -239,6 +239,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           <div className="flex justify-center items-center p-4">
             {expandedDiagram && (
               <div
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG content from Mermaid is safe
                 dangerouslySetInnerHTML={{ __html: expandedDiagram.svg }}
                 className="[&>svg]:max-w-full [&>svg]:h-auto"
               />

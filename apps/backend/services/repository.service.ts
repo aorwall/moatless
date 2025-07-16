@@ -1,17 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { RepositoryNotFoundError, ValidationError } from '@moatless/types'
+import type { FileSearchResponse, SetupScriptResponse } from '@moatless/types'
 import {
+  type CreateRepositoryRequest,
   FRAMEWORK_DEFAULT_COMMANDS,
   PACKAGE_MANAGER_FILES,
-  CreateRepositoryRequest,
-  PreviewConfig,
-  RepositoryConfig,
-} from '@moatless/types'
-import type {
-  FileSearchResponse,
-  SetupScriptResponse,
+  type PreviewConfig,
+  type RepositoryConfig,
+  RepositoryNotFoundError,
+  ValidationError,
 } from '@moatless/types'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
@@ -119,7 +117,10 @@ export class RepositoryService {
   }
 
   async runSetupScript(repository: RepositoryConfig): Promise<SetupScriptResponse> {
-    if (!repository.codeExecution.setupCommands || repository.codeExecution.setupCommands.length === 0) {
+    if (
+      !repository.codeExecution.setupCommands ||
+      repository.codeExecution.setupCommands.length === 0
+    ) {
       return {
         success: true,
         commands: [],

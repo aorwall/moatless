@@ -91,17 +91,32 @@ export const WorkspaceCapabilitiesSchema = z.object({
 
 export const GitChangeStatusSchema = z.enum(['added', 'modified', 'deleted', 'renamed'])
 
-export const FileTreeNodeSchema: z.ZodType<any> = z.lazy(() => z.object({
-  name: z.string(),
-  path: z.string(),
-  type: z.enum(['file', 'directory']),
-  isChanged: z.boolean(),
-  gitStatus: GitChangeStatusSchema.optional(),
-  additions: z.number().optional(),
-  deletions: z.number().optional(),
-  isStaged: z.boolean().optional(),
-  children: z.array(FileTreeNodeSchema).optional(),
-}))
+// Type definition for FileTreeNode will be inferred from the schema
+type FileTreeNodeType = {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  isChanged: boolean
+  gitStatus?: z.infer<typeof GitChangeStatusSchema>
+  additions?: number
+  deletions?: number
+  isStaged?: boolean
+  children?: FileTreeNodeType[]
+}
+
+export const FileTreeNodeSchema: z.ZodType<FileTreeNodeType> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    path: z.string(),
+    type: z.enum(['file', 'directory']),
+    isChanged: z.boolean(),
+    gitStatus: GitChangeStatusSchema.optional(),
+    additions: z.number().optional(),
+    deletions: z.number().optional(),
+    isStaged: z.boolean().optional(),
+    children: z.array(FileTreeNodeSchema).optional(),
+  }),
+)
 
 export const FileTreeWithChangesResponseSchema = z.object({
   tree: z.array(FileTreeNodeSchema),

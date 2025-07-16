@@ -352,7 +352,7 @@ describe('PreviewEnvironmentService', () => {
         path: '/test/repo',
         codeExecution: {
           type: 'local',
-            envVars: { NODE_ENV: 'development' },
+          envVars: { NODE_ENV: 'development' },
         },
         previewConfig: {
           framework: 'vite',
@@ -365,7 +365,7 @@ describe('PreviewEnvironmentService', () => {
             },
           },
         },
-          createdAt: new Date(),
+        createdAt: new Date(),
         updatedAt: new Date(),
       }
 

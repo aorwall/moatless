@@ -49,11 +49,7 @@ export class MessageService {
 
     // Process all iterations in chronological order
     for (const iteration of task.iterations) {
-      const iterationMessages = await this.getMessagesForIteration(
-        settings,
-        task,
-        iteration,
-      )
+      const iterationMessages = await this.getMessagesForIteration(settings, task, iteration)
       allMessages.push(...iterationMessages)
     }
 
@@ -69,7 +65,7 @@ export class MessageService {
     iteration: TaskIteration,
   ): Promise<Message[]> {
     const filePath = getClaudeEventsFilePath(settings, task.workspacePath!, iteration)
-    
+
     // If no file path can be generated (e.g., no agentSessionId), fall back to task iteration
     if (!filePath) {
       console.debug('No Claude file path available for iteration, using task data', {
@@ -85,29 +81,20 @@ export class MessageService {
       const lines = fileContent.trim().split('\n').filter(Boolean)
 
       const sdkMessages: SDKMessage[] = []
-      let parseErrors = 0
+      let _parseErrors = 0
 
       for (const line of lines) {
         try {
           const sdkMessage = JSON.parse(line) as SDKMessage
           sdkMessages.push(sdkMessage)
         } catch (parseError) {
-          parseErrors++
+          _parseErrors++
           console.warn('Failed to parse Claude SDK message', {
             taskId: task.taskId,
             error: parseError instanceof Error ? parseError.message : String(parseError),
           })
         }
       }
-
-      console.debug('Successfully read Claude messages', {
-        taskId: task.taskId,
-        filePath,
-        iterationNumber: iteration.iterationNumber,
-        totalLines: lines.length,
-        messagesRead: sdkMessages.length,
-        parseErrors,
-      })
 
       return this.transformSDKMessagesToMessages(sdkMessages)
     } catch (error) {

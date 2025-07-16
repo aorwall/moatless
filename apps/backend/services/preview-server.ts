@@ -478,7 +478,7 @@ export class PreviewServer {
 
       const response = await fetch(url, fetchOptions)
       const responseHeaders = new Headers()
-      
+
       // Copy response headers, filtering out hop-by-hop headers
       const hopByHopHeaders = [
         'connection',
@@ -490,7 +490,7 @@ export class PreviewServer {
         'transfer-encoding',
         'upgrade',
       ]
-      
+
       response.headers.forEach((value, key) => {
         if (!hopByHopHeaders.includes(key.toLowerCase())) {
           responseHeaders.set(key, value)
@@ -501,7 +501,11 @@ export class PreviewServer {
       const contentType = response.headers.get('content-type') || ''
       let body: string | Buffer
 
-      if (contentType.includes('text/') || contentType.includes('application/json') || contentType.includes('application/javascript')) {
+      if (
+        contentType.includes('text/') ||
+        contentType.includes('application/json') ||
+        contentType.includes('application/javascript')
+      ) {
         body = await response.text()
       } else {
         body = Buffer.from(await response.arrayBuffer())
