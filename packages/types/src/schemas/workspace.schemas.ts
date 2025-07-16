@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { GitStatusSchema } from './task.schemas.js'
 
 // ============================================
 // Workspace Enums and Base Types
@@ -149,6 +150,37 @@ export type WorkspaceCapabilities = z.infer<typeof WorkspaceCapabilitiesSchema>
 export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>
 export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
+
+// ============================================
+// Workspace Status Response Schema
+// ============================================
+
+// Workspace Status Response
+export const WorkspaceStatusResponseSchema = z.object({
+  status: z.enum(['not_setup', 'setting_up', 'idle', 'running']),
+  gitStatus: GitStatusSchema.optional(),
+  backgroundTaskCount: z.number(),
+  environment: z.object({
+    type: z.enum(['local', 'docker']),
+    status: z.enum(['not_setup', 'initializing', 'ready', 'error', 'cleaning']),
+    error: z.string().optional(),
+    createdAt: z.string(), // ISO date string
+    capabilities: z.object({
+      fileOperations: z.boolean(),
+      commandExecution: z.boolean(),
+    }),
+  }),
+  gitChanges: z
+    .object({
+      totalChanges: z.number(),
+      totalAdditions: z.number(),
+      totalDeletions: z.number(),
+      files: z.array(z.string()),
+    })
+    .optional(),
+})
+
+export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 
 // ============================================
 // Helper Functions (these remain as utilities)

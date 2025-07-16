@@ -1,4 +1,4 @@
-import type { VerificationResponse } from '@moatless/types'
+import type { WorkspaceStatusResponse } from '@moatless/types'
 import { AlertCircle, CheckCircle, Loader2, XCircle } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -21,7 +21,7 @@ interface VerificationDialogProps {
 
 export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
   const [open, setOpen] = useState(false)
-  const [verificationResult, setVerificationResult] = useState<VerificationResponse | null>(null)
+  const [verificationResult, setVerificationResult] = useState<WorkspaceStatusResponse | null>(null)
 
   const verifyRepository = useVerifyRepository({
     onSuccess: (data) => {
@@ -86,25 +86,41 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
             <div className="space-y-4">
               {/* Overall Status */}
               <div className="flex items-center gap-2 p-3 border rounded-lg">
-                {getStatusIcon(verificationResult.success)}
+                {getStatusIcon(
+                  verificationResult.status === 'idle' &&
+                    verificationResult.environment.status === 'ready',
+                )}
                 <span className="font-medium">Overall Status</span>
-                {getStatusBadge(verificationResult.success)}
+                {getStatusBadge(
+                  verificationResult.status === 'idle' &&
+                    verificationResult.environment.status === 'ready',
+                )}
               </div>
 
-              {/* Workspace Setup */}
+              {/* Workspace Status */}
               <div className="border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  {getStatusIcon(verificationResult.workspaceSetup.success)}
-                  <h3 className="font-medium">Workspace Setup</h3>
-                  {getStatusBadge(verificationResult.workspaceSetup.success)}
+                  {getStatusIcon(verificationResult.status === 'idle')}
+                  <h3 className="font-medium">Workspace Status</h3>
+                  <Badge variant={verificationResult.status === 'idle' ? 'default' : 'destructive'}>
+                    {verificationResult.status}
+                  </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mb-2">
-                  {verificationResult.workspaceSetup.message}
+                  Background tasks: {verificationResult.backgroundTaskCount}
                 </p>
-                {verificationResult.workspaceSetup.workspacePath && (
-                  <p className="text-xs text-muted-foreground font-mono">
-                    Path: {verificationResult.workspaceSetup.workspacePath}
-                  </p>
+                {verificationResult.gitStatus && (
+                  <div className="mt-2">
+                    <p className="text-xs text-muted-foreground mb-1">Git Status:</p>
+                    <div className="text-xs space-y-1">
+                      <div>Branch: {verificationResult.gitStatus.currentBranch}</div>
+                      <div>Base: {verificationResult.gitStatus.baseBranch}</div>
+                      <div>
+                        Uncommitted changes:{' '}
+                        {verificationResult.gitStatus.hasUncommittedChanges ? 'Yes' : 'No'}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -124,59 +140,60 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
                   </Badge>
                 </div>
                 {verificationResult.environment.error && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-red-500 mb-2">
                     {verificationResult.environment.error}
                   </p>
                 )}
-              </div>
-
-              {/* Setup Commands */}
-              <div className="border rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  {getStatusIcon(verificationResult.setupCommands.success)}
-                  <h3 className="font-medium">Setup Commands</h3>
-                  {getStatusBadge(verificationResult.setupCommands.success)}
-                </div>
-
-                {verificationResult.setupCommands.commands.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No setup commands configured</p>
-                ) : (
-                  <div className="space-y-3">
-                    {verificationResult.setupCommands.commands.map((command, index) => (
-                      <div
-                        key={`${command.command}-${index}`}
-                        className="border rounded p-3 bg-muted/30"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          {getStatusIcon(command.success)}
-                          <code className="text-sm font-mono">{command.command}</code>
-                          <Badge variant={command.success ? 'default' : 'destructive'}>
-                            Exit {command.exit_code}
-                          </Badge>
-                        </div>
-
-                        {command.output && (
-                          <div className="mt-2">
-                            <p className="text-xs text-muted-foreground mb-1">Output:</p>
-                            <pre className="text-xs bg-background p-2 rounded border overflow-x-auto">
-                              {command.output}
-                            </pre>
-                          </div>
-                        )}
-
-                        {command.error && (
-                          <div className="mt-2">
-                            <p className="text-xs text-muted-foreground mb-1">Error:</p>
-                            <pre className="text-xs bg-destructive/10 text-destructive p-2 rounded border overflow-x-auto">
-                              {command.error}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <div>
+                    Created: {new Date(verificationResult.environment.createdAt).toLocaleString()}
                   </div>
-                )}
+                  <div>
+                    File Operations:{' '}
+                    {verificationResult.environment.capabilities.fileOperations
+                      ? 'Enabled'
+                      : 'Disabled'}
+                  </div>
+                  <div>
+                    Command Execution:{' '}
+                    {verificationResult.environment.capabilities.commandExecution
+                      ? 'Enabled'
+                      : 'Disabled'}
+                  </div>
+                </div>
               </div>
+
+              {/* Git Changes */}
+              {verificationResult.gitChanges && (
+                <div className="border rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    {getStatusIcon(verificationResult.gitChanges.totalChanges === 0)}
+                    <h3 className="font-medium">Git Changes</h3>
+                    <Badge
+                      variant={
+                        verificationResult.gitChanges.totalChanges === 0 ? 'default' : 'secondary'
+                      }
+                    >
+                      {verificationResult.gitChanges.totalChanges} changes
+                    </Badge>
+                  </div>
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <div>Additions: {verificationResult.gitChanges.totalAdditions}</div>
+                    <div>Deletions: {verificationResult.gitChanges.totalDeletions}</div>
+                    <div>Files: {verificationResult.gitChanges.files.length}</div>
+                    {verificationResult.gitChanges.files.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-xs mb-1">Changed files:</p>
+                        <div className="text-xs font-mono space-y-1">
+                          {verificationResult.gitChanges.files.map((file) => (
+                            <div key={file}>{file}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

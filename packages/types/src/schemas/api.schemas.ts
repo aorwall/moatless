@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { GitStatusSchema, TaskResponseSchema } from './task.schemas.js'
+import { TaskResponseSchema } from './task.schemas.js'
 
 // ============================================
 // Base Types and Enums
@@ -133,31 +133,6 @@ export const GitChangesSchema = z.object({
   modifications: z.number(), // Files modified in working directory
 })
 
-// Workspace Status Response
-export const WorkspaceStatusResponseSchema = z.object({
-  status: z.enum(['not_setup', 'setting_up', 'idle', 'running']),
-  gitStatus: GitStatusSchema.optional(),
-  backgroundTaskCount: z.number(),
-  environment: z.object({
-    type: z.enum(['local', 'docker']),
-    status: z.enum(['not_setup', 'initializing', 'ready', 'error', 'cleaning']),
-    error: z.string().optional(),
-    createdAt: z.string(), // ISO date string
-    capabilities: z.object({
-      fileOperations: z.boolean(),
-      commandExecution: z.boolean(),
-    }),
-  }),
-  gitChanges: z
-    .object({
-      totalChanges: z.number(),
-      totalAdditions: z.number(),
-      totalDeletions: z.number(),
-      files: z.array(z.string()),
-    })
-    .optional(),
-})
-
 // ============================================
 // Query Schemas
 // ============================================
@@ -204,7 +179,6 @@ export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>
 export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 export type GitChanges = z.infer<typeof GitChangesSchema>
-export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
 export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
 export type EventListQuery = z.infer<typeof EventListQuerySchema>
