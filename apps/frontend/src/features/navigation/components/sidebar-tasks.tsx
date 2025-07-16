@@ -4,8 +4,8 @@ import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
-import { GitStatusIcon } from '@/features/tasks/components/git-status-icon'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
+import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { formatGitSyncDetails } from '@/features/tasks/utils/git-sync-status'
 import { Button } from '@/lib/components/ui/button'
@@ -63,7 +63,7 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div>
-                        <GitStatusIcon gitStatus={gitStatus} />
+                        <TaskStatusIcon task={task} showText={false} />
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="text-xs">

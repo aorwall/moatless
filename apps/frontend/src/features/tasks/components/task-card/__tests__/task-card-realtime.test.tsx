@@ -35,8 +35,8 @@ vi.mock('@/features/tasks/components/minified-event-viewer/minified-event-item',
   ),
 }))
 
-vi.mock('@/features/tasks/components/git-status-icon', () => ({
-  GitStatusIcon: () => <div data-testid="status-icon">Running</div>,
+vi.mock('@/features/tasks/components/task-status-icon', () => ({
+  TaskStatusIcon: () => <div data-testid="status-icon">Running</div>,
 }))
 
 // Mock router

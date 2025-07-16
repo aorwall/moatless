@@ -1,7 +1,7 @@
 import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { GitStatusIcon } from '@/features/tasks/components/git-status-icon'
+import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
@@ -178,7 +178,7 @@ export function TaskHeader() {
               {repositoryName}
             </span>
             <span className="text-muted-foreground">•</span>
-            <GitStatusIcon gitStatus={gitStatus} />
+            <TaskStatusIcon task={{ status: status as any, iterations }} showText={false} />
             {gitStatusInfo && (
               <>
                 <span className="text-muted-foreground">•</span>
