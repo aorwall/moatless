@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
-import { AgentService, WorkspaceService } from './services/index.js'
+import { WorkspaceService } from './services/index.js'
 import { PreviewServer } from './services/preview-server.js'
 import { FileStorage } from './services/storage.js'
 import { WorkerEventService } from './services/worker-event.service.js'
@@ -66,11 +66,9 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     )
   }
 
-  // Create agent service
-  const agentService = new AgentService(storage, eventService as any, workspaceService)
-
-  // Store agent instances for this worker
-  const agentInstances: Map<string, { agent: any; agentType: string; createdAt: Date }> = new Map()
+  // Store single agent instance for this worker (only one agent can run at a time)
+  let agentInstance: { agent: any; agentType: string; taskId: string; createdAt: Date } | null =
+    null
 
   // Create preview server instance for this worker
   let previewServer: PreviewServer | undefined
@@ -128,12 +126,13 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       // Create agent using environment
       const agent = await environment.createAgent(agentType || 'claude-code', options)
 
-      // Store agent instance
-      agentInstances.set(taskId, {
+      // Store agent instance (replacing any existing one)
+      agentInstance = {
         agent,
         agentType: agentType || 'claude-code',
+        taskId,
         createdAt: new Date(),
-      })
+      }
 
       logger.info('Agent created successfully', { taskId, agentType })
 
@@ -188,8 +187,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
           }
 
           // Get stored agent instance
-          const agentData = agentInstances.get(taskId)
-          if (!agentData) {
+          if (!agentInstance || agentInstance.taskId !== taskId) {
             controller.enqueue(
               encoder.encode(
                 `data: ${JSON.stringify({ type: 'error', message: 'Agent not found. Create agent first.' })}\n\n`,
@@ -200,13 +198,10 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
             return
           }
 
-          const { agent } = agentData
+          const { agent } = agentInstance
 
-          // Get environment from workspace
-          const environment = workspace.getEnvironment()
-
-          // Execute agent and stream events
-          for await (const event of environment.executeAgent(agent, message, runOptions || {})) {
+          // Execute agent and stream events directly
+          for await (const event of agent.run(message, runOptions || {})) {
             const data = `data: ${JSON.stringify(event)}\n\n`
             controller.enqueue(encoder.encode(data))
 
@@ -246,16 +241,15 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
     try {
       // Get stored agent instance
-      const agentData = agentInstances.get(taskId)
       let agentStopped = false
 
-      if (agentData) {
+      if (agentInstance && agentInstance.taskId === taskId) {
         // Stop the agent instance
-        await agentData.agent.stop()
+        await agentInstance.agent.stop()
         agentStopped = true
 
-        // Remove from instances map
-        agentInstances.delete(taskId)
+        // Clear the agent instance
+        agentInstance = null
         logger.info('Agent instance stopped and removed', { taskId })
       }
 
@@ -296,8 +290,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     const { taskId } = c.req.param()
 
     try {
-      const agentData = agentInstances.get(taskId)
-      if (!agentData) {
+      if (!agentInstance || agentInstance.taskId !== taskId) {
         return c.json(
           {
             success: false,
@@ -309,47 +302,12 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
       return c.json({
         success: true,
-        sessionId: agentData.agent.getSessionId(),
-        agentType: agentData.agentType,
-        createdAt: agentData.createdAt,
+        sessionId: agentInstance.agent.getSessionId(),
+        agentType: agentInstance.agentType,
+        createdAt: agentInstance.createdAt,
       })
     } catch (error) {
       logger.error('Failed to get agent session', error as Error, { taskId })
-      return c.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        500,
-      )
-    }
-  })
-
-  // Send message to agent endpoint
-  app.post('/agent-message', async (c) => {
-    const body = await c.req.json()
-    const { taskId, message, options } = body
-
-    try {
-      const agentData = agentInstances.get(taskId)
-      if (!agentData) {
-        return c.json(
-          {
-            success: false,
-            error: 'Agent not found',
-          },
-          404,
-        )
-      }
-
-      const response = await agentData.agent.sendMessage(message, options)
-
-      return c.json({
-        success: true,
-        response,
-      })
-    } catch (error) {
-      logger.error('Failed to send message to agent', error as Error, { taskId })
       return c.json(
         {
           success: false,
@@ -366,8 +324,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     const { taskId, message, options } = body
 
     try {
-      const agentData = agentInstances.get(taskId)
-      if (!agentData) {
+      if (!agentInstance || agentInstance.taskId !== taskId) {
         return c.json(
           {
             success: false,
@@ -377,7 +334,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         )
       }
 
-      const result = await agentData.agent.getBranchNameAndSummary(message, options)
+      const result = await agentInstance.agent.getBranchNameAndSummary(message, options)
 
       return c.json({
         success: true,

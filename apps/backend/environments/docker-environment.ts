@@ -561,7 +561,11 @@ export class DockerEnvironment extends BaseEnvironment {
       throw new Error(`Failed to create agent in worker: ${error}`)
     }
 
-    const result = await response.json()
+    const result = (await response.json()) as {
+      success: boolean
+      agentType: string
+      sessionId?: string
+    }
     const taskId = this.taskId
     const workerPort = this.workerPortMapping?.hostPort
     const logger = this.logger
@@ -575,9 +579,79 @@ export class DockerEnvironment extends BaseEnvironment {
         this.remoteSessionId = result.sessionId
       }
 
-      async *run(_message: string, _runOptions?: AgentRunOptions): AsyncGenerator<Event> {
-        yield* [] // Empty generator - actual execution happens in executeAgent
-        throw new Error('Use executeAgent method instead')
+      async *run(message: string, runOptions?: AgentRunOptions): AsyncGenerator<Event> {
+        try {
+          // Make HTTP request to worker to execute agent
+          const workerUrl = `http://localhost:${workerPort}/execute-agent`
+
+          const response = await fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'text/event-stream',
+            },
+            body: JSON.stringify({
+              agentType,
+              taskId,
+              message,
+              runOptions: {
+                ...runOptions,
+                workspaceDir: '/workspace',
+              },
+            }),
+          })
+
+          if (!response.ok) {
+            const error = await response.text()
+            throw new Error(`Failed to execute agent in worker: ${error}`)
+          }
+
+          // Parse SSE stream from worker
+          const reader = response.body?.getReader()
+          const decoder = new TextDecoder()
+
+          if (!reader) {
+            throw new Error('No response body')
+          }
+
+          let buffer = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6)
+                if (data === '[DONE]') {
+                  return
+                }
+                try {
+                  const parsedData = JSON.parse(data)
+
+                  // Check if this is a session event (special case not in EventType enum)
+                  if (parsedData.type === 'session' && parsedData.sessionId) {
+                    this.remoteSessionId = parsedData.sessionId
+                  }
+
+                  // Yield the event regardless of type
+                  const event = parsedData as Event
+
+                  yield event
+                } catch (error) {
+                  logger.error('Failed to parse event from worker', error as Error, { data })
+                }
+              }
+            }
+          }
+        } catch (error) {
+          logger.error('Error executing agent via proxy', error as Error)
+          throw error
+        }
       }
 
       async stop(): Promise<void> {
@@ -613,33 +687,18 @@ export class DockerEnvironment extends BaseEnvironment {
           const response = await fetch(sessionUrl)
 
           if (response.ok) {
-            const result = await response.json()
+            const result = (await response.json()) as {
+              success: boolean
+              sessionId?: string
+              agentType?: string
+              createdAt?: Date
+            }
             this.remoteSessionId = result.sessionId
           }
         } catch (error) {
-          logger.warn('Failed to update session ID', error as Error)
-        }
-      }
-
-      async sendMessage(message: string, options?: AgentRunOptions): Promise<string> {
-        try {
-          const messageUrl = `http://localhost:${workerPort}/agent-message`
-          const response = await fetch(messageUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId, message, options }),
+          logger.warn('Failed to update session ID', {
+            error: error instanceof Error ? error.message : String(error),
           })
-
-          if (!response.ok) {
-            const error = await response.text()
-            throw new Error(`Failed to send message to agent: ${error}`)
-          }
-
-          const result = await response.json()
-          return result.response
-        } catch (error) {
-          logger.error('Error sending message to remote agent', error as Error)
-          throw error
         }
       }
 
@@ -657,7 +716,7 @@ export class DockerEnvironment extends BaseEnvironment {
             throw new Error(`Failed to get branch summary from agent: ${error}`)
           }
 
-          const result = await response.json()
+          const result = (await response.json()) as { success: boolean; result: null }
           return result.result
         } catch (error) {
           logger.error('Error getting branch summary from remote agent', error as Error)
@@ -667,92 +726,6 @@ export class DockerEnvironment extends BaseEnvironment {
     }
 
     return new StatefulProxyAgent()
-  }
-
-  async *executeAgent(
-    agent: BaseAgent,
-    message: string,
-    runOptions: AgentRunOptions,
-  ): AsyncGenerator<Event> {
-    if (this.runningAgent) {
-      throw new Error('Another agent is already running')
-    }
-
-    this.runningAgent = agent
-    this.logger.info('Executing agent in Docker container', {
-      agentType: agent.getAgentType(),
-      taskId: this.taskId,
-      workerPort: this.workerPortMapping?.hostPort,
-    })
-
-    try {
-      // Make HTTP request to worker to execute agent
-      const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/execute-agent`
-
-      const response = await fetch(workerUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-        },
-        body: JSON.stringify({
-          agentType: agent.getAgentType(),
-          taskId: this.taskId,
-          message,
-          runOptions: {
-            ...runOptions,
-            workspaceDir: '/workspace',
-          },
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(`Failed to execute agent in worker: ${error}`)
-      }
-
-      // Parse SSE stream from worker
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-
-      if (!reader) {
-        throw new Error('No response body')
-      }
-
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') {
-              return
-            }
-            try {
-              const event = JSON.parse(data) as Event
-
-              // Sync session ID changes from worker to proxy agent
-              if (event.type === 'session' && event.sessionId && 'updateSessionId' in agent) {
-                await (agent as any).updateSessionId()
-              }
-
-              yield event
-            } catch (error) {
-              this.logger.error('Failed to parse event from worker', error as Error, { data })
-            }
-          }
-        }
-      }
-    } finally {
-      this.runningAgent = undefined
-    }
   }
 
   async stopAgent(): Promise<boolean> {

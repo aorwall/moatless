@@ -127,15 +127,7 @@ export class AgentService {
       }
 
       // Execute agent in background
-      await this.runAgentExecution(
-        agent,
-        message,
-        taskId,
-        iteration,
-        workspace,
-        environment,
-        resumeSessionId,
-      )
+      await this.runAgentExecution(agent, message, taskId, iteration, workspace, resumeSessionId)
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
@@ -210,7 +202,6 @@ export class AgentService {
     taskId: string,
     iteration: TaskIteration,
     workspace: Awaited<ReturnType<WorkspaceService['getOrCreateWorkspace']>>,
-    environment: Awaited<ReturnType<typeof workspace.getEnvironment>>,
     resumeSessionId?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
@@ -247,8 +238,8 @@ export class AgentService {
         })
       }
 
-      // Process agent events using environment's executeAgent method
-      for await (const event of environment.executeAgent(agent, finalMessage, runOptions)) {
+      // Process agent events using agent's run method directly
+      for await (const event of agent.run(finalMessage, runOptions)) {
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()

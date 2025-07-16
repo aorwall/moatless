@@ -189,7 +189,7 @@ describe('AgentService', () => {
 
       const mockEnvironment = mockWorkspace.getEnvironment()
       expect(mockEnvironment.createAgent).toHaveBeenCalledWith('claude-code', {})
-      expect(mockEnvironment.executeAgent).toHaveBeenCalled()
+      expect(mockAgent.run).toHaveBeenCalled()
       expect(mockStorage.saveTask).toHaveBeenCalled()
     })
 
@@ -211,7 +211,8 @@ describe('AgentService', () => {
           payload: { message: 'Test completed' },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       // Start first agent
       const promise1 = service.executeAgent('task-1', 'Message 1', mockIteration)
@@ -263,7 +264,8 @@ describe('AgentService', () => {
       })
 
       const mockAgent = createMockAgent()
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = recreatedWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
@@ -279,7 +281,8 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       await service.executeAgent(
         'task-1',
@@ -290,7 +293,9 @@ describe('AgentService', () => {
         'claude-3-opus',
       )
 
-      expect(ClaudeCodeAgent).toHaveBeenCalledWith('task-1', { model: 'claude-3-opus' })
+      expect(mockEnvironment.createAgent).toHaveBeenCalledWith('claude-code', {
+        model: 'claude-3-opus',
+      })
     })
 
     it('should handle agent execution errors', async () => {
@@ -317,7 +322,8 @@ describe('AgentService', () => {
         }
         throw new Error('Agent execution failed')
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       // The error should be thrown by executeAgent
       await expect(service.executeAgent('task-1', 'Test message', mockIteration)).rejects.toThrow(
@@ -346,7 +352,8 @@ describe('AgentService', () => {
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
       const mockAgent = createMockAgent()
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       const resumeSessionId = 'session-123'
       await service.executeAgent(
@@ -390,7 +397,8 @@ describe('AgentService', () => {
           payload: { message: 'Test completed' },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       const agentPromise = service.executeAgent('task-1', 'Test message', mockIteration)
 
@@ -437,7 +445,8 @@ describe('AgentService', () => {
           payload: { message: 'Test completed' },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       const agentPromise = service.executeAgent('task-1', 'Test message', mockIteration)
 
@@ -485,7 +494,8 @@ describe('AgentService', () => {
           payload: { message: 'Test completed' },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       const agentPromise = service.executeAgent('task-1', 'Test message', mockIteration)
 
@@ -515,7 +525,8 @@ describe('AgentService', () => {
       // Remove agent from map to simulate not running
       // @ts-ignore - accessing private members for testing
       service.runningAgents.delete('task-1')
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
@@ -552,7 +563,8 @@ describe('AgentService', () => {
           },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
@@ -585,7 +597,8 @@ describe('AgentService', () => {
           },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      vi.mocked(mockEnvironment.createAgent).mockResolvedValue(mockAgent)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 

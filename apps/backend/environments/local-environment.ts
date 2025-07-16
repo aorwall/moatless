@@ -1,8 +1,8 @@
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
-import type { CommandResult, Event, RepositoryConfig, ServerStatus } from '@moatless/types'
-import type { AgentOptions, AgentRunOptions, BaseAgent } from '../agents/base-agent.js'
+import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/index.js'
 import { PreviewServer } from '../services/preview-server.js'
@@ -275,38 +275,6 @@ export class LocalEnvironment extends BaseEnvironment {
       return new ClaudeCodeAgent(this.taskId, options)
     }
     throw new Error(`Unknown agent type: ${agentType}`)
-  }
-
-  async *executeAgent(
-    agent: BaseAgent,
-    message: string,
-    runOptions: AgentRunOptions,
-  ): AsyncGenerator<Event> {
-    if (this._runningAgent) {
-      throw new Error('Another agent is already running')
-    }
-
-    this._runningAgent = agent
-    this.logger.info('Executing agent locally', {
-      agentType: agent.getAgentType(),
-      taskId: this.taskId,
-      workspaceDir: runOptions.workspaceDir || this.workspacePath,
-    })
-
-    try {
-      // Set workspace directory if not provided
-      const executionOptions = {
-        ...runOptions,
-        workspaceDir: runOptions.workspaceDir || this.workspacePath,
-      }
-
-      // Run the agent and yield events
-      for await (const event of agent.run(message, executionOptions)) {
-        yield event
-      }
-    } finally {
-      this._runningAgent = undefined
-    }
   }
 
   async stopAgent(): Promise<boolean> {
