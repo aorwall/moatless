@@ -190,8 +190,15 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
 
       try {
         // Task validation and capability check now handled in workspace service
-        const content = await services.workspace.readFile(taskId, filePath)
-        return c.json({ content, encoding: 'utf-8' })
+        const fileData = await services.workspace.readFileWithChanges(taskId, filePath)
+        return c.json({
+          content: fileData.content,
+          encoding: 'utf-8',
+          oldContent: fileData.oldContent,
+          additions: fileData.additions,
+          deletions: fileData.deletions,
+          isModified: fileData.isModified,
+        })
       } catch (error) {
         handleServiceError(error, 'Get workspace status')
       }

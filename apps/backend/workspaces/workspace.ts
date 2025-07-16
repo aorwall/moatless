@@ -191,6 +191,16 @@ export class Workspace {
     return this.fileOperations.readFile(filePath)
   }
 
+  async readFileWithChanges(filePath: string): Promise<{
+    content: string
+    oldContent?: string
+    additions?: number
+    deletions?: number
+    isModified?: boolean
+  }> {
+    return this.fileOperations.readFileWithChanges(filePath)
+  }
+
   async writeFile(filePath: string, content: string): Promise<void> {
     return this.fileOperations.writeFile(filePath, content)
   }

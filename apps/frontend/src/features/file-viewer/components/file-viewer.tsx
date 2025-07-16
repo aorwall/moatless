@@ -1,10 +1,13 @@
+import { Code2, GitCompare } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useTheme } from '@/lib/components/theme-provider'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
 import { useFileContent } from '../api/use-file-content'
 import { getFileExtension, getLanguageFromPath } from '../utils/file-tree-utils'
+import { FileDiffViewer } from './file-diff-viewer'
 import { FileViewerSkeleton } from './file-viewer-skeleton'
 import { MarkdownPreview } from './markdown-preview'
 import { type PreviewMode, PreviewModeToggle } from './preview-mode-toggle'
@@ -23,6 +26,10 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
   // Determine if file supports preview mode
   const supportsPreview = fileExtension === 'md' || fileExtension === 'markdown'
   const [previewMode, setPreviewMode] = useState<PreviewMode>('code')
+
+  // Determine if file has changes (for diff mode)
+  const hasChanges = data?.isModified && data?.oldContent
+  const [viewMode, setViewMode] = useState<'code' | 'diff'>('code')
 
   // Memoize content processing
   const content = useMemo(() => {
@@ -59,14 +66,37 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
       <div className="file-header p-4 border-b flex items-center justify-between min-w-0">
         <h3 className="text-sm font-medium truncate flex-1 min-w-0">{filePath}</h3>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {supportsPreview && (
+          {hasChanges && (
+            <ToggleGroup
+              type="single"
+              value={viewMode}
+              onValueChange={(value) => value && setViewMode(value as 'code' | 'diff')}
+              className="h-8"
+            >
+              <ToggleGroupItem value="code" aria-label="Code view" className="h-8 px-2">
+                <Code2 className="h-4 w-4" />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="diff" aria-label="Diff view" className="h-8 px-2">
+                <GitCompare className="h-4 w-4" />
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
+          {supportsPreview && viewMode === 'code' && (
             <PreviewModeToggle mode={previewMode} onModeChange={setPreviewMode} />
           )}
           <span className="text-xs text-muted-foreground">{language}</span>
         </div>
       </div>
       <div className="file-content flex-1 overflow-auto min-w-0 max-w-full">
-        {supportsPreview && previewMode === 'preview' ? (
+        {viewMode === 'diff' && hasChanges && data?.oldContent ? (
+          <FileDiffViewer
+            filePath={filePath}
+            oldContent={data.oldContent}
+            newContent={content}
+            additions={data.additions}
+            deletions={data.deletions}
+          />
+        ) : supportsPreview && previewMode === 'preview' ? (
           <MarkdownPreview content={content} />
         ) : (
           <div className="w-full max-w-full overflow-x-auto">

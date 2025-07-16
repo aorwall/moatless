@@ -1058,6 +1058,102 @@ export interface GitSyncResult {
  * Safely sync workspace with main branch if no conflicts exist
  * Checks for conflicts, uncommitted changes, and only syncs when safe
  */
+/**
+ * Get the content of a file at a specific git revision (usually the base branch)
+ * @param repoPath - The repository path
+ * @param filePath - The relative file path within the repository
+ * @param revision - The git revision (default: HEAD)
+ * @returns The file content at that revision, or null if file doesn't exist
+ */
+export async function getFileAtRevision(
+  repoPath: string,
+  filePath: string,
+  revision = 'HEAD',
+): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync(`git show ${revision}:"${filePath}"`, {
+      cwd: repoPath,
+      timeout: 5000,
+      maxBuffer: 10 * 1024 * 1024, // 10MB
+    })
+    return stdout
+  } catch (error) {
+    // File doesn't exist at that revision
+    if (
+      error instanceof Error &&
+      (error.message.includes('does not exist') ||
+        error.message.includes('path') ||
+        error.message.includes('fatal'))
+    ) {
+      return null
+    }
+    throw new Error(
+      `Failed to get file at revision: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+/**
+ * Get file content with change information for a specific file
+ * @param repoPath - The repository path
+ * @param filePath - The relative file path within the repository
+ * @param baseBranch - The base branch to compare against
+ * @returns File change information including old content, additions, deletions
+ */
+export async function getFileChangeInfo(
+  repoPath: string,
+  filePath: string,
+  baseBranch?: string,
+): Promise<{
+  oldContent: string | null
+  additions: number
+  deletions: number
+  isModified: boolean
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'unchanged'
+}> {
+  try {
+    // Get the detailed git diff
+    const gitDiff = await getGitDiffDetailed(repoPath, baseBranch)
+
+    // Find the file in the diff
+    const fileDiff = gitDiff.files.find((f) => f.filename === filePath)
+
+    if (!fileDiff) {
+      // File is unchanged
+      return {
+        oldContent: null,
+        additions: 0,
+        deletions: 0,
+        isModified: false,
+        status: 'unchanged',
+      }
+    }
+
+    // Get old content based on status
+    let oldContent: string | null = null
+
+    if (fileDiff.status === 'modified' || fileDiff.status === 'deleted') {
+      // Get the file content from the base branch
+      oldContent = await getFileAtRevision(repoPath, filePath, gitDiff.compareBase)
+    } else if (fileDiff.status === 'added') {
+      // New file, no old content
+      oldContent = null
+    }
+
+    return {
+      oldContent,
+      additions: fileDiff.additions,
+      deletions: fileDiff.deletions,
+      isModified: true,
+      status: fileDiff.status,
+    }
+  } catch (error) {
+    throw new Error(
+      `Failed to get file change info: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
 export async function syncWithMain(repoPath: string, baseBranch?: string): Promise<GitSyncResult> {
   try {
     // Check current sync status

@@ -162,6 +162,10 @@ export const FileListResponseSchema = z.object({
 export const FileContentResponseSchema = z.object({
   content: z.string(),
   encoding: z.string(),
+  oldContent: z.string().optional(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
+  isModified: z.boolean().optional(),
 })
 
 export const FileWriteResponseSchema = z.object({

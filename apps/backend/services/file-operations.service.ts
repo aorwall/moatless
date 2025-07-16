@@ -192,6 +192,46 @@ export class FileOperations {
   }
 
   /**
+   * Read a file from the workspace with change information
+   */
+  async readFileWithChanges(filePath: string): Promise<{
+    content: string
+    oldContent?: string
+    additions?: number
+    deletions?: number
+    isModified?: boolean
+  }> {
+    // First read the current content
+    const content = await this.readFile(filePath)
+
+    try {
+      // Get the file change information
+      const { getFileChangeInfo } = await import('../utils/git-utils.js')
+      const changeInfo = await getFileChangeInfo(this.workspacePath, filePath, this.originalBranch)
+
+      // Only include change information if the file is actually modified
+      if (changeInfo.isModified) {
+        return {
+          content,
+          oldContent: changeInfo.oldContent || undefined,
+          additions: changeInfo.additions,
+          deletions: changeInfo.deletions,
+          isModified: changeInfo.isModified,
+        }
+      }
+    } catch (error) {
+      // If we can't get git info, just return the content without change info
+      this.logger.debug('Failed to get file change info', {
+        filePath,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    // Return just the content if no changes or error getting change info
+    return { content }
+  }
+
+  /**
    * Write a file to the workspace
    */
   async writeFile(filePath: string, content: string): Promise<void> {

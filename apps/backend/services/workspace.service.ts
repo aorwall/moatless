@@ -546,6 +546,23 @@ export class WorkspaceService {
     return workspace.readFile(filePath)
   }
 
+  async readFileWithChanges(
+    taskId: string,
+    filePath: string,
+  ): Promise<{
+    content: string
+    oldContent?: string
+    additions?: number
+    deletions?: number
+    isModified?: boolean
+  }> {
+    if (!(await this.canPerformFileOperations(taskId))) {
+      throw new WorkspaceError('Cannot read file: workspace not ready', taskId)
+    }
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    return workspace.readFileWithChanges(filePath)
+  }
+
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
     if (!(await this.canPerformFileOperations(taskId))) {
       throw new WorkspaceError('Cannot write file: workspace not ready', taskId)
