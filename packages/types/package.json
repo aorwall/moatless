@@ -58,11 +58,11 @@
     "biome:check": "biome check ."
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^1.0.33",
-    "zod": "^3.25.61"
+    "@anthropic-ai/claude-code": "^1.0.53",
+    "zod": "^4.0.5"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
 }
