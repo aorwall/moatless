@@ -7,7 +7,7 @@ import { TaskCard } from '../task-card'
 // Mock the event stream provider
 const mockUseTaskEventSubscription = vi.fn()
 vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
-  useTaskEventSubscription: () => mockUseTaskEventSubscription(),
+  useTaskEventSubscription: mockUseTaskEventSubscription,
 }))
 
 // Mock the hooks

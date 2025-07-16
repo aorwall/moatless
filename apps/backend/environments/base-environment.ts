@@ -1,4 +1,5 @@
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { EventService } from '../services/index.js'
 
 export abstract class BaseEnvironment {
@@ -7,6 +8,11 @@ export abstract class BaseEnvironment {
     protected readonly repositoryConfig: RepositoryConfig,
     protected readonly eventService: EventService,
   ) {}
+
+  /**
+   * Create an agent instance for execution
+   */
+  abstract createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent>
 
   /**
    * Stop the running agent for this workspace

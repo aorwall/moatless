@@ -133,6 +133,18 @@ export const FileTreeWithChangesResponseSchema = z.object({
 })
 
 // ============================================
+// Workspace Setup Schemas
+// ============================================
+
+export const WorkspaceSetupRequestSchema = z.object({})
+
+export const WorkspaceSetupResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  status: WorkspaceStatusSchema,
+})
+
+// ============================================
 // Derived Types
 // ============================================
 
@@ -150,6 +162,8 @@ export type WorkspaceCapabilities = z.infer<typeof WorkspaceCapabilitiesSchema>
 export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>
 export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
+export type WorkspaceSetupRequest = z.infer<typeof WorkspaceSetupRequestSchema>
+export type WorkspaceSetupResponse = z.infer<typeof WorkspaceSetupResponseSchema>
 
 // ============================================
 // Workspace Status Response Schema

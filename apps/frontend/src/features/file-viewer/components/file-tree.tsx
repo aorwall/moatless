@@ -1,6 +1,16 @@
 import type { FileTreeNode as FileTreeNodeType } from '@moatless/types'
-import { ChevronRight, File, FileCheck, FilePlus, FileX, Folder, GitBranch } from 'lucide-react'
-import { useState } from 'react'
+import {
+  ChevronRight,
+  File,
+  FileCheck,
+  FilePlus,
+  FileX,
+  Filter,
+  Folder,
+  GitBranch,
+} from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Button } from '@/lib/components/ui/button'
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,12 +28,37 @@ interface FileTreeProps {
 
 export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [showOnlyChanged, setShowOnlyChanged] = useState(false)
   const { data, isLoading, error } = useFileTreeWithChanges({ taskId })
 
   const handleFileSelect = (path: string) => {
     setSelectedPath(path)
     onFileSelect(path)
   }
+
+  // Filter tree to show only changed files when toggle is on
+  const filteredTree = useMemo(() => {
+    if (!data?.tree || !showOnlyChanged) return data?.tree || []
+
+    const filterChangedNodes = (nodes: FileTreeNodeType[]): FileTreeNodeType[] => {
+      return nodes.reduce((acc: FileTreeNodeType[], node) => {
+        if (node.type === 'file' && node.isChanged) {
+          acc.push(node)
+        } else if (node.type === 'directory' && node.children) {
+          const filteredChildren = filterChangedNodes(node.children)
+          if (filteredChildren.length > 0) {
+            acc.push({
+              ...node,
+              children: filteredChildren,
+            })
+          }
+        }
+        return acc
+      }, [])
+    }
+
+    return filterChangedNodes(data.tree)
+  }, [data?.tree, showOnlyChanged])
 
   if (error) {
     return <ErrorAlert error={error} />
@@ -41,30 +76,54 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
 
   return (
     <div className="h-full w-full flex flex-col">
-      <div className="p-3 border-b flex-shrink-0">
+      <div className="p-3 border-b flex-shrink-0 space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">Files</h3>
           {hasChanges && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <GitBranch className="h-3 w-3" />
-              <span>
-                {data.gitSummary.totalFiles} changed
-                {data.gitSummary.totalStaged > 0 && ` (${data.gitSummary.totalStaged} staged)`}
-              </span>
-            </div>
+            <Button
+              variant={showOnlyChanged ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setShowOnlyChanged(!showOnlyChanged)}
+              aria-label="Toggle changed files only"
+            >
+              <Filter className="h-3 w-3 mr-1" />
+              Changed only
+            </Button>
           )}
         </div>
+        {hasChanges && (
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-1.5">
+              <GitBranch className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">{data.gitSummary.totalFiles} files</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-status-success">+{data.gitSummary.totalAdditions}</span>
+              <span className="text-status-error">−{data.gitSummary.totalDeletions}</span>
+            </div>
+            {data.gitSummary.totalStaged > 0 && (
+              <span className="text-muted-foreground">({data.gitSummary.totalStaged} staged)</span>
+            )}
+          </div>
+        )}
       </div>
       <div className="flex-1 overflow-auto">
         <div className="min-w-max">
-          {data.tree.map((item) => (
-            <TreeNode
-              key={item.path}
-              item={item}
-              selectedPath={selectedPath}
-              onFileSelect={handleFileSelect}
-            />
-          ))}
+          {filteredTree.length === 0 && showOnlyChanged ? (
+            <div className="p-4 text-sm text-muted-foreground text-center">
+              No changed files to display
+            </div>
+          ) : (
+            filteredTree.map((item: FileTreeNodeType) => (
+              <TreeNode
+                key={item.path}
+                item={{ ...item, level: 0 }}
+                selectedPath={selectedPath}
+                onFileSelect={handleFileSelect}
+              />
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -76,7 +135,7 @@ function TreeNode({
   selectedPath,
   onFileSelect,
 }: {
-  item: FileTreeNodeType
+  item: FileTreeNodeType & { level?: number }
   selectedPath: string | null
   onFileSelect: (path: string) => void
 }) {
@@ -106,9 +165,10 @@ function TreeNode({
           </span>
         )}
         {item.additions !== undefined && item.deletions !== undefined && (
-          <span className="text-xs text-muted-foreground">
-            +{item.additions} -{item.deletions}
-          </span>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-status-success">+{item.additions}</span>
+            <span className="text-status-error">−{item.deletions}</span>
+          </div>
         )}
       </div>
     )
@@ -121,14 +181,17 @@ function TreeNode({
           type="button"
           onClick={() => onFileSelect(item.path)}
           className={cn(
-            'w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap',
+            'w-full flex items-center justify-between gap-2 px-2 py-1 text-sm rounded-sm hover:bg-accent transition-colors whitespace-nowrap',
             selectedPath === item.path && 'bg-accent',
-            item.isChanged && 'font-medium',
           )}
+          style={{ paddingLeft: `${(item.level || 0) * 12 + 8}px` }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <div className="w-4" />
             {getFileIcon()}
-            <span className="text-left">{item.name}</span>
+            <span className={cn('text-left text-foreground', item.isChanged && 'font-medium')}>
+              {item.name}
+            </span>
           </div>
           {getStatusBadge()}
         </button>
@@ -148,19 +211,22 @@ function TreeNode({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors whitespace-nowrap"
+            className="w-full flex items-center gap-1 px-2 py-1 text-sm rounded-sm hover:bg-accent transition-colors whitespace-nowrap"
+            style={{ paddingLeft: `${(item.level || 0) * 12 + 8}px` }}
           >
             <ChevronRight className="h-4 w-4 flex-shrink-0 transition-transform data-[state=open]:rotate-90" />
             {folderIcon}
-            <span className={cn('text-left', item.isChanged && 'font-medium')}>{item.name}</span>
+            <span className={cn('text-left text-foreground', item.isChanged && 'font-medium')}>
+              {item.name}
+            </span>
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="pl-4">
+          <div>
             {item.children?.map((subItem: FileTreeNodeType) => (
               <TreeNode
                 key={subItem.path}
-                item={subItem}
+                item={{ ...subItem, level: (item.level || 0) + 1 }}
                 selectedPath={selectedPath}
                 onFileSelect={onFileSelect}
               />

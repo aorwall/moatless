@@ -1,7 +1,11 @@
 import type { FileTreeNode } from '@moatless/types'
 import React from 'react'
 import type { FileData } from 'react-diff-view'
-import { buildTreeStructure, FileTreeItem } from '@/features/file-viewer'
+import {
+  buildTreeStructure,
+  FileTreeItem,
+  type FileTreeNode as LocalFileTreeNode,
+} from '@/features/file-viewer'
 import { useGitDiffState } from '@/features/tasks/contexts/task-ui-provider'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 
@@ -27,7 +31,7 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
   const localTree = buildTreeStructure(filePaths)
 
   // Convert local FileTreeNode to @moatless/types FileTreeNode by adding isChanged
-  const addIsChanged = (nodes: any[]): FileTreeNode[] => {
+  const addIsChanged = (nodes: LocalFileTreeNode[]): FileTreeNode[] => {
     return nodes.map((node) => ({
       name: node.name,
       path: node.path,
@@ -37,7 +41,7 @@ export function GitDiffFileTree({ files, onFileSelect, selectedFileKey }: GitDif
     }))
   }
 
-  const tree = addIsChanged(localTree as any[])
+  const tree = addIsChanged(localTree)
 
   // Create a map for quick lookup of file keys by path
   const fileKeyMap = new Map<string, string>()

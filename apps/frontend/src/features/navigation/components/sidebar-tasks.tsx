@@ -7,10 +7,7 @@ import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import {
-  formatGitSyncDetails,
-  getGitSyncStatusConfig,
-} from '@/features/tasks/utils/git-sync-status'
+import { formatGitSyncDetails } from '@/features/tasks/utils/git-sync-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -51,10 +48,9 @@ function getRelativeTime(date: Date | string): string {
 function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
   const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
 
-  // Get git sync status from the last iteration for tooltip
+  // Get git status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
-  const gitSyncStatus = task.status === 'open' ? lastIteration?.gitSyncStatus : null
-  const gitSyncConfig = gitSyncStatus ? getGitSyncStatusConfig(gitSyncStatus.status) : null
+  const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
 
   return (
     <SidebarMenuItem>
@@ -71,20 +67,12 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="text-xs">
-                      {task.status === 'open' && gitSyncConfig ? (
-                        <div>
-                          <p className="font-medium">{gitSyncConfig.tooltip}</p>
-                          {gitSyncStatus && (
-                            <p className="text-muted-foreground">
-                              {formatGitSyncDetails(gitSyncStatus)}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="font-medium">{task.status}</p>
-                        </div>
-                      )}
+                      <div>
+                        <p className="font-medium">{task.status}</p>
+                        {gitStatus && (
+                          <p className="text-muted-foreground">{formatGitSyncDetails(gitStatus)}</p>
+                        )}
+                      </div>
                     </TooltipContent>
                   </Tooltip>
                 </div>
