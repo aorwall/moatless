@@ -55,7 +55,7 @@
     "test:coverage": "turbo run test:coverage",
     "type:check": "turbo run type:check",
     "biome:check": "biome check",
-    "biome:fix": "biome check --write",
+    "biome:fix": "biome check --write --diagnostic-level=error",
     "check:turbo": "turbo run biome:check type:check test:fast",
     "post-edit-hook": "(pnpm biome:fix || true) && pnpm type:check",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
