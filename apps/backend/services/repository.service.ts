@@ -14,9 +14,17 @@ import {
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
+import type { WorkspaceService } from './workspace.service.js'
 
 export class RepositoryService {
+  private workspaceService?: WorkspaceService
+
   constructor(private storage: StorageBackend) {}
+
+  // Setter for WorkspaceService to avoid circular dependency
+  setWorkspaceService(workspaceService: WorkspaceService): void {
+    this.workspaceService = workspaceService
+  }
 
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
     // Validate repository configuration
@@ -470,65 +478,93 @@ export class RepositoryService {
       throw new RepositoryNotFoundError(repoId)
     }
 
+    if (!this.workspaceService) {
+      throw new Error('WorkspaceService not available for verification')
+    }
+
     const fakeTaskId = `verify-${Date.now()}`
-    let workspacePath: string | undefined
+    let workspace: any = null
     let workspaceSetupSuccess = false
     let workspaceSetupMessage = ''
     let environmentStatus = 'error'
     let environmentError: string | undefined
+    const setupCommands: Array<{
+      command: string
+      success: boolean
+      exit_code: number
+      output?: string
+      error?: string
+    }> = []
 
     try {
-      // Test workspace creation
-      if (repository.useGitWorktrees) {
-        const worktreeDir = this.getWorktreeDir(repository)
-        workspacePath = path.join(worktreeDir, `${path.basename(repository.path)}-${fakeTaskId}`)
+      // Create actual workspace with environment
+      try {
+        workspace = await this.workspaceService.createWorkspace(fakeTaskId, repoId)
+        workspaceSetupSuccess = true
+        workspaceSetupMessage = 'Workspace and environment created successfully'
+        environmentStatus = 'ready'
+      } catch (error) {
+        workspaceSetupMessage = `Workspace creation failed: ${error instanceof Error ? error.message : String(error)}`
+        environmentError = error instanceof Error ? error.message : String(error)
 
-        // Check if we can create a worktree
-        try {
-          await this.validateRepository(repository)
-          workspaceSetupSuccess = true
-          workspaceSetupMessage = 'Repository path is valid and accessible'
-        } catch (error) {
-          workspaceSetupMessage = `Repository validation failed: ${error instanceof Error ? error.message : String(error)}`
-        }
-      } else {
-        // For non-worktree setup, just validate the repository path
-        try {
-          await this.validateRepository(repository)
-          workspacePath = repository.path
-          workspaceSetupSuccess = true
-          workspaceSetupMessage = 'Repository path is valid and accessible'
-        } catch (error) {
-          workspaceSetupMessage = `Repository validation failed: ${error instanceof Error ? error.message : String(error)}`
-        }
-      }
-
-      // Test environment readiness
-      if (workspaceSetupSuccess) {
-        if (repository.codeExecution.type === 'docker') {
-          environmentStatus = 'ready'
-          environmentError = 'Docker environment verification not implemented'
-        } else {
-          environmentStatus = 'ready'
+        return {
+          success: false,
+          workspaceSetup: {
+            success: false,
+            message: workspaceSetupMessage,
+          },
+          setupCommands: {
+            success: false,
+            commands: [],
+          },
+          environment: {
+            type: repository.codeExecution.type,
+            status: 'error',
+            error: environmentError,
+          },
         }
       }
 
-      // Run setup commands test
-      const setupResult = await this.runSetupScript(repository)
+      // Test setup commands using the actual environment
+      if (workspace && repository.codeExecution.setupCommands?.length) {
+        try {
+          for (const command of repository.codeExecution.setupCommands) {
+            try {
+              const result = await workspace.environment.runCommand(command, 30000)
+              setupCommands.push({
+                command,
+                success: result.exitCode === 0,
+                exit_code: result.exitCode,
+                output: result.output,
+                error: result.exitCode !== 0 ? result.output : undefined,
+              })
+            } catch (error) {
+              setupCommands.push({
+                command,
+                success: false,
+                exit_code: 1,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
+          }
+        } catch (error) {
+          logger.error('Error running setup commands', error as Error, { taskId: fakeTaskId })
+        }
+      }
 
-      const overallSuccess =
-        workspaceSetupSuccess && setupResult.success && environmentStatus === 'ready'
+      const setupSuccess = setupCommands.length === 0 || setupCommands.every((cmd) => cmd.success)
+      const overallSuccess = workspaceSetupSuccess && setupSuccess && environmentStatus === 'ready'
 
       return {
         success: overallSuccess,
         workspaceSetup: {
           success: workspaceSetupSuccess,
           message: workspaceSetupMessage,
-          workspacePath,
+          workspacePath: workspace?.workspacePath,
         },
         setupCommands: {
-          success: setupResult.success,
-          commands: setupResult.commands,
+          success: setupSuccess,
+          commands: setupCommands,
         },
         environment: {
           type: repository.codeExecution.type,
@@ -542,11 +578,10 @@ export class RepositoryService {
         workspaceSetup: {
           success: false,
           message: `Verification failed: ${error instanceof Error ? error.message : String(error)}`,
-          workspacePath,
         },
         setupCommands: {
           success: false,
-          commands: [],
+          commands: setupCommands,
         },
         environment: {
           type: repository.codeExecution.type,
@@ -554,18 +589,18 @@ export class RepositoryService {
           error: error instanceof Error ? error.message : String(error),
         },
       }
+    } finally {
+      // Clean up the verification workspace
+      if (workspace) {
+        try {
+          await this.workspaceService.cleanupWorkspace(fakeTaskId)
+        } catch (error) {
+          logger.warn('Failed to clean up verification workspace', {
+            taskId: fakeTaskId,
+          })
+        }
+      }
     }
-  }
-
-  private getWorktreeDir(repo: RepositoryConfig): string {
-    // Check for environment variable first
-    const worktreeDir = process.env.WORKTREE_DIR
-    if (worktreeDir) {
-      return worktreeDir
-    }
-
-    // Default to "../" relative to repo path
-    return path.join(repo.path, '..')
   }
 }
 

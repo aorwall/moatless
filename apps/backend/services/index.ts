@@ -38,6 +38,9 @@ export async function setupServices(): Promise<Services> {
   // Set preview environment service on workspace service
   workspace.setPreviewEnvironmentService(previewEnvironment)
 
+  // Set workspace service on repository service for verification
+  repository.setWorkspaceService(workspace)
+
   const agent = createAgentService(storage, event, workspace)
   const task = createTaskService(storage, event, workspace, agent, command, repository)
 
