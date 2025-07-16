@@ -2,12 +2,12 @@ import type { Event, Task } from '@moatless/types'
 import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import * as globalEventStreamModule from '@/features/events/contexts/global-event-stream-provider'
 import { TaskCard } from '../task-card'
 
 // Mock the event stream provider
+const mockUseTaskEventSubscription = vi.fn()
 vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
-  useTaskEventSubscription: vi.fn(),
+  useTaskEventSubscription: mockUseTaskEventSubscription,
 }))
 
 // Mock the hooks
@@ -19,7 +19,9 @@ vi.mock('@/features/tasks/hooks/use-tasks', () => ({
         taskId: 'task-123',
         type: EventType.MESSAGE,
         payload: { type: 'assistant', content: 'Initial message' },
-        createdAt: new Date().toISOString(),
+        agentType: 'test-agent',
+        isError: false,
+        timestamp: new Date(),
       },
     ],
     isLoading: false,
@@ -49,17 +51,17 @@ describe('TaskCard Real-time Updates', () => {
     repositoryId: 'repo-123',
     agentType: 'test-agent',
     status: 'running',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    lastMessageAt: new Date().toISOString(),
+    createdAt: new Date(),
+    lastMessageAt: new Date(),
+    numTurns: 0,
+    totalCostUsd: 0,
     iterations: [
       {
-        iterationId: 'iter-1',
-        taskId: 'task-123',
         iterationNumber: 1,
-        initialMessage: 'Test task',
-        startTime: new Date().toISOString(),
-        status: 'running',
+        startTime: new Date(),
+        status: 'active',
+        messageCount: 0,
+        costUsd: 0,
       },
     ],
   }
@@ -68,8 +70,8 @@ describe('TaskCard Real-time Updates', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
     // Capture the event handler when subscribed
-    vi.mocked(globalEventStreamModule.useTaskEventSubscription).mockImplementation(
-      (taskId, handler) => {
+    mockUseTaskEventSubscription.mockImplementation(
+      (_taskId: string, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -86,12 +88,13 @@ describe('TaskCard Real-time Updates', () => {
       taskId: 'task-123',
       type: EventType.MESSAGE,
       payload: { type: 'assistant', content: 'Real-time message' },
-      createdAt: new Date().toISOString(),
+      agentType: 'test-agent',
+      isError: false,
+      timestamp: new Date(),
     }
 
-    if (eventHandler) {
-      eventHandler(newEvent)
-    }
+    // Call the event handler (we know it's set by the mock)
+    eventHandler!(newEvent)
 
     // Force re-render to see the updated state
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
@@ -106,8 +109,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should only show last 3 events', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    vi.mocked(globalEventStreamModule.useTaskEventSubscription).mockImplementation(
-      (taskId, handler) => {
+    mockUseTaskEventSubscription.mockImplementation(
+      (_taskId: string, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -120,13 +123,14 @@ describe('TaskCard Real-time Updates', () => {
       taskId: 'task-123',
       type: EventType.MESSAGE,
       payload: { type: 'assistant', content: `Message ${i + 1}` },
-      createdAt: new Date().toISOString(),
+      agentType: 'test-agent',
+      isError: false,
+      timestamp: new Date(),
     }))
 
     newEvents.forEach((event) => {
-      if (eventHandler) {
-        eventHandler(event)
-      }
+      // Call the event handler (we know it's set by the mock)
+      eventHandler!(event)
     })
 
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
@@ -145,8 +149,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should clear real-time events when task stops running', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    vi.mocked(globalEventStreamModule.useTaskEventSubscription).mockImplementation(
-      (taskId, handler) => {
+    mockUseTaskEventSubscription.mockImplementation(
+      (_taskId: string, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -159,18 +163,19 @@ describe('TaskCard Real-time Updates', () => {
       taskId: 'task-123',
       type: EventType.MESSAGE,
       payload: { type: 'assistant', content: 'Real-time message' },
-      createdAt: new Date().toISOString(),
+      agentType: 'test-agent',
+      isError: false,
+      timestamp: new Date(),
     }
 
-    if (eventHandler) {
-      eventHandler(newEvent)
-    }
+    // Call the event handler (we know it's set by the mock)
+    eventHandler!(newEvent)
 
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
     expect(screen.getAllByTestId('event-item')).toHaveLength(2)
 
-    // Change task status to completed
-    const completedTask = { ...mockTask, status: 'completed' as const }
+    // Change task status to closed
+    const completedTask = { ...mockTask, status: 'closed' as const }
     rerender(<TaskCard task={completedTask} repositoryName="Test Repo" />)
 
     // Should not show events anymore (task is not running)
@@ -180,8 +185,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should not add duplicate events', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    vi.mocked(globalEventStreamModule.useTaskEventSubscription).mockImplementation(
-      (taskId, handler) => {
+    mockUseTaskEventSubscription.mockImplementation(
+      (_taskId: string, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -194,13 +199,14 @@ describe('TaskCard Real-time Updates', () => {
       taskId: 'task-123',
       type: EventType.MESSAGE,
       payload: { type: 'assistant', content: 'Duplicate message' },
-      createdAt: new Date().toISOString(),
+      agentType: 'test-agent',
+      isError: false,
+      timestamp: new Date(),
     }
 
-    if (eventHandler) {
-      eventHandler(duplicateEvent)
-      eventHandler(duplicateEvent) // Send again
-    }
+    // Call the event handler twice with the same event (we know it's set by the mock)
+    eventHandler!(duplicateEvent)
+    eventHandler!(duplicateEvent) // Send again
 
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
 
