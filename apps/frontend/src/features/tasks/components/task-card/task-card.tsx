@@ -1,6 +1,7 @@
 import type { Event, MessageEvent, Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
@@ -55,7 +56,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]
 
-  // Get events for running tasks
+  // Get initial events for running tasks
   const { data: eventsData } = useTaskEvents(task.taskId, undefined, {
     enabled: task.status === 'running',
     refetchInterval: false, // Real-time updates handled by global event stream
@@ -64,11 +65,42 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // State for live duration updates
   const [runningDuration, setRunningDuration] = useState<string>('')
 
+  // State for real-time events
+  const [realtimeEvents, setRealtimeEvents] = useState<Event[]>([])
+
+  // Subscribe to real-time events for this task
+  const handleNewEvent = useCallback(
+    (event: Event) => {
+      if (task.status === 'running' && isMessageOrToolEvent(event)) {
+        setRealtimeEvents((prev) => [...prev, event])
+      }
+    },
+    [task.status],
+  )
+
+  useTaskEventSubscription(task.taskId, handleNewEvent)
+
+  // Combine initial events with real-time events
+  const allEvents = useMemo(() => {
+    const events = [...(eventsData || []), ...realtimeEvents]
+    // Remove duplicates based on eventId
+    const uniqueEvents = events.filter(
+      (event, index, self) => index === self.findIndex((e) => e.eventId === event.eventId),
+    )
+    return uniqueEvents
+  }, [eventsData, realtimeEvents])
+
   // Filter events to show only last 3 message/tool events
   const displayedEvents = useMemo(() => {
-    if (!eventsData) return []
-    return eventsData.filter(isMessageOrToolEvent).slice(-3)
-  }, [eventsData])
+    return allEvents.filter(isMessageOrToolEvent).slice(-3)
+  }, [allEvents])
+
+  // Reset realtime events when task status changes
+  useEffect(() => {
+    if (task.status !== 'running') {
+      setRealtimeEvents([])
+    }
+  }, [task.status])
 
   // Update running duration every second for running tasks
   useEffect(() => {
