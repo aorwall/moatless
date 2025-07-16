@@ -1,9 +1,10 @@
+import type { WorkspaceSetupResponse } from '@moatless/types'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseWorkspaceSetupOptions {
-  onSuccess?: (data: any) => void
+  onSuccess?: (data: WorkspaceSetupResponse) => void
   onError?: (error: Error) => void
 }
 

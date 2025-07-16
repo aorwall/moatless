@@ -1,12 +1,21 @@
 import type { FileTreeNode as FileTreeNodeType } from '@moatless/types'
-import { ChevronRight, File, FileCheck, FilePlus, FileX, Filter, Folder, GitBranch } from 'lucide-react'
+import {
+  ChevronRight,
+  File,
+  FileCheck,
+  FilePlus,
+  FileX,
+  Filter,
+  Folder,
+  GitBranch,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { Button } from '@/lib/components/ui/button'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible'
-import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { cn } from '@/lib/utils'
 import { useFileTreeWithChanges } from '../api/use-file-tree-with-changes'
@@ -72,7 +81,7 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
           <h3 className="text-sm font-medium">Files</h3>
           {hasChanges && (
             <Button
-              variant={showOnlyChanged ? "default" : "outline"}
+              variant={showOnlyChanged ? 'default' : 'outline'}
               size="sm"
               className="h-7 px-2"
               onClick={() => setShowOnlyChanged(!showOnlyChanged)}
