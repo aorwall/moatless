@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { FileSearchResponse, SetupScriptResponse } from '@moatless/types'
+import type { FileSearchResponse, SetupScriptResponse, VerificationResponse } from '@moatless/types'
 import {
   type CreateRepositoryRequest,
   FRAMEWORK_DEFAULT_COMMANDS,
@@ -450,29 +450,7 @@ export class RepositoryService {
   /**
    * Verify repository setup by creating a temporary workspace and running setup commands
    */
-  async verifyRepositorySetup(repoId: string): Promise<{
-    success: boolean
-    workspaceSetup: {
-      success: boolean
-      message: string
-      workspacePath?: string
-    }
-    setupCommands: {
-      success: boolean
-      commands: Array<{
-        command: string
-        success: boolean
-        exit_code: number
-        output?: string
-        error?: string
-      }>
-    }
-    environment: {
-      type: 'local' | 'docker'
-      status: string
-      error?: string
-    }
-  }> {
+  async verifyRepositorySetup(repoId: string): Promise<VerificationResponse> {
     const repository = await this.getRepositoryById(repoId)
     if (!repository) {
       throw new RepositoryNotFoundError(repoId)
@@ -500,12 +478,37 @@ export class RepositoryService {
       // Create actual workspace with environment
       try {
         workspace = await this.workspaceService.createWorkspace(fakeTaskId, repoId)
+
+        // Check actual workspace status after creation
+        const workspaceStatus = workspace.status
+        const environmentStatusFromWorkspace = workspace.environment.getStatus()
+
+        if (workspaceStatus === 'error' || environmentStatusFromWorkspace === 'error') {
+          const error = workspace.error || workspace.environment.getError()
+          throw new Error(
+            `Workspace or environment failed to initialize: ${error || 'Unknown error'}`,
+          )
+        }
+
         workspaceSetupSuccess = true
-        workspaceSetupMessage = 'Workspace and environment created successfully'
-        environmentStatus = 'ready'
+        workspaceSetupMessage = `Workspace created successfully with status: ${workspaceStatus}, environment status: ${environmentStatusFromWorkspace}`
+        environmentStatus =
+          environmentStatusFromWorkspace === 'ready' ? 'ready' : environmentStatusFromWorkspace
+
+        logger.info('Workspace verification created successfully', {
+          taskId: fakeTaskId,
+          workspaceStatus,
+          environmentStatus: environmentStatusFromWorkspace,
+          workspacePath: workspace.getWorkspacePath(),
+        })
       } catch (error) {
         workspaceSetupMessage = `Workspace creation failed: ${error instanceof Error ? error.message : String(error)}`
         environmentError = error instanceof Error ? error.message : String(error)
+
+        logger.error('Workspace verification creation failed', error as Error, {
+          taskId: fakeTaskId,
+          repositoryId: repoId,
+        })
 
         return {
           success: false,
@@ -527,6 +530,11 @@ export class RepositoryService {
 
       // Test setup commands using the actual environment
       if (workspace && repository.codeExecution.setupCommands?.length) {
+        logger.info('Running setup commands for verification', {
+          taskId: fakeTaskId,
+          commandCount: repository.codeExecution.setupCommands.length,
+          commands: repository.codeExecution.setupCommands,
+        })
         try {
           for (const command of repository.codeExecution.setupCommands) {
             try {
@@ -550,6 +558,14 @@ export class RepositoryService {
         } catch (error) {
           logger.error('Error running setup commands', error as Error, { taskId: fakeTaskId })
         }
+      } else if (workspace) {
+        logger.info('No setup commands configured for repository', {
+          taskId: fakeTaskId,
+          repositoryId: repoId,
+          hasCodeExecution: !!repository.codeExecution,
+          hasSetupCommands: !!repository.codeExecution.setupCommands,
+          setupCommandsLength: repository.codeExecution.setupCommands?.length || 0,
+        })
       }
 
       const setupSuccess = setupCommands.length === 0 || setupCommands.every((cmd) => cmd.success)
