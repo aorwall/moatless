@@ -55,15 +55,14 @@
     "test:coverage": "turbo run test:coverage",
     "type:check": "turbo run type:check",
     "biome:check": "biome check",
-    "biome:fix": "cd apps/frontend && biome check --write && cd ../backend && biome check --write && cd ../../packages/types && biome check --write",
-    "format": "biome check --write",
+    "biome:fix": "biome check --write",
     "check:turbo": "turbo run biome:check type:check test:fast",
     "post-edit-hook": "(pnpm biome:fix || true) && pnpm type:check",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.0.0-beta.6",
+    "@biomejs/biome": "2.0.4",
     "@commitlint/cli": "^19.7.2",
     "@commitlint/config-conventional": "^19.7.2",
     "@playwright/test": "^1.48.2",

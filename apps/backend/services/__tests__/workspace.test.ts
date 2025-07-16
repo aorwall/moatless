@@ -205,7 +205,6 @@ describe('WorkspaceService', () => {
       expect(workspacePath).toBe(tempDir)
 
       // Clear active workspaces to simulate restart
-
       ;(service as unknown as { activeWorkspaces: Map<string, unknown> }).activeWorkspaces.clear()
 
       // Second creation should use saved path

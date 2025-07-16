@@ -16,7 +16,8 @@
     "test:memory-heavy": "NODE_OPTIONS='--max-old-space-size=16384' vitest run '**/markdown-preview.unit.test.tsx' '**/preview-integration.test.tsx'",
     "test:all": "pnpm run test:unit && pnpm run test:integration && pnpm run test:memory-heavy",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage run"
+    "test:coverage": "vitest --coverage run",
+    "biome:check": "biome check ."
   },
   "dependencies": {
     "@git-diff-view/react": "^0.0.28",

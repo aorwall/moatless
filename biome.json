@@ -9,30 +9,11 @@
   "files": {
     "ignoreUnknown": false,
     "includes": [
-      "apps/**/src/**/*",
-      "apps/**/routes/**/*",
-      "apps/**/services/**/*",
-      "apps/**/utils/**/*",
-      "apps/**/agents/**/*",
-      "apps/**/environments/**/*",
-      "apps/**/workspaces/**/*",
-      "apps/**/middleware/**/*",
-      "apps/**/templates/**/*",
-      "apps/**/test/**/*",
-      "apps/**/*.ts",
-      "apps/**/*.tsx",
-      "apps/**/*.js",
-      "apps/**/*.json",
-      "!apps/**/dist/**/*",
-      "!apps/**/coverage/**/*",
-      "packages/**/src/**/*",
-      "packages/**/*.ts",
-      "packages/**/*.js",
-      "packages/**/*.json",
-      "!packages/**/dist/**/*",
-      "bin/**/*",
-      ".lintstagedrc.json",
-      "docs/**/*"
+      "apps/frontend/src/**",
+      "apps/backend/**/*.ts",
+      "apps/backend/**/*.js",
+      "!apps/backend/dist/**",
+      "packages/*/src/**"
     ]
   },
   "formatter": {
@@ -114,16 +95,6 @@
         "rules": {
           "suspicious": {
             "noExplicitAny": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["apps/backend/routes/**/*"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noExplicitAny": "warn"
           }
         }
       }

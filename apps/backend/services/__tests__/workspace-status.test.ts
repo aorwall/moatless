@@ -167,7 +167,6 @@ describe('WorkspaceService Status Management', () => {
       await workspaceService.getOrCreateWorkspace(taskId)
 
       // Override the workspace with our mock
-
       ;(
         workspaceService as unknown as { activeWorkspaces: Map<string, unknown> }
       ).activeWorkspaces.set(taskId, mockWorkspace)

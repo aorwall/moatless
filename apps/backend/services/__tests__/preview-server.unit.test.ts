@@ -173,7 +173,6 @@ describe('PreviewServer - Unit Tests', () => {
       expect(previewServer.getPort()).toBe(3000)
 
       // Reset port (happens during stop)
-
       ;(previewServer as any).port = undefined
       expect(previewServer.getPort()).toBeUndefined()
     })
