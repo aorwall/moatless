@@ -90,7 +90,10 @@ describe('FileTree with Git Changes - Integration Tests', () => {
 
     // Check header with git summary
     expect(screen.getByText('Files')).toBeInTheDocument()
-    expect(screen.getByText('3 changed (1 staged)')).toBeInTheDocument()
+    expect(screen.getByText('3 files')).toBeInTheDocument()
+    expect(screen.getByText('+15')).toBeInTheDocument()
+    expect(screen.getByText('−17')).toBeInTheDocument()
+    expect(screen.getByText('(1 staged)')).toBeInTheDocument()
 
     // Check directory is expanded (because it contains changes)
     expect(screen.getByText('src')).toBeInTheDocument()
@@ -156,9 +159,12 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     })
 
     // Check for addition/deletion counts
-    expect(screen.getByText('+5 -2')).toBeInTheDocument() // modified file
-    expect(screen.getByText('+10 -0')).toBeInTheDocument() // added file
-    expect(screen.getByText('+0 -15')).toBeInTheDocument() // deleted file
+    expect(screen.getByText('+5')).toBeInTheDocument() // modified file additions
+    expect(screen.getByText('−2')).toBeInTheDocument() // modified file deletions
+    expect(screen.getByText('+10')).toBeInTheDocument() // added file additions
+    expect(screen.getByText('−0')).toBeInTheDocument() // added file deletions
+    expect(screen.getByText('+0')).toBeInTheDocument() // deleted file additions
+    expect(screen.getByText('−15')).toBeInTheDocument() // deleted file deletions
   })
 
   it('should handle file selection', async () => {
@@ -197,11 +203,17 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     // Directory should be expanded initially (because it contains changes)
     expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
 
-    // Click to collapse
-    const srcDir = screen.getByText('src')
-    await user.click(srcDir)
+    // Find the chevron button (the collapsible trigger)
+    const srcDirButton = screen.getByRole('button', { name: /src/i })
+    await user.click(srcDirButton)
 
-    // Files should still be visible since we're using defaultOpen
+    // Files should be hidden after collapse
+    expect(screen.queryByText('modified-file.ts')).not.toBeInTheDocument()
+
+    // Click again to expand
+    await user.click(srcDirButton)
+
+    // Files should be visible again
     expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
   })
 
@@ -381,5 +393,40 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     expect(screen.getByText('src')).toBeInTheDocument()
     expect(screen.getByText('components')).toBeInTheDocument()
     expect(screen.getByText('Button.tsx')).toBeInTheDocument()
+  })
+
+  it('should filter to show only changed files when toggle is pressed', async () => {
+    vi.mocked(useFileTreeWithChanges).mockReturnValue({
+      data: mockFileTreeResponse,
+      isLoading: false,
+      error: null,
+      isSuccess: true,
+    } as any)
+
+    const user = userEvent.setup()
+    render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
+      wrapper: createWrapper(),
+    })
+
+    // Initially all files should be visible
+    expect(screen.getByText('package.json')).toBeInTheDocument()
+    expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
+
+    // Click the filter button
+    const filterButton = screen.getByRole('button', { name: /toggle changed files only/i })
+    await user.click(filterButton)
+
+    // Only changed files should be visible
+    expect(screen.queryByText('package.json')).not.toBeInTheDocument()
+    expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
+    expect(screen.getByText('added-file.ts')).toBeInTheDocument()
+    expect(screen.getByText('deleted-file.ts')).toBeInTheDocument()
+
+    // Click again to show all files
+    await user.click(filterButton)
+
+    // All files should be visible again
+    expect(screen.getByText('package.json')).toBeInTheDocument()
+    expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
   })
 })

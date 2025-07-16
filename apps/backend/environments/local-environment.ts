@@ -2,7 +2,9 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
-import type { BaseAgent, EventService } from '../services/index.js'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
+import type { EventService } from '../services/index.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
@@ -264,6 +266,15 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     return this.previewServer.proxyRequest(request)
+  }
+
+  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+    this.logger.info('Creating agent', { agentType, taskId: this.taskId })
+
+    if (agentType === 'claude-code') {
+      return new ClaudeCodeAgent(this.taskId, options)
+    }
+    throw new Error(`Unknown agent type: ${agentType}`)
   }
 
   async stopAgent(): Promise<boolean> {
