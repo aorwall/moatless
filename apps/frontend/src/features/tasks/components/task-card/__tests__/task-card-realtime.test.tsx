@@ -5,10 +5,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { TaskCard } from '../task-card'
 
 // Mock the event stream provider
-const mockUseTaskEventSubscription = vi.fn()
-vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
-  useTaskEventSubscription: mockUseTaskEventSubscription,
-}))
+vi.mock('@/features/events/contexts/global-event-stream-provider')
+
+import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 
 // Mock the hooks
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
@@ -36,8 +35,8 @@ vi.mock('@/features/tasks/components/minified-event-viewer/minified-event-item',
   ),
 }))
 
-vi.mock('@/features/tasks/components/task-status-icon', () => ({
-  TaskStatusIcon: () => <div data-testid="status-icon">Running</div>,
+vi.mock('@/features/tasks/components/git-status-icon', () => ({
+  GitStatusIcon: () => <div data-testid="status-icon">Running</div>,
 }))
 
 // Mock router
@@ -70,8 +69,8 @@ describe('TaskCard Real-time Updates', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
     // Capture the event handler when subscribed
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -109,8 +108,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should only show last 3 events', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -149,8 +148,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should clear real-time events when task stops running', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -185,8 +184,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should not add duplicate events', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
