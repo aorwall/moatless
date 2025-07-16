@@ -73,9 +73,10 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      expect(keys).toHaveLength(2)
+      expect(keys).toHaveLength(3)
       expect(keys[0]('task-999')).toEqual(queryKeys.tasks.workspaceStatus('task-999'))
-      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.gitDiff('task-999'))
+      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.workspaceSetup('task-999'))
+      expect(keys[2]('task-999')).toEqual(queryKeys.tasks.gitDiff('task-999'))
     })
   })
 

@@ -7,6 +7,7 @@ import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspaceSetup } from '@/features/tasks/hooks/use-workspace-setup'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -20,7 +21,15 @@ import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function TaskHeader() {
-  const { taskId, status, agentType, repositoryId, iterations, workspaceGitStatus } = useTaskData()
+  const {
+    taskId,
+    status,
+    agentType,
+    repositoryId,
+    iterations,
+    workspaceGitStatus,
+    workspaceEnvironment,
+  } = useTaskData()
   const { data: repositories } = useRepositoriesList()
   const { rightPanelView, setRightPanelView } = usePanelView()
 
@@ -71,6 +80,20 @@ export function TaskHeader() {
     },
   })
 
+  const setupWorkspace = useWorkspaceSetup({
+    onSuccess: (data) => {
+      toast.success('Workspace setup completed', {
+        description: data.message,
+      })
+    },
+    onError: (error) => {
+      console.error('Failed to setup workspace:', error)
+      toast.error('Failed to setup workspace', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
+
   const handleMerge = () => {
     if (taskId && status) {
       if (!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0) {
@@ -98,6 +121,12 @@ export function TaskHeader() {
   const handleClose = () => {
     if (taskId) {
       closeTask.mutate()
+    }
+  }
+
+  const handleSetup = () => {
+    if (taskId) {
+      setupWorkspace.mutate({ taskId })
     }
   }
 
@@ -171,6 +200,39 @@ export function TaskHeader() {
               <Badge variant="outline" className="text-xs">
                 {contextTokens.toLocaleString()} tokens
               </Badge>
+            )}
+            {workspaceEnvironment && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant={workspaceEnvironment.status === 'ready' ? 'default' : 'secondary'}
+                      className={cn(
+                        'text-xs cursor-pointer',
+                        workspaceEnvironment.status === 'error' &&
+                          'bg-red-100 text-red-800 border-red-200',
+                        workspaceEnvironment.status === 'not_setup' &&
+                          'bg-yellow-100 text-yellow-800 border-yellow-200',
+                      )}
+                      onClick={
+                        workspaceEnvironment.status === 'not_setup' ? handleSetup : undefined
+                      }
+                    >
+                      {workspaceEnvironment.type} env: {workspaceEnvironment.status}
+                      {workspaceEnvironment.status === 'not_setup' && ' ▶'}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {workspaceEnvironment.status === 'not_setup' ? (
+                      <p>Click to setup workspace environment</p>
+                    ) : workspaceEnvironment.status === 'error' ? (
+                      <p>Environment error: {workspaceEnvironment.error || 'Unknown error'}</p>
+                    ) : (
+                      <p>Environment status: {workspaceEnvironment.status}</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
         </div>

@@ -13,6 +13,8 @@ import type {
   Task,
   TaskCommandsResponse,
   TaskListResponse,
+  WorkspaceSetupRequest,
+  WorkspaceSetupResponse,
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
@@ -103,6 +105,16 @@ export const tasksApi = {
 
   async getTaskWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     return await apiClient.get<WorkspaceStatusResponse>(`/api/v1/tasks/${taskId}/workspace-status`)
+  },
+
+  async setupWorkspace(
+    taskId: string,
+    request?: WorkspaceSetupRequest,
+  ): Promise<WorkspaceSetupResponse> {
+    return await apiClient.post<WorkspaceSetupResponse>(
+      `/api/v1/tasks/${taskId}/setup`,
+      request || {},
+    )
   },
 
   async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {

@@ -16,6 +16,7 @@ export const queryKeys = {
       [...queryKeys.tasks.detail(id), 'messages', filters] as const,
     gitDiff: (id: string) => [...queryKeys.tasks.detail(id), 'git-diff'] as const,
     workspaceStatus: (id: string) => [...queryKeys.tasks.detail(id), 'workspace'] as const,
+    workspaceSetup: (id: string) => [...queryKeys.tasks.detail(id), 'workspace-setup'] as const,
     serverStatus: (id: string) => [...queryKeys.tasks.detail(id), 'server'] as const,
     serverLogs: (id: string) => [...queryKeys.tasks.detail(id), 'server-logs'] as const,
     fileList: (id: string, path?: string, recursive?: boolean) =>
