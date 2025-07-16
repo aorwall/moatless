@@ -4,7 +4,6 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TaskCard } from '../task-card'
 
-// Mock the event stream provider
 const mockUseTaskEventSubscription = vi.fn()
 vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
   useTaskEventSubscription: mockUseTaskEventSubscription,
