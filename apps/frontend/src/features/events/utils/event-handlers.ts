@@ -10,7 +10,11 @@ export const EVENT_INVALIDATION_MAP = {
   [EventType.MESSAGE]: [queryKeys.tasks.messages], // Invalidate messages when new messages arrive
   [EventType.RESULT]: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Keep for iteration updates and git changes
   [EventType.ERROR]: [queryKeys.tasks.detail],
-  [EventType.WORKSPACE]: [queryKeys.tasks.workspaceStatus, queryKeys.tasks.gitDiff],
+  [EventType.WORKSPACE]: [
+    queryKeys.tasks.workspaceStatus,
+    queryKeys.tasks.workspaceSetup,
+    queryKeys.tasks.gitDiff,
+  ],
   [EventType.TASK_STATUS]: [queryKeys.tasks.detail], // Main task status invalidation
   // Deprecated/unused event types:
   // INPUT - removed, replaced with TASK_STATUS for status changes
