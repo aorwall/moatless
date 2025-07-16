@@ -25,3 +25,4 @@ This directory contains architectural patterns specifically written for LLMs (La
 ### API & Backend Patterns
 - [API Patterns and Best Practices](api-best-practices.md) - Schema-first API architecture and implementation patterns
 - [Schema Design Patterns](schema-design-patterns.md) - Zod schema design principles and anti-patterns
+- [Environment Delegation Pattern](environment-delegation.md) - Delegating operations to environment-specific implementations
