@@ -522,9 +522,9 @@ export class WorkspaceService {
 
     try {
       const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getStatus()
-      // Server can be managed when workspace is idle or running
-      return status === WorkspaceStatus.IDLE || status === WorkspaceStatus.RUNNING
+      const status = workspace.getEnvironment().getStatus()
+      // Server can be managed when workspace environment is not yet ready
+      return status === 'ready'
     } catch {
       return false
     }
