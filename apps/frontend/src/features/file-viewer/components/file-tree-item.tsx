@@ -98,9 +98,10 @@ export function FileTreeItem({
             </span>
           )}
           {node.additions !== undefined && node.deletions !== undefined && (
-            <span className="text-xs text-muted-foreground">
-              +{node.additions} -{node.deletions}
-            </span>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-status-success">+{node.additions}</span>
+              <span className="text-status-error">−{node.deletions}</span>
+            </div>
           )}
         </div>
       )}

@@ -106,9 +106,10 @@ function TreeNode({
           </span>
         )}
         {item.additions !== undefined && item.deletions !== undefined && (
-          <span className="text-xs text-muted-foreground">
-            +{item.additions} -{item.deletions}
-          </span>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-status-success">+{item.additions}</span>
+            <span className="text-status-error">−{item.deletions}</span>
+          </div>
         )}
       </div>
     )
