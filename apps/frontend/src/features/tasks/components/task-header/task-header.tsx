@@ -1,4 +1,3 @@
-import type { Task } from '@moatless/types'
 import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -141,9 +140,6 @@ export function TaskHeader() {
   // Get task title (first line of initial message or agent type)
   const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
 
-  // Create task object for TaskStatusIcon
-  const task = { status, iterations } as Pick<Task, 'status' | 'iterations'>
-
   // Format git status info in compact format
   const gitStatusInfo = gitStatus
     ? [
@@ -182,7 +178,7 @@ export function TaskHeader() {
               {repositoryName}
             </span>
             <span className="text-muted-foreground">•</span>
-            <TaskStatusIcon task={task} />
+            <TaskStatusIcon task={{ status: status as any, iterations }} showText={false} />
             {gitStatusInfo && (
               <>
                 <span className="text-muted-foreground">•</span>
