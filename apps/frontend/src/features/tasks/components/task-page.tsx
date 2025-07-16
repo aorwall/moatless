@@ -31,7 +31,7 @@ function TaskPageComponent() {
   // Derive panel constraints from window width - no separate state needed
   const panelConstraints = useMemo(() => {
     const minWidthPx = 300
-    const maxWidthPx = 800
+    const maxWidthPx = 1200
     const defaultWidthPx = 600
 
     // Convert pixel values to percentages

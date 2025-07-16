@@ -104,7 +104,7 @@ export function AssistantMessageComponent({
     <div className="space-y-2 w-full max-w-full">
       {/* Text content */}
       {textContent && (
-        <div className="text-sm prose prose-sm dark:prose-invert prose-max-w-none w-full max-w-full">
+        <div className="text-sm prose prose-sm dark:prose-invert prose-max-w-none w-full max-w-full break-words">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
         </div>
       )}
