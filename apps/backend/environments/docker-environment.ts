@@ -65,6 +65,14 @@ export class DockerEnvironment extends BaseEnvironment {
     return this.containerId
   }
 
+  getPort(): number | undefined {
+    return this.previewPortMapping?.hostPort
+  }
+
+  getImage(): string {
+    return this.image
+  }
+
   async setup(_iterationNumber?: number): Promise<void> {
     this.setupInProgress = true
     const startTime = Date.now()

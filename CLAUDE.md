@@ -512,7 +512,9 @@ import { SafeBoundary } from '@/lib/components/error-boundary-with-fallback';
   - Use types API types from `@types/`
   - Local types only for client-specific needs (e.g., git-diff)
   - Use TypeScript strict mode
-  - Avoid `any` types
+  - **NEVER use `any` type** - always use proper types or `unknown` if type is truly unknown
+  - **NEVER cast to `any`** - fix the underlying type issue instead
+  - Use type guards and narrowing for runtime type checking
 
 **State Management**:
   - Use TanStack Query for server state
