@@ -135,9 +135,7 @@ export const FileTreeWithChangesResponseSchema = z.object({
 // Workspace Setup Schemas
 // ============================================
 
-export const WorkspaceSetupRequestSchema = z.object({
-  iterationNumber: z.number().optional(),
-})
+export const WorkspaceSetupRequestSchema = z.object({})
 
 export const WorkspaceSetupResponseSchema = z.object({
   success: z.boolean(),

@@ -1,4 +1,3 @@
-import type { WorkspaceSetupRequest } from '@moatless/types'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -12,8 +11,8 @@ export function useWorkspaceSetup(options?: UseWorkspaceSetupOptions) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (variables: { taskId: string; request?: WorkspaceSetupRequest }) => {
-      return tasksApi.setupWorkspace(variables.taskId, variables.request)
+    mutationFn: async (variables: { taskId: string }) => {
+      return tasksApi.setupWorkspace(variables.taskId)
     },
     onSuccess: (data, variables) => {
       // Invalidate workspace status to refresh the UI

@@ -633,10 +633,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
 
       try {
         const body = await c.req.json().catch(() => ({}))
-        const validatedBody = WorkspaceSetupRequestSchema.parse(body)
-        const { iterationNumber } = validatedBody
+        WorkspaceSetupRequestSchema.parse(body)
 
-        await services.workspace.setupWorkspace(taskId, iterationNumber)
+        await services.workspace.setupWorkspace(taskId)
 
         return c.json({
           success: true,
