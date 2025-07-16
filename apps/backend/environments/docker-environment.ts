@@ -2,8 +2,9 @@ import { exec } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
-import type { BaseAgent, EventService } from '../services/index.js'
+import type { CommandResult, Event, RepositoryConfig, ServerStatus } from '@moatless/types'
+import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../agents/base-agent.js'
+import type { EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
@@ -543,6 +544,136 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
+  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+    this.logger.info('Creating agent for Docker environment', { agentType, taskId: this.taskId })
+
+    // Make HTTP request to worker to create agent
+    const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/create-agent`
+
+    const response = await fetch(workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentType, taskId: this.taskId, options }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to create agent in worker: ${error}`)
+    }
+
+    const taskId = this.taskId
+
+    // Return a proxy agent that will delegate to the worker
+    class ProxyAgent extends BaseAgent {
+      constructor() {
+        super(taskId, options)
+      }
+
+      async *run(_message: string, _runOptions?: AgentRunOptions): AsyncGenerator<Event> {
+        yield* [] // Empty generator - actual execution happens in executeAgent
+        throw new Error('Use executeAgent method instead')
+      }
+
+      async stop(): Promise<void> {
+        // Will be handled by stopAgent
+      }
+
+      getAgentType(): string {
+        return agentType
+      }
+
+      async sendMessage(_message: string, _options?: AgentRunOptions): Promise<string> {
+        throw new Error('Not implemented for Docker environment')
+      }
+
+      async getBranchNameAndSummary(): Promise<null> {
+        throw new Error('Not implemented for Docker environment')
+      }
+    }
+
+    return new ProxyAgent()
+  }
+
+  async *executeAgent(
+    agent: BaseAgent,
+    message: string,
+    runOptions: AgentRunOptions,
+  ): AsyncGenerator<Event> {
+    if (this.runningAgent) {
+      throw new Error('Another agent is already running')
+    }
+
+    this.runningAgent = agent
+    this.logger.info('Executing agent in Docker container', {
+      agentType: agent.getAgentType(),
+      taskId: this.taskId,
+      workerPort: this.workerPortMapping?.hostPort,
+    })
+
+    try {
+      // Make HTTP request to worker to execute agent
+      const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/execute-agent`
+
+      const response = await fetch(workerUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify({
+          agentType: agent.getAgentType(),
+          taskId: this.taskId,
+          message,
+          runOptions: {
+            ...runOptions,
+            workspaceDir: '/workspace',
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Failed to execute agent in worker: ${error}`)
+      }
+
+      // Parse SSE stream from worker
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+
+      if (!reader) {
+        throw new Error('No response body')
+      }
+
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') {
+              return
+            }
+            try {
+              const event = JSON.parse(data) as Event
+              yield event
+            } catch (error) {
+              this.logger.error('Failed to parse event from worker', error as Error, { data })
+            }
+          }
+        }
+      }
+    } finally {
+      this.runningAgent = undefined
+    }
+  }
+
   async stopAgent(): Promise<boolean> {
     if (!this.runningAgent) {
       return false
@@ -551,7 +682,20 @@ export class DockerEnvironment extends BaseEnvironment {
     this.logger.info('Stopping running agent')
 
     try {
-      await this.runningAgent.stop()
+      // Make HTTP request to worker to stop agent
+      const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/stop-agent`
+
+      const response = await fetch(workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: this.taskId }),
+      })
+
+      if (!response.ok) {
+        const error = await response.text()
+        this.logger.error('Failed to stop agent in worker', new Error(error))
+      }
+
       this.runningAgent = undefined
       return true
     } catch (error) {

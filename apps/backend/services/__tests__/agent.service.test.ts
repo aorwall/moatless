@@ -2,7 +2,7 @@ import type { Task, TaskIteration } from '@moatless/types'
 import { EventType, WorkspaceStatus } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BaseAgent } from '../../agents/base-agent.js'
-import { ClaudeCodeAgent } from '../../agents/claude-code/claude-code-agent.js'
+import type { BaseEnvironment } from '../../environments/base-environment.js'
 import type { Workspace } from '../../workspaces/workspace.js'
 import { AgentService } from '../agent.service.js'
 import type { EventService } from '../event.service.js'
@@ -25,7 +25,7 @@ vi.mock('../../utils/logger', () => ({
   },
 }))
 
-vi.mock('../../agents/claude-code/claude-code-agent.js')
+// Remove mock for ClaudeCodeAgent as it's now created by environments
 
 // Create mock storage
 const createMockStorage = (): StorageBackend => ({
@@ -67,22 +67,42 @@ const createMockWorkspaceService = (): WorkspaceService =>
     setupWorkspace: vi.fn(),
   }) as any
 
-// Create mock workspace
-const createMockWorkspace = (status: WorkspaceStatus = WorkspaceStatus.IDLE): Workspace =>
+// Create mock environment
+const createMockEnvironment = (mockAgent?: BaseAgent): BaseEnvironment =>
   ({
+    createAgent: vi.fn().mockResolvedValue(mockAgent || createMockAgent()),
+    executeAgent: vi.fn().mockImplementation(async function* (agent, message, runOptions) {
+      // Yield the same events that the agent would yield
+      yield* (mockAgent || agent).run(message, runOptions)
+    }),
+    stopAgent: vi.fn().mockResolvedValue(true),
+    runCommand: vi.fn(),
+    isRunning: vi.fn().mockReturnValue(false),
+    setup: vi.fn(),
+    teardown: vi.fn(),
+    getWorkspacePath: vi.fn().mockReturnValue('/workspace/test'),
+    getType: vi.fn().mockReturnValue('local'),
+    getStatus: vi.fn().mockReturnValue('ready'),
+    getError: vi.fn(),
+    getCreatedAt: vi.fn().mockReturnValue(new Date()),
+  }) as any
+
+// Create mock workspace
+const createMockWorkspace = (
+  status: WorkspaceStatus = WorkspaceStatus.IDLE,
+  mockAgent?: BaseAgent,
+): Workspace => {
+  const mockEnvironment = createMockEnvironment(mockAgent)
+  return {
     getStatus: vi.fn().mockReturnValue(status),
     isWorkspacePathValid: vi.fn().mockResolvedValue(true),
     getWorkspacePath: vi.fn().mockReturnValue('/workspace/test'),
     getId: vi.fn().mockReturnValue('workspace-id'),
     resetWorkspace: vi.fn(),
-    getEnvironment: vi.fn().mockReturnValue({
-      id: 'env-1',
-      name: 'Test Env',
-      path: '/test/repo',
-      codeExecution: { type: 'local' },
-      type: 'repository',
-    }),
-  }) as any
+    getEnvironment: vi.fn().mockReturnValue(mockEnvironment),
+    type: 'local',
+  } as any
+}
 
 // Create mock agent
 const createMockAgent = (): BaseAgent =>
@@ -148,10 +168,10 @@ describe('AgentService', () => {
     })
 
     it('should execute agent successfully', async () => {
-      const mockWorkspace = createMockWorkspace()
+      const mockAgent = createMockAgent()
+      const mockWorkspace = createMockWorkspace(WorkspaceStatus.IDLE, mockAgent)
       vi.mocked(mockWorkspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
 
-      const mockAgent = createMockAgent()
       // Mock agent run to return events
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
         yield {
@@ -164,16 +184,12 @@ describe('AgentService', () => {
           payload: { message: 'Test completed' },
         }
       })
-      vi.mocked(ClaudeCodeAgent).mockImplementation(() => mockAgent as any)
 
       await service.executeAgent('task-1', 'Test message', mockIteration)
 
-      expect(mockAgent.run).toHaveBeenCalledWith(
-        'Test message',
-        expect.objectContaining({
-          iterationNumber: 1,
-        }),
-      )
+      const mockEnvironment = mockWorkspace.getEnvironment()
+      expect(mockEnvironment.createAgent).toHaveBeenCalledWith('claude-code', {})
+      expect(mockEnvironment.executeAgent).toHaveBeenCalled()
       expect(mockStorage.saveTask).toHaveBeenCalled()
     })
 

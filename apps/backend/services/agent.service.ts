@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import type { SDKResultMessage } from '@moatless/types'
 import { EventType, type TaskIteration, TaskNotFoundError, WorkspaceStatus } from '@moatless/types'
 import type { BaseAgent } from '../agents/base-agent.js'
-import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import { logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
@@ -102,15 +101,19 @@ export class AgentService {
       }
     }
 
-    agentLogger.info('Creating agent', {
+    agentLogger.info('Getting environment from workspace', {
       agentType,
       workspaceStatus: status,
       hasResumeSession: !!resumeSessionId,
       model,
     })
 
-    // Create agent
-    const agent = await this.createAgent(agentType, taskId, model)
+    // Get environment from workspace
+    const environment = workspace.getEnvironment()
+
+    // Create agent using environment
+    const options = model ? { model } : {}
+    const agent = await environment.createAgent(agentType, options)
 
     // Track the running agent
     this.runningAgents.set(taskId, agent)
@@ -124,7 +127,15 @@ export class AgentService {
       }
 
       // Execute agent in background
-      await this.runAgentExecution(agent, message, taskId, iteration, workspace, resumeSessionId)
+      await this.runAgentExecution(
+        agent,
+        message,
+        taskId,
+        iteration,
+        workspace,
+        environment,
+        resumeSessionId,
+      )
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
@@ -191,18 +202,6 @@ export class AgentService {
   }
 
   /**
-   * Create an agent instance
-   */
-  private async createAgent(agentType: string, taskId: string, model?: string): Promise<BaseAgent> {
-    if (agentType === 'claude-code') {
-      // TODO: Get claude options from storage/config
-      const options = model ? { model } : {} // Pass model in options if provided
-      return new ClaudeCodeAgent(taskId, options)
-    }
-    throw new Error(`Unknown agent type: ${agentType}`)
-  }
-
-  /**
    * Process agent execution and handle events
    */
   private async runAgentExecution(
@@ -211,6 +210,7 @@ export class AgentService {
     taskId: string,
     iteration: TaskIteration,
     workspace: Awaited<ReturnType<WorkspaceService['getOrCreateWorkspace']>>,
+    environment: Awaited<ReturnType<typeof workspace.getEnvironment>>,
     resumeSessionId?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
@@ -247,8 +247,8 @@ export class AgentService {
         })
       }
 
-      // Process agent events
-      for await (const event of agent.run(finalMessage, runOptions)) {
+      // Process agent events using environment's executeAgent method
+      for await (const event of environment.executeAgent(agent, finalMessage, runOptions)) {
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()

@@ -1,5 +1,4 @@
 import { serve } from '@hono/node-server'
-import type { TaskIteration } from '@moatless/types'
 import { Hono } from 'hono'
 import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
@@ -97,31 +96,24 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }),
   )
 
-  // Agent execution endpoint
-  app.post('/execute-agent', async (c) => {
+  // Create agent endpoint (for Docker environment)
+  app.post('/create-agent', async (c) => {
     const body = await c.req.json()
-    const { taskId, message, iteration, agentType, resumeSessionId, model } = body
+    const { taskId, agentType } = body
 
-    logger.info('Received agent execution request', {
+    logger.info('Received agent creation request', {
       taskId,
       agentType,
-      iterationNumber: iteration.iterationNumber,
     })
 
     try {
-      await agentService.executeAgent(
-        taskId,
-        message,
-        iteration as TaskIteration,
-        agentType || 'claude-code',
-        resumeSessionId,
-        model,
-      )
-
-      logger.info('Agent execution completed', { taskId })
-      return c.json({ success: true })
+      // Just acknowledge the creation - actual agent will be created during execution
+      return c.json({
+        success: true,
+        agentType: agentType || 'claude-code',
+      })
     } catch (error) {
-      logger.error('Agent execution failed', error as Error, { taskId })
+      logger.error('Agent creation failed', error as Error, { taskId })
       return c.json(
         {
           success: false,
@@ -130,6 +122,75 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         500,
       )
     }
+  })
+
+  // Agent execution endpoint with SSE streaming
+  app.post('/execute-agent', async (c) => {
+    const body = await c.req.json()
+    const { taskId, message, agentType, runOptions } = body
+
+    logger.info('Received agent execution request', {
+      taskId,
+      agentType,
+      workspaceDir: runOptions?.workspaceDir,
+    })
+
+    // Set up SSE response
+    c.header('Content-Type', 'text/event-stream')
+    c.header('Cache-Control', 'no-cache')
+    c.header('Connection', 'keep-alive')
+
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // Get workspace to execute agent
+          const workspace = await workspaceService.getWorkspace(taskId)
+          if (!workspace) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'error', message: 'Workspace not found' })}\n\n`,
+              ),
+            )
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+            return
+          }
+
+          // Get environment from workspace
+          const environment = workspace.getEnvironment()
+
+          // Create agent using environment
+          const agent = await environment.createAgent(
+            agentType || 'claude-code',
+            runOptions?.options,
+          )
+
+          // Execute agent and stream events
+          for await (const event of environment.executeAgent(agent, message, runOptions || {})) {
+            const data = `data: ${JSON.stringify(event)}\n\n`
+            controller.enqueue(encoder.encode(data))
+          }
+
+          // Send completion signal
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+
+          logger.info('Agent execution completed', { taskId })
+        } catch (error) {
+          logger.error('Agent execution failed', error as Error, { taskId })
+          const errorEvent = {
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(stream)
   })
 
   // Stop agent endpoint
