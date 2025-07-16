@@ -5,10 +5,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { TaskCard } from '../task-card'
 
 // Mock the event stream provider
-const mockUseTaskEventSubscription = vi.fn()
 vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
-  useTaskEventSubscription: mockUseTaskEventSubscription,
+  useTaskEventSubscription: vi.fn(),
 }))
+
+// Import the mocked functions to get access to them
+import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
+
+const mockUseTaskEventSubscription = vi.mocked(useTaskEventSubscription)
 
 // Mock the hooks
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
