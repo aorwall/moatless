@@ -478,30 +478,10 @@ export class RepositoryService {
 
       // Create workspace and environment
       workspace = await this.workspaceService.createWorkspace(fakeTaskId, repoId)
-
-      // Run setup commands if they exist
-      if (repository.codeExecution.setupCommands?.length) {
-        logger.info('Running setup commands for verification', {
-          taskId: fakeTaskId,
-          commandCount: repository.codeExecution.setupCommands.length,
-          commands: repository.codeExecution.setupCommands,
-        })
-
-        for (const command of repository.codeExecution.setupCommands) {
-          try {
-            await workspace.environment.runCommand(command, 30000)
-          } catch (error) {
-            logger.warn('Setup command failed during verification', {
-              taskId: fakeTaskId,
-              command,
-              error: error instanceof Error ? error.message : String(error),
-            })
-          }
-        }
-      }
+      await workspace.setup()
 
       // Return the workspace status
-      return (await this.workspaceService.getWorkspaceStatus(fakeTaskId)) as WorkspaceStatusResponse
+      return await this.workspaceService.getWorkspaceStatus(fakeTaskId)
     } finally {
       // Clean up the verification workspace
       if (workspace) {

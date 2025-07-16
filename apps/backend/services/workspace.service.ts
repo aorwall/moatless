@@ -6,6 +6,7 @@ import type {
   FileTreeWithChangesResponse,
   RepositoryConfig,
   ServerStatus,
+  WorkspaceStatusResponse,
 } from '@moatless/types'
 import {
   RepositoryNotFoundError,
@@ -653,7 +654,7 @@ export class WorkspaceService {
     return workspace.runCommand(command, timeout)
   }
 
-  async getWorkspaceStatus(taskId: string): Promise<unknown> {
+  async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     // Validate task exists first
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -664,10 +665,7 @@ export class WorkspaceService {
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
     // Get git status and git changes from workspace
-    const [gitStatus, gitChanges] = await Promise.all([
-      workspace.getGitStatus(),
-      workspace.getGitChanges(),
-    ])
+    const gitStatus = await workspace.getGitStatus()
 
     // Get environment information
     const environment = workspace.getEnvironment()
@@ -688,7 +686,6 @@ export class WorkspaceService {
     return {
       status: workspace.getStatus(),
       gitStatus,
-      gitChanges,
       backgroundTaskCount,
       environment: {
         type: environmentType,
@@ -746,27 +743,6 @@ export class WorkspaceService {
     }
 
     return this.previewEnvironmentService.getServerStatus(taskId)
-  }
-
-  async proxyPreviewRequest(
-    taskId: string,
-    request: {
-      method: string
-      path: string
-      headers: Headers
-      body?: string
-    },
-  ): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }> {
-    if (!(await this.canManageServer(taskId))) {
-      throw new WorkspaceError('Preview capability not available for this task', taskId)
-    }
-
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.proxyPreviewRequest(request)
   }
 
   // Background task tracking methods
