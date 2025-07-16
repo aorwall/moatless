@@ -3,7 +3,9 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
-import type { BaseAgent, EventService } from '../services/index.js'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import { ProxyAgent } from '../agents/proxy-agent.js'
+import type { EventService } from '../services/index.js'
 import { PortAllocationService } from '../services/port-allocation.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
@@ -543,6 +545,40 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
+  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+    this.logger.info('Creating agent for Docker environment', { agentType, taskId: this.taskId })
+
+    // Make HTTP request to worker to create agent
+    const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/create-agent`
+
+    const response = await fetch(workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentType, taskId: this.taskId, options }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to create agent in worker: ${error}`)
+    }
+
+    const result = (await response.json()) as {
+      success: boolean
+      agentType: string
+      sessionId?: string
+    }
+
+    // Return a proxy agent that delegates to the worker
+    return new ProxyAgent({
+      taskId: this.taskId,
+      agentType,
+      workerPort: this.workerPortMapping?.hostPort!,
+      sessionId: result.sessionId,
+      options,
+      logger: this.logger,
+    })
+  }
+
   async stopAgent(): Promise<boolean> {
     if (!this.runningAgent) {
       return false
@@ -551,7 +587,20 @@ export class DockerEnvironment extends BaseEnvironment {
     this.logger.info('Stopping running agent')
 
     try {
-      await this.runningAgent.stop()
+      // Make HTTP request to worker to stop agent
+      const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/stop-agent`
+
+      const response = await fetch(workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: this.taskId }),
+      })
+
+      if (!response.ok) {
+        const error = await response.text()
+        this.logger.error('Failed to stop agent in worker', new Error(error))
+      }
+
       this.runningAgent = undefined
       return true
     } catch (error) {
