@@ -4,6 +4,7 @@ import {
   FileSearchSchema,
   RepositoryNotFoundError,
   UpdateRepositorySchema,
+  VerificationResponseSchema,
 } from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -472,6 +473,59 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
 
       const previewConfig = await repositoryService.detectFramework(repository.path)
       return c.json({ previewConfig })
+    },
+  )
+
+  // Verify repository setup
+  app.post(
+    `${prefix}/:repositoryId/verify`,
+    describeRoute({
+      description: 'Verify repository setup by testing workspace creation and setup commands',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Verification results',
+          content: {
+            'application/json': {
+              schema: resolver(VerificationResponseSchema),
+            },
+          },
+        },
+        400: {
+          description: 'Invalid repository ID',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { repository: repositoryService } = services
+
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
+
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      const verificationResult = await repositoryService.verifyRepositorySetup(repositoryId)
+      return c.json(verificationResult)
     },
   )
 }

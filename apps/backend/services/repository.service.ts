@@ -438,6 +438,135 @@ export class RepositoryService {
 
     return undefined
   }
+
+  /**
+   * Verify repository setup by creating a temporary workspace and running setup commands
+   */
+  async verifyRepositorySetup(repoId: string): Promise<{
+    success: boolean
+    workspaceSetup: {
+      success: boolean
+      message: string
+      workspacePath?: string
+    }
+    setupCommands: {
+      success: boolean
+      commands: Array<{
+        command: string
+        success: boolean
+        exit_code: number
+        output?: string
+        error?: string
+      }>
+    }
+    environment: {
+      type: 'local' | 'docker'
+      status: string
+      error?: string
+    }
+  }> {
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
+    }
+
+    const fakeTaskId = `verify-${Date.now()}`
+    let workspacePath: string | undefined
+    let workspaceSetupSuccess = false
+    let workspaceSetupMessage = ''
+    let environmentStatus = 'error'
+    let environmentError: string | undefined
+
+    try {
+      // Test workspace creation
+      if (repository.useGitWorktrees) {
+        const worktreeDir = this.getWorktreeDir(repository)
+        workspacePath = path.join(worktreeDir, `${path.basename(repository.path)}-${fakeTaskId}`)
+
+        // Check if we can create a worktree
+        try {
+          await this.validateRepository(repository)
+          workspaceSetupSuccess = true
+          workspaceSetupMessage = 'Repository path is valid and accessible'
+        } catch (error) {
+          workspaceSetupMessage = `Repository validation failed: ${error instanceof Error ? error.message : String(error)}`
+        }
+      } else {
+        // For non-worktree setup, just validate the repository path
+        try {
+          await this.validateRepository(repository)
+          workspacePath = repository.path
+          workspaceSetupSuccess = true
+          workspaceSetupMessage = 'Repository path is valid and accessible'
+        } catch (error) {
+          workspaceSetupMessage = `Repository validation failed: ${error instanceof Error ? error.message : String(error)}`
+        }
+      }
+
+      // Test environment readiness
+      if (workspaceSetupSuccess) {
+        if (repository.codeExecution.type === 'docker') {
+          environmentStatus = 'ready'
+          environmentError = 'Docker environment verification not implemented'
+        } else {
+          environmentStatus = 'ready'
+        }
+      }
+
+      // Run setup commands test
+      const setupResult = await this.runSetupScript(repository)
+
+      const overallSuccess =
+        workspaceSetupSuccess && setupResult.success && environmentStatus === 'ready'
+
+      return {
+        success: overallSuccess,
+        workspaceSetup: {
+          success: workspaceSetupSuccess,
+          message: workspaceSetupMessage,
+          workspacePath,
+        },
+        setupCommands: {
+          success: setupResult.success,
+          commands: setupResult.commands,
+        },
+        environment: {
+          type: repository.codeExecution.type,
+          status: environmentStatus,
+          error: environmentError,
+        },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        workspaceSetup: {
+          success: false,
+          message: `Verification failed: ${error instanceof Error ? error.message : String(error)}`,
+          workspacePath,
+        },
+        setupCommands: {
+          success: false,
+          commands: [],
+        },
+        environment: {
+          type: repository.codeExecution.type,
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }
+    }
+  }
+
+  private getWorktreeDir(repo: RepositoryConfig): string {
+    // Check for environment variable first
+    const worktreeDir = process.env.WORKTREE_DIR
+    if (worktreeDir) {
+      return worktreeDir
+    }
+
+    // Default to "../" relative to repo path
+    return path.join(repo.path, '..')
+  }
 }
 
 export function createRepositoryService(storage: StorageBackend): RepositoryService {

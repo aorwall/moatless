@@ -97,6 +97,32 @@ export const FileSearchSchema = z.object({
   limit: z.number().min(1).max(1000).optional(),
 })
 
+export const VerificationResponseSchema = z.object({
+  success: z.boolean(),
+  workspaceSetup: z.object({
+    success: z.boolean(),
+    message: z.string(),
+    workspacePath: z.string().optional(),
+  }),
+  setupCommands: z.object({
+    success: z.boolean(),
+    commands: z.array(
+      z.object({
+        command: z.string(),
+        success: z.boolean(),
+        exit_code: z.number(),
+        output: z.string().optional(),
+        error: z.string().optional(),
+      }),
+    ),
+  }),
+  environment: z.object({
+    type: z.enum(['local', 'docker']),
+    status: z.string(),
+    error: z.string().optional(),
+  }),
+})
+
 // Type exports
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
@@ -104,3 +130,4 @@ export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
 export type ScriptInjectionStrategy = z.infer<typeof ScriptInjectionStrategySchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
+export type VerificationResponse = z.infer<typeof VerificationResponseSchema>
