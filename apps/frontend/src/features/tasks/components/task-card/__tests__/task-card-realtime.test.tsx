@@ -72,7 +72,7 @@ describe('TaskCard Real-time Updates', () => {
 
     // Capture the event handler when subscribed
     vi.mocked(useTaskEventSubscription).mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -111,7 +111,7 @@ describe('TaskCard Real-time Updates', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
     vi.mocked(useTaskEventSubscription).mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -151,7 +151,7 @@ describe('TaskCard Real-time Updates', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
     vi.mocked(useTaskEventSubscription).mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -187,7 +187,7 @@ describe('TaskCard Real-time Updates', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
     vi.mocked(useTaskEventSubscription).mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
