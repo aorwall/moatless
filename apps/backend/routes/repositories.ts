@@ -518,12 +518,6 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
         throw new HTTPException(400, { message: 'Repository ID is required' })
       }
 
-      const repository = await repositoryService.getRepositoryById(repositoryId)
-
-      if (!repository) {
-        throw new RepositoryNotFoundError()
-      }
-
       const verificationResult = await repositoryService.verifyRepositorySetup(repositoryId)
       return c.json(verificationResult)
     },

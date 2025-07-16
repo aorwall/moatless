@@ -348,7 +348,7 @@ export class Workspace {
       return {
         ...baseInfo,
         type: 'docker' as const,
-        containerId: this.environment.getContainerId() || '',
+        containerName: this.environment.getContainerName() || '',
         port: this.environment.getPort(),
         image: this.environment.getImage(),
       }
@@ -358,7 +358,7 @@ export class Workspace {
     return {
       ...baseInfo,
       type: 'docker' as const,
-      containerId: '',
+      containerName: '',
       port: undefined,
       image: undefined,
     }
@@ -506,9 +506,8 @@ export class Workspace {
    * This combines file listing and git diff data in a single performant call
    */
   async getFileTreeWithChanges(rootPath = '.'): Promise<FileTreeWithChangesResponse> {
-    if (!(await this.canPerformFileOperations())) {
+    if (!(await this.canPerformFileOperations()))
       throw new Error('Cannot list files: workspace not ready')
-    }
 
     const workspacePath = this.getWorkspacePath()
 

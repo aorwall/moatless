@@ -76,16 +76,9 @@ vi.mock('../../utils/git-utils.js', () => ({
   }),
 }))
 
-// Mock PortAllocationService
-vi.mock('../port-allocation.service.js', () => ({
-  PortAllocationService: {
-    getInstance: vi.fn(() => ({
-      initialize: vi.fn().mockResolvedValue(undefined),
-      allocatePort: vi.fn().mockResolvedValue(8001),
-      releasePort: vi.fn().mockResolvedValue(undefined),
-      releasePortsForTask: vi.fn().mockResolvedValue(undefined),
-    })),
-  },
+// Mock port allocation utility
+vi.mock('../../utils/port-allocation.js', () => ({
+  findAvailablePort: vi.fn().mockResolvedValue(8001),
 }))
 
 // Mock fetch for Docker health checks
@@ -305,11 +298,11 @@ describe('WorkspaceService', () => {
 
       expect(workspace.type).toBe('docker')
       expect(workspace.status).toBe('not_setup') // Status before setup is called
-      // Container ID will be empty until setup is called
+      // Container name will be empty until setup is called
       const workspaceInfo = workspace.toWorkspaceInfo()
       expect(workspaceInfo.type).toBe('docker')
       if (workspaceInfo.type === 'docker') {
-        expect(workspaceInfo.containerId).toBe('')
+        expect(workspaceInfo.containerName).toBe('')
       }
     })
   })

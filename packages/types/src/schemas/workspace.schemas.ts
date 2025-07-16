@@ -39,7 +39,7 @@ export const LocalWorkspaceSchema = BaseWorkspaceSchema.extend({
 
 export const DockerWorkspaceSchema = BaseWorkspaceSchema.extend({
   type: z.literal('docker'),
-  containerId: z.string(),
+  containerName: z.string(),
   port: z.number().optional(),
   image: z.string().optional(),
 })

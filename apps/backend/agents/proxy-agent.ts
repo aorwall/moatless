@@ -128,27 +128,6 @@ export class ProxyAgent extends BaseAgentClass {
     return this.remoteSessionId
   }
 
-  async updateSessionId(): Promise<void> {
-    try {
-      const sessionUrl = `http://localhost:${this.workerPort}/agent-session/${this.taskId}`
-      const response = await fetch(sessionUrl)
-
-      if (response.ok) {
-        const result = (await response.json()) as {
-          success: boolean
-          sessionId?: string
-          agentType?: string
-          createdAt?: Date
-        }
-        this.remoteSessionId = result.sessionId
-      }
-    } catch (error) {
-      this.logger.warn('Failed to update session ID', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
   async getBranchNameAndSummary(message: string, options?: AgentRunOptions): Promise<null> {
     try {
       const branchUrl = `http://localhost:${this.workerPort}/agent-branch-summary`

@@ -151,7 +151,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm "git-delta_0.18.2_${ARCH}.deb"
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
+RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 
 # Install Claude Code CLI as root
 RUN npm install -g @anthropic-ai/claude-code
@@ -220,6 +220,12 @@ ENV TZ="UTC"
 
 # Expose port
 EXPOSE 8001
+
+# Health check for the worker service
+# Start checking after 10 seconds, check every 5 seconds, timeout after 3 seconds
+# Allow up to 3 retries before marking as unhealthy
+HEALTHCHECK --start-period=10s --interval=5s --timeout=3s --retries=3 \
+  CMD curl -f http://localhost:8001/health || exit 1
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
