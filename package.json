@@ -57,7 +57,7 @@
     "biome:check": "biome check",
     "biome:fix": "./scripts/biome-fix.sh",
     "check:turbo": "turbo run biome:check type:check test:fast",
-    "post-edit-hook": "(pnpm biome:fix || true) && pnpm type:check",
+    "post-edit-hook": "./scripts/validate-code.sh",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
     "prepare": "husky"
   },
