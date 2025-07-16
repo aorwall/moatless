@@ -8,7 +8,7 @@ export function FileTreeSkeleton() {
   }))
 
   return (
-    <div className="p-2 space-y-1">
+    <div className="p-2 space-y-1" data-testid="file-tree-skeleton">
       {skeletonItems.map((item) => (
         <div key={item.id} className="flex items-center gap-2 py-1">
           <Skeleton className="h-4 w-4" />
