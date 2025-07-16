@@ -581,6 +581,20 @@ export class WorkspaceService {
       throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
     }
 
+    // Get workspace to check if environment supports server operations
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const environment = workspace.getEnvironment()
+
+    // Check if environment has server methods and delegate to it
+    if (environment.startServer) {
+      logger.info('Delegating server start to environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+      return environment.startServer()
+    }
+
+    // Fallback to preview environment service for backwards compatibility
     if (!this.previewEnvironmentService) {
       throw new WorkspaceError('Preview environment service not initialized', taskId)
     }
@@ -593,6 +607,20 @@ export class WorkspaceService {
       throw new WorkspaceError('Cannot stop server: workspace not ready', taskId)
     }
 
+    // Get workspace to check if environment supports server operations
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const environment = workspace.getEnvironment()
+
+    // Check if environment has server methods and delegate to it
+    if (environment.stopServer) {
+      logger.info('Delegating server stop to environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+      return environment.stopServer()
+    }
+
+    // Fallback to preview environment service for backwards compatibility
     if (!this.previewEnvironmentService) {
       throw new WorkspaceError('Preview environment service not initialized', taskId)
     }
@@ -605,23 +633,46 @@ export class WorkspaceService {
       throw new WorkspaceError('Cannot restart server: workspace not ready', taskId)
     }
 
-    if (!this.previewEnvironmentService) {
-      throw new WorkspaceError('Preview environment service not initialized', taskId)
-    }
-
-    return this.previewEnvironmentService.restartServer(taskId)
+    // For restart, we can simply call stop then start
+    await this.stopServer(taskId)
+    // Wait a moment for the server to fully stop
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    return this.startServer(taskId) as Promise<ServerStatus>
   }
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
-    if (!this.previewEnvironmentService) {
+    try {
+      // Get workspace to check if environment supports server operations
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const environment = workspace.getEnvironment()
+
+      // Check if environment has server methods and delegate to it
+      if (environment.getServerStatus) {
+        logger.debug('Delegating server status to environment', {
+          taskId,
+          environmentType: environment.getType(),
+        })
+        return environment.getServerStatus()
+      }
+
+      // Fallback to preview environment service for backwards compatibility
+      if (!this.previewEnvironmentService) {
+        return {
+          running: false,
+          configured: false,
+          uptimeSeconds: 0,
+        }
+      }
+
+      return this.previewEnvironmentService.getServerStatus(taskId)
+    } catch (error) {
+      logger.error('Error getting server status', error as Error, { taskId })
       return {
         running: false,
         configured: false,
         uptimeSeconds: 0,
       }
     }
-
-    return this.previewEnvironmentService.getServerStatus(taskId)
   }
 
   // Background task tracking methods
@@ -646,11 +697,30 @@ export class WorkspaceService {
       return 'Server logs not available: workspace not ready'
     }
 
-    if (!this.previewEnvironmentService) {
-      return 'Preview environment service not initialized'
-    }
+    try {
+      // Get workspace to check if environment supports server operations
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const environment = workspace.getEnvironment()
 
-    return this.previewEnvironmentService.getServerLogs(taskId, lines)
+      // Check if environment has server methods and delegate to it
+      if (environment.getServerLogs) {
+        logger.debug('Delegating server logs to environment', {
+          taskId,
+          environmentType: environment.getType(),
+        })
+        return environment.getServerLogs(lines)
+      }
+
+      // Fallback to preview environment service for backwards compatibility
+      if (!this.previewEnvironmentService) {
+        return 'Preview environment service not initialized'
+      }
+
+      return this.previewEnvironmentService.getServerLogs(taskId, lines)
+    } catch (error) {
+      logger.error('Error getting server logs', error as Error, { taskId })
+      return `Error getting server logs: ${error instanceof Error ? error.message : String(error)}`
+    }
   }
 
   setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {

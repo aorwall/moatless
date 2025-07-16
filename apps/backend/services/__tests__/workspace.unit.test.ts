@@ -16,6 +16,17 @@ vi.mock('node:child_process', () => ({
       opts(null, { stdout: 'mocked output', stderr: '' })
     }
   }),
+  execSync: vi.fn((cmd) => {
+    // Mock docker inspect for health check
+    if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
+      return 'running|healthy'
+    }
+    // Mock docker ps for existing container check
+    if (cmd.includes('docker ps')) {
+      return ''
+    }
+    return 'mocked output'
+  }),
 }))
 
 // Mock fs promises

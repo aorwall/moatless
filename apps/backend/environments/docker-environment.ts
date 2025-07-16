@@ -620,6 +620,12 @@ export class DockerEnvironment extends BaseEnvironment {
 
     this.logger.info('Starting server via worker')
 
+    // Get server configuration from repository config
+    const serverCommand = this.repositoryConfig.previewConfig?.serverStartCommand
+    if (!serverCommand) {
+      throw new Error('No server command configured for this environment')
+    }
+
     try {
       const response = await fetch(
         `http://localhost:${this.workerPortMapping!.hostPort}/server/start`,
@@ -628,6 +634,10 @@ export class DockerEnvironment extends BaseEnvironment {
           headers: {
             'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            serverCommand,
+            envVars: this.repositoryConfig.codeExecution.envVars || {},
+          }),
         },
       )
 
