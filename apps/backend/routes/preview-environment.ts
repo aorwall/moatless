@@ -1,6 +1,7 @@
 import {
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
+  type ServerStatus,
   ServerStatusSchema,
   ServerStopResponseSchema,
 } from '@moatless/types'
@@ -56,8 +57,8 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
       }
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.startServer(taskId)
-      return c.json(result as any)
+      const result: ServerStatus = await services.workspace.startServer(taskId)
+      return c.json(result)
     },
   )
 
@@ -158,7 +159,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
 
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.restartServer(taskId)
-      return c.json(result as any)
+      return c.json(result)
     },
   )
 
@@ -207,7 +208,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
 
       // Task validation and capability check now handled in workspace service
       const status = await services.workspace.getServerStatus(taskId)
-      return c.json(status as any)
+      return c.json(status)
     },
   )
 

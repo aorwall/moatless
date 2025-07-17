@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { ClaudeCodeSettings, Event, EventType, RepositoryConfig, Task } from '@moatless/types'
-import { getClaudeService } from '../agents/claude-code/claude.service.js'
+import type { Event, EventType, RepositoryConfig, Task } from '@moatless/types'
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { sdkMessageToEvent } from '../utils/claude-code-events.js'
 import type { StorageBackend } from './storage.js'
 
@@ -9,17 +9,14 @@ export type EventHandler = (event: Event) => void | Promise<void>
 
 export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()
-  private repository?: RepositoryConfig
 
   constructor(
     private storage: StorageBackend,
-    _claudeCodeSettings?: ClaudeCodeSettings,
-    repository?: RepositoryConfig,
+    private claudeService: ClaudeService,
+    private repository?: RepositoryConfig,
   ) {
     super()
     this.setMaxListeners(100)
-    // claudeCodeSettings is no longer used directly since we use Claude service
-    this.repository = repository
   }
 
   async emitEvent(event: Event): Promise<void> {
@@ -70,8 +67,11 @@ export class EventService extends EventEmitter {
       if (task && task.agentType === 'claude-code' && !process.env.SKIP_CLAUDE_DISK_EVENTS) {
         try {
           // Use Claude service to read messages
-          const claudeService = getClaudeService()
-          const sdkMessages = await claudeService.readClaudeMessages(taskId, task, this.repository)
+          const sdkMessages = await this.claudeService.readClaudeMessages(
+            taskId,
+            task,
+            this.repository,
+          )
 
           // Convert SDK messages to events
           events = []
@@ -152,8 +152,8 @@ export class EventService extends EventEmitter {
 
 export function createEventService(
   storage: StorageBackend,
-  claudeCodeSettings?: ClaudeCodeSettings,
+  claudeService: ClaudeService,
   repository?: RepositoryConfig,
 ): EventService {
-  return new EventService(storage, claudeCodeSettings, repository)
+  return new EventService(storage, claudeService, repository)
 }

@@ -12,7 +12,6 @@ import type { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
-import { getClaudeService } from '../agents/claude-code/claude.service.js'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
@@ -73,8 +72,9 @@ export async function registerUsageRoutes(app: Hono<AppBindings>, prefix: string
           repository = foundRepository
         }
 
-        const claudeService = getClaudeService()
-        const usageData: ClaudeUsageResponse = await claudeService.getUsage(
+        const services = c.get('services')
+        const { claude } = services
+        const usageData: ClaudeUsageResponse = await claude.getUsage(
           validatedQuery.plan,
           repository,
         )
@@ -147,8 +147,9 @@ export async function registerUsageRoutes(app: Hono<AppBindings>, prefix: string
           repository = foundRepository
         }
 
-        const claudeService = getClaudeService()
-        const sessionUsage: ClaudeSessionUsageResponse = await claudeService.getSessionUsage(
+        const services = c.get('services')
+        const { claude } = services
+        const sessionUsage: ClaudeSessionUsageResponse = await claude.getSessionUsage(
           sessionId,
           repository,
         )

@@ -1,15 +1,12 @@
-import { type AgentService, createAgentService } from './agent.service.js'
-import { type CommandService, createCommandService } from './command.service.js'
-import { createEventService, type EventService } from './event.service.js'
-import {
-  createPreviewEnvironmentService,
-  type PreviewEnvironmentService,
-} from './preview-environment.service.js'
-import { createRepositoryService, type RepositoryService } from './repository.service.js'
-import { initializeSettingsService, type SettingsService } from './settings.service.js'
-import { createStorageService, type StorageBackend } from './storage.js'
-import { createTaskService, type TaskService } from './task.service.js'
-import { createWorkspaceService, type WorkspaceService } from './workspace.service.js'
+import type { AgentService } from './agent.service.js'
+import type { CommandService } from './command.service.js'
+import type { EventService } from './event.service.js'
+import type { PreviewEnvironmentService } from './preview-environment.service.js'
+import type { RepositoryService } from './repository.service.js'
+import type { SettingsService } from './settings.service.js'
+import type { StorageBackend } from './storage.js'
+import type { TaskService } from './task.service.js'
+import type { WorkspaceService } from './workspace.service.js'
 
 export interface Services {
   settings: SettingsService
@@ -23,38 +20,11 @@ export interface Services {
   task: TaskService
 }
 
+// This function is deprecated - use createServiceContainer from service-container.ts instead
 export async function setupServices(): Promise<Services> {
-  // Initialize settings service first
-  const settings = await initializeSettingsService()
-
-  // Create services with dependency injection
-  const storage = await createStorageService()
-  const event = createEventService(storage)
-  const repository = createRepositoryService(storage)
-  const command = createCommandService(storage)
-  const workspace = createWorkspaceService(repository, storage)
-  const previewEnvironment = createPreviewEnvironmentService(storage, workspace)
-
-  // Set preview environment service on workspace service
-  workspace.setPreviewEnvironmentService(previewEnvironment)
-
-  // Set workspace service on repository service for verification
-  repository.setWorkspaceService(workspace)
-
-  const agent = createAgentService(storage, event, workspace)
-  const task = createTaskService(storage, event, workspace, agent, command, repository)
-
-  return {
-    settings,
-    storage,
-    event,
-    repository,
-    command,
-    workspace,
-    previewEnvironment,
-    agent,
-    task,
-  }
+  throw new Error(
+    'setupServices is deprecated. Use createServiceContainer from service-container.ts instead',
+  )
 }
 
 export * from '../agents/base-agent.js'

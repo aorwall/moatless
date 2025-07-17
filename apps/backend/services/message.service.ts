@@ -13,38 +13,26 @@ import {
   type SDKAssistantMessage,
   type SDKUserMessage,
 } from '@moatless/types'
-import type { ClaudeCodeSettings } from '@moatless/types/types/claude'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
-import { getClaudeService } from '../agents/claude-code/claude.service.js'
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
-
 export class MessageService {
-  private claudeCodeSettings: ClaudeCodeSettings
-  private repository?: RepositoryConfig
-
-  constructor(claudeCodeSettings: ClaudeCodeSettings, repository?: RepositoryConfig) {
-    this.claudeCodeSettings = claudeCodeSettings
-    this.repository = repository
-  }
+  constructor(
+    private claudeService: ClaudeService,
+    private repository?: RepositoryConfig,
+  ) {}
 
   /**
-   * Read messages directly from Claude directory using stored settings
+   * Read messages directly from Claude directory
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
-    return this.readMessagesFromClaudeDirectoryWithSettings(this.claudeCodeSettings, task)
-  }
-
-  /**
-   * Read messages directly from Claude directory (bypassing event service)
-   */
-  async readMessagesFromClaudeDirectoryWithSettings(
-    _settings: ClaudeCodeSettings,
-    task: Task,
-  ): Promise<Message[]> {
     try {
       // Use Claude service to read messages
-      const claudeService = getClaudeService()
-      const sdkMessages = await claudeService.readClaudeMessages(task.taskId, task, this.repository)
+      const sdkMessages = await this.claudeService.readClaudeMessages(
+        task.taskId,
+        task,
+        this.repository,
+      )
 
       // If we got messages from Claude files, transform and return them
       if (sdkMessages.length > 0) {
@@ -347,8 +335,8 @@ export class MessageService {
 }
 
 export function createMessageService(
-  claudeCodeSettings: ClaudeCodeSettings,
+  claudeService: ClaudeService,
   repository?: RepositoryConfig,
 ): MessageService {
-  return new MessageService(claudeCodeSettings, repository)
+  return new MessageService(claudeService, repository)
 }

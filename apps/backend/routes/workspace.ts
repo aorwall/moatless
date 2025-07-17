@@ -58,7 +58,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
 
       // Task validation now handled in workspace service
       const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
-      return c.json(workspaceStatus as any)
+      return c.json(workspaceStatus)
     },
   )
 
@@ -415,8 +415,8 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         // Get workspace status which now includes unified git status
         const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
 
-        if ((workspaceStatus as any).gitStatus) {
-          return c.json((workspaceStatus as any).gitStatus)
+        if (workspaceStatus.gitStatus) {
+          return c.json(workspaceStatus.gitStatus)
         }
         // If git status is not available, return a default response
         return c.json({

@@ -26,7 +26,10 @@ describe('EventService', () => {
       getEvents: vi.fn().mockResolvedValue([]),
     }
 
-    eventService = new EventService(mockStorage)
+    const mockClaudeService = {
+      readClaudeMessages: vi.fn().mockResolvedValue([]),
+    } as any
+    eventService = new EventService(mockStorage, mockClaudeService)
   })
 
   describe('emitEvent', () => {

@@ -13,10 +13,9 @@ import { logger } from '../utils/logger.js'
 
 export class SettingsService {
   private settings: ApplicationSettings | null = null
-  private settingsPath: string | null = null
   private defaults: SettingsResponse['defaults']
 
-  constructor() {
+  constructor(private settingsPath: string | null = null) {
     // Initialize defaults
     this.defaults = {
       dataDir: process.env.DATA_DIR || path.join(os.homedir(), '.moatless'),
@@ -257,6 +256,13 @@ export function resetSettingsServiceInstance(): void {
 
 export async function initializeSettingsService(): Promise<SettingsService> {
   const service = getSettingsService()
+  await service.initialize()
+  return service
+}
+
+// Factory function for dependency injection
+export async function createSettingsService(settingsPath?: string): Promise<SettingsService> {
+  const service = new SettingsService(settingsPath)
   await service.initialize()
   return service
 }

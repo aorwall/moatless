@@ -16,7 +16,7 @@ import type {
   TokenCounts,
   UsageLimits,
 } from '@moatless/types'
-import { getSettingsService } from '../../services/settings.service.js'
+import type { SettingsService } from '../../services/settings.service.js'
 import { logger } from '../../utils/logger.js'
 import {
   findJsonlFiles,
@@ -26,7 +26,7 @@ import {
 } from './claude-utils.js'
 
 export class ClaudeService {
-  private static instance: ClaudeService
+  constructor(private settingsService: SettingsService) {}
 
   // Model pricing per million tokens (as of Nov 2024)
   private readonly modelPricing: Record<string, ModelPricing> = {
@@ -84,13 +84,6 @@ export class ClaudeService {
       token_limit: 0,
       message_limit: 0,
     },
-  }
-
-  public static getInstance(): ClaudeService {
-    if (!ClaudeService.instance) {
-      ClaudeService.instance = new ClaudeService()
-    }
-    return ClaudeService.instance
   }
 
   /**
@@ -273,8 +266,7 @@ export class ClaudeService {
    * Get Claude projects directory path
    */
   public getClaudeProjectPath(): string {
-    const settingsService = getSettingsService()
-    const claudeSettings = settingsService.getClaudeSettings()
+    const claudeSettings = this.settingsService.getClaudeSettings()
 
     // Use configDir from settings if available, otherwise use default
     const claudeConfigDir =
@@ -662,7 +654,7 @@ export class ClaudeService {
   }
 }
 
-// Singleton instance getter
-export function getClaudeService(): ClaudeService {
-  return ClaudeService.getInstance()
+// Factory function for creating Claude service
+export function createClaudeService(settingsService: SettingsService): ClaudeService {
+  return new ClaudeService(settingsService)
 }
