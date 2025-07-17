@@ -5,6 +5,7 @@ import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
+import { getSettingsService } from '../services/settings.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
@@ -118,16 +119,28 @@ export class DockerEnvironment extends BaseEnvironment {
       repositoryName: this.repositoryConfig.name,
     })
 
-    // Find Claude config
-    // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
-    const claudeConfigDir =
-      process.env.CLAUDE_CONFIG_HOME || path.join(process.env.HOME || '', '.claude')
-    let claudeConfigPath: string | null = null
+    // Find Claude config using settings service (optional for tests)
+    const settingsService = getSettingsService()
+    const claudeSettings = settingsService.getClaudeSettings()
 
+    // Determine Claude config directory
+    let claudeConfigDir: string
+    if (claudeSettings.configDir) {
+      claudeConfigDir = claudeSettings.configDir
+    } else if (process.env.CLAUDE_CONFIG_HOME) {
+      claudeConfigDir = process.env.CLAUDE_CONFIG_HOME
+    } else {
+      claudeConfigDir = path.join(process.env.HOME || '', '.claude')
+    }
+
+    let claudeConfigPath: string | null = null
+    let credentialsJsonPath: string | null = null
+
+    // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
     const configJsonPath = path.join(claudeConfigDir, '.config.json')
     if (existsSync(configJsonPath)) {
       claudeConfigPath = configJsonPath
-      this.logger.info('Found Claude config at CLAUDE_CONFIG_HOME/.config.json', {
+      this.logger.info('Found Claude config at CLAUDE_CONFIG_DIR/.config.json', {
         configJsonPath,
       })
     }
@@ -140,13 +153,22 @@ export class DockerEnvironment extends BaseEnvironment {
       }
     }
 
-    if (!claudeConfigPath) {
-      throw new Error(`No Claude config found on path ${claudeConfigPath}`)
+    // Check for credentials file
+    const credentialsPath = path.join(claudeConfigDir, '.credentials.json')
+    if (existsSync(credentialsPath)) {
+      credentialsJsonPath = credentialsPath
     }
 
-    const credentialsJsonPath = path.join(claudeConfigDir, '.credentials.json')
-    if (!existsSync(credentialsJsonPath)) {
-      throw new Error(`No Claude credentials found on path ${credentialsJsonPath}`)
+    // Only warn if no Claude config is found (don't throw error for tests)
+    if (!claudeConfigPath) {
+      this.logger.warn('No Claude config found - Claude Code agent may not work properly', {
+        searchedPaths: [configJsonPath, path.join(process.env.HOME || '', '.claude.json')],
+      })
+    }
+    if (!credentialsJsonPath) {
+      this.logger.warn('No Claude credentials found - Claude Code agent may not work properly', {
+        searchedPath: credentialsPath,
+      })
     }
 
     try {
@@ -182,18 +204,31 @@ export class DockerEnvironment extends BaseEnvironment {
 
       await this.waitForContainerReady()
 
-      this.logger.info('Copying Claude config to container', { claudeConfigPath })
-      await execAsync(
-        `docker cp "${claudeConfigPath}" "${this.containerName}:/home/ubuntu/.claude/.claude.json"`,
-      )
-      await execAsync(
-        `docker cp "${credentialsJsonPath}" "${this.containerName}:/home/ubuntu/.claude/.credentials.json"`,
-      )
+      // Copy Claude config files if they exist
+      if (claudeConfigPath) {
+        this.logger.info('Copying Claude config to container', { claudeConfigPath })
+        await execAsync(
+          `docker cp "${claudeConfigPath}" "${this.containerName}:/home/ubuntu/.claude/.claude.json"`,
+        )
+      }
+
+      if (credentialsJsonPath) {
+        this.logger.info('Copying Claude credentials to container', { credentialsJsonPath })
+        await execAsync(
+          `docker cp "${credentialsJsonPath}" "${this.containerName}:/home/ubuntu/.claude/.credentials.json"`,
+        )
+      }
+
       // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
-      await execAsync(
-        `docker exec --user root "${this.containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
-      )
-      this.logger.info('Claude config copied and ownership fixed successfully')
+      // Only run this if we copied at least one file
+      if (claudeConfigPath || credentialsJsonPath) {
+        await execAsync(
+          `docker exec --user root "${this.containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
+        )
+        this.logger.info('Claude config copied and ownership fixed successfully')
+      } else {
+        this.logger.info('No Claude config files to copy - skipping Claude setup')
+      }
 
       this.logger.info('DockerEnvironment setup completed - container is ready', {
         containerName: this.containerName,
@@ -325,13 +360,25 @@ export class DockerEnvironment extends BaseEnvironment {
       createCommand += ` -e "GIT_WORKTREE_NAME=${worktreeName}"`
     }
 
-    // Mount Claude config directory
+    // Mount Claude config directory using settings service
     const containerClaudeConfigDir = '/home/ubuntu/.claude'
-    const hostClaudeConfigDir =
-      process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude')
+    const settingsService = getSettingsService()
+    const claudeSettings = settingsService.getClaudeSettings()
 
-    if (hostClaudeConfigDir && existsSync(hostClaudeConfigDir)) {
-      createCommand += ` -v "${hostClaudeConfigDir}/projects:${containerClaudeConfigDir}/projects"`
+    // Determine host Claude config directory
+    let hostClaudeConfigDir: string
+    if (claudeSettings.configDir) {
+      hostClaudeConfigDir = claudeSettings.configDir
+    } else if (process.env.CLAUDE_CONFIG_DIR) {
+      hostClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+    } else {
+      hostClaudeConfigDir = path.join(process.env.HOME || '', '.claude')
+    }
+
+    // Mount projects directory if it exists
+    const projectsDir = path.join(hostClaudeConfigDir, 'projects')
+    if (existsSync(projectsDir)) {
+      createCommand += ` -v "${projectsDir}:${containerClaudeConfigDir}/projects"`
     }
 
     if (!this.workerPortMapping) {
