@@ -9,7 +9,6 @@ import type { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
-import { getSettingsService } from '../services/index.js'
 import { handleServiceError } from '../utils/error-handler.js'
 import { validateRequestBody } from '../utils/route-helpers.js'
 
@@ -35,7 +34,8 @@ export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: str
     }),
     async (c) => {
       try {
-        const settingsService = getSettingsService()
+        const services = c.get('services')
+        const { settings: settingsService } = services
         const settings: SettingsResponse = await settingsService.getSettings()
         return c.json(settings)
       } catch (error) {
@@ -76,7 +76,8 @@ export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: str
     }),
     async (c) => {
       try {
-        const settingsService = getSettingsService()
+        const services = c.get('services')
+        const { settings: settingsService } = services
         const update = await validateRequestBody(c, updateSettingsSchema)
         const settings: SettingsResponse = await settingsService.updateSettings(
           update as UpdateSettingsRequest,
@@ -109,7 +110,8 @@ export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: str
     }),
     async (c) => {
       try {
-        const settingsService = getSettingsService()
+        const services = c.get('services')
+        const { settings: settingsService } = services
         const settings: SettingsResponse = await settingsService.resetSettings()
         return c.json(settings)
       } catch (error) {
@@ -139,7 +141,8 @@ export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: str
     }),
     async (c) => {
       try {
-        const settingsService = getSettingsService()
+        const services = c.get('services')
+        const { settings: settingsService } = services
         const status = await settingsService.getSystemStatus()
         return c.json(status)
       } catch (error) {

@@ -1,6 +1,7 @@
 import {
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
+  type ServerStatus,
   ServerStatusSchema,
   ServerStopResponseSchema,
 } from '@moatless/types'
@@ -56,8 +57,8 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
       }
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.startServer(taskId)
-      return c.json(result as any)
+      const result: ServerStatus = await services.workspace.startServer(taskId)
+      return c.json(result)
     },
   )
 
@@ -158,7 +159,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
 
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.restartServer(taskId)
-      return c.json(result as any)
+      return c.json(result)
     },
   )
 
@@ -207,7 +208,7 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
 
       // Task validation and capability check now handled in workspace service
       const status = await services.workspace.getServerStatus(taskId)
-      return c.json(status as any)
+      return c.json(status)
     },
   )
 
@@ -331,31 +332,30 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
       const fullPath = queryString ? `/${proxyPath}?${queryString}` : `/${proxyPath}`
 
       try {
-        // Get the workspace and preview port
+        // Get the workspace
         const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+
+        // Check if environment supports direct port access (local) or needs proxy (docker)
         const serverPort = workspace.getPreviewPort()
 
-        if (!serverPort) {
-          throw new HTTPException(404, { message: 'Preview server port not available' })
-        }
+        if (serverPort) {
+          // Local environment with direct port access
+          const response = await proxy(`http://localhost:${serverPort}${fullPath}`, {
+            headers: {
+              ...c.req.header(),
+              'X-Forwarded-For': '127.0.0.1',
+              'X-Forwarded-Host': c.req.header('host'),
+            },
+          })
 
-        // Use Hono's proxy helper
-        const response = await proxy(`http://localhost:${serverPort}${fullPath}`, {
-          headers: {
-            ...c.req.header(),
-            'X-Forwarded-For': '127.0.0.1',
-            'X-Forwarded-Host': c.req.header('host'),
-          },
-        })
+          // Check if it's an HTML response that we want to inject scripts into
+          const contentType = response.headers.get('content-type') || ''
+          if (contentType.includes('text/html')) {
+            // Read the HTML content
+            const html = await response.text()
 
-        // Check if it's an HTML response that we want to inject scripts into
-        const contentType = response.headers.get('content-type') || ''
-        if (contentType.includes('text/html')) {
-          // Read the HTML content
-          const html = await response.text()
-
-          // Create the injection script
-          const injectedScript = `
+            // Create the injection script
+            const injectedScript = `
             <script>
               console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
               
@@ -372,6 +372,64 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
             </script>
           `
 
+            // Inject the script before </head> or at the beginning of <body>
+            let modifiedHtml = html
+            if (html.includes('</head>')) {
+              modifiedHtml = html.replace('</head>', `${injectedScript}</head>`)
+            } else if (html.includes('<body>')) {
+              modifiedHtml = html.replace('<body>', `<body>${injectedScript}`)
+            } else {
+              // Fallback: add at the beginning
+              modifiedHtml = `${injectedScript}${html}`
+            }
+
+            return new Response(modifiedHtml, {
+              status: response.status,
+              headers: {
+                ...Object.fromEntries(response.headers.entries()),
+                'content-length': modifiedHtml.length.toString(),
+              },
+            })
+          }
+
+          // Return unmodified response for non-HTML content
+          return response
+        }
+        // Docker environment - use proxy method
+        const proxyResponse = await workspace.proxyPreviewRequest({
+          method: c.req.method,
+          path: fullPath,
+          headers: c.req.header() as unknown as Headers,
+          body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.text() : undefined,
+        })
+
+        // Check if it's an HTML response that we want to inject scripts into
+        const contentType = proxyResponse.headers.get('content-type') || ''
+        if (contentType.includes('text/html')) {
+          // Read the HTML content
+          const html =
+            typeof proxyResponse.body === 'string'
+              ? proxyResponse.body
+              : proxyResponse.body.toString('utf-8')
+
+          // Create the injection script
+          const injectedScript = `
+              <script>
+                console.log('🚀 Moatless Preview Script Injected for task: ${taskId}');
+                
+                // Send a message to parent to confirm script is loaded
+                window.addEventListener('load', () => {
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                      type: 'INSPECTOR_SCRIPT_LOADED',
+                      payload: { version: '1.0.0', taskId: '${taskId}' },
+                      source: 'preview-iframe'
+                    }, '*');
+                  }
+                });
+              </script>
+            `
+
           // Inject the script before </head> or at the beginning of <body>
           let modifiedHtml = html
           if (html.includes('</head>')) {
@@ -384,16 +442,16 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
           }
 
           return new Response(modifiedHtml, {
-            status: response.status,
-            headers: {
-              ...Object.fromEntries(response.headers.entries()),
-              'content-length': modifiedHtml.length.toString(),
-            },
+            status: proxyResponse.status,
+            headers: proxyResponse.headers,
           })
         }
 
         // Return unmodified response for non-HTML content
-        return response
+        return new Response(proxyResponse.body, {
+          status: proxyResponse.status,
+          headers: proxyResponse.headers,
+        })
       } catch (error) {
         if (error instanceof Error && error.message.includes('not running')) {
           throw new HTTPException(404, { message: 'Preview server not running' })

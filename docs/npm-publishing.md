@@ -193,12 +193,6 @@ The `docker/build-worker.sh` script:
 - **Base system changes**: Can rebuild base separately with `build-base.sh`
 - **Application changes**: Fast incremental builds
 
-#### Docker Compose
-```bash
-# Build and run with docker-compose
-docker-compose -f docker/docker-compose.npm.yml up -d
-```
-
 #### Simple Dockerfile for NPM Package
 For a minimal container using the published npm package:
 ```dockerfile
@@ -214,6 +208,69 @@ CMD ["moatless-vibe", "start"]
 - **Consistent versioning**: Pin to specific npm versions
 - **Easier updates**: Just update the npm package version
 
+## Security Best Practices
+
+### 1. Essential Security Setup
+
+```bash
+# Enable 2FA for your npm account
+npm profile enable-2fa auth-and-writes
+
+# Review what will be published before releasing
+npm pack --dry-run
+npm pack && tar -tf moatless-vibe-*.tgz
+
+# Check for vulnerabilities
+npm audit --production
+```
+
+### 2. Secure Package Configuration
+
+#### Avoid Install Scripts
+```json
+{
+  "scripts": {
+    "test": "vitest",
+    "build": "pnpm build:package"
+    // Never use: postinstall, preinstall, install
+  }
+}
+```
+
+#### Use Exact Versions
+```json
+{
+  "dependencies": {
+    "@anthropic-ai/claude-code": "1.0.33",  // Not "^1.0.33"
+    "dockerode": "4.0.7"                     // Not "~4.0.7"
+  }
+}
+```
+
+### 3. Protect Sensitive Files
+
+Create `.npmignore`:
+```
+# Keep these out of the published package
+.env*
+*.key
+*.pem
+test/
+docs/
+scripts/
+.git/
+.github/
+```
+
+### 4. Pre-publish Checklist
+
+```bash
+# Quick security check before publishing
+npm audit --production          # No vulnerabilities
+npm pack --dry-run              # Review files
+grep -E "postinstall" package.json  # No install scripts
+```
+
 ## Future Improvements
 
 - Consider using `pkg` to create standalone executables
@@ -221,3 +278,6 @@ CMD ["moatless-vibe", "start"]
 - Add compression for distributed files
 - Create GitHub Actions workflow for automated publishing
 - Publish official Docker images to Docker Hub
+- Implement package signing with sigstore
+- Add Software Bill of Materials (SBOM)
+- Set up automated security scanning in CI/CD

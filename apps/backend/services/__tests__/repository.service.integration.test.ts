@@ -218,9 +218,12 @@ describe('RepositoryService', () => {
       const result = await service.updateRepository('test-id', updates)
 
       expect(result).toMatchObject({
-        ...existingRepo,
-        ...updates,
         id: 'test-id',
+        name: 'Updated Name',
+        description: 'New Description',
+        path: existingRepo.path,
+        codeExecution: existingRepo.codeExecution,
+        createdAt: existingRepo.createdAt,
       })
       expect(result.updatedAt.getTime()).toBeGreaterThan(existingRepo.updatedAt.getTime())
       expect(mockStorage.saveRepository).toHaveBeenCalledWith(result)
@@ -322,34 +325,42 @@ describe('RepositoryService', () => {
       const { spawn } = await import('node:child_process')
       const mockSpawn = vi.mocked(spawn)
 
-      const mockProcess = {
-        stdout: { on: vi.fn() },
-        stderr: { on: vi.fn() },
-        on: vi.fn(),
-      }
+      let commandIndex = 0
+      const commands = ['npm install', 'npm run build']
 
-      mockSpawn.mockReturnValue(mockProcess as any)
+      mockSpawn.mockImplementation(() => {
+        const currentCommand = commands[commandIndex++]
+        const mockProcess = {
+          stdout: { on: vi.fn() },
+          stderr: { on: vi.fn() },
+          on: vi.fn(),
+        }
 
-      // Simulate successful command execution
-      setTimeout(() => {
-        mockProcess.stdout.on.mock.calls[0]?.[1]('Output from npm install')
-        mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1](0)
-      }, 10)
+        // Immediately trigger stdout and close events
+        setTimeout(() => {
+          const stdoutCallback = mockProcess.stdout.on.mock.calls.find(
+            (call) => call[0] === 'data',
+          )?.[1]
+          const closeCallback = mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1]
 
-      const resultPromise = service.runSetupScript(mockRepo)
+          if (stdoutCallback) stdoutCallback(`Output from ${currentCommand}`)
+          if (closeCallback) closeCallback(0)
+        }, 1)
 
-      // Reset mock for second command
-      setTimeout(() => {
-        mockProcess.stdout.on.mock.calls[0]?.[1]('Output from npm run build')
-        mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1](0)
-      }, 20)
+        return mockProcess as any
+      })
 
-      const result = await resultPromise
+      const result = await service.runSetupScript(mockRepo)
 
       expect(result.success).toBe(true)
       expect(result.commands).toHaveLength(2)
       expect(result.commands[0]).toMatchObject({
         command: 'npm install',
+        success: true,
+        exit_code: 0,
+      })
+      expect(result.commands[1]).toMatchObject({
+        command: 'npm run build',
         success: true,
         exit_code: 0,
       })
@@ -368,19 +379,26 @@ describe('RepositoryService', () => {
       const { spawn } = await import('node:child_process')
       const mockSpawn = vi.mocked(spawn)
 
-      const mockProcess = {
-        stdout: { on: vi.fn() },
-        stderr: { on: vi.fn() },
-        on: vi.fn(),
-      }
+      mockSpawn.mockImplementation(() => {
+        const mockProcess = {
+          stdout: { on: vi.fn() },
+          stderr: { on: vi.fn() },
+          on: vi.fn(),
+        }
 
-      mockSpawn.mockReturnValue(mockProcess as any)
+        // Immediately trigger stderr and close events with failure
+        setTimeout(() => {
+          const stderrCallback = mockProcess.stderr.on.mock.calls.find(
+            (call) => call[0] === 'data',
+          )?.[1]
+          const closeCallback = mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1]
 
-      // Simulate failed command execution
-      setTimeout(() => {
-        mockProcess.stderr.on.mock.calls[0]?.[1]('Error: Command failed')
-        mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1](1)
-      }, 10)
+          if (stderrCallback) stderrCallback('Error: Command failed')
+          if (closeCallback) closeCallback(1)
+        }, 1)
+
+        return mockProcess as any
+      })
 
       const result = await service.runSetupScript({
         ...mockRepo,
@@ -401,26 +419,33 @@ describe('RepositoryService', () => {
       const { spawn } = await import('node:child_process')
       const mockSpawn = vi.mocked(spawn)
 
-      const mockProcess = {
-        stdout: { on: vi.fn() },
-        stderr: { on: vi.fn() },
-        on: vi.fn(),
-      }
+      mockSpawn.mockImplementation(() => {
+        const mockProcess = {
+          stdout: { on: vi.fn() },
+          stderr: { on: vi.fn() },
+          on: vi.fn(),
+        }
 
-      mockSpawn.mockReturnValue(mockProcess as any)
-
-      // Simulate git branch output
-      setTimeout(() => {
-        const gitOutput = `* main
+        // Immediately trigger stdout and close events
+        setTimeout(() => {
+          const gitOutput = `* main
   feature/branch-1
   feature/branch-2
   remotes/origin/main
   remotes/origin/feature/branch-1
   remotes/origin/HEAD -> origin/main
   workspace-123`
-        mockProcess.stdout.on.mock.calls[0]?.[1](gitOutput)
-        mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1](0)
-      }, 10)
+          const stdoutCallback = mockProcess.stdout.on.mock.calls.find(
+            (call) => call[0] === 'data',
+          )?.[1]
+          const closeCallback = mockProcess.on.mock.calls.find((call) => call[0] === 'close')?.[1]
+
+          if (stdoutCallback) stdoutCallback(gitOutput)
+          if (closeCallback) closeCallback(0)
+        }, 1)
+
+        return mockProcess as any
+      })
 
       const branches = await service.getBranches('/test/repo')
 
@@ -431,20 +456,21 @@ describe('RepositoryService', () => {
       const { spawn } = await import('node:child_process')
       const mockSpawn = vi.mocked(spawn)
 
-      const mockProcess = {
-        stdout: { on: vi.fn() },
-        stderr: { on: vi.fn() },
-        on: vi.fn(),
-      }
+      mockSpawn.mockImplementation(() => {
+        const mockProcess = {
+          stdout: { on: vi.fn() },
+          stderr: { on: vi.fn() },
+          on: vi.fn(),
+        }
 
-      mockSpawn.mockReturnValue(mockProcess as any)
+        // Immediately trigger error
+        setTimeout(() => {
+          const errorCallback = mockProcess.on.mock.calls.find((call) => call[0] === 'error')?.[1]
+          if (errorCallback) errorCallback(new Error('Command failed'))
+        }, 1)
 
-      // Simulate error
-      setTimeout(() => {
-        mockProcess.on.mock.calls.find((call) => call[0] === 'error')?.[1](
-          new Error('Command failed'),
-        )
-      }, 10)
+        return mockProcess as any
+      })
 
       const branches = await service.getBranches('/test/repo')
       expect(branches).toEqual([])

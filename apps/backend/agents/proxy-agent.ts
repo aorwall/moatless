@@ -27,9 +27,12 @@ export class ProxyAgent extends BaseAgentClass {
   }
 
   async *run(message: string, runOptions?: AgentRunOptions): AsyncGenerator<Event> {
+    const workerUrl = `http://localhost:${this.workerPort}/execute-agent`
+
     try {
       // Make HTTP request to worker to execute agent
-      const workerUrl = `http://localhost:${this.workerPort}/execute-agent`
+
+      this.logger.info('Executing agent via proxy', { workerUrl })
 
       const response = await fetch(workerUrl, {
         method: 'POST',
@@ -43,11 +46,11 @@ export class ProxyAgent extends BaseAgentClass {
           message,
           runOptions: {
             ...runOptions,
-            workspaceDir: '/workspace',
+            workspaceDir: '/repo',
           },
         }),
       })
-
+      this.logger.info('Agent execution response', { response })
       if (!response.ok) {
         const error = await response.text()
         throw new Error(`Failed to execute agent in worker: ${error}`)
@@ -96,7 +99,7 @@ export class ProxyAgent extends BaseAgentClass {
         }
       }
     } catch (error) {
-      this.logger.error('Error executing agent via proxy', error as Error)
+      this.logger.error('Error executing agent via proxy', error as Error, { workerUrl })
       throw error
     }
   }
@@ -126,27 +129,6 @@ export class ProxyAgent extends BaseAgentClass {
 
   getSessionId(): string | undefined {
     return this.remoteSessionId
-  }
-
-  async updateSessionId(): Promise<void> {
-    try {
-      const sessionUrl = `http://localhost:${this.workerPort}/agent-session/${this.taskId}`
-      const response = await fetch(sessionUrl)
-
-      if (response.ok) {
-        const result = (await response.json()) as {
-          success: boolean
-          sessionId?: string
-          agentType?: string
-          createdAt?: Date
-        }
-        this.remoteSessionId = result.sessionId
-      }
-    } catch (error) {
-      this.logger.warn('Failed to update session ID', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
   }
 
   async getBranchNameAndSummary(message: string, options?: AgentRunOptions): Promise<null> {

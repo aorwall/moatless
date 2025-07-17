@@ -6,7 +6,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import type { ServerStatus } from '@moatless/types'
 import { createTaskLogger } from '../utils/logger.js'
-import { PortAllocationService } from './port-allocation.service.js'
+import { findAvailablePort } from '../utils/port-allocation.js'
 
 const execAsync = promisify(exec)
 
@@ -26,7 +26,6 @@ export class PreviewServer {
   private startTime?: number
   private logger = createTaskLogger('preview-server')
   private readonly portPlaceholder = '{PORT}'
-  private portAllocationService: PortAllocationService
 
   constructor(
     private taskId: string,
@@ -34,9 +33,8 @@ export class PreviewServer {
     private serverCommand: string,
     private envVars: Record<string, string> = {},
   ) {
-    this.portAllocationService = PortAllocationService.getInstance()
     this.logger.info('PreviewServer initialized with:', {
-      taskId,
+      taskId: this.taskId,
       workspacePath,
       serverCommand,
       portPlaceholder: this.portPlaceholder,
@@ -49,8 +47,8 @@ export class PreviewServer {
       throw new Error('Server is already running')
     }
 
-    // Allocate port using port allocation service
-    this.port = await this.portAllocationService.allocatePort(this.taskId, 'preview')
+    // Allocate port for preview server
+    this.port = await findAvailablePort('preview')
     this.logger.info('Allocated port:', { port: this.port })
 
     // Replace port placeholder in command
@@ -188,8 +186,7 @@ export class PreviewServer {
 
       this.logger.info(`Server started successfully on port ${this.port} with PID ${this.pid}`)
 
-      // Update port allocation with PID
-      await this.portAllocationService.allocatePort(this.taskId, 'preview', this.pid!)
+      // PID tracking removed - using simplified port allocation
 
       return {
         running: true,
@@ -425,9 +422,7 @@ export class PreviewServer {
   private cleanup(): void {
     // Release port allocation
     if (this.port) {
-      this.portAllocationService.releasePort(this.port).catch((error) => {
-        this.logger.error('Error releasing port:', error)
-      })
+      // Port tracking simplified - no need to release ports manually
     }
 
     this.process = undefined

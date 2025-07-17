@@ -1,9 +1,9 @@
-import { promises as fs } from 'node:fs'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 import type {
   AssistantMessage,
   AssistantMessageContent,
   Message,
+  RepositoryConfig,
   ToolResult,
   UserMessage,
 } from '@moatless/types'
@@ -13,106 +13,43 @@ import {
   type SDKAssistantMessage,
   type SDKUserMessage,
 } from '@moatless/types'
-import type { ClaudeCodeSettings } from '@moatless/types/types/claude'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
-import { getClaudeEventsFilePath } from '../utils/claude-code-events.js'
-
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { logger } from '../utils/logger.js'
 export class MessageService {
-  private claudeCodeSettings: ClaudeCodeSettings
-
-  constructor(claudeCodeSettings: ClaudeCodeSettings) {
-    this.claudeCodeSettings = claudeCodeSettings
-  }
+  constructor(
+    private claudeService: ClaudeService,
+    private repository?: RepositoryConfig,
+  ) {}
 
   /**
-   * Read messages directly from Claude directory using stored settings
+   * Read messages directly from Claude directory
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
-    return this.readMessagesFromClaudeDirectoryWithSettings(this.claudeCodeSettings, task)
-  }
+    try {
+      // Use Claude service to read messages
+      const sdkMessages = await this.claudeService.readClaudeMessages(
+        task.taskId,
+        task,
+        this.repository,
+      )
 
-  /**
-   * Read messages directly from Claude directory (bypassing event service)
-   */
-  async readMessagesFromClaudeDirectoryWithSettings(
-    settings: ClaudeCodeSettings,
-    task: Task,
-  ): Promise<Message[]> {
-    if (!task.workspacePath) {
-      console.warn('No workspace path found for task', {
+      // If we got messages from Claude files, transform and return them
+      if (sdkMessages.length > 0) {
+        return this.transformSDKMessagesToMessages(sdkMessages)
+      }
+
+      // Fall back to creating messages from task iterations if no Claude files
+      logger.debug('No Claude messages found, falling back to task iterations', {
         taskId: task.taskId,
       })
       return this.createMessagesFromTaskIterations(task)
-    }
-
-    const allMessages: Message[] = []
-
-    // Process all iterations in chronological order
-    for (const iteration of task.iterations) {
-      const iterationMessages = await this.getMessagesForIteration(settings, task, iteration)
-      allMessages.push(...iterationMessages)
-    }
-
-    return allMessages
-  }
-
-  /**
-   * Get messages for a single iteration - either from Claude file or task iteration data
-   */
-  private async getMessagesForIteration(
-    settings: ClaudeCodeSettings,
-    task: Task,
-    iteration: TaskIteration,
-  ): Promise<Message[]> {
-    const filePath = getClaudeEventsFilePath(settings, task.workspacePath!, iteration)
-
-    // If no file path can be generated (e.g., no agentSessionId), fall back to task iteration
-    if (!filePath) {
-      console.debug('No Claude file path available for iteration, using task data', {
-        taskId: task.taskId,
-        iterationNumber: iteration.iterationNumber,
-      })
-      return this.createMessagesFromSingleIteration(iteration)
-    }
-
-    try {
-      // Try to read Claude file
-      const fileContent = await fs.readFile(filePath, 'utf-8')
-      const lines = fileContent.trim().split('\n').filter(Boolean)
-
-      const sdkMessages: SDKMessage[] = []
-      let _parseErrors = 0
-
-      for (const line of lines) {
-        try {
-          const sdkMessage = JSON.parse(line) as SDKMessage
-          sdkMessages.push(sdkMessage)
-        } catch (parseError) {
-          _parseErrors++
-          console.warn('Failed to parse Claude SDK message', {
-            taskId: task.taskId,
-            error: parseError instanceof Error ? parseError.message : String(parseError),
-          })
-        }
-      }
-
-      return this.transformSDKMessagesToMessages(sdkMessages)
     } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        console.debug('Claude messages file does not exist for iteration, using task data', {
-          taskId: task.taskId,
-          filePath,
-          iterationNumber: iteration.iterationNumber,
-        })
-        return this.createMessagesFromSingleIteration(iteration)
-      }
-
-      // For other errors, log and throw
-      console.error('Error reading Claude messages file', error as Error, {
+      logger.error('Error reading Claude messages', error as Error, {
         taskId: task.taskId,
-        filePath,
       })
-      throw error
+      // Fall back to task iterations on error
+      return this.createMessagesFromTaskIterations(task)
     }
   }
 
@@ -240,7 +177,7 @@ export class MessageService {
       messages.push(...iterationMessages)
     }
 
-    console.debug('Created messages from task iterations', {
+    logger.debug('Created messages from task iterations', {
       taskId: task.taskId,
       totalIterations: task.iterations.length,
       messagesCreated: messages.length,
@@ -397,6 +334,9 @@ export class MessageService {
   }
 }
 
-export function createMessageService(claudeCodeSettings: ClaudeCodeSettings): MessageService {
-  return new MessageService(claudeCodeSettings)
+export function createMessageService(
+  claudeService: ClaudeService,
+  repository?: RepositoryConfig,
+): MessageService {
+  return new MessageService(claudeService, repository)
 }

@@ -12,8 +12,6 @@ vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
 // Import the mocked functions to get access to them
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 
-const mockUseTaskEventSubscription = vi.mocked(useTaskEventSubscription)
-
 // Mock the hooks
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
   useTaskEvents: vi.fn(() => ({
@@ -74,8 +72,8 @@ describe('TaskCard Real-time Updates', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
     // Capture the event handler when subscribed
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -113,8 +111,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should only show last 3 events', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -153,8 +151,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should clear real-time events when task stops running', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )
@@ -189,8 +187,8 @@ describe('TaskCard Real-time Updates', () => {
   it('should not add duplicate events', () => {
     let eventHandler: ((event: Event) => void) | null = null
 
-    mockUseTaskEventSubscription.mockImplementation(
-      (_taskId: string, handler: (event: Event) => void) => {
+    vi.mocked(useTaskEventSubscription).mockImplementation(
+      (_taskId: string | undefined, handler: (event: Event) => void) => {
         eventHandler = handler
       },
     )

@@ -58,7 +58,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
 
       // Task validation now handled in workspace service
       const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
-      return c.json(workspaceStatus as any)
+      return c.json(workspaceStatus)
     },
   )
 
@@ -126,11 +126,20 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const { path = '/', recursive = false } = validatedQuery
 
       try {
-        // Task validation and capability check now handled in workspace service
-        const files = await services.workspace.listFiles(taskId, path, recursive)
+        // Get workspace instance and call method directly
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const fileList = await workspace.listFiles(path, recursive)
+
+        // Transform string array to match FileListResponseSchema
+        const files = fileList.map((filePath) => ({
+          name: filePath.split('/').pop() || filePath,
+          path: filePath,
+          type: 'file' as const, // For now, assume all are files
+        }))
+
         return c.json({ files, totalCount: files.length })
       } catch (error) {
-        handleServiceError(error, 'Get workspace status')
+        handleServiceError(error, 'List files')
       }
     },
   )
@@ -189,8 +198,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const filePath = extractFilePathFromWildcard(c.req.path, prefix, taskId)
 
       try {
-        // Task validation and capability check now handled in workspace service
-        const fileData = await services.workspace.readFileWithChanges(taskId, filePath)
+        // Get workspace instance and call method directly
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const fileData = await workspace.readFileWithChanges(filePath)
         return c.json({
           content: fileData.content,
           encoding: 'utf-8',
@@ -200,7 +210,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           isModified: fileData.isModified,
         })
       } catch (error) {
-        handleServiceError(error, 'Get workspace status')
+        handleServiceError(error, 'Read file')
       }
     },
   )
@@ -266,8 +276,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const validatedBody = await validateRequestBody(c, FileContentSchema)
       const { content } = validatedBody
 
-      // Task validation and capability check now handled in workspace service
-      await services.workspace.writeFile(taskId, filePath, content)
+      // Get workspace instance and call method directly
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      await workspace.writeFile(filePath, content)
       return c.json({ success: true })
     },
   )
@@ -315,14 +326,15 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const { query, limit } = validatedBody
 
       try {
-        // Task validation and capability check now handled in workspace service
-        const result = await services.workspace.searchFiles(taskId, {
+        // Get workspace instance and call method directly
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const result = await workspace.searchFiles({
           query,
           limit,
         })
         return c.json(result)
       } catch (error) {
-        handleServiceError(error, 'Get workspace status')
+        handleServiceError(error, 'Search files')
       }
     },
   )
@@ -358,8 +370,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const taskId = getTaskId(c)
 
       try {
-        // Task validation and capability check now handled in workspace service
-        const diffResult = await services.workspace.getGitDiff(taskId)
+        // Get workspace instance and call method directly
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const diffResult = await workspace.getGitDiff()
         return c.json({
           diff: diffResult.diffString,
           files: diffResult.files.map((f) => f.filename),
@@ -370,7 +383,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           compareBase: diffResult.compareBase,
         })
       } catch (error) {
-        handleServiceError(error, 'Get workspace status')
+        handleServiceError(error, 'Get git diff')
       }
     },
   )
@@ -409,8 +422,8 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         // Get workspace status which now includes unified git status
         const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
 
-        if ((workspaceStatus as any).gitStatus) {
-          return c.json((workspaceStatus as any).gitStatus)
+        if (workspaceStatus.gitStatus) {
+          return c.json(workspaceStatus.gitStatus)
         }
         // If git status is not available, return a default response
         return c.json({
@@ -481,7 +494,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const rootPath = c.req.query('path') || '.'
 
       try {
-        const result = await services.workspace.getFileTreeWithChanges(taskId, rootPath)
+        // Get workspace instance and call method directly
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const result = await workspace.getFileTreeWithChanges(rootPath)
         return c.json(result)
       } catch (error) {
         handleServiceError(error, 'Get file tree with changes')
@@ -542,11 +557,12 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const baseBranch = c.req.query('baseBranch')
 
       try {
-        // Task validation and capability check now handled in workspace service
-        const result = await services.workspace.syncWorkspaceWithMain(taskId, baseBranch)
+        // Get workspace instance and call method directly
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const result = await workspace.syncWithMain(baseBranch)
         return c.json(result)
       } catch (error) {
-        handleServiceError(error, 'Get workspace status')
+        handleServiceError(error, 'Sync with main')
       }
     },
   )
@@ -593,8 +609,9 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       const validatedBody = CommandExecutionSchema.parse(body)
       const { command, timeout } = validatedBody
 
-      // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.runCommand(taskId, command, timeout)
+      // Get workspace instance and call method directly
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const result = await workspace.runCommand(command, timeout)
       return c.json(result)
     },
   )

@@ -11,8 +11,8 @@ import type {
   Task,
 } from '@moatless/types'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { build } from '../../test/helper.js'
-import { logger } from '../../utils/logger.js'
+import { build } from '../test/helper.js'
+import { logger } from '../utils/logger.js'
 
 const execAsync = promisify(exec)
 

@@ -454,3 +454,12 @@ export class FileOperations {
     ;(this as any).workspacePath = newPath
   }
 }
+
+// Factory function for creating file operations for a specific workspace
+export function createFileOperations(
+  taskId: string,
+  workspacePath: string,
+  originalBranch?: string,
+): FileOperations {
+  return new FileOperations(taskId, workspacePath, originalBranch)
+}

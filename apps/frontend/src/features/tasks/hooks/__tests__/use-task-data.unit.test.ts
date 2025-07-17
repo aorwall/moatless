@@ -1,4 +1,4 @@
-import { EventType, WorkspaceStatus } from '@moatless/types'
+import { EventType } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'
@@ -40,7 +40,7 @@ describe('useTaskData', () => {
       ],
     }
     const mockWorkspaceStatus = {
-      status: WorkspaceStatus.IDLE,
+      status: 'idle' as const,
       backgroundTaskCount: 0,
       gitStatus: {
         currentBranch: 'test-branch',
@@ -115,7 +115,7 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({
-      status: WorkspaceStatus.IDLE,
+      status: 'idle' as const,
       gitStatus: {
         currentBranch: 'test-branch',
         baseBranch: 'main',

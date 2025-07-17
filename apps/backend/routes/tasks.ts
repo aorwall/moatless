@@ -24,6 +24,7 @@ import {
   SendMessageResponseSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
+  type ServerStatus,
   ServerStatusSchema,
   ServerStopResponseSchema,
   SimpleTaskResponseSchema,
@@ -44,7 +45,6 @@ import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
-import { createMessageService } from '../services/message.service.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { extractFilePathFromWildcard, validateRequestBody } from '../utils/route-helpers.js'
 
@@ -580,7 +580,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-      const { task: taskService, event: eventService } = services
+      const { task: taskService } = services
 
       const taskId = getTaskId(c)
 
@@ -597,16 +597,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         })
       }
 
-      // Get ClaudeCodeSettings from event service
-      const claudeCodeSettings = (eventService as any).claudeCodeSettings
-      if (!claudeCodeSettings) {
-        throw new HTTPException(500, {
-          message: 'ClaudeCodeSettings not available',
-        })
-      }
-
-      const messageService = createMessageService(claudeCodeSettings)
-      const messages = await messageService.readMessagesFromClaudeDirectory(task)
+      const messages = await services.message.readMessagesFromClaudeDirectory(task)
 
       return c.json({
         messages,
@@ -840,7 +831,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const filePaths = await services.workspace.listFiles(taskId, path, recursive)
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const filePaths = await workspace.listFiles(path, recursive)
         // Transform string paths to match the schema
         const files = filePaths.map((filePath) => ({
           name: filePath.split('/').pop() || filePath,
@@ -912,7 +904,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const content = await services.workspace.readFile(taskId, filePath)
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const content = await workspace.readFile(filePath)
         return c.json({ content, encoding: 'utf-8' })
       } catch (error) {
         if (error instanceof TaskNotFoundError) {
@@ -1002,7 +995,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { content } = validatedBody
 
       // Task validation and capability check now handled in workspace service
-      await services.workspace.writeFile(taskId, filePath, content)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      await workspace.writeFile(filePath, content)
       return c.json({ success: true })
     },
   )
@@ -1062,7 +1056,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const result = await services.workspace.searchFiles(taskId, {
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const result = await workspace.searchFiles({
           query,
           limit,
         })
@@ -1122,7 +1117,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const diffResult = await services.workspace.getGitDiff(taskId)
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const diffResult = await workspace.getGitDiff()
 
         return c.json({
           diff: diffResult.diffString,
@@ -1191,8 +1187,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         // Get workspace status which now includes unified git status
         const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
 
-        if ((workspaceStatus as any).gitStatus) {
-          return c.json((workspaceStatus as any).gitStatus)
+        if (workspaceStatus.gitStatus) {
+          return c.json(workspaceStatus.gitStatus)
         }
         // If git status is not available, return a default response
         return c.json({
@@ -1274,7 +1270,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { command, timeout } = validatedBody
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.runCommand(taskId, command, timeout)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const result = await workspace.runCommand(command, timeout)
       return c.json(result)
     },
   )
@@ -1321,8 +1318,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.startServer(taskId)
-      return c.json(result as any)
+      const result: ServerStatus = await services.workspace.startServer(taskId)
+      return c.json(result)
     },
   )
 
@@ -1419,7 +1416,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.restartServer(taskId)
-      return c.json(result as any)
+      return c.json(result)
     },
   )
 
@@ -1466,7 +1463,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       // Task validation and capability check now handled in workspace service
       const status = await services.workspace.getServerStatus(taskId)
-      return c.json(status as any)
+      return c.json(status)
     },
   )
 

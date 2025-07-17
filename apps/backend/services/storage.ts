@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
-import { fromJSON, toJSON } from '@moatless/types'
+import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { getDataDir, logger } from '../utils/index.js'
 
 export interface StorageBackend {
@@ -97,7 +97,10 @@ export class FileStorage implements StorageBackend {
 
   // Type-safe convenience methods
   async saveTask(task: Task): Promise<void> {
-    await this.save(`tasks/${task.taskId}`, task)
+    // Clean null values from optional fields before saving
+    const taskOptionalFields = ['workspacePath']
+    const cleanedTask = removeNullsFromOptionalFields(task, taskOptionalFields)
+    await this.save(`tasks/${cleanedTask.taskId}`, cleanedTask)
   }
 
   async getTask(taskId: string): Promise<Task | null> {

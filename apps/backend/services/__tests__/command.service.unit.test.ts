@@ -25,7 +25,7 @@ describe('CommandService', () => {
   let service: CommandService
   let mockStorage: StorageBackend
 
-  const defaultCommands = {
+  const getTestCommands = () => ({
     commands: {
       commit: {
         name: 'commit',
@@ -52,12 +52,16 @@ describe('CommandService', () => {
         type: 'command',
       },
     },
-  }
+  })
 
   beforeEach(() => {
     mockStorage = createMockStorage()
     service = new CommandService(mockStorage)
     vi.clearAllMocks()
+
+    // Reset the mock to ensure clean state
+    vi.mocked(mockStorage.get).mockReset()
+    vi.mocked(mockStorage.save).mockReset()
   })
 
   afterEach(() => {
@@ -85,22 +89,19 @@ describe('CommandService', () => {
       expect(commands[0].name).toBe('test')
     })
 
-    it('should create default commands when none exist', async () => {
+    it('should return default commands when none exist', async () => {
       vi.mocked(mockStorage.get).mockResolvedValue(null)
 
       const commands = await service.listCommands()
 
-      expect(mockStorage.save).toHaveBeenCalledWith(
-        'commands',
-        expect.objectContaining({
-          commands: expect.objectContaining({
-            commit: expect.any(Object),
-            continue: expect.any(Object),
-            'create-pr': expect.any(Object),
-          }),
-        }),
-      )
+      // When data is null, it returns defaults without saving
+      expect(mockStorage.save).not.toHaveBeenCalled()
       expect(commands.length).toBeGreaterThan(0)
+      // Verify some default commands are present
+      const commandNames = commands.map((c) => c.name)
+      expect(commandNames).toContain('commit')
+      expect(commandNames).toContain('continue')
+      expect(commandNames).toContain('create-pr')
     })
 
     it('should handle storage errors gracefully', async () => {
@@ -127,7 +128,7 @@ describe('CommandService', () => {
     }
 
     it('should create a new command successfully', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       const result = await service.createCommand(newCommand)
 
@@ -155,7 +156,7 @@ describe('CommandService', () => {
     })
 
     it('should throw error if command name already exists', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       const duplicateCommand = {
         ...newCommand,
@@ -171,7 +172,7 @@ describe('CommandService', () => {
 
   describe('getCommand', () => {
     it('should return command when found', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       const result = await service.getCommand('commit')
 
@@ -182,7 +183,7 @@ describe('CommandService', () => {
     })
 
     it('should return null when command not found', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       const result = await service.getCommand('non-existent')
 
@@ -192,14 +193,33 @@ describe('CommandService', () => {
 
   describe('listCommands', () => {
     it('should return all commands as array', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      // Set up a fresh mock with exactly what we want
+      const specificCommands = {
+        commands: {
+          test1: {
+            name: 'test1',
+            description: 'Test command 1',
+            prompt: 'test1',
+            conditions: {},
+            type: 'command',
+          },
+          test2: {
+            name: 'test2',
+            description: 'Test command 2',
+            prompt: 'test2',
+            conditions: {},
+            type: 'command',
+          },
+        },
+      }
+      vi.mocked(mockStorage.get).mockResolvedValueOnce(specificCommands)
 
       const result = await service.listCommands()
 
       expect(result).toBeInstanceOf(Array)
       expect(result).toHaveLength(2)
-      expect(result.map((cmd: Command) => cmd.name)).toContain('commit')
-      expect(result.map((cmd: Command) => cmd.name)).toContain('continue')
+      expect(result.map((cmd: Command) => cmd.name)).toContain('test1')
+      expect(result.map((cmd: Command) => cmd.name)).toContain('test2')
     })
 
     it('should return empty array when no commands exist', async () => {
@@ -219,7 +239,7 @@ describe('CommandService', () => {
     }
 
     it('should update command successfully', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       const result = await service.updateCommand('commit', updates)
 
@@ -237,7 +257,7 @@ describe('CommandService', () => {
     })
 
     it('should handle command name change', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       const nameUpdate = {
         ...updates,
@@ -261,7 +281,8 @@ describe('CommandService', () => {
     })
 
     it('should throw error when updating to existing name', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      // Mock needs to return the same value for multiple calls
+      vi.mocked(mockStorage.get).mockImplementation(() => Promise.resolve(getTestCommands()))
 
       const nameUpdate = {
         name: 'continue',
@@ -274,7 +295,7 @@ describe('CommandService', () => {
     })
 
     it('should throw CommandNotFoundError when command not found', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       await expect(service.updateCommand('non-existent', updates)).rejects.toThrow(
         CommandNotFoundError,
@@ -284,7 +305,8 @@ describe('CommandService', () => {
 
   describe('deleteCommand', () => {
     it('should delete command successfully', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      // Use mockImplementation to ensure consistent return value
+      vi.mocked(mockStorage.get).mockImplementation(() => Promise.resolve(getTestCommands()))
 
       await service.deleteCommand('commit')
 
@@ -302,7 +324,7 @@ describe('CommandService', () => {
     })
 
     it('should throw CommandNotFoundError when command not found', async () => {
-      vi.mocked(mockStorage.get).mockResolvedValue(defaultCommands)
+      vi.mocked(mockStorage.get).mockResolvedValue(getTestCommands())
 
       await expect(service.deleteCommand('non-existent')).rejects.toThrow(CommandNotFoundError)
     })
