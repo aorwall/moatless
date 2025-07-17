@@ -22,13 +22,15 @@ subscribeToTaskEvents(taskId: string, callback: (event: TaskEvent) => void): () 
 
 ## Architecture Overview
 
-Real-time communication via Server-Sent Events (SSE) with centralized cache invalidation.
+Real-time communication via Server-Sent Events (SSE) with **reactive task updates** and centralized cache invalidation.
 
 ```mermaid
 graph TB
     subgraph Backend
-        Services[Services] -->|emit| ES[EventService]
+        AS[Agent Service] -->|emit events only| ES[EventService]
         ES -->|broadcast| SSE[SSE Route]
+        ES -->|reactive subscription| TS[Task Service]
+        TS -->|update tasks| ST[Storage]
     end
     
     subgraph Frontend
@@ -38,6 +40,12 @@ graph TB
         RQ -->|refetch| UI[Components]
     end
 ```
+
+### Reactive Backend Architecture
+- **Agent Service**: Emits events about execution progress
+- **Event Service**: Broadcasts events to SSE clients AND internal subscribers
+- **Task Service**: Subscribes to events and reactively updates task state
+- **Storage**: Persists updated tasks after event-driven changes
 
 ## Implementation Guide
 
@@ -115,16 +123,52 @@ const handleTaskEvent = (event: TaskEvent) => {
 
 ## Event Flow
 
-### Complete Event Journey
+### Complete Event Journey (Reactive Pattern)
 ```
-1. Backend Action → taskService.updateStatus()
-2. Emit Event → eventService.emitEvent(event)
-3. Broadcast → SSE route sends to all clients
-4. Receive → GlobalEventStream receives
-5. Invalidate → Consult EVENT_INVALIDATION_MAP
-6. Update Cache → React Query invalidates queries
-7. UI Update → Components re-render with new data
+1. Agent Action → agentService.executeAgent()
+2. Emit Event → eventService.emitEvent(event) with agentSessionId
+3. Backend Reaction → taskService.handleAgentEvent() updates task
+4. Broadcast → SSE route sends to all clients
+5. Receive → GlobalEventStream receives
+6. Invalidate → Consult EVENT_INVALIDATION_MAP
+7. Update Cache → React Query invalidates queries
+8. UI Update → Components re-render with new data
 ```
+
+### Reactive Task Updates
+The Task Service now subscribes to all events and reactively updates task state:
+
+```typescript
+// Task Service Event Subscription
+this.eventService.subscribeAll((event: Event) => {
+  if (this.shouldHandleEvent(event)) {
+    this.handleAgentEvent(event)
+  }
+})
+
+// Reactive handlers for different event types
+private async handleAgentEvent(event: Event) {
+  // Update agentSessionId if present
+  if (event.agentSessionId && !iteration.agentSessionId) {
+    iteration.agentSessionId = event.agentSessionId
+  }
+  
+  // Handle specific event types
+  switch (event.type) {
+    case EventType.RESULT:
+      // Update iteration status, cost, result, git data
+      await this.handleResultEvent(task, iteration, event)
+      break
+    case EventType.ERROR:
+      // Update iteration error, emit TASK_STATUS event
+      await this.handleErrorEvent(task, iteration, event)
+      break
+    case EventType.MESSAGE:
+      // Update context tokens
+      await this.handleMessageEvent(task, iteration, event)
+      break
+  }
+}
 
 ## Event Types
 
@@ -143,6 +187,7 @@ interface BaseEvent {
   contextTokens?: number
   numTurns?: number
   totalCost?: number
+  agentSessionId?: string  // NEW: Available on all events for task updates
 }
 ```
 

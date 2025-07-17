@@ -12,7 +12,6 @@ const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 describe('DockerEnvironment - Unit Tests', () => {
   let dockerEnvironment: DockerEnvironment
   let mockLogger: any
-  let mockEventService: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -31,11 +30,6 @@ describe('DockerEnvironment - Unit Tests', () => {
     vi.doMock('../../utils/port-allocation.js', () => ({
       findAvailablePort: mockFindAvailablePort,
     }))
-
-    // Mock event service
-    mockEventService = {
-      emitWorkspaceEvent: vi.fn(),
-    }
 
     const mockRepositoryConfig = {
       id: 'test-repo',
@@ -56,7 +50,6 @@ describe('DockerEnvironment - Unit Tests', () => {
     dockerEnvironment = new DockerEnvironment(
       'test-task',
       mockRepositoryConfig as any,
-      mockEventService,
       '/test/workspace',
     )
   })
@@ -110,12 +103,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'docker-task',
-        dockerConfig as any,
-        mockEventService,
-        '/docker/workspace',
-      )
+      const env = new DockerEnvironment('docker-task', dockerConfig as any, '/docker/workspace')
 
       expect(env.getType()).toBe('docker')
     })
@@ -139,12 +127,7 @@ describe('DockerEnvironment - Unit Tests', () => {
           },
         }
 
-        const env = new DockerEnvironment(
-          `task-${index}`,
-          repoConfig as any,
-          mockEventService,
-          `/workspace-${index}`,
-        )
+        const env = new DockerEnvironment(`task-${index}`, repoConfig as any, `/workspace-${index}`)
 
         expect(env.getType()).toBe('docker')
       })
@@ -180,12 +163,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'env-task',
-        configWithEnvVars as any,
-        mockEventService,
-        '/env/workspace',
-      )
+      const env = new DockerEnvironment('env-task', configWithEnvVars as any, '/env/workspace')
 
       expect(env.getType()).toBe('docker')
     })
@@ -207,7 +185,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'commands-task',
         configWithCommands as any,
-        mockEventService,
         '/commands/workspace',
       )
 
@@ -231,7 +208,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'workdir-task',
         configWithWorkDir as any,
-        mockEventService,
         '/workdir/workspace',
       )
 
@@ -252,7 +228,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'default-task',
         configWithoutWorkDir as any,
-        mockEventService,
         '/default/workspace',
       )
 
@@ -281,7 +256,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'preview-task',
         configWithPreview as any,
-        mockEventService,
         '/preview/workspace',
       )
 
@@ -302,7 +276,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'no-preview-task',
         configWithoutPreview as any,
-        mockEventService,
         '/no-preview/workspace',
       )
 
@@ -335,12 +308,7 @@ describe('DockerEnvironment - Unit Tests', () => {
           },
         }
 
-        const env = new DockerEnvironment(
-          'test-task',
-          config as any,
-          mockEventService,
-          '/test/workspace',
-        )
+        const env = new DockerEnvironment('test-task', config as any, '/test/workspace')
 
         expect(env.getType()).toBe('docker')
       })
@@ -411,12 +379,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'minimal-task',
-        minimalConfig as any,
-        mockEventService,
-        '/minimal/workspace',
-      )
+      const env = new DockerEnvironment('minimal-task', minimalConfig as any, '/minimal/workspace')
 
       expect(env.getType()).toBe('docker')
       expect(env.getStatus()).toBe('not_setup')
@@ -458,12 +421,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'complex-task',
-        complexConfig as any,
-        mockEventService,
-        '/complex/workspace',
-      )
+      const env = new DockerEnvironment('complex-task', complexConfig as any, '/complex/workspace')
 
       expect(env.getType()).toBe('docker')
       expect(env.getStatus()).toBe('not_setup')

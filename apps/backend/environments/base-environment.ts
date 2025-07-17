@@ -1,12 +1,10 @@
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
-import type { EventService } from '../services/index.js'
 
 export abstract class BaseEnvironment {
   constructor(
     protected readonly taskId: string,
     protected readonly repositoryConfig: RepositoryConfig,
-    protected readonly eventService: EventService,
   ) {}
 
   /**

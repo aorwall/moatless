@@ -20,7 +20,7 @@ import {
   type FileSearchRequest,
   type FileSearchResponse,
 } from '../services/file-operations.service.js'
-import type { BaseAgent, EventService } from '../services/index.js'
+import type { BaseAgent } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
 import { syncWithMain } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
@@ -88,11 +88,9 @@ export class Workspace {
   constructor(
     private readonly taskId: string,
     private readonly repositoryConfig: RepositoryConfig,
-    _eventService: EventService, // Keep for interface compatibility but not used
     private readonly environment: BaseEnvironment,
     workspacePath?: string,
     originalBranch?: string,
-    _branchName?: string, // Keep for interface compatibility but not used
   ) {
     // Initialize logger
     this.logger = createTaskLogger(taskId)

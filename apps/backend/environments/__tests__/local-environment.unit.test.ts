@@ -16,7 +16,6 @@ const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 describe('LocalEnvironment - Unit Tests', () => {
   let localEnvironment: LocalEnvironment
   let mockLogger: any
-  let mockEventService: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -29,11 +28,6 @@ describe('LocalEnvironment - Unit Tests', () => {
       warn: vi.fn(),
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
-
-    // Mock event service
-    mockEventService = {
-      emitWorkspaceEvent: vi.fn(),
-    }
 
     const mockRepositoryConfig = {
       id: 'test-repo',
@@ -52,7 +46,6 @@ describe('LocalEnvironment - Unit Tests', () => {
     localEnvironment = new LocalEnvironment(
       'test-task',
       mockRepositoryConfig as any,
-      mockEventService,
       '/test/workspace',
     )
   })
@@ -72,16 +65,12 @@ describe('LocalEnvironment - Unit Tests', () => {
     })
 
     it('should handle empty workspace path', () => {
-      const env = new LocalEnvironment(
-        'test-task-2',
-        {
-          id: 'repo',
-          name: 'Repo',
-          path: '/repo',
-          codeExecution: { type: 'local' },
-        } as any,
-        mockEventService,
-      )
+      const env = new LocalEnvironment('test-task-2', {
+        id: 'repo',
+        name: 'Repo',
+        path: '/repo',
+        codeExecution: { type: 'local' },
+      } as any)
 
       expect(env.getWorkspacePath()).toBe('')
     })
@@ -136,12 +125,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new LocalEnvironment(
-        'full-task',
-        fullConfig as any,
-        mockEventService,
-        '/full/workspace',
-      )
+      const env = new LocalEnvironment('full-task', fullConfig as any, '/full/workspace')
 
       expect(env.getType()).toBe('local')
       expect(env.getWorkspacePath()).toBe('/full/workspace')
@@ -157,12 +141,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new LocalEnvironment(
-        'minimal-task',
-        minimalConfig as any,
-        mockEventService,
-        '/minimal/workspace',
-      )
+      const env = new LocalEnvironment('minimal-task', minimalConfig as any, '/minimal/workspace')
 
       expect(env.getType()).toBe('local')
       expect(env.getWorkspacePath()).toBe('/minimal/workspace')
@@ -185,12 +164,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new LocalEnvironment(
-        'env-task',
-        configWithEnvVars as any,
-        mockEventService,
-        '/env/workspace',
-      )
+      const env = new LocalEnvironment('env-task', configWithEnvVars as any, '/env/workspace')
 
       expect(env.getType()).toBe('local')
     })
@@ -211,7 +185,6 @@ describe('LocalEnvironment - Unit Tests', () => {
       const env = new LocalEnvironment(
         'commands-task',
         configWithCommands as any,
-        mockEventService,
         '/commands/workspace',
       )
 
@@ -260,7 +233,6 @@ describe('LocalEnvironment - Unit Tests', () => {
           path: '/absolute/path',
           codeExecution: { type: 'local' },
         } as any,
-        mockEventService,
         '/absolute/workspace/path',
       )
 
@@ -276,7 +248,6 @@ describe('LocalEnvironment - Unit Tests', () => {
           path: './relative/path',
           codeExecution: { type: 'local' },
         } as any,
-        mockEventService,
         './relative/workspace',
       )
 

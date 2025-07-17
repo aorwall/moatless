@@ -243,27 +243,10 @@ export class AgentService {
         // Capture session ID if it's not already set
         if (!iteration.agentSessionId && agent.getSessionId()) {
           iteration.agentSessionId = agent.getSessionId()
-
           agentLogger.debug('Captured agent session ID', { sessionId: iteration.agentSessionId })
-
-          // Update the session ID in the task's iteration
-          const task = await this.storage.getTask(taskId)
-          if (task) {
-            const iterationIndex = task.iterations.findIndex(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (iterationIndex >= 0) {
-              task.iterations[iterationIndex].agentSessionId = iteration.agentSessionId
-              await this.storage.saveTask(task)
-            }
-          }
         }
 
-        // Update contextTokens if provided in the event
-        if (event.contextTokens !== undefined) {
-          iteration.contextTokens = event.contextTokens
-          agentLogger.debug('Updated context tokens', { contextTokens: event.contextTokens })
-        }
+        // Context tokens will be updated by task service via event handling
 
         if (event.type === EventType.RESULT) {
           const resultPayload = event.payload as SDKResultMessage
@@ -275,117 +258,18 @@ export class AgentService {
             subtype: resultPayload.subtype,
           })
 
+          // Set basic iteration data for local tracking
           iteration.costUsd = resultPayload.total_cost_usd ?? 0
-
-          // Check if the result event indicates an error
-          if (event.isError || resultPayload.is_error) {
-            // Handle error result
-            iteration.status = 'failed'
-
-            // Determine error message based on subtype
-            let errorMessage = 'Agent execution failed'
-            if (resultPayload.subtype === 'error_max_turns') {
-              errorMessage = 'Maximum number of turns exceeded'
-              // Mark as will not resume when max turns is reached
-              iteration.willNotResume = true
-            } else if (resultPayload.subtype === 'error_during_execution') {
-              errorMessage = 'Error occurred during execution'
-            }
-
-            iteration.error = {
-              message: errorMessage,
-              timestamp: new Date(),
-            }
-
-            if ('result' in resultPayload) {
-              iteration.result = resultPayload.result
-            }
-          } else {
-            // Handle successful result
-            iteration.status = 'completed'
-            // Type guard to ensure we're dealing with a success result
-            if ('result' in resultPayload) {
-              iteration.result =
-                resultPayload.result || 'No result found in Claude Code SDK result message'
-            } else {
-              iteration.result = 'No result found in Claude Code SDK result message'
-            }
-          }
-
           iteration.endTime = new Date()
           iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
-
-          // Capture both git status and git changes when iteration completes
-          try {
-            // Get git status for sync state
-            iteration.gitStatus = await workspace.getGitStatus()
-            agentLogger.debug('Captured git status for iteration', {
-              syncStatus: iteration.gitStatus?.status,
-              commitsAhead: iteration.gitStatus?.commitsAhead,
-              commitsBehind: iteration.gitStatus?.commitsBehind,
-              hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
-            })
-
-            // Get git changes for working directory state
-            iteration.gitChanges = await workspace.getGitChanges()
-            agentLogger.debug('Captured git changes for iteration', {
-              currentBranch: iteration.gitChanges?.currentBranch,
-              status: iteration.gitChanges?.status,
-              additions: iteration.gitChanges?.additions,
-              deletions: iteration.gitChanges?.deletions,
-              modifications: iteration.gitChanges?.modifications,
-            })
-
-            // Get current commit hash
-            iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
-            agentLogger.debug('Captured commit hash for iteration', {
-              commitHash: iteration.commitHash,
-            })
-          } catch (error) {
-            agentLogger.warn('Failed to capture git status/changes for iteration', {
-              error: error instanceof Error ? error.message : String(error),
-            })
-          }
-
-          // Find and update the iteration in the task's iterations array
-          const task = await this.storage.getTask(taskId)
-          if (task) {
-            const iterationIndex = task.iterations.findIndex(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (iterationIndex >= 0) {
-              // Update the iteration data
-              task.iterations[iterationIndex] = iteration
-              // Update task status based on iteration result
-              const previousStatus = task.status
-              const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
-              task.status = newStatus
-              await this.storage.saveTask(task)
-
-              // Emit task status change event if status actually changed
-              if (previousStatus !== newStatus) {
-                await this.eventService.emitEvent({
-                  taskId,
-                  type: EventType.TASK_STATUS,
-                  subType: newStatus,
-                  payload: {
-                    status: newStatus,
-                    previousStatus,
-                    iterationNumber: iteration.iterationNumber,
-                  },
-                  eventId: randomUUID(),
-                  timestamp: new Date(),
-                  agentType: task.agentType,
-                  isError: newStatus === 'error',
-                })
-              }
-            }
-          }
         }
 
-        // Emit agent events to event service
+        // Emit agent events to event service with agentSessionId
         agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
-        await this.eventService.emitEvent(event)
+        await this.eventService.emitEvent({
+          ...event,
+          agentSessionId: iteration.agentSessionId,
+        })
       }
 
       agentLogger.info('Agent execution completed successfully', {
@@ -395,82 +279,27 @@ export class AgentService {
     } catch (error) {
       agentLogger.error('Agent execution failed', error as Error)
 
-      // Save error to iteration
+      // Set basic iteration data for local tracking
       iteration.status = 'failed'
-      iteration.error = {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date(),
-      }
       iteration.endTime = new Date()
       iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
-      // Capture both git status and git changes even for failed iterations
-      try {
-        // Get git status for sync state
-        iteration.gitStatus = await workspace.getGitStatus()
-        agentLogger.debug('Captured git status for failed iteration', {
-          syncStatus: iteration.gitStatus?.status,
-          commitsAhead: iteration.gitStatus?.commitsAhead,
-          commitsBehind: iteration.gitStatus?.commitsBehind,
-          hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
-        })
-
-        // Get git changes for working directory state
-        iteration.gitChanges = await workspace.getGitChanges()
-        agentLogger.debug('Captured git changes for failed iteration', {
-          currentBranch: iteration.gitChanges?.currentBranch,
-          status: iteration.gitChanges?.status,
-          additions: iteration.gitChanges?.additions,
-          deletions: iteration.gitChanges?.deletions,
-          modifications: iteration.gitChanges?.modifications,
-        })
-
-        // Get current commit hash
-        iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
-        agentLogger.debug('Captured commit hash for failed iteration', {
-          commitHash: iteration.commitHash,
-        })
-      } catch (syncError) {
-        agentLogger.warn('Failed to capture git status/changes for failed iteration', {
-          syncError: syncError instanceof Error ? syncError.message : String(syncError),
-        })
-      }
-
-      // Find and update the iteration in the task's iterations array
-      const task = await this.storage.getTask(taskId)
-      if (task) {
-        const iterationIndex = task.iterations.findIndex(
-          (it) => it.iterationNumber === iteration.iterationNumber,
-        )
-        if (iterationIndex >= 0) {
-          // Update the iteration data
-          task.iterations[iterationIndex] = iteration
-          // Update task status to error after failure
-          const previousStatus = task.status
-          task.status = 'error'
-          await this.storage.saveTask(task)
-
-          // Emit task status change event if status actually changed
-          if (previousStatus !== 'error') {
-            await this.eventService.emitEvent({
-              taskId,
-              type: EventType.TASK_STATUS,
-              subType: 'error',
-              payload: {
-                status: 'error',
-                previousStatus,
-                iterationNumber: iteration.iterationNumber,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              eventId: randomUUID(),
-              timestamp: new Date(),
-              agentType: task.agentType,
-              isError: true,
-            })
-          }
-        }
-      }
+      // Emit error event - task service will handle the task/iteration updates
+      await this.eventService.emitEvent({
+        taskId,
+        type: EventType.ERROR,
+        subType: 'execution_failed',
+        payload: {
+          error: error instanceof Error ? error.message : String(error),
+          stackTrace: error instanceof Error ? error.stack : undefined,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        agentType: 'claude-code',
+        isError: true,
+        iterationId: iteration.iterationNumber,
+        agentSessionId: iteration.agentSessionId,
+      })
 
       throw error
     }

@@ -2,7 +2,6 @@ import * as child_process from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventService } from '../event.service.js'
 import { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
@@ -103,7 +102,6 @@ global.fetch = vi.fn(() =>
 describe('WorkspaceService', () => {
   let service: WorkspaceService
   let storage: StorageBackend
-  let eventService: EventService
   let repositoryService: RepositoryService
   let tempDir: string
 
@@ -172,7 +170,6 @@ describe('WorkspaceService', () => {
       getEvents: vi.fn().mockResolvedValue([]),
     } as any as StorageBackend
 
-    eventService = new EventService(storage)
     repositoryService = new RepositoryService(storage)
 
     // Mock the validateRepository method to skip validation
@@ -183,7 +180,7 @@ describe('WorkspaceService', () => {
     vi.spyOn(repositoryService, 'createRepository').mockResolvedValue(mockRepository as any)
     vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValue(mockRepository as any)
 
-    service = new WorkspaceService(repositoryService, eventService, storage)
+    service = new WorkspaceService(repositoryService, storage)
   })
 
   afterEach(async () => {

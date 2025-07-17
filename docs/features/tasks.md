@@ -26,7 +26,7 @@ useTaskUI(): { panels, chat, selection, methods }
 
 ## Architecture Overview
 
-Tasks orchestrate AI agent interactions through an event-driven system with sophisticated frontend state management using the Dual-Context Pattern.
+Tasks orchestrate AI agent interactions through a **reactive event-driven system** with sophisticated frontend state management using the Dual-Context Pattern.
 
 ```mermaid
 graph TB
@@ -39,8 +39,15 @@ graph TB
     
     TS -->|execute| AS[Agent Service]
     TS -->|manage| WS[Workspace Service]
-    AS -->|emit| EV[Event Service]
+    AS -->|emit events only| EV[Event Service]
+    EV -->|reactive updates| TS
 ```
+
+### Reactive Pattern Benefits
+- **Separation of Concerns**: Agent Service focuses on execution, Task Service on state management
+- **Loose Coupling**: Services communicate only via events
+- **Consistent Updates**: All task updates flow through a single reactive path
+- **Event-Driven**: Task state changes happen automatically in response to agent events
 
 ## UI Layout Architecture
 
@@ -243,6 +250,63 @@ useEffect(() => {
   return () => window.removeEventListener('resize', handleResize);
 }, []);
 ```
+
+## Reactive Task Update Architecture
+
+### Agent Service → Event Service → Task Service Flow
+
+The new reactive pattern ensures clean separation of concerns:
+
+```typescript
+// Agent Service - Only emits events
+for await (const event of agent.run(message, options)) {
+  // Include agentSessionId in all events
+  await this.eventService.emitEvent({
+    ...event,
+    agentSessionId: iteration.agentSessionId,
+  })
+}
+```
+
+```typescript
+// Task Service - Subscribes to events and updates tasks reactively
+constructor() {
+  this.eventService.subscribeAll((event: Event) => {
+    if (this.shouldHandleEvent(event)) {
+      this.handleAgentEvent(event)
+    }
+  })
+}
+
+private async handleAgentEvent(event: Event) {
+  // Handle agentSessionId updates
+  if (event.agentSessionId && !iteration.agentSessionId) {
+    iteration.agentSessionId = event.agentSessionId
+  }
+  
+  // Handle different event types
+  switch (event.type) {
+    case EventType.RESULT:
+      await this.handleResultEvent(task, iteration, event)
+      break
+    case EventType.ERROR:
+      await this.handleErrorEvent(task, iteration, event)
+      break
+    case EventType.MESSAGE:
+      await this.handleMessageEvent(task, iteration, event)
+      break
+  }
+}
+```
+
+### Event-Driven Task Updates
+
+| Event Type | Triggers | Task Service Action |
+|------------|----------|---------------------|
+| `RESULT` | Agent execution complete | Update iteration status, cost, result, git data |
+| `ERROR` | Agent execution failed | Update iteration error, emit TASK_STATUS event |
+| `MESSAGE` | Context tokens updated | Update iteration contextTokens |
+| Any with `agentSessionId` | Session ID available | Update iteration agentSessionId |
 
 ## Implementation Guide
 

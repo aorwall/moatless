@@ -7,7 +7,6 @@ import { LocalEnvironment } from '../environments/local-environment.js'
 import { createGitWorktree, getBranchList, isGitRepository, isGitWorktree } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
-import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
@@ -19,7 +18,6 @@ export class WorkspaceService {
 
   constructor(
     private repositoryService: RepositoryService,
-    private eventService: EventService,
     private storage: StorageBackend,
   ) {}
 
@@ -56,22 +54,14 @@ export class WorkspaceService {
     let environment: DockerEnvironment | LocalEnvironment
     if (repository.codeExecution.type === 'docker') {
       logger.info('Creating Docker environment', { taskId, workspacePath })
-      environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
+      environment = new DockerEnvironment(taskId, repository, workspacePath)
     } else {
       logger.info('Creating Local environment', { taskId, workspacePath })
-      environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
+      environment = new LocalEnvironment(taskId, repository, workspacePath)
     }
 
     // Create unified workspace that composes the environment and file operations
-    const workspace = new Workspace(
-      taskId,
-      repository,
-      this.eventService,
-      environment,
-      workspacePath,
-      undefined, // originalBranch
-      branchName,
-    )
+    const workspace = new Workspace(taskId, repository, environment, workspacePath)
 
     this.activeWorkspaces.set(taskId, workspace)
 
@@ -424,26 +414,18 @@ export class WorkspaceService {
       let environment: DockerEnvironment | LocalEnvironment
       if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker environment with workspace path', { workspacePath })
-        environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
+        environment = new DockerEnvironment(taskId, repository, workspacePath)
       } else {
         workspaceLogger.debug('Creating Local environment with workspace path', {
           workspacePath,
           branchName,
           existingWorkspacePath,
         })
-        environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
+        environment = new LocalEnvironment(taskId, repository, workspacePath)
       }
 
       // Create unified workspace that composes the environment and file operations
-      const workspace = new Workspace(
-        taskId,
-        repository,
-        this.eventService,
-        environment,
-        workspacePath,
-        undefined, // originalBranch
-        branchName,
-      )
+      const workspace = new Workspace(taskId, repository, environment, workspacePath)
 
       // Store the workspace in the active workspaces map
       this.activeWorkspaces.set(taskId, workspace)
@@ -755,8 +737,7 @@ export class WorkspaceService {
 
 export function createWorkspaceService(
   repositoryService: RepositoryService,
-  eventService: EventService,
   storage: StorageBackend,
 ): WorkspaceService {
-  return new WorkspaceService(repositoryService, eventService, storage)
+  return new WorkspaceService(repositoryService, storage)
 }

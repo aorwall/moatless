@@ -27,9 +27,12 @@ export class ProxyAgent extends BaseAgentClass {
   }
 
   async *run(message: string, runOptions?: AgentRunOptions): AsyncGenerator<Event> {
+    const workerUrl = `http://localhost:${this.workerPort}/execute-agent`
+
     try {
       // Make HTTP request to worker to execute agent
-      const workerUrl = `http://localhost:${this.workerPort}/execute-agent`
+
+      this.logger.info('Executing agent via proxy', { workerUrl })
 
       const response = await fetch(workerUrl, {
         method: 'POST',
@@ -43,11 +46,11 @@ export class ProxyAgent extends BaseAgentClass {
           message,
           runOptions: {
             ...runOptions,
-            workspaceDir: '/workspace',
+            workspaceDir: '/repo',
           },
         }),
       })
-
+      this.logger.info('Agent execution response', { response })
       if (!response.ok) {
         const error = await response.text()
         throw new Error(`Failed to execute agent in worker: ${error}`)
@@ -96,7 +99,7 @@ export class ProxyAgent extends BaseAgentClass {
         }
       }
     } catch (error) {
-      this.logger.error('Error executing agent via proxy', error as Error)
+      this.logger.error('Error executing agent via proxy', error as Error, { workerUrl })
       throw error
     }
   }

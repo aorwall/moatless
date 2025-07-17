@@ -89,13 +89,19 @@ export async function build(): Promise<TestApp> {
       hostname: options.host || 'localhost',
     })
 
+    // Wait a bit for server to start and get the actual assigned port
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Get the actual address from the server
+    const address = server.address()
+    const actualPort = typeof address === 'object' && address !== null ? address.port : options.port
+
     // Store server reference for cleanup and address access
     testApp.server = {
-      address: () => ({ port: options.port }),
+      address: () => ({ port: actualPort }),
     }
 
     // Store the server instance for cleanup
-
     testApp._httpServer = server
   }
 

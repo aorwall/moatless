@@ -6,13 +6,11 @@ import { DockerEnvironment } from '../docker-environment.js'
 vi.mock('../../utils/port-allocation.js')
 vi.mock('../../utils/logger.js')
 
-const mockFindAvailablePort = vi.fn()
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 
 describe('DockerEnvironment - Real Integration Tests', () => {
   let dockerEnvironment: DockerEnvironment
   let mockLogger: any
-  let mockEventService: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -25,17 +23,6 @@ describe('DockerEnvironment - Real Integration Tests', () => {
       warn: vi.fn(),
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
-
-    // Mock port allocation utility
-    mockFindAvailablePort.mockResolvedValue(8001) // worker port
-    vi.doMock('../../utils/port-allocation.js', () => ({
-      findAvailablePort: mockFindAvailablePort,
-    }))
-
-    // Mock event service
-    mockEventService = {
-      emitWorkspaceEvent: vi.fn(),
-    }
 
     const mockRepositoryConfig = {
       id: 'test-repo',
@@ -51,7 +38,6 @@ describe('DockerEnvironment - Real Integration Tests', () => {
     dockerEnvironment = new DockerEnvironment(
       'test-task-integration',
       mockRepositoryConfig as any,
-      mockEventService,
       '/test/workspace',
     )
   })
@@ -180,12 +166,7 @@ describe('DockerEnvironment - Real Integration Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'setup-task',
-        repoConfig as any,
-        mockEventService,
-        '/setup/workspace',
-      )
+      const env = new DockerEnvironment('setup-task', repoConfig as any, '/setup/workspace')
 
       // Test that setup commands are properly configured
       expect(repoConfig.codeExecution.setupCommands).toEqual(setupCommands)

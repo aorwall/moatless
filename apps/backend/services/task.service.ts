@@ -5,6 +5,8 @@ import type {
   Command,
   CreateTaskRequest,
   CreateVibeTaskRequest,
+  Event,
+  SDKResultMessage,
   Task,
   TaskIteration,
 } from '@moatless/types'
@@ -47,7 +49,321 @@ export class TaskService {
     private agentService: AgentService,
     private commandService: CommandService,
     private repositoryService: RepositoryService,
-  ) {}
+  ) {
+    // Subscribe to agent events for reactive task updates
+    this.setupEventSubscription()
+  }
+
+  /**
+   * Setup event subscription for reactive task updates
+   */
+  private setupEventSubscription(): void {
+    this.eventService.subscribeAll((event: Event) => {
+      // Only handle events that should trigger task updates
+      if (this.shouldHandleEvent(event)) {
+        this.handleAgentEvent(event).catch((error) => {
+          logger.error('Failed to handle agent event for task update', error as Error, {
+            eventId: event.eventId,
+            taskId: event.taskId,
+            eventType: event.type,
+          })
+        })
+      }
+    })
+  }
+
+  /**
+   * Determine if this event should trigger task updates
+   */
+  private shouldHandleEvent(event: Event): boolean {
+    // Handle events that affect task state
+    return (
+      event.type === EventType.RESULT ||
+      event.type === EventType.ERROR ||
+      (event.type === EventType.MESSAGE && event.contextTokens !== undefined) ||
+      event.agentSessionId !== undefined // Handle any event with agentSessionId
+    )
+  }
+
+  /**
+   * Handle agent events reactively to update tasks
+   */
+  private async handleAgentEvent(event: Event): Promise<void> {
+    const taskLogger = logger.child({
+      taskId: event.taskId,
+      eventType: event.type,
+      eventId: event.eventId,
+    })
+
+    try {
+      const task = await this.storage.getTask(event.taskId)
+      if (!task) {
+        taskLogger.warn('Task not found for event, skipping update')
+        return
+      }
+
+      // Find the iteration this event belongs to
+      const iteration = event.iterationId
+        ? task.iterations.find((it) => it.iterationNumber === event.iterationId)
+        : task.iterations[task.iterations.length - 1] // Latest iteration if no iterationId
+
+      if (!iteration) {
+        taskLogger.warn('Iteration not found for event, skipping update', {
+          iterationId: event.iterationId,
+          totalIterations: task.iterations.length,
+        })
+        return
+      }
+
+      // Handle agentSessionId if present and not already set
+      if (event.agentSessionId && !iteration.agentSessionId) {
+        iteration.agentSessionId = event.agentSessionId
+        taskLogger.debug('Updated agent session ID from event', { sessionId: event.agentSessionId })
+      }
+
+      // Handle different event types
+      switch (event.type) {
+        case EventType.RESULT:
+          await this.handleResultEvent(task, iteration, event)
+          break
+        case EventType.ERROR:
+          await this.handleErrorEvent(task, iteration, event)
+          break
+        case EventType.MESSAGE:
+          await this.handleMessageEvent(task, iteration, event)
+          break
+        default:
+          // For any other event type, just save if we updated agentSessionId
+          if (event.agentSessionId) {
+            await this.storage.saveTask(task)
+          }
+          break
+      }
+
+      taskLogger.debug('Successfully handled agent event for task update')
+    } catch (error) {
+      taskLogger.error('Failed to handle agent event', error as Error)
+      throw error
+    }
+  }
+
+  /**
+   * Handle RESULT events from agent execution
+   */
+  private async handleResultEvent(
+    task: Task,
+    iteration: TaskIteration,
+    event: Event,
+  ): Promise<void> {
+    const resultPayload = event.payload as SDKResultMessage
+    const taskLogger = logger.child({
+      taskId: task.taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
+    taskLogger.info('Handling RESULT event for task update', {
+      costUsd: resultPayload.total_cost_usd,
+      hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+      isError: event.isError,
+      subtype: resultPayload.subtype,
+    })
+
+    // Update iteration cost
+    iteration.costUsd = resultPayload.total_cost_usd ?? 0
+
+    // Check if the result event indicates an error
+    if (event.isError || resultPayload.is_error) {
+      // Handle error result
+      iteration.status = 'failed'
+
+      // Determine error message based on subtype
+      let errorMessage = 'Agent execution failed'
+      if (resultPayload.subtype === 'error_max_turns') {
+        errorMessage = 'Maximum number of turns exceeded'
+        // Mark as will not resume when max turns is reached
+        iteration.willNotResume = true
+      } else if (resultPayload.subtype === 'error_during_execution') {
+        errorMessage = 'Error occurred during execution'
+      }
+
+      iteration.error = {
+        message: errorMessage,
+        timestamp: new Date(),
+      }
+
+      if ('result' in resultPayload && resultPayload.result !== null) {
+        iteration.result = resultPayload.result
+      }
+    } else {
+      // Handle successful result
+      iteration.status = 'completed'
+      // Type guard to ensure we're dealing with a success result
+      if ('result' in resultPayload) {
+        // Use nullish coalescing to only replace null/undefined, not empty strings
+        iteration.result =
+          resultPayload.result ?? 'No result found in Claude Code SDK result message'
+      } else {
+        iteration.result = 'No result found in Claude Code SDK result message'
+      }
+    }
+
+    iteration.endTime = new Date()
+    iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
+
+    // Capture git data when iteration completes
+    await this.captureGitDataForIteration(task.taskId, iteration)
+
+    // Update task status based on iteration result
+    const previousStatus = task.status
+    const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
+    task.status = newStatus
+
+    // Save task with updated iteration and status
+    await this.storage.saveTask(task)
+
+    // Emit task status change event if status actually changed
+    if (previousStatus !== newStatus) {
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: EventType.TASK_STATUS,
+        subType: newStatus,
+        payload: {
+          status: newStatus,
+          previousStatus,
+          iterationNumber: iteration.iterationNumber,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        agentType: task.agentType,
+        isError: newStatus === 'error',
+      })
+    }
+  }
+
+  /**
+   * Handle ERROR events from agent execution
+   */
+  private async handleErrorEvent(
+    task: Task,
+    iteration: TaskIteration,
+    event: Event,
+  ): Promise<void> {
+    const taskLogger = logger.child({
+      taskId: task.taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
+    taskLogger.error('Handling ERROR event for task update')
+
+    // Save error to iteration
+    iteration.status = 'failed'
+    iteration.error = {
+      message: (event.payload?.error as string) || 'Agent execution failed',
+      stack: event.payload?.stackTrace as string | undefined,
+      timestamp: new Date(),
+    }
+    iteration.endTime = new Date()
+    iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
+
+    // Capture git data even for failed iterations
+    await this.captureGitDataForIteration(task.taskId, iteration)
+
+    // Update task status to error after failure
+    const previousStatus = task.status
+    task.status = 'error'
+
+    // Save task with updated iteration and status
+    await this.storage.saveTask(task)
+
+    // Emit task status change event if status actually changed
+    if (previousStatus !== 'error') {
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: EventType.TASK_STATUS,
+        subType: 'error',
+        payload: {
+          status: 'error',
+          previousStatus,
+          iterationNumber: iteration.iterationNumber,
+          error: iteration.error?.message,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        agentType: task.agentType,
+        isError: true,
+      })
+    }
+  }
+
+  /**
+   * Handle MESSAGE events that contain context token updates
+   */
+  private async handleMessageEvent(
+    task: Task,
+    iteration: TaskIteration,
+    event: Event,
+  ): Promise<void> {
+    // Update contextTokens if provided in the event
+    if (event.contextTokens !== undefined) {
+      iteration.contextTokens = event.contextTokens
+
+      // Save task with updated context tokens
+      await this.storage.saveTask(task)
+
+      logger.debug('Updated context tokens from MESSAGE event', {
+        taskId: task.taskId,
+        iterationNumber: iteration.iterationNumber,
+        contextTokens: event.contextTokens,
+      })
+    }
+  }
+
+  /**
+   * Capture git status and changes for an iteration
+   */
+  private async captureGitDataForIteration(
+    taskId: string,
+    iteration: TaskIteration,
+  ): Promise<void> {
+    const taskLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
+
+    try {
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (!workspace) {
+        taskLogger.warn('Workspace not found, skipping git data capture')
+        return
+      }
+
+      // Get git status for sync state
+      iteration.gitStatus = await workspace.getGitStatus()
+      taskLogger.debug('Captured git status for iteration', {
+        syncStatus: iteration.gitStatus?.status,
+        commitsAhead: iteration.gitStatus?.commitsAhead,
+        commitsBehind: iteration.gitStatus?.commitsBehind,
+        hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
+      })
+
+      // Get git changes for working directory state
+      iteration.gitChanges = await workspace.getGitChanges()
+      taskLogger.debug('Captured git changes for iteration', {
+        currentBranch: iteration.gitChanges?.currentBranch,
+        status: iteration.gitChanges?.status,
+        additions: iteration.gitChanges?.additions,
+        deletions: iteration.gitChanges?.deletions,
+        modifications: iteration.gitChanges?.modifications,
+      })
+
+      // Get current commit hash
+      iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
+      taskLogger.debug('Captured commit hash for iteration', {
+        commitHash: iteration.commitHash,
+      })
+    } catch (error) {
+      taskLogger.warn('Failed to capture git status/changes for iteration', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 
   async createTask(params: CreateTaskRequest): Promise<Task> {
     logger.info('Starting task creation', {
@@ -718,7 +1034,9 @@ export class TaskService {
           const previousStatus = metadata.status
           metadata.status = 'error'
           iteration.status = 'error'
-          iteration.result = error instanceof Error ? error.message : String(error)
+          // Ensure we never set null for error messages
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          iteration.result = errorMessage || 'Unknown error occurred'
 
           await this.storage.saveTask(metadata)
 

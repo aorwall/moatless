@@ -25,6 +25,7 @@ export interface BaseEvent {
   contextTokens?: number
   numTurns?: number
   totalCost?: number
+  agentSessionId?: string
 }
 
 export interface EventPayload {
@@ -37,7 +38,6 @@ export interface Event extends BaseEvent {
 
 export interface MessageEvent extends BaseEvent {
   type: EventType.MESSAGE
-  agentSessionId?: string
   payload: ClaudeCodeSDKMessage
 }
 

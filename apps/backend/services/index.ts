@@ -32,7 +32,7 @@ export async function setupServices(): Promise<Services> {
   const event = createEventService(storage)
   const repository = createRepositoryService(storage)
   const command = createCommandService(storage)
-  const workspace = createWorkspaceService(repository, event, storage)
+  const workspace = createWorkspaceService(repository, storage)
   const previewEnvironment = createPreviewEnvironmentService(storage, workspace)
 
   // Set preview environment service on workspace service

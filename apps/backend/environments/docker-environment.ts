@@ -5,7 +5,6 @@ import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
-import type { EventService } from '../services/index.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
@@ -23,13 +22,8 @@ export class DockerEnvironment extends BaseEnvironment {
   private workerPortMapping?: { containerPort: number; hostPort: number }
   private logger = createTaskLogger(this.taskId)
 
-  constructor(
-    taskId: string,
-    repositoryConfig: RepositoryConfig,
-    eventService: EventService,
-    workspacePath: string,
-  ) {
-    super(taskId, repositoryConfig, eventService)
+  constructor(taskId: string, repositoryConfig: RepositoryConfig, workspacePath: string) {
+    super(taskId, repositoryConfig)
     this.workspacePath = workspacePath
     this.logger = createTaskLogger(taskId)
   }
@@ -39,20 +33,15 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
-    if (this._error) return 'error'
-
     // If no container name, we haven't started setup yet
     if (!this.containerName) {
       return 'not_setup'
     }
 
-    // Check container status to determine our state
     try {
-      // This is a synchronous check, so we'll use the cached status approach
-      // The actual container state checking will be done in a helper method
       return this.getContainerStatus()
     } catch (error) {
-      this.logger.debug('Error checking container status', { error })
+      this.logger.warn('Error checking container status', { error })
       return 'error'
     }
   }
@@ -62,61 +51,29 @@ export class DockerEnvironment extends BaseEnvironment {
       return 'not_setup'
     }
 
-    // Check container status and health using docker inspect
+    // Check container status docker inspect
     try {
-      // Get container status and health in one command
-      const inspectResult = execSync(
-        `docker inspect --format='{{.State.Status}}|{{.State.Health.Status}}' "${this.containerName}"`,
+      const containerStatus = execSync(
+        `docker inspect --format='{{.State.Status}}' "${this.containerName}"`,
         { encoding: 'utf8', timeout: 2000 },
       ).trim()
 
-      if (!inspectResult) {
+      if (!containerStatus) {
         return 'not_setup'
       }
 
-      const [containerStatus, healthStatus] = inspectResult.split('|')
-
-      // Check container state
-      if (containerStatus !== 'running') {
-        if (containerStatus === 'exited' || containerStatus === 'dead') {
-          return 'error'
-        }
-        return 'not_setup'
+      if (containerStatus === 'created') {
+        return 'initializing'
       }
 
-      // Container is running, check health status
-      // Health status can be: none, starting, healthy, unhealthy
-      switch (healthStatus) {
-        case 'healthy':
-          return 'ready'
-        case 'starting':
-          return 'initializing'
-        case 'unhealthy':
-          // Log unhealthy state for debugging
-          this.logger.debug('Container health check failed', {
-            containerName: this.containerName,
-            healthStatus,
-          })
-          return 'error'
-        case 'none':
-        case '':
-          // No health check defined (old image) - fall back to port check
-          if (this.workerPortMapping) {
-            try {
-              execSync(
-                `curl -s --connect-timeout 1 --max-time 2 http://localhost:${this.workerPortMapping.hostPort}/health > /dev/null 2>&1`,
-                { timeout: 2500 },
-              )
-              return 'ready'
-            } catch {
-              return 'initializing'
-            }
-          }
-          return 'initializing'
-        default:
-          this.logger.debug('Unknown health status', { healthStatus })
-          return 'initializing'
+      if (containerStatus === 'running') {
+        return 'ready'
       }
+
+      if (containerStatus === 'exited' || containerStatus === 'dead') {
+        return 'error'
+      }
+      return 'not_setup'
     } catch (error) {
       // Container doesn't exist
       if (error instanceof Error && error.message.includes('No such object')) {
@@ -193,6 +150,18 @@ export class DockerEnvironment extends BaseEnvironment {
       })
 
       await this.waitForContainerReady()
+
+      // Copy .claude.json file if it exists
+      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
+      if (existsSync(claudeJsonPath)) {
+        this.logger.info('Copying .claude.json to container', { claudeJsonPath })
+        await execAsync(
+          `docker cp "${claudeJsonPath}" "${this.containerName}:/home/ubuntu/.claude.json"`,
+        )
+        this.logger.info('.claude.json copied successfully')
+      } else {
+        this.logger.warn(`Claude config not found on path ${claudeJsonPath} , skipping copy`)
+      }
 
       this.logger.info('DockerEnvironment setup completed - container is ready', {
         containerName: this.containerName,
@@ -457,15 +426,13 @@ export class DockerEnvironment extends BaseEnvironment {
 
   /**
    * Waits for the container to be ready for command execution or agent creation.
-   * This relies on Docker's health check to determine readiness.
    */
   private async waitForContainerReady(): Promise<void> {
     const maxWaitTime = 180000 // 3 minute timeout for waiting
-    const checkInterval = 2000 // 2 seconds (matches Docker health check interval)
+    const checkInterval = 2000 // 2 seconds
     let elapsed = 0
-    let lastHealthStatus = ''
 
-    this.logger.debug('Waiting for container to become healthy', {
+    this.logger.debug('Waiting for container to become ready', {
       containerName: this.containerName,
       workerPort: this.workerPortMapping?.hostPort,
       maxWaitTime,
@@ -480,62 +447,54 @@ export class DockerEnvironment extends BaseEnvironment {
       const status = this.getStatus()
 
       if (status === 'ready') {
-        this.logger.info('Container is healthy and ready', {
+        this.logger.info('Container is ready, wait for worker readiness', {
           elapsedMs: elapsed,
           containerName: this.containerName,
           workerPort: this.workerPortMapping.hostPort,
         })
+
+        while (elapsed < maxWaitTime) {
+          try {
+            const response = await fetch(
+              `http://localhost:${this.workerPortMapping?.hostPort}/health`,
+            )
+            if (response.ok) {
+              this.logger.info('Worker is ready', {
+                elapsedMs: elapsed,
+                workerPort: this.workerPortMapping?.hostPort,
+              })
+              return
+            }
+          } catch (_error) {
+            // Worker not ready yet
+            if (elapsed % 5000 === 0) {
+              // Log every 5 seconds
+              this.logger.debug('Worker not ready yet, continuing to wait', {
+                elapsedMs: elapsed,
+                remainingMs: maxWaitTime - elapsed,
+              })
+            }
+          }
+        }
+
         return
       }
 
       if (status === 'error') {
-        // Get more details about the error
-        try {
-          const healthLogs = execSync(
-            `docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' "${this.containerName}"`,
-            { encoding: 'utf8', timeout: 2000 },
-          ).trim()
-          this.logger.error('Container health check failed', new Error('Container unhealthy'), {
-            healthLogs,
-            containerName: this.containerName,
-          })
-        } catch {
-          // Ignore errors getting health logs
-        }
-        const error = this.getError() || 'Container health check failed'
-        throw new Error(`Container failed: ${error}`)
+        const error = this.getError() || 'Container failed'
+        throw new Error(error)
       }
 
       if (status === 'not_setup') {
         throw new Error('Container lost during wait - setup may have failed')
       }
 
-      // Status is 'initializing', check health status for more details
-      try {
-        const healthStatus = execSync(
-          `docker inspect --format='{{.State.Health.Status}}' "${this.containerName}"`,
-          { encoding: 'utf8', timeout: 1000 },
-        ).trim()
-
-        if (healthStatus !== lastHealthStatus) {
-          this.logger.debug('Container health status changed', {
-            from: lastHealthStatus || 'none',
-            to: healthStatus,
-            elapsedMs: elapsed,
-          })
-          lastHealthStatus = healthStatus
-        }
-      } catch {
-        // Ignore errors getting health status
-      }
-
       // Log progress every 10 seconds
       if (elapsed % 10000 === 0 && elapsed > 0) {
-        this.logger.debug('Container still starting, waiting for health check', {
+        this.logger.debug('Container still starting', {
           elapsedMs: elapsed,
           remainingMs: maxWaitTime - elapsed,
           containerName: this.containerName,
-          lastHealthStatus,
         })
       }
 
@@ -543,7 +502,7 @@ export class DockerEnvironment extends BaseEnvironment {
       elapsed += checkInterval
     }
 
-    throw new Error(`Container did not become healthy within timeout (${maxWaitTime}ms)`)
+    throw new Error(`Container did not become ready imeout (${maxWaitTime}ms)`)
   }
 
   async runCommand(command: string, timeout = 30000): Promise<CommandResult> {
