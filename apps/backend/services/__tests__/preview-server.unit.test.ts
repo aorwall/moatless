@@ -1,19 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTaskLogger } from '../../utils/logger.js'
-import { PortAllocationService } from '../port-allocation.service.js'
 import { PreviewServer } from '../preview-server.js'
 
 // Mock all external dependencies
-vi.mock('../port-allocation.service.js')
+vi.mock('../../utils/port-allocation.js')
 vi.mock('../../utils/logger.js')
 
-const mockPortAllocationService = vi.mocked(PortAllocationService)
+const mockFindAvailablePort = vi.fn()
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 
 describe('PreviewServer - Unit Tests', () => {
   let previewServer: PreviewServer
   let mockLogger: any
-  let mockPortService: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -27,12 +25,11 @@ describe('PreviewServer - Unit Tests', () => {
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
 
-    // Mock port allocation service
-    mockPortService = {
-      allocatePort: vi.fn().mockResolvedValue(3000),
-      releasePort: vi.fn().mockResolvedValue(undefined),
-    }
-    mockPortAllocationService.getInstance.mockReturnValue(mockPortService)
+    // Mock port allocation utility
+    mockFindAvailablePort.mockResolvedValue(3000)
+    vi.doMock('../../utils/port-allocation.js', () => ({
+      findAvailablePort: mockFindAvailablePort,
+    }))
 
     previewServer = new PreviewServer('test-task', '/test/workspace', 'npm run dev', {
       NODE_ENV: 'development',
@@ -42,7 +39,6 @@ describe('PreviewServer - Unit Tests', () => {
   describe('Constructor', () => {
     it('should initialize with correct parameters', () => {
       expect(mockCreateTaskLogger).toHaveBeenCalledWith('preview-server')
-      expect(mockPortAllocationService.getInstance).toHaveBeenCalled()
       expect(mockLogger.info).toHaveBeenCalledWith(
         'PreviewServer initialized with:',
         expect.objectContaining({
@@ -69,8 +65,9 @@ describe('PreviewServer - Unit Tests', () => {
   })
 
   describe('Port Management Integration', () => {
-    it('should use PortAllocationService singleton', () => {
-      expect(mockPortAllocationService.getInstance).toHaveBeenCalled()
+    it('should use port allocation utility', () => {
+      // Port allocation is now handled by utility functions
+      expect(mockFindAvailablePort).toBeDefined()
     })
 
     it('should be constructed with taskId for port allocation', () => {

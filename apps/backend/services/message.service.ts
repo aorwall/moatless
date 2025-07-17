@@ -16,6 +16,7 @@ import {
 import type { ClaudeCodeSettings } from '@moatless/types/types/claude'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
 import { getClaudeEventsFilePath } from '../utils/claude-code-events.js'
+import { logger } from '../utils/logger.js'
 
 export class MessageService {
   private claudeCodeSettings: ClaudeCodeSettings
@@ -39,7 +40,7 @@ export class MessageService {
     task: Task,
   ): Promise<Message[]> {
     if (!task.workspacePath) {
-      console.warn('No workspace path found for task', {
+      logger.warn('No workspace path found for task', {
         taskId: task.taskId,
       })
       return this.createMessagesFromTaskIterations(task)
@@ -68,7 +69,7 @@ export class MessageService {
 
     // If no file path can be generated (e.g., no agentSessionId), fall back to task iteration
     if (!filePath) {
-      console.debug('No Claude file path available for iteration, using task data', {
+      logger.debug('No Claude file path available for iteration, using task data', {
         taskId: task.taskId,
         iterationNumber: iteration.iterationNumber,
       })
@@ -89,7 +90,7 @@ export class MessageService {
           sdkMessages.push(sdkMessage)
         } catch (parseError) {
           _parseErrors++
-          console.warn('Failed to parse Claude SDK message', {
+          logger.warn('Failed to parse Claude SDK message', {
             taskId: task.taskId,
             error: parseError instanceof Error ? parseError.message : String(parseError),
           })
@@ -99,7 +100,7 @@ export class MessageService {
       return this.transformSDKMessagesToMessages(sdkMessages)
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        console.debug('Claude messages file does not exist for iteration, using task data', {
+        logger.debug('Claude messages file does not exist for iteration, using task data', {
           taskId: task.taskId,
           filePath,
           iterationNumber: iteration.iterationNumber,
@@ -108,7 +109,7 @@ export class MessageService {
       }
 
       // For other errors, log and throw
-      console.error('Error reading Claude messages file', error as Error, {
+      logger.error('Error reading Claude messages file', error as Error, {
         taskId: task.taskId,
         filePath,
       })
@@ -240,7 +241,7 @@ export class MessageService {
       messages.push(...iterationMessages)
     }
 
-    console.debug('Created messages from task iterations', {
+    logger.debug('Created messages from task iterations', {
       taskId: task.taskId,
       totalIterations: task.iterations.length,
       messagesCreated: messages.length,

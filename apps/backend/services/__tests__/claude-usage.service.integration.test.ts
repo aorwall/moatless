@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { describe, expect, it, beforeAll } from 'vitest'
-import { ClaudeCodeUsageService, getClaudeUsageService } from '../claude-usage.service.js'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { type ClaudeCodeUsageService, getClaudeUsageService } from '../claude-usage.service.js'
 
 describe('ClaudeCodeUsageService Integration', () => {
   let service: ClaudeCodeUsageService
@@ -10,7 +10,7 @@ describe('ClaudeCodeUsageService Integration', () => {
 
   beforeAll(async () => {
     service = getClaudeUsageService()
-    
+
     // Check if user has Claude data available
     const homeDir = os.homedir()
     const claudePaths = [
@@ -25,7 +25,7 @@ describe('ClaudeCodeUsageService Integration', () => {
         if (stats.isDirectory()) {
           // Check if there are any .jsonl files
           const files = await fs.readdir(claudePath, { recursive: true })
-          const jsonlFiles = files.filter(file => file.toString().endsWith('.jsonl'))
+          const jsonlFiles = files.filter((file) => file.toString().endsWith('.jsonl'))
           if (jsonlFiles.length > 0) {
             hasClaudeData = true
             break
@@ -69,7 +69,7 @@ describe('ClaudeCodeUsageService Integration', () => {
     // Validate time format
     expect(() => new Date(usage.timeToReset.startTime)).not.toThrow()
     expect(() => new Date(usage.timeToReset.endTime)).not.toThrow()
-    
+
     const startTime = new Date(usage.timeToReset.startTime)
     const endTime = new Date(usage.timeToReset.endTime)
     expect(endTime.getTime()).toBeGreaterThan(startTime.getTime())
@@ -96,7 +96,7 @@ describe('ClaudeCodeUsageService Integration', () => {
 
     for (const plan of plans) {
       const usage = await service.getUsage(plan)
-      
+
       expect(usage).toBeDefined()
       console.log(`Plan: ${plan}`)
       console.log(`  Max cost: $${usage.cost.max}`)
@@ -132,21 +132,24 @@ describe('ClaudeCodeUsageService Integration', () => {
 
   it('should handle model distribution correctly', async () => {
     const usage = await service.getUsage('custom')
-    
+
     expect(usage.modelDistribution).toBeDefined()
-    
+
     // Sum of percentages should equal 100 (or 0 if no data)
-    const totalPercentage = Object.values(usage.modelDistribution).reduce((sum, pct) => sum + pct, 0)
-    
+    const totalPercentage = Object.values(usage.modelDistribution).reduce(
+      (sum, pct) => sum + pct,
+      0,
+    )
+
     if (hasClaudeData && usage.tokens.current > 0) {
       expect(totalPercentage).toBeCloseTo(100, 1) // Allow 0.1% tolerance
-      
+
       // Each percentage should be between 0 and 100
-      Object.values(usage.modelDistribution).forEach(percentage => {
+      Object.values(usage.modelDistribution).forEach((percentage) => {
         expect(percentage).toBeGreaterThanOrEqual(0)
         expect(percentage).toBeLessThanOrEqual(100)
       })
-      
+
       console.log('Model distribution validation passed:', usage.modelDistribution)
     } else {
       expect(totalPercentage).toBe(0)
@@ -156,33 +159,35 @@ describe('ClaudeCodeUsageService Integration', () => {
 
   it('should validate time reset window is 5 hours', async () => {
     const usage = await service.getUsage('custom')
-    
+
     const startTime = new Date(usage.timeToReset.startTime)
     const endTime = new Date(usage.timeToReset.endTime)
-    
+
     const diffMs = endTime.getTime() - startTime.getTime()
     const diffHours = diffMs / (1000 * 60 * 60)
-    
+
     expect(diffHours).toBeCloseTo(5, 0.1) // Allow small tolerance for rounding
-    
-    console.log(`Time window: ${diffHours} hours (${startTime.toISOString()} to ${endTime.toISOString()})`)
+
+    console.log(
+      `Time window: ${diffHours} hours (${startTime.toISOString()} to ${endTime.toISOString()})`,
+    )
   })
 
   it('should handle cost calculations correctly', async () => {
     const usage = await service.getUsage('custom')
-    
+
     // Cost should be reasonable (not negative, not extremely high)
     expect(usage.cost.current).toBeGreaterThanOrEqual(0)
     expect(usage.cost.current).toBeLessThan(1000) // Sanity check - less than $1000
-    
+
     if (hasClaudeData && usage.cost.current > 0) {
       console.log(`Cost calculation validation passed: $${usage.cost.current}`)
-      
+
       // Cost should be proportional to token usage
       const costPerToken = usage.cost.current / usage.tokens.current
       expect(costPerToken).toBeGreaterThan(0)
       expect(costPerToken).toBeLessThan(0.001) // Should be much less than $0.001 per token
-      
+
       console.log(`Cost per token: $${costPerToken.toFixed(6)}`)
     }
   })

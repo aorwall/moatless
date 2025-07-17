@@ -193,12 +193,6 @@ The `docker/build-worker.sh` script:
 - **Base system changes**: Can rebuild base separately with `build-base.sh`
 - **Application changes**: Fast incremental builds
 
-#### Docker Compose
-```bash
-# Build and run with docker-compose
-docker-compose -f docker/docker-compose.npm.yml up -d
-```
-
 #### Simple Dockerfile for NPM Package
 For a minimal container using the published npm package:
 ```dockerfile

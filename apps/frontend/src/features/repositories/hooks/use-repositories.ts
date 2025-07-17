@@ -5,6 +5,7 @@ import type {
   RepositoryResponse,
   SetupScriptResponse,
   UpdateRepositoryRequest,
+  VerificationResponse,
 } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -125,6 +126,15 @@ export function useRunSetupScript(
 ) {
   return useMutation({
     mutationFn: (repoId: string) => repositoriesApi.runSetupScript(repoId),
+    ...options,
+  })
+}
+
+export function useVerifyRepository(
+  options?: UseMutationOptions<VerificationResponse, Error, string>,
+) {
+  return useMutation({
+    mutationFn: (repoId: string) => repositoriesApi.verifyRepository(repoId),
     ...options,
   })
 }

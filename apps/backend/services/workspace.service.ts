@@ -1,32 +1,12 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type {
-  CommandResult,
-  FileTreeNode,
-  FileTreeWithChangesResponse,
-  RepositoryConfig,
-  ServerStatus,
-} from '@moatless/types'
-import {
-  RepositoryNotFoundError,
-  TaskNotFoundError,
-  WorkspaceError,
-  WorkspaceStatus,
-} from '@moatless/types'
+import type { RepositoryConfig, ServerStatus, WorkspaceStatusResponse } from '@moatless/types'
+import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
-import type { FileSearchRequest, FileSearchResponse } from '../services/file-operations.service.js'
-import type { GitDiffResponse } from '../utils/index.js'
-import {
-  createGitWorktree,
-  getBranchList,
-  isGitRepository,
-  isGitWorktree,
-  syncWithMain,
-} from '../utils/index.js'
+import { createGitWorktree, getBranchList, isGitRepository, isGitWorktree } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
-import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
@@ -38,7 +18,6 @@ export class WorkspaceService {
 
   constructor(
     private repositoryService: RepositoryService,
-    private eventService: EventService,
     private storage: StorageBackend,
   ) {}
 
@@ -75,22 +54,14 @@ export class WorkspaceService {
     let environment: DockerEnvironment | LocalEnvironment
     if (repository.codeExecution.type === 'docker') {
       logger.info('Creating Docker environment', { taskId, workspacePath })
-      environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
+      environment = new DockerEnvironment(taskId, repository, workspacePath)
     } else {
       logger.info('Creating Local environment', { taskId, workspacePath })
-      environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
+      environment = new LocalEnvironment(taskId, repository, workspacePath)
     }
 
     // Create unified workspace that composes the environment and file operations
-    const workspace = new Workspace(
-      taskId,
-      repository,
-      this.eventService,
-      environment,
-      workspacePath,
-      undefined, // originalBranch
-      branchName,
-    )
+    const workspace = new Workspace(taskId, repository, environment, workspacePath)
 
     this.activeWorkspaces.set(taskId, workspace)
 
@@ -443,26 +414,18 @@ export class WorkspaceService {
       let environment: DockerEnvironment | LocalEnvironment
       if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker environment with workspace path', { workspacePath })
-        environment = new DockerEnvironment(taskId, repository, this.eventService, workspacePath)
+        environment = new DockerEnvironment(taskId, repository, workspacePath)
       } else {
         workspaceLogger.debug('Creating Local environment with workspace path', {
           workspacePath,
           branchName,
           existingWorkspacePath,
         })
-        environment = new LocalEnvironment(taskId, repository, this.eventService, workspacePath)
+        environment = new LocalEnvironment(taskId, repository, workspacePath)
       }
 
       // Create unified workspace that composes the environment and file operations
-      const workspace = new Workspace(
-        taskId,
-        repository,
-        this.eventService,
-        environment,
-        workspacePath,
-        undefined, // originalBranch
-        branchName,
-      )
+      const workspace = new Workspace(taskId, repository, environment, workspacePath)
 
       // Store the workspace in the active workspaces map
       this.activeWorkspaces.set(taskId, workspace)
@@ -482,38 +445,6 @@ export class WorkspaceService {
     return this.activeWorkspaces.get(taskId) || null
   }
 
-  // Workspace capability methods
-  async canPerformFileOperations(taskId: string): Promise<boolean> {
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    try {
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      // Check if file operations are available (workspace path exists on disk)
-      return await workspace.isWorkspacePathValid()
-    } catch {
-      return false
-    }
-  }
-
-  async canExecuteCommands(taskId: string): Promise<boolean> {
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    try {
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getStatus()
-      // Commands can only be executed when workspace is idle
-      return status === WorkspaceStatus.IDLE
-    } catch {
-      return false
-    }
-  }
-
   async canManageServer(taskId: string): Promise<boolean> {
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -528,38 +459,6 @@ export class WorkspaceService {
     } catch {
       return false
     }
-  }
-
-  async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.listFiles(relativePath, recursive)
-  }
-
-  async readFile(taskId: string, filePath: string): Promise<string> {
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot read file: workspace not ready', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.readFile(filePath)
-  }
-
-  async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot write file: workspace not ready', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    await workspace.writeFile(filePath, content)
-  }
-
-  async getGitDiff(taskId: string): Promise<GitDiffResponse> {
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.getGitDiff()
   }
 
   async cleanupWorkspace(taskId: string): Promise<void> {
@@ -645,15 +544,7 @@ export class WorkspaceService {
     }
   }
 
-  async runCommand(taskId: string, command: string, timeout?: number): Promise<CommandResult> {
-    if (!(await this.canExecuteCommands(taskId))) {
-      throw new WorkspaceError('Cannot execute command: workspace not in idle state', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.runCommand(command, timeout)
-  }
-
-  async getWorkspaceStatus(taskId: string): Promise<unknown> {
+  async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     // Validate task exists first
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -663,41 +554,8 @@ export class WorkspaceService {
     const workspace = await this.getOrCreateWorkspace(taskId)
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
-    // Get git status and git changes from workspace
-    const [gitStatus, gitChanges] = await Promise.all([
-      workspace.getGitStatus(),
-      workspace.getGitChanges(),
-    ])
-
-    // Get environment information
-    const environment = workspace.getEnvironment()
-    const environmentType = environment.getType()
-    const environmentStatus = environment.getStatus()
-    const environmentError = environment.getError()
-    const environmentCreatedAt = environment.getCreatedAt()
-
-    // Check if file operations are available (workspace path exists on disk)
-    const fileOperationsAvailable = await workspace.isWorkspacePathValid()
-
-    // Determine capabilities based on environment status and file operations availability
-    const capabilities = {
-      fileOperations: fileOperationsAvailable,
-      commandExecution: environmentStatus === 'ready',
-    }
-
-    return {
-      status: workspace.getStatus(),
-      gitStatus,
-      gitChanges,
-      backgroundTaskCount,
-      environment: {
-        type: environmentType,
-        status: environmentStatus,
-        error: environmentError,
-        createdAt: environmentCreatedAt.toISOString(),
-        capabilities,
-      },
-    }
+    // Delegate to workspace method
+    return workspace.getWorkspaceStatus(backgroundTaskCount)
   }
 
   async startServer(taskId: string): Promise<unknown> {
@@ -705,6 +563,20 @@ export class WorkspaceService {
       throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
     }
 
+    // Get workspace to check if environment supports server operations
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const environment = workspace.getEnvironment()
+
+    // Check if environment has server methods and delegate to it
+    if (environment.startServer) {
+      logger.info('Delegating server start to environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+      return environment.startServer()
+    }
+
+    // Fallback to preview environment service for backwards compatibility
     if (!this.previewEnvironmentService) {
       throw new WorkspaceError('Preview environment service not initialized', taskId)
     }
@@ -717,6 +589,20 @@ export class WorkspaceService {
       throw new WorkspaceError('Cannot stop server: workspace not ready', taskId)
     }
 
+    // Get workspace to check if environment supports server operations
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const environment = workspace.getEnvironment()
+
+    // Check if environment has server methods and delegate to it
+    if (environment.stopServer) {
+      logger.info('Delegating server stop to environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+      return environment.stopServer()
+    }
+
+    // Fallback to preview environment service for backwards compatibility
     if (!this.previewEnvironmentService) {
       throw new WorkspaceError('Preview environment service not initialized', taskId)
     }
@@ -729,44 +615,46 @@ export class WorkspaceService {
       throw new WorkspaceError('Cannot restart server: workspace not ready', taskId)
     }
 
-    if (!this.previewEnvironmentService) {
-      throw new WorkspaceError('Preview environment service not initialized', taskId)
-    }
-
-    return this.previewEnvironmentService.restartServer(taskId)
+    // For restart, we can simply call stop then start
+    await this.stopServer(taskId)
+    // Wait a moment for the server to fully stop
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    return this.startServer(taskId) as Promise<ServerStatus>
   }
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
-    if (!this.previewEnvironmentService) {
+    try {
+      // Get workspace to check if environment supports server operations
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const environment = workspace.getEnvironment()
+
+      // Check if environment has server methods and delegate to it
+      if (environment.getServerStatus) {
+        logger.debug('Delegating server status to environment', {
+          taskId,
+          environmentType: environment.getType(),
+        })
+        return environment.getServerStatus()
+      }
+
+      // Fallback to preview environment service for backwards compatibility
+      if (!this.previewEnvironmentService) {
+        return {
+          running: false,
+          configured: false,
+          uptimeSeconds: 0,
+        }
+      }
+
+      return this.previewEnvironmentService.getServerStatus(taskId)
+    } catch (error) {
+      logger.error('Error getting server status', error as Error, { taskId })
       return {
         running: false,
         configured: false,
         uptimeSeconds: 0,
       }
     }
-
-    return this.previewEnvironmentService.getServerStatus(taskId)
-  }
-
-  async proxyPreviewRequest(
-    taskId: string,
-    request: {
-      method: string
-      path: string
-      headers: Headers
-      body?: string
-    },
-  ): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }> {
-    if (!(await this.canManageServer(taskId))) {
-      throw new WorkspaceError('Preview capability not available for this task', taskId)
-    }
-
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.proxyPreviewRequest(request)
   }
 
   // Background task tracking methods
@@ -786,24 +674,35 @@ export class WorkspaceService {
     })
   }
 
-  async searchFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot search files: workspace not ready', taskId)
-    }
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    return workspace.searchFiles(request)
-  }
-
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
     if (!(await this.canManageServer(taskId))) {
       return 'Server logs not available: workspace not ready'
     }
 
-    if (!this.previewEnvironmentService) {
-      return 'Preview environment service not initialized'
-    }
+    try {
+      // Get workspace to check if environment supports server operations
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const environment = workspace.getEnvironment()
 
-    return this.previewEnvironmentService.getServerLogs(taskId, lines)
+      // Check if environment has server methods and delegate to it
+      if (environment.getServerLogs) {
+        logger.debug('Delegating server logs to environment', {
+          taskId,
+          environmentType: environment.getType(),
+        })
+        return environment.getServerLogs(lines)
+      }
+
+      // Fallback to preview environment service for backwards compatibility
+      if (!this.previewEnvironmentService) {
+        return 'Preview environment service not initialized'
+      }
+
+      return this.previewEnvironmentService.getServerLogs(taskId, lines)
+    } catch (error) {
+      logger.error('Error getting server logs', error as Error, { taskId })
+      return `Error getting server logs: ${error instanceof Error ? error.message : String(error)}`
+    }
   }
 
   setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {
@@ -834,319 +733,11 @@ export class WorkspaceService {
 
     workspaceLogger.info('Workspace service graceful shutdown completed')
   }
-
-  async syncWorkspaceWithMain(
-    taskId: string,
-    baseBranch?: string,
-  ): Promise<{
-    success: boolean
-    conflicts: boolean
-    message: string
-    commitsBehind?: number
-    commitsAhead?: number
-  }> {
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    const workspacePath = workspace.getWorkspacePath()
-
-    if (!workspacePath) {
-      throw new WorkspaceError('Workspace path not available', taskId)
-    }
-
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot access git: workspace not ready', taskId)
-    }
-
-    try {
-      const result = await syncWithMain(workspacePath, baseBranch)
-
-      logger.info('Workspace sync completed', {
-        taskId,
-        workspacePath,
-        success: result.success,
-        conflicts: result.conflicts,
-        commitsBehind: result.commitsBehind,
-        commitsAhead: result.commitsAhead,
-      })
-
-      return result
-    } catch (error) {
-      logger.error('Failed to sync workspace with main', error as Error, { taskId, workspacePath })
-      throw new WorkspaceError(
-        `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
-        taskId,
-      )
-    }
-  }
-
-  /**
-   * Get file tree with git change information
-   * This combines file listing and git diff data in a single performant call
-   */
-  async getFileTreeWithChanges(
-    taskId: string,
-    rootPath = '.',
-  ): Promise<FileTreeWithChangesResponse> {
-    if (!(await this.canPerformFileOperations(taskId))) {
-      throw new WorkspaceError('Cannot list files: workspace not ready', taskId)
-    }
-
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    const workspacePath = workspace.getWorkspacePath()
-
-    if (!workspacePath) {
-      throw new WorkspaceError('Workspace path not available', taskId)
-    }
-
-    try {
-      // Parallel execution for performance
-      const [gitDiff, allFiles] = await Promise.all([
-        workspace.getGitDiff(),
-        this.getAllFiles(workspacePath, rootPath),
-      ])
-
-      // Create a map of file paths to git diff information for O(1) lookup
-      const gitFileMap = new Map<
-        string,
-        {
-          status: 'added' | 'modified' | 'deleted' | 'renamed'
-          additions: number
-          deletions: number
-          isStaged: boolean
-        }
-      >()
-
-      let totalStaged = 0
-      let totalModified = 0
-
-      for (const file of gitDiff.files) {
-        gitFileMap.set(file.filename, {
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-          isStaged: file.isStaged,
-        })
-
-        if (file.isStaged) {
-          totalStaged++
-        }
-        if (file.status === 'modified') {
-          totalModified++
-        }
-      }
-
-      // Build file tree with git change information
-      const tree = this.buildFileTree(allFiles, gitFileMap, rootPath)
-
-      const gitSummary = {
-        totalFiles: gitDiff.files.length,
-        totalAdditions: gitDiff.totalAdditions,
-        totalDeletions: gitDiff.totalDeletions,
-        totalModified,
-        totalStaged,
-        compareBase: gitDiff.compareBase,
-        hasChanges: gitDiff.files.length > 0,
-      }
-
-      return {
-        tree,
-        gitSummary,
-      }
-    } catch (error) {
-      logger.error('Failed to get file tree with changes', error as Error, { taskId })
-      throw new WorkspaceError(
-        `Failed to get file tree with changes: ${error instanceof Error ? error.message : String(error)}`,
-        taskId,
-      )
-    }
-  }
-
-  /**
-   * Efficiently get all files in the workspace
-   */
-  private async getAllFiles(workspacePath: string, rootPath: string): Promise<string[]> {
-    const fullPath = path.join(workspacePath, rootPath)
-    const allFiles: string[] = []
-
-    async function walkDir(dir: string, relativePath: string): Promise<void> {
-      try {
-        const entries = await fs.readdir(dir, { withFileTypes: true })
-
-        for (const entry of entries) {
-          // Skip hidden files, node_modules, and common ignore patterns
-          if (
-            entry.name.startsWith('.') ||
-            entry.name === 'node_modules' ||
-            entry.name === '__pycache__'
-          ) {
-            continue
-          }
-
-          const fullEntryPath = path.join(dir, entry.name)
-          const relativeEntryPath = relativePath ? path.join(relativePath, entry.name) : entry.name
-
-          if (entry.isDirectory()) {
-            allFiles.push(`${relativeEntryPath}/`)
-            await walkDir(fullEntryPath, relativeEntryPath)
-          } else {
-            allFiles.push(relativeEntryPath)
-          }
-        }
-      } catch (error) {
-        // Continue on permission errors or other issues
-        logger.debug('Error reading directory', {
-          dir,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-
-    await walkDir(fullPath, rootPath === '.' ? '' : rootPath)
-    return allFiles.sort()
-  }
-
-  /**
-   * Build hierarchical file tree with git change information
-   */
-  private buildFileTree(
-    files: string[],
-    gitFileMap: Map<
-      string,
-      {
-        status: 'added' | 'modified' | 'deleted' | 'renamed'
-        additions: number
-        deletions: number
-        isStaged: boolean
-      }
-    >,
-    rootPath: string,
-  ): FileTreeNode[] {
-    const tree: FileTreeNode[] = []
-    const nodeMap = new Map<string, FileTreeNode>()
-
-    // Create root node if needed
-    if (rootPath !== '.' && rootPath !== '') {
-      const rootNode: FileTreeNode = {
-        name: path.basename(rootPath),
-        path: rootPath,
-        type: 'directory',
-        isChanged: false,
-        children: [],
-      }
-      tree.push(rootNode)
-      nodeMap.set(rootPath, rootNode)
-    }
-
-    for (const filePath of files) {
-      const isDirectory = filePath.endsWith('/')
-      const cleanPath = isDirectory ? filePath.slice(0, -1) : filePath
-      const pathParts = cleanPath.split('/').filter((part) => part.length > 0)
-
-      // Build intermediate directories
-      let currentPath = rootPath === '.' ? '' : rootPath
-      let currentChildren = tree
-
-      for (let i = 0; i < pathParts.length - 1; i++) {
-        const part = pathParts[i]
-        const partPath = currentPath ? path.join(currentPath, part) : part
-
-        if (!nodeMap.has(partPath)) {
-          const dirNode: FileTreeNode = {
-            name: part,
-            path: partPath,
-            type: 'directory',
-            isChanged: false,
-            children: [],
-          }
-          nodeMap.set(partPath, dirNode)
-          currentChildren.push(dirNode)
-        }
-
-        const dirNode = nodeMap.get(partPath)!
-        currentChildren = dirNode.children!
-        currentPath = partPath
-      }
-
-      // Add the file/directory node
-      const lastPart = pathParts[pathParts.length - 1]
-      const fullPath = currentPath ? path.join(currentPath, lastPart) : lastPart
-
-      if (!nodeMap.has(fullPath)) {
-        const gitInfo = gitFileMap.get(cleanPath)
-        const node: FileTreeNode = {
-          name: lastPart,
-          path: fullPath,
-          type: isDirectory ? 'directory' : 'file',
-          isChanged: !!gitInfo,
-          ...(gitInfo && {
-            gitStatus: gitInfo.status,
-            additions: gitInfo.additions,
-            deletions: gitInfo.deletions,
-            isStaged: gitInfo.isStaged,
-          }),
-          ...(isDirectory && { children: [] }),
-        }
-
-        nodeMap.set(fullPath, node)
-        currentChildren.push(node)
-
-        // Mark parent directories as changed if this file is changed
-        if (gitInfo) {
-          this.markParentDirectoriesAsChanged(nodeMap, fullPath)
-        }
-      }
-    }
-
-    // Sort children recursively
-    this.sortTreeNodes(tree)
-
-    return tree
-  }
-
-  /**
-   * Mark parent directories as changed when a child file is changed
-   */
-  private markParentDirectoriesAsChanged(
-    nodeMap: Map<string, FileTreeNode>,
-    filePath: string,
-  ): void {
-    const parts = filePath.split('/')
-
-    for (let i = parts.length - 2; i >= 0; i--) {
-      const parentPath = parts.slice(0, i + 1).join('/')
-      const parentNode = nodeMap.get(parentPath)
-
-      if (parentNode && parentNode.type === 'directory') {
-        parentNode.isChanged = true
-      }
-    }
-  }
-
-  /**
-   * Sort tree nodes with directories first, then files, alphabetically
-   */
-  private sortTreeNodes(nodes: FileTreeNode[]): void {
-    nodes.sort((a, b) => {
-      // Directories first
-      if (a.type === 'directory' && b.type === 'file') return -1
-      if (a.type === 'file' && b.type === 'directory') return 1
-
-      // Then alphabetically
-      return a.name.localeCompare(b.name)
-    })
-
-    // Recursively sort children
-    for (const node of nodes) {
-      if (node.children) {
-        this.sortTreeNodes(node.children)
-      }
-    }
-  }
 }
 
 export function createWorkspaceService(
   repositoryService: RepositoryService,
-  eventService: EventService,
   storage: StorageBackend,
 ): WorkspaceService {
-  return new WorkspaceService(repositoryService, eventService, storage)
+  return new WorkspaceService(repositoryService, storage)
 }

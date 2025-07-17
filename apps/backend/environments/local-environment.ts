@@ -4,7 +4,6 @@ import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
-import type { EventService } from '../services/index.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
@@ -21,13 +20,8 @@ export class LocalEnvironment extends BaseEnvironment {
   private logger = createTaskLogger(this.taskId)
   private previewServer?: PreviewServer
 
-  constructor(
-    taskId: string,
-    repositoryConfig: RepositoryConfig,
-    eventService: EventService,
-    workspacePath?: string,
-  ) {
-    super(taskId, repositoryConfig, eventService)
+  constructor(taskId: string, repositoryConfig: RepositoryConfig, workspacePath?: string) {
+    super(taskId, repositoryConfig)
     this.workspacePath = workspacePath || ''
     this.logger = createTaskLogger(taskId)
 

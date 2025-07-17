@@ -10,7 +10,7 @@ describe('Usage API Integration', () => {
 
   beforeAll(async () => {
     app = await build()
-    
+
     // Check if user has Claude data available
     const homeDir = os.homedir()
     const claudePaths = [
@@ -25,7 +25,7 @@ describe('Usage API Integration', () => {
         if (stats.isDirectory()) {
           // Check if there are any .jsonl files
           const files = await fs.readdir(claudePath, { recursive: true })
-          const jsonlFiles = files.filter(file => file.toString().endsWith('.jsonl'))
+          const jsonlFiles = files.filter((file) => file.toString().endsWith('.jsonl'))
           if (jsonlFiles.length > 0) {
             hasClaudeData = true
             break
@@ -41,11 +41,11 @@ describe('Usage API Integration', () => {
 
   it('should return usage data from GET /api/v1/usage', async () => {
     const response = await app.request('/api/v1/usage')
-    
+
     expect(response.status).toBe(200)
-    
+
     const data = await response.json()
-    
+
     // Validate response structure
     expect(data).toHaveProperty('cost')
     expect(data).toHaveProperty('tokens')
@@ -82,18 +82,18 @@ describe('Usage API Integration', () => {
     expect(data.timeToReset).toHaveProperty('endTime')
     expect(typeof data.timeToReset.startTime).toBe('string')
     expect(typeof data.timeToReset.endTime).toBe('string')
-    
+
     // Validate time strings are valid ISO dates
     expect(() => new Date(data.timeToReset.startTime)).not.toThrow()
     expect(() => new Date(data.timeToReset.endTime)).not.toThrow()
-    
+
     const startTime = new Date(data.timeToReset.startTime)
     const endTime = new Date(data.timeToReset.endTime)
     expect(endTime.getTime()).toBeGreaterThan(startTime.getTime())
 
     // Validate modelDistribution object
     expect(typeof data.modelDistribution).toBe('object')
-    
+
     console.log('API Response:', JSON.stringify(data, null, 2))
 
     if (hasClaudeData) {
@@ -108,12 +108,14 @@ describe('Usage API Integration', () => {
 
     for (const plan of plans) {
       const response = await app.request(`/api/v1/usage?plan=${plan}`)
-      
+
       expect(response.status).toBe(200)
-      
+
       const data = await response.json()
-      
-      console.log(`Plan: ${plan} - Max cost: $${data.cost.max}, Max tokens: ${data.tokens.max.toLocaleString()}, Max messages: ${data.messageUsage.max}`)
+
+      console.log(
+        `Plan: ${plan} - Max cost: $${data.cost.max}, Max tokens: ${data.tokens.max.toLocaleString()}, Max messages: ${data.messageUsage.max}`,
+      )
 
       // Validate plan-specific limits
       switch (plan) {
@@ -144,11 +146,11 @@ describe('Usage API Integration', () => {
 
   it('should return 200 with default plan when no plan specified', async () => {
     const response = await app.request('/api/v1/usage')
-    
+
     expect(response.status).toBe(200)
-    
+
     const data = await response.json()
-    
+
     // Should default to 'custom' plan behavior
     expect(data.cost.max).toBeGreaterThanOrEqual(0)
     expect(data.tokens.max).toBeGreaterThanOrEqual(0)
@@ -157,7 +159,7 @@ describe('Usage API Integration', () => {
 
   it('should handle invalid plan parameter gracefully', async () => {
     const response = await app.request('/api/v1/usage?plan=invalid')
-    
+
     // Should return 400 due to validation error
     expect(response.status).toBe(400)
   })
@@ -165,26 +167,26 @@ describe('Usage API Integration', () => {
   it('should return consistent data structure across multiple calls', async () => {
     const response1 = await app.request('/api/v1/usage?plan=custom')
     const response2 = await app.request('/api/v1/usage?plan=custom')
-    
+
     expect(response1.status).toBe(200)
     expect(response2.status).toBe(200)
-    
+
     const data1 = await response1.json()
     const data2 = await response2.json()
-    
+
     // Structure should be identical
     expect(Object.keys(data1).sort()).toEqual(Object.keys(data2).sort())
     expect(Object.keys(data1.cost).sort()).toEqual(Object.keys(data2.cost).sort())
     expect(Object.keys(data1.tokens).sort()).toEqual(Object.keys(data2.tokens).sort())
     expect(Object.keys(data1.messageUsage).sort()).toEqual(Object.keys(data2.messageUsage).sort())
     expect(Object.keys(data1.timeToReset).sort()).toEqual(Object.keys(data2.timeToReset).sort())
-    
+
     // Values should be identical or very close (within same 5-hour window)
     if (hasClaudeData) {
       // If we have real data, the values should be identical for same window
       const time1 = new Date(data1.timeToReset.startTime)
       const time2 = new Date(data2.timeToReset.startTime)
-      
+
       if (time1.getTime() === time2.getTime()) {
         // Same window, should be identical
         expect(data1.cost.current).toBe(data2.cost.current)
@@ -192,13 +194,13 @@ describe('Usage API Integration', () => {
         expect(data1.messageUsage.current).toBe(data2.messageUsage.current)
       }
     }
-    
+
     console.log('Consistency check passed between multiple API calls')
   })
 
   it('should return proper Content-Type header', async () => {
     const response = await app.request('/api/v1/usage')
-    
+
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('application/json')
   })
