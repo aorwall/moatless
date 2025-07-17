@@ -18,7 +18,8 @@
     "test:coverage": "USE_CONSOLE_LOGGING=true vitest run --coverage --exclude='**/*e2e*'",
     "test:fast": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*.integration.test.ts' --exclude='**/*.e2e.test.ts' --exclude='**/*e2e*.test.ts'",
     "type:check": "tsc --noEmit",
-    "biome:check": "biome check --diagnostic-level=error ."
+    "biome:check": "biome check --diagnostic-level=error .",
+    "post-edit-hook": "../../scripts/validate-code.sh"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.53",

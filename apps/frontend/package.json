@@ -17,7 +17,8 @@
     "test:all": "pnpm run test:unit && pnpm run test:integration && pnpm run test:memory-heavy",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage run",
-    "biome:check": "biome check  --diagnostic-level=error  ."
+    "biome:check": "biome check  --diagnostic-level=error  .",
+    "post-edit-hook": "../../scripts/validate-code.sh"
   },
   "dependencies": {
     "@git-diff-view/react": "^0.0.30",

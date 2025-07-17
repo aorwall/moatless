@@ -401,7 +401,7 @@ export class DockerEnvironment extends BaseEnvironment {
     createCommand += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     createCommand += ` -e "DATA_DIR=/data"`
     createCommand += ` -e "PORT=${this.workerPortMapping?.containerPort || 8001}"`
-    createCommand += ` -e "LOG_LEVEL=debug"`
+    createCommand += ` -e "LOG_LEVEL=info"`
 
     // Pass through Claude authentication environment variables
     if (process.env.CLAUDE_AUTH_DIR) {
