@@ -67,7 +67,11 @@ export class EventService extends EventEmitter {
       if (task && task.agentType === 'claude-code' && !process.env.SKIP_CLAUDE_DISK_EVENTS) {
         try {
           // Use Claude service to read messages
-          const sdkMessages = await this.claudeService.readClaudeMessages(taskId, task, this.repository)
+          const sdkMessages = await this.claudeService.readClaudeMessages(
+            taskId,
+            task,
+            this.repository,
+          )
 
           // Convert SDK messages to events
           events = []

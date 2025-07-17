@@ -26,11 +26,10 @@ describe('EventService', () => {
       getEvents: vi.fn().mockResolvedValue([]),
     }
 
-    import { ClaudeService } from '../../agents/claude-code/claude.service.js'
-import { ClaudeService } from '../../agents/claude-code/claude.service.js'
-import { ClaudeService } from '../../agents/claude-code/claude.service.js'
-const mockClaudeService = {} as ClaudeService
-eventService = new EventService(mockStorage, mockClaudeService)
+    const mockClaudeService = {
+      readClaudeMessages: vi.fn().mockResolvedValue([]),
+    } as any
+    eventService = new EventService(mockStorage, mockClaudeService)
   })
 
   describe('emitEvent', () => {

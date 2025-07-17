@@ -1,9 +1,7 @@
-import type { RepositoryConfig } from '@moatless/types'
-import type { AgentService } from './agent.service.js'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
-import type { FileOperations } from './file-operations.service.js'
 import type { MessageService } from './message.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
@@ -21,7 +19,6 @@ export interface ServiceContainer {
   claude: ClaudeService
   command: CommandService
   event: EventService
-  fileOperations: FileOperationsService
   message: MessageService
   previewEnvironment: PreviewEnvironmentService
   repository: RepositoryService
@@ -51,7 +48,9 @@ export interface ServiceContainerConfig {
  * Creates a fully initialized service container with all dependencies properly wired.
  * This is the main entry point for dependency injection in the application.
  */
-export async function createServiceContainer(config: ServiceContainerConfig): Promise<ServiceContainer> {
+export async function createServiceContainer(
+  config: ServiceContainerConfig,
+): Promise<ServiceContainer> {
   // Import all service factories
   const { createStorageService } = await import('./storage.js')
   const { createSettingsService } = await import('./settings.service.js')
@@ -60,7 +59,6 @@ export async function createServiceContainer(config: ServiceContainerConfig): Pr
   const { createClaudeService } = await import('../agents/claude-code/claude.service.js')
   const { createCommandService } = await import('./command.service.js')
   const { createEventService } = await import('./event.service.js')
-  const { createFileOperationsService } = await import('./file-operations.service.js')
   const { createMessageService } = await import('./message.service.js')
   const { createPreviewEnvironmentService } = await import('./preview-environment.service.js')
   const { createTaskService } = await import('./task.service.js')
@@ -78,27 +76,26 @@ export async function createServiceContainer(config: ServiceContainerConfig): Pr
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)
-  container.fileOperations = createFileOperationsService()
 
   // 3. Services with multiple dependencies
   container.workspace = createWorkspaceService(container.repository, container.storage)
   container.previewEnvironment = createPreviewEnvironmentService(
     container.storage,
-    container.workspace
+    container.workspace,
   )
-  
+
   // Set preview environment service on workspace service
   container.workspace.setPreviewEnvironmentService(container.previewEnvironment)
-  
+
   // Set workspace service on repository service for verification
   container.repository.setWorkspaceService(container.workspace)
-  
+
   // 4. Event service needs claude service
   container.event = createEventService(container.storage, container.claude)
 
   // 5. Services that need event and workspace
   container.agent = createAgentService(container.storage, container.event, container.workspace)
-  
+
   // 6. Task service needs many dependencies
   container.task = createTaskService(
     container.storage,
@@ -106,14 +103,11 @@ export async function createServiceContainer(config: ServiceContainerConfig): Pr
     container.workspace,
     container.agent,
     container.command,
-    container.repository
+    container.repository,
   )
 
-  // 7. Message service needs storage, claude, and repository
-  container.message = createMessageService(
-    container.claude,
-    container.repository
-  )
+  // 7. Message service needs claude service only
+  container.message = createMessageService(container.claude)
 
   // Return fully initialized container
   return container as ServiceContainer
@@ -125,7 +119,7 @@ export async function createServiceContainer(config: ServiceContainerConfig): Pr
  */
 export function getService<K extends keyof ServiceContainer>(
   container: ServiceContainer,
-  serviceName: K
+  serviceName: K,
 ): ServiceContainer[K] {
   const service = container[serviceName]
   if (!service) {

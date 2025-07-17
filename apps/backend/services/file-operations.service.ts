@@ -415,7 +415,11 @@ export class FileOperations {
   }
 }
 
-// Factory function for dependency injection
-export function createFileOperationsService(): FileOperations {
-  return new FileOperations()
+// Factory function for creating file operations for a specific workspace
+export function createFileOperations(
+  taskId: string,
+  workspacePath: string,
+  originalBranch?: string,
+): FileOperations {
+  return new FileOperations(taskId, workspacePath, originalBranch)
 }

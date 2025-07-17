@@ -24,6 +24,7 @@ import {
   SendMessageResponseSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
+  type ServerStatus,
   ServerStatusSchema,
   ServerStopResponseSchema,
   SimpleTaskResponseSchema,
@@ -44,7 +45,6 @@ import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
-import { createMessageService } from '../services/message.service.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { extractFilePathFromWildcard, validateRequestBody } from '../utils/route-helpers.js'
 
@@ -580,7 +580,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-      const { task: taskService, event: eventService } = services
+      const { task: taskService } = services
 
       const taskId = getTaskId(c)
 
@@ -597,16 +597,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         })
       }
 
-      // Get ClaudeCodeSettings from event service
-      const claudeCodeSettings = (eventService as any).claudeCodeSettings
-      if (!claudeCodeSettings) {
-        throw new HTTPException(500, {
-          message: 'ClaudeCodeSettings not available',
-        })
-      }
-
-      const messageService = createMessageService(services.claude, c.get('repository'))
-      const messages = await messageService.readMessagesFromClaudeDirectory(task)
+      const messages = await services.message.readMessagesFromClaudeDirectory(task)
 
       return c.json({
         messages,
@@ -1196,8 +1187,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         // Get workspace status which now includes unified git status
         const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
 
-        if ((workspaceStatus as any).gitStatus) {
-          return c.json((workspaceStatus as any).gitStatus)
+        if (workspaceStatus.gitStatus) {
+          return c.json(workspaceStatus.gitStatus)
         }
         // If git status is not available, return a default response
         return c.json({
@@ -1327,8 +1318,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.startServer(taskId)
-      return c.json(result as any)
+      const result: ServerStatus = await services.workspace.startServer(taskId)
+      return c.json(result)
     },
   )
 
@@ -1425,7 +1416,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       // Task validation and capability check now handled in workspace service
       const result = await services.workspace.restartServer(taskId)
-      return c.json(result as any)
+      return c.json(result)
     },
   )
 
@@ -1472,7 +1463,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       // Task validation and capability check now handled in workspace service
       const status = await services.workspace.getServerStatus(taskId)
-      return c.json(status as any)
+      return c.json(status)
     },
   )
 

@@ -13,12 +13,9 @@ import {
   type SDKAssistantMessage,
   type SDKUserMessage,
 } from '@moatless/types'
-import type { ClaudeCodeSettings } from '@moatless/types/types/claude'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
-import type { StorageBackend } from './storage.js'
-
 export class MessageService {
   constructor(
     private claudeService: ClaudeService,
@@ -26,23 +23,16 @@ export class MessageService {
   ) {}
 
   /**
-   * Read messages directly from Claude directory using stored settings
+   * Read messages directly from Claude directory
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
-    const settings = await this.claudeService.getSettings()
-    return this.readMessagesFromClaudeDirectoryWithSettings(settings, task)
-  }
-
-  /**
-   * Read messages directly from Claude directory (bypassing event service)
-   */
-  async readMessagesFromClaudeDirectoryWithSettings(
-    _settings: ClaudeCodeSettings,
-    task: Task,
-  ): Promise<Message[]> {
     try {
       // Use Claude service to read messages
-      const sdkMessages = await this.claudeService.readClaudeMessages(task.taskId, task, this.repository)
+      const sdkMessages = await this.claudeService.readClaudeMessages(
+        task.taskId,
+        task,
+        this.repository,
+      )
 
       // If we got messages from Claude files, transform and return them
       if (sdkMessages.length > 0) {

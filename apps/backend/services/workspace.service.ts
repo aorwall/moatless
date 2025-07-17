@@ -558,7 +558,7 @@ export class WorkspaceService {
     return workspace.getWorkspaceStatus(backgroundTaskCount)
   }
 
-  async startServer(taskId: string): Promise<unknown> {
+  async startServer(taskId: string): Promise<ServerStatus> {
     if (!(await this.canManageServer(taskId))) {
       throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
     }

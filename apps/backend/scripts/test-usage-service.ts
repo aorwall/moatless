@@ -1,10 +1,11 @@
 #!/usr/bin/env tsx
+
 /**
  * Standalone script to test Claude usage service
  */
 
-import { initializeSettingsService } from '../services/settings.service.js'
 import { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { initializeSettingsService } from '../services/settings.service.js'
 
 async function testUsageService() {
   console.log('🧪 Testing Claude Usage Service...\n')

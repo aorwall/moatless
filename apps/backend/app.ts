@@ -8,7 +8,7 @@ import { errorHandler } from './middleware/error-handler.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { registerRoutes } from './routes/index.js'
-import { type ServiceContainer, createServiceContainer } from './services/service-container.js'
+import { createServiceContainer, type ServiceContainer } from './services/service-container.js'
 import { logger } from './utils/logger.js'
 
 const __filename = fileURLToPath(import.meta.url)

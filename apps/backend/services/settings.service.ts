@@ -13,7 +13,6 @@ import { logger } from '../utils/logger.js'
 
 export class SettingsService {
   private settings: ApplicationSettings | null = null
-private settingsPath: string | null = null;
   private defaults: SettingsResponse['defaults']
 
   constructor(private settingsPath: string | null = null) {
