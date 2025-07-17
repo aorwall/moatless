@@ -41,8 +41,31 @@ vi.mock('../../utils/git-utils.js', () => ({
     totalDeletions: 0,
   }),
   isGitRepository: vi.fn().mockResolvedValue(true),
+  isGitWorktree: vi.fn().mockResolvedValue(true),
+  createGitWorktree: vi.fn().mockResolvedValue(undefined),
   hasUncommittedChanges: vi.fn().mockResolvedValue(false),
   getGitDiffString: vi.fn().mockResolvedValue(['', '']),
+  getOriginSyncStatus: vi.fn().mockResolvedValue({
+    currentBranch: 'main',
+    baseBranch: 'main',
+    hasUncommittedChanges: false,
+    status: 'synced',
+    commitsAhead: 0,
+    commitsBehind: 0,
+    originExists: true,
+  }),
+  checkForConflicts: vi.fn().mockResolvedValue(false),
+  getGitDiffDetailed: vi.fn().mockResolvedValue({
+    files: [],
+    summary: { insertions: 0, deletions: 0, filesChanged: 0 },
+  }),
+  getWorkingDirectoryChanges: vi.fn().mockResolvedValue({
+    currentBranch: 'main',
+    status: 'clean',
+    additions: 0,
+    deletions: 0,
+    modifications: 0,
+  }),
 }))
 
 describe('WorkspaceService Status Management', () => {
@@ -161,6 +184,35 @@ describe('WorkspaceService Status Management', () => {
         writeFile: vi.fn().mockResolvedValue(undefined),
         getGitDiff: vi.fn().mockResolvedValue('diff'),
         hasUncommittedChanges: vi.fn().mockResolvedValue(false),
+        getGitStatus: vi.fn().mockResolvedValue({
+          currentBranch: 'main',
+          baseBranch: 'main',
+          hasUncommittedChanges: false,
+          hasConflicts: false,
+          status: 'synced',
+          commitsAhead: 0,
+          commitsBehind: 0,
+          originExists: true,
+          additions: 0,
+          deletions: 0,
+          modifications: 0,
+        }),
+        getGitChanges: vi.fn().mockResolvedValue({
+          currentBranch: 'main',
+          status: 'clean',
+          additions: 0,
+          deletions: 0,
+          modifications: 0,
+        }),
+        getEnvironment: vi.fn().mockReturnValue({
+          getType: vi.fn().mockReturnValue('local'),
+          getStatus: vi.fn().mockReturnValue('not_setup'),
+          getError: vi.fn().mockReturnValue(undefined),
+          getCreatedAt: vi.fn().mockReturnValue(new Date()),
+          getServerStatus: vi.fn().mockReturnValue(undefined),
+        }),
+        getWorkspacePath: vi.fn().mockReturnValue('/test/workspace'),
+        isWorkspacePathValid: vi.fn().mockResolvedValue(false),
       } as unknown
 
       // Create workspace
@@ -187,7 +239,7 @@ describe('WorkspaceService Status Management', () => {
 
       const status = await workspaceService.getWorkspaceStatus(taskId)
       expect((status as any).status).toBe(WorkspaceStatus.NOT_SETUP)
-      expect((status as any).hasUncommittedChanges).toBe(false)
+      expect((status as any).gitStatus.hasUncommittedChanges).toBe(false)
     })
   })
 

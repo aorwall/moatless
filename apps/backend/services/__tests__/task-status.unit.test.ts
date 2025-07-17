@@ -105,34 +105,40 @@ describe('Task Status Management', () => {
         start: true,
       })
 
-      // Initial save should be with 'open' status
+      // Initial save should be with 'open' status and initial iteration with message
       expect(savedTasks[0]).toMatchObject({
         taskId: task.taskId,
         status: 'open',
         numTurns: 0,
-      })
-
-      // Should have a second save with 'running' status before sendMessage
-      expect(savedTasks.length).toBeGreaterThanOrEqual(2)
-      expect(savedTasks[1]).toMatchObject({
-        taskId: task.taskId,
-        status: 'running',
-        numTurns: 0,
+        iterations: [
+          expect.objectContaining({
+            initialMessage: 'Test message',
+            status: 'created',
+            iterationNumber: 1,
+          }),
+        ],
       })
 
       // Wait for background tasks to process
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await new Promise((resolve) => setTimeout(resolve, 200))
 
-      // Should have more saves when sendMessage is called
+      // After background processing:
+      // 1. Workspace path should be set
+      // 2. Status should be updated to 'running'
+      // 3. Iteration status should be updated to 'active'
       expect(savedTasks.length).toBeGreaterThanOrEqual(3)
 
-      // The task should have iterations after sendMessage
-      const taskWithIterations = savedTasks.find((t) => t.numTurns > 0)
-      expect(taskWithIterations).toBeDefined()
-      expect(taskWithIterations).toMatchObject({
+      // Find the save where status becomes 'running'
+      const runningTask = savedTasks.find((t) => t.status === 'running')
+      expect(runningTask).toBeDefined()
+      expect(runningTask).toMatchObject({
         taskId: task.taskId,
         status: 'running',
-        numTurns: 1,
+        iterations: [
+          expect.objectContaining({
+            status: 'active',
+          }),
+        ],
       })
 
       // Verify agent was executed
@@ -177,12 +183,18 @@ describe('Task Status Management', () => {
       // Wait for any background processing
       await new Promise((resolve) => setTimeout(resolve, 100))
 
-      // Should only have the initial save
-      expect(savedTasks.length).toBe(1)
+      // Should have 2 saves: initial and after workspace setup
+      expect(savedTasks.length).toBe(2)
       expect(savedTasks[0]).toMatchObject({
         taskId: task.taskId,
         status: 'open',
         numTurns: 0,
+        iterations: [
+          expect.objectContaining({
+            initialMessage: 'Test message',
+            status: 'created',
+          }),
+        ],
       })
 
       // Agent should not be executed
@@ -292,8 +304,11 @@ describe('Task Status Management', () => {
 
       // Task should show as running since agent was started
       expect(retrievedTask.status).toBe('running')
-      expect(retrievedTask.numTurns).toBe(1)
       expect(retrievedTask.iterations).toHaveLength(1)
+      expect(retrievedTask.iterations[0]).toMatchObject({
+        status: 'active',
+        initialMessage: 'Test message',
+      })
     })
   })
 })

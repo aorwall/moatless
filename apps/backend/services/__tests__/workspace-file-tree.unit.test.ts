@@ -79,12 +79,18 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
     mockWorkspace = {
       getWorkspacePath: vi.fn().mockReturnValue('/test/workspace'),
       getGitDiff: vi.fn().mockResolvedValue(mockGitDiff),
+      isWorkspacePathValid: vi.fn().mockResolvedValue(true),
+      type: 'local',
+      getStatus: vi.fn().mockReturnValue('idle'),
     } as any
 
     // Mock workspace constructor
     vi.mocked(Workspace).mockImplementation(() => mockWorkspace)
 
     workspaceService = new WorkspaceService(mockRepositoryService, mockEventService, mockStorage)
+
+    // Set the workspace in the activeWorkspaces map to avoid creating a new one
+    ;(workspaceService as any).activeWorkspaces.set('task-1', mockWorkspace)
 
     // Setup common mocks
     mockStorage.getTask.mockResolvedValue(mockTask)
@@ -164,7 +170,8 @@ describe('WorkspaceService - File Tree with Changes (Unit Tests)', () => {
     })
 
     it('should throw error if workspace path is not available', async () => {
-      mockWorkspace.getWorkspacePath.mockReturnValue('')
+      // Mock canPerformFileOperations to return false
+      vi.spyOn(workspaceService, 'canPerformFileOperations').mockResolvedValue(false)
 
       await expect(workspaceService.getFileTreeWithChanges('task-1')).rejects.toThrow(
         'Cannot list files: workspace not ready',

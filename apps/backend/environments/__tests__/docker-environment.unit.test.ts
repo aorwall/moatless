@@ -90,8 +90,8 @@ describe('DockerEnvironment - Unit Tests', () => {
       expect(dockerEnvironment.getError()).toBeUndefined()
     })
 
-    it('should initially be in initializing status', () => {
-      expect(dockerEnvironment.getStatus()).toBe('initializing')
+    it('should initially be in not_setup status', () => {
+      expect(dockerEnvironment.getStatus()).toBe('not_setup')
     })
   })
 
@@ -355,7 +355,7 @@ describe('DockerEnvironment - Unit Tests', () => {
   describe('Error State Management', () => {
     it('should track error state correctly', () => {
       expect(dockerEnvironment.getError()).toBeUndefined()
-      expect(dockerEnvironment.getStatus()).toBe('initializing')
+      expect(dockerEnvironment.getStatus()).toBe('not_setup')
     })
   })
 
@@ -393,7 +393,7 @@ describe('DockerEnvironment - Unit Tests', () => {
       )
 
       expect(env.getType()).toBe('docker')
-      expect(env.getStatus()).toBe('initializing')
+      expect(env.getStatus()).toBe('not_setup')
     })
   })
 
@@ -440,7 +440,7 @@ describe('DockerEnvironment - Unit Tests', () => {
       )
 
       expect(env.getType()).toBe('docker')
-      expect(env.getStatus()).toBe('initializing')
+      expect(env.getStatus()).toBe('not_setup')
     })
   })
 })
