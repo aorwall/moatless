@@ -8,7 +8,7 @@ import { errorHandler } from './middleware/error-handler.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { registerRoutes } from './routes/index.js'
-import { type Services, setupServices } from './services/index.js'
+import { type ServiceContainer, createServiceContainer } from './services/service-container.js'
 import { logger } from './utils/logger.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -16,14 +16,14 @@ const __dirname = path.dirname(__filename)
 
 export type AppBindings = {
   Variables: {
-    services: Services
+    services: ServiceContainer
     requestId: string
   }
 }
 
 export interface AppWithServices {
   app: Hono<AppBindings>
-  services: Services
+  services: ServiceContainer
 }
 
 export async function createApp(): Promise<AppWithServices> {
@@ -62,7 +62,8 @@ export async function createApp(): Promise<AppWithServices> {
   app.onError(errorHandler)
 
   // Setup services and inject into context
-  const services = await setupServices()
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data')
+  const services = await createServiceContainer({ dataDir })
   app.use('*', async (c, next) => {
     c.set('services', services)
     await next()

@@ -414,3 +414,8 @@ export class FileOperations {
     ;(this as any).workspacePath = newPath
   }
 }
+
+// Factory function for dependency injection
+export function createFileOperationsService(): FileOperations {
+  return new FileOperations()
+}

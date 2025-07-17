@@ -3,7 +3,8 @@
  * Standalone script to test Claude usage service
  */
 
-import { getClaudeService } from '../agents/claude-code/claude.service.js'
+import { initializeSettingsService } from '../services/settings.service.js'
+import { ClaudeService } from '../agents/claude-code/claude.service.js'
 
 async function testUsageService() {
   console.log('🧪 Testing Claude Usage Service...\n')
@@ -12,7 +13,9 @@ async function testUsageService() {
   const now = new Date()
   console.log(`⏰ Current time: ${now.toLocaleTimeString()} (${now.toISOString()})\n`)
 
-  const service = getClaudeService()
+  const settingsService = await initializeSettingsService()
+  const claudeService = new ClaudeService(settingsService)
+  const service = claudeService
 
   const plans = ['custom', 'pro', 'max5', 'max20'] as const
 
@@ -31,7 +34,7 @@ async function testUsageService() {
           : '0.0'
 
       console.log(
-        `  💰 Cost: $${usage.cost.current.toFixed(2)} / $${usage.cost.max} (${costPercent}%)`,
+        `  💰 Cost: ${usage.cost.current.toFixed(2)} / ${usage.cost.max} (${costPercent}%)`,
       )
       console.log(
         `  🎯 Tokens: ${usage.tokens.current.toLocaleString()} / ${usage.tokens.max.toLocaleString()} (${tokenPercent}%)`,

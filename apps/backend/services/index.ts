@@ -29,7 +29,7 @@ export async function setupServices(): Promise<Services> {
 
   // Create services with dependency injection
   const storage = await createStorageService()
-  const event = createEventService(storage)
+  const event = createEventService(storage, container.claude)
   const repository = createRepositoryService(storage)
   const command = createCommandService(storage)
   const workspace = createWorkspaceService(repository, storage)

@@ -2,14 +2,16 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { type ClaudeService, getClaudeService } from '../../agents/claude-code/claude.service.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import { initializeSettingsService } from '../../services/settings.service.js'
 
 describe('ClaudeService Integration', () => {
   let service: ClaudeService
   let hasClaudeData: boolean
 
   beforeAll(async () => {
-    service = getClaudeService()
+    const settingsService = await initializeSettingsService()
+    service = new ClaudeService(settingsService)
 
     // Check if user has Claude data available
     const homeDir = os.homedir()
@@ -78,7 +80,7 @@ describe('ClaudeService Integration', () => {
 
     if (hasClaudeData) {
       console.log('✅ Real Claude usage data found and processed successfully!')
-      console.log(`Current cost: $${usage.cost.current}`)
+      console.log(`Current cost: ${usage.cost.current}`)
       console.log(`Current tokens: ${usage.tokens.current.toLocaleString()}`)
       console.log(`Current messages: ${usage.messageUsage.current}`)
       console.log('Model distribution:', usage.modelDistribution)
@@ -99,7 +101,7 @@ describe('ClaudeService Integration', () => {
 
       expect(usage).toBeDefined()
       console.log(`Plan: ${plan}`)
-      console.log(`  Max cost: $${usage.cost.max}`)
+      console.log(`  Max cost: ${usage.cost.max}`)
       console.log(`  Max tokens: ${usage.tokens.max.toLocaleString()}`)
       console.log(`  Max messages: ${usage.messageUsage.max}`)
 
@@ -181,14 +183,14 @@ describe('ClaudeService Integration', () => {
     expect(usage.cost.current).toBeLessThan(1000) // Sanity check - less than $1000
 
     if (hasClaudeData && usage.cost.current > 0) {
-      console.log(`Cost calculation validation passed: $${usage.cost.current}`)
+      console.log(`Cost calculation validation passed: ${usage.cost.current}`)
 
       // Cost should be proportional to token usage
       const costPerToken = usage.cost.current / usage.tokens.current
       expect(costPerToken).toBeGreaterThan(0)
       expect(costPerToken).toBeLessThan(0.001) // Should be much less than $0.001 per token
 
-      console.log(`Cost per token: $${costPerToken.toFixed(6)}`)
+      console.log(`Cost per token: ${costPerToken.toFixed(6)}`)
     }
   })
 })

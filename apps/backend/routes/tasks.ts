@@ -605,7 +605,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         })
       }
 
-      const messageService = createMessageService(claudeCodeSettings)
+      const messageService = createMessageService(services.claude, c.get('repository'))
       const messages = await messageService.readMessagesFromClaudeDirectory(task)
 
       return c.json({

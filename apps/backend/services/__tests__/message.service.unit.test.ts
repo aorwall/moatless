@@ -56,7 +56,15 @@ describe('MessageService Unit Tests', () => {
       workspacePath: '/test/workspace',
     } as Task
 
-    service = new MessageService(mockClaudeCodeSettings)
+    import type { StorageBackend } from '../../services/storage.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import type { StorageBackend } from '../../services/storage.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import type { StorageBackend } from '../../services/storage.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service.js'
+const mockStorage = {} as StorageBackend
+const mockClaudeService = {} as ClaudeService
+service = new MessageService(mockStorage, mockClaudeService)
     mockFs = vi.mocked(fs)
   })
 
