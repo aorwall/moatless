@@ -1,22 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { ClaudeCodeSettings, Event, EventType, Task } from '@moatless/types'
-import { getDefaultClaudeCodeSettings, readClaudeCodeEvents } from '../utils/claude-code-events.js'
+import type { ClaudeCodeSettings, Event, EventType, RepositoryConfig, Task } from '@moatless/types'
+import { getClaudeService } from '../agents/claude-code/claude.service.js'
+import { sdkMessageToEvent } from '../utils/claude-code-events.js'
 import type { StorageBackend } from './storage.js'
 
 export type EventHandler = (event: Event) => void | Promise<void>
 
 export class EventService extends EventEmitter {
-  private claudeCodeSettings: ClaudeCodeSettings
   private eventCache: Map<string, Event[]> = new Map()
+  private repository?: RepositoryConfig
 
   constructor(
     private storage: StorageBackend,
-    claudeCodeSettings?: ClaudeCodeSettings,
+    _claudeCodeSettings?: ClaudeCodeSettings,
+    repository?: RepositoryConfig,
   ) {
     super()
     this.setMaxListeners(100)
-    this.claudeCodeSettings = claudeCodeSettings || getDefaultClaudeCodeSettings()
+    // claudeCodeSettings is no longer used directly since we use Claude service
+    this.repository = repository
   }
 
   async emitEvent(event: Event): Promise<void> {
@@ -66,7 +69,34 @@ export class EventService extends EventEmitter {
       // If task is provided and agent type is claude-code, read from Claude events disk (default behavior)
       if (task && task.agentType === 'claude-code' && !process.env.SKIP_CLAUDE_DISK_EVENTS) {
         try {
-          events = await readClaudeCodeEvents(this.claudeCodeSettings, task)
+          // Use Claude service to read messages
+          const claudeService = getClaudeService()
+          const sdkMessages = await claudeService.readClaudeMessages(taskId, task, this.repository)
+
+          // Convert SDK messages to events
+          events = []
+          for (const sdkMessage of sdkMessages) {
+            // For Claude service, we already have messages grouped by iteration
+            // Find the appropriate iteration number based on timestamp or other criteria
+            let iterationNumber: number | undefined
+
+            // Try to match by timestamp - find the iteration this message belongs to
+            const messageTimestamp =
+              'timestamp' in sdkMessage ? new Date(sdkMessage.timestamp as any) : new Date()
+
+            for (const iteration of task.iterations) {
+              if (
+                iteration.startTime <= messageTimestamp &&
+                (!iteration.endTime || iteration.endTime >= messageTimestamp)
+              ) {
+                iterationNumber = iteration.iterationNumber
+                break
+              }
+            }
+
+            const event = sdkMessageToEvent(sdkMessage, taskId, iterationNumber)
+            events.push(event)
+          }
         } catch (error) {
           // Log error but don't fail the request
           console.error(`Failed to read Claude Code events from disk for task ${taskId}:`, error)
@@ -123,6 +153,7 @@ export class EventService extends EventEmitter {
 export function createEventService(
   storage: StorageBackend,
   claudeCodeSettings?: ClaudeCodeSettings,
+  repository?: RepositoryConfig,
 ): EventService {
-  return new EventService(storage, claudeCodeSettings)
+  return new EventService(storage, claudeCodeSettings, repository)
 }

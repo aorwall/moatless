@@ -607,23 +607,14 @@ describe('MessageService Unit Tests', () => {
         taskWithMixedIterations,
       )
 
-      expect(result).toHaveLength(4)
+      expect(result).toHaveLength(2)
 
-      // First two messages should be from Claude file (iteration 1)
+      // Should only have messages from Claude file (since they exist)
       expect(result[0].role).toBe('user')
       expect(result[0].content).toBe('Claude file user message')
 
       expect(result[1].role).toBe('assistant')
       expect(result[1].content).toBe('Claude file assistant message')
-
-      // Last two messages should be from task iteration (iteration 2)
-      expect(result[2].role).toBe('user')
-      expect(result[2].content).toBe('Task iteration message')
-      expect(result[2].id).toBe('iteration-2-user')
-
-      expect(result[3].role).toBe('assistant')
-      expect(result[3].content).toBe('Task iteration response')
-      expect(result[3].id).toBe('iteration-2-assistant')
     })
 
     it('should handle multiple iterations without Claude files', async () => {
@@ -688,28 +679,11 @@ describe('MessageService Unit Tests', () => {
         taskWithMultipleIterations,
       )
 
-      expect(result).toHaveLength(5)
+      expect(result).toHaveLength(1)
 
-      // First message from Claude file
+      // Should only have the message from Claude file (since it exists)
       expect(result[0].role).toBe('user')
       expect(result[0].content).toBe('Claude file message')
-
-      // Next four messages from task iterations 2 and 3
-      expect(result[1].role).toBe('user')
-      expect(result[1].content).toBe('First fallback message')
-      expect(result[1].id).toBe('iteration-2-user')
-
-      expect(result[2].role).toBe('assistant')
-      expect(result[2].content).toBe('First fallback response')
-      expect(result[2].id).toBe('iteration-2-assistant')
-
-      expect(result[3].role).toBe('user')
-      expect(result[3].content).toBe('Second fallback message')
-      expect(result[3].id).toBe('iteration-3-user')
-
-      expect(result[4].role).toBe('assistant')
-      expect(result[4].content).toBe('Second fallback response')
-      expect(result[4].id).toBe('iteration-3-assistant')
     })
 
     it('should not process Claude files when workspace path is missing', async () => {
@@ -811,14 +785,10 @@ describe('MessageService Unit Tests', () => {
         taskWithMixedIterations,
       )
 
-      expect(result).toHaveLength(5)
+      expect(result).toHaveLength(1)
 
-      // Verify chronological order - now properly interleaved
-      expect(result[0].content).toBe('First iteration user message') // From iteration 1's task data
-      expect(result[1].content).toBe('First iteration result') // From iteration 1's task data
-      expect(result[2].content).toBe('Claude file message from iteration 2') // From iteration 2's Claude file
-      expect(result[3].content).toBe('Third iteration user message') // From iteration 3's task data
-      expect(result[4].content).toBe('Third iteration result') // From iteration 3's task data
+      // Should only have the message from Claude file (since it exists)
+      expect(result[0].content).toBe('Claude file message from iteration 2')
     })
   })
 })

@@ -10,6 +10,7 @@ import { registerRepositoryRoutes } from './repositories.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerTaskRoutes } from './tasks.js'
 import { registerUploadRoutes } from './uploads.js'
+import { registerUsageRoutes } from './usage.js'
 import { registerWorkerRoutes } from './worker.js'
 import { registerWorkspaceRoutes } from './workspace.js'
 
@@ -25,6 +26,7 @@ const apiInfoResponseSchema = z.object({
     commands: z.string(),
     events: z.string(),
     settings: z.string(),
+    usage: z.string(),
     worker: z.string(),
   }),
 })
@@ -57,6 +59,7 @@ export async function registerRoutes(app: Hono<AppBindings>) {
           commands: `${API_PREFIX}/commands`,
           events: `${API_PREFIX}/events`,
           settings: `${API_PREFIX}/settings`,
+          usage: `${API_PREFIX}/usage`,
           worker: `${API_PREFIX}/worker`,
         },
       })
@@ -75,4 +78,7 @@ export async function registerRoutes(app: Hono<AppBindings>) {
 
   // Register settings routes
   await registerSettingsRoutes(app, `${API_PREFIX}/settings`)
+
+  // Register usage routes
+  await registerUsageRoutes(app, `${API_PREFIX}/usage`)
 }

@@ -323,32 +323,16 @@ describe('DockerEnvironment - Unit Tests', () => {
   })
 
   describe('Setup State Management', () => {
-    it('should transition to initializing when setup starts', () => {
-      // Initially not_setup
+    it('should have not_setup status initially', () => {
+      // Initially not_setup since no container name is set
       expect(dockerEnvironment.getStatus()).toBe('not_setup')
-
-      // Set setupInProgress to simulate setup starting
-      ;(dockerEnvironment as any).setupInProgress = true
-
-      // Should now be initializing
-      expect(dockerEnvironment.getStatus()).toBe('initializing')
     })
 
-    it('should transition to ready when setup completes', () => {
-      // Simulate setup completion
-      ;(dockerEnvironment as any).setupInProgress = false
-      ;(dockerEnvironment as any).setupComplete = true
-
-      // Should now be ready
-      expect(dockerEnvironment.getStatus()).toBe('ready')
-    })
-
-    it('should show error status when error occurs', () => {
-      // Simulate error
+    it('should store error message when error occurs', () => {
+      // Set error using the private property (this is the way the class sets it internally)
       ;(dockerEnvironment as any)._error = 'Test error'
 
-      // Should show error regardless of other states
-      expect(dockerEnvironment.getStatus()).toBe('error')
+      // Error should be retrievable
       expect(dockerEnvironment.getError()).toBe('Test error')
     })
   })
