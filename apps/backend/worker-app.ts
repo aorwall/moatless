@@ -3,9 +3,8 @@ import { Hono } from 'hono'
 import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
-import { type BaseAgent, WorkspaceService } from './services/index.js'
+import type { BaseAgent } from './services/index.js'
 import { PreviewServer } from './services/preview-server.js'
-import { FileStorage } from './services/storage.js'
 import { createLogger } from './utils/logger.js'
 import { WorkerApiClient } from './utils/worker-api-client.js'
 
@@ -90,13 +89,6 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     throw new Error(`Repository ${task.repositoryId} not found`)
   }
 
-  // Use regular FileStorage with mounted volume path
-  // The data directory is mounted from the host, allowing types storage
-  const dataDir = config.dataDir || '/data'
-  const storage = new FileStorage(dataDir)
-
-  const workspaceService = new WorkspaceService(null as any, storage)
-
   const environment = new LocalEnvironment(taskId, repositoryConfig, config.workspaceDir)
 
   // Store single agent instance for this worker (only one agent can run at a time)
@@ -124,7 +116,6 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       status: 'ok',
       mode: 'worker',
       workspaceDir: config.workspaceDir,
-      dataDir: dataDir,
       taskId: taskId,
     }),
   )
@@ -141,13 +132,19 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     })
 
     try {
-      agentInstance = await environment.createAgent(agentType || 'claude-code', runOptions)
+      // Ensure runOptions uses the worker's actual workspace directory
+      const adjustedRunOptions = {
+        ...runOptions,
+        workspaceDir: config.workspaceDir,
+      }
+
+      agentInstance = await environment.createAgent(agentType || 'claude-code', adjustedRunOptions)
 
       // Run agent in background and emit events to main API
       runAgentInBackground(
         agentInstance,
         message,
-        runOptions || {},
+        adjustedRunOptions,
         taskId,
         config.apiUrl,
         config.apiKey,
@@ -399,20 +396,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     const { command, timeout } = body
 
     try {
-      // Get workspace to execute command
-      const workspace = await workspaceService.getWorkspace(taskId!)
-      if (!workspace) {
-        return c.json(
-          {
-            exit_code: 1,
-            stdout: '',
-            stderr: 'No workspace available',
-          },
-          400,
-        )
-      }
-
-      const result = await workspace.runCommand(command, timeout)
+      const result = await environment.runCommand(command, timeout)
 
       return c.json({
         exit_code: result.exitCode || 0,

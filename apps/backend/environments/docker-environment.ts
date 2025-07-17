@@ -118,6 +118,37 @@ export class DockerEnvironment extends BaseEnvironment {
       repositoryName: this.repositoryConfig.name,
     })
 
+    // Find Claude config
+    // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
+    const claudeConfigDir =
+      process.env.CLAUDE_CONFIG_HOME || path.join(process.env.HOME || '', '.claude')
+    let claudeConfigPath: string | null = null
+
+    const configJsonPath = path.join(claudeConfigDir, '.config.json')
+    if (existsSync(configJsonPath)) {
+      claudeConfigPath = configJsonPath
+      this.logger.info('Found Claude config at CLAUDE_CONFIG_HOME/.config.json', {
+        configJsonPath,
+      })
+    }
+
+    if (!claudeConfigPath) {
+      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
+      if (existsSync(claudeJsonPath)) {
+        claudeConfigPath = claudeJsonPath
+        this.logger.info('Found Claude config at USER_HOME/.claude.json', { claudeJsonPath })
+      }
+    }
+
+    if (!claudeConfigPath) {
+      throw new Error(`No Claude config found on path ${claudeConfigPath}`)
+    }
+
+    const credentialsJsonPath = path.join(claudeConfigDir, '.credentials.json')
+    if (!existsSync(credentialsJsonPath)) {
+      throw new Error(`No Claude credentials found on path ${credentialsJsonPath}`)
+    }
+
     try {
       // Allocate port for worker
       const workerPort = await findAvailablePort('worker')
@@ -151,17 +182,18 @@ export class DockerEnvironment extends BaseEnvironment {
 
       await this.waitForContainerReady()
 
-      // Copy .claude.json file if it exists
-      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
-      if (existsSync(claudeJsonPath)) {
-        this.logger.info('Copying .claude.json to container', { claudeJsonPath })
-        await execAsync(
-          `docker cp "${claudeJsonPath}" "${this.containerName}:/home/ubuntu/.claude.json"`,
-        )
-        this.logger.info('.claude.json copied successfully')
-      } else {
-        this.logger.warn(`Claude config not found on path ${claudeJsonPath} , skipping copy`)
-      }
+      this.logger.info('Copying Claude config to container', { claudeConfigPath })
+      await execAsync(
+        `docker cp "${claudeConfigPath}" "${this.containerName}:/home/ubuntu/.claude/.claude.json"`,
+      )
+      await execAsync(
+        `docker cp "${credentialsJsonPath}" "${this.containerName}:/home/ubuntu/.claude/.credentials.json"`,
+      )
+      // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
+      await execAsync(
+        `docker exec --user root "${this.containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
+      )
+      this.logger.info('Claude config copied and ownership fixed successfully')
 
       this.logger.info('DockerEnvironment setup completed - container is ready', {
         containerName: this.containerName,
@@ -269,12 +301,15 @@ export class DockerEnvironment extends BaseEnvironment {
     createCommand += ` --label "moatless.task-id=${this.taskId}"`
     createCommand += ` --label "moatless.created-at=${new Date().toISOString()}"`
 
-    // Set working directory to /repo
-    createCommand += ` -w "/repo"`
+    // Use repository path as container workspace path
+    const containerWorkspacePath = this.repositoryConfig.path
+
+    // Set working directory to container workspace path
+    createCommand += ` -w "${containerWorkspacePath}"`
 
     // Add volume mappings
     const dataDir = process.env.DATA_DIR || './data'
-    createCommand += ` -v "${this.workspacePath}:/repo"`
+    createCommand += ` -v "${this.workspacePath}:${containerWorkspacePath}"`
     createCommand += ` -v "${dataDir}:/data"`
 
     // Add main repo .git directory mount for worktrees
@@ -296,7 +331,7 @@ export class DockerEnvironment extends BaseEnvironment {
       process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude')
 
     if (hostClaudeConfigDir && existsSync(hostClaudeConfigDir)) {
-      createCommand += ` -v "${hostClaudeConfigDir}:${containerClaudeConfigDir}"`
+      createCommand += ` -v "${hostClaudeConfigDir}/projects:${containerClaudeConfigDir}/projects"`
     }
 
     if (!this.workerPortMapping) {
@@ -316,7 +351,7 @@ export class DockerEnvironment extends BaseEnvironment {
     createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
     createCommand += ` -e "WORKER_API_KEY=${apiKey}"`
     createCommand += ` -e "WORKER_TASK_ID=${this.taskId}"`
-    createCommand += ` -e "WORKSPACE_DIR=/repo"`
+    createCommand += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     createCommand += ` -e "DATA_DIR=/data"`
     createCommand += ` -e "PORT=${this.workerPortMapping?.containerPort || 8001}"`
     createCommand += ` -e "LOG_LEVEL=debug"`
@@ -329,7 +364,7 @@ export class DockerEnvironment extends BaseEnvironment {
       createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
     }
     createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
-    createCommand += ` -e "HOME=/repo"`
+    createCommand += ` -e "HOME=${containerWorkspacePath}"`
 
     if (process.env.CLAUDE_CODE_MOCK) {
       createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
@@ -523,13 +558,14 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       // Build docker exec command with git environment variables if needed
-      let dockerCommand = 'docker exec -w /repo'
+      const containerWorkspacePath = this.repositoryConfig.path
+      let dockerCommand = `docker exec -w "${containerWorkspacePath}"`
 
       // Add git environment variables if using worktrees
       if (this.repositoryConfig.useGitWorktrees) {
         const worktreeName = path.basename(this.workspacePath)
         dockerCommand += ` -e "GIT_DIR=/main-repo-git/worktrees/${worktreeName}"`
-        dockerCommand += ` -e "GIT_WORK_TREE=/repo"`
+        dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
       }
 
       dockerCommand += ` ${this.containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`

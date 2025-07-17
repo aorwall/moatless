@@ -116,7 +116,6 @@ describe('Worker API Integration Test', () => {
           setupCommands: ['echo "Setup complete"'],
         },
       }
-
       const createRepoResponse = await mainApp.inject({
         method: 'POST',
         url: '/api/v1/repositories',

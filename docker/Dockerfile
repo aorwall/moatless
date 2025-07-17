@@ -7,7 +7,6 @@
 FROM ubuntu:24.04 AS base-system
 
 ENV LANG="C.UTF-8"
-ENV HOME=/workspace
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install comprehensive system packages (based on codex-universal)
@@ -156,12 +155,6 @@ RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 # Install Claude Code CLI as root
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create directories and set permissions (before user switch)
-RUN mkdir -p /workspace /home/$USERNAME/.claude /data /commandhistory \
-    && touch /commandhistory/.bash_history \
-    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /data /commandhistory \
-    && chmod -R 755 /workspace /data
-
 # Switch to non-root user
 USER $USERNAME
 
@@ -204,7 +197,7 @@ RUN cd /tmp/moatless-vibe && \
 
 # Switch to non-root user for runtime
 USER $USERNAME
-WORKDIR /workspace
+WORKDIR /home/ubuntu
 
 # Ensure npm global bin is in PATH for the ubuntu user
 ENV PATH="/usr/bin:/usr/local/bin:$PATH"
@@ -213,8 +206,8 @@ ENV PATH="/usr/bin:/usr/local/bin:$PATH"
 ENV DEVCONTAINER=true
 ENV NODE_ENV=production
 ENV WORKER_MODE=true
-ENV DATA_DIR=/data
-ENV WORKSPACE_DIR=/workspace
+ENV WORKSPACE_DIR=/repo
+ENV CLAUDE_CONFIG_DIR=/home/ubuntu/.claude
 ENV PORT=8001
 ENV TZ="UTC"
 
