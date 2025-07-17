@@ -9,6 +9,7 @@ import {
   useUpdateRepository,
 } from '@/features/repositories'
 import { CodeExecutionConfig } from '@/features/repositories/components/code-execution-config'
+import { VerificationDialog } from '@/features/repositories/components/verification-dialog'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { getErrorMessage } from '@/lib/utils/error'
 
@@ -112,6 +113,10 @@ function RepositoryEdit() {
   return (
     <div className="container mx-auto py-6">
       <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold">Repository Configuration</h1>
+          <VerificationDialog repositoryId={repositoryId} />
+        </div>
         <RepositoryForm
           repository={repository}
           onSubmit={handleSubmit}

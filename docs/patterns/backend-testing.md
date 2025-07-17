@@ -397,6 +397,101 @@ describe('SSE Events - E2E Tests', () => {
 })
 ```
 
+### 5. Docker Environment Testing
+
+When testing Docker environments, mock the container operations for unit tests:
+
+```typescript
+// Unit test - Mock Docker operations
+describe('DockerEnvironment - Unit Tests', () => {
+  beforeEach(() => {
+    // Mock child_process for Docker commands
+    vi.mock('node:child_process', () => ({
+      exec: vi.fn((cmd, opts, cb) => {
+        const callback = cb || opts
+        callback(null, { stdout: 'success', stderr: '' })
+      }),
+      execSync: vi.fn((cmd) => {
+        if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
+          return 'running|healthy'
+        }
+        return 'mocked output'
+      })
+    }))
+  })
+
+  it('should delegate server operations to worker', async () => {
+    const env = new DockerEnvironment(taskId, config, eventService, workspacePath)
+    
+    // Mock fetch for HTTP requests to worker
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ running: true, port: 3000 })
+    })
+    
+    const result = await env.startServer()
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/server/start'),
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('serverCommand')
+      })
+    )
+  })
+})
+
+// Integration test - Test with real Docker commands but mock worker
+describe('DockerEnvironment - Integration Tests', () => {
+  it('should create and manage container lifecycle', async () => {
+    // This would test real Docker commands but mock the worker HTTP endpoints
+  })
+})
+```
+
+### 6. Testing Environment Delegation Pattern
+
+When testing the delegation pattern, ensure both paths are covered:
+
+```typescript
+describe('WorkspaceService - Server Delegation', () => {
+  it('should delegate to environment when server methods exist', async () => {
+    const mockEnvironment = {
+      getType: () => 'docker',
+      startServer: vi.fn().mockResolvedValue({ running: true, port: 3000 })
+    }
+    
+    const mockWorkspace = {
+      getEnvironment: () => mockEnvironment
+    }
+    
+    vi.mocked(workspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
+    
+    const result = await workspaceService.startServer('task-123')
+    
+    expect(mockEnvironment.startServer).toHaveBeenCalled()
+    expect(result).toEqual({ running: true, port: 3000 })
+  })
+  
+  it('should fallback to PreviewEnvironmentService for environments without server methods', async () => {
+    const mockEnvironment = {
+      getType: () => 'custom',
+      // No server methods
+    }
+    
+    const mockWorkspace = {
+      getEnvironment: () => mockEnvironment
+    }
+    
+    vi.mocked(workspaceService.getOrCreateWorkspace).mockResolvedValue(mockWorkspace)
+    vi.mocked(previewEnvironmentService.startServer).mockResolvedValue({ running: true })
+    
+    await workspaceService.startServer('task-123')
+    
+    expect(previewEnvironmentService.startServer).toHaveBeenCalledWith('task-123')
+  })
+})
+```
+
 ## Test Data Management
 
 ### Temporary Directories

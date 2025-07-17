@@ -2,7 +2,6 @@ import * as child_process from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventService } from '../event.service.js'
 import { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
@@ -15,6 +14,17 @@ vi.mock('node:child_process', () => ({
     } else if (typeof opts === 'function') {
       opts(null, { stdout: 'mocked output', stderr: '' })
     }
+  }),
+  execSync: vi.fn((cmd) => {
+    // Mock docker inspect for health check
+    if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
+      return 'running|healthy'
+    }
+    // Mock docker ps for existing container check
+    if (cmd.includes('docker ps')) {
+      return ''
+    }
+    return 'mocked output'
   }),
 }))
 
@@ -76,16 +86,9 @@ vi.mock('../../utils/git-utils.js', () => ({
   }),
 }))
 
-// Mock PortAllocationService
-vi.mock('../port-allocation.service.js', () => ({
-  PortAllocationService: {
-    getInstance: vi.fn(() => ({
-      initialize: vi.fn().mockResolvedValue(undefined),
-      allocatePort: vi.fn().mockResolvedValue(8001),
-      releasePort: vi.fn().mockResolvedValue(undefined),
-      releasePortsForTask: vi.fn().mockResolvedValue(undefined),
-    })),
-  },
+// Mock port allocation utility
+vi.mock('../../utils/port-allocation.js', () => ({
+  findAvailablePort: vi.fn().mockResolvedValue(8001),
 }))
 
 // Mock fetch for Docker health checks
@@ -99,7 +102,6 @@ global.fetch = vi.fn(() =>
 describe('WorkspaceService', () => {
   let service: WorkspaceService
   let storage: StorageBackend
-  let eventService: EventService
   let repositoryService: RepositoryService
   let tempDir: string
 
@@ -168,7 +170,6 @@ describe('WorkspaceService', () => {
       getEvents: vi.fn().mockResolvedValue([]),
     } as any as StorageBackend
 
-    eventService = new EventService(storage)
     repositoryService = new RepositoryService(storage)
 
     // Mock the validateRepository method to skip validation
@@ -179,7 +180,7 @@ describe('WorkspaceService', () => {
     vi.spyOn(repositoryService, 'createRepository').mockResolvedValue(mockRepository as any)
     vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValue(mockRepository as any)
 
-    service = new WorkspaceService(repositoryService, eventService, storage)
+    service = new WorkspaceService(repositoryService, storage)
   })
 
   afterEach(async () => {
@@ -246,7 +247,7 @@ describe('WorkspaceService', () => {
       // Setup the workspace so file operations can work
       await workspace.setup()
 
-      const files = await service.listFiles('test-task')
+      const files = await workspace.listFiles()
 
       expect(files).toContain('test1.js')
       expect(files).toContain('test2.js')
@@ -267,10 +268,10 @@ describe('WorkspaceService', () => {
 
       // Write file
       const content = 'console.log("Hello, world!");'
-      await service.writeFile('test-task', 'test.js', content)
+      await workspace.writeFile('test.js', content)
 
       // Read file - mock should return 'file content'
-      const readContent = await service.readFile('test-task', 'test.js')
+      const readContent = await workspace.readFile('test.js')
       expect(readContent).toBe('file content') // From our mock
     })
 
@@ -281,13 +282,11 @@ describe('WorkspaceService', () => {
       await workspace.setup()
 
       // Attempt path traversal
-      await expect(service.readFile('test-task', '../../../etc/passwd')).rejects.toThrow(
+      await expect(workspace.readFile('../../../etc/passwd')).rejects.toThrow('Access denied')
+
+      await expect(workspace.writeFile('../../../etc/passwd', 'malicious')).rejects.toThrow(
         'Access denied',
       )
-
-      await expect(
-        service.writeFile('test-task', '../../../etc/passwd', 'malicious'),
-      ).rejects.toThrow('Access denied')
     })
   })
 
@@ -307,11 +306,11 @@ describe('WorkspaceService', () => {
 
       expect(workspace.type).toBe('docker')
       expect(workspace.status).toBe('not_setup') // Status before setup is called
-      // Container ID will be empty until setup is called
+      // Container name will be empty until setup is called
       const workspaceInfo = workspace.toWorkspaceInfo()
       expect(workspaceInfo.type).toBe('docker')
       if (workspaceInfo.type === 'docker') {
-        expect(workspaceInfo.containerId).toBe('')
+        expect(workspaceInfo.containerName).toBe('')
       }
     })
   })

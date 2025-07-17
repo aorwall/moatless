@@ -7,6 +7,7 @@ import type {
   RepositoryResponse,
   SetupScriptResponse,
   UpdateRepositoryRequest,
+  VerificationResponse,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
@@ -48,5 +49,9 @@ export const repositoriesApi = {
 
   async runSetupScript(repoId: string): Promise<SetupScriptResponse> {
     return await apiClient.post<SetupScriptResponse>(`/api/v1/repositories/${repoId}/run-setup`)
+  },
+
+  async verifyRepository(repoId: string): Promise<VerificationResponse> {
+    return await apiClient.post<VerificationResponse>(`/api/v1/repositories/${repoId}/verify`)
   },
 }

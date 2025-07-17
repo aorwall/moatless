@@ -840,7 +840,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const filePaths = await services.workspace.listFiles(taskId, path, recursive)
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const filePaths = await workspace.listFiles(path, recursive)
         // Transform string paths to match the schema
         const files = filePaths.map((filePath) => ({
           name: filePath.split('/').pop() || filePath,
@@ -912,7 +913,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const content = await services.workspace.readFile(taskId, filePath)
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const content = await workspace.readFile(filePath)
         return c.json({ content, encoding: 'utf-8' })
       } catch (error) {
         if (error instanceof TaskNotFoundError) {
@@ -1002,7 +1004,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { content } = validatedBody
 
       // Task validation and capability check now handled in workspace service
-      await services.workspace.writeFile(taskId, filePath, content)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      await workspace.writeFile(filePath, content)
       return c.json({ success: true })
     },
   )
@@ -1062,7 +1065,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const result = await services.workspace.searchFiles(taskId, {
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const result = await workspace.searchFiles({
           query,
           limit,
         })
@@ -1122,7 +1126,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       try {
         // Task validation and capability check now handled in workspace service
-        const diffResult = await services.workspace.getGitDiff(taskId)
+        const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+        const diffResult = await workspace.getGitDiff()
 
         return c.json({
           diff: diffResult.diffString,
@@ -1274,7 +1279,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { command, timeout } = validatedBody
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.runCommand(taskId, command, timeout)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const result = await workspace.runCommand(command, timeout)
       return c.json(result)
     },
   )

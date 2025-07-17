@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { WorkspaceStatusResponseSchema } from './workspace.schemas.js'
 
 // Repository name validation - allows URL-safe names or GitHub-style owner/repo format
 const repositoryNameSchema = z
@@ -97,6 +98,9 @@ export const FileSearchSchema = z.object({
   limit: z.number().min(1).max(1000).optional(),
 })
 
+// Repository verification returns workspace status
+export const VerificationResponseSchema = WorkspaceStatusResponseSchema
+
 // Type exports
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
@@ -104,3 +108,4 @@ export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
 export type ScriptInjectionStrategy = z.infer<typeof ScriptInjectionStrategySchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
+export type VerificationResponse = z.infer<typeof VerificationResponseSchema>

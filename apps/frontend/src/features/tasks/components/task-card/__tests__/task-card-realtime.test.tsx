@@ -2,8 +2,10 @@ import type { Event, Task } from '@moatless/types'
 import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { TaskCard } from '../task-card'
 
+// Mock the event stream provider
 vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
   useTaskEventSubscription: vi.fn(),
 }))

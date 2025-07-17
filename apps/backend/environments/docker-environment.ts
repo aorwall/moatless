@@ -1,42 +1,31 @@
-import { exec } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
-import type { EventService } from '../services/index.js'
-import { PortAllocationService } from '../services/port-allocation.service.js'
+import { getSettingsService } from '../services/settings.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
+import { findAvailablePort } from '../utils/port-allocation.js'
 import { BaseEnvironment } from './base-environment.js'
 
 const execAsync = promisify(exec)
 
 export class DockerEnvironment extends BaseEnvironment {
-  private containerId = ''
   private containerName = ''
   private image = ''
-  private setupInProgress = false
-  private setupComplete = false
   private runningAgent?: BaseAgent
   private _createdAt = new Date()
   private _error?: string
   private workspacePath: string
-  private previewPortMapping?: { containerPort: number; hostPort: number }
   private workerPortMapping?: { containerPort: number; hostPort: number }
   private logger = createTaskLogger(this.taskId)
-  private portAllocationService: PortAllocationService
 
-  constructor(
-    taskId: string,
-    repositoryConfig: RepositoryConfig,
-    eventService: EventService,
-    workspacePath: string,
-  ) {
-    super(taskId, repositoryConfig, eventService)
+  constructor(taskId: string, repositoryConfig: RepositoryConfig, workspacePath: string) {
+    super(taskId, repositoryConfig)
     this.workspacePath = workspacePath
-    this.portAllocationService = PortAllocationService.getInstance()
     this.logger = createTaskLogger(taskId)
   }
 
@@ -45,10 +34,56 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
-    if (this._error) return 'error'
-    if (this.setupInProgress) return 'initializing'
-    if (this.setupComplete) return 'ready'
-    return 'not_setup'
+    // If no container name, we haven't started setup yet
+    if (!this.containerName) {
+      return 'not_setup'
+    }
+
+    try {
+      return this.getContainerStatus()
+    } catch (error) {
+      this.logger.warn('Error checking container status', { error })
+      return 'error'
+    }
+  }
+
+  private getContainerStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' {
+    if (!this.containerName) {
+      return 'not_setup'
+    }
+
+    // Check container status docker inspect
+    try {
+      const containerStatus = execSync(
+        `docker inspect --format='{{.State.Status}}' "${this.containerName}"`,
+        { encoding: 'utf8', timeout: 2000 },
+      ).trim()
+
+      if (!containerStatus) {
+        return 'not_setup'
+      }
+
+      if (containerStatus === 'created') {
+        return 'initializing'
+      }
+
+      if (containerStatus === 'running') {
+        return 'ready'
+      }
+
+      if (containerStatus === 'exited' || containerStatus === 'dead') {
+        return 'error'
+      }
+      return 'not_setup'
+    } catch (error) {
+      // Container doesn't exist
+      if (error instanceof Error && error.message.includes('No such object')) {
+        return 'not_setup'
+      }
+      // Other errors
+      this.logger.debug('Error checking container status', { error })
+      return 'error'
+    }
   }
 
   getCreatedAt(): Date {
@@ -63,12 +98,12 @@ export class DockerEnvironment extends BaseEnvironment {
     return this.workspacePath
   }
 
-  getContainerId(): string {
-    return this.containerId
+  getContainerName(): string {
+    return this.containerName
   }
 
   getPort(): number | undefined {
-    return this.previewPortMapping?.hostPort
+    return this.workerPortMapping?.hostPort
   }
 
   getImage(): string {
@@ -76,7 +111,6 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   async setup(_iterationNumber?: number): Promise<void> {
-    this.setupInProgress = true
     const startTime = Date.now()
 
     this.logger.info('Starting Docker environment setup', {
@@ -85,22 +119,63 @@ export class DockerEnvironment extends BaseEnvironment {
       repositoryName: this.repositoryConfig.name,
     })
 
-    try {
-      // Initialize port allocation service
-      this.logger.debug('Initializing port allocation service')
-      await this.portAllocationService.initialize()
+    // Find Claude config using settings service (optional for tests)
+    const settingsService = getSettingsService()
+    const claudeSettings = settingsService.getClaudeSettings()
 
-      // Allocate ports for worker and preview server
-      const workerPort = await this.portAllocationService.allocatePort(this.taskId, 'worker')
-      const previewPort = await this.portAllocationService.allocatePort(this.taskId, 'preview')
+    // Determine Claude config directory
+    let claudeConfigDir: string
+    if (claudeSettings.configDir) {
+      claudeConfigDir = claudeSettings.configDir
+    } else if (process.env.CLAUDE_CONFIG_HOME) {
+      claudeConfigDir = process.env.CLAUDE_CONFIG_HOME
+    } else {
+      claudeConfigDir = path.join(process.env.HOME || '', '.claude')
+    }
+
+    let claudeConfigPath: string | null = null
+    let credentialsJsonPath: string | null = null
+
+    // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
+    const configJsonPath = path.join(claudeConfigDir, '.config.json')
+    if (existsSync(configJsonPath)) {
+      claudeConfigPath = configJsonPath
+      this.logger.info('Found Claude config at CLAUDE_CONFIG_DIR/.config.json', {
+        configJsonPath,
+      })
+    }
+
+    if (!claudeConfigPath) {
+      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
+      if (existsSync(claudeJsonPath)) {
+        claudeConfigPath = claudeJsonPath
+        this.logger.info('Found Claude config at USER_HOME/.claude.json', { claudeJsonPath })
+      }
+    }
+
+    // Check for credentials file
+    const credentialsPath = path.join(claudeConfigDir, '.credentials.json')
+    if (existsSync(credentialsPath)) {
+      credentialsJsonPath = credentialsPath
+    }
+
+    // Only warn if no Claude config is found (don't throw error for tests)
+    if (!claudeConfigPath) {
+      this.logger.warn('No Claude config found - Claude Code agent may not work properly', {
+        searchedPaths: [configJsonPath, path.join(process.env.HOME || '', '.claude.json')],
+      })
+    }
+    if (!credentialsJsonPath) {
+      this.logger.warn('No Claude credentials found - Claude Code agent may not work properly', {
+        searchedPath: credentialsPath,
+      })
+    }
+
+    try {
+      // Allocate port for worker
+      const workerPort = await findAvailablePort('worker')
 
       this.workerPortMapping = { containerPort: 8001, hostPort: workerPort }
-      this.previewPortMapping = { containerPort: 3000, hostPort: previewPort }
-
-      this.logger.info('Ports allocated', {
-        workerPort,
-        previewPort,
-      })
 
       this.image =
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
@@ -111,48 +186,53 @@ export class DockerEnvironment extends BaseEnvironment {
       this.logger.info('Creating Docker container', {
         containerName: this.containerName,
         image: this.image,
+        workerPort,
       })
 
-      await this.createContainer()
+      await this.createOrReuseContainer()
 
       this.logger.info('Starting Docker container', {
-        containerId: this.containerId,
         containerName: this.containerName,
       })
 
       await this.startContainer()
 
-      // Wait for worker to be ready
-      this.logger.debug('Waiting for worker to be ready')
-      await this.waitForWorkerReady()
+      // Wait for the container and worker to be ready
+      this.logger.info('Waiting for container to be ready', {
+        containerName: this.containerName,
+      })
 
-      // Run setup commands if any are configured
-      const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
-      if (setupCommands.length > 0) {
-        this.logger.info('Running setup commands', { commandCount: setupCommands.length })
+      await this.waitForContainerReady()
 
-        for (const command of setupCommands) {
-          this.logger.info(`Running setup command: ${command}`)
-          const result = await this.runCommand(command, 300000) // 5 minutes timeout
-
-          if (result.exitCode !== 0) {
-            this.logger.warn(`Setup command failed: ${command}`, {
-              exitCode: result.exitCode,
-              output: result.output,
-            })
-          }
-        }
-
-        this.logger.info('Setup commands completed')
+      // Copy Claude config files if they exist
+      if (claudeConfigPath) {
+        this.logger.info('Copying Claude config to container', { claudeConfigPath })
+        await execAsync(
+          `docker cp "${claudeConfigPath}" "${this.containerName}:/home/ubuntu/.claude/.claude.json"`,
+        )
       }
 
-      this.setupComplete = true
-      this.setupInProgress = false
+      if (credentialsJsonPath) {
+        this.logger.info('Copying Claude credentials to container', { credentialsJsonPath })
+        await execAsync(
+          `docker cp "${credentialsJsonPath}" "${this.containerName}:/home/ubuntu/.claude/.credentials.json"`,
+        )
+      }
 
-      this.logger.info('DockerEnvironment setup completed successfully', {
-        containerId: this.containerId,
+      // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
+      // Only run this if we copied at least one file
+      if (claudeConfigPath || credentialsJsonPath) {
+        await execAsync(
+          `docker exec --user root "${this.containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
+        )
+        this.logger.info('Claude config copied and ownership fixed successfully')
+      } else {
+        this.logger.info('No Claude config files to copy - skipping Claude setup')
+      }
+
+      this.logger.info('DockerEnvironment setup completed - container is ready', {
+        containerName: this.containerName,
         workerPort: this.workerPortMapping.hostPort,
-        previewPort: this.previewPortMapping.hostPort,
         setupTimeMs: Date.now() - startTime,
       })
     } catch (error) {
@@ -161,12 +241,89 @@ export class DockerEnvironment extends BaseEnvironment {
 
       this.logger.error('DockerEnvironment setup failed', error as Error, {
         setupTimeMs: failureTime,
-        containerId: this.containerId,
-        stage: this.setupInProgress ? 'setup' : 'complete',
+        containerName: this.containerName,
       })
 
-      this.setupInProgress = false
       await this.cleanup()
+      throw error
+    }
+  }
+
+  private async createOrReuseContainer(): Promise<void> {
+    // Check if container already exists
+    const existingContainer = await this.getExistingContainer()
+
+    if (existingContainer) {
+      this.logger.info('Found existing container', {
+        containerName: this.containerName,
+        status: existingContainer.status,
+      })
+
+      // If container is running, reuse it
+      if (existingContainer.status.includes('Up')) {
+        this.logger.info('Container is running, reusing it')
+        return
+      }
+
+      // If container is stopped, remove it and create a new one
+      this.logger.info('Container is stopped, removing it and creating new one')
+      await this.removeExistingContainer(existingContainer.id)
+    }
+
+    // No existing container found or removed stopped container, create a new one
+    this.logger.info('Creating new container')
+    await this.createContainer()
+  }
+
+  private async getExistingContainer(): Promise<{ id: string; status: string } | null> {
+    try {
+      // Use exact name match with ^/name$ pattern to avoid partial matches
+      const { stdout } = await execAsync(
+        `docker ps -a --filter "name=^/${this.containerName}$" --format "{{.ID}},{{.Status}}"`,
+      )
+
+      if (!stdout.trim()) {
+        this.logger.debug('No existing container found with exact name match')
+        return null
+      }
+
+      const lines = stdout.trim().split('\n')
+      for (const line of lines) {
+        const [id, status] = line.split(',')
+        if (id && status) {
+          this.logger.debug('Found existing container', {
+            containerId: id.trim(),
+            status: status.trim(),
+          })
+          return { id: id.trim(), status: status.trim() }
+        }
+      }
+
+      return null
+    } catch (error) {
+      this.logger.debug('Error checking for existing container', { error })
+      return null
+    }
+  }
+
+  private async removeExistingContainer(containerId: string): Promise<void> {
+    try {
+      this.logger.info('Removing existing container', { containerId })
+
+      // First try to stop the container if it's running
+      try {
+        await execAsync(`docker stop ${containerId}`)
+        this.logger.debug('Container stopped', { containerId })
+      } catch (stopError) {
+        // Container might already be stopped, continue with removal
+        this.logger.debug('Container stop failed (may already be stopped)', { containerId })
+      }
+
+      // Remove the container
+      await execAsync(`docker rm ${containerId}`)
+      this.logger.info('Container removed successfully', { containerId })
+    } catch (error) {
+      this.logger.error('Failed to remove existing container', error as Error, { containerId })
       throw error
     }
   }
@@ -177,33 +334,59 @@ export class DockerEnvironment extends BaseEnvironment {
     // Add moatless labels for easy cleanup
     createCommand += ` --label "created-by=moatless"`
     createCommand += ` --label "moatless.task-id=${this.taskId}"`
-    createCommand += ` --label "moatless.workspace-type=docker"`
     createCommand += ` --label "moatless.created-at=${new Date().toISOString()}"`
 
-    // Set working directory to /repo
-    createCommand += ` -w "/repo"`
+    // Use repository path as container workspace path
+    const containerWorkspacePath = this.repositoryConfig.path
+
+    // Set working directory to container workspace path
+    createCommand += ` -w "${containerWorkspacePath}"`
 
     // Add volume mappings
     const dataDir = process.env.DATA_DIR || './data'
-    createCommand += ` -v "${this.workspacePath}:/repo"`
+    createCommand += ` -v "${this.workspacePath}:${containerWorkspacePath}"`
     createCommand += ` -v "${dataDir}:/data"`
 
-    // Mount Claude config directory
-    const containerClaudeConfigDir = '/home/node/.claude'
-    const hostClaudeConfigDir =
-      process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude')
+    // Add main repo .git directory mount for worktrees
+    if (this.repositoryConfig.useGitWorktrees) {
+      // The repository path is the main repository path when using worktrees
+      const mainRepoPath = this.repositoryConfig.path
+      createCommand += ` -v "${mainRepoPath}/.git:/main-repo-git:ro"`
+      createCommand += ` -e "MAIN_REPO_PATH=${mainRepoPath}"`
+      createCommand += ` -e "USE_GIT_WORKTREES=true"`
 
-    if (hostClaudeConfigDir && existsSync(hostClaudeConfigDir)) {
-      createCommand += ` -v "${hostClaudeConfigDir}:${containerClaudeConfigDir}"`
+      // Extract worktree name for git configuration
+      const worktreeName = path.basename(this.workspacePath)
+      createCommand += ` -e "GIT_WORKTREE_NAME=${worktreeName}"`
+    }
+
+    // Mount Claude config directory using settings service
+    const containerClaudeConfigDir = '/home/ubuntu/.claude'
+    const settingsService = getSettingsService()
+    const claudeSettings = settingsService.getClaudeSettings()
+
+    // Determine host Claude config directory
+    let hostClaudeConfigDir: string
+    if (claudeSettings.configDir) {
+      hostClaudeConfigDir = claudeSettings.configDir
+    } else if (process.env.CLAUDE_CONFIG_DIR) {
+      hostClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+    } else {
+      hostClaudeConfigDir = path.join(process.env.HOME || '', '.claude')
+    }
+
+    // Mount projects directory if it exists
+    const projectsDir = path.join(hostClaudeConfigDir, 'projects')
+    if (existsSync(projectsDir)) {
+      createCommand += ` -v "${projectsDir}:${containerClaudeConfigDir}/projects"`
+    }
+
+    if (!this.workerPortMapping) {
+      throw new Error('Worker port not allocated')
     }
 
     // Add port mappings
-    if (this.workerPortMapping) {
-      createCommand += ` -p ${this.workerPortMapping.hostPort}:${this.workerPortMapping.containerPort}`
-    }
-    if (this.previewPortMapping) {
-      createCommand += ` -p ${this.previewPortMapping.hostPort}:${this.previewPortMapping.containerPort}`
-    }
+    createCommand += ` -p ${this.workerPortMapping.hostPort}:${this.workerPortMapping.containerPort}`
 
     // Add environment variables
     const port = process.env.PORT || '8000'
@@ -215,10 +398,9 @@ export class DockerEnvironment extends BaseEnvironment {
     createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
     createCommand += ` -e "WORKER_API_KEY=${apiKey}"`
     createCommand += ` -e "WORKER_TASK_ID=${this.taskId}"`
-    createCommand += ` -e "WORKSPACE_DIR=/repo"`
+    createCommand += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     createCommand += ` -e "DATA_DIR=/data"`
     createCommand += ` -e "PORT=${this.workerPortMapping?.containerPort || 8001}"`
-    createCommand += ` -e "PREVIEW_PORT=${this.previewPortMapping?.containerPort || 3000}"`
     createCommand += ` -e "LOG_LEVEL=debug"`
 
     // Pass through Claude authentication environment variables
@@ -229,7 +411,7 @@ export class DockerEnvironment extends BaseEnvironment {
       createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
     }
     createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
-    createCommand += ` -e "HOME=/home/node"`
+    createCommand += ` -e "HOME=${containerWorkspacePath}"`
 
     if (process.env.CLAUDE_CODE_MOCK) {
       createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
@@ -241,14 +423,22 @@ export class DockerEnvironment extends BaseEnvironment {
       createCommand += ` -e "${key}=${value}"`
     }
 
+    // Pass setup commands to container
+    const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
+    if (setupCommands.length > 0) {
+      // Encode setup commands as JSON and pass as environment variable
+      const setupCommandsJson = JSON.stringify(setupCommands)
+      createCommand += ` -e "SETUP_COMMANDS=${setupCommandsJson.replace(/"/g, '\\"')}"`
+    }
+
     createCommand += ` ${this.image}`
 
     this.logger.debug('Creating container', { createCommand })
 
     try {
       const { stdout } = await execAsync(createCommand)
-      this.containerId = stdout.trim()
-      this.logger.info('Container created', { containerId: this.containerId })
+      const containerId = stdout.trim()
+      this.logger.info('Container created', { containerName: this.containerName, containerId })
     } catch (error) {
       this.logger.error('Failed to create container', error as Error)
       throw error
@@ -256,112 +446,240 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   private async startContainer(): Promise<void> {
-    this.logger.info('Starting container', { containerId: this.containerId })
+    this.logger.info('Starting container', { containerName: this.containerName })
 
     try {
-      await execAsync(`docker start ${this.containerId}`)
-      this.logger.info('Container started', { containerId: this.containerId })
+      // Check if container is already running
+      const { stdout } = await execAsync(
+        `docker ps --filter "name=^/${this.containerName}$" --format "{{.ID}}"`,
+      )
+
+      if (stdout.trim()) {
+        this.logger.info('Container is already running', { containerName: this.containerName })
+        return
+      }
+
+      // Container is not running, start it
+      await execAsync(`docker start ${this.containerName}`)
+      this.logger.info('Container started', { containerName: this.containerName })
     } catch (error) {
       this.logger.error('Failed to start container', error as Error)
       throw error
     }
   }
 
-  private async waitForWorkerReady(): Promise<void> {
-    const maxWaitTime = 30000 // 30 seconds
-    const checkInterval = 1000 // 1 second
+  /**
+   * Ensures that the container is ready for command execution or agent creation.
+   * If the container is not setup, it will attempt to set it up.
+   * If setup is already in progress, it will wait for completion.
+   */
+  private async ensureContainerReady(): Promise<void> {
+    const status = this.getStatus()
+
+    switch (status) {
+      case 'ready':
+        // Container is already ready, nothing to do
+        return
+
+      case 'not_setup':
+        // Container not setup, start setup process
+        this.logger.info('Container not setup, starting setup process')
+        await this.setup()
+        // After setup, wait for container to be ready
+        await this.waitForContainerReady()
+        return
+
+      case 'initializing':
+        // Setup is in progress, wait for completion
+        this.logger.info('Container setup in progress, waiting for completion')
+        await this.waitForContainerReady()
+        return
+
+      case 'error': {
+        // Container setup failed, throw error
+        const error = this.getError() || 'Container setup failed'
+        throw new Error(`Container is in error state: ${error}`)
+      }
+
+      default:
+        throw new Error(`Unexpected container status: ${status}`)
+    }
+  }
+
+  /**
+   * Waits for the container to be ready for command execution or agent creation.
+   */
+  private async waitForContainerReady(): Promise<void> {
+    const maxWaitTime = 180000 // 3 minute timeout for waiting
+    const checkInterval = 2000 // 2 seconds
     let elapsed = 0
 
-    this.logger.debug('Waiting for worker to become ready', {
+    this.logger.debug('Waiting for container to become ready', {
+      containerName: this.containerName,
       workerPort: this.workerPortMapping?.hostPort,
       maxWaitTime,
     })
 
+    // First, ensure we have worker port mapping
+    if (!this.workerPortMapping) {
+      throw new Error('Worker port mapping not available - container setup incomplete')
+    }
+
     while (elapsed < maxWaitTime) {
-      try {
-        const response = await fetch(`http://localhost:${this.workerPortMapping?.hostPort}/health`)
-        if (response.ok) {
-          this.logger.info('Worker is ready', {
-            elapsedMs: elapsed,
-            workerPort: this.workerPortMapping?.hostPort,
-          })
-          return
+      const status = this.getStatus()
+
+      if (status === 'ready') {
+        this.logger.info('Container is ready, wait for worker readiness', {
+          elapsedMs: elapsed,
+          containerName: this.containerName,
+          workerPort: this.workerPortMapping.hostPort,
+        })
+
+        while (elapsed < maxWaitTime) {
+          try {
+            const response = await fetch(
+              `http://localhost:${this.workerPortMapping?.hostPort}/health`,
+            )
+            if (response.ok) {
+              this.logger.info('Worker is ready', {
+                elapsedMs: elapsed,
+                workerPort: this.workerPortMapping?.hostPort,
+              })
+              return
+            }
+          } catch (_error) {
+            // Worker not ready yet
+            if (elapsed % 5000 === 0) {
+              // Log every 5 seconds
+              this.logger.debug('Worker not ready yet, continuing to wait', {
+                elapsedMs: elapsed,
+                remainingMs: maxWaitTime - elapsed,
+              })
+            }
+          }
         }
-      } catch (_error) {
-        // Worker not ready yet
-        if (elapsed % 5000 === 0) {
-          // Log every 5 seconds
-          this.logger.debug('Worker not ready yet, continuing to wait', {
-            elapsedMs: elapsed,
-            remainingMs: maxWaitTime - elapsed,
-          })
-        }
+
+        return
+      }
+
+      if (status === 'error') {
+        const error = this.getError() || 'Container failed'
+        throw new Error(error)
+      }
+
+      if (status === 'not_setup') {
+        throw new Error('Container lost during wait - setup may have failed')
+      }
+
+      // Log progress every 10 seconds
+      if (elapsed % 10000 === 0 && elapsed > 0) {
+        this.logger.debug('Container still starting', {
+          elapsedMs: elapsed,
+          remainingMs: maxWaitTime - elapsed,
+          containerName: this.containerName,
+        })
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
       elapsed += checkInterval
     }
 
-    throw new Error('Worker did not become ready within timeout')
+    throw new Error(`Container did not become ready imeout (${maxWaitTime}ms)`)
   }
 
   async runCommand(command: string, timeout = 30000): Promise<CommandResult> {
+    // Ensure container is ready before executing command
+    await this.ensureContainerReady()
+
+    // Double-check we have container name and worker port mapping
+    if (!this.containerName) {
+      throw new Error('Container name not available')
+    }
     if (!this.workerPortMapping) {
-      throw new Error('Worker port not allocated')
+      throw new Error('Worker port mapping not available - container setup incomplete')
     }
 
-    this.logger.debug(`Running command via worker: ${command}`)
+    this.logger.debug(`Running command via docker exec: ${command}`)
+
+    const startTime = Date.now()
 
     try {
-      const response = await fetch(`http://localhost:${this.workerPortMapping.hostPort}/command`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ command, timeout }),
-      })
+      // Build docker exec command with git environment variables if needed
+      const containerWorkspacePath = this.repositoryConfig.path
+      let dockerCommand = `docker exec -w "${containerWorkspacePath}"`
 
-      if (!response.ok) {
-        throw new Error(`Worker command failed: ${response.statusText}`)
+      // Add git environment variables if using worktrees
+      if (this.repositoryConfig.useGitWorktrees) {
+        const worktreeName = path.basename(this.workspacePath)
+        dockerCommand += ` -e "GIT_DIR=/main-repo-git/worktrees/${worktreeName}"`
+        dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
       }
 
-      const result = (await response.json()) as {
-        exit_code: number
-        stdout: string
-        stderr: string
-      }
+      dockerCommand += ` ${this.containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
+
+      const { stdout, stderr } = await execAsync(dockerCommand, { timeout })
+
       return {
-        exitCode: result.exit_code,
-        output: result.stdout,
-        durationMs: 0,
+        exitCode: 0,
+        output: stdout + stderr,
+        durationMs: Date.now() - startTime,
         command,
       }
     } catch (error) {
       this.logger.error('Command execution failed', error as Error)
+
+      // Extract exit code from error if available
+      let exitCode = 1
+      let output = ''
+
+      if (error instanceof Error) {
+        output = error.message
+        // Check if error has exit code property (from child_process)
+        if ('code' in error && typeof error.code === 'number') {
+          exitCode = error.code
+        }
+        // Extract stdout/stderr from exec error
+        if ('stdout' in error && typeof error.stdout === 'string') {
+          output = error.stdout
+        }
+        if ('stderr' in error && typeof error.stderr === 'string') {
+          output += error.stderr
+        }
+      }
+
       return {
-        exitCode: 1,
-        output: '',
-        durationMs: 0,
+        exitCode,
+        output,
+        durationMs: Date.now() - startTime,
         command,
       }
     }
   }
 
   async startServer(): Promise<ServerStatus> {
-    if (!this.workerPortMapping) {
-      throw new Error('Worker port not allocated')
-    }
+    // Ensure container is ready before starting server
+    await this.ensureContainerReady()
 
     this.logger.info('Starting server via worker')
 
+    // Get server configuration from repository config
+    const serverCommand = this.repositoryConfig.previewConfig?.serverStartCommand
+    if (!serverCommand) {
+      throw new Error('No server command configured for this environment')
+    }
+
     try {
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping.hostPort}/server/start`,
+        `http://localhost:${this.workerPortMapping!.hostPort}/server/start`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            serverCommand,
+            envVars: this.repositoryConfig.codeExecution.envVars || {},
+          }),
         },
       )
 
@@ -391,7 +709,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     this.logger.info('Stopping server via worker', {
       workerPort: this.workerPortMapping.hostPort,
-      containerId: this.containerId,
+      containerName: this.containerName,
     })
 
     try {
@@ -428,7 +746,9 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   async getServerStatus(): Promise<ServerStatus> {
-    if (!this.workerPortMapping) {
+    // Check if container is ready before getting server status
+    const status = this.getStatus()
+    if (status !== 'ready') {
       return {
         running: false,
         configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
@@ -438,7 +758,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping.hostPort}/server/status`,
+        `http://localhost:${this.workerPortMapping!.hostPort}/server/status`,
       )
 
       if (!response.ok) {
@@ -465,13 +785,15 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   async getServerLogs(lines = 100): Promise<string> {
-    if (!this.workerPortMapping) {
-      return 'No worker running'
+    // Check if container is ready before getting server logs
+    const status = this.getStatus()
+    if (status !== 'ready') {
+      return 'Container not ready - no logs available'
     }
 
     try {
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping.hostPort}/server/logs?lines=${lines}`,
+        `http://localhost:${this.workerPortMapping!.hostPort}/server/logs?lines=${lines}`,
       )
 
       if (!response.ok) {
@@ -487,7 +809,7 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   getPreviewPort(): number | undefined {
-    return this.previewPortMapping?.hostPort
+    return undefined // Preview port managed by worker
   }
 
   async proxyPreviewRequest(request: {
@@ -500,14 +822,13 @@ export class DockerEnvironment extends BaseEnvironment {
     headers: Headers
     body: string | Buffer
   }> {
-    if (!this.workerPortMapping || !this.previewPortMapping) {
-      throw new Error('Preview server not running')
-    }
+    // Ensure container is ready before proxying request
+    await this.ensureContainerReady()
 
     try {
       // Proxy the request through the worker which will forward to the preview server
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping.hostPort}/server/proxy${request.path}`,
+        `http://localhost:${this.workerPortMapping!.hostPort}/server/proxy${request.path}`,
         {
           method: request.method,
           headers: request.headers,
@@ -546,34 +867,19 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
-    this.logger.info('Creating agent for Docker environment', { agentType, taskId: this.taskId })
+    // Ensure container is ready before creating agent
+    await this.ensureContainerReady()
 
-    // Make HTTP request to worker to create agent
-    const workerUrl = `http://localhost:${this.workerPortMapping?.hostPort}/create-agent`
-
-    const response = await fetch(workerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentType, taskId: this.taskId, options }),
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to create agent in worker: ${error}`)
-    }
-
-    const result = (await response.json()) as {
-      success: boolean
-      agentType: string
-      sessionId?: string
+    // Double-check we have worker port mapping
+    if (!this.workerPortMapping) {
+      throw new Error('Worker port mapping not available - container setup incomplete')
     }
 
     // Return a proxy agent that delegates to the worker
     return new ProxyAgent({
       taskId: this.taskId,
       agentType,
-      workerPort: this.workerPortMapping?.hostPort!,
-      sessionId: result.sessionId,
+      workerPort: this.workerPortMapping.hostPort,
       options,
       logger: this.logger,
     })
@@ -615,7 +921,7 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   async teardown(force = false): Promise<void> {
-    this.logger.info('Tearing down DockerEnvironment', { force, containerId: this.containerId })
+    this.logger.info('Tearing down DockerEnvironment', { force, containerName: this.containerName })
 
     try {
       // Stop agent
@@ -633,9 +939,6 @@ export class DockerEnvironment extends BaseEnvironment {
 
       // Cleanup container
       await this.cleanup()
-
-      // Release ports
-      await this.portAllocationService.releasePortsForTask(this.taskId)
 
       this.logger.info('DockerEnvironment teardown completed')
     } catch (error) {
@@ -655,14 +958,14 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   private async cleanup(): Promise<void> {
-    if (!this.containerId) {
+    if (!this.containerName) {
       return
     }
 
     try {
       // Stop container
-      await execAsync(`docker stop ${this.containerId}`)
-      this.logger.info('Container stopped', { containerId: this.containerId })
+      await execAsync(`docker stop ${this.containerName}`)
+      this.logger.info('Container stopped', { containerName: this.containerName })
     } catch (error) {
       this.logger.warn('Failed to stop container', {
         error: error instanceof Error ? error.message : String(error),
@@ -671,14 +974,12 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       // Remove container
-      await execAsync(`docker rm ${this.containerId}`)
-      this.logger.info('Container removed', { containerId: this.containerId })
+      await execAsync(`docker rm ${this.containerName}`)
+      this.logger.info('Container removed', { containerName: this.containerName })
     } catch (error) {
       this.logger.warn('Failed to remove container', {
         error: error instanceof Error ? error.message : String(error),
       })
     }
-
-    this.containerId = ''
   }
 }
