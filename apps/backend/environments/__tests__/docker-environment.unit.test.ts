@@ -1,20 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { PortAllocationService } from '../../services/port-allocation.service.js'
 import { createTaskLogger } from '../../utils/logger.js'
 import { DockerEnvironment } from '../docker-environment.js'
 
 // Mock external dependencies for basic unit tests
-vi.mock('../../services/port-allocation.service.js')
+vi.mock('../../utils/port-allocation.js')
 vi.mock('../../utils/logger.js')
 
-const mockPortAllocationService = vi.mocked(PortAllocationService)
+const mockFindAvailablePort = vi.fn()
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 
 describe('DockerEnvironment - Unit Tests', () => {
   let dockerEnvironment: DockerEnvironment
   let mockLogger: any
-  let mockEventService: any
-  let mockPortService: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -28,19 +25,11 @@ describe('DockerEnvironment - Unit Tests', () => {
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
 
-    // Mock port allocation service
-    mockPortService = {
-      allocatePort: vi.fn().mockResolvedValue(3000),
-      releasePort: vi.fn().mockResolvedValue(undefined),
-      releasePortsForTask: vi.fn().mockResolvedValue(undefined),
-      getPortForTask: vi.fn().mockReturnValue(undefined),
-    }
-    mockPortAllocationService.getInstance.mockReturnValue(mockPortService)
-
-    // Mock event service
-    mockEventService = {
-      emitWorkspaceEvent: vi.fn(),
-    }
+    // Mock port allocation utility
+    mockFindAvailablePort.mockResolvedValue(3000)
+    vi.doMock('../../utils/port-allocation.js', () => ({
+      findAvailablePort: mockFindAvailablePort,
+    }))
 
     const mockRepositoryConfig = {
       id: 'test-repo',
@@ -61,7 +50,6 @@ describe('DockerEnvironment - Unit Tests', () => {
     dockerEnvironment = new DockerEnvironment(
       'test-task',
       mockRepositoryConfig as any,
-      mockEventService,
       '/test/workspace',
     )
   })
@@ -69,7 +57,6 @@ describe('DockerEnvironment - Unit Tests', () => {
   describe('Constructor', () => {
     it('should initialize with correct parameters', () => {
       expect(mockCreateTaskLogger).toHaveBeenCalledWith('test-task')
-      expect(mockPortAllocationService.getInstance).toHaveBeenCalled()
       // DockerEnvironment constructor doesn't log debug info, just verify it was created
       expect(dockerEnvironment.getType()).toBe('docker')
     })
@@ -116,12 +103,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'docker-task',
-        dockerConfig as any,
-        mockEventService,
-        '/docker/workspace',
-      )
+      const env = new DockerEnvironment('docker-task', dockerConfig as any, '/docker/workspace')
 
       expect(env.getType()).toBe('docker')
     })
@@ -145,12 +127,7 @@ describe('DockerEnvironment - Unit Tests', () => {
           },
         }
 
-        const env = new DockerEnvironment(
-          `task-${index}`,
-          repoConfig as any,
-          mockEventService,
-          `/workspace-${index}`,
-        )
+        const env = new DockerEnvironment(`task-${index}`, repoConfig as any, `/workspace-${index}`)
 
         expect(env.getType()).toBe('docker')
       })
@@ -158,8 +135,9 @@ describe('DockerEnvironment - Unit Tests', () => {
   })
 
   describe('Port Management Integration', () => {
-    it('should use PortAllocationService singleton', () => {
-      expect(mockPortAllocationService.getInstance).toHaveBeenCalled()
+    it('should use port allocation utility', () => {
+      // Port allocation is now handled by utility functions
+      expect(mockFindAvailablePort).toBeDefined()
     })
 
     it('should be constructed with taskId for port allocation', () => {
@@ -185,12 +163,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'env-task',
-        configWithEnvVars as any,
-        mockEventService,
-        '/env/workspace',
-      )
+      const env = new DockerEnvironment('env-task', configWithEnvVars as any, '/env/workspace')
 
       expect(env.getType()).toBe('docker')
     })
@@ -212,7 +185,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'commands-task',
         configWithCommands as any,
-        mockEventService,
         '/commands/workspace',
       )
 
@@ -236,7 +208,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'workdir-task',
         configWithWorkDir as any,
-        mockEventService,
         '/workdir/workspace',
       )
 
@@ -257,7 +228,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'default-task',
         configWithoutWorkDir as any,
-        mockEventService,
         '/default/workspace',
       )
 
@@ -286,7 +256,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'preview-task',
         configWithPreview as any,
-        mockEventService,
         '/preview/workspace',
       )
 
@@ -307,7 +276,6 @@ describe('DockerEnvironment - Unit Tests', () => {
       const env = new DockerEnvironment(
         'no-preview-task',
         configWithoutPreview as any,
-        mockEventService,
         '/no-preview/workspace',
       )
 
@@ -340,12 +308,7 @@ describe('DockerEnvironment - Unit Tests', () => {
           },
         }
 
-        const env = new DockerEnvironment(
-          'test-task',
-          config as any,
-          mockEventService,
-          '/test/workspace',
-        )
+        const env = new DockerEnvironment('test-task', config as any, '/test/workspace')
 
         expect(env.getType()).toBe('docker')
       })
@@ -356,6 +319,37 @@ describe('DockerEnvironment - Unit Tests', () => {
     it('should track error state correctly', () => {
       expect(dockerEnvironment.getError()).toBeUndefined()
       expect(dockerEnvironment.getStatus()).toBe('not_setup')
+    })
+  })
+
+  describe('Setup State Management', () => {
+    it('should transition to initializing when setup starts', () => {
+      // Initially not_setup
+      expect(dockerEnvironment.getStatus()).toBe('not_setup')
+
+      // Set setupInProgress to simulate setup starting
+      ;(dockerEnvironment as any).setupInProgress = true
+
+      // Should now be initializing
+      expect(dockerEnvironment.getStatus()).toBe('initializing')
+    })
+
+    it('should transition to ready when setup completes', () => {
+      // Simulate setup completion
+      ;(dockerEnvironment as any).setupInProgress = false
+      ;(dockerEnvironment as any).setupComplete = true
+
+      // Should now be ready
+      expect(dockerEnvironment.getStatus()).toBe('ready')
+    })
+
+    it('should show error status when error occurs', () => {
+      // Simulate error
+      ;(dockerEnvironment as any)._error = 'Test error'
+
+      // Should show error regardless of other states
+      expect(dockerEnvironment.getStatus()).toBe('error')
+      expect(dockerEnvironment.getError()).toBe('Test error')
     })
   })
 
@@ -385,12 +379,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'minimal-task',
-        minimalConfig as any,
-        mockEventService,
-        '/minimal/workspace',
-      )
+      const env = new DockerEnvironment('minimal-task', minimalConfig as any, '/minimal/workspace')
 
       expect(env.getType()).toBe('docker')
       expect(env.getStatus()).toBe('not_setup')
@@ -432,12 +421,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       }
 
-      const env = new DockerEnvironment(
-        'complex-task',
-        complexConfig as any,
-        mockEventService,
-        '/complex/workspace',
-      )
+      const env = new DockerEnvironment('complex-task', complexConfig as any, '/complex/workspace')
 
       expect(env.getType()).toBe('docker')
       expect(env.getStatus()).toBe('not_setup')

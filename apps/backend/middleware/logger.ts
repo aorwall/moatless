@@ -20,11 +20,29 @@ export const logger: MiddlewareHandler<AppBindings> = async (c, next) => {
     return
   }
 
-  appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
-    method,
-    path,
-    status,
-    duration,
-    requestId,
-  })
+  if (status >= 500) {
+    appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
+      method,
+      path,
+      status,
+      duration,
+      requestId,
+    })
+  } else if (status >= 400) {
+    appLogger.warn(`${method} ${path} ${status} ${duration}ms`, {
+      method,
+      path,
+      status,
+      duration,
+      requestId,
+    })
+  } else {
+    appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
+      method,
+      path,
+      status,
+      duration,
+      requestId,
+    })
+  }
 }

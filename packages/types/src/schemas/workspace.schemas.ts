@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { GitStatusSchema } from './task.schemas.js'
 
 // ============================================
 // Workspace Enums and Base Types
@@ -38,7 +39,7 @@ export const LocalWorkspaceSchema = BaseWorkspaceSchema.extend({
 
 export const DockerWorkspaceSchema = BaseWorkspaceSchema.extend({
   type: z.literal('docker'),
-  containerId: z.string(),
+  containerName: z.string(),
   port: z.number().optional(),
   image: z.string().optional(),
 })
@@ -163,6 +164,54 @@ export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
 export type WorkspaceSetupRequest = z.infer<typeof WorkspaceSetupRequestSchema>
 export type WorkspaceSetupResponse = z.infer<typeof WorkspaceSetupResponseSchema>
+
+// ============================================
+// Workspace Status Response Schema
+// ============================================
+
+// Workspace Status Response
+export const WorkspaceStatusResponseSchema = z.object({
+  status: z.enum(['not_setup', 'setting_up', 'idle', 'running']),
+  gitStatus: GitStatusSchema.optional(),
+  backgroundTaskCount: z.number(),
+  environment: z.object({
+    type: z.enum(['local', 'docker']),
+    status: z.enum(['not_setup', 'initializing', 'ready', 'error', 'cleaning']),
+    error: z.string().optional(),
+    createdAt: z.string(), // ISO date string
+    capabilities: z.object({
+      fileOperations: z.boolean(),
+      commandExecution: z.boolean(),
+    }),
+  }),
+  gitChanges: z
+    .object({
+      totalChanges: z.number(),
+      totalAdditions: z.number(),
+      totalDeletions: z.number(),
+      files: z.array(z.string()),
+    })
+    .optional(),
+})
+
+export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
+
+// ============================================
+// Workspace Sync Schemas (moved from api.schemas.ts)
+// ============================================
+
+// Sync with Main Response Schema
+export const SyncWorkspaceResponseSchema = z.object({
+  success: z.boolean().describe('Whether the sync was successful'),
+  conflicts: z.boolean().describe('Whether conflicts were detected'),
+  message: z.string().describe('Description of the sync result'),
+  commitsBehind: z.number().describe('Number of commits workspace is behind').optional(),
+  commitsAhead: z.number().describe('Number of commits workspace is ahead').optional(),
+  filesWithConflicts: z.array(z.string()).describe('Files that have conflicts').optional(),
+  unmergedPaths: z.array(z.string()).describe('Paths that could not be merged').optional(),
+})
+
+export type SyncWorkspaceResponse = z.infer<typeof SyncWorkspaceResponseSchema>
 
 // ============================================
 // Helper Functions (these remain as utilities)

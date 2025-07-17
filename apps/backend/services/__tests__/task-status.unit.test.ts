@@ -35,6 +35,7 @@ describe('Task Status Management', () => {
       trackBackgroundTask: vi.fn(),
       stopServer: vi.fn(),
       cleanupWorkspace: vi.fn(),
+      removeWorktree: vi.fn(),
     } as unknown as WorkspaceService
 
     mockAgentService = {

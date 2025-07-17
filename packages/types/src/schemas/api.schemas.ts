@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { GitStatusSchema, TaskResponseSchema } from './task.schemas.js'
+import { TaskResponseSchema } from './task.schemas.js'
 
 // ============================================
 // Base Types and Enums
@@ -133,31 +133,6 @@ export const GitChangesSchema = z.object({
   modifications: z.number(), // Files modified in working directory
 })
 
-// Workspace Status Response
-export const WorkspaceStatusResponseSchema = z.object({
-  status: z.enum(['not_setup', 'setting_up', 'idle', 'running']),
-  gitStatus: GitStatusSchema.optional(),
-  backgroundTaskCount: z.number(),
-  environment: z.object({
-    type: z.enum(['local', 'docker']),
-    status: z.enum(['not_setup', 'initializing', 'ready', 'error', 'cleaning']),
-    error: z.string().optional(),
-    createdAt: z.string(), // ISO date string
-    capabilities: z.object({
-      fileOperations: z.boolean(),
-      commandExecution: z.boolean(),
-    }),
-  }),
-  gitChanges: z
-    .object({
-      totalChanges: z.number(),
-      totalAdditions: z.number(),
-      totalDeletions: z.number(),
-      files: z.array(z.string()),
-    })
-    .optional(),
-})
-
 // ============================================
 // Query Schemas
 // ============================================
@@ -204,7 +179,6 @@ export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>
 export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 export type GitChanges = z.infer<typeof GitChangesSchema>
-export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
 export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
 export type EventListQuery = z.infer<typeof EventListQuerySchema>
@@ -214,9 +188,6 @@ export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
 // Event Stream Types
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
 export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>
-
-// Workspace Sync Types
-export type SyncWorkspaceResponse = z.infer<typeof SyncWorkspaceResponseSchema>
 
 // ============================================
 // Pagination Response Types
@@ -313,21 +284,6 @@ export const StreamStatusResponseSchema = z.object({
   taskEventCounts: z.record(z.string(), z.number()),
   totalConnections: z.number(),
   totalEventCount: z.number(),
-})
-
-// ============================================
-// Workspace Sync Schemas
-// ============================================
-
-// Sync with Main Response Schema
-export const SyncWorkspaceResponseSchema = z.object({
-  success: z.boolean().describe('Whether the sync was successful'),
-  conflicts: z.boolean().describe('Whether conflicts were detected'),
-  message: z.string().describe('Description of the sync result'),
-  commitsBehind: z.number().describe('Number of commits workspace is behind').optional(),
-  commitsAhead: z.number().describe('Number of commits workspace is ahead').optional(),
-  filesWithConflicts: z.array(z.string()).describe('Files that have conflicts').optional(),
-  unmergedPaths: z.array(z.string()).describe('Paths that could not be merged').optional(),
 })
 
 // ============================================

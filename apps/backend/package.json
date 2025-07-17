@@ -12,7 +12,7 @@
     "start:dev": "NODE_ENV=development node dist/index.js",
     "test": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*'",
     "test:unit": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*.e2e.test.ts' --exclude='**/*.integration.test.ts' --exclude='**/*e2e*.test.ts'",
-    "test:integration": "USE_CONSOLE_LOGGING=true vitest run '**/*.integration.test.ts'",
+    "test:integration": "USE_CONSOLE_LOGGING=true vitest run --reporter=verbose '**/*.integration.test.ts'",
     "test:e2e": "USE_CONSOLE_LOGGING=true vitest run '**/*.e2e.test.ts' '**/*e2e*.test.ts'",
     "test:all": "USE_CONSOLE_LOGGING=true vitest run",
     "test:coverage": "USE_CONSOLE_LOGGING=true vitest run --coverage --exclude='**/*e2e*'",

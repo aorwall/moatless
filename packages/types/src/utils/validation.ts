@@ -37,3 +37,58 @@ export function fromJSON<T>(json: string): T {
     return value
   })
 }
+
+/**
+ * Remove null values from optional fields in an object
+ * This ensures compatibility with Zod schemas that use .optional()
+ * which expects undefined, not null
+ */
+export function removeNullsFromOptionalFields<T extends Record<string, any>>(
+  obj: T,
+  optionalFields: string[],
+): T {
+  if (!obj || typeof obj !== 'object') {
+    return obj
+  }
+
+  const cleaned: any = { ...obj }
+
+  for (const field of optionalFields) {
+    if (field in cleaned && cleaned[field] === null) {
+      delete cleaned[field]
+    }
+  }
+
+  // Handle nested objects like iterations
+  if ('iterations' in cleaned && Array.isArray(cleaned.iterations)) {
+    cleaned.iterations = cleaned.iterations.map((iteration: any) => {
+      if (!iteration || typeof iteration !== 'object') {
+        return iteration
+      }
+
+      const iterationOptionalFields = [
+        'result',
+        'endTime',
+        'contextTokens',
+        'initialMessage',
+        'commandName',
+        'durationMs',
+        'gitDiff',
+        'commitHash',
+        'merged',
+        'agentSessionId',
+        'model',
+        'gitStatus',
+        'gitChanges',
+        'gitSyncStatus',
+        'attachments',
+        'error',
+        'willNotResume',
+      ]
+
+      return removeNullsFromOptionalFields(iteration, iterationOptionalFields)
+    })
+  }
+
+  return cleaned as T
+}
