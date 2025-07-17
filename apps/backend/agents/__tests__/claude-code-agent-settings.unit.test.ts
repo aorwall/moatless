@@ -2,7 +2,6 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 // Mock the Claude Code SDK
 vi.mock('@anthropic-ai/claude-code', () => ({
@@ -34,18 +33,24 @@ vi.mock('@anthropic-ai/claude-code', () => ({
 }))
 
 // Mock logger
-vi.mock('../../../utils/logger.js', () => ({
+vi.mock('../../utils/logger.js', () => ({
   logger: {
     info: vi.fn(),
     error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
     child: vi.fn().mockReturnThis(),
   },
 }))
 
 // Mock calculateContextTokens
-vi.mock('../../../utils/context-tokens.js', () => ({
+vi.mock('../../utils/context-tokens.js', () => ({
   calculateContextTokens: vi.fn().mockReturnValue(100),
 }))
+
+import { query as mockQuery } from '@anthropic-ai/claude-code'
+import { resetSettingsServiceInstance } from '../../services/settings.service.js'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 describe('ClaudeCodeAgent Settings Integration', () => {
   let tempDir: string
@@ -64,6 +69,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     delete process.env.CLAUDE_BIN_DIR
     delete process.env.CLAUDE_CONFIG_DIR
 
+    // Clear the mock before each test
+    vi.mocked(mockQuery).mockClear()
+
     // Create agent with minimal options
     agent = new ClaudeCodeAgent('test-task-id', {
       model: 'claude-3-sonnet-20240320',
@@ -71,21 +79,40 @@ describe('ClaudeCodeAgent Settings Integration', () => {
   })
 
   afterEach(async () => {
-    // Restore original environment
-    process.env = originalEnv
+    // Reset settings service singleton
+    resetSettingsServiceInstance()
+
+    // Restore original environment - clear current env first
+    for (const key in process.env) {
+      if (!(key in originalEnv)) {
+        delete process.env[key]
+      }
+    }
+    // Then restore original values
+    Object.assign(process.env, originalEnv)
 
     // Clean up temp directory
     await fs.rm(tempDir, { recursive: true, force: true })
+
+    // Clear all mocks
+    vi.clearAllMocks()
   })
+
+  // Helper function to consume async generator
+  async function runAgent(agent: ClaudeCodeAgent, message: string, options: any = {}) {
+    const generator = agent.run(message, options)
+    const events = []
+    for await (const event of generator) {
+      events.push(event)
+    }
+    return events
+  }
 
   describe('Claude settings integration', () => {
     it('should not set environment variables when settings are empty', async () => {
-      // Mock the query method to capture the options
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
-
-      expect(queryMock).toHaveBeenCalled()
+      expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should not be set for empty strings
       expect(process.env.CLAUDE_BIN_DIR).toBeUndefined()
@@ -105,11 +132,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
-
-      expect(queryMock).toHaveBeenCalled()
+      expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should be set from settings
       expect(process.env.CLAUDE_BIN_DIR).toBe('/custom/bin')
@@ -127,11 +152,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       ).getSettingsService()
       await settingsService.initialize()
 
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
-
-      expect(queryMock).toHaveBeenCalled()
+      expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should be set from original env vars
       expect(process.env.CLAUDE_BIN_DIR).toBe('/env/bin')
@@ -155,11 +178,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
-
-      expect(queryMock).toHaveBeenCalled()
+      expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Settings should override environment variables
       expect(process.env.CLAUDE_BIN_DIR).toBe('/settings/bin')
@@ -179,11 +200,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
-
-      expect(queryMock).toHaveBeenCalled()
+      expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Only binDir should be set
       expect(process.env.CLAUDE_BIN_DIR).toBe('/custom/bin')
@@ -203,11 +222,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
-
-      expect(queryMock).toHaveBeenCalled()
+      expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should not be set for whitespace-only strings
       expect(process.env.CLAUDE_BIN_DIR).toBeUndefined()
@@ -228,7 +245,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       })
 
       // Run agent to set env vars
-      await agent.run('test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
       expect(process.env.CLAUDE_BIN_DIR).toBe('/custom/bin')
       expect(process.env.CLAUDE_CONFIG_DIR).toBe('/custom/config')
@@ -236,17 +253,28 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       // Clear settings
       await settingsService.updateSettings({
         claude: {
-          binDir: null,
-          configDir: null,
+          binDir: '',
+          configDir: '',
         },
       })
 
-      // Run agent again
-      await agent.run('test message 2', { workspaceDir: '/test/workspace' })
+      // Create a new agent to ensure it picks up updated settings
+      const newAgent = new ClaudeCodeAgent('test-task-id-2', {
+        model: 'claude-3-sonnet-20240320',
+      })
 
-      // Environment variables should not be set anymore
-      // Note: We can't actually "unset" env vars in the same process,
-      // but we verify they won't be set again
+      // Clear env vars to simulate fresh start
+      delete process.env.CLAUDE_BIN_DIR
+      delete process.env.CLAUDE_CONFIG_DIR
+
+      // Run agent again
+      await runAgent(newAgent, 'test message 2', { workspaceDir: '/test/workspace' })
+
+      // Environment variables should not be set with empty settings
+      expect(process.env.CLAUDE_BIN_DIR).toBeUndefined()
+      expect(process.env.CLAUDE_CONFIG_DIR).toBeUndefined()
+
+      // Verify settings are actually empty
       const claudeSettings = settingsService.getClaudeSettings()
       expect(claudeSettings.binDir).toBe('')
       expect(claudeSettings.configDir).toBe('')
@@ -255,14 +283,12 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
   describe('SDK options integration', () => {
     it('should pass correct options to Claude Code SDK', async () => {
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
-
-      await agent.run('test message', {
+      await runAgent(agent, 'test message', {
         workspaceDir: '/test/workspace',
         resume: 'test-session-id',
       })
 
-      expect(queryMock).toHaveBeenCalledWith(
+      expect(vi.mocked(mockQuery)).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'test message',
           abortController: expect.any(AbortController),
@@ -283,14 +309,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         cwd: '/fallback/workspace',
       })
 
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agentWithCwd, 'test message', {})
 
-      await agentWithCwd.run(
-        'test message',
-        {}, // no workspaceDir provided
-      )
-
-      expect(queryMock).toHaveBeenCalledWith(
+      expect(vi.mocked(mockQuery)).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'test message',
           abortController: expect.any(AbortController),
@@ -302,14 +323,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     })
 
     it('should use process.cwd() as final fallback', async () => {
-      const queryMock = vi.mocked(await import('@anthropic-ai/claude-code')).query
+      await runAgent(agent, 'test message', {})
 
-      await agent.run(
-        'test message',
-        {}, // no workspaceDir provided, no cwd in agent options
-      )
-
-      expect(queryMock).toHaveBeenCalledWith(
+      expect(vi.mocked(mockQuery)).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'test message',
           abortController: expect.any(AbortController),

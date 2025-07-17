@@ -10,9 +10,6 @@ vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
   useTaskEventSubscription: vi.fn(),
 }))
 
-// Import the mocked module
-import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
-
 // Mock the hooks
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
   useTaskEvents: vi.fn(() => ({
