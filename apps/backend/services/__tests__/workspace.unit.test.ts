@@ -1,7 +1,7 @@
 import * as child_process from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
@@ -16,9 +16,13 @@ vi.mock('node:child_process', () => ({
     }
   }),
   execSync: vi.fn((cmd) => {
-    // Mock docker inspect for health check
+    // Mock docker inspect for container status
     if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
-      return 'running|healthy'
+      return 'running'
+    }
+    // Mock docker inspect for health check
+    if (cmd.includes('docker inspect') && cmd.includes('State.Health.Status')) {
+      return 'healthy'
     }
     // Mock docker ps for existing container check
     if (cmd.includes('docker ps')) {
@@ -91,11 +95,16 @@ vi.mock('../../utils/port-allocation.js', () => ({
   findAvailablePort: vi.fn().mockResolvedValue(8001),
 }))
 
+// Save original fetch
+const originalFetch = global.fetch
+
 // Mock fetch for Docker health checks
 global.fetch = vi.fn(() =>
   Promise.resolve({
     ok: true,
+    status: 200,
     json: () => Promise.resolve({ status: 'healthy' }),
+    text: () => Promise.resolve('healthy'),
   } as any),
 )
 
@@ -370,6 +379,8 @@ describe('WorkspaceService', () => {
         const callback = (cb || opts) as any
         if (cmd.includes('docker create')) {
           callback(null, { stdout: containerId, stderr: '' })
+        } else if (cmd.includes('docker start')) {
+          callback(null, { stdout: containerId, stderr: '' })
         } else {
           callback(null, { stdout: 'success', stderr: '' })
         }
@@ -385,5 +396,10 @@ describe('WorkspaceService', () => {
         expect.any(Function),
       )
     })
+  })
+
+  // Restore original fetch after all tests
+  afterAll(() => {
+    global.fetch = originalFetch
   })
 })

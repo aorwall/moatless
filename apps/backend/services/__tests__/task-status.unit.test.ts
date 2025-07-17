@@ -55,6 +55,7 @@ describe('Task Status Management', () => {
 
     const mockEventService = {
       emitEvent: vi.fn().mockResolvedValue(undefined),
+      subscribeAll: vi.fn().mockReturnValue(() => {}), // Returns unsubscribe function
     } as unknown as EventService
 
     taskService = new TaskService(
