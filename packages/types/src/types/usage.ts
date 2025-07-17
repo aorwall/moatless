@@ -6,13 +6,6 @@ export interface TokenCounts {
   total_tokens: number
 }
 
-export interface UsageEntry {
-  timestamp: Date
-  model: string
-  tokenCounts: TokenCounts
-  costUSD: number
-}
-
 export interface PerModelStats {
   tokenCounts: TokenCounts
   costUSD: number
@@ -22,7 +15,7 @@ export interface PerModelStats {
 export interface SessionBlock {
   startTime: Date
   endTime: Date
-  entries: UsageEntry[]
+  entries: any[] // SDKMessage[] - using any to avoid circular dependency
   tokenCounts: TokenCounts
   costUSD: number
   sentMessagesCount: number
@@ -54,6 +47,16 @@ export interface ClaudeUsageResponse {
     endTime: string
   }
   modelDistribution: Record<string, number>
+}
+
+export interface ClaudeSessionUsageResponse {
+  sessionId: string
+  cost: number
+  tokens: TokenCounts
+  messageCount: number
+  modelDistribution: Record<string, number>
+  startTime?: string
+  endTime?: string
 }
 
 export type ClaudeUsagePlan = 'pro' | 'max5' | 'max20' | 'custom'

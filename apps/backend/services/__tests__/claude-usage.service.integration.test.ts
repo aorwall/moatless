@@ -2,14 +2,14 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { type ClaudeCodeUsageService, getClaudeUsageService } from '../claude-usage.service.js'
+import { type ClaudeService, getClaudeService } from '../../agents/claude-code/claude.service.js'
 
-describe('ClaudeCodeUsageService Integration', () => {
-  let service: ClaudeCodeUsageService
+describe('ClaudeService Integration', () => {
+  let service: ClaudeService
   let hasClaudeData: boolean
 
   beforeAll(async () => {
-    service = getClaudeUsageService()
+    service = getClaudeService()
 
     // Check if user has Claude data available
     const homeDir = os.homedir()
@@ -107,17 +107,17 @@ describe('ClaudeCodeUsageService Integration', () => {
       switch (plan) {
         case 'pro':
           expect(usage.cost.max).toBe(18)
-          expect(usage.tokens.max).toBe(1_000_000)
+          expect(usage.tokens.max).toBe(19_000)
           expect(usage.messageUsage.max).toBe(1000)
           break
         case 'max5':
-          expect(usage.cost.max).toBe(100)
-          expect(usage.tokens.max).toBe(5_000_000)
+          expect(usage.cost.max).toBe(35)
+          expect(usage.tokens.max).toBe(88_000)
           expect(usage.messageUsage.max).toBe(5000)
           break
         case 'max20':
-          expect(usage.cost.max).toBe(400)
-          expect(usage.tokens.max).toBe(20_000_000)
+          expect(usage.cost.max).toBe(140)
+          expect(usage.tokens.max).toBe(220_000)
           expect(usage.messageUsage.max).toBe(20000)
           break
         case 'custom':

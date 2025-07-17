@@ -58,10 +58,21 @@ export const ClaudeUsageResponseSchema = z.object({
   modelDistribution: z.record(z.string(), z.number().min(0).max(100)),
 })
 
+export const ClaudeSessionUsageResponseSchema = z.object({
+  sessionId: z.string(),
+  cost: z.number().min(0),
+  tokens: TokenCountsSchema,
+  messageCount: z.number().min(0),
+  modelDistribution: z.record(z.string(), z.number().min(0).max(100)),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+})
+
 export const ClaudeUsagePlanSchema = z.enum(['pro', 'max5', 'max20', 'custom'])
 
 export const ClaudeUsageQuerySchema = z.object({
   plan: ClaudeUsagePlanSchema.optional().default('custom'),
+  repositoryId: z.string().optional(),
 })
 
 export const ModelPricingSchema = z.object({
