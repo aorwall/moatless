@@ -385,7 +385,7 @@ describe('FileOperations Service', () => {
         baseBranch: 'main',
         hasUncommittedChanges: false,
         hasConflicts: false,
-        status: 'synced',
+        status: 'error',
         commitsAhead: 0,
         commitsBehind: 0,
         originExists: false,

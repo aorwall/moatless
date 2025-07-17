@@ -84,10 +84,10 @@ describe('TaskService - createVibeTask', () => {
   })
 
   describe('createVibeTask', () => {
-    it('should create a vibe task from basic-hello-website template successfully', async () => {
+    it('should create a vibe task from hello-world-ui template successfully', async () => {
       const request: CreateVibeTaskRequest = {
         agentType: 'test-agent',
-        templateId: 'basic-hello-website',
+        templateId: 'hello-world-ui',
         repositoryName: 'my-hello-website',
         message: 'Create a new website',
         start: false,
@@ -146,14 +146,14 @@ describe('TaskService - createVibeTask', () => {
       expect(mockRepositoryService.createRepository).toHaveBeenCalledWith({
         name: 'my-hello-website',
         description: 'Created from template: Basic Hello Website',
-        path: expect.stringContaining('basic-hello-website'),
-        useGitWorktrees: true,
+        path: expect.stringContaining('hello-world-ui'),
+        useGitWorktrees: false,
         codeExecution: {
           type: 'local',
-          setupCommands: 'npm install',
+          setupCommands: ['npm install'],
         },
         previewConfig: {
-          serverStartCommand: 'npm run dev',
+          serverStartCommand: 'pnpm run dev',
           injectionStrategy: {
             method: 'html-injection',
           },
@@ -190,7 +190,7 @@ describe('TaskService - createVibeTask', () => {
     it('should create repository with correct template configuration', async () => {
       const request: CreateVibeTaskRequest = {
         agentType: 'test-agent',
-        templateId: 'basic-hello-website',
+        templateId: 'hello-world-ui',
         repositoryName: 'my-custom-website',
         start: false,
       }
@@ -220,13 +220,13 @@ describe('TaskService - createVibeTask', () => {
         expect.objectContaining({
           name: 'my-custom-website',
           description: 'Created from template: Basic Hello Website',
-          useGitWorktrees: true,
+          useGitWorktrees: false,
           codeExecution: expect.objectContaining({
             type: 'local',
-            setupCommands: 'npm install',
+            setupCommands: ['npm install'],
           }),
           previewConfig: expect.objectContaining({
-            serverStartCommand: 'npm run dev',
+            serverStartCommand: 'pnpm run dev',
           }),
         }),
       )
@@ -235,7 +235,7 @@ describe('TaskService - createVibeTask', () => {
     it('should handle optional parameters correctly', async () => {
       const request: CreateVibeTaskRequest = {
         agentType: 'custom-agent',
-        templateId: 'basic-hello-website',
+        templateId: 'hello-world-ui',
         repositoryName: 'my-website',
         message: 'Custom message',
         start: false, // Set to false to avoid agent execution complexity
