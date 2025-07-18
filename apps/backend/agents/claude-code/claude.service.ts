@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import type {
   SDKAssistantMessage as SDKAssistantMessageFromClaude,
@@ -279,8 +280,7 @@ export class ClaudeService {
    */
   public async readClaudeConfig(): Promise<Record<string, any>> {
     const claudeSettings = this.settingsService.getClaudeSettings()
-    const claudeConfigDir =
-      claudeSettings.configDir || path.join(require('os').homedir(), '.claude')
+    const claudeConfigDir = claudeSettings.configDir || path.join(os.homedir(), '.claude')
     const configPath = path.join(claudeConfigDir, 'config.json')
 
     try {
