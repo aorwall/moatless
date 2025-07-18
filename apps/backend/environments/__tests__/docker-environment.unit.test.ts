@@ -5,6 +5,16 @@ import { DockerEnvironment } from '../docker-environment.js'
 // Mock external dependencies for basic unit tests
 vi.mock('../../utils/port-allocation.js')
 vi.mock('../../utils/logger.js')
+vi.mock('node:child_process', () => ({
+  exec: vi.fn(),
+  execSync: vi.fn().mockImplementation((cmd: string) => {
+    // Mock docker inspect to return container not found
+    if (cmd.includes('docker inspect')) {
+      throw new Error('Error: No such object: container')
+    }
+    return ''
+  }),
+}))
 
 const mockFindAvailablePort = vi.fn()
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)

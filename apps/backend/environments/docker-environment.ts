@@ -1,5 +1,5 @@
 import { exec, execSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
@@ -14,7 +14,6 @@ import { BaseEnvironment } from './base-environment.js'
 const execAsync = promisify(exec)
 
 export class DockerEnvironment extends BaseEnvironment {
-  private containerName = ''
   private image = ''
   private runningAgent?: BaseAgent
   private _createdAt = new Date()
@@ -34,28 +33,17 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
-    // If no container name, we haven't started setup yet
-    if (!this.containerName) {
-      return 'not_setup'
-    }
-
-    try {
-      return this.getContainerStatus()
-    } catch (error) {
-      this.logger.warn('Error checking container status', { error })
-      return 'error'
-    }
+    return this.getContainerStatus()
   }
 
-  private getContainerStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' {
-    if (!this.containerName) {
-      return 'not_setup'
-    }
+  private getContainerStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
+    // Always generate the container name deterministically
+    const containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
 
     // Check container status docker inspect
     try {
       const containerStatus = execSync(
-        `docker inspect --format='{{.State.Status}}' "${this.containerName}"`,
+        `docker inspect --format='{{.State.Status}}' "${containerName}"`,
         { encoding: 'utf8', timeout: 2000 },
       ).trim()
 
@@ -71,17 +59,27 @@ export class DockerEnvironment extends BaseEnvironment {
         return 'ready'
       }
 
+      if (containerStatus === 'removing') {
+        return 'cleaning'
+      }
+
       if (containerStatus === 'exited' || containerStatus === 'dead') {
         return 'error'
       }
       return 'not_setup'
-    } catch (error) {
+    } catch (error: any) {
       // Container doesn't exist
-      if (error instanceof Error && error.message.includes('No such object')) {
+      if (
+        error?.stderr?.toString().includes('No such object') ||
+        error?.message?.includes('No such object')
+      ) {
         return 'not_setup'
       }
       // Other errors
-      this.logger.debug('Error checking container status', { error })
+      this.logger.debug('Error checking container status', {
+        error: error?.message,
+        stderr: error?.stderr?.toString(),
+      })
       return 'error'
     }
   }
@@ -99,7 +97,8 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   getContainerName(): string {
-    return this.containerName
+    // Always generate the container name deterministically
+    return generateContainerName(this.repositoryConfig.name, this.taskId)
   }
 
   getPort(): number | undefined {
@@ -112,12 +111,26 @@ export class DockerEnvironment extends BaseEnvironment {
 
   async setup(_iterationNumber?: number): Promise<void> {
     const startTime = Date.now()
+    const containerName = this.getContainerName()
 
     this.logger.info('Starting Docker environment setup', {
       taskId: this.taskId,
       workspacePath: this.workspacePath,
       repositoryName: this.repositoryConfig.name,
     })
+
+    // Write repository configuration to a temporary file
+    const tmpDir = path.join(process.env.TMPDIR || '/tmp', 'moatless-configs')
+    await fs.mkdir(tmpDir, { recursive: true })
+    const configPath = path.join(tmpDir, `repository-config-${this.taskId}.json`)
+
+    try {
+      await fs.writeFile(configPath, JSON.stringify(this.repositoryConfig, null, 2))
+      this.logger.info('Wrote repository configuration to temp file', { configPath })
+    } catch (error) {
+      this.logger.error('Failed to write repository configuration', error as Error)
+      throw error
+    }
 
     // Find Claude config using settings service (optional for tests)
     const settingsService = getSettingsService()
@@ -134,7 +147,7 @@ export class DockerEnvironment extends BaseEnvironment {
     }
 
     let claudeConfigPath: string | null = null
-    let credentialsJsonPath: string | null = null
+    let foundCredentialsPath: string | null = null
 
     // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
     const configJsonPath = path.join(claudeConfigDir, '.config.json')
@@ -153,10 +166,15 @@ export class DockerEnvironment extends BaseEnvironment {
       }
     }
 
-    // Check for credentials file
-    const credentialsPath = path.join(claudeConfigDir, '.credentials.json')
-    if (existsSync(credentialsPath)) {
-      credentialsJsonPath = credentialsPath
+    // Check for credentials file - try both .credentials.json and .credentials
+    const credentialsJsonPath = path.join(claudeConfigDir, '.credentials.json')
+    const credentialsPath = path.join(claudeConfigDir, '.credentials')
+    if (existsSync(credentialsJsonPath)) {
+      foundCredentialsPath = credentialsJsonPath
+      this.logger.info('Found Claude credentials at .credentials.json', { credentialsJsonPath })
+    } else if (existsSync(credentialsPath)) {
+      foundCredentialsPath = credentialsPath
+      this.logger.info('Found Claude credentials at .credentials', { credentialsPath })
     }
 
     // Only warn if no Claude config is found (don't throw error for tests)
@@ -165,9 +183,19 @@ export class DockerEnvironment extends BaseEnvironment {
         searchedPaths: [configJsonPath, path.join(process.env.HOME || '', '.claude.json')],
       })
     }
-    if (!credentialsJsonPath) {
+
+    // Fail if no credentials found when Claude config exists
+    if (!foundCredentialsPath && claudeConfigPath) {
+      const errorMsg =
+        'No Claude credentials found (.credentials or .credentials.json) - Claude Code agent will not work'
+      this.logger.error(errorMsg, {
+        searchedPaths: [credentialsJsonPath, credentialsPath],
+      })
+      throw new Error(errorMsg)
+    }
+    if (!foundCredentialsPath) {
       this.logger.warn('No Claude credentials found - Claude Code agent may not work properly', {
-        searchedPath: credentialsPath,
+        searchedPaths: [credentialsJsonPath, credentialsPath],
       })
     }
 
@@ -180,11 +208,8 @@ export class DockerEnvironment extends BaseEnvironment {
       this.image =
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
 
-      // Create container
-      this.containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
-
       this.logger.info('Creating Docker container', {
-        containerName: this.containerName,
+        containerName: containerName,
         image: this.image,
         workerPort,
       })
@@ -192,14 +217,28 @@ export class DockerEnvironment extends BaseEnvironment {
       await this.createOrReuseContainer()
 
       this.logger.info('Starting Docker container', {
-        containerName: this.containerName,
+        containerName: containerName,
       })
 
       await this.startContainer()
 
+      // Copy repository configuration to container BEFORE waiting for worker
+      // The worker needs this config to start successfully
+      try {
+        // Copy the config file (directory already exists in image)
+        await execAsync(`docker cp "${configPath}" "${containerName}:/data/repository-config.json"`)
+        this.logger.info('Repository configuration copied to container')
+
+        // Clean up temp file
+        await fs.unlink(configPath)
+      } catch (error) {
+        this.logger.error('Failed to copy repository configuration', error as Error)
+        throw error // This is critical - worker cannot start without it
+      }
+
       // Wait for the container and worker to be ready
       this.logger.info('Waiting for container to be ready', {
-        containerName: this.containerName,
+        containerName: containerName,
       })
 
       await this.waitForContainerReady()
@@ -208,22 +247,22 @@ export class DockerEnvironment extends BaseEnvironment {
       if (claudeConfigPath) {
         this.logger.info('Copying Claude config to container', { claudeConfigPath })
         await execAsync(
-          `docker cp "${claudeConfigPath}" "${this.containerName}:/home/ubuntu/.claude/.claude.json"`,
+          `docker cp "${claudeConfigPath}" "${containerName}:/home/ubuntu/.claude/.claude.json"`,
         )
       }
 
-      if (credentialsJsonPath) {
-        this.logger.info('Copying Claude credentials to container', { credentialsJsonPath })
+      if (foundCredentialsPath) {
+        this.logger.info('Copying Claude credentials to container', { foundCredentialsPath })
         await execAsync(
-          `docker cp "${credentialsJsonPath}" "${this.containerName}:/home/ubuntu/.claude/.credentials.json"`,
+          `docker cp "${foundCredentialsPath}" "${containerName}:/home/ubuntu/.claude/.credentials.json"`,
         )
       }
 
       // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
       // Only run this if we copied at least one file
-      if (claudeConfigPath || credentialsJsonPath) {
+      if (claudeConfigPath || foundCredentialsPath) {
         await execAsync(
-          `docker exec --user root "${this.containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
+          `docker exec --user root "${containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
         )
         this.logger.info('Claude config copied and ownership fixed successfully')
       } else {
@@ -231,7 +270,7 @@ export class DockerEnvironment extends BaseEnvironment {
       }
 
       this.logger.info('DockerEnvironment setup completed - container is ready', {
-        containerName: this.containerName,
+        containerName: containerName,
         workerPort: this.workerPortMapping.hostPort,
         setupTimeMs: Date.now() - startTime,
       })
@@ -241,7 +280,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
       this.logger.error('DockerEnvironment setup failed', error as Error, {
         setupTimeMs: failureTime,
-        containerName: this.containerName,
+        containerName: containerName,
       })
 
       await this.cleanup()
@@ -250,12 +289,14 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   private async createOrReuseContainer(): Promise<void> {
+    const containerName = this.getContainerName()
+
     // Check if container already exists
     const existingContainer = await this.getExistingContainer()
 
     if (existingContainer) {
       this.logger.info('Found existing container', {
-        containerName: this.containerName,
+        containerName: containerName,
         status: existingContainer.status,
       })
 
@@ -276,10 +317,12 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   private async getExistingContainer(): Promise<{ id: string; status: string } | null> {
+    const containerName = this.getContainerName()
+
     try {
       // Use exact name match with ^/name$ pattern to avoid partial matches
       const { stdout } = await execAsync(
-        `docker ps -a --filter "name=^/${this.containerName}$" --format "{{.ID}},{{.Status}}"`,
+        `docker ps -a --filter "name=^/${containerName}$" --format "{{.ID}},{{.Status}}"`,
       )
 
       if (!stdout.trim()) {
@@ -329,7 +372,8 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   private async createContainer(): Promise<void> {
-    let createCommand = `docker create --name "${this.containerName}"`
+    const containerName = this.getContainerName()
+    let createCommand = `docker create --name "${containerName}"`
 
     // Add moatless labels for easy cleanup
     createCommand += ` --label "created-by=moatless"`
@@ -351,7 +395,7 @@ export class DockerEnvironment extends BaseEnvironment {
     if (this.repositoryConfig.useGitWorktrees) {
       // The repository path is the main repository path when using worktrees
       const mainRepoPath = this.repositoryConfig.path
-      createCommand += ` -v "${mainRepoPath}/.git:/main-repo-git:ro"`
+      createCommand += ` -v "${mainRepoPath}/.git:/main-repo-git"`
       createCommand += ` -e "MAIN_REPO_PATH=${mainRepoPath}"`
       createCommand += ` -e "USE_GIT_WORKTREES=true"`
 
@@ -438,7 +482,7 @@ export class DockerEnvironment extends BaseEnvironment {
     try {
       const { stdout } = await execAsync(createCommand)
       const containerId = stdout.trim()
-      this.logger.info('Container created', { containerName: this.containerName, containerId })
+      this.logger.info('Container created', { containerName: containerName, containerId })
     } catch (error) {
       this.logger.error('Failed to create container', error as Error)
       throw error
@@ -446,22 +490,23 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   private async startContainer(): Promise<void> {
-    this.logger.info('Starting container', { containerName: this.containerName })
+    const containerName = this.getContainerName()
+    this.logger.info('Starting container', { containerName: containerName })
 
     try {
       // Check if container is already running
       const { stdout } = await execAsync(
-        `docker ps --filter "name=^/${this.containerName}$" --format "{{.ID}}"`,
+        `docker ps --filter "name=^/${containerName}$" --format "{{.ID}}"`,
       )
 
       if (stdout.trim()) {
-        this.logger.info('Container is already running', { containerName: this.containerName })
+        this.logger.info('Container is already running', { containerName: containerName })
         return
       }
 
       // Container is not running, start it
-      await execAsync(`docker start ${this.containerName}`)
-      this.logger.info('Container started', { containerName: this.containerName })
+      await execAsync(`docker start ${containerName}`)
+      this.logger.info('Container started', { containerName: containerName })
     } catch (error) {
       this.logger.error('Failed to start container', error as Error)
       throw error
@@ -470,40 +515,58 @@ export class DockerEnvironment extends BaseEnvironment {
 
   /**
    * Ensures that the container is ready for command execution or agent creation.
-   * If the container is not setup, it will attempt to set it up.
+   * If the container is not setup or in error state, it will attempt to set it up.
    * If setup is already in progress, it will wait for completion.
    */
   private async ensureContainerReady(): Promise<void> {
     const status = this.getStatus()
 
-    switch (status) {
-      case 'ready':
-        // Container is already ready, nothing to do
-        return
+    // Already ready - fast path
+    if (status === 'ready') {
+      return
+    }
 
+    // Handle states that need action
+    switch (status) {
       case 'not_setup':
-        // Container not setup, start setup process
         this.logger.info('Container not setup, starting setup process')
         await this.setup()
-        // After setup, wait for container to be ready
-        await this.waitForContainerReady()
-        return
+        break
+
+      case 'error':
+        this.logger.info('Container in error state, attempting recovery', {
+          previousError: this._error,
+          containerName: this.getContainerName(),
+        })
+
+        // Clean up the failed container
+        await this.cleanup()
+
+        // Reset error state
+        this._error = undefined
+
+        // Setup container
+        await this.setup()
+        break
 
       case 'initializing':
-        // Setup is in progress, wait for completion
-        this.logger.info('Container setup in progress, waiting for completion')
-        await this.waitForContainerReady()
-        return
+        // Already in progress, just need to wait
+        this.logger.info('Container setup in progress, waiting for completion', { status })
+        break
 
-      case 'error': {
-        // Container setup failed, throw error
-        const error = this.getError() || 'Container setup failed'
-        throw new Error(`Container is in error state: ${error}`)
-      }
+      case 'cleaning':
+        // Container is being removed, wait for it to finish then check again
+        this.logger.info('Container is being cleaned up, waiting for completion')
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        // Recursively check status again after cleanup
+        return this.ensureContainerReady()
 
       default:
         throw new Error(`Unexpected container status: ${status}`)
     }
+
+    // Wait for container to be ready (for all non-ready states except cleaning)
+    await this.waitForContainerReady()
   }
 
   /**
@@ -514,8 +577,10 @@ export class DockerEnvironment extends BaseEnvironment {
     const checkInterval = 2000 // 2 seconds
     let elapsed = 0
 
+    const containerName = this.getContainerName()
+
     this.logger.debug('Waiting for container to become ready', {
-      containerName: this.containerName,
+      containerName: containerName,
       workerPort: this.workerPortMapping?.hostPort,
       maxWaitTime,
     })
@@ -531,7 +596,7 @@ export class DockerEnvironment extends BaseEnvironment {
       if (status === 'ready') {
         this.logger.info('Container is ready, wait for worker readiness', {
           elapsedMs: elapsed,
-          containerName: this.containerName,
+          containerName: containerName,
           workerPort: this.workerPortMapping.hostPort,
         })
 
@@ -557,9 +622,12 @@ export class DockerEnvironment extends BaseEnvironment {
               })
             }
           }
+
+          await new Promise((resolve) => setTimeout(resolve, checkInterval))
+          elapsed += checkInterval
         }
 
-        return
+        throw new Error(`Worker did not become ready within timeout (${maxWaitTime}ms)`)
       }
 
       if (status === 'error') {
@@ -576,7 +644,7 @@ export class DockerEnvironment extends BaseEnvironment {
         this.logger.debug('Container still starting', {
           elapsedMs: elapsed,
           remainingMs: maxWaitTime - elapsed,
-          containerName: this.containerName,
+          containerName: containerName,
         })
       }
 
@@ -591,13 +659,12 @@ export class DockerEnvironment extends BaseEnvironment {
     // Ensure container is ready before executing command
     await this.ensureContainerReady()
 
-    // Double-check we have container name and worker port mapping
-    if (!this.containerName) {
-      throw new Error('Container name not available')
-    }
+    // Double-check we have worker port mapping
     if (!this.workerPortMapping) {
       throw new Error('Worker port mapping not available - container setup incomplete')
     }
+
+    const containerName = this.getContainerName()
 
     this.logger.debug(`Running command via docker exec: ${command}`)
 
@@ -615,7 +682,7 @@ export class DockerEnvironment extends BaseEnvironment {
         dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
       }
 
-      dockerCommand += ` ${this.containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
+      dockerCommand += ` ${containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
 
       const { stdout, stderr } = await execAsync(dockerCommand, { timeout })
 
@@ -709,7 +776,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     this.logger.info('Stopping server via worker', {
       workerPort: this.workerPortMapping.hostPort,
-      containerName: this.containerName,
+      containerName: this.getContainerName(),
     })
 
     try {
@@ -920,8 +987,19 @@ export class DockerEnvironment extends BaseEnvironment {
     return !!this.runningAgent
   }
 
+  setRunningAgent(agent: BaseAgent): void {
+    this.runningAgent = agent
+  }
+
+  getRunningAgent(): BaseAgent | undefined {
+    return this.runningAgent
+  }
+
   async teardown(force = false): Promise<void> {
-    this.logger.info('Tearing down DockerEnvironment', { force, containerName: this.containerName })
+    this.logger.info('Tearing down DockerEnvironment', {
+      force,
+      containerName: this.getContainerName(),
+    })
 
     try {
       // Stop agent
@@ -949,23 +1027,19 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
-  setRunningAgent(agent: BaseAgent): void {
-    this.runningAgent = agent
-  }
-
-  getRunningAgent(): BaseAgent | undefined {
-    return this.runningAgent
-  }
-
   private async cleanup(): Promise<void> {
-    if (!this.containerName) {
+    const containerName = this.getContainerName()
+
+    // Check if container exists before trying to clean it up
+    const status = this.getStatus()
+    if (status === 'not_setup') {
       return
     }
 
     try {
       // Stop container
-      await execAsync(`docker stop ${this.containerName}`)
-      this.logger.info('Container stopped', { containerName: this.containerName })
+      await execAsync(`docker stop ${containerName}`)
+      this.logger.info('Container stopped', { containerName: containerName })
     } catch (error) {
       this.logger.warn('Failed to stop container', {
         error: error instanceof Error ? error.message : String(error),
@@ -974,8 +1048,8 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       // Remove container
-      await execAsync(`docker rm ${this.containerName}`)
-      this.logger.info('Container removed', { containerName: this.containerName })
+      await execAsync(`docker rm ${containerName}`)
+      this.logger.info('Container removed', { containerName: containerName })
     } catch (error) {
       this.logger.warn('Failed to remove container', {
         error: error instanceof Error ? error.message : String(error),

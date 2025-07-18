@@ -195,6 +195,10 @@ RUN cd /tmp/moatless-vibe && \
     npm install -g ./moatless-vibe-*.tgz && \
     rm -rf /tmp/moatless-vibe
 
+# Create /data directory with proper permissions
+RUN mkdir -p /data && \
+    chown $USERNAME:$USERNAME /data
+
 # Switch to non-root user for runtime
 USER $USERNAME
 WORKDIR /home/ubuntu

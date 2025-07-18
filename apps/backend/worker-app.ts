@@ -1,4 +1,7 @@
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { serve } from '@hono/node-server'
+import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
 import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
@@ -74,19 +77,21 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   // Initialize services for worker mode
   const taskId = process.env.WORKER_TASK_ID
 
-  // Create API client to fetch task and repository from main backend
-  const apiClient = new WorkerApiClient(config.apiUrl, config.apiKey)
+  // Read repository configuration from mounted file
+  let repositoryConfig: RepositoryConfig
+  const configPath = path.join(config.dataDir || '/data', 'repository-config.json')
 
-  // Fetch task from API
-  const task = await apiClient.fetchTask(taskId)
-  if (!task) {
-    throw new Error(`Task ${taskId} not found`)
-  }
-
-  // Fetch repository configuration from API
-  const repositoryConfig = await apiClient.fetchRepository(task.repositoryId)
-  if (!repositoryConfig) {
-    throw new Error(`Repository ${task.repositoryId} not found`)
+  try {
+    const configData = await fs.readFile(configPath, 'utf-8')
+    repositoryConfig = JSON.parse(configData) as RepositoryConfig
+    logger.info('Loaded repository configuration from file', {
+      configPath,
+      repositoryId: repositoryConfig.id,
+      repositoryName: repositoryConfig.name,
+    })
+  } catch (error) {
+    logger.error('Failed to load repository configuration', error as Error, { configPath })
+    throw new Error(`Repository configuration not found at ${configPath}`)
   }
 
   const environment = new LocalEnvironment(taskId, repositoryConfig, config.workspaceDir)
