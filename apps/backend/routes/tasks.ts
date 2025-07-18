@@ -535,7 +535,6 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         undefined, // no limit
         0, // offset 0
         type as EventType | undefined,
-        task,
       )
 
       const response: EventListResponse = {

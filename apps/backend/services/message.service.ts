@@ -3,7 +3,6 @@ import type {
   AssistantMessage,
   AssistantMessageContent,
   Message,
-  RepositoryConfig,
   ToolResult,
   UserMessage,
 } from '@moatless/types'
@@ -22,7 +21,6 @@ export class MessageService {
   constructor(
     private claudeService: ClaudeService,
     private taskService: TaskService,
-    private repository?: RepositoryConfig,
   ) {}
 
   /**
@@ -374,7 +372,6 @@ export class MessageService {
 export function createMessageService(
   claudeService: ClaudeService,
   taskService: TaskService,
-  repository?: RepositoryConfig,
 ): MessageService {
-  return new MessageService(claudeService, taskService, repository)
+  return new MessageService(claudeService, taskService)
 }

@@ -140,7 +140,7 @@ export function GitHubConfigurationSection() {
             Git User Name
           </Label>
           <p className="text-sm text-muted-foreground">
-            Your name for Git commits (uses system git config if not set)
+            Your name for Git commits (fetched from GitHub when PAT is saved)
           </p>
         </div>
         <Input
@@ -170,7 +170,7 @@ export function GitHubConfigurationSection() {
             Git User Email
           </Label>
           <p className="text-sm text-muted-foreground">
-            Your email for Git commits (uses system git config if not set)
+            Your email for Git commits (fetched from GitHub when PAT is saved)
           </p>
         </div>
         <Input
@@ -216,7 +216,8 @@ export function GitHubConfigurationSection() {
           </ol>
           <p className="text-sm text-muted-foreground mt-2">
             The token will be used to authenticate Git operations in Docker containers without SSH
-            keys.
+            keys. Your GitHub username and email will be automatically fetched when you save the
+            token.
           </p>
         </AlertDescription>
       </Alert>

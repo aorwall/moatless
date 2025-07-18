@@ -127,7 +127,6 @@ export async function registerUsageRoutes(app: Hono<AppBindings>, prefix: string
     async (c) => {
       try {
         const sessionId = c.req.param('sessionId')
-        const query = c.req.query()
 
         if (!sessionId) {
           return c.json({ error: 'Session ID is required' }, 400)

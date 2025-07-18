@@ -9,6 +9,7 @@ import type {
 } from '@moatless/types'
 import type { z } from 'zod'
 
+import { getGitHubService } from '../../services/github.service.js'
 import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
@@ -190,7 +191,8 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
     const options = this.options as ClaudeCodeOptions
-    const settingsService = getSettingsService()
+    const githubService = getGitHubService()
+    const settingsService = getSettingsService(githubService)
     const claudeSettings = settingsService.getClaudeSettings()
 
     const agentLogger = logger.child({

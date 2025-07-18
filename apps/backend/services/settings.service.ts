@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import type {
   ApplicationSettings,
   ClaudeSettings,
@@ -12,12 +12,16 @@ import type {
 import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
 import { getGitUserEmail, getGitUserName } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
+import type { GitHubService } from './github.service.js'
 
 export class SettingsService {
   private settings: ApplicationSettings | null = null
   private defaults: SettingsResponse['defaults']
 
-  constructor(private settingsPath: string | null = null) {
+  constructor(
+    private githubService: GitHubService,
+    private settingsPath: string | null = null,
+  ) {
     // Initialize defaults with placeholder values - will be updated in initialize()
     this.defaults = {
       dataDir: process.env.DATA_DIR || path.join(os.homedir(), '.moatless'),
@@ -188,27 +192,58 @@ export class SettingsService {
         this.settings.github = {}
       }
 
+      let shouldFetchUserInfo = false
+
       if (update.github.personalAccessToken !== undefined) {
         if (update.github.personalAccessToken === null) {
           delete this.settings.github.personalAccessToken
-        } else {
-          this.settings.github.personalAccessToken = update.github.personalAccessToken
-        }
-      }
-
-      if (update.github.userName !== undefined) {
-        if (update.github.userName === null) {
+          // Clear user info when token is removed
           delete this.settings.github.userName
-        } else {
-          this.settings.github.userName = update.github.userName
-        }
-      }
-
-      if (update.github.userEmail !== undefined) {
-        if (update.github.userEmail === null) {
           delete this.settings.github.userEmail
         } else {
-          this.settings.github.userEmail = update.github.userEmail
+          this.settings.github.personalAccessToken = update.github.personalAccessToken
+          shouldFetchUserInfo = true
+        }
+      }
+
+      // If a new PAT was provided, fetch user info from GitHub
+      if (shouldFetchUserInfo && this.settings.github.personalAccessToken) {
+        const githubUser = await this.githubService.getAuthenticatedUser(
+          this.settings.github.personalAccessToken,
+        )
+
+        if (githubUser) {
+          // Use the GitHub username as the git user name
+          this.settings.github.userName = githubUser.name || githubUser.login
+
+          // Use the GitHub email if available
+          if (githubUser.email) {
+            this.settings.github.userEmail = githubUser.email
+          }
+
+          logger.info('Fetched GitHub user info', {
+            userName: this.settings.github.userName,
+            userEmail: this.settings.github.userEmail,
+          })
+        } else {
+          logger.warn('Failed to fetch GitHub user info, using git config defaults')
+        }
+      } else {
+        // Allow manual override of userName and userEmail
+        if (update.github.userName !== undefined) {
+          if (update.github.userName === null) {
+            delete this.settings.github.userName
+          } else {
+            this.settings.github.userName = update.github.userName
+          }
+        }
+
+        if (update.github.userEmail !== undefined) {
+          if (update.github.userEmail === null) {
+            delete this.settings.github.userEmail
+          } else {
+            this.settings.github.userEmail = update.github.userEmail
+          }
         }
       }
 
@@ -301,9 +336,9 @@ export class SettingsService {
 // Singleton instance
 let settingsServiceInstance: SettingsService | null = null
 
-export function getSettingsService(): SettingsService {
+export function getSettingsService(githubService: GitHubService): SettingsService {
   if (!settingsServiceInstance) {
-    settingsServiceInstance = new SettingsService()
+    settingsServiceInstance = new SettingsService(githubService)
   }
   return settingsServiceInstance
 }
@@ -313,15 +348,20 @@ export function resetSettingsServiceInstance(): void {
   settingsServiceInstance = null
 }
 
-export async function initializeSettingsService(): Promise<SettingsService> {
-  const service = getSettingsService()
+export async function initializeSettingsService(
+  githubService: GitHubService,
+): Promise<SettingsService> {
+  const service = getSettingsService(githubService)
   await service.initialize()
   return service
 }
 
 // Factory function for dependency injection
-export async function createSettingsService(settingsPath?: string): Promise<SettingsService> {
-  const service = new SettingsService(settingsPath)
+export async function createSettingsService(
+  githubService: GitHubService,
+  settingsPath?: string,
+): Promise<SettingsService> {
+  const service = new SettingsService(githubService, settingsPath)
   await service.initialize()
   return service
 }

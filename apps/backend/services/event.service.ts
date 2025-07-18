@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Event, EventType, Task } from '@moatless/types'
+import type { Event, EventType } from '@moatless/types'
 import type { StorageBackend } from './storage.js'
 
 export type EventHandler = (event: Event) => void | Promise<void>
@@ -49,7 +49,6 @@ export class EventService extends EventEmitter {
     limit?: number,
     offset = 0,
     eventType?: EventType,
-    task?: Task,
   ): Promise<Event[]> {
     let events: Event[] = []
 
@@ -98,8 +97,8 @@ export class EventService extends EventEmitter {
     }
   }
 
-  async getEventCount(taskId: string, eventType?: EventType, task?: Task): Promise<number> {
-    const events = await this.getEvents(taskId, undefined, 0, eventType, task)
+  async getEventCount(taskId: string, eventType?: EventType): Promise<number> {
+    const events = await this.getEvents(taskId, undefined, 0, eventType)
     return events.length
   }
 }

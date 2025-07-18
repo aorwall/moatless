@@ -9,13 +9,21 @@ vi.mock('../../utils/logger.js', () => ({
   logger: {
     info: vi.fn(),
     error: vi.fn(),
+    warn: vi.fn(),
   },
+}))
+
+// Mock git-utils
+vi.mock('../../utils/git-utils.js', () => ({
+  getGitUserName: vi.fn().mockResolvedValue('Test User'),
+  getGitUserEmail: vi.fn().mockResolvedValue('test@example.com'),
 }))
 
 describe('SettingsService', () => {
   let tempDir: string
   let settingsService: SettingsService
   let originalEnv: NodeJS.ProcessEnv
+  let mockGitHubService: any
 
   beforeEach(async () => {
     // Save original environment
@@ -27,8 +35,16 @@ describe('SettingsService', () => {
     // Set test DATA_DIR
     process.env.DATA_DIR = tempDir
 
+    // Create mock GitHub service
+    mockGitHubService = {
+      getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+      getUserEmails: vi.fn().mockResolvedValue(null),
+      validateToken: vi.fn().mockResolvedValue(false),
+      getTokenScopes: vi.fn().mockResolvedValue(null),
+    }
+
     // Create fresh settings service
-    settingsService = new SettingsService()
+    settingsService = new SettingsService(mockGitHubService)
     await settingsService.initialize()
   })
 
@@ -42,7 +58,7 @@ describe('SettingsService', () => {
 
   describe('constructor and initialization', () => {
     it('should initialize with correct defaults', () => {
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
 
       // Defaults should include DATA_DIR env var
       expect(service.getDataDir()).toBe(tempDir)
@@ -59,7 +75,7 @@ describe('SettingsService', () => {
       process.env.CLAUDE_BIN_DIR = '/custom/bin'
       process.env.CLAUDE_CONFIG_DIR = '/custom/config'
 
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
 
       expect(service.getDataDir()).toBe('/custom/data')
       expect(service.getDefaultWorkspaceType()).toBe('docker')
@@ -70,7 +86,7 @@ describe('SettingsService', () => {
     })
 
     it('should initialize without existing settings file', async () => {
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
       await service.initialize()
 
       const settings = await service.getSettings()
@@ -334,7 +350,7 @@ describe('SettingsService', () => {
       try {
         process.env.DATA_DIR = envDataDir
 
-        const service = new SettingsService()
+        const service = new SettingsService(mockGitHubService)
         await service.initialize()
         expect(service.getDataDir()).toBe(envDataDir)
 
@@ -354,7 +370,7 @@ describe('SettingsService', () => {
       try {
         process.env.DATA_DIR = envDataDir
 
-        const service = new SettingsService()
+        const service = new SettingsService(mockGitHubService)
         await service.initialize()
         await service.updateSettings({ dataDir: settingsDataDir })
         expect(service.getDataDir()).toBe(settingsDataDir)
@@ -373,7 +389,7 @@ describe('SettingsService', () => {
     it('should prioritize settings over environment', async () => {
       process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
 
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
       expect(service.getDefaultWorkspaceType()).toBe('docker')
 
       // Override with settings
@@ -384,7 +400,7 @@ describe('SettingsService', () => {
     it('should handle invalid environment variable', () => {
       process.env.DEFAULT_WORKSPACE_TYPE = 'invalid'
 
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
       expect(service.getDefaultWorkspaceType()).toBe('local')
     })
   })
@@ -394,7 +410,7 @@ describe('SettingsService', () => {
       process.env.CLAUDE_BIN_DIR = '/env/bin'
       process.env.CLAUDE_CONFIG_DIR = '/env/config'
 
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
       await service.initialize()
 
       let claudeSettings = service.getClaudeSettings()
@@ -418,7 +434,7 @@ describe('SettingsService', () => {
       delete process.env.CLAUDE_BIN_DIR
       delete process.env.CLAUDE_CONFIG_DIR
 
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
       const claudeSettings = service.getClaudeSettings()
 
       expect(claudeSettings.binDir).toBe('')
@@ -431,13 +447,111 @@ describe('SettingsService', () => {
       // Create service with invalid directory
       process.env.DATA_DIR = '/invalid/directory/that/does/not/exist'
 
-      const service = new SettingsService()
+      const service = new SettingsService(mockGitHubService)
 
       // Should not throw during initialization
       await expect(service.initialize()).resolves.not.toThrow()
 
       // Should still return defaults
       expect(service.getDataDir()).toBe('/invalid/directory/that/does/not/exist')
+    })
+  })
+
+  describe('GitHub settings', () => {
+    it('should fetch GitHub user info when PAT is provided', async () => {
+      // Mock successful GitHub API response
+      mockGitHubService.getAuthenticatedUser.mockResolvedValue({
+        login: 'testuser',
+        name: 'Test User',
+        email: 'test@example.com',
+      })
+
+      const result = await settingsService.updateSettings({
+        github: {
+          personalAccessToken: 'ghp_test_token_123',
+        },
+      })
+
+      // Verify GitHub API was called
+      expect(mockGitHubService.getAuthenticatedUser).toHaveBeenCalledWith('ghp_test_token_123')
+
+      // Verify user info was saved
+      expect(result.settings.github?.userName).toBe('Test User')
+      expect(result.settings.github?.userEmail).toBe('test@example.com')
+    })
+
+    it('should use login as userName if name is not available', async () => {
+      // Mock GitHub API response with no name
+      mockGitHubService.getAuthenticatedUser.mockResolvedValue({
+        login: 'testuser',
+        name: null,
+        email: 'test@example.com',
+      })
+
+      const result = await settingsService.updateSettings({
+        github: {
+          personalAccessToken: 'ghp_test_token_123',
+        },
+      })
+
+      // Should use login as userName
+      expect(result.settings.github?.userName).toBe('testuser')
+      expect(result.settings.github?.userEmail).toBe('test@example.com')
+    })
+
+    it('should clear user info when PAT is removed', async () => {
+      // First set a PAT with user info
+      await settingsService.updateSettings({
+        github: {
+          personalAccessToken: 'ghp_test_token_123',
+          userName: 'Test User',
+          userEmail: 'test@example.com',
+        },
+      })
+
+      // Then remove the PAT
+      const result = await settingsService.updateSettings({
+        github: {
+          personalAccessToken: null,
+        },
+      })
+
+      // User info should be cleared
+      expect(result.settings.github).toBeUndefined()
+    })
+
+    it('should allow manual override of userName and userEmail', async () => {
+      const result = await settingsService.updateSettings({
+        github: {
+          userName: 'Manual User',
+          userEmail: 'manual@example.com',
+        },
+      })
+
+      // Manual values should be saved
+      expect(result.settings.github?.userName).toBe('Manual User')
+      expect(result.settings.github?.userEmail).toBe('manual@example.com')
+
+      // GitHub API should not be called
+      expect(mockGitHubService.getAuthenticatedUser).not.toHaveBeenCalled()
+    })
+
+    it('should handle GitHub API failure gracefully', async () => {
+      // Mock GitHub API failure
+      mockGitHubService.getAuthenticatedUser.mockResolvedValue(null)
+
+      const result = await settingsService.updateSettings({
+        github: {
+          personalAccessToken: 'ghp_invalid_token',
+        },
+      })
+
+      // PAT should still be saved
+      expect(result.settings.github?.personalAccessToken).toBe('ghp_invalid_token')
+
+      // User info should not be set
+      expect(result.settings.github?.userName).toBeUndefined()
+      expect(result.settings.github?.userEmail).toBeUndefined()
     })
   })
 })

@@ -14,7 +14,9 @@ async function testUsageService() {
   const now = new Date()
   console.log(`⏰ Current time: ${now.toLocaleTimeString()} (${now.toISOString()})\n`)
 
-  const settingsService = await initializeSettingsService()
+  const { getGitHubService } = await import('../services/github.service.js')
+  const githubService = getGitHubService()
+  const settingsService = await initializeSettingsService(githubService)
   const claudeService = new ClaudeService(settingsService)
   const service = claudeService
 

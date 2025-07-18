@@ -62,8 +62,7 @@ export async function createApp(): Promise<AppWithServices> {
   app.onError(errorHandler)
 
   // Setup services and inject into context
-  const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data')
-  const services = await createServiceContainer({ dataDir })
+  const services = await createServiceContainer()
   app.use('*', async (c, next) => {
     c.set('services', services)
     await next()
