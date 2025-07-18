@@ -1,4 +1,4 @@
-import { type ChildProcess, exec, spawn } from 'node:child_process'
+import { type ChildProcess, exec, execSync, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -359,7 +359,6 @@ export class PreviewServer {
   private checkPortInUseSync(port: number): boolean {
     // Since we need a synchronous check, we'll use the child_process execSync
     try {
-      const { execSync } = require('node:child_process')
       if (process.platform === 'win32') {
         // Windows: Use netstat to check if port is in use
         try {

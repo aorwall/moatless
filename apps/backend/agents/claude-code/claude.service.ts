@@ -270,8 +270,7 @@ export class ClaudeService {
     const claudeSettings = this.settingsService.getClaudeSettings()
 
     // Use configDir from settings if available, otherwise use default
-    const claudeConfigDir =
-      claudeSettings.configDir || path.join(require('node:os').homedir(), '.claude')
+    const claudeConfigDir = claudeSettings.configDir || path.join(os.homedir(), '.claude')
     return path.join(claudeConfigDir, 'projects')
   }
 
