@@ -1,8 +1,8 @@
-import type { UpdateSettingsRequest } from '@moatless/types'
+import type { UpdateGeneralSettingsRequest } from '@moatless/types'
 import { FolderOpen, Loader2, RotateCcw, Save } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useResetSettings, useSettings, useUpdateSettings } from '@/features/settings'
+import { useGeneralSettings, useUpdateGeneralSettings } from '@/features/settings'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
@@ -19,50 +19,39 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 export function GeneralConfigurationSection() {
   const {
-    data: appSettings,
-    isLoading: appSettingsLoading,
-    error: appSettingsError,
-  } = useSettings()
-  const updateAppSettings = useUpdateSettings()
-  const resetAppSettings = useResetSettings()
+    data: generalSettings,
+    isLoading: generalLoading,
+    error: generalError,
+  } = useGeneralSettings()
+  const updateGeneralSettings = useUpdateGeneralSettings()
 
   const dataDirId = useId()
   const defaultWorkspaceTypeId = useId()
-  const claudeBinDirId = useId()
-  const claudeConfigDirId = useId()
 
   // Derive form data directly from settings - no effects needed (following derived state pattern)
-  const baseAppFormData = useMemo<UpdateSettingsRequest>(
+  const baseGeneralFormData = useMemo<UpdateGeneralSettingsRequest>(
     () => ({
-      dataDir: appSettings?.settings.dataDir || null,
-      defaultWorkspaceType: appSettings?.settings.defaultWorkspaceType || null,
-      claude: {
-        binDir: appSettings?.settings.claude?.binDir || null,
-        configDir: appSettings?.settings.claude?.configDir || null,
-      },
+      dataDir: generalSettings?.settings.dataDir || null,
+      defaultWorkspaceType: generalSettings?.settings.defaultWorkspaceType || null,
     }),
-    [appSettings],
+    [generalSettings],
   )
 
   // Track user modifications separately from the derived data
-  const [appUserModifications, setAppUserModifications] = useState<Partial<UpdateSettingsRequest>>(
-    {},
-  )
+  const [generalUserModifications, setGeneralUserModifications] = useState<
+    Partial<UpdateGeneralSettingsRequest>
+  >({})
 
   // Merge derived data with user modifications
-  const appFormData = useMemo(
+  const generalFormData = useMemo(
     () => ({
-      ...baseAppFormData,
-      ...appUserModifications,
-      claude: {
-        ...baseAppFormData.claude,
-        ...appUserModifications.claude,
-      },
+      ...baseGeneralFormData,
+      ...generalUserModifications,
     }),
-    [baseAppFormData, appUserModifications],
+    [baseGeneralFormData, generalUserModifications],
   )
 
-  if (appSettingsLoading) {
+  if (generalLoading) {
     return (
       <div className="flex items-center justify-center h-32">
         <Loader2 className="h-8 w-8 animate-spin" data-testid="loading-spinner" />
@@ -70,7 +59,7 @@ export function GeneralConfigurationSection() {
     )
   }
 
-  if (appSettingsError) {
+  if (generalError) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Error</AlertTitle>
@@ -97,14 +86,14 @@ export function GeneralConfigurationSection() {
           <Input
             id={dataDirId}
             type="text"
-            placeholder={appSettings?.defaults.dataDir || '~/.moatless'}
-            value={appFormData.dataDir || ''}
+            placeholder={generalSettings?.defaults.dataDir || '~/.moatless'}
+            value={generalFormData.dataDir || ''}
             className="flex-1"
             onChange={(e) => {
               const value = e.target.value.trim()
-              setAppUserModifications((prev) => ({
+              setGeneralUserModifications((prev) => ({
                 ...prev,
-                dataDir: value === '' || value === appSettings?.defaults.dataDir ? null : value,
+                dataDir: value === '' || value === generalSettings?.defaults.dataDir ? null : value,
               }))
             }}
           />
@@ -113,8 +102,6 @@ export function GeneralConfigurationSection() {
           </Button>
         </div>
       </div>
-
-      <Separator />
 
       {/* Default Workspace Type */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
@@ -126,15 +113,15 @@ export function GeneralConfigurationSection() {
         </div>
         <Select
           value={
-            appFormData.defaultWorkspaceType ||
-            appSettings?.defaults.defaultWorkspaceType ||
+            generalFormData.defaultWorkspaceType ||
+            generalSettings?.defaults.defaultWorkspaceType ||
             'local'
           }
           onValueChange={(value) =>
-            setAppUserModifications((prev) => ({
+            setGeneralUserModifications((prev) => ({
               ...prev,
               defaultWorkspaceType:
-                value === appSettings?.defaults.defaultWorkspaceType
+                value === generalSettings?.defaults.defaultWorkspaceType
                   ? null
                   : (value as 'docker' | 'local'),
             }))
@@ -152,78 +139,6 @@ export function GeneralConfigurationSection() {
 
       <Separator />
 
-      {/* Claude Directories */}
-      <div className="space-y-6">
-        <div className="space-y-1">
-          <h3 className="text-base font-medium">Claude Code Configuration</h3>
-          <p className="text-sm text-muted-foreground">
-            Configure Claude Code binary and configuration directories
-          </p>
-        </div>
-
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            <div className="space-y-1">
-              <Label htmlFor={claudeBinDirId} className="text-sm font-medium">
-                Claude Bin Directory
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Directory containing Claude Code binary
-              </p>
-            </div>
-            <Input
-              id={claudeBinDirId}
-              type="text"
-              placeholder={appSettings?.defaults.claude.binDir || 'Auto-detect (optional)'}
-              value={appFormData.claude?.binDir || ''}
-              onChange={(e) => {
-                const value = e.target.value.trim()
-                setAppUserModifications((prev) => ({
-                  ...prev,
-                  claude: {
-                    ...prev.claude,
-                    binDir:
-                      value === '' || value === appSettings?.defaults.claude.binDir ? null : value,
-                  },
-                }))
-              }}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            <div className="space-y-1">
-              <Label htmlFor={claudeConfigDirId} className="text-sm font-medium">
-                Claude Config Directory
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Directory for Claude Code configuration
-              </p>
-            </div>
-            <Input
-              id={claudeConfigDirId}
-              type="text"
-              placeholder={appSettings?.defaults.claude.configDir || 'Auto-detect (optional)'}
-              value={appFormData.claude?.configDir || ''}
-              onChange={(e) => {
-                const value = e.target.value.trim()
-                setAppUserModifications((prev) => ({
-                  ...prev,
-                  claude: {
-                    ...prev.claude,
-                    configDir:
-                      value === '' || value === appSettings?.defaults.claude.configDir
-                        ? null
-                        : value,
-                  },
-                }))
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      <Separator />
-
       {/* Actions */}
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between pt-4">
         <Button
@@ -231,41 +146,33 @@ export function GeneralConfigurationSection() {
           variant="outline"
           size="sm"
           onClick={() => {
-            resetAppSettings.mutate(undefined, {
-              onSuccess: () => {
-                setAppUserModifications({})
-                toast.success('Application settings reset to defaults')
-              },
-              onError: (error) => {
-                toast.error('Failed to reset application settings', {
-                  description: getErrorMessage(error),
-                })
-              },
-            })
+            // Reset to defaults by clearing modifications
+            setGeneralUserModifications({})
+            toast.success('Settings reset to defaults')
           }}
-          disabled={resetAppSettings.isPending}
+          disabled={false}
         >
           <RotateCcw className="mr-2 h-4 w-4" />
           Reset to Defaults
         </Button>
         <Button
           onClick={() => {
-            updateAppSettings.mutate(appFormData, {
+            updateGeneralSettings.mutate(generalFormData, {
               onSuccess: () => {
-                setAppUserModifications({})
-                toast.success('Application settings saved successfully')
+                setGeneralUserModifications({})
+                toast.success('Settings saved successfully')
               },
               onError: (error) => {
-                toast.error('Failed to save application settings', {
+                toast.error('Failed to save settings', {
                   description: getErrorMessage(error),
                 })
               },
             })
           }}
-          disabled={updateAppSettings.isPending}
+          disabled={updateGeneralSettings.isPending}
           size="sm"
         >
-          {updateAppSettings.isPending ? (
+          {updateGeneralSettings.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Save className="mr-2 h-4 w-4" />

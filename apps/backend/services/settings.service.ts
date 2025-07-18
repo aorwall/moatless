@@ -4,10 +4,14 @@ import * as path from 'node:path'
 import type {
   ApplicationSettings,
   ClaudeSettings,
+  ClaudeSettingsResponse,
+  GeneralSettingsResponse,
   GitHubSettings,
-  SettingsResponse,
+  GitHubSettingsResponse,
   SystemStatusCheck,
-  UpdateSettingsRequest,
+  UpdateClaudeSettingsRequest,
+  UpdateGeneralSettingsRequest,
+  UpdateGitHubSettingsRequest,
 } from '@moatless/types'
 import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
 import { getGitUserEmail, getGitUserName } from '../utils/git-utils.js'
@@ -16,7 +20,20 @@ import type { GitHubService } from './github.service.js'
 
 export class SettingsService {
   private settings: ApplicationSettings | null = null
-  private defaults: SettingsResponse['defaults']
+  private defaults: {
+    dataDir: string
+    defaultWorkspaceType: 'docker' | 'local'
+    claude: {
+      binDir: string
+      configDir: string
+      oauthToken: string
+    }
+    github: {
+      personalAccessToken: string
+      userName: string
+      userEmail: string
+    }
+  }
 
   constructor(
     private githubService: GitHubService,
@@ -31,6 +48,7 @@ export class SettingsService {
       claude: {
         binDir: process.env.CLAUDE_BIN_DIR || '',
         configDir: process.env.CLAUDE_CONFIG_DIR || '',
+        oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN || '',
       },
       github: {
         personalAccessToken: process.env.GITHUB_TOKEN || '',
@@ -114,8 +132,9 @@ export class SettingsService {
 
   getClaudeSettings(): Required<ClaudeSettings> {
     return {
-      binDir: this.settings?.claude?.binDir || this.defaults.claude.binDir,
-      configDir: this.settings?.claude?.configDir || this.defaults.claude.configDir,
+      binDir: this.settings?.binDir || this.defaults.claude.binDir,
+      configDir: this.settings?.configDir || this.defaults.claude.configDir,
+      oauthToken: this.settings?.oauthToken || this.defaults.claude.oauthToken,
     }
   }
 
@@ -128,14 +147,41 @@ export class SettingsService {
     }
   }
 
-  async getSettings(): Promise<SettingsResponse> {
+  async getGeneralSettings(): Promise<GeneralSettingsResponse> {
     return {
-      settings: this.settings || {},
-      defaults: this.defaults,
+      settings: {
+        dataDir: this.settings?.dataDir,
+        defaultWorkspaceType: this.settings?.defaultWorkspaceType,
+      },
+      defaults: {
+        dataDir: this.defaults.dataDir,
+        defaultWorkspaceType: this.defaults.defaultWorkspaceType,
+      },
     }
   }
 
-  async updateSettings(update: UpdateSettingsRequest): Promise<SettingsResponse> {
+  async getClaudeSettingsResponse(): Promise<ClaudeSettingsResponse> {
+    return {
+      binDir: this.settings?.binDir || this.defaults.claude.binDir,
+      configDir: this.settings?.configDir || this.defaults.claude.configDir,
+      oauthToken: this.settings?.oauthToken || this.defaults.claude.oauthToken,
+    }
+  }
+
+  async getGitHubSettingsResponse(): Promise<GitHubSettingsResponse> {
+    return {
+      settings: {
+        personalAccessToken: this.settings?.github?.personalAccessToken,
+        userName: this.settings?.github?.userName,
+        userEmail: this.settings?.github?.userEmail,
+      },
+      defaults: this.defaults.github,
+    }
+  }
+
+  async updateGeneralSettings(
+    update: UpdateGeneralSettingsRequest,
+  ): Promise<GeneralSettingsResponse> {
     if (!this.settings) {
       this.settings = {}
     }
@@ -156,106 +202,6 @@ export class SettingsService {
       } else {
         this.settings.defaultWorkspaceType = update.defaultWorkspaceType
       }
-    }
-
-    // Update Claude settings
-    if (update.claude) {
-      if (!this.settings.claude) {
-        this.settings.claude = {}
-      }
-
-      if (update.claude.binDir !== undefined) {
-        if (update.claude.binDir === null) {
-          delete this.settings.claude.binDir
-        } else {
-          this.settings.claude.binDir = update.claude.binDir
-        }
-      }
-
-      if (update.claude.configDir !== undefined) {
-        if (update.claude.configDir === null) {
-          delete this.settings.claude.configDir
-        } else {
-          this.settings.claude.configDir = update.claude.configDir
-        }
-      }
-
-      // Remove claude object if empty
-      if (Object.keys(this.settings.claude).length === 0) {
-        delete this.settings.claude
-      }
-    }
-
-    // Update GitHub settings
-    if (update.github) {
-      if (!this.settings.github) {
-        this.settings.github = {}
-      }
-
-      let shouldFetchUserInfo = false
-
-      if (update.github.personalAccessToken !== undefined) {
-        if (update.github.personalAccessToken === null) {
-          delete this.settings.github.personalAccessToken
-          // Clear user info when token is removed
-          delete this.settings.github.userName
-          delete this.settings.github.userEmail
-        } else {
-          this.settings.github.personalAccessToken = update.github.personalAccessToken
-          shouldFetchUserInfo = true
-        }
-      }
-
-      // If a new PAT was provided, fetch user info from GitHub
-      if (shouldFetchUserInfo && this.settings.github.personalAccessToken) {
-        const githubUser = await this.githubService.getAuthenticatedUser(
-          this.settings.github.personalAccessToken,
-        )
-
-        if (githubUser) {
-          // Use the GitHub username as the git user name
-          this.settings.github.userName = githubUser.name || githubUser.login
-
-          // Use the GitHub email if available
-          if (githubUser.email) {
-            this.settings.github.userEmail = githubUser.email
-          }
-
-          logger.info('Fetched GitHub user info', {
-            userName: this.settings.github.userName,
-            userEmail: this.settings.github.userEmail,
-          })
-        } else {
-          logger.warn('Failed to fetch GitHub user info, using git config defaults')
-        }
-      } else {
-        // Allow manual override of userName and userEmail
-        if (update.github.userName !== undefined) {
-          if (update.github.userName === null) {
-            delete this.settings.github.userName
-          } else {
-            this.settings.github.userName = update.github.userName
-          }
-        }
-
-        if (update.github.userEmail !== undefined) {
-          if (update.github.userEmail === null) {
-            delete this.settings.github.userEmail
-          } else {
-            this.settings.github.userEmail = update.github.userEmail
-          }
-        }
-      }
-
-      // Remove github object if empty
-      if (Object.keys(this.settings.github).length === 0) {
-        delete this.settings.github
-      }
-    }
-
-    // Remove settings object if empty
-    if (Object.keys(this.settings).length === 0) {
-      this.settings = {}
     }
 
     // Update settings path based on new data dir
@@ -291,69 +237,128 @@ export class SettingsService {
     // Save updated settings
     await this.saveSettings()
 
-    return this.getSettings()
+    return this.getGeneralSettings()
   }
 
-  async resetSettings(): Promise<SettingsResponse> {
-    this.settings = {}
+  async updateClaudeSettingsSection(
+    update: UpdateClaudeSettingsRequest,
+  ): Promise<ClaudeSettingsResponse> {
+    if (!this.settings) {
+      this.settings = {}
+    }
 
-    // Recalculate settings path based on default data dir
-    const defaultDataDir = this.getDataDir()
-    const newSettingsPath = path.join(defaultDataDir, 'settings.json')
-
-    // If path changed, move the file
-    if (this.settingsPath && this.settingsPath !== newSettingsPath) {
-      try {
-        // Ensure new directory exists
-        await fs.mkdir(defaultDataDir, { recursive: true })
-
-        // Move settings file to new location
-        await fs.copyFile(this.settingsPath, newSettingsPath)
-        await fs.unlink(this.settingsPath)
-
-        logger.info('Moved settings file during reset', {
-          oldPath: this.settingsPath,
-          newPath: newSettingsPath,
-        })
-      } catch (error) {
-        logger.error('Failed to move settings file during reset', error as Error, {
-          oldPath: this.settingsPath,
-          newPath: newSettingsPath,
-        })
+    // Update Claude settings at root level
+    if (update.binDir !== undefined) {
+      if (update.binDir === null) {
+        delete this.settings.binDir
+      } else {
+        this.settings.binDir = update.binDir
       }
     }
 
-    this.settingsPath = newSettingsPath
+    if (update.configDir !== undefined) {
+      if (update.configDir === null) {
+        delete this.settings.configDir
+      } else {
+        this.settings.configDir = update.configDir
+      }
+    }
+
+    if (update.oauthToken !== undefined) {
+      if (update.oauthToken === null) {
+        delete this.settings.oauthToken
+      } else {
+        this.settings.oauthToken = update.oauthToken
+      }
+    }
+
+    // Save updated settings
     await this.saveSettings()
-    return this.getSettings()
+
+    return this.getClaudeSettingsResponse()
+  }
+
+  async updateGitHubSettingsSection(
+    update: UpdateGitHubSettingsRequest,
+  ): Promise<GitHubSettingsResponse> {
+    if (!this.settings) {
+      this.settings = {}
+    }
+
+    // Update GitHub settings
+    if (!this.settings.github) {
+      this.settings.github = {}
+    }
+
+    let shouldFetchUserInfo = false
+
+    if (update.personalAccessToken !== undefined) {
+      if (update.personalAccessToken === null) {
+        delete this.settings.github.personalAccessToken
+        // Clear user info when token is removed
+        delete this.settings.github.userName
+        delete this.settings.github.userEmail
+      } else {
+        this.settings.github.personalAccessToken = update.personalAccessToken
+        shouldFetchUserInfo = true
+      }
+    }
+
+    // If a new PAT was provided, fetch user info from GitHub
+    if (shouldFetchUserInfo && this.settings.github.personalAccessToken) {
+      const githubUser = await this.githubService.getAuthenticatedUser(
+        this.settings.github.personalAccessToken,
+      )
+
+      if (githubUser) {
+        // Use the GitHub username as the git user name
+        this.settings.github.userName = githubUser.name || githubUser.login
+
+        // Use the GitHub email if available
+        if (githubUser.email) {
+          this.settings.github.userEmail = githubUser.email
+        }
+
+        logger.info('Fetched GitHub user info', {
+          userName: this.settings.github.userName,
+          userEmail: this.settings.github.userEmail,
+        })
+      } else {
+        logger.warn('Failed to fetch GitHub user info, using git config defaults')
+      }
+    } else {
+      // Allow manual override of userName and userEmail
+      if (update.userName !== undefined) {
+        if (update.userName === null) {
+          delete this.settings.github.userName
+        } else {
+          this.settings.github.userName = update.userName
+        }
+      }
+
+      if (update.userEmail !== undefined) {
+        if (update.userEmail === null) {
+          delete this.settings.github.userEmail
+        } else {
+          this.settings.github.userEmail = update.userEmail
+        }
+      }
+    }
+
+    // Remove github object if empty
+    if (Object.keys(this.settings.github).length === 0) {
+      delete this.settings.github
+    }
+
+    // Save updated settings
+    await this.saveSettings()
+
+    return this.getGitHubSettingsResponse()
   }
 
   async getSystemStatus(): Promise<SystemStatusCheck> {
     return checkSystemStatus()
   }
-}
-
-// Singleton instance
-let settingsServiceInstance: SettingsService | null = null
-
-export function getSettingsService(githubService: GitHubService): SettingsService {
-  if (!settingsServiceInstance) {
-    settingsServiceInstance = new SettingsService(githubService)
-  }
-  return settingsServiceInstance
-}
-
-// For testing: reset the singleton instance
-export function resetSettingsServiceInstance(): void {
-  settingsServiceInstance = null
-}
-
-export async function initializeSettingsService(
-  githubService: GitHubService,
-): Promise<SettingsService> {
-  const service = getSettingsService(githubService)
-  await service.initialize()
-  return service
 }
 
 // Factory function for dependency injection

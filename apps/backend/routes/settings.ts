@@ -1,124 +1,28 @@
-import {
-  type SettingsResponse,
-  SettingsResponseSchema,
-  SystemStatusCheckSchema,
-  type UpdateSettingsRequest,
-  updateSettingsSchema,
-} from '@moatless/types'
-import type { Hono } from 'hono'
+import { SystemStatusCheckSchema } from '@moatless/types'
+import { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
-import { validateRequestBody } from '../utils/route-helpers.js'
+import { registerClaudeSettingsRoutes } from './settings/claude.js'
+import { registerGeneralSettingsRoutes } from './settings/general.js'
+import { registerGitHubSettingsRoutes } from './settings/github.js'
 
 export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: string) {
-  // GET settings - Get current settings and defaults
-  app.get(
-    prefix,
-    describeRoute({
-      description: 'Get current application settings and defaults',
-      responses: {
-        200: {
-          description: 'Current settings and defaults',
-          content: {
-            'application/json': {
-              schema: resolver(SettingsResponseSchema) as any,
-            },
-          },
-        },
-        500: {
-          description: 'Failed to get settings',
-        },
-      },
-    }),
-    async (c) => {
-      try {
-        const services = c.get('services')
-        const { settings: settingsService } = services
-        const settings: SettingsResponse = await settingsService.getSettings()
-        return c.json(settings)
-      } catch (error) {
-        handleServiceError(error, 'Get settings')
-      }
-    },
-  )
+  // Create sub-routers for each settings section
+  const generalRouter = new Hono<AppBindings>()
+  const claudeRouter = new Hono<AppBindings>()
+  const githubRouter = new Hono<AppBindings>()
 
-  // PUT settings - Update settings
-  app.put(
-    prefix,
-    describeRoute({
-      description: 'Update application settings',
-      requestBody: {
-        description: 'Settings update parameters',
-        content: {
-          'application/json': {
-            schema: resolver(updateSettingsSchema) as any,
-          },
-        },
-      },
-      responses: {
-        200: {
-          description: 'Updated settings',
-          content: {
-            'application/json': {
-              schema: resolver(SettingsResponseSchema) as any,
-            },
-          },
-        },
-        400: {
-          description: 'Invalid request body',
-        },
-        500: {
-          description: 'Failed to update settings',
-        },
-      },
-    }),
-    async (c) => {
-      try {
-        const services = c.get('services')
-        const { settings: settingsService } = services
-        const update = await validateRequestBody(c, updateSettingsSchema)
-        const settings: SettingsResponse = await settingsService.updateSettings(
-          update as UpdateSettingsRequest,
-        )
-        return c.json(settings)
-      } catch (error) {
-        handleServiceError(error, 'Update settings')
-      }
-    },
-  )
+  // Register section-specific routes
+  registerGeneralSettingsRoutes(generalRouter)
+  registerClaudeSettingsRoutes(claudeRouter)
+  registerGitHubSettingsRoutes(githubRouter)
 
-  // DELETE settings - Reset settings to defaults
-  app.delete(
-    prefix,
-    describeRoute({
-      description: 'Reset application settings to defaults',
-      responses: {
-        200: {
-          description: 'Reset settings',
-          content: {
-            'application/json': {
-              schema: resolver(SettingsResponseSchema) as any,
-            },
-          },
-        },
-        500: {
-          description: 'Failed to reset settings',
-        },
-      },
-    }),
-    async (c) => {
-      try {
-        const services = c.get('services')
-        const { settings: settingsService } = services
-        const settings: SettingsResponse = await settingsService.resetSettings()
-        return c.json(settings)
-      } catch (error) {
-        handleServiceError(error, 'Reset settings')
-      }
-    },
-  )
+  // Mount sub-routers
+  app.route(`${prefix}/general`, generalRouter)
+  app.route(`${prefix}/claude`, claudeRouter)
+  app.route(`${prefix}/github`, githubRouter)
 
   // GET settings/status - Get system status
   app.get(

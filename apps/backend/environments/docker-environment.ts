@@ -188,19 +188,25 @@ export class DockerEnvironment extends BaseEnvironment {
       })
     }
 
-    // Fail if no credentials found when Claude config exists
-    if (!foundCredentialsPath && claudeConfigPath) {
+    // Check if we have OAuth token from settings
+    const claudeOauthToken = this.settingsService.getClaudeSettings().oauthToken
+
+    // Fail if no credentials found and no OAuth token when Claude config exists
+    if (!foundCredentialsPath && !claudeOauthToken && claudeConfigPath) {
       const errorMsg =
-        'No Claude credentials found (.credentials or .credentials.json) - Claude Code agent will not work'
+        'No Claude credentials found (.credentials or .credentials.json) and no OAuth token configured - Claude Code agent will not work. Run `claude setup-token` to get an OAuth token.'
       this.logger.error(errorMsg, {
         searchedPaths: [credentialsJsonPath, credentialsPath],
       })
       throw new Error(errorMsg)
     }
-    if (!foundCredentialsPath) {
-      this.logger.warn('No Claude credentials found - Claude Code agent may not work properly', {
-        searchedPaths: [credentialsJsonPath, credentialsPath],
-      })
+    if (!foundCredentialsPath && !claudeOauthToken) {
+      this.logger.warn(
+        'No Claude credentials or OAuth token found - Claude Code agent may not work properly',
+        {
+          searchedPaths: [credentialsJsonPath, credentialsPath],
+        },
+      )
     }
 
     try {
@@ -247,7 +253,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
       await this.waitForContainerReady()
 
-      // Copy Claude config files if they exist
+      // Copy Claude config files if they exist (commenting out credentials copying as we now use OAuth token)
       if (claudeConfigPath) {
         this.logger.info('Copying Claude config to container', { claudeConfigPath })
         await execAsync(
@@ -255,16 +261,17 @@ export class DockerEnvironment extends BaseEnvironment {
         )
       }
 
-      if (foundCredentialsPath) {
-        this.logger.info('Copying Claude credentials to container', { foundCredentialsPath })
-        await execAsync(
-          `docker cp "${foundCredentialsPath}" "${containerName}:/home/ubuntu/.claude/.credentials.json"`,
-        )
-      }
+      // Commented out credentials file copying - we now use CLAUDE_CODE_OAUTH_TOKEN env var
+      // if (foundCredentialsPath) {
+      //   this.logger.info('Copying Claude credentials to container', { foundCredentialsPath })
+      //   await execAsync(
+      //     `docker cp "${foundCredentialsPath}" "${containerName}:/home/ubuntu/.claude/.credentials.json"`,
+      //   )
+      // }
 
       // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
       // Only run this if we copied at least one file
-      if (claudeConfigPath || foundCredentialsPath) {
+      if (claudeConfigPath) {
         await execAsync(
           `docker exec --user root "${containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
         )
@@ -457,6 +464,12 @@ export class DockerEnvironment extends BaseEnvironment {
     if (process.env.ANTHROPIC_API_KEY) {
       createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
     }
+
+    // Pass Claude OAuth token if available
+    if (claudeSettings.oauthToken) {
+      createCommand += ` -e "CLAUDE_CODE_OAUTH_TOKEN=${claudeSettings.oauthToken}"`
+    }
+
     createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
     createCommand += ` -e "HOME=${containerWorkspacePath}"`
 

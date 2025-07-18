@@ -1,8 +1,8 @@
-import type { UpdateSettingsRequest } from '@moatless/types'
+import type { UpdateGitHubSettingsRequest } from '@moatless/types'
 import { Eye, EyeOff, Github, Loader2, RotateCcw, Save } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useResetSettings, useSettings, useUpdateSettings } from '@/features/settings'
+import { useGitHubSettings, useUpdateGitHubSettings } from '@/features/settings'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
@@ -11,13 +11,8 @@ import { Separator } from '@/lib/components/ui/separator'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function GitHubConfigurationSection() {
-  const {
-    data: appSettings,
-    isLoading: appSettingsLoading,
-    error: appSettingsError,
-  } = useSettings()
-  const updateAppSettings = useUpdateSettings()
-  const resetAppSettings = useResetSettings()
+  const { data: githubSettings, isLoading: githubLoading, error: githubError } = useGitHubSettings()
+  const updateGitHubSettings = useUpdateGitHubSettings()
 
   const personalAccessTokenId = useId()
   const userNameId = useId()
@@ -25,36 +20,30 @@ export function GitHubConfigurationSection() {
   const [showToken, setShowToken] = useState(false)
 
   // Derive form data directly from settings - no effects needed (following derived state pattern)
-  const baseAppFormData = useMemo<UpdateSettingsRequest>(
+  const baseGitHubFormData = useMemo<UpdateGitHubSettingsRequest>(
     () => ({
-      github: {
-        personalAccessToken: appSettings?.settings.github?.personalAccessToken || null,
-        userName: appSettings?.settings.github?.userName || null,
-        userEmail: appSettings?.settings.github?.userEmail || null,
-      },
+      personalAccessToken: githubSettings?.settings.personalAccessToken || null,
+      userName: githubSettings?.settings.userName || null,
+      userEmail: githubSettings?.settings.userEmail || null,
     }),
-    [appSettings],
+    [githubSettings],
   )
 
   // Track user modifications separately from the derived data
-  const [appUserModifications, setAppUserModifications] = useState<Partial<UpdateSettingsRequest>>(
-    {},
-  )
+  const [githubUserModifications, setGitHubUserModifications] = useState<
+    Partial<UpdateGitHubSettingsRequest>
+  >({})
 
   // Merge derived data with user modifications
-  const appFormData = useMemo(
+  const githubFormData = useMemo(
     () => ({
-      ...baseAppFormData,
-      ...appUserModifications,
-      github: {
-        ...baseAppFormData.github,
-        ...appUserModifications.github,
-      },
+      ...baseGitHubFormData,
+      ...githubUserModifications,
     }),
-    [baseAppFormData, appUserModifications],
+    [baseGitHubFormData, githubUserModifications],
   )
 
-  if (appSettingsLoading) {
+  if (githubLoading) {
     return (
       <div className="flex items-center justify-center h-32">
         <Loader2 className="h-8 w-8 animate-spin" data-testid="loading-spinner" />
@@ -62,7 +51,7 @@ export function GitHubConfigurationSection() {
     )
   }
 
-  if (appSettingsError) {
+  if (githubError) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Error</AlertTitle>
@@ -101,23 +90,20 @@ export function GitHubConfigurationSection() {
             id={personalAccessTokenId}
             type={showToken ? 'text' : 'password'}
             placeholder={
-              appFormData.github?.personalAccessToken
+              githubFormData.personalAccessToken
                 ? 'Token configured'
                 : 'Enter your GitHub personal access token'
             }
-            value={appFormData.github?.personalAccessToken || ''}
+            value={githubFormData.personalAccessToken || ''}
             className="flex-1 font-mono"
             onChange={(e) => {
               const value = e.target.value.trim()
-              setAppUserModifications((prev) => ({
+              setGitHubUserModifications((prev) => ({
                 ...prev,
-                github: {
-                  ...prev.github,
-                  personalAccessToken:
-                    value === '' || value === appSettings?.defaults.github?.personalAccessToken
-                      ? null
-                      : value,
-                },
+                personalAccessToken:
+                  value === '' || value === githubSettings?.defaults.personalAccessToken
+                    ? null
+                    : value,
               }))
             }}
           />
@@ -146,18 +132,14 @@ export function GitHubConfigurationSection() {
         <Input
           id={userNameId}
           type="text"
-          placeholder={appSettings?.defaults.github?.userName || 'Enter your name'}
-          value={appFormData.github?.userName || ''}
+          placeholder={githubSettings?.defaults.userName || 'Enter your name'}
+          value={githubFormData.userName || ''}
           className="flex-1"
           onChange={(e) => {
             const value = e.target.value.trim()
-            setAppUserModifications((prev) => ({
+            setGitHubUserModifications((prev) => ({
               ...prev,
-              github: {
-                ...prev.github,
-                userName:
-                  value === '' || value === appSettings?.defaults.github?.userName ? null : value,
-              },
+              userName: value === '' || value === githubSettings?.defaults.userName ? null : value,
             }))
           }}
         />
@@ -176,18 +158,15 @@ export function GitHubConfigurationSection() {
         <Input
           id={userEmailId}
           type="email"
-          placeholder={appSettings?.defaults.github?.userEmail || 'Enter your email'}
-          value={appFormData.github?.userEmail || ''}
+          placeholder={githubSettings?.defaults.userEmail || 'Enter your email'}
+          value={githubFormData.userEmail || ''}
           className="flex-1"
           onChange={(e) => {
             const value = e.target.value.trim()
-            setAppUserModifications((prev) => ({
+            setGitHubUserModifications((prev) => ({
               ...prev,
-              github: {
-                ...prev.github,
-                userEmail:
-                  value === '' || value === appSettings?.defaults.github?.userEmail ? null : value,
-              },
+              userEmail:
+                value === '' || value === githubSettings?.defaults.userEmail ? null : value,
             }))
           }}
         />
@@ -231,28 +210,20 @@ export function GitHubConfigurationSection() {
           variant="outline"
           size="sm"
           onClick={() => {
-            resetAppSettings.mutate(undefined, {
-              onSuccess: () => {
-                setAppUserModifications({})
-                toast.success('GitHub settings reset to defaults')
-              },
-              onError: (error) => {
-                toast.error('Failed to reset GitHub settings', {
-                  description: getErrorMessage(error),
-                })
-              },
-            })
+            // Reset GitHub settings to defaults by clearing modifications
+            setGitHubUserModifications({})
+            toast.success('GitHub settings reset to defaults')
           }}
-          disabled={resetAppSettings.isPending}
+          disabled={false}
         >
           <RotateCcw className="mr-2 h-4 w-4" />
           Reset to Defaults
         </Button>
         <Button
           onClick={() => {
-            updateAppSettings.mutate(appFormData, {
+            updateGitHubSettings.mutate(githubFormData, {
               onSuccess: () => {
-                setAppUserModifications({})
+                setGitHubUserModifications({})
                 toast.success('GitHub settings saved successfully')
               },
               onError: (error) => {
@@ -262,10 +233,10 @@ export function GitHubConfigurationSection() {
               },
             })
           }}
-          disabled={updateAppSettings.isPending}
+          disabled={updateGitHubSettings.isPending}
           size="sm"
         >
-          {updateAppSettings.isPending ? (
+          {updateGitHubSettings.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Save className="mr-2 h-4 w-4" />

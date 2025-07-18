@@ -1,11 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Code2, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { useState } from 'react'
-import {
-  ClaudeCodeConfigurationSection,
-  GeneralConfigurationSection,
-  SystemStatusCard,
-} from '@/features/settings'
+import { GeneralConfigurationSection, SystemStatusCard } from '@/features/settings'
 import { ResponsiveConfigurationDialog } from '@/lib/components/configuration-dialog'
 import { Button } from '@/lib/components/ui/button'
 
@@ -23,12 +19,6 @@ function SettingsPage() {
       label: 'General',
       icon: <Settings className="h-4 w-4" />,
       component: <GeneralConfigurationSection />,
-    },
-    {
-      id: 'claude-code',
-      label: 'Claude Code',
-      icon: <Code2 className="h-4 w-4" />,
-      component: <ClaudeCodeConfigurationSection />,
     },
   ]
 

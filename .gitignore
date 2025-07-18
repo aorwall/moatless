@@ -51,3 +51,9 @@ uploads
 # NPM package files
 *.tgz
 *.tar.gz
+
+
+.local
+.config
+.cache
+.gitconfig

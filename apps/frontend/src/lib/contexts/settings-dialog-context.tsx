@@ -1,7 +1,7 @@
-import { Code2, Github, Settings } from 'lucide-react'
+import { Bot, Github, Settings } from 'lucide-react'
 import { createContext, type ReactNode, useContext, useState } from 'react'
 import {
-  ClaudeCodeConfigurationSection,
+  ClaudeConfigurationSection,
   GeneralConfigurationSection,
   GitHubConfigurationSection,
 } from '@/features/settings'
@@ -29,10 +29,10 @@ export function SettingsDialogProvider({ children }: SettingsDialogProviderProps
       component: <GeneralConfigurationSection />,
     },
     {
-      id: 'claude-code',
-      label: 'Claude Code',
-      icon: <Code2 className="h-4 w-4" />,
-      component: <ClaudeCodeConfigurationSection />,
+      id: 'claude',
+      label: 'Claude',
+      icon: <Bot className="h-4 w-4" />,
+      component: <ClaudeConfigurationSection />,
     },
     {
       id: 'github',
