@@ -43,6 +43,30 @@ if [ "$USE_GIT_WORKTREES" = "true" ] && [ -f "$WORKSPACE_DIR/.git" ]; then
     echo "  GIT_WORK_TREE=$GIT_WORK_TREE"
 fi
 
+# Configure git with GitHub personal access token if provided
+if [ -n "$GITHUB_TOKEN" ]; then
+    echo "Configuring git with GitHub personal access token..."
+    
+    # Configure git to use the token for GitHub HTTPS operations
+    git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+    
+    # Configure git credential helper to store credentials
+    git config --global credential.helper store
+    
+    echo "Git configured for GitHub access with personal access token."
+fi
+
+# Configure git user name and email if provided
+if [ -n "$GIT_USER_NAME" ]; then
+    echo "Configuring git user.name: $GIT_USER_NAME"
+    git config --global user.name "$GIT_USER_NAME"
+fi
+
+if [ -n "$GIT_USER_EMAIL" ]; then
+    echo "Configuring git user.email: $GIT_USER_EMAIL"
+    git config --global user.email "$GIT_USER_EMAIL"
+fi
+
 # Run setup commands if provided
 if [ -n "$SETUP_COMMANDS" ]; then
     echo "Running setup commands in $WORKSPACE_DIR..."

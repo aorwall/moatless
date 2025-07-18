@@ -16,9 +16,18 @@ vi.mock('node:child_process', () => ({
     }
   }),
   execSync: vi.fn((cmd) => {
-    // Mock docker inspect for container status
-    if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
-      return 'running'
+    // For cleanup test - simulate running container
+    if (cmd.includes('test-task-cleanup-docker')) {
+      if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
+        return 'running'
+      }
+    } else {
+      // For other tests - simulate container not found
+      if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
+        const error = new Error('No such object')
+        ;(error as any).stderr = 'No such object'
+        throw error
+      }
     }
     // Mock docker inspect for health check
     if (cmd.includes('docker inspect') && cmd.includes('State.Health.Status')) {
@@ -41,6 +50,7 @@ vi.mock('node:fs', () => ({
     writeFile: vi.fn(() => Promise.resolve()),
     readFile: vi.fn(() => Promise.resolve('file content')),
     rm: vi.fn(() => Promise.resolve()),
+    unlink: vi.fn(() => Promise.resolve()),
     stat: vi.fn(() =>
       Promise.resolve({ isFile: () => false, isDirectory: () => true, size: 1024 }),
     ),
@@ -88,6 +98,8 @@ vi.mock('../../utils/git-utils.js', () => ({
     totalFound: 0,
     query: '',
   }),
+  getGitUserName: vi.fn().mockResolvedValue('Test User'),
+  getGitUserEmail: vi.fn().mockResolvedValue('test@example.com'),
 }))
 
 // Mock port allocation utility
@@ -112,6 +124,7 @@ describe('WorkspaceService', () => {
   let service: WorkspaceService
   let storage: StorageBackend
   let repositoryService: RepositoryService
+  let settingsService: any
   let tempDir: string
 
   const mockTask = {
@@ -189,7 +202,21 @@ describe('WorkspaceService', () => {
     vi.spyOn(repositoryService, 'createRepository').mockResolvedValue(mockRepository as any)
     vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValue(mockRepository as any)
 
-    service = new WorkspaceService(repositoryService, storage)
+    // Mock settings service
+    settingsService = {
+      getClaudeSettings: vi.fn().mockReturnValue({
+        binDir: '',
+        configDir: '',
+      }),
+      getGitHubSettings: vi.fn().mockReturnValue({
+        personalAccessToken: '',
+        userName: '',
+        userEmail: '',
+      }),
+      getDefaultWorkspaceType: vi.fn().mockReturnValue('local'),
+    }
+
+    service = new WorkspaceService(repositoryService, storage, settingsService)
   })
 
   afterEach(async () => {
@@ -315,11 +342,11 @@ describe('WorkspaceService', () => {
 
       expect(workspace.type).toBe('docker')
       expect(workspace.status).toBe('not_setup') // Status before setup is called
-      // Container name will be empty until setup is called
+      // Container name is generated but container is not created until setup is called
       const workspaceInfo = workspace.toWorkspaceInfo()
       expect(workspaceInfo.type).toBe('docker')
       if (workspaceInfo.type === 'docker') {
-        expect(workspaceInfo.containerName).toBe('')
+        expect(workspaceInfo.containerName).toBe('moatless-test-repository-test-tas')
       }
     })
   })

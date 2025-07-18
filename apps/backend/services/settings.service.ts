@@ -4,11 +4,13 @@ import path from 'node:path'
 import type {
   ApplicationSettings,
   ClaudeSettings,
+  GitHubSettings,
   SettingsResponse,
   SystemStatusCheck,
   UpdateSettingsRequest,
 } from '@moatless/types'
 import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
+import { getGitUserEmail, getGitUserName } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
 
 export class SettingsService {
@@ -16,7 +18,7 @@ export class SettingsService {
   private defaults: SettingsResponse['defaults']
 
   constructor(private settingsPath: string | null = null) {
-    // Initialize defaults
+    // Initialize defaults with placeholder values - will be updated in initialize()
     this.defaults = {
       dataDir: process.env.DATA_DIR || path.join(os.homedir(), '.moatless'),
       defaultWorkspaceType: (process.env.DEFAULT_WORKSPACE_TYPE === 'docker'
@@ -26,11 +28,23 @@ export class SettingsService {
         binDir: process.env.CLAUDE_BIN_DIR || '',
         configDir: process.env.CLAUDE_CONFIG_DIR || '',
       },
+      github: {
+        personalAccessToken: process.env.GITHUB_TOKEN || '',
+        userName: '',
+        userEmail: '',
+      },
     }
   }
 
   async initialize(): Promise<void> {
     try {
+      // Read git config values
+      const [gitUserName, gitUserEmail] = await Promise.all([getGitUserName(), getGitUserEmail()])
+
+      // Update defaults with git config values
+      this.defaults.github.userName = gitUserName || ''
+      this.defaults.github.userEmail = gitUserEmail || ''
+
       // Load settings from file if it exists
       await this.loadSettings()
     } catch (error) {
@@ -101,6 +115,15 @@ export class SettingsService {
     }
   }
 
+  getGitHubSettings(): Required<GitHubSettings> {
+    return {
+      personalAccessToken:
+        this.settings?.github?.personalAccessToken || this.defaults.github.personalAccessToken,
+      userName: this.settings?.github?.userName || this.defaults.github.userName,
+      userEmail: this.settings?.github?.userEmail || this.defaults.github.userEmail,
+    }
+  }
+
   async getSettings(): Promise<SettingsResponse> {
     return {
       settings: this.settings || {},
@@ -156,6 +179,42 @@ export class SettingsService {
       // Remove claude object if empty
       if (Object.keys(this.settings.claude).length === 0) {
         delete this.settings.claude
+      }
+    }
+
+    // Update GitHub settings
+    if (update.github) {
+      if (!this.settings.github) {
+        this.settings.github = {}
+      }
+
+      if (update.github.personalAccessToken !== undefined) {
+        if (update.github.personalAccessToken === null) {
+          delete this.settings.github.personalAccessToken
+        } else {
+          this.settings.github.personalAccessToken = update.github.personalAccessToken
+        }
+      }
+
+      if (update.github.userName !== undefined) {
+        if (update.github.userName === null) {
+          delete this.settings.github.userName
+        } else {
+          this.settings.github.userName = update.github.userName
+        }
+      }
+
+      if (update.github.userEmail !== undefined) {
+        if (update.github.userEmail === null) {
+          delete this.settings.github.userEmail
+        } else {
+          this.settings.github.userEmail = update.github.userEmail
+        }
+      }
+
+      // Remove github object if empty
+      if (Object.keys(this.settings.github).length === 0) {
+        delete this.settings.github
       }
     }
 

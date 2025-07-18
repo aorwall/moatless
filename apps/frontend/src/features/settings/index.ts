@@ -1,5 +1,6 @@
 export * from './api/settings'
 export { ClaudeCodeConfigurationSection } from './components/claude-code-configuration-section-two-col'
 export { GeneralConfigurationSection } from './components/general-configuration-section'
+export { GitHubConfigurationSection } from './components/github-configuration-section'
 export * from './components/system-status-warning'
 export * from './hooks/use-settings'

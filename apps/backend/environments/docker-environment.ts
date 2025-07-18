@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
-import { getSettingsService } from '../services/settings.service.js'
+import type { SettingsService } from '../services/settings.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
@@ -22,7 +22,12 @@ export class DockerEnvironment extends BaseEnvironment {
   private workerPortMapping?: { containerPort: number; hostPort: number }
   private logger = createTaskLogger(this.taskId)
 
-  constructor(taskId: string, repositoryConfig: RepositoryConfig, workspacePath: string) {
+  constructor(
+    taskId: string,
+    repositoryConfig: RepositoryConfig,
+    workspacePath: string,
+    private settingsService: SettingsService,
+  ) {
     super(taskId, repositoryConfig)
     this.workspacePath = workspacePath
     this.logger = createTaskLogger(taskId)
@@ -133,8 +138,7 @@ export class DockerEnvironment extends BaseEnvironment {
     }
 
     // Find Claude config using settings service (optional for tests)
-    const settingsService = getSettingsService()
-    const claudeSettings = settingsService.getClaudeSettings()
+    const claudeSettings = this.settingsService.getClaudeSettings()
 
     // Determine Claude config directory
     let claudeConfigDir: string
@@ -406,8 +410,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     // Mount Claude config directory using settings service
     const containerClaudeConfigDir = '/home/ubuntu/.claude'
-    const settingsService = getSettingsService()
-    const claudeSettings = settingsService.getClaudeSettings()
+    const claudeSettings = this.settingsService.getClaudeSettings()
 
     // Determine host Claude config directory
     let hostClaudeConfigDir: string
@@ -459,6 +462,18 @@ export class DockerEnvironment extends BaseEnvironment {
 
     if (process.env.CLAUDE_CODE_MOCK) {
       createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
+    }
+
+    // Pass GitHub settings if configured
+    const githubSettings = this.settingsService.getGitHubSettings()
+    if (githubSettings.personalAccessToken) {
+      createCommand += ` -e "GITHUB_TOKEN=${githubSettings.personalAccessToken}"`
+    }
+    if (githubSettings.userName) {
+      createCommand += ` -e "GIT_USER_NAME=${githubSettings.userName}"`
+    }
+    if (githubSettings.userEmail) {
+      createCommand += ` -e "GIT_USER_EMAIL=${githubSettings.userEmail}"`
     }
 
     // Add repository-specific environment variables

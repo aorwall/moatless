@@ -78,7 +78,11 @@ export async function createServiceContainer(
   container.command = createCommandService(container.storage)
 
   // 3. Services with multiple dependencies
-  container.workspace = createWorkspaceService(container.repository, container.storage)
+  container.workspace = createWorkspaceService(
+    container.repository,
+    container.storage,
+    container.settings,
+  )
   container.previewEnvironment = createPreviewEnvironmentService(
     container.storage,
     container.workspace,
@@ -93,8 +97,8 @@ export async function createServiceContainer(
   // Set claude service on repository service for suggested repositories
   container.repository.setClaudeService(container.claude)
 
-  // 4. Event service needs claude service
-  container.event = createEventService(container.storage, container.claude)
+  // 4. Event service only needs storage
+  container.event = createEventService(container.storage)
 
   // 5. Services that need event and workspace
   container.agent = createAgentService(container.storage, container.event, container.workspace)

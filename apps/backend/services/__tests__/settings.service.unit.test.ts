@@ -90,6 +90,11 @@ describe('SettingsService', () => {
           binDir: '',
           configDir: '',
         },
+        github: {
+          personalAccessToken: '',
+          userName: expect.any(String),
+          userEmail: expect.any(String),
+        },
       })
     })
 

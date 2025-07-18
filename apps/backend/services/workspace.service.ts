@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
+import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
@@ -19,6 +20,7 @@ export class WorkspaceService {
   constructor(
     private repositoryService: RepositoryService,
     private storage: StorageBackend,
+    private settingsService: SettingsService,
   ) {}
 
   async createWorkspace(
@@ -54,7 +56,7 @@ export class WorkspaceService {
     let environment: DockerEnvironment | LocalEnvironment
     if (repository.codeExecution.type === 'docker') {
       logger.info('Creating Docker environment', { taskId, workspacePath })
-      environment = new DockerEnvironment(taskId, repository, workspacePath)
+      environment = new DockerEnvironment(taskId, repository, workspacePath, this.settingsService)
     } else {
       logger.info('Creating Local environment', { taskId, workspacePath })
       environment = new LocalEnvironment(taskId, repository, workspacePath)
@@ -432,7 +434,7 @@ export class WorkspaceService {
       let environment: DockerEnvironment | LocalEnvironment
       if (repository.codeExecution.type === 'docker') {
         workspaceLogger.debug('Creating Docker environment with workspace path', { workspacePath })
-        environment = new DockerEnvironment(taskId, repository, workspacePath)
+        environment = new DockerEnvironment(taskId, repository, workspacePath, this.settingsService)
       } else {
         workspaceLogger.debug('Creating Local environment with workspace path', {
           workspacePath,
@@ -755,6 +757,7 @@ export class WorkspaceService {
 export function createWorkspaceService(
   repositoryService: RepositoryService,
   storage: StorageBackend,
+  settingsService: SettingsService,
 ): WorkspaceService {
-  return new WorkspaceService(repositoryService, storage)
+  return new WorkspaceService(repositoryService, storage, settingsService)
 }

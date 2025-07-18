@@ -133,26 +133,11 @@ export async function registerUsageRoutes(app: Hono<AppBindings>, prefix: string
           return c.json({ error: 'Session ID is required' }, 400)
         }
 
-        // Get repository context if repositoryId is provided
-        let repository: RepositoryConfig | undefined
-        if (query.repositoryId) {
-          const services = c.get('services')
-          const { repository: repositoryService } = services
-          const foundRepository = await repositoryService.getRepositoryById(query.repositoryId)
-
-          if (!foundRepository) {
-            return c.json({ error: 'Repository not found' }, 404)
-          }
-
-          repository = foundRepository
-        }
+        // Note: repositoryId parameter is no longer used since we search for session files globally
 
         const services = c.get('services')
         const { claude } = services
-        const sessionUsage: ClaudeSessionUsageResponse = await claude.getSessionUsage(
-          sessionId,
-          repository,
-        )
+        const sessionUsage: ClaudeSessionUsageResponse = await claude.getSessionUsage(sessionId)
 
         // Check if session was found (has entries)
         if (sessionUsage.messageCount === 0 && !sessionUsage.startTime) {

@@ -1383,3 +1383,33 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
     }
   }
 }
+
+/**
+ * Get the global git user.name configuration
+ * @returns The configured git user name or null if not set
+ */
+export async function getGitUserName(): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync('git config --global user.name', {
+      timeout: 5000,
+    })
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get the global git user.email configuration
+ * @returns The configured git user email or null if not set
+ */
+export async function getGitUserEmail(): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync('git config --global user.email', {
+      timeout: 5000,
+    })
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+}

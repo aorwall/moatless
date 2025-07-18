@@ -86,20 +86,8 @@ describe('ClaudeService Integration - Real Session File', () => {
         return
       }
 
-      const repositoryConfig: RepositoryConfig = {
-        id: 'test-repo',
-        name: 'Test Repository',
-        path: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        description: 'Test repository',
-        codeExecution: {
-          type: 'docker',
-          image: 'ubuntu:latest',
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      const result = await service.getSessionUsage(sessionId, repositoryConfig)
+      // Repository config no longer needed since getSessionUsage doesn't use it
+      const result = await service.getSessionUsage(sessionId)
 
       expect(result).toBeDefined()
       expect(result.sessionId).toBe(sessionId)
@@ -137,42 +125,37 @@ describe('ClaudeService Integration - Real Session File', () => {
         agentType: 'claude-code',
       }
 
-      const repositoryConfig: RepositoryConfig = {
-        id: 'test-repo',
-        name: 'Test Repository',
-        path: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        description: 'Test repository',
-        codeExecution: {
-          type: 'docker',
-          image: 'ubuntu:latest',
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      // Repository config no longer needed since readClaudeMessages only takes agentSessionId
+      // Test reading messages for each iteration's session
+      const allMessages = []
+      for (const iteration of mockTask.iterations) {
+        if (iteration.agentSessionId) {
+          const messages = await service.readClaudeMessages(iteration.agentSessionId)
+          allMessages.push(...messages)
+        }
       }
 
-      const messages = await service.readClaudeMessages('test-task-id', mockTask, repositoryConfig)
-
-      expect(messages).toBeDefined()
-      expect(Array.isArray(messages)).toBe(true)
-      expect(messages.length).toBeGreaterThan(0)
+      expect(allMessages).toBeDefined()
+      expect(Array.isArray(allMessages)).toBe(true)
+      expect(allMessages.length).toBeGreaterThan(0)
 
       // Verify structure of the first message
-      const firstMessage = messages[0]
+      const firstMessage = allMessages[0]
       expect(firstMessage).toBeDefined()
       expect(firstMessage.type).toBeDefined()
 
       // Count different message types
-      const userMessages = messages.filter((msg) => msg.type === 'user')
-      const assistantMessages = messages.filter((msg) => msg.type === 'assistant')
+      const userMessages = allMessages.filter((msg) => msg.type === 'user')
+      const assistantMessages = allMessages.filter((msg) => msg.type === 'assistant')
 
       expect(userMessages.length).toBeGreaterThan(0)
       expect(assistantMessages.length).toBeGreaterThan(0)
 
       console.log('Messages analysis:', {
-        totalMessages: messages.length,
+        totalMessages: allMessages.length,
         userMessages: userMessages.length,
         assistantMessages: assistantMessages.length,
-        messageTypes: [...new Set(messages.map((msg) => msg.type))],
+        messageTypes: [...new Set(allMessages.map((msg) => msg.type))],
       })
     })
   })
@@ -213,7 +196,7 @@ describe('ClaudeService Integration - Real Session File', () => {
   })
 
   describe('getClaudeMessagesFilePath', () => {
-    it('should generate correct file path for session', () => {
+    it('should generate correct file path for session', async () => {
       const mockTask: Task = {
         id: 'test-task-id',
         title: 'Test Task',
@@ -249,7 +232,7 @@ describe('ClaudeService Integration - Real Session File', () => {
       }
 
       const projectId = service.generateProjectId(mockTask, repositoryConfig)
-      const filePath = service.getClaudeMessagesFilePath(sessionId, projectId)
+      const filePath = await service.getClaudeMessagesFilePath(sessionId, projectId)
 
       expect(filePath).toBeDefined()
       expect(filePath).toContain(sessionId)
@@ -257,11 +240,11 @@ describe('ClaudeService Integration - Real Session File', () => {
       expect(filePath).toBe(realSessionFilePath)
     })
 
-    it('should generate correct file path with custom project ID', () => {
+    it('should generate correct file path with custom project ID', async () => {
       const customSessionId = 'custom-session-123'
       const customProjectId = 'my-custom-project'
 
-      const filePath = service.getClaudeMessagesFilePath(customSessionId, customProjectId)
+      const filePath = await service.getClaudeMessagesFilePath(customSessionId, customProjectId)
 
       expect(filePath).toBeDefined()
       expect(filePath).toContain(customSessionId)
@@ -307,7 +290,8 @@ describe('ClaudeService Integration - Real Session File', () => {
         agentType: 'claude-code',
       }
 
-      const messages = await service.readClaudeMessages('test-task-id', mockTask)
+      // Test reading messages for the invalid session
+      const messages = await service.readClaudeMessages('invalid-session')
 
       expect(messages).toBeDefined()
       expect(Array.isArray(messages)).toBe(true)

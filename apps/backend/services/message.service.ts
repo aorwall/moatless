@@ -50,16 +50,30 @@ export class MessageService {
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
     try {
-      // Use Claude service to read messages
-      const sdkMessages = await this.claudeService.readClaudeMessages(
-        task.taskId,
-        task,
-        this.repository,
-      )
+      const allSdkMessages: SDKMessage[] = []
+
+      // Iterate over all task iterations and read messages for each session
+      for (const iteration of task.iterations) {
+        if (!iteration.agentSessionId) {
+          logger.debug('No agent session ID for iteration', {
+            taskId: task.taskId,
+            iterationNumber: iteration.iterationNumber,
+          })
+          continue
+        }
+
+        // Read messages for this specific session
+        const sdkMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
+        allSdkMessages.push(...sdkMessages)
+      }
 
       // If we got messages from Claude files, transform and return them
-      if (sdkMessages.length > 0) {
-        return this.transformSDKMessagesToMessages(sdkMessages)
+      if (allSdkMessages.length > 0) {
+        logger.info('Found Claude messages', {
+          taskId: task.taskId,
+          messageCount: allSdkMessages.length,
+        })
+        return this.transformSDKMessagesToMessages(allSdkMessages)
       }
 
       // Fall back to creating messages from task iterations if no Claude files

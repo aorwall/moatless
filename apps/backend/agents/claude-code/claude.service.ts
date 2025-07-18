@@ -27,6 +27,8 @@ import {
 } from './claude-utils.js'
 
 export class ClaudeService {
+  private messageFilePathCache: Map<string, string> = new Map()
+
   constructor(private settingsService: SettingsService) {}
 
   // Model pricing per million tokens (as of Nov 2024)
@@ -150,11 +152,8 @@ export class ClaudeService {
   /**
    * Get usage data for a specific session
    */
-  public async getSessionUsage(
-    sessionId: string,
-    repository?: RepositoryConfig,
-  ): Promise<ClaudeSessionUsageResponse> {
-    const entries = await this.readSessionEntries(sessionId, repository)
+  public async getSessionUsage(sessionId: string): Promise<ClaudeSessionUsageResponse> {
+    const entries = await this.readSessionEntries(sessionId)
 
     if (entries.length === 0) {
       return {
@@ -312,9 +311,10 @@ export class ClaudeService {
   /**
    * Generate project ID from path, using repository path for docker environments
    */
-  public generateProjectId(task: Task, repository?: RepositoryConfig): string {
+  public generateProjectId(task: Task, repository: RepositoryConfig): string {
     // For docker environments, use repository path instead of workspace path
-    if (repository && repository.codeExecution.type === 'docker') {
+    logger.info('Generating project ID', { repository })
+    if (repository.codeExecution.type === 'docker') {
       return repository.path.replace(/[^a-zA-Z0-9]/g, '-')
     }
 
@@ -328,69 +328,120 @@ export class ClaudeService {
   }
 
   /**
-   * Get Claude messages file path for a specific agent session
+   * Find messages file by searching for {agentSessionId}.jsonl in any subdirectory
    */
-  public getClaudeMessagesFilePath(agentSessionId: string, projectId: string): string {
-    const claudeProjectPath = this.getClaudeProjectPath()
-    return path.join(claudeProjectPath, projectId, `${agentSessionId}.jsonl`)
-  }
-
-  /**
-   * Read Claude messages for a specific task
-   */
-  public async readClaudeMessages(
-    taskId: string,
-    task: Task,
-    repository?: RepositoryConfig,
-  ): Promise<SDKMessage[]> {
-    const allMessages: SDKMessage[] = []
-
-    // Process all iterations in chronological order
-    const projectId = this.generateProjectId(task, repository)
-
-    for (const iteration of task.iterations) {
-      if (!iteration.agentSessionId) {
-        logger.info('No agent session ID available for iteration', {
-          taskId,
-          iterationNumber: iteration.iterationNumber,
-        })
-        continue
-      }
-
-      const filePath = this.getClaudeMessagesFilePath(iteration.agentSessionId, projectId)
-
+  private async findMessagesFile(agentSessionId: string): Promise<string | null> {
+    // Check cache first
+    const cached = this.messageFilePathCache.get(agentSessionId)
+    if (cached) {
+      // Verify the file still exists
       try {
-        const fileContent = await fs.readFile(filePath, 'utf-8')
-        const lines = fileContent.trim().split('\n').filter(Boolean)
-
-        for (const line of lines) {
-          try {
-            const sdkMessage = JSON.parse(line) as SDKMessage
-            allMessages.push(sdkMessage)
-          } catch (parseError) {
-            logger.warn('Failed to parse Claude SDK message', {
-              taskId,
-              error: parseError instanceof Error ? parseError.message : String(parseError),
-            })
-          }
-        }
-      } catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          logger.debug('Claude messages file does not exist', {
-            taskId,
-            filePath,
-            iterationNumber: iteration.iterationNumber,
-          })
-        } else {
-          logger.error('Error reading Claude messages file', error as Error, {
-            taskId,
-            filePath,
-          })
-        }
+        await fs.access(cached, fs.constants.F_OK)
+        return cached
+      } catch {
+        // File no longer exists, remove from cache
+        this.messageFilePathCache.delete(agentSessionId)
       }
     }
 
-    return allMessages
+    // Search for the file
+    const claudeProjectPath = this.getClaudeProjectPath()
+    const targetFileName = `${agentSessionId}.jsonl`
+
+    try {
+      const allFiles = await findJsonlFiles(claudeProjectPath)
+
+      for (const filePath of allFiles) {
+        if (path.basename(filePath) === targetFileName) {
+          // Cache the result
+          this.messageFilePathCache.set(agentSessionId, filePath)
+          return filePath
+        }
+      }
+    } catch (error) {
+      logger.error('Error searching for messages file', error as Error, {
+        agentSessionId,
+        claudeProjectPath,
+      })
+    }
+
+    return null
+  }
+
+  /**
+   * Get Claude messages file path for a specific agent session
+   */
+  public async getClaudeMessagesFilePath(
+    agentSessionId: string,
+    projectId?: string,
+  ): Promise<string> {
+    // Try to find the file first
+    const foundPath = await this.findMessagesFile(agentSessionId)
+    if (foundPath) {
+      return foundPath
+    }
+
+    // If not found and projectId is provided, return the expected path
+    if (projectId) {
+      const claudeProjectPath = this.getClaudeProjectPath()
+      return path.join(claudeProjectPath, projectId, `${agentSessionId}.jsonl`)
+    }
+
+    // If no projectId and file not found, return a default path
+    const claudeProjectPath = this.getClaudeProjectPath()
+    return path.join(claudeProjectPath, `${agentSessionId}.jsonl`)
+  }
+
+  /**
+   * Read Claude messages for a specific agent session
+   */
+  public async readClaudeMessages(agentSessionId: string): Promise<SDKMessage[]> {
+    const messages: SDKMessage[] = []
+
+    // Try to find the session file
+    const filePath = await this.findMessagesFile(agentSessionId)
+
+    if (!filePath) {
+      logger.debug('No Claude messages file found for session', { agentSessionId })
+      return messages
+    }
+
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8')
+      const lines = fileContent.trim().split('\n').filter(Boolean)
+
+      for (const line of lines) {
+        try {
+          const sdkMessage = JSON.parse(line) as SDKMessage
+          messages.push(sdkMessage)
+        } catch (parseError) {
+          logger.warn('Failed to parse Claude SDK message', {
+            agentSessionId,
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          })
+        }
+      }
+
+      logger.debug('Read Claude messages from file', {
+        agentSessionId,
+        filePath,
+        messageCount: messages.length,
+      })
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        logger.debug('Claude messages file does not exist', {
+          agentSessionId,
+          filePath,
+        })
+      } else {
+        logger.error('Error reading Claude messages file', error as Error, {
+          agentSessionId,
+          filePath,
+        })
+      }
+    }
+
+    return messages
   }
 
   private calculateMessageCost(usage: any, pricing: ModelPricing): number {
@@ -492,50 +543,36 @@ export class ClaudeService {
     }
   }
 
-  private async readSessionEntries(
-    sessionId: string,
-    repository?: RepositoryConfig,
-  ): Promise<SDKAssistantMessageFromClaude[]> {
+  private async readSessionEntries(sessionId: string): Promise<SDKAssistantMessageFromClaude[]> {
     const entries: SDKAssistantMessageFromClaude[] = []
 
-    // For session entries, we need to search in all possible project directories
-    // Since we don't have a specific task context, we'll use the base Claude paths
-    const claudePaths =
-      repository && repository.codeExecution.type === 'docker'
-        ? [this.getClaudeProjectPath()] // Search in all project directories
-        : getClaudeDataPaths() // Use standard paths for local
+    // Try to find the session file using our cache-enabled method
+    const sessionFilePath = await this.findMessagesFile(sessionId)
 
-    for (const claudePath of claudePaths) {
+    if (sessionFilePath) {
       try {
-        // Find all JSONL files in this directory (including subdirectories for docker)
-        const allFiles = await findJsonlFiles(claudePath)
-
-        // Look for the specific session file
-        const sessionFile = allFiles.find((file) => path.basename(file, '.jsonl') === sessionId)
-
-        if (sessionFile) {
-          const lines = await readFileLines(sessionFile)
-          for (const line of lines) {
-            try {
-              const message = JSON.parse(line) as SDKMessage
-              if (message.type === 'assistant') {
-                entries.push(message as SDKAssistantMessageFromClaude)
-              }
-            } catch (parseError) {
-              logger.warn('Failed to parse session entry', {
-                sessionId,
-                error: parseError instanceof Error ? parseError.message : String(parseError),
-              })
+        const lines = await readFileLines(sessionFilePath)
+        for (const line of lines) {
+          try {
+            const message = JSON.parse(line) as SDKMessage
+            if (message.type === 'assistant') {
+              entries.push(message as SDKAssistantMessageFromClaude)
             }
+          } catch (parseError) {
+            logger.warn('Failed to parse session entry', {
+              sessionId,
+              error: parseError instanceof Error ? parseError.message : String(parseError),
+            })
           }
-          break // Found the session file, no need to continue searching
         }
       } catch (error) {
-        logger.debug('Error searching for session in directory', {
-          claudePath,
-          error: error instanceof Error ? error.message : String(error),
+        logger.error('Error reading session file', error as Error, {
+          sessionId,
+          sessionFilePath,
         })
       }
+    } else {
+      logger.debug('Session file not found', { sessionId })
     }
 
     return entries
