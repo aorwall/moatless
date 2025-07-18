@@ -53,6 +53,12 @@ if [ -n "$GITHUB_TOKEN" ]; then
     # Configure git credential helper to store credentials
     git config --global credential.helper store
     
+    # Configure git to rewrite SSH URLs to HTTPS with token
+    # This only affects git operations inside the container, not the actual remote configuration
+    git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
+    
+    echo "Git configured to use HTTPS with token for all GitHub SSH URLs (container only)"
+    
     echo "Git configured for GitHub access with personal access token."
 fi
 
