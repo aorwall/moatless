@@ -18,7 +18,7 @@ export class WorkerApiClient {
       'Content-Type': 'application/json',
     }
     if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`
+      headers.Authorization = `Bearer ${this.apiKey}`
     }
     return headers
   }
@@ -187,14 +187,14 @@ export class WorkerApiClient {
   }
 
   async emitEvent(taskId: string, event: Event): Promise<void> {
-    const url = `${this.apiUrl}/api/v1/worker/events`
+    const url = `${this.apiUrl}/api/v1/worker/emit-event`
     logger.debug('Emitting event', { taskId, eventType: event.type })
 
     await this.makeRequest(
       url,
       {
         method: 'POST',
-        body: JSON.stringify({ taskId, event }),
+        body: JSON.stringify(event), // Send just the event since it contains taskId
       },
       'event',
       taskId,

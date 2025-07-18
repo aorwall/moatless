@@ -250,10 +250,10 @@ export async function findJsonlFiles(dirPath: string, maxAgeMs?: number): Promis
             path: fullPath,
             mtime: stats.mtime.getTime(),
           })
-        } catch (statError) {}
+        } catch (_statError) {}
       }
     }
-  } catch (error) {
+  } catch (_error) {
     // Directory doesn't exist or is not accessible
   }
 
@@ -280,7 +280,7 @@ export async function parseJsonlFile<T = any>(
   const filename = path.basename(filePath, '.jsonl')
 
   // If this session ID should be skipped, return empty array
-  if (sessionIdsToSkip && sessionIdsToSkip.has(filename)) {
+  if (sessionIdsToSkip?.has(filename)) {
     return entries
   }
 
@@ -306,13 +306,13 @@ export async function parseJsonlFile<T = any>(
 
           entries.push(data)
         }
-      } catch (parseError) {
+      } catch (_parseError) {
         // Skip invalid JSON lines
       }
     }
 
     await fileStream.close()
-  } catch (error) {
+  } catch (_error) {
     // File doesn't exist or is not accessible
   }
 
@@ -323,12 +323,8 @@ export async function parseJsonlFile<T = any>(
  * Read a file and split into lines, filtering out empty lines
  */
 export async function readFileLines(filePath: string): Promise<string[]> {
-  try {
-    const fileContent = await fs.readFile(filePath, 'utf-8')
-    return fileContent.trim().split('\n').filter(Boolean)
-  } catch (error) {
-    throw error
-  }
+  const fileContent = await fs.readFile(filePath, 'utf-8')
+  return fileContent.trim().split('\n').filter(Boolean)
 }
 
 /**

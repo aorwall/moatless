@@ -40,7 +40,7 @@ describe('DockerEnvironment - Integration Tests', () => {
     // Check if Docker is available
     try {
       await execAsync('docker version')
-    } catch (error) {
+    } catch (_error) {
       console.log('Docker not available, skipping integration tests')
       return
     }
@@ -48,7 +48,7 @@ describe('DockerEnvironment - Integration Tests', () => {
     // Check if moatless-vibe-universal image exists
     try {
       await execAsync('docker image inspect moatless-vibe-universal:latest')
-    } catch (error) {
+    } catch (_error) {
       console.warn(
         'moatless-vibe-universal:latest image not found. Please build it first with: docker build -t moatless-vibe-universal:latest -f docker/Dockerfile .',
       )
@@ -152,7 +152,7 @@ describe('DockerEnvironment - Integration Tests', () => {
       // Clean up shared container
       try {
         await sharedDockerEnvironment.teardown(true)
-      } catch (error) {
+      } catch (_error) {
         // Container might not exist
       }
     }, 30000)
@@ -266,7 +266,7 @@ describe('DockerEnvironment - Integration Tests', () => {
       // Clean up shared container
       try {
         await sharedDockerEnvironment.teardown(true)
-      } catch (error) {
+      } catch (_error) {
         // Container might not exist
       }
     }, 30000)
@@ -309,7 +309,7 @@ describe('DockerEnvironment - Integration Tests', () => {
       // Clean up shared container
       try {
         await sharedDockerEnvironment.teardown(true)
-      } catch (error) {
+      } catch (_error) {
         // Container might not exist
       }
     }, 30000)
@@ -341,7 +341,7 @@ describe('DockerEnvironment - Integration Tests', () => {
       // Clean up shared container
       try {
         await sharedDockerEnvironment.teardown(true)
-      } catch (error) {
+      } catch (_error) {
         // Container might not exist
       }
     }, 30000)

@@ -22,6 +22,10 @@ This directory contains architectural patterns specifically written for LLMs (La
 ### Testing Patterns
 - [Strategic Mocking](./strategic-mocking.md) - Balanced testing approach
 
+### UI & Component Patterns
+- [Configuration Dialog Pattern](./configuration-dialog.md) - Reusable ChatGPT-style configuration dialogs with sidebar navigation
+- [Configuration API Pattern](./configuration-api.md) - PATCH-based API design for granular configuration updates
+
 ### API & Backend Patterns
 - [API Patterns and Best Practices](api-best-practices.md) - Schema-first API architecture and implementation patterns
 - [Schema Design Patterns](schema-design-patterns.md) - Zod schema design principles and anti-patterns

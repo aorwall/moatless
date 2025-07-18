@@ -22,7 +22,5 @@ export function useFileTreeWithChanges({ taskId, path = '.' }: FileTreeWithChang
       return response
     },
     enabled: !!taskId,
-    // Refresh every 5 seconds to catch new changes
-    refetchInterval: 5000,
   })
 }

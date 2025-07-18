@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { StreamStatusResponseSchema } from '@moatless/types'
+import { StreamStatusResponseSchema } from '@moatless/types/schemas/event.schemas'
 import type { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'

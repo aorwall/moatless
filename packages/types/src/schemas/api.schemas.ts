@@ -148,11 +148,6 @@ export const TaskListQuerySchema = PaginationQuerySchema.extend({
   status: TaskStatusSchema.optional(),
 })
 
-// Event List Query
-export const EventListQuerySchema = PaginationQuerySchema.extend({
-  type: z.string().optional(),
-})
-
 // File Search Query
 export const FileSearchQuerySchema = z.object({
   query: z.string(),
@@ -181,13 +176,8 @@ export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 export type GitChanges = z.infer<typeof GitChangesSchema>
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
 export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
-export type EventListQuery = z.infer<typeof EventListQuerySchema>
 export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
 export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
-
-// Event Stream Types
-export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
-export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>
 
 // ============================================
 // Pagination Response Types
@@ -263,27 +253,6 @@ export const InternalServerErrorSchema = ApiResponseErrorSchema.extend({
       error: z.string().optional(),
     })
     .optional(),
-})
-
-// ============================================
-// Event Stream Schemas
-// ============================================
-
-// Event Stream Message Schema (for NDJSON format)
-export const EventStreamMessageSchema = z.object({
-  type: z.string(),
-  timestamp: z.string(),
-  data: z.any().optional(), // Event-specific data
-})
-
-// Stream Status Response Schema (move from events.ts)
-export const StreamStatusResponseSchema = z.object({
-  globalConnections: z.number(),
-  globalEventCount: z.number(),
-  taskConnections: z.record(z.string(), z.number()),
-  taskEventCounts: z.record(z.string(), z.number()),
-  totalConnections: z.number(),
-  totalEventCount: z.number(),
 })
 
 // ============================================

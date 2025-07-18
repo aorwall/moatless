@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SDKResultMessage } from '@moatless/types'
-import { EventType, type TaskIteration, TaskNotFoundError } from '@moatless/types'
+import { type TaskIteration, TaskNotFoundError } from '@moatless/types'
+
 import type { BaseAgent } from '../agents/base-agent.js'
 import { logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
@@ -142,7 +143,7 @@ export class AgentService {
         // Emit status change event
         await this.eventService.emitEvent({
           taskId,
-          type: EventType.TASK_STATUS,
+          type: 'task_status',
           subType: 'open',
           payload: {
             status: 'open',
@@ -248,7 +249,7 @@ export class AgentService {
 
         // Context tokens will be updated by task service via event handling
 
-        if (event.type === EventType.RESULT) {
+        if (event.type === 'result') {
           const resultPayload = event.payload as SDKResultMessage
 
           agentLogger.info('Agent execution completed', {
@@ -287,7 +288,7 @@ export class AgentService {
       // Emit error event - task service will handle the task/iteration updates
       await this.eventService.emitEvent({
         taskId,
-        type: EventType.ERROR,
+        type: 'error',
         subType: 'execution_failed',
         payload: {
           error: error instanceof Error ? error.message : String(error),

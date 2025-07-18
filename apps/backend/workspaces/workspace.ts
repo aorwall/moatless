@@ -373,15 +373,6 @@ export class Workspace {
   }
 
   /**
-   * Set running agent (delegated to environment if it supports it)
-   */
-  setRunningAgent(agent: BaseAgent): void {
-    if (isLocalEnvironment(this.environment) || isDockerEnvironment(this.environment)) {
-      this.environment.setRunningAgent(agent)
-    }
-  }
-
-  /**
    * Get the environment instance
    */
   getEnvironment(): BaseEnvironment {
@@ -618,7 +609,7 @@ export class Workspace {
             allFiles.push(relativeEntryPath)
           }
         }
-      } catch (error) {
+      } catch (_error) {
         // Continue on permission errors or other issues
         // Note: Cannot use this.logger here as it's inside a nested function
         // Just continue silently

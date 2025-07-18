@@ -16,14 +16,37 @@ import {
 import type { Task, TaskIteration } from '@moatless/types/types/task'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
+import type { TaskService } from './task.service.js'
+
 export class MessageService {
   constructor(
     private claudeService: ClaudeService,
+    private taskService: TaskService,
     private repository?: RepositoryConfig,
   ) {}
 
   /**
+   * Get task messages by task ID
+   * This is the main public method that should be used by routes
+   */
+  async getTaskMessages(taskId: string): Promise<Message[]> {
+    const task = await this.taskService.getTask(taskId)
+
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`)
+    }
+
+    // Only support Claude Code tasks with direct directory reading
+    if (task.agentType !== 'claude-code') {
+      throw new Error('Only Claude Code tasks are supported for message reading')
+    }
+
+    return this.readMessagesFromClaudeDirectory(task)
+  }
+
+  /**
    * Read messages directly from Claude directory
+   * @internal - Made public for testing, but should not be used directly in production code
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
     try {
@@ -40,7 +63,7 @@ export class MessageService {
       }
 
       // Fall back to creating messages from task iterations if no Claude files
-      logger.debug('No Claude messages found, falling back to task iterations', {
+      logger.info('No Claude messages found, falling back to task iterations', {
         taskId: task.taskId,
       })
       return this.createMessagesFromTaskIterations(task)
@@ -336,7 +359,8 @@ export class MessageService {
 
 export function createMessageService(
   claudeService: ClaudeService,
+  taskService: TaskService,
   repository?: RepositoryConfig,
 ): MessageService {
-  return new MessageService(claudeService, repository)
+  return new MessageService(claudeService, taskService, repository)
 }

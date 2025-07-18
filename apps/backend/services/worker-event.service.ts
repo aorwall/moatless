@@ -13,6 +13,7 @@ import { createLogger } from '../utils/logger.js'
  * - Maintain event flow from isolated Docker containers
  * - Ensure all events are properly associated with their task
  */
+
 export class WorkerEventService {
   private logger = createLogger()
 

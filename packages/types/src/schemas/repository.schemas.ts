@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dateSchema } from '../utils/validation.js'
 import { WorkspaceStatusResponseSchema } from './workspace.schemas.js'
 
 // Repository name validation - allows URL-safe names or GitHub-style owner/repo format
@@ -60,8 +61,8 @@ export const RepositoryConfigSchema = z.object({
 
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: dateSchema,
+  updatedAt: dateSchema,
 })
 
 export const CreateRepositorySchema = z.object({

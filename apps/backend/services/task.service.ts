@@ -10,7 +10,8 @@ import type {
   Task,
   TaskIteration,
 } from '@moatless/types'
-import { EventType, RepositoryTemplate, TaskNotFoundError, ValidationError } from '@moatless/types'
+import { RepositoryTemplate, TaskNotFoundError, ValidationError } from '@moatless/types'
+
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
@@ -78,9 +79,9 @@ export class TaskService {
   private shouldHandleEvent(event: Event): boolean {
     // Handle events that affect task state
     return (
-      event.type === EventType.RESULT ||
-      event.type === EventType.ERROR ||
-      (event.type === EventType.MESSAGE && event.contextTokens !== undefined) ||
+      event.type === 'result' ||
+      event.type === 'error' ||
+      (event.type === 'message' && event.contextTokens !== undefined) ||
       event.agentSessionId !== undefined // Handle any event with agentSessionId
     )
   }
@@ -123,13 +124,13 @@ export class TaskService {
 
       // Handle different event types
       switch (event.type) {
-        case EventType.RESULT:
+        case 'result':
           await this.handleResultEvent(task, iteration, event)
           break
-        case EventType.ERROR:
+        case 'error':
           await this.handleErrorEvent(task, iteration, event)
           break
-        case EventType.MESSAGE:
+        case 'message':
           await this.handleMessageEvent(task, iteration, event)
           break
         default:
@@ -225,7 +226,7 @@ export class TaskService {
     if (previousStatus !== newStatus) {
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: EventType.TASK_STATUS,
+        type: 'task_status',
         subType: newStatus,
         payload: {
           status: newStatus,
@@ -279,7 +280,7 @@ export class TaskService {
     if (previousStatus !== 'error') {
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: EventType.TASK_STATUS,
+        type: 'task_status',
         subType: 'error',
         payload: {
           status: 'error',
@@ -408,7 +409,7 @@ export class TaskService {
       // Emit task created event
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: EventType.TASK_STATUS,
+        type: 'task_status',
         subType: 'open',
         payload: {
           status: 'open',
@@ -503,7 +504,7 @@ export class TaskService {
               await this.eventService.emitEvent({
                 eventId: randomUUID(),
                 taskId,
-                type: EventType.TASK_STATUS,
+                type: 'task_status',
                 subType: 'error',
                 isError: true,
                 agentType: task.agentType,
@@ -541,7 +542,7 @@ export class TaskService {
           await this.eventService.emitEvent({
             eventId: randomUUID(),
             taskId,
-            type: EventType.TASK_STATUS,
+            type: 'task_status',
             subType: 'error',
             isError: true,
             agentType: task.agentType,
@@ -609,7 +610,7 @@ export class TaskService {
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
-      type: EventType.TASK_STATUS,
+      type: 'task_status',
       subType: 'running',
       payload: {
         status: 'running',
@@ -657,7 +658,7 @@ export class TaskService {
                 await this.eventService.emitEvent({
                   eventId: randomUUID(),
                   taskId,
-                  type: EventType.TASK_STATUS,
+                  type: 'task_status',
                   subType: 'error',
                   isError: true,
                   agentType: updatedTask.agentType,
@@ -1003,7 +1004,7 @@ export class TaskService {
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
-      type: EventType.TASK_STATUS,
+      type: 'task_status',
       subType: 'running',
       payload: {
         status: 'running',
@@ -1016,9 +1017,7 @@ export class TaskService {
       isError: false,
     })
 
-    // Iteration is created and will be added to task.iterations
-
-    // Prepend result if needed
+    // Prepend result from last iteration if needed
     const finalMessage = prependedResult
       ? `Previous result:\n${prependedResult}\n\n${message}`
       : message
@@ -1044,7 +1043,7 @@ export class TaskService {
           await this.eventService.emitEvent({
             eventId: randomUUID(),
             taskId,
-            type: EventType.TASK_STATUS,
+            type: 'task_status',
             subType: 'error',
             isError: true,
             agentType: metadata.agentType,
@@ -1117,7 +1116,7 @@ export class TaskService {
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
-      type: EventType.TASK_STATUS,
+      type: 'task_status',
       subType: 'closed',
       payload: {
         status: 'closed',

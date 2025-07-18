@@ -172,21 +172,39 @@ export class WorkspaceService {
       workspaceLogger.info('Worktree does not exist, creating new one', { workspacePath })
     }
 
-    // If branchName is provided, check if it exists
-    if (branchName) {
+    // Get the workspace branch name
+    const workspaceBranchName = this.getBranchName(taskId)
+
+    // Check if the workspace branch already exists
+    const workspaceBranchExists = await this.checkBranchExists(repo.path, workspaceBranchName)
+
+    if (workspaceBranchExists) {
+      // The branch exists, try to use it directly without -b flag
+      workspaceLogger.info('Workspace branch already exists, reusing it', {
+        branch: workspaceBranchName,
+      })
+      try {
+        // Create worktree using existing branch (no -b flag)
+        await createGitWorktree(repo.path, workspacePath, workspaceBranchName)
+      } catch (error) {
+        workspaceLogger.error('Failed to create worktree with existing branch', error as Error, {
+          branch: workspaceBranchName,
+          workspacePath,
+        })
+        throw error
+      }
+    } else if (branchName) {
+      // Check if source branch exists
       const branchExists = await this.checkBranchExists(repo.path, branchName)
       if (!branchExists) {
         throw new WorkspaceError(`Branch '${branchName}' does not exist in repository`, taskId, 400)
       }
 
-      // When using an existing branch, we might need to create a new branch
-      // if the existing one is already checked out
-      const newBranchName = this.getBranchName(taskId)
-      await createGitWorktree(repo.path, workspacePath, branchName, newBranchName)
+      // Create new branch based on the provided branch
+      await createGitWorktree(repo.path, workspacePath, branchName, workspaceBranchName)
     } else {
       // Create a new branch for this task
-      const newBranchName = this.getBranchName(taskId)
-      await createGitWorktree(repo.path, workspacePath, undefined, newBranchName)
+      await createGitWorktree(repo.path, workspacePath, undefined, workspaceBranchName)
     }
 
     workspaceLogger.info('Worktree created successfully', { workspacePath, branchName })

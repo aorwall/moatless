@@ -2,8 +2,6 @@
 export * from '../schemas/index.js'
 // For api.ts and workspace.ts, explicitly export only non-conflicting exports
 export type {
-  AgentTriggerRequest,
-  AgentTriggerResponse,
   EventListResponse,
   GitStatus,
   MergeTaskResponse,
@@ -15,7 +13,22 @@ export * from './claude.js'
 export * from './claude-code.js'
 export * from './claude-content.js'
 export * from './command.js'
-export * from './event.js'
+// Export event types from event.js
+export type {
+  BaseEvent,
+  ClaudeCodeSDKMessage,
+  ErrorEvent,
+  Event,
+  EventPayload,
+  EventType,
+  MessageEvent,
+  ResultEvent,
+  SDKResultMessage,
+  ServerEvent,
+  SpecificEvent,
+  TaskStatusEvent,
+  WorkspaceEvent,
+} from './event.js'
 export * from './message.js'
 export * from './preview-environment.js'
 export {

@@ -27,7 +27,7 @@ export function FileDiffViewer({
     const header = [
       `--- a/${filePath}`,
       `+++ b/${filePath}`,
-      '@@ -1,' + oldLines.length + ' +1,' + newLines.length + ' @@',
+      `@@ -1,${oldLines.length} +1,${newLines.length} @@`,
     ].join('\n')
 
     // Create the diff content
@@ -41,13 +41,13 @@ export function FileDiffViewer({
       const newLine = newLines[i]
 
       if (oldLine === newLine && oldLine !== undefined) {
-        diffLines.push(' ' + oldLine)
+        diffLines.push(` ${oldLine}`)
       } else {
         if (oldLine !== undefined && i < oldLines.length) {
-          diffLines.push('-' + oldLine)
+          diffLines.push(`-${oldLine}`)
         }
         if (newLine !== undefined && i < newLines.length) {
-          diffLines.push('+' + newLine)
+          diffLines.push(`+${newLine}`)
         }
       }
     }

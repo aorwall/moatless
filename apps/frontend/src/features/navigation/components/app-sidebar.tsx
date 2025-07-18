@@ -12,11 +12,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/lib/components/ui/sidebar'
+import { useSettingsDialog } from '@/lib/contexts/settings-dialog-context'
 
 import { SidebarTasks } from './sidebar-tasks'
 
 export function AppSidebar() {
   const { isConnected, connectionError } = useGlobalEventStream()
+  const { showDialog } = useSettingsDialog()
 
   return (
     <Sidebar>
@@ -54,11 +56,9 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <Link to="/settings">
-                    <Settings className="h-4 w-4" />
-                    <span>Settings</span>
-                  </Link>
+                <SidebarMenuButton onClick={showDialog}>
+                  <Settings className="h-4 w-4" />
+                  <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

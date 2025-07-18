@@ -109,8 +109,8 @@ export async function createServiceContainer(
     container.repository,
   )
 
-  // 7. Message service needs claude service only
-  container.message = createMessageService(container.claude)
+  // 7. Message service needs claude and task services
+  container.message = createMessageService(container.claude, container.task)
 
   // Return fully initialized container
   return container as ServiceContainer

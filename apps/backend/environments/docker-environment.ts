@@ -357,7 +357,7 @@ export class DockerEnvironment extends BaseEnvironment {
       try {
         await execAsync(`docker stop ${containerId}`)
         this.logger.debug('Container stopped', { containerId })
-      } catch (stopError) {
+      } catch (_stopError) {
         // Container might already be stopped, continue with removal
         this.logger.debug('Container stop failed (may already be stopped)', { containerId })
       }

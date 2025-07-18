@@ -1,33 +1,28 @@
 import type { Event } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { queryKeys } from '@/lib/api/query-keys'
 
-export const STATUS_AFFECTING_EVENTS = [EventType.ERROR, EventType.TASK_STATUS] as const
+export const STATUS_AFFECTING_EVENTS = ['error', 'task_status'] as const
 
 // Map of actively used event types to their invalidation keys
 // These invalidation keys are for the specific task only
 export const EVENT_INVALIDATION_MAP = {
-  [EventType.MESSAGE]: [queryKeys.tasks.messages], // Invalidate messages when new messages arrive
-  [EventType.RESULT]: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Keep for iteration updates and git changes
-  [EventType.ERROR]: [queryKeys.tasks.detail],
-  [EventType.WORKSPACE]: [
+  message: [queryKeys.tasks.messages], // Invalidate messages when new messages arrive
+  result: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Keep for iteration updates and git changes
+  error: [queryKeys.tasks.detail],
+  workspace: [
     queryKeys.tasks.workspaceStatus,
     queryKeys.tasks.workspaceSetup,
     queryKeys.tasks.gitDiff,
   ],
-  [EventType.TASK_STATUS]: [queryKeys.tasks.detail], // Main task status invalidation
+  task_status: [queryKeys.tasks.detail], // Main task status invalidation
   // Deprecated/unused event types:
   // INPUT - removed, replaced with TASK_STATUS for status changes
   // START, STOP, SERVER, TOOL, COMPLETION - not actively used in production
-  [EventType.START]: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus],
-  [EventType.STOP]: [
-    queryKeys.tasks.detail,
-    queryKeys.tasks.workspaceStatus,
-    queryKeys.tasks.serverStatus,
-  ],
-  [EventType.SERVER]: [queryKeys.tasks.serverStatus],
-  [EventType.TOOL]: [queryKeys.tasks.events, queryKeys.tasks.messages], // Also invalidate messages for tool events
-  [EventType.COMPLETION]: [queryKeys.tasks.detail],
+  start: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus],
+  stop: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus, queryKeys.tasks.serverStatus],
+  server: [queryKeys.tasks.serverStatus],
+  tool: [queryKeys.tasks.events, queryKeys.tasks.messages], // Also invalidate messages for tool events
+  completion: [queryKeys.tasks.detail],
 } as const
 
 export type InvalidationKeyFunction = (id: string) => readonly unknown[]

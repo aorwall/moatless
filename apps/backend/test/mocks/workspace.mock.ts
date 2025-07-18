@@ -53,7 +53,6 @@ export function createMockWorkspace(overrides?: Partial<Workspace>): Workspace {
     isWorkspacePathValid: vi.fn().mockResolvedValue(true),
     getWorkspacePath: vi.fn().mockReturnValue('/mock/workspace/path'),
     setup: vi.fn().mockResolvedValue(undefined),
-    setRunningAgent: vi.fn(),
     getEnvironment: vi.fn().mockReturnValue(mockEnvironment),
     getGitStatus: vi.fn().mockResolvedValue({
       currentBranch: 'main',

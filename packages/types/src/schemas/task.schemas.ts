@@ -1,9 +1,7 @@
 import { z } from 'zod'
+import { dateSchema } from '../utils/validation.js'
 
 // Query schemas
-export const EventTypeQuerySchema = z.object({
-  type: z.string().optional(),
-})
 
 export const FileQuerySchema = z.object({
   path: z.string().optional().default('/'),
@@ -40,8 +38,8 @@ export const TaskCommandSchema = z.object({
 // Response schemas for OpenAPI
 export const TaskIterationSchema = z.object({
   iterationNumber: z.number(),
-  startTime: z.date(),
-  endTime: z.date().optional(),
+  startTime: dateSchema,
+  endTime: dateSchema.optional(),
   status: z.enum(['created', 'active', 'completed', 'error', 'failed']),
   messageCount: z.number(),
   costUsd: z.number(),
@@ -101,7 +99,7 @@ export const TaskIterationSchema = z.object({
     .object({
       message: z.string(),
       stack: z.string().optional(),
-      timestamp: z.date(),
+      timestamp: dateSchema,
     })
     .optional(),
   willNotResume: z.boolean().optional(),
@@ -109,8 +107,8 @@ export const TaskIterationSchema = z.object({
 
 export const TaskResponseSchema = z.object({
   taskId: z.string(),
-  createdAt: z.date(),
-  lastMessageAt: z.date(),
+  createdAt: dateSchema,
+  lastMessageAt: dateSchema,
   agentType: z.string(),
   repositoryId: z.string(),
   status: z.enum(['open', 'running', 'error', 'merged', 'closed']),
@@ -128,18 +126,6 @@ export const TaskListResponseSchema = z.object({
     total: z.number().optional(),
     hasMore: z.boolean().optional(),
   }),
-})
-
-export const EventListResponseSchema = z.object({
-  items: z.array(z.any()), // Event type is complex, using any for now
-  pagination: z
-    .object({
-      limit: z.number(),
-      offset: z.number(),
-      total: z.number().optional(),
-      hasMore: z.boolean().optional(),
-    })
-    .optional(),
 })
 
 export const CloseTaskResponseSchema = z.object({
@@ -250,7 +236,6 @@ export const GitStatusSchema = z.object({
 })
 
 // Derive types from schemas
-export type EventTypeQuery = z.infer<typeof EventTypeQuerySchema>
 export type FileQuery = z.infer<typeof FileQuerySchema>
 export type TaskFileSearch = z.infer<typeof TaskFileSearchSchema>
 export type CommandExecution = z.infer<typeof CommandExecutionSchema>
@@ -260,7 +245,6 @@ export type TaskCommand = z.infer<typeof TaskCommandSchema>
 export type TaskIteration = z.infer<typeof TaskIterationSchema>
 export type TaskResponse = z.infer<typeof TaskResponseSchema>
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
-export type EventListResponse = z.infer<typeof EventListResponseSchema>
 export type CloseTaskResponse = z.infer<typeof CloseTaskResponseSchema>
 export type FileListResponse = z.infer<typeof FileListResponseSchema>
 export type FileContentResponse = z.infer<typeof FileContentResponseSchema>

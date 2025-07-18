@@ -1,9 +1,10 @@
 import { z } from 'zod'
+import { dateSchema } from '../utils/validation.js'
 
 const BaseMessageSchema = z.object({
   id: z.string(),
   role: z.enum(['user', 'assistant']),
-  timestamp: z.date(),
+  timestamp: dateSchema,
   eventId: z.string().optional(),
 })
 

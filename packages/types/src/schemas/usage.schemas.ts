@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dateSchema } from '../utils/validation.js'
 
 export const TokenCountsSchema = z.object({
   input_tokens: z.number().min(0),
@@ -9,7 +10,7 @@ export const TokenCountsSchema = z.object({
 })
 
 export const UsageEntrySchema = z.object({
-  timestamp: z.date(),
+  timestamp: dateSchema,
   model: z.string(),
   tokenCounts: TokenCountsSchema,
   costUSD: z.number().min(0),
@@ -22,8 +23,8 @@ export const PerModelStatsSchema = z.object({
 })
 
 export const SessionBlockSchema = z.object({
-  startTime: z.date(),
-  endTime: z.date(),
+  startTime: dateSchema,
+  endTime: dateSchema,
   entries: z.array(UsageEntrySchema),
   tokenCounts: TokenCountsSchema,
   costUSD: z.number().min(0),

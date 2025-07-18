@@ -2,6 +2,7 @@ import { createRootRoute, HeadContent, Outlet } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { SettingsDialogProvider } from '@/lib/contexts/settings-dialog-context'
 import { Layout } from '@/lib/layout'
 
 const title = 'Moatless Vibe'
@@ -108,9 +109,11 @@ export const Route = createRootRoute({
     <>
       <HeadContent />
       <ErrorBoundary>
-        <Layout>
-          <Outlet />
-        </Layout>
+        <SettingsDialogProvider>
+          <Layout>
+            <Outlet />
+          </Layout>
+        </SettingsDialogProvider>
       </ErrorBoundary>
       <TanStackRouterDevtools position="bottom-right" />
     </>

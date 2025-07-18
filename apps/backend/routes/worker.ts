@@ -1,33 +1,25 @@
 import type { Event } from '@moatless/types'
+import { EventSchema, WorkerEventResponseSchema } from '@moatless/types/schemas/event.schemas'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
-import { z } from 'zod'
 import type { AppBindings } from '../app.js'
+import { createLogger } from '../utils/index.js'
 
-// Schema for worker event emission
-const WorkerEventSchema = z.object({
-  taskId: z.string(),
-  event: z.any(), // Event type from @moatless/types
-})
-
-const WorkerEventResponseSchema = z.object({
-  success: z.boolean(),
-  message: z.string().optional(),
-})
+const logger = createLogger()
 
 export async function registerWorkerRoutes(app: Hono<AppBindings>, prefix: string) {
   // Emit event from worker to main API
   app.post(
-    `${prefix}/events`,
+    `${prefix}/emit-event`,
     describeRoute({
       description: 'Emit an event from a worker to the main API event service',
       requestBody: {
-        description: 'Event data to emit',
+        description: 'Event to emit (contains taskId)',
         content: {
           'application/json': {
-            schema: resolver(WorkerEventSchema) as any,
+            schema: resolver(EventSchema) as any,
           },
         },
       },
@@ -60,23 +52,20 @@ export async function registerWorkerRoutes(app: Hono<AppBindings>, prefix: strin
 
       try {
         const body = await c.req.json()
-        const validatedBody = WorkerEventSchema.parse(body)
-        const { taskId, event } = validatedBody as { taskId: string; event: Event }
+        const event = EventSchema.parse(body) as Event
+        const { taskId } = event
 
         // Verify task exists
         const task = await taskService.getTask(taskId)
         if (!task) {
+          logger.error(`Task ${taskId} not found`)
           throw new HTTPException(404, { message: `Task ${taskId} not found` })
         }
 
-        // Add taskId to the event if not present
-        const eventWithTaskId = {
-          ...event,
-          taskId,
-        }
+        logger.info(`Emitting event ${JSON.stringify(event)}`)
 
         // Emit the event through the event service
-        await eventService.emitEvent(eventWithTaskId)
+        await eventService.emitEvent(event)
 
         return c.json({
           success: true,

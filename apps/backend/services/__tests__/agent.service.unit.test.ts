@@ -1,5 +1,4 @@
 import type { Task, TaskIteration } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BaseAgent } from '../../agents/base-agent.js'
 import type { BaseEnvironment } from '../../environments/base-environment.js'
@@ -107,7 +106,7 @@ const createMockAgent = (): BaseAgent =>
     run: vi.fn().mockImplementation(async function* () {
       yield {
         eventId: 'event-1',
-        type: EventType.COMPLETION,
+        type: 'completion',
         taskId: 'task-1',
         timestamp: new Date(),
         agentType: 'claude-code',
@@ -173,7 +172,7 @@ describe('AgentService', () => {
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
         yield {
           eventId: 'event-1',
-          type: EventType.COMPLETION,
+          type: 'completion',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -200,7 +199,7 @@ describe('AgentService', () => {
         await new Promise((resolve) => setTimeout(resolve, 100))
         yield {
           eventId: 'event-1',
-          type: EventType.COMPLETION,
+          type: 'completion',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -310,7 +309,7 @@ describe('AgentService', () => {
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
         yield {
           eventId: 'error-1',
-          type: EventType.ERROR,
+          type: 'error',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -334,7 +333,7 @@ describe('AgentService', () => {
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-1',
-          type: EventType.ERROR,
+          type: 'error',
           isError: true,
         }),
       )
@@ -382,7 +381,7 @@ describe('AgentService', () => {
         await new Promise((resolve) => setTimeout(resolve, 100))
         yield {
           eventId: 'event-1',
-          type: EventType.COMPLETION,
+          type: 'completion',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -430,7 +429,7 @@ describe('AgentService', () => {
         await new Promise((resolve) => setTimeout(resolve, 100))
         yield {
           eventId: 'event-1',
-          type: EventType.COMPLETION,
+          type: 'completion',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -479,7 +478,7 @@ describe('AgentService', () => {
         await new Promise((resolve) => setTimeout(resolve, 100))
         yield {
           eventId: 'event-1',
-          type: EventType.COMPLETION,
+          type: 'completion',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -545,7 +544,7 @@ describe('AgentService', () => {
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
         yield {
           eventId: 'event-1',
-          type: EventType.COMPLETION,
+          type: 'completion',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -580,7 +579,7 @@ describe('AgentService', () => {
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
         yield {
           eventId: 'event-1',
-          type: EventType.STOP,
+          type: 'stop',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -601,7 +600,7 @@ describe('AgentService', () => {
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-1',
-          type: EventType.STOP,
+          type: 'stop',
           isError: false,
           payload: expect.objectContaining({
             message: 'Agent was stopped by user',

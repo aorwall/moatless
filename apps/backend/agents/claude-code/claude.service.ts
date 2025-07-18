@@ -116,7 +116,7 @@ export class ClaudeService {
 
     // Calculate model distribution percentages
     const modelDistribution: Record<string, number> = {}
-    if (currentBlock && currentBlock.perModelStats) {
+    if (currentBlock?.perModelStats) {
       const totalTokens = currentBlock.tokenCounts.total_tokens
       for (const [model, stats] of Object.entries(currentBlock.perModelStats)) {
         if (totalTokens > 0) {
@@ -271,7 +271,7 @@ export class ClaudeService {
 
     // Use configDir from settings if available, otherwise use default
     const claudeConfigDir =
-      claudeSettings.configDir || path.join(require('os').homedir(), '.claude')
+      claudeSettings.configDir || path.join(require('node:os').homedir(), '.claude')
     return path.join(claudeConfigDir, 'projects')
   }
 
@@ -329,21 +329,11 @@ export class ClaudeService {
   }
 
   /**
-   * Get Claude messages file path for a specific task iteration
+   * Get Claude messages file path for a specific agent session
    */
-  public getClaudeMessagesFilePath(
-    task: Task,
-    iteration: import('@moatless/types').TaskIteration,
-    repository?: RepositoryConfig,
-  ): string | null {
-    if (!iteration.agentSessionId) {
-      return null
-    }
-
-    const projectId = this.generateProjectId(task, repository)
+  public getClaudeMessagesFilePath(agentSessionId: string, projectId: string): string {
     const claudeProjectPath = this.getClaudeProjectPath()
-
-    return path.join(claudeProjectPath, projectId, `${iteration.agentSessionId}.jsonl`)
+    return path.join(claudeProjectPath, projectId, `${agentSessionId}.jsonl`)
   }
 
   /**
@@ -357,16 +347,18 @@ export class ClaudeService {
     const allMessages: SDKMessage[] = []
 
     // Process all iterations in chronological order
-    for (const iteration of task.iterations) {
-      const filePath = this.getClaudeMessagesFilePath(task, iteration, repository)
+    const projectId = this.generateProjectId(task, repository)
 
-      if (!filePath) {
-        logger.debug('No Claude file path available for iteration', {
+    for (const iteration of task.iterations) {
+      if (!iteration.agentSessionId) {
+        logger.info('No agent session ID available for iteration', {
           taskId,
           iterationNumber: iteration.iterationNumber,
         })
         continue
       }
+
+      const filePath = this.getClaudeMessagesFilePath(iteration.agentSessionId, projectId)
 
       try {
         const fileContent = await fs.readFile(filePath, 'utf-8')

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dateSchema } from '../utils/validation.js'
 import { GitStatusSchema } from './task.schemas.js'
 
 // ============================================
@@ -26,7 +27,7 @@ export const BaseWorkspaceSchema = z.object({
   type: WorkspaceTypeSchema,
   repositoryId: z.string(),
   status: WorkspaceStateSchema,
-  createdAt: z.date(),
+  createdAt: dateSchema,
   error: z.string().optional(),
 })
 

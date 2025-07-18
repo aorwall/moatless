@@ -27,7 +27,7 @@ export async function setupTestDataDir(prefix = 'workspace-test'): Promise<strin
  */
 export async function cleanupTestDataDir(dataDir?: string): Promise<void> {
   const dir = dataDir || getDataDir()
-  if (dir && dir.includes(tmpdir())) {
+  if (dir?.includes(tmpdir())) {
     try {
       await fs.rm(dir, { recursive: true, force: true })
     } catch (error) {

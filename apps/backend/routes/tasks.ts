@@ -580,29 +580,26 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-      const { task: taskService } = services
 
       const taskId = getTaskId(c)
 
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
+      try {
+        const messages = await services.message.getTaskMessages(taskId)
 
-      // Only support Claude Code tasks with direct directory reading
-      if (task.agentType !== 'claude-code') {
-        throw new HTTPException(400, {
-          message: 'Only Claude Code tasks are supported for message reading',
+        return c.json({
+          messages,
+          totalCount: messages.length,
         })
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message.includes('Task not found')) {
+            throw new TaskNotFoundError(taskId)
+          }
+          // Re-throw other errors for proper handling
+          throw error
+        }
+        throw error
       }
-
-      const messages = await services.message.readMessagesFromClaudeDirectory(task)
-
-      return c.json({
-        messages,
-        totalCount: messages.length,
-      })
     },
   )
 

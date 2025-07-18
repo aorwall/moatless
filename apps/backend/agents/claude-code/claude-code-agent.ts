@@ -1,6 +1,12 @@
 import { query } from '@anthropic-ai/claude-code'
-import type { BranchNameAndSummary, ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/types'
-import { type Event, EventType, type ResultEvent } from '@moatless/types'
+import type {
+  BranchNameAndSummary,
+  ClaudeCodeOptions,
+  ClaudeCodeSDKMessage,
+  Event,
+  ResultEvent,
+} from '@moatless/types'
+
 import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
@@ -86,13 +92,9 @@ export class ClaudeCodeAgent extends BaseAgent {
             isError,
             subtype: 'subtype' in sdkMessage ? sdkMessage.subtype : undefined,
           })
-          yield this.createEventWithContextTokens(
-            sdkMessage,
-            EventType.RESULT,
-            isError,
-          ) as ResultEvent
+          yield this.createEventWithContextTokens(sdkMessage, 'result', isError) as ResultEvent
         } else {
-          yield this.createEventWithContextTokens(sdkMessage, EventType.MESSAGE)
+          yield this.createEventWithContextTokens(sdkMessage, 'message')
         }
       }
 
@@ -165,7 +167,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   private createEventWithContextTokens(
     payload: ClaudeCodeSDKMessage,
-    type: EventType,
+    type: (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE],
     isError = false,
   ): Event {
     const contextTokens = calculateContextTokens(payload)
