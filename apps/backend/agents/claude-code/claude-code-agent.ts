@@ -181,6 +181,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),
+      agentSessionId: payload.session_id,
       isError,
       contextTokens,
       payload,
