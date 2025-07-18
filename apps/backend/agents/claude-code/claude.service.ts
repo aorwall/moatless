@@ -281,15 +281,14 @@ export class ClaudeService {
   public async readClaudeConfig(): Promise<Record<string, any>> {
     const claudeSettings = this.settingsService.getClaudeSettings()
     const claudeConfigDir = claudeSettings.configDir || path.join(os.homedir(), '.claude')
-    const configPath = path.join(claudeConfigDir, 'config.json')
+    const configPath = path.join(claudeConfigDir, '.config.json')
 
     try {
       const configContent = await fs.readFile(configPath, 'utf-8')
       return JSON.parse(configContent)
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        logger.debug('Claude config.json does not exist', { configPath })
-        return {}
+        throw new Error(`Claude config.json file does not exist on path ${configPath}`)
       }
       logger.error('Error reading Claude config.json', error as Error, { configPath })
       throw error
@@ -303,6 +302,7 @@ export class ClaudeService {
     const config = await this.readClaudeConfig()
 
     if (!config.projects || typeof config.projects !== 'object') {
+      logger.warn('Claude config.json does not contain projects object', { config })
       return []
     }
 
