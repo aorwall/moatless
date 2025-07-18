@@ -1,4 +1,3 @@
-import { EventType } from '@moatless/types'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, waitFor } from '@testing-library/react'
 import React from 'react'
@@ -30,7 +29,7 @@ function TestComponent({
   // Subscribe to test events
   React.useEffect(() => {
     const unsubscribeTask = subscribeToTask('task-123', onEvent)
-    const unsubscribeType = subscribeToType(EventType.TASK_STATUS, onEvent)
+    const unsubscribeType = subscribeToType('task_status', onEvent)
 
     return () => {
       unsubscribeTask()
@@ -111,7 +110,7 @@ describe('GlobalEventStreamProvider', () => {
     // Simulate a task status event
     const taskStatusEvent = {
       id: 'event-1',
-      type: EventType.TASK_STATUS,
+      type: 'task_status',
       taskId: 'task-123',
       timestamp: Date.now(),
       data: { status: 'running', previousStatus: 'created' },
@@ -152,7 +151,7 @@ describe('GlobalEventStreamProvider', () => {
     // Simulate events for different tasks
     const task1Event = {
       id: 'event-1',
-      type: EventType.TASK_STATUS,
+      type: 'task_status',
       taskId: 'task-123',
       timestamp: Date.now(),
       data: { status: 'running' },
@@ -160,7 +159,7 @@ describe('GlobalEventStreamProvider', () => {
 
     const task2Event = {
       id: 'event-2',
-      type: EventType.RESULT,
+      type: 'result',
       taskId: 'task-456',
       timestamp: Date.now(),
       data: { result: 'completed' },
@@ -209,7 +208,7 @@ describe('GlobalEventStreamProvider', () => {
     // Simulate a legacy event with subType
     const legacyEvent = {
       id: 'event-1',
-      type: EventType.MESSAGE,
+      type: 'message',
       taskId: 'task-789',
       subType: 'task:created',
       timestamp: Date.now(),
@@ -248,7 +247,7 @@ describe('GlobalEventStreamProvider', () => {
     // Non-status-affecting event
     const workspaceEvent = {
       id: 'event-1',
-      type: EventType.WORKSPACE,
+      type: 'workspace',
       taskId: 'task-111',
       timestamp: Date.now(),
       data: {},

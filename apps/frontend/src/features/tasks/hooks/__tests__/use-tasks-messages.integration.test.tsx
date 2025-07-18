@@ -47,7 +47,7 @@ const mockMessages: Message[] = [
 // Setup MSW server
 const server = setupServer(
   // Success response
-  http.get('/api/v1/tasks/:taskId/messages', ({ params }) => {
+  http.get('http://localhost:8000/api/v1/tasks/:taskId/messages', ({ params }) => {
     const { taskId } = params as { taskId: string }
 
     if (taskId === 'valid-task') {

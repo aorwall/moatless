@@ -1,5 +1,4 @@
 import type { Event } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
@@ -14,7 +13,7 @@ describe('ToolCallEvent', () => {
     toolResult?: Event,
   ): MergedEvent => ({
     eventId: 'test-event',
-    type: EventType.MESSAGE,
+    type: 'message',
     subType: 'tool_call',
     taskId: 'test-task',
     iterationId: 1,
@@ -55,7 +54,7 @@ describe('ToolCallEvent', () => {
   it('should render tool call with result', () => {
     const toolResult: Event = {
       eventId: 'result-event',
-      type: EventType.MESSAGE,
+      type: 'message',
       subType: '',
       taskId: 'test-task',
       iterationId: 1,
@@ -97,7 +96,7 @@ describe('ToolCallEvent', () => {
 
     const toolResult: Event = {
       eventId: 'result-event',
-      type: EventType.MESSAGE,
+      type: 'message',
       subType: '',
       taskId: 'test-task',
       iterationId: 1,
@@ -138,7 +137,7 @@ describe('ToolCallEvent', () => {
   it('should use dark background for tool results', () => {
     const toolResult: Event = {
       eventId: 'result-event',
-      type: EventType.MESSAGE,
+      type: 'message',
       subType: '',
       taskId: 'test-task',
       iterationId: 1,

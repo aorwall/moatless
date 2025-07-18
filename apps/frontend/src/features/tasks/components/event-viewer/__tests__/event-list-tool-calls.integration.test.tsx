@@ -1,5 +1,4 @@
 import type { Event, MessageEvent, ToolUseContent } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -34,7 +33,7 @@ describe('EventList Tool Calls', () => {
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
         agentType: 'claude-code',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_call',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
@@ -44,7 +43,7 @@ describe('EventList Tool Calls', () => {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -89,7 +88,7 @@ describe('EventList Tool Calls', () => {
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
         agentType: 'claude-code',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_call',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
@@ -99,7 +98,7 @@ describe('EventList Tool Calls', () => {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -118,7 +117,7 @@ describe('EventList Tool Calls', () => {
       {
         eventId: '93d6016e-b264-4be3-b045-2fad6884abea',
         agentType: 'claude-code',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_result',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
@@ -153,7 +152,7 @@ describe('EventList Tool Calls', () => {
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
         agentType: 'claude-code',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:32.511Z'),
@@ -162,7 +161,7 @@ describe('EventList Tool Calls', () => {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
