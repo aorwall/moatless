@@ -1,5 +1,4 @@
 import type { Event } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
@@ -8,7 +7,7 @@ import { MessageEvent } from '../message-event'
 describe('MessageEvent', () => {
   const createMessageEvent = (payload: Record<string, unknown>): Event => ({
     eventId: 'test-event',
-    type: EventType.MESSAGE,
+    type: 'message',
     subType: '',
     taskId: 'test-task',
     iterationId: 1,
@@ -222,7 +221,7 @@ describe('MessageEvent', () => {
     it('should handle SDK assistant message with content array', () => {
       const event: Event = {
         eventId: 'e81f1d4c-d470-4bf0-bf53-8e20468fb922',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
@@ -232,7 +231,7 @@ describe('MessageEvent', () => {
           type: 'assistant',
           message: {
             id: 'msg_01CXrZbZ8ia8wwcoxJKnAQ64',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -269,7 +268,7 @@ describe('MessageEvent', () => {
     it('should handle SDK tool use message', () => {
       const event: Event = {
         eventId: 'b9e99242-2bef-4dc9-b47a-56028303a971',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.552Z'),
@@ -279,7 +278,7 @@ describe('MessageEvent', () => {
           type: 'assistant',
           message: {
             id: 'msg_01CXrZbZ8ia8wwcoxJKnAQ64',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -317,7 +316,7 @@ describe('MessageEvent', () => {
     it('should handle SDK user message with tool result', () => {
       const event: Event = {
         eventId: 'a2370d8d-c3de-4e31-8ebb-77a91eb27cfc',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:38.105Z'),
@@ -350,7 +349,7 @@ describe('MessageEvent', () => {
     it('should handle SDK message with multiple content items', () => {
       const event: Event = {
         eventId: 'test-multiple-content',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: 'test-task',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
@@ -360,7 +359,7 @@ describe('MessageEvent', () => {
           type: 'assistant',
           message: {
             id: 'msg_test',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -398,7 +397,7 @@ describe('MessageEvent', () => {
     it('should handle SDK message with empty content array', () => {
       const event: Event = {
         eventId: 'test-empty-content',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: 'test-task',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
@@ -408,7 +407,7 @@ describe('MessageEvent', () => {
           type: 'assistant',
           message: {
             id: 'msg_test',
-            type: EventType.MESSAGE,
+            type: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [],
@@ -430,7 +429,7 @@ describe('MessageEvent', () => {
     it('should correctly identify role from payload.type when message.role differs', () => {
       const event: Event = {
         eventId: 'test-role-priority',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: 'test-task',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
