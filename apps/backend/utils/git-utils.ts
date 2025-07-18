@@ -734,12 +734,27 @@ export async function createGitWorktree(
         })
       }
     } else if (newBranchName) {
-      // Create new branch for worktree
-      logger.debug('Creating new branch for worktree', { branch: newBranchName })
-      await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
-        cwd: repoPath,
-        timeout: 30000,
-      })
+      // Check if the new branch already exists
+      const branches = await getBranchList(repoPath)
+      const branchExists = branches.includes(newBranchName)
+
+      if (branchExists) {
+        // Branch already exists, use it without -b flag
+        logger.debug('Branch already exists, using existing branch for worktree', {
+          branch: newBranchName,
+        })
+        await execAsync(`git worktree add "${workspacePath}" "${newBranchName}"`, {
+          cwd: repoPath,
+          timeout: 30000,
+        })
+      } else {
+        // Create new branch for worktree
+        logger.debug('Creating new branch for worktree', { branch: newBranchName })
+        await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
+          cwd: repoPath,
+          timeout: 30000,
+        })
+      }
     } else {
       throw new Error('Either branchName or newBranchName must be provided')
     }

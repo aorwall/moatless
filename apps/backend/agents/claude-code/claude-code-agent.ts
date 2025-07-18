@@ -4,8 +4,10 @@ import type {
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
+  EventTypeSchema,
   ResultEvent,
 } from '@moatless/types'
+import type { z } from 'zod'
 
 import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
@@ -167,7 +169,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   private createEventWithContextTokens(
     payload: ClaudeCodeSDKMessage,
-    type: (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE],
+    type: z.infer<typeof EventTypeSchema>,
     isError = false,
   ): Event {
     const contextTokens = calculateContextTokens(payload)
