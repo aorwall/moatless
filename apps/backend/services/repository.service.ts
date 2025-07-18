@@ -15,6 +15,8 @@ import {
   RepositoryNotFoundError,
   ValidationError,
 } from '@moatless/types'
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { isRegularGitRepository } from '../utils/git-utils.js'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
@@ -22,12 +24,18 @@ import type { WorkspaceService } from './workspace.service.js'
 
 export class RepositoryService {
   private workspaceService?: WorkspaceService
+  private claudeService?: ClaudeService
 
   constructor(private storage: StorageBackend) {}
 
   // Setter for WorkspaceService to avoid circular dependency
   setWorkspaceService(workspaceService: WorkspaceService): void {
     this.workspaceService = workspaceService
+  }
+
+  // Setter for ClaudeService
+  setClaudeService(claudeService: ClaudeService): void {
+    this.claudeService = claudeService
   }
 
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
@@ -449,6 +457,55 @@ export class RepositoryService {
     }
 
     return undefined
+  }
+
+  /**
+   * Get suggested repositories from Claude projects
+   */
+  async getSuggestedRepositories(onlyGitRepos = true): Promise<{ name: string; path: string }[]> {
+    if (!this.claudeService) {
+      throw new Error('ClaudeService not available')
+    }
+
+    try {
+      // Get all project directories from Claude config
+      const projectPaths = await this.claudeService.getClaudeProjectDirectories()
+      const suggestions: { name: string; path: string }[] = []
+
+      for (const projectPath of projectPaths) {
+        try {
+          // Check if the path exists
+          const stats = await fs.stat(projectPath)
+          if (!stats.isDirectory()) {
+            continue
+          }
+
+          // If onlyGitRepos is true, check if it's a git repository (not a worktree)
+          if (onlyGitRepos) {
+            const isGitRepo = await isRegularGitRepository(projectPath)
+            if (!isGitRepo) {
+              continue
+            }
+          }
+
+          // Extract the directory name as the repository name
+          const name = path.basename(projectPath)
+          suggestions.push({ name, path: projectPath })
+        } catch (error) {
+          // Skip paths that don't exist or can't be accessed
+          logger.debug('Failed to check project path', {
+            path: projectPath,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+
+      // Sort by name
+      return suggestions.sort((a, b) => a.name.localeCompare(b.name))
+    } catch (error) {
+      logger.error('Failed to get suggested repositories', error as Error)
+      return []
+    }
   }
 
   /**

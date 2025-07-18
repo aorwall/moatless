@@ -3,6 +3,7 @@ import {
   CreateRepositorySchema,
   FileSearchSchema,
   RepositoryNotFoundError,
+  SuggestedRepositoriesResponseSchema,
   UpdateRepositorySchema,
   VerificationResponseSchema,
 } from '@moatless/types'
@@ -150,6 +151,45 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
 
       const repositories = await repositoryService.listRepositories()
       return c.json({ repositories } as RepositoryList)
+    },
+  )
+
+  // Get suggested repositories from Claude projects
+  // IMPORTANT: This must be registered before dynamic routes like /:repositoryId
+  app.get(
+    `${prefix}/suggestions`,
+    describeRoute({
+      description: 'Get suggested repositories from Claude projects',
+      parameters: [
+        {
+          name: 'onlyGitRepos',
+          in: 'query',
+          required: false,
+          description: 'Filter to only show git repositories (exclude worktrees)',
+          schema: {
+            type: 'boolean',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'List of suggested repositories',
+          content: {
+            'application/json': {
+              schema: resolver(SuggestedRepositoriesResponseSchema),
+            },
+          },
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { repository: repositoryService } = services
+
+      const onlyGitRepos = c.req.query('onlyGitRepos') !== 'false' // Default to true
+      const suggestions = await repositoryService.getSuggestedRepositories(onlyGitRepos)
+
+      return c.json({ suggestions })
     },
   )
 

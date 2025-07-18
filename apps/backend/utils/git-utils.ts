@@ -257,6 +257,31 @@ export async function isGitRepository(repoPath: string): Promise<boolean> {
   }
 }
 
+/**
+ * Check if a directory is a git repository (not a worktree)
+ * @param repoPath - The path to check
+ * @returns true if it's a regular git repository, false if it's a worktree or not a git repo
+ */
+export async function isRegularGitRepository(repoPath: string): Promise<boolean> {
+  try {
+    // First check if it's a git repository at all
+    const isRepo = await isGitRepository(repoPath)
+    if (!isRepo) {
+      return false
+    }
+
+    // Check if it's a worktree by examining the .git path
+    const gitPath = path.join(repoPath, '.git')
+    const stat = await fs.stat(gitPath)
+
+    // In a regular repository, .git is a directory
+    // In a worktree, .git is a file pointing to the actual git directory
+    return stat.isDirectory()
+  } catch {
+    return false
+  }
+}
+
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
   try {
     await execAsync(`git checkout -b "${branchName}"`, {

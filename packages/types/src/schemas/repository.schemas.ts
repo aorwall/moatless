@@ -101,6 +101,16 @@ export const FileSearchSchema = z.object({
 // Repository verification returns workspace status
 export const VerificationResponseSchema = WorkspaceStatusResponseSchema
 
+// Suggested repository schema
+export const SuggestedRepositorySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+})
+
+export const SuggestedRepositoriesResponseSchema = z.object({
+  suggestions: z.array(SuggestedRepositorySchema),
+})
+
 // Type exports
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
@@ -109,3 +119,5 @@ export type ScriptInjectionStrategy = z.infer<typeof ScriptInjectionStrategySche
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type VerificationResponse = z.infer<typeof VerificationResponseSchema>
+export type SuggestedRepository = z.infer<typeof SuggestedRepositorySchema>
+export type SuggestedRepositoriesResponse = z.infer<typeof SuggestedRepositoriesResponseSchema>

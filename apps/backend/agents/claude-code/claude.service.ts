@@ -275,6 +275,42 @@ export class ClaudeService {
   }
 
   /**
+   * Read Claude config.json file and return as object
+   */
+  public async readClaudeConfig(): Promise<Record<string, any>> {
+    const claudeSettings = this.settingsService.getClaudeSettings()
+    const claudeConfigDir =
+      claudeSettings.configDir || path.join(require('os').homedir(), '.claude')
+    const configPath = path.join(claudeConfigDir, 'config.json')
+
+    try {
+      const configContent = await fs.readFile(configPath, 'utf-8')
+      return JSON.parse(configContent)
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        logger.debug('Claude config.json does not exist', { configPath })
+        return {}
+      }
+      logger.error('Error reading Claude config.json', error as Error, { configPath })
+      throw error
+    }
+  }
+
+  /**
+   * Get all project directories from Claude config
+   */
+  public async getClaudeProjectDirectories(): Promise<string[]> {
+    const config = await this.readClaudeConfig()
+
+    if (!config.projects || typeof config.projects !== 'object') {
+      return []
+    }
+
+    // Extract all keys from the projects object, which are the file paths
+    return Object.keys(config.projects)
+  }
+
+  /**
    * Generate project ID from path, using repository path for docker environments
    */
   public generateProjectId(task: Task, repository?: RepositoryConfig): string {

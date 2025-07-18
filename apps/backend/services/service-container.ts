@@ -90,6 +90,9 @@ export async function createServiceContainer(
   // Set workspace service on repository service for verification
   container.repository.setWorkspaceService(container.workspace)
 
+  // Set claude service on repository service for suggested repositories
+  container.repository.setClaudeService(container.claude)
+
   // 4. Event service needs claude service
   container.event = createEventService(container.storage, container.claude)
 
