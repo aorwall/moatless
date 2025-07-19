@@ -526,6 +526,137 @@ const mockStorage = createMockStorageBackend({
 })
 ```
 
+## 🧹 **Phase 5: Test Cleanup and Consolidation**
+
+### **Files/Tests Identified for Removal**
+
+#### **Obsolete Skipped Tests** 
+These tests are skipped with clear removal indicators and should be deleted:
+
+1. **`complete-workflow.integration.test.ts:491`**
+   ```typescript
+   it.skip('should track agent status changes during execution - REMOVED: agent status no longer part of API', async () => {
+   ```
+   - **Reason**: Agent status functionality removed from API
+   - **Action**: Delete this entire test block (lines 491-580+)
+
+2. **`worker-api.integration.test.ts:226`**
+   ```typescript
+   it.skip('should start worker mode and fetch task/repository from API - SKIPPED: Worker workspace initialization needs refactoring', async () => {
+   ```
+   - **Reason**: Worker workspace initialization needs refactoring
+   - **Action**: Delete or fix the test, don't leave it skipped indefinitely
+
+#### **Redundant Mock Files**
+After implementing shared mock factories, these files have overlapping functionality:
+
+1. **`/apps/backend/test/mocks/workspace.mock.ts`**
+   - **Overlaps with**: New environment.mock.ts and services.mock.ts
+   - **Contains**: Agent, Environment, and Workspace mocks
+   - **Action**: Consolidate functions into shared mocks, then delete
+   - **Migration**: 
+     - Move `createMockAgent()` → services.mock.ts
+     - Move workspace functions → environment.mock.ts  
+     - Update imports in dependent test files
+
+2. **`/apps/backend/test/mocks/git-utils.mock.ts`**
+   - **Status**: Keep - specialized git utility mocks
+   - **Action**: No removal needed, but could benefit from consolidation
+
+#### **Skipped Tests Requiring Decision**
+
+**SSE/Events Tests** (8 skipped tests in events-global-stream.integration.test.ts):
+```typescript
+it.skip('should establish SSE connection and set proper headers', async () => {
+it.skip('should register global connection with SSE manager', async () => {
+// ... 6 more skipped SSE tests
+```
+- **Reason**: Unclear why skipped - may be infrastructure related  
+- **Action**: **Investigate and either fix or remove** - don't leave permanently skipped
+- **Priority**: Medium - affects real-time functionality
+
+**Rate Limiting Test** (error-handling.integration.test.ts:114):
+```typescript
+it.skip('should return 429 when rate limit is exceeded', async () => {
+```
+- **Reason**: Rate limiting not implemented or needs refactoring
+- **Action**: **Remove if rate limiting not planned**, or implement properly
+
+#### **Workspace Setup Tests** (2 skipped tests):
+```typescript
+// workspace.unit.test.ts:252
+it.skip('should handle workspace setup failures', async () => {
+
+// agent-workspace-recreation tests (2 files)
+it.skip('should throw error if workspace recreation fails', async () => {
+```
+- **Reason**: Workspace failure handling needs implementation
+- **Action**: **Implement proper error handling** or remove if not needed
+
+### **Task 5.1: Remove Obsolete Tests**
+**Priority**: Medium  
+**Files to Update**:
+
+1. **Remove confirmed obsolete tests**:
+   - Delete agent status test in complete-workflow.integration.test.ts
+   - Remove or fix worker initialization test
+
+2. **Investigate skipped tests**:
+   - SSE tests: Fix infrastructure or remove if not needed
+   - Rate limiting: Remove if not implementing feature
+   - Workspace error handling: Implement or remove
+
+### **Task 5.2: Consolidate Mock Files**
+**Priority**: Medium  
+**Dependencies**: Task 3.2 (Replace inline mocks)
+
+1. **Migrate workspace.mock.ts functions**:
+   ```typescript
+   // Move to services.mock.ts
+   export { createMockAgent } from '../test/mocks/services.mock.js'
+   
+   // Move to environment.mock.ts  
+   export { createMockWorkspace, createMockDockerWorkspace } from '@moatless/types/test-utils'
+   ```
+
+2. **Update dependent files** (7+ files import workspace.mock.ts):
+   ```bash
+   # Find files importing workspace.mock.ts
+   grep -r "workspace\.mock" apps/backend --include="*.ts"
+   ```
+
+3. **Delete workspace.mock.ts** after migration complete
+
+### **Task 5.3: Standardize Skip Patterns**
+**Priority**: Low
+
+**Current skip patterns found**:
+- `it.skip('description - REMOVED: reason')` ✅ Good - clear removal reason
+- `it.skip('description - SKIPPED: reason')` ❌ Unclear - needs decision  
+- `it.skip('description')` ❌ Bad - no reason given
+
+**Standard pattern to enforce**:
+```typescript
+// For tests to be removed
+it.skip('test name - REMOVE: specific reason why obsolete', async () => {
+
+// For tests temporarily disabled (should be rare)
+it.skip('test name - TODO: what needs to be implemented/fixed', async () => {
+```
+
+### **Benefits of Cleanup**:
+1. **Reduced maintenance burden** - no dead code to maintain
+2. **Clearer test intent** - only valid, working tests remain  
+3. **Improved CI speed** - fewer skipped tests to process
+4. **Better developer experience** - no confusion about test status
+5. **Consolidated mocking** - single source of truth for test data
+
+### **Cleanup Success Criteria**:
+- [ ] Zero skipped tests without clear removal/fix timeline
+- [ ] No duplicate mock implementations
+- [ ] All test files have clear purpose and work correctly
+- [ ] No `.skip()` tests older than 30 days without resolution plan
+
 ## Migration Checklist
 
 ### Per Test File Checklist
