@@ -19,7 +19,6 @@ import { Route as RepositoriesIndexRouteImport } from './routes/repositories/ind
 import { Route as CommandsIndexRouteImport } from './routes/commands/index'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as RepositoriesNewRouteImport } from './routes/repositories/new'
-import { Route as RepositoriesRepositoryIdRouteImport } from './routes/repositories/$repositoryId'
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as CommandsCommandNameRouteImport } from './routes/commands/$commandName'
 
@@ -73,12 +72,6 @@ const RepositoriesNewRoute = RepositoriesNewRouteImport.update({
   path: '/new',
   getParentRoute: () => RepositoriesRoute,
 } as any)
-const RepositoriesRepositoryIdRoute =
-  RepositoriesRepositoryIdRouteImport.update({
-    id: '/$repositoryId',
-    path: '/$repositoryId',
-    getParentRoute: () => RepositoriesRoute,
-  } as any)
 const CommandsNewRoute = CommandsNewRouteImport.update({
   id: '/commands/new',
   path: '/commands/new',
@@ -98,7 +91,6 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof TasksRouteWithChildren
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
-  '/repositories/$repositoryId': typeof RepositoriesRepositoryIdRoute
   '/repositories/new': typeof RepositoriesNewRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands': typeof CommandsIndexRoute
@@ -111,7 +103,6 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
-  '/repositories/$repositoryId': typeof RepositoriesRepositoryIdRoute
   '/repositories/new': typeof RepositoriesNewRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands': typeof CommandsIndexRoute
@@ -127,7 +118,6 @@ export interface FileRoutesById {
   '/tasks': typeof TasksRouteWithChildren
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
-  '/repositories/$repositoryId': typeof RepositoriesRepositoryIdRoute
   '/repositories/new': typeof RepositoriesNewRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands/': typeof CommandsIndexRoute
@@ -144,7 +134,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/commands/$commandName'
     | '/commands/new'
-    | '/repositories/$repositoryId'
     | '/repositories/new'
     | '/tasks/$taskId'
     | '/commands'
@@ -157,7 +146,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/commands/$commandName'
     | '/commands/new'
-    | '/repositories/$repositoryId'
     | '/repositories/new'
     | '/tasks/$taskId'
     | '/commands'
@@ -172,7 +160,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/commands/$commandName'
     | '/commands/new'
-    | '/repositories/$repositoryId'
     | '/repositories/new'
     | '/tasks/$taskId'
     | '/commands/'
@@ -263,13 +250,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RepositoriesNewRouteImport
       parentRoute: typeof RepositoriesRoute
     }
-    '/repositories/$repositoryId': {
-      id: '/repositories/$repositoryId'
-      path: '/$repositoryId'
-      fullPath: '/repositories/$repositoryId'
-      preLoaderRoute: typeof RepositoriesRepositoryIdRouteImport
-      parentRoute: typeof RepositoriesRoute
-    }
     '/commands/new': {
       id: '/commands/new'
       path: '/commands/new'
@@ -288,13 +268,11 @@ declare module '@tanstack/react-router' {
 }
 
 interface RepositoriesRouteChildren {
-  RepositoriesRepositoryIdRoute: typeof RepositoriesRepositoryIdRoute
   RepositoriesNewRoute: typeof RepositoriesNewRoute
   RepositoriesIndexRoute: typeof RepositoriesIndexRoute
 }
 
 const RepositoriesRouteChildren: RepositoriesRouteChildren = {
-  RepositoriesRepositoryIdRoute: RepositoriesRepositoryIdRoute,
   RepositoriesNewRoute: RepositoriesNewRoute,
   RepositoriesIndexRoute: RepositoriesIndexRoute,
 }

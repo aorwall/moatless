@@ -1,10 +1,9 @@
 // Dialog components
-export type { ConfigurationSection } from './configuration-dialog'
-export {
-  ConfigurationDialog,
-  MobileConfigurationDialog,
-  ResponsiveConfigurationDialog,
-} from './configuration-dialog'
+export type {
+  ConfigurationDialogProps,
+  ConfigurationSection,
+} from './configuration-dialog-responsive'
+export { default as ResponsiveConfigurationDialog } from './configuration-dialog-responsive'
 export { ConfigurationGroup } from './configuration-group'
 export { ConfigurationItem } from './configuration-item'
 // Layout components
