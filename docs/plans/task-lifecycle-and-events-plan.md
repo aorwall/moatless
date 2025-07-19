@@ -140,8 +140,8 @@ Use a **hybrid approach** where components only appear in the response when they
 
 **Add to EVENT_INVALIDATION_MAP**:
 ```typescript
-environment: [queryKeys.tasks.workspaceStatus],
-agent: [queryKeys.tasks.workspaceStatus, queryKeys.tasks.detail]
+environment: [queryKeys.tasks.detail], // Since workspace status is now in task response
+agent: [queryKeys.tasks.detail]
 ```
 
 ### Expand Status Affecting Events
@@ -418,15 +418,21 @@ export function getTaskStatusDisplay(task: Task, workspaceStatus?: WorkspaceStat
 ### Backend Tasks
 
 - [ ] **Remove Task "Running" Status**
-  - [ ] Remove `updateTaskStatus(task.id, 'running')` from `apps/backend/services/agent.service.ts:126`
+  - [ ] Remove `updateTaskStatus(task.id, 'running')` from `apps/backend/services/agent.service.ts:131` (lines 129-150)
   - [ ] Search for and remove any other instances of setting task status to "running"
   - [ ] Ensure task status only uses: `open`, `closed`, `error`
 
 - [ ] **Add EventService to Environments**
   - [ ] Update `BaseEnvironment` to accept optional EventService
   - [ ] Add `emitStatusChange()` method to BaseEnvironment
-  - [ ] Update `LocalEnvironment` constructor and emit events in `setup()`
-  - [ ] Update `DockerEnvironment` constructor and emit events in `setup()` and `cleanup()`
+  - [ ] Update `LocalEnvironment` constructor and emit events in `setup()`:
+    - [ ] Line 40: After `this.status = 'initializing'` → emit event
+    - [ ] Line 43: After `this.status = 'ready'` → emit event  
+    - [ ] Line 44: After `this.status = 'error'` → emit event with error details
+  - [ ] Update `DockerEnvironment` constructor and emit events in `setup()` and `cleanup()`:
+    - [ ] Line 40: After `this.status = 'initializing'` → emit event
+    - [ ] Line 42: After `this.status = 'ready'` → emit event
+    - [ ] Error handling in `setup()` → emit event with error details
 
 - [ ] **Pass EventService Through Dependency Chain**
   - [ ] Update `Workspace` class constructor to accept EventService
@@ -437,8 +443,9 @@ export function getTaskStatusDisplay(task: Task, workspaceStatus?: WorkspaceStat
 ### Frontend Tasks
 
 - [ ] **Update Event Handlers**
-  - [ ] Add `environment` to `EVENT_INVALIDATION_MAP` in `event-handlers.ts`
-  - [ ] Update `STATUS_AFFECTING_EVENTS` to include `result`, `workspace`, `environment`
+  - [ ] Add `environment: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP` in `event-handlers.ts`
+  - [ ] Add `agent: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP`
+  - [ ] Update `STATUS_AFFECTING_EVENTS` to include `result`, `workspace`, `environment`, `agent`
 
 - [ ] **Update Task Status Display**
   - [ ] Remove any logic that tracks task "running" status
@@ -516,6 +523,52 @@ export function getTaskStatusDisplay(task: Task, workspaceStatus?: WorkspaceStat
   - [ ] No excessive re-renders from event handling
   - [ ] Query invalidations are targeted, not global
   - [ ] Response payload sizes are appropriate
+
+## Concrete Implementation Patterns
+
+### Environment Event Emission Pattern
+
+```typescript
+// In LocalEnvironment.setup()
+async setup(): Promise<void> {
+  const previousStatus = this.status;
+  this.status = 'initializing';
+  await this.emitStatusChange(this.status, previousStatus);
+  
+  try {
+    // ... setup logic ...
+    
+    const readyPreviousStatus = this.status;
+    this.status = 'ready';
+    await this.emitStatusChange(this.status, readyPreviousStatus);
+  } catch (error) {
+    const errorPreviousStatus = this.status;
+    this.status = 'error';
+    await this.emitStatusChange(this.status, errorPreviousStatus, error);
+    throw error;
+  }
+}
+```
+
+### Event Flow Sequence
+
+```
+Environment Status Change
+    ↓
+Emit 'environment' event (Backend)
+    ↓
+SSE delivers event to Frontend
+    ↓
+GlobalEventStream receives event
+    ↓
+Event handler maps to query keys
+    ↓
+React Query invalidates:
+  - queryKeys.tasks.detail(taskId) // Since workspace status is in task response
+  - queryKeys.tasks.lists() (if status-affecting)
+    ↓
+Components re-render with fresh data
+```
 
 ## Success Criteria
 
