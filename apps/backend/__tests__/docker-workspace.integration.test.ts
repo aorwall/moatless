@@ -17,7 +17,7 @@ import { logger } from '../utils/logger.js'
 const execAsync = promisify(exec)
 
 /**
- * E2E Test for Docker Workspace with ClaudeCodeAgent
+ * Integration test for Docker Workspace with ClaudeCodeAgent
  *
  * This test validates the complete Docker workspace workflow including:
  * - Repository creation with Docker workspace type
@@ -37,7 +37,7 @@ const execAsync = promisify(exec)
  * - If Claude is not authenticated, the test will still validate infrastructure
  */
 
-describe('Docker Workspace E2E Test', () => {
+describe('Docker Workspace Integration Test (broad)', () => {
   let app: any
   let tempDir: string
   let createdRepositoryId: string
@@ -157,7 +157,7 @@ describe('Docker Workspace E2E Test', () => {
   it('should complete the full Docker workflow: create repository, create task, execute in container, and verify results', async () => {
     // Step 1: Create repository with Docker workspace configuration
     const createRepositoryRequest: CreateRepositoryRequest = {
-      name: 'Docker E2E Test Repository',
+      name: 'Docker Integration Test Repository',
       description: 'Test repository for Docker workspace validation',
       path: tempDir,
       useGitWorktrees: false,
@@ -449,7 +449,7 @@ describe('Docker Workspace E2E Test', () => {
     const messageEvents = allEvents.filter((e: Event) => e.type === 'message')
     expect(messageEvents.length).toBeGreaterThan(0)
 
-    console.log('✅ Docker workspace E2E test completed successfully:', {
+    console.log('✅ Docker workspace integration test completed successfully:', {
       totalEvents: allEvents.length,
       workspaceEvents: dockerWorkspaceEvents.length,
       messageEvents: messageEvents.length,
@@ -463,7 +463,7 @@ describe('Docker Workspace E2E Test', () => {
   it('should handle multiple tasks with Docker workspaces concurrently', async () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
-      name: 'Docker E2E Test Repository - Concurrent',
+      name: 'Docker Integration Test Repository - Concurrent',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
@@ -537,7 +537,7 @@ describe('Docker Workspace E2E Test', () => {
   it('should properly clean up Docker containers on task deletion', async () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
-      name: 'Docker E2E Test Repository - Cleanup',
+      name: 'Docker Integration Test Repository - Cleanup',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
@@ -610,7 +610,7 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
   const readmePath = path.join(tempDir, 'README.md')
   await fs.writeFile(
     readmePath,
-    '# Docker Test Repository\n\nThis is a test repository for Docker workspace E2E testing.\n',
+    '# Docker Test Repository\n\nThis is a test repository for Docker workspace integration testing.\n',
   )
 
   // Add and commit initial file

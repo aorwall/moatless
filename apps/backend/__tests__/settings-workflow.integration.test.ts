@@ -14,7 +14,7 @@ vi.mock('../utils/logger.js', () => ({
   },
 }))
 
-describe('Settings Workflow E2E', () => {
+describe('Settings Workflow Integration (broad)', () => {
   let app: Awaited<ReturnType<typeof build>>
   let tempDir: string
   let originalEnv: NodeJS.ProcessEnv

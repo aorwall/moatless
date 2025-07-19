@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 
-describe('Repository Suggestions - E2E Tests', () => {
+describe('Repository Suggestions - Integration Tests (broad)', () => {
   let app: any
 
   beforeEach(async () => {

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../test/helper.js'
 
 /**
- * E2E Test for Preview Environment Graceful Shutdown
+ * Integration test for Preview Environment Graceful Shutdown
  *
  * This test verifies that the graceful shutdown functionality:
  * - Stops all running preview environment servers

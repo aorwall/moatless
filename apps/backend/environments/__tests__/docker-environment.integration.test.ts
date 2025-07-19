@@ -29,7 +29,7 @@ const mockFindAvailablePort = vi.mocked(findAvailablePort)
  * - Docker must be installed and running
  * - User must have permissions to run Docker commands
  *
- * Note: These are integration tests, not E2E tests. They test only
+ * Note: These are integration tests, not end-to-end tests. They test only
  * DockerEnvironment + Docker, not the full application workflow.
  */
 describe('DockerEnvironment - Integration Tests', () => {

@@ -13,7 +13,7 @@ import { build } from '../test/helper.js'
 import { logger } from '../utils/logger.js'
 
 /**
- * E2E Test using Real ClaudeCodeAgent
+ * Integration test using Real ClaudeCodeAgent
  *
  * This test uses the actual ClaudeCodeAgent instead of mocks, providing a fully realistic
  * test repository. The ClaudeCodeAgent will run using the @anthropic-ai/claude-code SDK
@@ -36,7 +36,7 @@ import { logger } from '../utils/logger.js'
  * 2. Run "pnpm test complete-workflow-e2e"
  */
 
-describe('Complete Workflow E2E Test', () => {
+describe('Complete Workflow Integration Test (broad)', () => {
   let app: any
   let tempDir: string
   let createdRepositoryId: string
@@ -125,7 +125,7 @@ describe('Complete Workflow E2E Test', () => {
   it('should complete the full workflow: create repository, create task, execute, and verify results', async () => {
     // Step 1: Create repository with temporary git repository
     const createRepositoryRequest: CreateRepositoryRequest = {
-      name: 'E2E Test Repository',
+      name: 'Integration Test Repository',
       description: 'Test repository for complete workflow validation',
       path: tempDir,
       useGitWorktrees: false,
@@ -398,7 +398,7 @@ describe('Complete Workflow E2E Test', () => {
   it('should handle task creation without immediate start', async () => {
     // Create repository first
     const createRepositoryRequest: CreateRepositoryRequest = {
-      name: 'E2E Test Repository - No Start',
+      name: 'Integration Test Repository - No Start',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
@@ -491,7 +491,7 @@ describe('Complete Workflow E2E Test', () => {
   it.skip('should track agent status changes during execution - REMOVED: agent status no longer part of API', async () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
-      name: 'E2E Test Repository - Status Tracking',
+      name: 'Integration Test Repository - Status Tracking',
       path: tempDir,
       useGitWorktrees: false,
       codeExecution: {
@@ -567,7 +567,7 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
   const readmePath = path.join(tempDir, 'README.md')
   await fs.writeFile(
     readmePath,
-    '# Test Repository\n\nThis is a test repository for E2E testing.\n',
+    '# Test Repository\n\nThis is a test repository for integration testing.\n',
   )
 
   // Add and commit initial file
