@@ -22,7 +22,7 @@ HAS_ERRORS=0
 
 # Run biome check with formatting
 echo "${YELLOW}📝 Running Biome formatter and linter...${NC}"
-if pnpm exec biome check --write --diagnostic-level=error "$@"; then
+if bun exec biome check --write --diagnostic-level=error "$@"; then
   echo "${GREEN}✓ Biome check passed${NC}"
 else
   echo ""
@@ -36,7 +36,7 @@ echo ""
 
 # Run TypeScript type checking
 echo "${YELLOW}🔍 Running TypeScript type check...${NC}"
-if pnpm type:check; then
+if turbo run type:check; then
   echo "${GREEN}✓ TypeScript type check passed${NC}"
 else
   echo ""

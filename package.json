@@ -12,12 +12,11 @@
     "url": "https://github.com/aorwall/moatless-vibe/issues"
   },
   "homepage": "https://github.com/aorwall/moatless-vibe#readme",
-  "type": "module",
   "engines": {
     "node": ">=22.16.x"
   },
-  "packageManager": "pnpm@10.7.1",
-  "pnpm": {
+  "packageManager": "bun@1.2.10",
+  "bun": {
     "onlyBuiltDependencies": [
       "@tailwindcss/oxide",
       "sharp"
@@ -39,24 +38,24 @@
     "dev": "node scripts/dev-with-port.js",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
-    "build:package": "pnpm build && node scripts/prepare-package.js",
-    "prepublishOnly": "pnpm build:package",
+    "build:package": "bun run build && node scripts/prepare-package.js",
+    "prepublishOnly": "bun run build:package",
     "start": "NODE_ENV=production node apps/backend/dist/index.js",
-    "start:dev": "pnpm build:dev && NODE_ENV=development node apps/backend/dist/index.js",
-    "start:production": "pnpm build && pnpm start",
-    "dev:frontend": "cd apps/frontend && pnpm dev",
+    "start:dev": "bun run build:dev && NODE_ENV=development node apps/backend/dist/index.js",
+    "start:production": "bun run build && bun run start",
+    "dev:frontend": "cd apps/frontend && bun dev",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
     "test:integration": "turbo run test:integration",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
     "test:fast": "turbo run test:fast",
     "test:all": "turbo run test:all",
     "test:ui": "turbo run test:ui",
     "test:coverage": "turbo run test:coverage",
     "type:check": "turbo run type:check",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
     "biome:check": "biome check --diagnostic-level=error",
     "biome:fix": "./scripts/biome-fix.sh",
     "format": "biome check --write",
@@ -86,7 +85,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.1.2",
     "tsx": "^4.20.3",
-    "turbo": "^2.5.4",
+    "turbo": "^2.5.5",
     "typescript": "^5.8.3",
     "vite": "^7.0.4",
     "vite-tsconfig-paths": "^5.1.4",
@@ -97,5 +96,9 @@
     "@anthropic-ai/claude-code": "^1.0.53",
     "dockerode": "^4.0.7",
     "pino-pretty": "^13.0.0"
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }
