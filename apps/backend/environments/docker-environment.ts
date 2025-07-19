@@ -5,6 +5,7 @@ import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
+import type { EventService } from '../services/event.service.js'
 import type { SettingsService } from '../services/settings.service.js'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
@@ -27,8 +28,9 @@ export class DockerEnvironment extends BaseEnvironment {
     repositoryConfig: RepositoryConfig,
     workspacePath: string,
     private settingsService: SettingsService,
+    eventService?: EventService,
   ) {
-    super(taskId, repositoryConfig)
+    super(taskId, repositoryConfig, eventService)
     this.workspacePath = workspacePath
     this.logger = createTaskLogger(taskId)
   }
@@ -115,6 +117,7 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   async setup(_iterationNumber?: number): Promise<void> {
+    const previousStatus = this.getStatus()
     const startTime = Date.now()
     const containerName = this.getContainerName()
 
@@ -123,6 +126,9 @@ export class DockerEnvironment extends BaseEnvironment {
       workspacePath: this.workspacePath,
       repositoryName: this.repositoryConfig.name,
     })
+
+    // Emit event for initializing status
+    await this.emitStatusChange('initializing', previousStatus)
 
     // Write repository configuration to a temporary file
     const tmpDir = path.join(process.env.TMPDIR || '/tmp', 'moatless-configs')
@@ -280,6 +286,9 @@ export class DockerEnvironment extends BaseEnvironment {
         this.logger.info('No Claude config files to copy - skipping Claude setup')
       }
 
+      // Emit event for ready status
+      await this.emitStatusChange('ready', 'initializing')
+
       this.logger.info('DockerEnvironment setup completed - container is ready', {
         containerName: containerName,
         workerPort: this.workerPortMapping.hostPort,
@@ -288,6 +297,13 @@ export class DockerEnvironment extends BaseEnvironment {
     } catch (error) {
       const failureTime = Date.now() - startTime
       this._error = error instanceof Error ? error.message : String(error)
+
+      // Emit event for error status
+      await this.emitStatusChange(
+        'error',
+        'initializing',
+        error instanceof Error ? error : String(error),
+      )
 
       this.logger.error('DockerEnvironment setup failed', error as Error, {
         setupTimeMs: failureTime,
@@ -1059,10 +1075,13 @@ export class DockerEnvironment extends BaseEnvironment {
     const containerName = this.getContainerName()
 
     // Check if container exists before trying to clean it up
-    const status = this.getStatus()
-    if (status === 'not_created') {
+    const previousStatus = this.getStatus()
+    if (previousStatus === 'not_created') {
       return
     }
+
+    // Emit event for cleaning status
+    await this.emitStatusChange('cleaning', previousStatus)
 
     try {
       // Stop container

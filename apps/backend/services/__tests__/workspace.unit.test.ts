@@ -216,7 +216,12 @@ describe('WorkspaceService', () => {
       getDefaultWorkspaceType: vi.fn().mockReturnValue('local'),
     }
 
-    service = new WorkspaceService(repositoryService, storage, settingsService)
+    // Mock event service
+    const eventService = {
+      emitEvent: vi.fn(),
+    } as any
+
+    service = new WorkspaceService(repositoryService, storage, settingsService, eventService)
   })
 
   afterEach(async () => {

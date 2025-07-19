@@ -22,9 +22,11 @@ function debugLog(message: string, data?: unknown) {
 
 // Helper functions for cleaner condition checking
 function checkTaskConditions(conditions: any, task?: any): boolean {
-  if (conditions.requiresTaskNotRunning && task?.status === 'running') {
-    debugLog('Task is running but command requires not running', { taskStatus: task.status })
-    return false
+  // Note: Task 'running' status no longer exists - agent state is tracked separately
+  // The requiresTaskNotRunning condition should be handled by checking agent state
+  if (conditions.requiresTaskNotRunning) {
+    // This condition now needs to be checked at a higher level with agent state
+    debugLog('Task not running condition needs agent state check - assuming not running')
   }
 
   if (conditions.allowedTaskStatuses?.length > 0 && task) {

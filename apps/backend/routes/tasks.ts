@@ -229,7 +229,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
             'Filter by task status. If not provided, closed tasks are excluded by default.',
           schema: {
             type: 'string',
-            enum: ['open', 'running', 'error', 'merged', 'closed'],
+            enum: ['open', 'error', 'merged', 'closed'],
           },
         },
       ],

@@ -93,7 +93,17 @@ describe('WorkspaceService Integration Tests', () => {
       getDefaultWorkspaceType: () => 'local',
     } as any
 
-    workspaceService = new WorkspaceService(repositoryService, storage, mockSettingsService)
+    // Mock event service
+    const mockEventService = {
+      emitEvent: vi.fn(),
+    } as any
+
+    workspaceService = new WorkspaceService(
+      repositoryService,
+      storage,
+      mockSettingsService,
+      mockEventService,
+    )
   })
 
   afterEach(async () => {

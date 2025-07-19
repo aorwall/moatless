@@ -1,11 +1,43 @@
+import { randomUUID } from 'node:crypto'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import type { EventService } from '../services/event.service.js'
 
 export abstract class BaseEnvironment {
   constructor(
     protected readonly taskId: string,
     protected readonly repositoryConfig: RepositoryConfig,
+    protected readonly eventService?: EventService,
   ) {}
+
+  /**
+   * Emit environment status change event
+   */
+  protected async emitStatusChange(
+    status: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
+    previousStatus: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
+    error?: Error | string,
+  ): Promise<void> {
+    if (!this.eventService) {
+      return
+    }
+
+    await this.eventService.emitEvent({
+      taskId: this.taskId,
+      type: 'environment',
+      subType: `environment:${status}`,
+      payload: {
+        status,
+        previousStatus,
+        workspaceId: this.taskId, // Using taskId as workspaceId for now
+        error: error instanceof Error ? error.message : error,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      agentType: 'environment', // Required field for environment events
+      isError: status === 'error',
+    })
+  }
 
   /**
    * Create an agent instance for execution

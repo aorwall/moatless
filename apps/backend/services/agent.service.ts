@@ -126,28 +126,7 @@ export class AgentService {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
 
-      // Update task status back to open if not error
-      const task = await this.storage.getTask(taskId)
-      if (task && task.status === 'running') {
-        const previousStatus = task.status
-        task.status = 'open'
-        await this.storage.saveTask(task)
-
-        // Emit status change event
-        await this.eventService.emitEvent({
-          taskId,
-          type: 'task_status',
-          subType: 'open',
-          payload: {
-            status: 'open',
-            previousStatus,
-          },
-          eventId: randomUUID(),
-          timestamp: new Date(),
-          agentType: task.agentType,
-          isError: false,
-        })
-      }
+      // Agent execution complete - task stays in its current state (open/closed/error)
     }
   }
 
