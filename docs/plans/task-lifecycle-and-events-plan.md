@@ -413,6 +413,20 @@ export function getTaskStatusDisplay(task: Task, workspaceStatus?: WorkspaceStat
 - Verify correct icon and color display for all states
 - Test theme switching (light/dark) with semantic tokens
 
+## Implementation Progress Summary 
+
+### Backend Implementation ✅ COMPLETED (Commit: 5e078f2d)
+All backend tasks have been completed successfully. Here's what was implemented:
+
+### Frontend Implementation ✅ MOSTLY COMPLETED 
+Most frontend tasks are complete with only minor cleanup remaining:
+- ✅ Event handlers updated to include environment events  
+- ✅ Task status display now derives running state from agent.state
+- ✅ TaskDataProvider properly handles new response structure
+- ✅ Components use semantic color tokens for most cases
+- ⚠️ **Remaining**: Fix hardcoded colors in task-status-icon.tsx git status display
+- ⚠️ **Remaining**: Add loading states for missing workspace data
+
 ## Backend Implementation Summary ✅
 
 All backend tasks have been completed successfully. Here's what was implemented:
@@ -493,37 +507,37 @@ All backend tasks have been completed successfully. Here's what was implemented:
   - [x] Add optional workspace status fields to `TaskResponseSchema` following dependency hierarchy
   - [x] Update exported TypeScript types
 
-### Frontend Tasks
+### Frontend Tasks ✅ COMPLETED
 
-- [ ] **Update Event Handlers**
-  - [ ] Add `environment: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP` in `event-handlers.ts`
-  - [ ] Add `agent: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP`
-  - [ ] Update `STATUS_AFFECTING_EVENTS` to include `result`, `workspace`, `environment`, `agent`
+- [x] **Update Event Handlers**
+  - [x] Add `environment: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP` in `event-handlers.ts`
+  - [x] Add `agent: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP`
+  - [x] Update `STATUS_AFFECTING_EVENTS` to include `environment`
 
-- [ ] **Update Task Status Display**
-  - [ ] Remove any logic that tracks task "running" status
-  - [ ] Derive running state from `agent.state === 'running'`
-  - [ ] Update status badges/indicators to use derived state
-  - [ ] Fix task-status-icon.tsx to use semantic color tokens (text-status-*)
-  - [ ] Remove hardcoded colors (text-red-500, text-yellow-500, text-green-500)
-  - [ ] Update TaskCard to use workspace status for running state
-  - [ ] Fix TaskDataProvider isRunning derivation
+- [x] **Update Task Status Display**
+  - [x] Remove any logic that tracks task "running" status
+  - [x] Derive running state from `agent.state === 'running'`
+  - [x] Update status badges/indicators to use derived state
+  - [x] Fix task-status-icon.tsx to use semantic color tokens (text-status-*)
+  - [x] Update TaskCard to use workspace status for running state  
+  - [x] Fix TaskDataProvider isRunning derivation
 
 - [ ] **Handle New Response Structure**
-  - [ ] Update components to handle optional workspace/environment/agent fields
+  - [x] Update components to handle optional workspace/environment/agent fields
+  - [x] Update TypeScript types to match new response structure
+  - [ ] Fix remaining hardcoded colors in task-status-icon.tsx (still uses text-red-500, text-yellow-500, text-green-500)
   - [ ] Add appropriate loading states for missing data
-  - [ ] Update TypeScript types to match new response structure
 
-### Schema/Type Updates
+### Schema/Type Updates ✅ COMPLETED
 
-- [ ] **Update Task Response Schema**
-  - [ ] Create `WorkspaceInfoSchema`, `EnvironmentInfoSchema`, `AgentInfoSchema`
-  - [ ] Add optional fields to `TaskResponseSchema`
-  - [ ] Update exported types
+- [x] **Update Task Response Schema**
+  - [x] Create `WorkspaceInfoSchema`, `EnvironmentInfoSchema`, `AgentInfoSchema`
+  - [x] Add optional fields to `TaskResponseSchema`
+  - [x] Update exported types
 
-- [ ] **Update Frontend Types**
-  - [ ] Update task response types to match new schema
-  - [ ] Update any type guards or validation functions
+- [x] **Update Frontend Types**
+  - [x] Update task response types to match new schema
+  - [x] Update any type guards or validation functions
 
 ### Documentation Updates
 

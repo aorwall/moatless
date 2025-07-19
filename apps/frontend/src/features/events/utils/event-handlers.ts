@@ -1,7 +1,7 @@
 import type { Event } from '@moatless/types'
 import { queryKeys } from '@/lib/api/query-keys'
 
-export const STATUS_AFFECTING_EVENTS = ['error', 'task_status'] as const
+export const STATUS_AFFECTING_EVENTS = ['error', 'task_status', 'environment'] as const
 
 // Map of actively used event types to their invalidation keys
 // These invalidation keys are for the specific task only
@@ -14,7 +14,7 @@ export const EVENT_INVALIDATION_MAP = {
     queryKeys.tasks.workspaceSetup,
     queryKeys.tasks.gitDiff,
   ],
-  environment: [queryKeys.tasks.workspaceStatus], // Environment status changes
+  environment: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus], // Environment status changes invalidate task details with new workspace fields
   task_status: [queryKeys.tasks.detail], // Main task status invalidation
   // Deprecated/unused event types:
   // INPUT - removed, replaced with TASK_STATUS for status changes

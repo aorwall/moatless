@@ -7,7 +7,7 @@ import {
   formatGitSyncDetails,
   getGitSyncStatusConfig,
 } from '@/features/tasks/utils/git-sync-status'
-import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
+import { getTaskStatusConfig, isTaskRunning } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   Table,
@@ -96,7 +96,7 @@ function TaskRow({
           </TooltipTrigger>
           <TooltipContent>
             <p className="text-xs">
-              {task.status === 'running' && 'Agent is currently running'}
+              {isTaskRunning(task) && 'Agent is currently running'}
               {task.status === 'open' && 'Ready for new messages'}
               {task.status === 'error' && 'Last iteration failed'}
               {task.status === 'merged' && 'Changes have been merged'}
