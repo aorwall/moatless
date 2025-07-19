@@ -1,8 +1,12 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
 
-// Git Status Schema (duplicated from task.schemas.ts to avoid circular dependency)
-const GitStatusSchema = z.object({
+// ============================================
+// Shared Status Component Schemas
+// ============================================
+
+// Git Status Schema (shared between workspace and task responses)
+export const GitStatusSchema = z.object({
   currentBranch: z.string(),
   baseBranch: z.string(),
   hasUncommittedChanges: z.boolean(),
@@ -192,33 +196,52 @@ export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResp
 export type WorkspaceSetupRequest = z.infer<typeof WorkspaceSetupRequestSchema>
 export type WorkspaceSetupResponse = z.infer<typeof WorkspaceSetupResponseSchema>
 
+// Shared Status Component Types
+export type GitStatus = z.infer<typeof GitStatusSchema>
+export type WorkspaceInfo = z.infer<typeof WorkspaceInfoSchema>
+export type EnvironmentInfo = z.infer<typeof EnvironmentInfoSchema>
+export type AgentInfo = z.infer<typeof AgentInfoSchema>
+export type Capabilities = z.infer<typeof CapabilitiesSchema>
+
+// Workspace Info (for status responses)
+export const WorkspaceInfoSchema = z.object({
+  state: WorkspaceExistenceSchema,
+  path: z.string(),
+  changeStatus: WorkspaceChangeStatusSchema.optional(),
+})
+
+// Environment Info (for status responses)
+export const EnvironmentInfoSchema = z.object({
+  type: z.enum(['local', 'docker']),
+  status: EnvironmentStatusSchema,
+  error: z.string().optional(),
+  createdAt: z.string(),
+})
+
+// Agent Info (for status responses)
+export const AgentInfoSchema = z.object({
+  state: AgentStateSchema,
+  type: z.string().optional(),
+})
+
+// Capabilities (for status responses)
+export const CapabilitiesSchema = z.object({
+  fileOperations: z.boolean(),
+  commandExecution: z.boolean(),
+  serverManagement: z.boolean(),
+})
+
 // ============================================
 // Workspace Status Response Schema
 // ============================================
 
-// Workspace Status Response
+// Workspace Status Response using shared schemas
 export const WorkspaceStatusResponseSchema = z.object({
-  workspace: z.object({
-    state: WorkspaceExistenceSchema,
-    path: z.string().optional(),
-    changeStatus: WorkspaceChangeStatusSchema,
-  }),
-  environment: z.object({
-    type: z.enum(['local', 'docker']),
-    status: EnvironmentStatusSchema,
-    error: z.string().optional(),
-    createdAt: z.string(),
-  }),
-  agent: z.object({
-    state: AgentStateSchema,
-    type: z.string().optional(),
-  }),
+  workspace: WorkspaceInfoSchema,
+  environment: EnvironmentInfoSchema,
+  agent: AgentInfoSchema,
   gitStatus: GitStatusSchema.optional(),
-  capabilities: z.object({
-    fileOperations: z.boolean(),
-    commandExecution: z.boolean(),
-    serverManagement: z.boolean(),
-  }),
+  capabilities: CapabilitiesSchema,
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>

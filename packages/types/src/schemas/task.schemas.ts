@@ -2,10 +2,11 @@ import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
 import { TaskStatusSchema } from './base.schemas.js'
 import {
-  AgentStateSchema,
-  EnvironmentStatusSchema,
-  WorkspaceChangeStatusSchema,
-  WorkspaceExistenceSchema,
+  AgentInfoSchema,
+  CapabilitiesSchema,
+  EnvironmentInfoSchema,
+  GitStatusSchema,
+  WorkspaceInfoSchema,
 } from './workspace.schemas.js'
 
 // Query schemas
@@ -113,41 +114,8 @@ export const TaskIterationSchema = z.object({
 })
 
 // ============================================
-// Workspace Status Schemas for Task Response
+// Task Response Schema using shared workspace status schemas
 // ============================================
-
-// Partial schemas for different states following dependency hierarchy
-export const WorkspaceInfoSchema = z.object({
-  state: WorkspaceExistenceSchema,
-  path: z.string().optional(),
-  changeStatus: WorkspaceChangeStatusSchema.optional(), // Only when state is 'exists'
-})
-
-export const EnvironmentInfoSchema = z.object({
-  type: z.enum(['local', 'docker']),
-  status: EnvironmentStatusSchema,
-  error: z.string().optional(),
-  createdAt: z.string(),
-})
-
-export const AgentInfoSchema = z.object({
-  state: AgentStateSchema,
-  type: z.string().optional(),
-})
-
-export const GitStatusSchema = z.object({
-  currentBranch: z.string(),
-  baseBranch: z.string(),
-  hasUncommittedChanges: z.boolean(),
-  hasConflicts: z.boolean(),
-  status: z.string(),
-  commitsAhead: z.number(),
-  commitsBehind: z.number(),
-  originExists: z.boolean(),
-  additions: z.number().optional(),
-  deletions: z.number().optional(),
-  modifications: z.number().optional(),
-})
 
 export const TaskResponseSchema = z.object({
   taskId: z.string(),
@@ -165,13 +133,7 @@ export const TaskResponseSchema = z.object({
   environment: EnvironmentInfoSchema.optional(), // Only present if workspace exists
   agent: AgentInfoSchema.optional(), // Only present if environment is ready
   gitStatus: GitStatusSchema.optional(), // Only when workspace exists
-  capabilities: z
-    .object({
-      fileOperations: z.boolean(),
-      commandExecution: z.boolean(),
-      serverManagement: z.boolean(),
-    })
-    .optional(), // Only when environment is ready
+  capabilities: CapabilitiesSchema.optional(), // Only when environment is ready
 })
 
 export const TaskListResponseSchema = z.object({
@@ -299,8 +261,5 @@ export type ServerStopResponse = z.infer<typeof ServerStopResponseSchema>
 export type ServerLogsResponseExtended = z.infer<typeof ServerLogsResponseExtendedSchema>
 export type MergeTask = z.infer<typeof MergeTaskSchema>
 export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
-export type GitStatus = z.infer<typeof GitStatusSchema>
 export type GitDiffFile = z.infer<typeof GitDiffFileSchema>
-export type WorkspaceInfo = z.infer<typeof WorkspaceInfoSchema>
-export type EnvironmentInfo = z.infer<typeof EnvironmentInfoSchema>
-export type AgentInfo = z.infer<typeof AgentInfoSchema>
+// Note: GitStatus, WorkspaceInfo, EnvironmentInfo, AgentInfo are now exported from workspace.schemas.ts

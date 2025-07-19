@@ -851,7 +851,7 @@ export class TaskService {
         ...task,
         workspace: {
           state: 'missing' as const,
-          path: task.workspacePath,
+          path: task.workspacePath || '',
         },
       }
     }
