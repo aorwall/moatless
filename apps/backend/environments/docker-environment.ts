@@ -726,6 +726,17 @@ export class DockerEnvironment extends BaseEnvironment {
         dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
       }
 
+      // Pass through git user configuration to ensure commits use correct author
+      const githubSettings = this.settingsService.getGitHubSettings()
+      if (githubSettings.userName) {
+        dockerCommand += ` -e "GIT_AUTHOR_NAME=${githubSettings.userName}"`
+        dockerCommand += ` -e "GIT_COMMITTER_NAME=${githubSettings.userName}"`
+      }
+      if (githubSettings.userEmail) {
+        dockerCommand += ` -e "GIT_AUTHOR_EMAIL=${githubSettings.userEmail}"`
+        dockerCommand += ` -e "GIT_COMMITTER_EMAIL=${githubSettings.userEmail}"`
+      }
+
       dockerCommand += ` ${containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
 
       const { stdout, stderr } = await execAsync(dockerCommand, { timeout })
