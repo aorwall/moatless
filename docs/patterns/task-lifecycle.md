@@ -1,0 +1,238 @@
+# Task Lifecycle Pattern
+
+## State Definitions
+
+### Task States
+| State | Description | Location |
+|-------|-------------|----------|
+| `open` | Task container active, can receive iterations | apps/backend/services/task.service.ts:384 |
+| `closed` | Task archived, workspace cleaned up | apps/backend/services/task.service.ts:1100 |
+| `error` | Task has encountered an error state | apps/backend/services/task.service.ts |
+
+**Note**: Running state is derived from agent state (`agent.state === 'running'`).
+
+### Iteration States
+| State | Description | Location |
+|-------|-------------|----------|
+| `created` | Message received, awaiting execution | apps/backend/services/task.service.ts:399,834 |
+| `active` | Agent currently executing | apps/backend/services/task.service.ts:594 |
+| `completed` | Execution finished successfully | apps/backend/services/task.service.ts:200 |
+| `failed` | Execution error or agent failure | apps/backend/services/task.service.ts:178,260,492,641,776,1022 |
+
+### Workspace States
+| State | Description | Location |
+|-------|-------------|----------|
+| `exists` | File system path valid and accessible | apps/backend/workspaces/workspace.ts:783 |
+| `missing` | Path doesn't exist on disk | apps/backend/workspaces/workspace.ts:783 |
+| `invalid` | Path exists but corrupted/not git repo | apps/backend/workspaces/workspace.ts:793 |
+
+### Environment States
+| State | Description | Location |
+|-------|-------------|----------|
+| `not_created` | Initial state before setup | apps/backend/environments/local-environment.ts:44 |
+| `initializing` | Setup in progress (container creation/workspace init) | apps/backend/environments/local-environment.ts:42 |
+| `ready` | Operational, can execute commands/agents | apps/backend/environments/local-environment.ts:43 |
+| `error` | Setup or runtime failure | apps/backend/environments/local-environment.ts:41 |
+| `cleaning` | Teardown in progress | apps/backend/environments/docker-environment.ts:68 |
+
+### Agent States
+| State | Description | Location |
+|-------|-------------|----------|
+| `idle` | No agent executing | apps/backend/workspaces/workspace.ts:845 |
+| `running` | Agent actively processing | apps/backend/workspaces/workspace.ts:845 |
+
+## Task Creation Flow
+
+1. **createTask**: Creates task metadata and initiates workspace - apps/backend/services/task.service.ts:367
+   - Creates task record with `status: 'open'` and saves to storage
+   - If message provided, creates first iteration with `status: 'created'`
+   - Calls workspaceService.createWorkspace to set up execution environment
+   - Returns task immediately, setup continues in background
+
+2. **createWorkspace**: Establishes workspace directory and environment - apps/backend/services/workspace.service.ts:30
+   - Creates workspace path (repository directly or git worktree based on config)
+   - Instantiates environment based on repository config (LocalEnvironment for local execution, DockerEnvironment for containerized)
+   - Creates unified Workspace instance composing environment and file operations
+   - Stores workspace in activeWorkspaces map
+
+3. **setupWorkspaceInBackground**: Async workspace initialization - apps/backend/services/task.service.ts:463
+   - Runs workspace setup without blocking task creation response
+   - Calls workspaceService.setupWorkspace for environment initialization
+   - If start=true and message exists, automatically starts task execution
+   - Updates task status to error if setup fails
+
+4. **setupWorkspace**: Environment-specific initialization - apps/backend/services/workspace.service.ts:534
+   - Delegates to workspace.setup which calls environment.setup
+   - LocalEnvironment.setup: Validates paths, runs setup commands - apps/backend/environments/local-environment.ts:59
+   - DockerEnvironment.setup: Creates/starts container, copies configs, waits for worker - apps/backend/environments/docker-environment.ts:117
+   - Updates workspace path in task metadata after successful setup
+
+## Iteration Execution Flow
+
+1. **startTask**: Activates pending iteration for execution - apps/backend/services/task.service.ts:562
+   - Validates last iteration has `status: 'created'` (pending execution)
+   - Waits for workspace to reach 'idle' state (max 30s)
+   - Updates iteration `status: 'active'` to indicate processing started
+   - Emits `task_status` event with `subType: 'active'` for UI updates
+   - Calls agentService.executeAgent with iteration message
+
+2. **executeAgent**: Orchestrates agent creation and execution - apps/backend/services/agent.service.ts:23
+   - Validates no other agent running for this task - apps/backend/services/agent.service.ts:55
+   - Gets or creates workspace, validates it's ready - apps/backend/services/agent.service.ts:61
+   - Creates agent instance via environment (Claude Code agent) - apps/backend/services/agent.service.ts:117
+   - Tracks agent in runningAgents map for status queries
+   - Delegates to runAgentExecution for actual processing - apps/backend/services/agent.service.ts:131
+
+3. **runAgentExecution**: Processes agent messages and events - apps/backend/services/agent.service.ts:200
+   - Prepares message with file attachments if provided
+   - Executes agent.run generator with workspace path and iteration number
+   - Captures agent session ID for resume capability
+   - Streams events to eventService as they're generated
+   - Updates iteration end time and duration on completion
+   - Emits error event if agent execution fails
+
+4. **Agent Event Handling**: Reacts to agent events to update state - apps/backend/services/task.service.ts:61
+   - handleResultEvent: Processes execution completion - apps/backend/services/task.service.ts:154
+     - Updates iteration status to `completed` (success) or `failed` (error)
+     - Captures result text and cost information
+     - Updates task status back to `open` (ready for next iteration)
+     - Captures git status/changes for iteration record
+   - handleErrorEvent: Handles execution failures - apps/backend/services/task.service.ts:247
+     - Updates iteration status to `failed` with error details
+     - Captures error message and stack trace
+     - Task status remains `open` (not affected by iteration failure)
+   - handleMessageEvent: Updates progress metrics - apps/backend/services/task.service.ts:300
+     - Updates context tokens count for token usage tracking
+
+## State Change Propagation
+
+### Backend Event Emission
+
+1. **Task Status Changes**: Emitted when task or iteration status changes
+   - Emission points: apps/backend/services/task.service.ts:227,279,408,600,646,994,1030,1104
+   - Event type: `task_status`
+   - Payload includes previousStatus, new status, and optional iteration number
+   - Triggers frontend to refresh task details and lists
+
+2. **Environment Status Changes**: Track environment lifecycle transitions
+   - Should emit when environment status changes (not_created → initializing → ready)
+   - Event type: `environment`
+   - Subtype contains new status value (e.g., 'ready', 'error')
+   - Allows frontend to update workspace status displays
+
+3. **Event Service**: Central event distribution hub - apps/backend/services/event.service.ts:16
+   - Maintains in-memory event cache per task for fast retrieval
+   - Emits to task-specific channel: `task:${taskId}` for targeted updates
+   - Emits to global channel for system-wide listeners
+   - Persists non-claude-code events to storage for history
+
+### Frontend Event Reception
+
+1. **Global Event Stream**: SSE connection for real-time updates - apps/frontend/src/features/events/contexts/global-event-stream-provider.tsx:48
+   - Maintains persistent SSE connection to /api/v1/events/stream
+   - Receives NDJSON formatted events in real-time
+   - Distributes events to task/type/global subscribers
+   - Triggers React Query invalidations based on event type
+
+2. **Query Invalidation**: Smart cache updates based on events - apps/frontend/src/features/events/utils/event-handlers.ts
+   - Maps event types to affected query keys using invalidation handlers
+   - Task status events invalidate task detail and all task lists
+   - Result events invalidate messages, events, and git diff queries
+   - Environment events invalidate workspace status queries
+   - Uses queueMicrotask for optimal re-render batching
+
+3. **Component Updates**: Automatic UI refresh on state changes
+   - Components using React Query hooks re-render when queries invalidate
+   - useTask hook fetches updated task with iterations - apps/frontend/src/features/tasks/hooks/use-tasks.ts:46
+   - useWorkspaceStatus hook retrieves new environment/agent states
+   - Task context propagates changes to all child components
+
+## Key State Transitions
+
+### Task Lifecycle
+1. **Created**: Task initialized with `status: 'open'`, no iterations - ready to receive messages
+2. **Message sent**: Creates new iteration with `status: 'created'` - queued for execution
+3. **Execution starts**: Iteration transitions to `status: 'active'` - agent processing
+4. **Execution completes**: Iteration becomes `status: 'completed'`, task remains `status: 'open'` - ready for next message
+5. **Execution fails**: Iteration marked `status: 'failed'`, task goes to `status: 'error'` - indicates problem
+6. **Task closed**: Task set to `status: 'closed'`, workspace cleaned up, resources released - end of lifecycle
+
+### Workspace Lifecycle
+1. **Created**: Workspace instance created, environment `status: 'not_created'` - awaiting setup
+2. **Setup called**: Environment transitions to `status: 'initializing'` - creating container/validating paths
+3. **Setup complete**: Environment reaches `status: 'ready'` - can execute commands and agents
+4. **Agent running**: Agent state becomes `state: 'running'` - actively processing iteration
+5. **Agent stopped**: Agent returns to `state: 'idle'` - execution complete or stopped
+6. **Teardown**: Environment enters `status: 'cleaning'` - stopping services and cleaning resources
+
+## Critical Methods
+
+### Task Service
+- **createTask**: Entry point for new tasks, returns immediately - apps/backend/services/task.service.ts:367
+- **startTask**: Activates pending iteration for execution - apps/backend/services/task.service.ts:562
+- **sendMessage**: Creates new iteration and starts execution - apps/backend/services/task.service.ts:912
+- **handleResultEvent**: Processes execution completion, updates states - apps/backend/services/task.service.ts:154
+- **handleErrorEvent**: Handles execution failures, marks iteration failed - apps/backend/services/task.service.ts:247
+- **closeTask**: Archives task and cleans up all resources - apps/backend/services/task.service.ts:1074
+
+### Workspace Service
+- **createWorkspace**: Initializes workspace directory and environment - apps/backend/services/workspace.service.ts:30
+- **setupWorkspace**: Runs environment-specific initialization - apps/backend/services/workspace.service.ts:534
+- **getWorkspaceStatus**: Returns comprehensive status object - apps/backend/services/workspace.service.ts:566
+- **cleanupWorkspace**: Tears down environment and releases resources - apps/backend/services/workspace.service.ts:483
+
+### Agent Service  
+- **executeAgent**: Main entry for agent execution requests - apps/backend/services/agent.service.ts:23
+- **processAgentExecution**: Validates state and creates agent - apps/backend/services/agent.service.ts:44
+- **runAgentExecution**: Executes agent and streams events - apps/backend/services/agent.service.ts:200
+- **stopAgent**: Interrupts running agent execution - apps/backend/services/agent.service.ts:164
+
+### Workspace Class
+- **getWorkspaceStatus**: Computes full status with all sub-states - apps/backend/workspaces/workspace.ts:426
+- **getWorkspaceExistence**: Checks if workspace path is valid - apps/backend/workspaces/workspace.ts:774
+- **getWorkspaceChangeStatus**: Calculates git change status - apps/backend/workspaces/workspace.ts:802
+- **getAgentState**: Returns current agent execution state - apps/backend/workspaces/workspace.ts:842
+
+### Frontend Hooks
+- **useTask**: Fetches single task with all iterations - apps/frontend/src/features/tasks/hooks/use-tasks.ts:46
+- **useTasksList**: Retrieves paginated task list - apps/frontend/src/features/tasks/hooks/use-tasks.ts:30
+- **useSendMessage**: Mutation for sending new messages - apps/frontend/src/features/tasks/hooks/use-tasks.ts:91
+- **useWorkspaceStatus**: Polls workspace status during operations
+
+## Status Computation
+
+### Workspace Status Response Structure
+Returned by: apps/backend/workspaces/workspace.ts:426
+```typescript
+{
+  workspace: {
+    state: 'exists' | 'missing' | 'invalid',
+    path: string,
+    changeStatus: 'no_changes' | 'merged' | 'committed_unmerged' | 'uncommitted' | 'conflicts'
+  },
+  environment: {
+    type: 'local' | 'docker',
+    status: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
+    error?: string,
+    createdAt: string
+  },
+  agent: {
+    state: 'idle' | 'running',
+    type?: string
+  },
+  gitStatus: GitStatus,
+  capabilities: {
+    fileOperations: boolean,
+    commandExecution: boolean,
+    serverManagement: boolean
+  }
+}
+```
+
+### Change Status Calculation
+Determines git synchronization state - apps/backend/workspaces/workspace.ts:802
+- `conflicts`: Git merge conflicts detected - gitStatus.hasConflicts
+- `uncommitted`: Working directory has unstaged/uncommitted changes - gitStatus.hasUncommittedChanges
+- `committed_unmerged`: Local commits not yet pushed/merged - gitStatus.commitsAhead > 0
+- `merged`: Fully synchronized with main branch - commitsAhead === 0 && commitsBehind === 0
+- `no_changes`: Clean working directory, no divergence - default state
