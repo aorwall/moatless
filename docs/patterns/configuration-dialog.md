@@ -17,11 +17,20 @@ The Configuration Dialog pattern provides a reusable, ChatGPT-style dialog inter
 ### Component Structure
 
 ```
-ConfigurationDialog/
-├── ResponsiveConfigurationDialog  # Main wrapper (auto-detects mobile/desktop)
-├── ConfigurationDialog           # Desktop version (sidebar)
-├── MobileConfigurationDialog     # Mobile version (tabs)
-└── ConfigurationSection          # Type definition for sections
+configuration/
+├── configuration-dialog.tsx       # All dialog components
+│   ├── ResponsiveConfigurationDialog  # Main wrapper (auto-detects mobile/desktop)
+│   ├── ConfigurationDialog           # Desktop version (sidebar)
+│   └── MobileConfigurationDialog     # Mobile version (tabs)
+├── configuration-section.tsx      # Section wrapper component
+├── configuration-item.tsx         # Two-column layout component
+├── configuration-group.tsx        # Group component with separator
+├── fields/                        # Field wrapper components
+│   ├── configuration-input.tsx
+│   ├── configuration-select.tsx
+│   ├── configuration-switch.tsx
+│   └── configuration-textarea.tsx
+└── index.ts                       # Barrel exports
 ```
 
 ### Section Definition
@@ -42,7 +51,7 @@ export interface ConfigurationSection {
 ```typescript
 import { useState } from 'react'
 import { Settings, Code, Database } from 'lucide-react'
-import { ResponsiveConfigurationDialog } from '@/lib/components/configuration-dialog'
+import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
 import { GeneralSettingsSection } from './sections/general-settings-section'
 import { ClaudeCodeSettingsSection } from './sections/claude-code-settings-section'
 
@@ -111,6 +120,15 @@ Each configuration section should be a self-contained component that handles its
 ### Section Component Structure
 
 ```typescript
+import { 
+  ConfigurationSection,
+  ConfigurationItem,
+  ConfigurationGroup,
+  ConfigurationInput,
+  ConfigurationSelect,
+  ConfigurationSwitch
+} from '@/lib/components/configuration'
+
 interface SectionProps {
   // Any props needed for the section (e.g., IDs, initial data)
 }
@@ -122,89 +140,75 @@ export function ExampleConfigurationSection({ }: SectionProps) {
   // 2. Mutation hooks for updates
   const updateSetting = useUpdateSetting()
   
-  // 3. Local state for form handling
-  const [formData, setFormData] = useState({})
+  // 3. Direct event handlers (no useEffect needed)
+  const handleChange = (field: string, value: any) => {
+    updateSetting.mutate({ [field]: value })
+  }
 
   // 4. Error and loading handling
   if (isLoading) return <ConfigurationSkeleton />
   if (error) return <ErrorAlert error={error} />
 
   return (
-    <div className="space-y-6">
-      {/* Section content */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Section Title</CardTitle>
-          <CardDescription>Section description</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {/* Form fields and controls */}
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-```
-
-### Two-Column Layout Pattern
-
-Configuration sections should use a two-column layout for better readability and organization, similar to ChatGPT's settings interface:
-
-```typescript
-export function ConfigurationSection() {
-  return (
-    <div className="space-y-6">
-      {/* Configuration item with two-column layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        {/* Left column: Label and description */}
-        <div className="space-y-1">
-          <Label htmlFor={inputId} className="text-sm font-medium">
-            Setting Name
-          </Label>
-          <p className="text-sm text-muted-foreground">
-            Detailed description of what this setting controls
-          </p>
-        </div>
-        
-        {/* Right column: Input control */}
-        <div>
-          <Input
-            id={inputId}
-            type="text"
-            placeholder="Default value"
-            value={formData.settingName}
-            onChange={handleChange}
+    <ConfigurationSection>
+      <ConfigurationGroup title="Basic Settings">
+        <ConfigurationItem
+          label="Project Name"
+          description="The display name for your project"
+        >
+          <ConfigurationInput
+            value={data.name}
+            onChange={(e) => handleChange('name', e.target.value)}
           />
-        </div>
-      </div>
-
-      {/* Use Separator between groups of settings */}
-      <Separator />
-
-      {/* Another configuration item */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        <div className="space-y-1">
-          <Label htmlFor={selectId} className="text-sm font-medium">
-            Mode Selection
-          </Label>
-          <p className="text-sm text-muted-foreground">
-            Choose the operational mode
-          </p>
-        </div>
-        <Select value={formData.mode} onValueChange={handleModeChange}>
-          <SelectTrigger id={selectId}>
-            <SelectValue placeholder="Select mode" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="option1">Option 1</SelectItem>
-            <SelectItem value="option2">Option 2</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
+        </ConfigurationItem>
+      </ConfigurationGroup>
+    </ConfigurationSection>
   )
 }
 ```
+
+## Reusable Configuration Components
+
+The configuration dialog pattern includes a set of reusable components for building consistent configuration sections:
+
+### ConfigurationSection
+Base wrapper for configuration sections:
+```typescript
+import { ConfigurationSection } from '@/lib/components/configuration'
+
+<ConfigurationSection className="custom-spacing">
+  {/* Configuration items */}
+</ConfigurationSection>
+```
+
+### ConfigurationItem
+Two-column layout component for individual settings:
+```typescript
+<ConfigurationItem
+  label="Setting Name"
+  description="Detailed description of this setting"
+  htmlFor="custom-id" // Optional, auto-generated if not provided
+>
+  <Input id="custom-id" />
+</ConfigurationItem>
+```
+
+### ConfigurationGroup
+Groups related configuration items with optional title and separator:
+```typescript
+<ConfigurationGroup title="Advanced Settings" showSeparator={true}>
+  <ConfigurationItem label="Enable Feature" description="Turn this feature on or off">
+    <ConfigurationSwitch />
+  </ConfigurationItem>
+</ConfigurationGroup>
+```
+
+### Field Components
+Pre-styled field components that work seamlessly with ConfigurationItem:
+- `ConfigurationInput`: Text input field
+- `ConfigurationSelect`: Dropdown selection with options array
+- `ConfigurationSwitch`: Toggle switch
+- `ConfigurationTextarea`: Multi-line text input
 
 #### Two-Column Layout Guidelines
 
@@ -261,6 +265,31 @@ Each section manages its own state independently:
 - **Form data**: Local state for user inputs
 - **API state**: React Query hooks for server state
 - **UI state**: Loading, error, and validation states
+
+## Component Guidelines
+
+### Using Reusable Components
+
+1. **Always use ConfigurationSection** as the root wrapper
+2. **Use ConfigurationItem** for all settings to ensure consistent layout
+3. **Group related settings** with ConfigurationGroup
+4. **Leverage field components** instead of raw shadcn/ui components
+
+### Styling Compliance
+
+All configuration components follow the styling guide:
+- Use semantic color tokens only
+- No hardcoded colors or dark: prefixes
+- Automatic theme switching via CSS variables
+- Built on shadcn/ui components
+
+### State Management
+
+Following the derived state pattern:
+- No useEffect for state synchronization
+- Direct event handlers for updates
+- Calculate derived values during render
+- Use React Query for server state
 
 ## Styling and Theming
 

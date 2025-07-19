@@ -1,0 +1,38 @@
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/lib/components/ui/select'
+
+interface ConfigurationSelectProps {
+  value?: string
+  onValueChange?: (value: string) => void
+  options: Array<{ value: string; label: string }>
+  placeholder?: string
+  disabled?: boolean
+}
+
+export function ConfigurationSelect({
+  value,
+  onValueChange,
+  options,
+  placeholder,
+  disabled,
+}: ConfigurationSelectProps) {
+  return (
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}

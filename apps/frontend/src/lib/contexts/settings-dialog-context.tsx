@@ -5,7 +5,7 @@ import {
   GeneralConfigurationSection,
   GitHubConfigurationSection,
 } from '@/features/settings'
-import { ConfigurationDialog } from '@/lib/components/configuration-dialog-portal'
+import { ConfigurationDialog } from '@/lib/components/configuration'
 
 interface SettingsDialogContextType {
   showDialog: () => void

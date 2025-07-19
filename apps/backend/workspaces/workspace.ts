@@ -1,17 +1,13 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
-  AgentState,
   CommandResult,
-  EnvironmentStatus,
   FileTreeNode,
   FileTreeWithChangesResponse,
   GitChanges,
   GitStatus,
   RepositoryConfig,
   ServerStatus,
-  WorkspaceChangeStatus,
-  WorkspaceExistence,
   Workspace as WorkspaceInfo,
   WorkspaceStatusResponse,
 } from '@moatless/types'
@@ -427,7 +423,7 @@ export class Workspace {
   /**
    * Get comprehensive workspace status including git status and capabilities
    */
-  async getWorkspaceStatus(backgroundTaskCount = 0): Promise<WorkspaceStatusResponse> {
+  async getWorkspaceStatus(_backgroundTaskCount = 0): Promise<WorkspaceStatusResponse> {
     // Get git status and git changes from workspace
     const gitStatus = await this.getGitStatus()
 
@@ -442,7 +438,7 @@ export class Workspace {
     const fileOperationsAvailable = await this.isWorkspacePathValid()
 
     // Determine capabilities based on environment status and file operations availability
-    const capabilities = {
+    const _capabilities = {
       fileOperations: fileOperationsAvailable,
       commandExecution: environmentStatus === 'ready',
     }

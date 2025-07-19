@@ -57,9 +57,9 @@
     "test:ui": "turbo run test:ui",
     "test:coverage": "turbo run test:coverage",
     "type:check": "turbo run type:check",
-
     "biome:check": "biome check --diagnostic-level=error",
     "biome:fix": "./scripts/biome-fix.sh",
+    "format": "biome check --write",
     "check:turbo": "turbo run biome:check type:check test:fast",
     "post-edit-hook": "./scripts/validate-code.sh",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",

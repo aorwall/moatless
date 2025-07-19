@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Settings } from 'lucide-react'
 import { useState } from 'react'
 import { GeneralConfigurationSection, SystemStatusCard } from '@/features/settings'
-import { ResponsiveConfigurationDialog } from '@/lib/components/configuration-dialog'
+import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
 import { Button } from '@/lib/components/ui/button'
 
 export const Route = createFileRoute('/settings')({
