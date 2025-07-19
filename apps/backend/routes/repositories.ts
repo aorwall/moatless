@@ -193,58 +193,6 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
     },
   )
 
-  // Get repository by ID
-  app.get(
-    `${prefix}/:repositoryId`,
-    describeRoute({
-      description: 'Get repository by ID',
-      parameters: [
-        {
-          name: 'repositoryId',
-          in: 'path',
-          required: true,
-          description: 'Repository ID',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
-      responses: {
-        200: {
-          description: 'Repository details',
-          content: {
-            'application/json': {
-              schema: resolver(repositoryResponseSchema),
-            },
-          },
-        },
-        400: {
-          description: 'Invalid repository ID',
-        },
-        404: {
-          description: 'Repository not found',
-        },
-      },
-    }),
-    async (c) => {
-      const services = c.get('services')
-      const { repository: repositoryService } = services
-
-      const repositoryId = c.req.param('repositoryId')
-      if (!repositoryId) {
-        throw new HTTPException(400, { message: 'Repository ID is required' })
-      }
-
-      const repository = await repositoryService.getRepositoryById(repositoryId)
-
-      if (!repository) {
-        throw new RepositoryNotFoundError()
-      }
-
-      return c.json(repository)
-    },
-  )
-
   // Update repository
   app.put(
     `${prefix}/:repositoryId`,
