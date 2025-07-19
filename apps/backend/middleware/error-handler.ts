@@ -67,11 +67,14 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
   // Log unexpected errors
   console.error('Unexpected error:', error)
 
+  // For all other errors, return the actual error message
+  const errorMessage = error instanceof Error ? error.message : 'Internal server error'
+
   return c.json(
     {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
-        message: 'Internal server error',
+        message: errorMessage,
       },
       requestId,
     },

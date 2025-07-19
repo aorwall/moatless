@@ -370,3 +370,20 @@ export async function createSettingsService(
   await service.initialize()
   return service
 }
+
+// Singleton instance
+let settingsServiceInstance: SettingsService | null = null
+
+export function getSettingsService(githubService: GitHubService): SettingsService {
+  if (!settingsServiceInstance) {
+    settingsServiceInstance = new SettingsService(githubService)
+    // Note: We can't call initialize() here as it's async
+    // This is for compatibility with sync usage - caller needs to handle initialization
+  }
+  return settingsServiceInstance
+}
+
+// For testing: reset the singleton instance
+export function resetSettingsServiceInstance(): void {
+  settingsServiceInstance = null
+}
