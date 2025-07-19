@@ -71,7 +71,7 @@ export function TaskIteration({
       )}
 
       {/* Result Message or Error */}
-      {(iteration.status === 'failed' || iteration.status === 'error') && iteration.error ? (
+      {iteration.status === 'failed' && iteration.error ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>

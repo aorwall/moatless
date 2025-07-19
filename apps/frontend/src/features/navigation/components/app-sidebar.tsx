@@ -1,6 +1,8 @@
 import { Link } from '@tanstack/react-router'
-import { Home, Settings, Wifi, WifiOff } from 'lucide-react'
+import { FolderGit2, Home, Settings, Wifi, WifiOff } from 'lucide-react'
+import { useState } from 'react'
 import { useGlobalEventStream } from '@/features/events/contexts/global-event-stream-provider'
+import { RepositoriesConfigurationDialog } from '@/features/repositories'
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +19,7 @@ import { SidebarTasks } from './sidebar-tasks'
 
 export function AppSidebar() {
   const { isConnected, connectionError } = useGlobalEventStream()
+  const [repositoriesConfigOpen, setRepositoriesConfigOpen] = useState(false)
 
   return (
     <Sidebar>
@@ -54,6 +57,12 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setRepositoriesConfigOpen(true)}>
+                  <FolderGit2 className="h-4 w-4" />
+                  <span>Repositories</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link to="/settings">
                     <Settings className="h-4 w-4" />
@@ -77,6 +86,11 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      <RepositoriesConfigurationDialog
+        open={repositoriesConfigOpen}
+        onOpenChange={setRepositoriesConfigOpen}
+      />
     </Sidebar>
   )
 }

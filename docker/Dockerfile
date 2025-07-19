@@ -1,7 +1,6 @@
 # moatless-universal: Comprehensive development environment
 # Based on OpenAI codex-universal (MIT License)
 # https://github.com/openai/codex-universal
-# Uses pre-packaged moatless-vibe for faster builds
 
 # Stage 1: Base system with all development tools (rarely changes)
 FROM ubuntu:24.04 AS base-system
@@ -149,10 +148,30 @@ RUN ARCH=$(dpkg --print-architecture) && \
     dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
     rm "git-delta_0.18.2_${ARCH}.deb"
 
-# Install bun
-RUN corepack enable && corepack prepare bun@10.13.1 --activate
+# Install bun globally
+ARG BUN_VERSION=1.2.18
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="$BUN_INSTALL/bin:$PATH"
 
-# Install Claude Code CLI as root
+RUN ARCH=$(dpkg --print-architecture) && \
+    BUN_ARCH=$([ "$ARCH" = "amd64" ] && echo "x64" || echo "aarch64") && \
+    mkdir -p "$BUN_INSTALL/bin" \
+    && curl -L --fail "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" \
+        -o /tmp/bun.zip \
+    && unzip -q /tmp/bun.zip -d "$BUN_INSTALL/bin" \
+    && mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" \
+    && chmod +x "$BUN_INSTALL/bin/bun" \
+    && rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip \
+    && ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun \
+    && echo 'export BUN_INSTALL=/opt/bun' >> /etc/profile \
+    && echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> /etc/profile
+
+# Install pnpm and yarn
+RUN corepack enable && \
+    corepack prepare pnpm@latest --activate && \
+    corepack prepare yarn@stable --activate
+
+# Install Claude Code CLI as root using bun
 RUN npm install -g @anthropic-ai/claude-code
 
 # Switch to non-root user

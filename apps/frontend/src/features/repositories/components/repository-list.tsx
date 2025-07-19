@@ -82,16 +82,8 @@ export function RepositoryList({ repositories, isLoading }: RepositoryListProps)
             </TableHeader>
             <TableBody>
               {repositories.map((repo) => (
-                <TableRow key={repo.id} className="cursor-pointer">
-                  <TableCell className="font-medium">
-                    <Link
-                      to="/repositories/$repositoryId"
-                      params={{ repositoryId: repo.id }}
-                      className="block hover:text-primary"
-                    >
-                      {repo.name}
-                    </Link>
-                  </TableCell>
+                <TableRow key={repo.id}>
+                  <TableCell className="font-medium">{repo.name}</TableCell>
                   <TableCell className="text-muted-foreground">local</TableCell>
                   <TableCell className="text-muted-foreground max-w-0">
                     <Tooltip>
@@ -105,11 +97,6 @@ export function RepositoryList({ repositories, isLoading }: RepositoryListProps)
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link to="/repositories/$repositoryId" params={{ repositoryId: repo.id }}>
-                          Edit
-                        </Link>
-                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

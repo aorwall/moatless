@@ -14,6 +14,7 @@ export const EVENT_INVALIDATION_MAP = {
     queryKeys.tasks.workspaceSetup,
     queryKeys.tasks.gitDiff,
   ],
+  environment: [queryKeys.tasks.workspaceStatus], // Environment status changes
   task_status: [queryKeys.tasks.detail], // Main task status invalidation
   // Deprecated/unused event types:
   // INPUT - removed, replaced with TASK_STATUS for status changes

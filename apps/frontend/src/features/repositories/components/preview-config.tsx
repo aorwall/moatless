@@ -55,7 +55,8 @@ export function PreviewConfigForm({
   })
 
   const selectedInjectionMethod = INJECTION_METHOD_OPTIONS.find(
-    (option) => option.value === (config.injectionStrategy?.method || 'html-injection'),
+    (option: { value: string; label: string }) =>
+      option.value === (config.injectionStrategy?.method || 'html-injection'),
   )
 
   const handleDetect = async () => {
@@ -152,7 +153,7 @@ export function PreviewConfigForm({
                     <SelectValue placeholder="Select framework" />
                   </SelectTrigger>
                   <SelectContent>
-                    {FRAMEWORK_OPTIONS.map((option) => (
+                    {FRAMEWORK_OPTIONS.map((option: { value: string; label: string }) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -189,7 +190,12 @@ export function PreviewConfigForm({
                 {config.framework && FRAMEWORK_DEFAULT_COMMANDS[config.framework] && (
                   <span className="block mt-1">
                     Default for{' '}
-                    {FRAMEWORK_OPTIONS.find((opt) => opt.value === config.framework)?.label}:{' '}
+                    {
+                      FRAMEWORK_OPTIONS.find(
+                        (opt: { value: string; label: string }) => opt.value === config.framework,
+                      )?.label
+                    }
+                    :{' '}
                     <code className="text-xs bg-muted px-1 py-0.5 rounded">
                       {FRAMEWORK_DEFAULT_COMMANDS[config.framework]}
                     </code>
