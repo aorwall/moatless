@@ -58,7 +58,7 @@ async function globalSetup(config: FullConfig) {
 
   // Build the application first
   console.log('Building application for E2E tests...')
-  const buildProcess = spawn('pnpm', ['build'], {
+  const buildProcess = spawn('bun', ['build'], {
     stdio: 'inherit',
     env: process.env,
   })

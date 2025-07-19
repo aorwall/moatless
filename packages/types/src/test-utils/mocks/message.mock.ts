@@ -8,7 +8,7 @@ import type {
 } from '../../schemas/message.schemas.js'
 import type { ToolCallGroup } from '../../types/message.js'
 
-export function createMockMessage(overrides?: Partial<Message>): Message {
+export function createMockMessage(overrides?: Partial<UserMessage>): UserMessage {
   return createMockUserMessage('Test message', overrides)
 }
 

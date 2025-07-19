@@ -6,7 +6,7 @@
 
 **Usage:**
 ```bash
-pnpm test:docker:workspace
+bun test:docker:workspace
 ```
 
 **Expected Behavior:**
@@ -28,7 +28,7 @@ Cleanup script for Docker containers created by moatless:
 
 **Usage:**
 ```bash
-pnpm cleanup:docker
+bun cleanup:docker
 # or directly:
 ./scripts/cleanup-docker-containers.sh
 ```
@@ -76,7 +76,7 @@ This is **expected behavior** when testing with basic Docker images (like `node:
 ### Orphaned Containers
 If containers are left running after tests:
 ```bash
-pnpm cleanup:docker
+bun cleanup:docker
 ```
 
 ### Container Not Cleaning Up

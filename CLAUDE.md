@@ -6,58 +6,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Development Commands 
 ```bash
-# Install dependencies (requires pnpm 10.7.1)
-pnpm install
+# Install dependencies (requires bun 10.7.1)
+bun install
 
 # Development (runs all apps concurrently with Turborepo)
-pnpm dev
+bun dev
 
 # Build for production (builds all packages and apps)
-pnpm build
+bun build
 
 # Run tests (tiered by speed and scope)
-pnpm test             # standard tests (excludes E2E)
-pnpm test:unit        # unit tests only (fastest)
-pnpm test:integration # integration tests only
-pnpm test:e2e         # E2E tests only (slowest)
-pnpm test:fast        # fast tests for git hooks
-pnpm test:all         # all tests including E2E
-pnpm test:ui          # with UI and coverage
-pnpm test:coverage    # with coverage report
+bun test             # standard tests (excludes E2E)
+bun test:unit        # unit tests only (fastest)
+bun test:integration # integration tests only
+bun test:e2e         # E2E tests only (slowest)
+bun test:fast        # fast tests for git hooks
+bun test:all         # all tests including E2E
+bun test:ui          # with UI and coverage
+bun test:coverage    # with coverage report
 
 # Type checking
-pnpm type:check
+bun type:check
 
 # Linting and formatting
-pnpm biome:check      # check for issues
-pnpm biome:fix        # auto-fix issues
+bun biome:check      # check for issues
+bun biome:fix        # auto-fix issues
 
 # Run all checks (optimized for speed with Turborepo)
-pnpm check:turbo
+bun check:turbo
 
 # Install shadcn/ui components (run from frontend app)
-cd apps/frontend && pnpm dlx shadcn@latest add [component]
+cd apps/frontend && bunx shadcn@latest add [component]
 ```
 
 ### Running on Different Ports
 ```bash
 # Run backend on a different port (useful for testing)
-PORT=8001 pnpm start
+PORT=8001 bun start
 
 # Run frontend dev server on a different port
-PORT=3001 pnpm dev
+PORT=3001 bun dev
 
 # Environment variables for different ports
-PORT=8001 NODE_ENV=production pnpm start  # Backend production on port 8001
-PORT=8001 pnpm dev                         # Development on port 8001
+PORT=8001 NODE_ENV=production bun start  # Backend production on port 8001
+PORT=8001 bun dev                         # Development on port 8001
 ```
 
 ## Mandatory Workflow
-- You MUST run `pnpm type:check` after code changes to catch TypeScript errors
-- You MUST run `pnpm biome:check` after code changes for linting and formatting
+- You MUST run `bun type:check` after code changes to catch TypeScript errors
+- You MUST run `bun biome:check` after code changes for linting and formatting
 - You can run both `biome:fix` and `biome:check`
-- For comprehensive validation, run `pnpm check:turbo` which includes all checks (optimized for speed)
-- **Quick validation after edits**: Run `pnpm post-edit-hook` for fast formatting fixes and type checking (~100ms with caching)
+- For comprehensive validation, run `bun check:turbo` which includes all checks (optimized for speed)
+- **Quick validation after edits**: Run `bun post-edit-hook` for fast formatting fixes and type checking (~100ms with caching)
 
 ## Commit Conventions
 
@@ -114,7 +114,7 @@ fix(hooks): handle edge case in validation hooks
 For detailed LLM instructions, see [Git Operations Patterns](docs/patterns/git-operations-guide.md).
 
 ### Pre-commit Hooks
-- **pre-push**: Runs fast tests (`pnpm test:fast`) before pushing
+- **pre-push**: Runs fast tests (`bun test:fast`) before pushing
 - **commit-msg**: Validates commit message format using commitlint
 
 ## Architecture
@@ -211,7 +211,7 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 
 ### Technology Stack
 - **Monorepo Tool**: Turborepo
-- **Package Manager**: pnpm workspaces
+- **Package Manager**: bun workspaces
 - **Frontend Framework**: React 19 with TypeScript
 - **Backend Framework**: Hono with TypeScript
 - **Build Tools**: Vite (frontend), TypeScript Compiler (backend)
@@ -223,8 +223,8 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 
 ### Monorepo Workflow
 - **Types Package**: `@moatless/types` contains types, constants, schemas, and utilities shared between frontend and backend
-- **Development**: `pnpm dev` runs all apps concurrently using Turborepo
-- **Building**: `pnpm build` builds all packages in the correct order (types → apps)
+- **Development**: `bun dev` runs all apps concurrently using Turborepo
+- **Building**: `bun build` builds all packages in the correct order (types → apps)
 - **Testing**: Tests run with Turborepo caching for optimal performance
 - **Type Safety**: Shared types ensure consistency across frontend and backend
 
@@ -285,7 +285,7 @@ queryKeys.claudeCode.tools() // Claude Code tools
 
 - **Path Aliases**: `@/*` maps to `./src/*` in TypeScript and Vite
 - **File Naming**: Kebab-case convention enforced by Biome
-- **Import Organization**: Biome automatically organizes imports when running `pnpm biome:fix`
+- **Import Organization**: Biome automatically organizes imports when running `bun biome:fix`
 - **Generated Files**: `routeTree.gen.ts` is excluded from linting/formatting (auto-generated by TanStack Router)
 - **Feature-Based Architecture**:
   - Features contain components, hooks, and API code
@@ -572,28 +572,28 @@ src/features/tasks/
 ### Quick Start
 ```bash
 # Run all tests (excludes E2E by default)
-pnpm test
+bun test
 
 # Run only unit tests (fastest)
-pnpm test:unit
+bun test:unit
 
 # Run integration tests
-pnpm test:integration
+bun test:integration
 
 # Run E2E tests (slowest)
-pnpm test:e2e
+bun test:e2e
 
 # Run fast tests (for git hooks)
-pnpm test:fast
+bun test:fast
 
 # Run all tests including E2E
-pnpm test:all
+bun test:all
 
 # Run tests with coverage
-pnpm test:coverage
+bun test:coverage
 
 # Run tests with UI
-pnpm test:ui
+bun test:ui
 ```
 
 ### Backend Testing Strategy
@@ -625,20 +625,20 @@ The backend follows a specific testing strategy with proper naming conventions t
 #### Test Commands Usage
 ```bash
 # Development - Fast feedback loop
-pnpm test:unit
+bun test:unit
 
 # Pre-push hook - Essential coverage
-pnpm test:fast
+bun test:fast
 
 # CI Pipeline - Full integration testing
-pnpm test
+bun test
 
 # Nightly/Release - Complete validation
-pnpm test:all
+bun test:all
 ```
 
 #### Git Hook Optimization
-The `.husky/pre-push` hook uses `pnpm test:fast` which excludes integration and E2E tests, reducing push time to ~30 seconds while maintaining essential test coverage.
+The `.husky/pre-push` hook uses `bun test:fast` which excludes integration and E2E tests, reducing push time to ~30 seconds while maintaining essential test coverage.
 
 ### Testing Strategy & Guidelines
 

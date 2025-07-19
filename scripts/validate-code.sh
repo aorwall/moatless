@@ -4,57 +4,51 @@
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-GREEN='\033[0;32m'
-NC='\033[0m' # No Color
-
-echo "${YELLOW}🔍 Running post-edit validation...${NC}"
-echo "${YELLOW}This checks for issues that may have been introduced by recent code changes.${NC}"
-echo ""
-echo "${YELLOW}⚠️  If you are still working on code changes, some errors below may be temporary.${NC}"
-echo "${YELLOW}   Continue with your planned fixes before addressing these errors.${NC}"
-echo ""
+echo "🔍 Running post-edit validation..." >&2
+echo "This checks for issues that may have been introduced by recent code changes." >&2
+echo "" >&2
+echo "⚠️  If you are still working on code changes, some errors below may be temporary." >&2
+echo "   Continue with your planned fixes before addressing these errors." >&2
+echo "" >&2
 
 # Track if any errors occurred
 HAS_ERRORS=0
 
 # Run biome check with formatting
-echo "${YELLOW}📝 Running Biome formatter and linter...${NC}"
-if bun exec biome check --write --diagnostic-level=error "$@"; then
-  echo "${GREEN}✓ Biome check passed${NC}"
+echo "📝 Running Biome formatter and linter..." >&2
+if bun run biome check --write --diagnostic-level=error "$@"; then
+  echo "✓ Biome check passed" >&2
 else
-  echo ""
-  echo "${RED}❌ Biome found errors in the code${NC}"
-  echo "${RED}These issues may be due to recent changes made by the agent.${NC}"
-  echo "${RED}Please review and fix the errors above.${NC}"
+  echo "" >&2
+  echo "❌ Biome found errors in the code" >&2
+  echo "These issues may be due to recent changes made by the agent." >&2
+  echo "Please review and fix the errors above." >&2
   HAS_ERRORS=1
 fi
 
-echo ""
+echo "" >&2
 
 # Run TypeScript type checking
-echo "${YELLOW}🔍 Running TypeScript type check...${NC}"
+echo "🔍 Running TypeScript type check..." >&2
 if turbo run type:check; then
-  echo "${GREEN}✓ TypeScript type check passed${NC}"
+  echo "✓ TypeScript type check passed" >&2
 else
-  echo ""
-  echo "${RED}❌ TypeScript found type errors${NC}"
-  echo "${RED}These type errors may be due to recent changes made by the agent.${NC}"
-  echo "${RED}Please review and fix the type errors above.${NC}"
+  echo "" >&2
+  echo "❌ TypeScript found type errors" >&2
+  echo "These type errors may be due to recent changes made by the agent." >&2
+  echo "Please review and fix the type errors above." >&2
   HAS_ERRORS=1
 fi
 
-echo ""
+echo "" >&2
 
 # Final status
 if [ $HAS_ERRORS -eq 0 ]; then
-  echo "${GREEN}✅ All validation checks passed!${NC}"
+  echo "✅ All validation checks passed!" >&2
   exit 0
 else
-  echo "${RED}⚠️  Validation failed!${NC}"
-  echo "${RED}The issues found above need to be addressed before proceeding.${NC}"
-  echo "${RED}These errors may have been introduced by recent code modifications.${NC}"
+  echo "⚠️  Validation failed!" >&2
+  echo "The issues found above need to be addressed before proceeding." >&2
+  echo "These errors may have been introduced by recent code modifications." >&2
   exit 2
 fi

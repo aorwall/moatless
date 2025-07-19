@@ -12,9 +12,9 @@ const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
     name: 'Basic Hello Website',
     description: 'A simple website template with HTML, CSS, and JavaScript',
     gitUrl: 'https://github.com/aorwall/hello-world-ui.git',
-    setupCommand: 'pnpm install',
+    setupCommand: 'bun install',
     previewConfig: {
-      serverStartCommand: 'pnpm run dev',
+      serverStartCommand: 'bun run dev',
       serverPort: 3000,
       injectionStrategy: {
         method: 'html-injection',

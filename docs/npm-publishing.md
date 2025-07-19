@@ -40,7 +40,7 @@ moatless-vibe-0.1.0.tgz
 
 ### 1. Build All Packages
 ```bash
-pnpm build
+bun build
 ```
 This runs Turborepo to build:
 - `@moatless/types` - Shared types package
@@ -95,7 +95,7 @@ The root `package.json` only includes runtime dependencies that can't be bundled
 
 ### 1. Build the Package
 ```bash
-pnpm build:package
+bun build:package
 ```
 
 ### 2. Test Locally
@@ -166,7 +166,7 @@ The Docker build uses a multi-stage approach for optimal caching:
 - Only rebuilds when the application changes
 
 The `docker/build-worker.sh` script:
-1. Runs `pnpm build:package` to create the bundled application
+1. Runs `bun build:package` to create the bundled application
 2. Builds the Docker image using cached base layers
 3. Only the application layer rebuilds on code changes
 
@@ -231,7 +231,7 @@ npm audit --production
 {
   "scripts": {
     "test": "vitest",
-    "build": "pnpm build:package"
+    "build": "bun build:package"
     // Never use: postinstall, preinstall, install
   }
 }

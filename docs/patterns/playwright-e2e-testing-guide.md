@@ -17,7 +17,7 @@ Quick validation that the application is running correctly:
 
 ```bash
 # Run smoke tests only
-pnpm test:e2e smoke.spec.ts
+bun test:e2e smoke.spec.ts
 ```
 
 ### 2. Infrastructure Tests (`infrastructure-test.spec.ts`)
@@ -32,7 +32,7 @@ Validates E2E testing framework components without a server:
 
 ```bash
 # Run infrastructure tests only (fastest)
-pnpm exec playwright test --config=playwright-infrastructure.config.ts
+bun exec playwright test --config=playwright-infrastructure.config.ts
 ```
 
 ### 3. UI Task Workflow Tests (`ui-task-complete-workflow.spec.ts`)
@@ -58,10 +58,10 @@ Complete user journey through the UI:
 
 ```bash
 # Run UI workflow tests
-pnpm test:e2e ui-task-complete-workflow.spec.ts
+bun test:e2e ui-task-complete-workflow.spec.ts
 
 # Run specific test in UI mode
-pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task via UI"
+bun exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task via UI"
 ```
 
 ### 4. Event Flow Tests (`event-flow-complete.spec.ts`)
@@ -76,19 +76,19 @@ Advanced multi-agent scenarios:
 
 ```bash
 # Run event flow tests
-pnpm test:e2e event-flow-complete.spec.ts
+bun test:e2e event-flow-complete.spec.ts
 ```
 
 ## Prerequisites & Setup
 
 1. Install dependencies:
    ```bash
-   pnpm install
+   bun install
    ```
 
 2. Build the application:
    ```bash
-   pnpm build
+   bun build
    ```
 
 3. **Port Configuration**: Tests automatically find available ports starting from 3002.
@@ -99,10 +99,10 @@ The E2E tests automatically detect and use available ports:
 
 ```bash
 # Tests automatically find an available port
-pnpm test:e2e
+bun test:e2e
 
 # Use a custom starting port
-E2E_PORT=4000 pnpm test:e2e
+E2E_PORT=4000 bun test:e2e
 
 # Check which port was selected (shown in test output)
 # Example output: "Starting server for E2E tests on port 3003..."
@@ -114,26 +114,26 @@ E2E_PORT=4000 pnpm test:e2e
 
 ```bash
 # Run all E2E tests
-pnpm test:e2e
+bun test:e2e
 
 # Run specific test file
-pnpm test:e2e ui-task-complete-workflow.spec.ts
+bun test:e2e ui-task-complete-workflow.spec.ts
 
 # Run tests matching a pattern
-pnpm test:e2e --grep "should create task via UI"
+bun test:e2e --grep "should create task via UI"
 
 # Run in UI mode (interactive debugging)
-pnpm test:e2e:ui
+bun test:e2e:ui
 
 # Run with browser visible
-pnpm test:e2e:headed
+bun test:e2e:headed
 
 # Debug mode (step through)
-pnpm test:e2e:debug
+bun test:e2e:debug
 
 # Generate and view HTML report
-pnpm test:e2e --reporter=html
-pnpm exec playwright show-report
+bun test:e2e --reporter=html
+bun exec playwright show-report
 ```
 
 ### Running Specific Tests in UI Mode
@@ -142,16 +142,16 @@ To run a specific test in UI mode for interactive debugging:
 
 ```bash
 # Run specific test file in UI mode
-pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts
+bun exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts
 
 # Run specific test by name pattern in UI mode
-pnpm exec playwright test --ui --grep "should create task via UI"
+bun exec playwright test --ui --grep "should create task via UI"
 
 # Run specific test file and grep pattern in UI mode
-pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task"
+bun exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task"
 
-# Alternative: Use the pnpm script with additional arguments
-pnpm test:e2e:ui -- tests/e2e/ui-task-complete-workflow.spec.ts
+# Alternative: Use the bun script with additional arguments
+bun test:e2e:ui -- tests/e2e/ui-task-complete-workflow.spec.ts
 ```
 
 In UI mode, you can:
@@ -166,7 +166,7 @@ In UI mode, you can:
 **Example: Debugging the UI task creation test**
 ```bash
 # Open UI mode for the task creation test
-pnpm exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task via UI"
+bun exec playwright test --ui tests/e2e/ui-task-complete-workflow.spec.ts --grep "should create task via UI"
 ```
 
 This opens the Playwright UI where you can:
@@ -223,7 +223,7 @@ Tests automatically:
 
 ### 1. Use UI Mode
 ```bash
-pnpm test:e2e:ui
+bun test:e2e:ui
 ```
 - Step through tests interactively
 - See browser state at each step
@@ -237,7 +237,7 @@ Failed tests generate:
 
 ### 3. View HTML Report
 ```bash
-pnpm exec playwright show-report
+bun exec playwright show-report
 ```
 Shows detailed test results with:
 - Step-by-step execution
@@ -255,7 +255,7 @@ If you encounter issues with port detection:
 lsof -i :3002-3102
 
 # Use a different starting port range
-E2E_PORT=4000 pnpm test:e2e
+E2E_PORT=4000 bun test:e2e
 
 # The system will automatically find the first available port
 ```
@@ -334,9 +334,9 @@ await deleteTestRepository(baseURL, repoId)
 
 ### Server Won't Start
 - Check node version matches requirements
-- Verify all dependencies installed: `pnpm install`
+- Verify all dependencies installed: `bun install`
 - Ensure some ports are available in the 3002+ range
-- Try a different port range: `E2E_PORT=4000 pnpm test:e2e`
+- Try a different port range: `E2E_PORT=4000 bun test:e2e`
 - Check server logs in test output
 
 ### Flaky Tests

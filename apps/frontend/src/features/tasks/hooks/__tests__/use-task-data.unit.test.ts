@@ -1,4 +1,3 @@
-import { EventType } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'
@@ -26,8 +25,8 @@ describe('useTaskData', () => {
     const taskId = 'test-task-123'
     const mockTask = createMockTask({ taskId })
     const mockEvents = [
-      createMockEvent({ taskId, type: EventType.MESSAGE }),
-      createMockEvent({ taskId, type: EventType.TOOL }),
+      createMockEvent({ taskId, type: 'message' }),
+      createMockEvent({ taskId, type: 'tool' }),
     ]
     const mockGitDiff = {
       diff: 'diff --git a/file.ts b/file.ts\n+added line',

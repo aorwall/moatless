@@ -149,8 +149,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
     rm "git-delta_0.18.2_${ARCH}.deb"
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
+# Install bun
+RUN corepack enable && corepack prepare bun@10.13.1 --activate
 
 # Install Claude Code CLI as root
 RUN npm install -g @anthropic-ai/claude-code

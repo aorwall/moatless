@@ -68,22 +68,37 @@ export function createMockWorkspaceStatusResponse(
   overrides?: Partial<WorkspaceStatusResponse>,
 ): WorkspaceStatusResponse {
   return {
-    status: 'idle',
-    backgroundTaskCount: 0,
+    workspace: {
+      state: 'exists',
+      changeStatus: 'no_changes',
+      path: '/tmp/test-workspace',
+    },
     environment: {
       type: 'local',
       status: 'ready',
       createdAt: '2024-01-01T00:00:00Z',
-      capabilities: {
-        fileOperations: true,
-        commandExecution: true,
-      },
     },
-    gitChanges: {
-      totalChanges: 3,
-      totalAdditions: 15,
-      totalDeletions: 5,
-      files: ['src/test.ts', 'package.json', 'README.md'],
+    agent: {
+      state: 'idle',
+      type: 'claude-code',
+    },
+    capabilities: {
+      fileOperations: true,
+      commandExecution: true,
+      serverManagement: true,
+    },
+    gitStatus: {
+      currentBranch: 'feature/test',
+      baseBranch: 'main',
+      hasUncommittedChanges: true,
+      hasConflicts: false,
+      status: 'ahead',
+      commitsAhead: 2,
+      commitsBehind: 0,
+      originExists: true,
+      additions: 15,
+      deletions: 5,
+      modifications: 3,
     },
     ...overrides,
   }

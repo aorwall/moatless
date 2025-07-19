@@ -26,11 +26,11 @@ src/features/tasks/
 ## Test Commands
 
 ```bash
-pnpm test           # All tests
-pnpm test:unit      # Unit tests only (fastest)
-pnpm test:integration # Integration tests only
-pnpm test:fast      # Alias for test:unit (git hooks)
-pnpm test:coverage  # With coverage report
+bun test           # All tests
+bun test:unit      # Unit tests only (fastest)
+bun test:integration # Integration tests only
+bun test:fast      # Alias for test:unit (git hooks)
+bun test:coverage  # With coverage report
 ```
 
 ## React 19 Compatibility

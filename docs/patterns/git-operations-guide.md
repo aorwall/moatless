@@ -314,7 +314,7 @@ git push -u origin branch-name
 ## Best Practices to Avoid Force Pushing
 
 1. **Always work on feature branches** when implementing new features
-2. **Run `pnpm check:turbo` locally** before attempting to push to main
+2. **Run `bun check:turbo` locally** before attempting to push to main
 3. **Use pull requests** when tests fail - this maintains CI/CD integrity
 4. **Fix issues in separate commits** rather than amending and force pushing
 5. **Only bypass hooks** when explicitly requested and document the technical debt
@@ -329,7 +329,7 @@ Before any git operation, always:
 2. Identify and handle generated files
 3. Ensure user's work is safely committed or stashed
 4. Fetch latest changes before rebasing
-5. Run local checks (`pnpm check:turbo`) before pushing
+5. Run local checks (`bun check:turbo`) before pushing
 6. Provide clear feedback on each step's success/failure
 
 ## Emergency Recovery

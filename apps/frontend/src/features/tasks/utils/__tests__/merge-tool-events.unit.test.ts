@@ -1,5 +1,4 @@
 import type { ClaudeCodeSDKMessage, Event, MessageEvent } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { mergeToolEvents } from '../merge-tool-events'
@@ -9,7 +8,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
@@ -36,7 +35,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -77,7 +76,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
@@ -117,7 +116,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -142,7 +141,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -173,7 +172,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
@@ -200,7 +199,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -226,7 +225,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-3',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: 'tool_call',
         taskId: 'task-1',
         iterationId: 1,
@@ -253,7 +252,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-4',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -300,7 +299,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '', // No subType, should detect by content
         taskId: 'task-1',
         iterationId: 1,
@@ -327,7 +326,7 @@ describe('mergeToolEvents', () => {
       },
       {
         eventId: 'event-2',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '', // empty subType should also work
         taskId: 'task-1',
         iterationId: 1,
@@ -368,7 +367,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -399,7 +398,7 @@ describe('mergeToolEvents', () => {
       } as unknown as MessageEvent,
       {
         eventId: 'event-2',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -448,7 +447,7 @@ describe('mergeToolEvents', () => {
     const events: Event[] = [
       {
         eventId: 'event-1',
-        type: EventType.MESSAGE,
+        type: 'message',
         subType: '',
         taskId: 'task-1',
         iterationId: 1,
@@ -495,7 +494,7 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-1',
-          type: EventType.MESSAGE,
+          type: 'message',
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
@@ -530,7 +529,7 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-1',
-          type: EventType.MESSAGE,
+          type: 'message',
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
@@ -564,7 +563,7 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-bad',
-          type: EventType.MESSAGE,
+          type: 'message',
           subType: '',
           taskId: 'task-1',
           iterationId: 1,
@@ -587,7 +586,7 @@ describe('mergeToolEvents', () => {
       const events: Event[] = [
         {
           eventId: 'event-1',
-          type: EventType.MESSAGE,
+          type: 'message',
           subType: '',
           taskId: 'task-1',
           iterationId: 1,

@@ -307,7 +307,7 @@ WORKER_TASK_ID=${taskId}
 - **Working Directory**: `/repo`
 - **Home Directory**: `/repo` (for user cache and config)
 - **User**: `ubuntu` (UID 1000)
-- **Required Tools**: `pnpm`, `node`, `python`, `git`, `bash`
+- **Required Tools**: `bun`, `node`, `python`, `git`, `bash`
 
 ### Setup Commands Execution
 **Implementation**: `apps/backend/environments/docker-environment.ts:130-147`
@@ -429,7 +429,7 @@ interface CommandResult {
 {
   type: 'docker',
   dockerImage: 'moatless-vibe-universal:latest',
-  setupCommands: ['pnpm install', 'pnpm build'],
+  setupCommands: ['bun install', 'bun build'],
   envVars: {
     NODE_ENV: 'production',
     PORT: '3000'
@@ -515,7 +515,7 @@ const checkStatus = async () => {
 |-------|-------|---------|
 | "No such container" | Container not created | Check `docker ps -a`, recreate workspace |
 | "Port already in use" | Port conflict | Use `PortAllocationService` or change ports |
-| "pnpm command not found" | Missing tools in image | Use `moatless-vibe-universal:latest` |
+| "bun command not found" | Missing tools in image | Use `moatless-vibe-universal:latest` |
 | "fatal: not a git repository" | Git worktree path mismatch | Ensure main repo `.git` is mounted and env vars are set |
 
 #### Command Execution Issues

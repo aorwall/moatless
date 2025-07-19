@@ -796,7 +796,7 @@ This separation allows for clearer understanding of system state and prevents co
 
 1. **Type Definitions First**
    - Update all type schemas as specified in Step 1
-   - Run `pnpm type:check` to identify all type errors
+   - Run `bun type:check` to identify all type errors
    - Fix type errors before proceeding
 
 2. **Backend Services**
@@ -826,10 +826,10 @@ This separation allows for clearer understanding of system state and prevents co
 
 Run these commands to verify the changes:
 ```bash
-pnpm type:check
-pnpm test:unit
-pnpm test:integration
-pnpm dev
+bun type:check
+bun test:unit
+bun test:integration
+bun dev
 ```
 
 Then manually test:
@@ -859,7 +859,7 @@ Then manually test:
   - Add WorkspaceExistenceSchema, WorkspaceChangeStatusSchema, AgentStateSchema
   - Update WorkspaceStatusResponseSchema (line 174) with new structure
   - Add new type exports
-- [ ] Run `pnpm type:check` in types package to verify changes
+- [ ] Run `bun type:check` in types package to verify changes
 
 ### Phase 2: Backend Core Updates
 - [ ] **Task Service** (`apps/backend/services/task.service.ts`)
@@ -882,7 +882,7 @@ Then manually test:
   - Remove task status restoration in finally block (line 136)
 
 ### Phase 3: Backend Testing
-- [ ] Run `pnpm test:unit` to catch immediate issues
+- [ ] Run `bun test:unit` to catch immediate issues
 - [ ] Update backend tests that check for removed statuses
 - [ ] Add tests for new calculateChangeStatus logic
 - [ ] Test environment event emission
@@ -936,15 +936,15 @@ Then manually test:
   - Update to handle new change status
 
 ### Phase 8: Integration Testing
-- [ ] Run `pnpm dev` and manually test:
+- [ ] Run `bun dev` and manually test:
   - Create new task (should be 'open')
   - Send message (iteration 'created' → 'active')
   - Wait for completion (iteration → 'completed')
   - Check workspace warnings only show for missing/invalid
   - Verify environment events update UI
   - Test merge button only enabled with committed_unmerged
-- [ ] Run `pnpm test:integration` to verify API contracts
-- [ ] Run `pnpm test:e2e` for full user flows
+- [ ] Run `bun test:integration` to verify API contracts
+- [ ] Run `bun test:e2e` for full user flows
 
 ### Phase 9: Documentation Updates
 - [ ] Update `docs/patterns/task-lifecycle.md` with new state model
@@ -952,8 +952,8 @@ Then manually test:
 - [ ] Update any user-facing documentation about task states
 
 ### Phase 10: Final Verification
-- [ ] Run `pnpm check:turbo` for all checks
-- [ ] Verify no TypeScript errors with `pnpm type:check`
+- [ ] Run `bun check:turbo` for all checks
+- [ ] Verify no TypeScript errors with `bun type:check`
 - [ ] Check for any remaining references to old statuses with grep:
   ```bash
   grep -r "status.*running" --include="*.ts" --include="*.tsx"

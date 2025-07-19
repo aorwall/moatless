@@ -4,7 +4,7 @@ echo "=== Running Biome React Hooks Analysis ==="
 echo
 
 # Run biome check and capture output
-BIOME_OUTPUT=$(pnpm exec biome check apps/frontend/src --max-diagnostics=1000 2>&1)
+BIOME_OUTPUT=$(bun exec biome check apps/frontend/src --max-diagnostics=1000 2>&1)
 
 # Count different types of errors
 EXHAUSTIVE_DEPS=$(echo "$BIOME_OUTPUT" | grep -c "useExhaustiveDependencies")

@@ -90,7 +90,7 @@ test.describe('Simple Preview Environment Test', () => {
 
     // Step 4: Type the task message
     const taskMessage =
-      'Clone https://github.com/aorwall/hello-world-ui and run it with "pnpm run dev"'
+      'Clone https://github.com/aorwall/hello-world-ui and run it with "bun run dev"'
     const chatInput = page.locator('textarea').first()
     await chatInput.fill(taskMessage)
 

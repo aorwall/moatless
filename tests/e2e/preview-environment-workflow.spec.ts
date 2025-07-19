@@ -89,7 +89,7 @@ test.describe('Preview Environment Workflow', () => {
 
     // Step 4: Type the task message to clone hello-world-ui
     const taskMessage =
-      'Clone https://github.com/aorwall/hello-world-ui and run it with "pnpm run dev"'
+      'Clone https://github.com/aorwall/hello-world-ui and run it with "bun run dev"'
     const chatInput = page.locator('textarea').first()
     await chatInput.fill(taskMessage)
 
@@ -129,7 +129,7 @@ test.describe('Preview Environment Workflow', () => {
     console.log('✅ Task detail page loaded')
 
     // Step 7: Monitor task execution and wait for development server to start
-    const maxWaitTime = 120000 // 120 seconds - cloning and pnpm install can take time
+    const maxWaitTime = 120000 // 120 seconds - cloning and bun install can take time
     const startTime = Date.now()
     let serverStarted = false
     let iterationCount = 0
@@ -153,10 +153,10 @@ test.describe('Preview Environment Workflow', () => {
             // Log what the agent is doing
             if (lastIteration.result.includes('git clone')) {
               console.log('✅ Repository cloned')
-            } else if (lastIteration.result.includes('pnpm install')) {
+            } else if (lastIteration.result.includes('bun install')) {
               console.log('✅ Dependencies being installed')
             } else if (
-              lastIteration.result.includes('pnpm run dev') ||
+              lastIteration.result.includes('bun run dev') ||
               lastIteration.result.includes('VITE') ||
               lastIteration.result.includes('Local:') ||
               lastIteration.result.includes('localhost:')

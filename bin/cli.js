@@ -58,7 +58,7 @@ function startServer() {
 }
 
 function startDevelopment() {
-  const child = spawn('pnpm', ['dev'], {
+  const child = spawn('bun', ['dev'], {
     cwd: rootDir,
     stdio: 'inherit',
     shell: true,

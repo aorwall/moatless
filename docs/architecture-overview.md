@@ -64,13 +64,13 @@ graph TB
 ### Build & Development
 - **TypeScript**: ES2023 target with NodeNext modules
 - **Monorepo Tool**: Turborepo (with intelligent caching)
-- **Package Manager**: pnpm 10.7.1 (enforced version)
+- **Package Manager**: bun 10.7.1 (enforced version)
 - **Code Quality**: Biome (linting + formatting)
 - **Testing**: Vitest with tiered test strategy
 
 ### Monorepo Structure
 - **Tool**: Turborepo
-- **Package Manager**: pnpm workspaces
+- **Package Manager**: bun workspaces
 - **Types**: `@moatless/types` package
 - **Build Order**: Shared packages build before apps (dependency graph)
 
@@ -190,7 +190,7 @@ The OpenAPI specification provides a detailed and interactive API reference. To 
 
 1.  **Run the development server**:
     ```bash
-    pnpm dev
+    bun dev
     ```
 2.  **Access the UI**: The OpenAPI UI is available at [http://localhost:8000/api/v1/doc](http://localhost:8000/api/v1/doc).
 
@@ -282,16 +282,16 @@ graph LR
 ### Local Development
 ```bash
 # Install dependencies
-pnpm install
+bun install
 
 # Run development servers
-pnpm dev
+bun dev
 
 # Run type checking
-pnpm type:check
+bun type:check
 
 # Run linting
-pnpm biome:check
+bun biome:check
 ```
 
 ### Testing Strategy

@@ -1,4 +1,4 @@
-import { type Event, EventType } from '@moatless/types'
+import type { Event } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
@@ -14,7 +14,7 @@ describe('event-handlers', () => {
     it('should return correct invalidation keys for TASK_STATUS event', () => {
       const event: Event = {
         eventId: 'event-1',
-        type: EventType.TASK_STATUS,
+        type: 'task_status',
         taskId: 'task-123',
         agentType: 'test',
         isError: false,
@@ -31,7 +31,7 @@ describe('event-handlers', () => {
     it('should return correct invalidation keys for RESULT event', () => {
       const event: Event = {
         eventId: 'event-2',
-        type: EventType.RESULT,
+        type: 'result',
         taskId: 'task-456',
         agentType: 'test',
         isError: false,
@@ -49,7 +49,7 @@ describe('event-handlers', () => {
     it('should return correct invalidation keys for MESSAGE event', () => {
       const event: Event = {
         eventId: 'event-3',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: 'task-789',
         agentType: 'test',
         isError: false,
@@ -64,7 +64,7 @@ describe('event-handlers', () => {
     it('should return correct invalidation keys for WORKSPACE event', () => {
       const event: Event = {
         eventId: 'event-4',
-        type: EventType.WORKSPACE,
+        type: 'workspace',
         taskId: 'task-999',
         agentType: 'test',
         isError: false,
@@ -82,7 +82,7 @@ describe('event-handlers', () => {
 
   describe('shouldInvalidateTaskList', () => {
     it('should return true for status-affecting events', () => {
-      const statusEvents = [{ type: EventType.ERROR }, { type: EventType.TASK_STATUS }]
+      const statusEvents = [{ type: 'error' }, { type: 'task_status' }]
 
       statusEvents.forEach((event) => {
         expect(shouldInvalidateTaskList(event as any)).toBe(true)
@@ -91,11 +91,11 @@ describe('event-handlers', () => {
 
     it('should return false for non-status-affecting events', () => {
       const nonStatusEvents = [
-        { type: EventType.MESSAGE },
-        { type: EventType.WORKSPACE },
-        { type: EventType.TOOL },
-        { type: EventType.SERVER },
-        { type: EventType.RESULT }, // RESULT no longer affects task status directly
+        { type: 'message' },
+        { type: 'workspace' },
+        { type: 'tool' },
+        { type: 'server' },
+        { type: 'result' }, // RESULT no longer affects task status directly
       ]
 
       nonStatusEvents.forEach((event) => {
@@ -127,7 +127,7 @@ describe('event-handlers', () => {
 
     it('should only invalidate specific task resources', () => {
       // Verify TASK_STATUS only invalidates the specific task
-      const taskStatusInvalidations = EVENT_INVALIDATION_MAP[EventType.TASK_STATUS]
+      const taskStatusInvalidations = EVENT_INVALIDATION_MAP['task_status']
       expect(taskStatusInvalidations).toHaveLength(1)
       expect(taskStatusInvalidations[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })

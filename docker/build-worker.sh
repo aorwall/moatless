@@ -58,7 +58,7 @@ cd "$(dirname "$0")/.."
 
 # Build the npm package first
 echo -e "${YELLOW}Building npm package...${NC}"
-pnpm build:package
+bun build:package
 if [ $? -ne 0 ]; then
   echo -e "${RED}✗ Package build failed!${NC}"
   exit 1

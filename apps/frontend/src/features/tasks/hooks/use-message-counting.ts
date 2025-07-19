@@ -1,5 +1,4 @@
 import type { Event } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { useMemo } from 'react'
 
 interface UseMessageCountingProps {
@@ -15,11 +14,7 @@ export function useMessageCounting({ events, isStreaming }: UseMessageCountingPr
     if (isStreaming && events.length) {
       // Count message events with role assistant for each iteration
       events.forEach((event) => {
-        if (
-          event.type === EventType.MESSAGE &&
-          event.payload?.role === 'assistant' &&
-          event.iterationId
-        ) {
+        if (event.type === 'message' && event.payload?.role === 'assistant' && event.iterationId) {
           const currentCount = counts.get(event.iterationId) || 0
           counts.set(event.iterationId, currentCount + 1)
         }

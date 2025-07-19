@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm post-edit-hook"
+            "command": "bun post-edit-hook"
           }
         ]
       }

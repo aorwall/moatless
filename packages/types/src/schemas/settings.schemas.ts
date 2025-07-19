@@ -56,6 +56,7 @@ export const updateSettingsSchema = z
 export const SettingsResponseSchema = z.object({
   settings: ApplicationSettingsSchema,
   status: SystemStatusCheckSchema,
+  defaults: ApplicationSettingsSchema,
 })
 
 // Derived types

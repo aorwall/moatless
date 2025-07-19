@@ -2,17 +2,15 @@ import type {
   Event,
   GitDiffResponse,
   SimpleTaskResponse,
-  Task,
   TaskIteration,
-  WorkspaceStatus,
+  TaskResponse,
 } from '@moatless/types'
-import { EventType } from '@moatless/types'
 
 // Re-export repository factories
 export * from './factories/repository'
 
 // Task factories
-export function createMockTask(overrides?: Partial<Task>): Task {
+export function createMockTask(overrides?: Partial<TaskResponse>): TaskResponse {
   return {
     taskId: 'task-123',
     createdAt: new Date('2024-01-01T00:00:00Z'),
@@ -29,7 +27,7 @@ export function createMockTask(overrides?: Partial<Task>): Task {
 
 export function createMockTaskIteration(
   overrides?: Partial<TaskIteration> & { iteration?: number },
-): TaskIteration {
+): TaskResponseIteration {
   const iteration = overrides?.iteration || 1
   return {
     iterationNumber: iteration,
@@ -50,7 +48,7 @@ export function createMockTaskIteration(
 export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
     eventId: 'event-123',
-    type: EventType.MESSAGE,
+    type: 'message',
     agentType: 'test-agent',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
@@ -67,7 +65,7 @@ export function createMockMessageEvent(
   role: 'user' | 'assistant' = 'user',
 ): Event {
   return createMockEvent({
-    type: EventType.MESSAGE,
+    type: 'message',
     payload: {
       role,
       content,
@@ -78,7 +76,7 @@ export function createMockMessageEvent(
 
 export function createMockToolEvent(toolName: string, input: unknown): Event {
   return createMockEvent({
-    type: EventType.TOOL,
+    type: 'tool',
     payload: {
       toolName: toolName,
       input,
@@ -166,10 +164,10 @@ export function createMockAgentTriggerResponse(
 
 // Bulk factories
 export function createMockTaskWithIterations(
-  taskOverrides?: Partial<Task>,
+  taskOverrides?: Partial<TaskResponse>,
   iterationCount = 3,
-): Task {
-  const iterations: TaskIteration[] = []
+): TaskResponse {
+  const iterations: TaskResponseIteration[] = []
   for (let i = 1; i <= iterationCount; i++) {
     iterations.push(
       createMockTaskIteration({

@@ -15,6 +15,7 @@ This directory contains architectural patterns specifically written for LLMs (La
 - [React Query Patterns](./react-query.md) - Server state management best practices
 - [Event-Driven Architecture](./event-driven.md) - Central event system design
 - [Derived State Without Effects](./derived-state.md) - Calculate values during render instead of using effects
+- [Task Lifecycle](./task-lifecycle.md) - Task, workspace, environment, and agent state management
 
 ### Error Handling Patterns
 - [Error Boundary Strategies](./error-handling.md) - Graceful error recovery

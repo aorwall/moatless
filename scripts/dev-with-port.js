@@ -74,7 +74,7 @@ async function main() {
     console.log(`🚀 Starting backend on port ${port}`)
 
     // Start the backend server with the found port
-    const backendProcess = spawn('pnpm', ['--filter', '@moatless/backend', 'dev'], {
+    const backendProcess = spawn('bun', ['--filter', '@moatless/backend', 'dev'], {
       stdio: 'inherit',
       env: {
         ...process.env,
@@ -106,7 +106,7 @@ async function main() {
       console.log(`   Frontend will use port: ${process.env.PORT}`)
     }
 
-    const frontendProcess = spawn('pnpm', ['--filter', '@moatless/frontend', 'dev'], {
+    const frontendProcess = spawn('bun', ['--filter', '@moatless/frontend', 'dev'], {
       stdio: 'inherit',
       env: frontendEnv,
       shell: true,
