@@ -1,4 +1,4 @@
-import { Search, Settings, XIcon } from 'lucide-react'
+import { Search, XIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
@@ -56,33 +56,30 @@ export default function ConfigurationDialogDesktop({
         )}
         showCloseButton={false}
       >
-        <div className="flex h-full overflow-hidden">
+        <div className="flex h-full overflow-hidden relative">
+          {/* Close button in upper right corner */}
+          <button
+            onClick={() => onOpenChange(false)}
+            className="absolute top-4 right-4 flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted transition-colors z-10"
+            type="button"
+          >
+            <XIcon className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </button>
+
           {/* Sidebar */}
           <div className="w-64 bg-muted/30 border-r flex flex-col h-full">
             {/* Header */}
             <div className="p-6 border-b flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center w-8 h-8 bg-primary/10 rounded-md">
-                    <Settings className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <DialogTitle className="text-lg font-semibold">{title}</DialogTitle>
-                    {description && (
-                      <DialogDescription className="text-sm text-muted-foreground mt-1">
-                        {description}
-                      </DialogDescription>
-                    )}
-                  </div>
+              <div className="flex items-center gap-3">
+                <div>
+                  <DialogTitle className="text-lg font-semibold">{title}</DialogTitle>
+                  {description && (
+                    <DialogDescription className="text-sm text-muted-foreground mt-1">
+                      {description}
+                    </DialogDescription>
+                  )}
                 </div>
-                <button
-                  onClick={() => onOpenChange(false)}
-                  className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted transition-colors"
-                  type="button"
-                >
-                  <XIcon className="h-4 w-4" />
-                  <span className="sr-only">Close</span>
-                </button>
               </div>
             </div>
 
@@ -128,7 +125,7 @@ export default function ConfigurationDialogDesktop({
                               {section.icon}
                             </div>
                           )}
-                          <span className="font-medium">{section.label}</span>
+                          <span className="text-sm font-medium">{section.label}</span>
                         </button>
                       </li>
                     ))}
