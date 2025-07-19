@@ -84,7 +84,7 @@ describe('Date Handling Consistency', () => {
         {
           iterationNumber: 1,
           startTime: new Date(),
-          status: 'error',
+          status: 'failed',
           messageCount: 1,
           costUsd: 0.01,
           error: {
