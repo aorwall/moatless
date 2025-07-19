@@ -3,9 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 interface UseScrollManagerProps {
   scrollRef: React.RefObject<HTMLDivElement | null>
   bottomRef: React.RefObject<HTMLDivElement | null>
+  dependencies?: unknown[]
 }
 
-export function useScrollManager({ scrollRef, bottomRef }: UseScrollManagerProps) {
+export function useScrollManager({
+  scrollRef,
+  bottomRef,
+  dependencies = [],
+}: UseScrollManagerProps) {
   // Use ref to track scroll state without causing re-renders
   const scrollMetricsRef = useRef({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 })
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -95,9 +100,14 @@ export function useScrollManager({ scrollRef, bottomRef }: UseScrollManagerProps
   // Scroll to bottom when user is already at bottom and content changes
   useEffect(() => {
     if (bottomRef.current && isAtBottom) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (bottomRef.current && isAtBottom) {
+          bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+        }
+      })
     }
-  }, [isAtBottom, bottomRef])
+  }, [...dependencies, isAtBottom, bottomRef])
 
   return {
     isAtBottom,
