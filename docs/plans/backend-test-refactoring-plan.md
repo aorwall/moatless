@@ -62,16 +62,6 @@ apps/backend/
 │       └── git.helper.ts      # Git test helpers
 ```
 
-### Frontend Test Infrastructure
-```
-apps/frontend/
-├── src/
-│   └── test-utils/            # Frontend-specific test utilities
-│       ├── index.ts          # Barrel export
-│       ├── render.tsx        # Custom render with providers
-│       └── msw-handlers.ts   # MSW handlers using shared mocks
-```
-
 ## Phase 1: Infrastructure Setup
 
 ### Task 1.1: Create Mock Factory Structure
