@@ -14,12 +14,11 @@ function RepositoryNew() {
 
   const handleSubmit = (data: CreateRepositoryRequest | UpdateRepositoryRequest) => {
     createRepository.mutate(data as CreateRepositoryRequest, {
-      onSuccess: (createdRepository) => {
+      onSuccess: () => {
         toast.success('Repository created successfully')
-        // Navigate to the edit page to configure code execution
+        // Navigate back to repositories list
         navigate({
-          to: '/repositories/$repositoryId',
-          params: { repositoryId: createdRepository.id },
+          to: '/repositories',
         })
       },
       onError: (error) => {

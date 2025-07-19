@@ -30,7 +30,7 @@ echo "" >&2
 
 # Run TypeScript type checking
 echo "🔍 Running TypeScript type check..." >&2
-if turbo run type:check; then
+if bun run type:check; then
   echo "✓ TypeScript type check passed" >&2
 else
   echo "" >&2

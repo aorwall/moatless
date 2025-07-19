@@ -2,6 +2,7 @@ import type { RepositoryList } from '@moatless/types'
 import {
   CreateRepositorySchema,
   FileSearchSchema,
+  RepositoryConfigSchema,
   RepositoryNotFoundError,
   SuggestedRepositoriesResponseSchema,
   UpdateRepositorySchema,
@@ -14,54 +15,9 @@ import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 
-// Response schemas
-const repositoryResponseSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().optional(),
-  path: z.string(),
-  useGitWorktrees: z.boolean().optional(),
-  originalBranch: z.string().optional(),
-  codeExecution: z.object({
-    type: z.enum(['local', 'docker']),
-    setupCommands: z.array(z.string()).optional(),
-    containerName: z.string().optional(),
-    dockerImage: z.string().optional(),
-    envVars: z.record(z.string(), z.string()).optional(),
-    volumes: z.array(z.string()).optional(),
-    ports: z.record(z.string(), z.number()).optional(),
-    volumeMapping: z
-      .object({
-        hostPath: z.string(),
-        containerPath: z.string(),
-      })
-      .optional(),
-    resources: z
-      .object({
-        cpuLimit: z.string(),
-        memoryLimit: z.string(),
-      })
-      .optional(),
-  }),
-  previewConfig: z
-    .object({
-      framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
-      frameworkVersion: z.string().optional(),
-      serverStartCommand: z.string().optional(),
-      injectionStrategy: z
-        .object({
-          method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
-          config: z.record(z.string(), z.any()).optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
-
+// Response schemas - using shared schemas from @moatless/types
 const repositoryListResponseSchema = z.object({
-  repositories: z.array(repositoryResponseSchema),
+  repositories: z.array(RepositoryConfigSchema),
 })
 
 const fileSearchResultSchema = z.object({
@@ -108,7 +64,7 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
           description: 'Repository created successfully',
           content: {
             'application/json': {
-              schema: resolver(repositoryResponseSchema),
+              schema: resolver(RepositoryConfigSchema),
             },
           },
         },
@@ -193,6 +149,54 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
     },
   )
 
+  // Get single repository with all configuration
+  app.get(
+    `${prefix}/:repositoryId`,
+    describeRoute({
+      description: 'Get a single repository with all its configuration',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Repository details with all configuration',
+          content: {
+            'application/json': {
+              schema: resolver(RepositoryConfigSchema),
+            },
+          },
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { repository: repositoryService } = services
+
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
+
+      const repository = await repositoryService.getRepositoryById(repositoryId)
+      if (!repository) {
+        throw new RepositoryNotFoundError()
+      }
+
+      return c.json(repository)
+    },
+  )
+
   // Update repository
   app.put(
     `${prefix}/:repositoryId`,
@@ -222,7 +226,7 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
           description: 'Repository updated successfully',
           content: {
             'application/json': {
-              schema: resolver(repositoryResponseSchema),
+              schema: resolver(RepositoryConfigSchema),
             },
           },
         },
