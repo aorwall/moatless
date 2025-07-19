@@ -311,9 +311,12 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           <div className="flex gap-2">
             <ConfigurationSelect
               value={repository.previewConfig?.framework || 'unknown'}
-              onValueChange={(value: 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown') =>
+              onValueChange={(value) =>
                 debouncedUpdate({
-                  previewConfig: { ...repository.previewConfig, framework: value },
+                  previewConfig: {
+                    ...repository.previewConfig,
+                    framework: value as 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown',
+                  },
                 })
               }
               options={[
