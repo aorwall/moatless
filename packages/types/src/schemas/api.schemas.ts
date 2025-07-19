@@ -1,11 +1,10 @@
 import { z } from 'zod'
+import { TaskStatusSchema } from './base.schemas.js'
 import { TaskResponseSchema } from './task.schemas.js'
 
 // ============================================
 // Base Types and Enums
 // ============================================
-
-export const TaskStatusSchema = z.enum(['open', 'running', 'error', 'merged', 'closed'])
 
 // ============================================
 // Request Schemas
@@ -158,8 +157,6 @@ export const FileSearchQuerySchema = z.object({
 // ============================================
 // Derived Types
 // ============================================
-
-export type TaskStatus = z.infer<typeof TaskStatusSchema>
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>

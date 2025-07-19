@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
+import { TaskStatusSchema } from './base.schemas.js'
 
 // Query schemas
 
@@ -111,7 +112,7 @@ export const TaskResponseSchema = z.object({
   lastMessageAt: dateSchema,
   agentType: z.string(),
   repositoryId: z.string(),
-  status: z.enum(['open', 'closed']),
+  status: TaskStatusSchema,
   numTurns: z.number(),
   totalCostUsd: z.number(),
   iterations: z.array(TaskIterationSchema),
