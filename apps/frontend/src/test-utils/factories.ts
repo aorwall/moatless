@@ -27,7 +27,7 @@ export function createMockTask(overrides?: Partial<TaskResponse>): TaskResponse 
 
 export function createMockTaskIteration(
   overrides?: Partial<TaskIteration> & { iteration?: number },
-): TaskResponseIteration {
+): TaskIteration {
   const iteration = overrides?.iteration || 1
   return {
     iterationNumber: iteration,
@@ -87,7 +87,7 @@ export function createMockToolEvent(toolName: string, input: unknown): Event {
 
 // Status factories
 export interface MockWorkspaceStatusResponse {
-  status: WorkspaceStatus
+  status: string
   hasUncommittedChanges: boolean
   hasUnmergedCommits: boolean
   isBehindBase: boolean
@@ -167,7 +167,7 @@ export function createMockTaskWithIterations(
   taskOverrides?: Partial<TaskResponse>,
   iterationCount = 3,
 ): TaskResponse {
-  const iterations: TaskResponseIteration[] = []
+  const iterations: TaskIteration[] = []
   for (let i = 1; i <= iterationCount; i++) {
     iterations.push(
       createMockTaskIteration({

@@ -340,7 +340,7 @@ export function ClaudeCodeConfigurationSection() {
           </div>
 
           {formData.permissionMode === 'bypassPermissions' && (
-            <Alert variant="warning" className="md:col-start-2">
+            <Alert variant="destructive" className="md:col-start-2">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
                 This mode allows Claude Code to perform any action without asking for permission.

@@ -102,8 +102,6 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
   // Use specialized hooks from tri-context pattern
   const { taskId, isLoading: isLoadingTask } = useTaskData()
-  const [scrollPosition, setScrollPosition] = useState<number | undefined>(undefined)
-  const [isAtBottomState, setIsAtBottomState] = useState(true)
 
   // Fetch messages for this task
   const {
@@ -116,8 +114,8 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
   // Initialize auto-scroll with proper options
   const { scrollRef } = useAutoScroll({
-    // Scroll on mount only if there's no saved scroll position
-    scrollOnMount: scrollPosition === undefined,
+    // Scroll on mount
+    scrollOnMount: true,
     dependencies: [messages], // Re-evaluate scroll when messages change
   })
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -131,11 +129,6 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
   // Custom hooks for extracted functionality
   const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
-
-  // Update local state when scroll position changes
-  useEffect(() => {
-    setIsAtBottomState(isAtBottom)
-  }, [isAtBottom])
 
   // Fix ScrollArea viewport styles
   useEffect(() => {

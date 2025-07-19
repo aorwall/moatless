@@ -223,8 +223,10 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       // Git diff data
       gitDiff: gitDiffQuery.data,
 
-      // Workspace primitives
-      workspaceStatus: workspacePrimitives?.status,
+      // Separated workspace state (conditional polling)
+      workspaceState: workspacePrimitives?.workspaceState,
+      environmentStatus: workspacePrimitives?.environmentStatus,
+      agentState: workspacePrimitives?.agentState,
       workspaceReady: workspacePrimitives?.isReady ?? false,
       workspaceHasChanges: workspacePrimitives?.hasChanges ?? false,
       workspaceGitStatus: workspacePrimitives?.gitStatus,
@@ -284,8 +286,9 @@ export function useTaskStatus() {
 }
 
 export function useWorkspaceStatus() {
-  const { workspaceStatus, workspaceReady, workspaceHasChanges } = useTaskData()
-  return { workspaceStatus, workspaceReady, workspaceHasChanges }
+  const { workspaceState, environmentStatus, agentState, workspaceReady, workspaceHasChanges } =
+    useTaskData()
+  return { workspaceState, environmentStatus, agentState, workspaceReady, workspaceHasChanges }
 }
 
 export function useWorkspaceStatusWithLoading() {

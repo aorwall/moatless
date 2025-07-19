@@ -18,17 +18,11 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
     setSelectedIteration,
     setPanelSizes,
     setSelectedFile,
-    updateChatState,
     updateGitDiffState,
   } = useTaskUI()
 
   const handleComplexStateUpdate = () => {
     // Simulate a complex workflow with multiple state updates
-    updateChatState({
-      isAtBottom: false,
-      scrollPosition: Number.parseInt(taskName.slice(-1)) * 100,
-    })
-
     updateGitDiffState({
       expandedFiles: new Set([`${taskName}-file1.ts`, `${taskName}-file2.ts`]),
       selectedFileKey: `${taskName}-file1.ts`,
@@ -45,7 +39,6 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
   }
 
   const handleResetState = () => {
-    updateChatState({ isAtBottom: true, scrollPosition: 0 })
     updateGitDiffState({
       expandedFiles: new Set(),
       selectedFileKey: undefined,
@@ -60,14 +53,6 @@ function ComprehensiveTaskComponent({ taskName }: { taskName: string }) {
   return (
     <div data-testid={`task-${taskName}`}>
       <div data-testid={`${taskName}-task-name`}>{taskName}</div>
-
-      {/* Chat State */}
-      <div data-testid={`${taskName}-chat-is-at-bottom`}>
-        {currentState.chatState.isAtBottom.toString()}
-      </div>
-      <div data-testid={`${taskName}-chat-scroll-position`}>
-        {currentState.chatState.scrollPosition || 0}
-      </div>
 
       {/* Git Diff State */}
       <div data-testid={`${taskName}-expanded-files-count`}>

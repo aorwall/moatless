@@ -3,7 +3,6 @@ import React from 'react'
 import { describe, expect, it } from 'vitest'
 import {
   TaskUIProvider,
-  useChatState,
   useGitDiffState,
   usePanelView,
   useSelectedIteration,
@@ -12,7 +11,6 @@ import {
 
 // Test component that uses all hooks
 function TestComponent({ taskId }: { taskId: string }) {
-  const { chatState, updateChatState } = useChatState()
   const { gitDiffState, updateGitDiffState } = useGitDiffState()
   const { rightPanelView, setRightPanelView } = usePanelView()
   const { selectedIteration, setSelectedIteration } = useSelectedIteration()
@@ -20,21 +18,11 @@ function TestComponent({ taskId }: { taskId: string }) {
   return (
     <div>
       <div data-testid="task-id">{taskId}</div>
-      <div data-testid="chat-is-at-bottom">{chatState.isAtBottom.toString()}</div>
-      <div data-testid="chat-scroll-position">{chatState.scrollPosition || 'undefined'}</div>
       <div data-testid="expanded-files-count">{gitDiffState.expandedFiles.size}</div>
       <div data-testid="selected-file-key">{gitDiffState.selectedFileKey || 'none'}</div>
       <div data-testid="expanded-paths-count">{gitDiffState.expandedPaths.size}</div>
       <div data-testid="panel-view">{rightPanelView}</div>
       <div data-testid="selected-iteration">{selectedIteration?.iterationNumber || 'none'}</div>
-
-      <button
-        type="button"
-        data-testid="update-chat-state"
-        onClick={() => updateChatState({ isAtBottom: false, scrollPosition: 100 })}
-      >
-        Update Chat State
-      </button>
 
       <button
         type="button"
@@ -84,21 +72,6 @@ describe('TaskUIProvider', () => {
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('0')
     expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none')
-  })
-
-  it('should update chat state correctly', async () => {
-    render(
-      <TaskUIProvider taskId="task-1">
-        <TestComponent taskId="task-1" />
-      </TaskUIProvider>,
-    )
-
-    act(() => {
-      screen.getByTestId('update-chat-state').click()
-    })
-
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('false')
-    expect(screen.getByTestId('chat-scroll-position')).toHaveTextContent('100')
   })
 
   it('should update git diff state correctly', async () => {

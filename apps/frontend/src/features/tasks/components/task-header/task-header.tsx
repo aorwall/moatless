@@ -208,19 +208,19 @@ export function TaskHeader() {
                         'text-xs cursor-pointer',
                         workspaceEnvironment.status === 'error' &&
                           'bg-red-100 text-red-800 border-red-200',
-                        workspaceEnvironment.status === 'not_setup' &&
+                        workspaceEnvironment.status === 'not_created' &&
                           'bg-yellow-100 text-yellow-800 border-yellow-200',
                       )}
                       onClick={
-                        workspaceEnvironment.status === 'not_setup' ? handleSetup : undefined
+                        workspaceEnvironment.status === 'not_created' ? handleSetup : undefined
                       }
                     >
                       {workspaceEnvironment.type} env: {workspaceEnvironment.status}
-                      {workspaceEnvironment.status === 'not_setup' && ' ▶'}
+                      {workspaceEnvironment.status === 'not_created' && ' ▶'}
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {workspaceEnvironment.status === 'not_setup' ? (
+                    {workspaceEnvironment.status === 'not_created' ? (
                       <p>Click to setup workspace environment</p>
                     ) : workspaceEnvironment.status === 'error' ? (
                       <p>Environment error: {workspaceEnvironment.error || 'Unknown error'}</p>
