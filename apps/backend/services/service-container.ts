@@ -68,10 +68,13 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.command = createCommandService(container.storage)
 
   // 3. Services with multiple dependencies
+  container.event = createEventService(container.storage)
+
   container.workspace = createWorkspaceService(
     container.repository,
     container.storage,
     container.settings,
+    container.event,
   )
   container.previewEnvironment = createPreviewEnvironmentService(
     container.storage,
@@ -87,10 +90,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Set claude service on repository service for suggested repositories
   container.repository.setClaudeService(container.claude)
 
-  // 4. Event service only needs storage
-  container.event = createEventService(container.storage)
-
-  // 5. Services that need event and workspace
+  // 4. Services that need event and workspace
   container.agent = createAgentService(container.storage, container.event, container.workspace)
 
   // 6. Task service needs many dependencies

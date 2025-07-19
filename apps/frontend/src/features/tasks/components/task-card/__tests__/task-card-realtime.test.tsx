@@ -51,7 +51,8 @@ describe('TaskCard Real-time Updates', () => {
     taskId: 'task-123',
     repositoryId: 'repo-123',
     agentType: 'test-agent',
-    status: 'running',
+    status: 'open',
+    agent: { state: 'running' as const }, // Add agent state for isTaskRunning check
     createdAt: new Date(),
     lastMessageAt: new Date(),
     numTurns: 0,
@@ -175,8 +176,12 @@ describe('TaskCard Real-time Updates', () => {
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
     expect(screen.getAllByTestId('event-item')).toHaveLength(2)
 
-    // Change task status to closed
-    const completedTask = { ...mockTask, status: 'closed' as const }
+    // Change task status to closed and remove agent state
+    const completedTask = {
+      ...mockTask,
+      status: 'closed' as const,
+      agent: { state: 'idle' as const },
+    }
     rerender(<TaskCard task={completedTask} repositoryName="Test Repo" />)
 
     // Should not show events anymore (task is not running)

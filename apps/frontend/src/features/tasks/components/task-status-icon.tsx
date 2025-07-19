@@ -1,9 +1,9 @@
 import type { Task } from '@moatless/types'
 import { GitBranch } from 'lucide-react'
-import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
+import { getTaskStatusConfig, isTaskRunning } from '@/features/tasks/utils/task-status'
 
 interface TaskStatusIconProps {
-  task: Pick<Task, 'status' | 'iterations'>
+  task: Pick<Task, 'status' | 'iterations' | 'agent'>
   showText?: boolean
   className?: string
 }
@@ -13,14 +13,13 @@ export function TaskStatusIcon({ task, showText = true, className = '' }: TaskSt
 
   // Get git status from the last iteration for open/running tasks
   const lastIteration = task.iterations?.[task.iterations.length - 1]
-  const gitStatus =
-    task.status === 'open' || task.status === 'running' ? lastIteration?.gitStatus : null
+  const gitStatus = task.status === 'open' || isTaskRunning(task) ? lastIteration?.gitStatus : null
 
   // Determine icon and color based on task status and git conditions
   let icon = statusConfig.icon
   let color = statusConfig.color
 
-  if (gitStatus && (task.status === 'open' || task.status === 'running')) {
+  if (gitStatus && (task.status === 'open' || isTaskRunning(task))) {
     // Use git branch icon for open/running tasks
     icon = <GitBranch className="h-3.5 w-3.5" />
 
@@ -33,7 +32,7 @@ export function TaskStatusIcon({ task, showText = true, className = '' }: TaskSt
       // Clean state - no changes, no conflicts, not ahead
       color = 'text-green-500'
     }
-  } else if (task.status === 'open' || task.status === 'running') {
+  } else if (task.status === 'open' || isTaskRunning(task)) {
     // No git status available, but task is open/running - show yellow as default
     icon = <GitBranch className="h-3.5 w-3.5" />
     color = 'text-yellow-500'

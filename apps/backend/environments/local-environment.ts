@@ -4,6 +4,7 @@ import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
+import type { EventService } from '../services/event.service.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
@@ -20,8 +21,13 @@ export class LocalEnvironment extends BaseEnvironment {
   private logger = createTaskLogger(this.taskId)
   private previewServer?: PreviewServer
 
-  constructor(taskId: string, repositoryConfig: RepositoryConfig, workspacePath?: string) {
-    super(taskId, repositoryConfig)
+  constructor(
+    taskId: string,
+    repositoryConfig: RepositoryConfig,
+    workspacePath?: string,
+    eventService?: EventService,
+  ) {
+    super(taskId, repositoryConfig, eventService)
     this.workspacePath = workspacePath || ''
     this.logger = createTaskLogger(taskId)
 
@@ -57,7 +63,10 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async setup(iterationNumber?: number): Promise<void> {
+    const previousStatus = this.getStatus()
     this.setupInProgress = true
+    await this.emitStatusChange(this.getStatus(), previousStatus)
+
     const startTime = Date.now()
 
     this.logger.info('Starting LocalEnvironment setup', {
@@ -79,8 +88,14 @@ export class LocalEnvironment extends BaseEnvironment {
       // Port allocation would be handled here if needed
 
       // Run setup commands in background
-      this.runSetupCommandsInBackground(startTime).catch((error) => {
+      this.runSetupCommandsInBackground(startTime).catch(async (error) => {
+        const previousStatus = this.getStatus()
         this._error = error instanceof Error ? error.message : String(error)
+        await this.emitStatusChange(
+          this.getStatus(),
+          previousStatus,
+          error instanceof Error ? error : String(error),
+        )
         this.logger.error('Background setup commands failed', error as Error)
       })
 
@@ -90,14 +105,20 @@ export class LocalEnvironment extends BaseEnvironment {
       })
     } catch (error) {
       const failureTime = Date.now() - startTime
+      const previousStatus = this.getStatus()
       this._error = error instanceof Error ? error.message : String(error)
+      this.setupInProgress = false
+      await this.emitStatusChange(
+        this.getStatus(),
+        previousStatus,
+        error instanceof Error ? error : String(error),
+      )
 
       this.logger.error('LocalEnvironment setup failed', error as Error, {
         setupTimeMs: failureTime,
         workspacePath: this.workspacePath,
       })
 
-      this.setupInProgress = false
       throw error
     }
   }
@@ -118,8 +139,10 @@ export class LocalEnvironment extends BaseEnvironment {
         }
       }
 
+      const previousStatus = this.getStatus()
       this.setupComplete = true
       this.setupInProgress = false
+      await this.emitStatusChange(this.getStatus(), previousStatus)
 
       this.logger.info('Setup commands completed successfully', {
         totalSetupTimeMs: Date.now() - startTime,

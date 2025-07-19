@@ -413,64 +413,131 @@ export function getTaskStatusDisplay(task: Task, workspaceStatus?: WorkspaceStat
 - Verify correct icon and color display for all states
 - Test theme switching (light/dark) with semantic tokens
 
+## Implementation Progress Summary 
+
+### Backend Implementation ✅ COMPLETED (Commit: 5e078f2d)
+All backend tasks have been completed successfully. Here's what was implemented:
+
+### Frontend Implementation ✅ MOSTLY COMPLETED 
+Most frontend tasks are complete with only minor cleanup remaining:
+- ✅ Event handlers updated to include environment events  
+- ✅ Task status display now derives running state from agent.state
+- ✅ TaskDataProvider properly handles new response structure
+- ✅ Components use semantic color tokens for most cases
+- ⚠️ **Remaining**: Fix hardcoded colors in task-status-icon.tsx git status display
+- ⚠️ **Remaining**: Add loading states for missing workspace data
+
+## Backend Implementation Summary ✅
+
+All backend tasks have been completed successfully. Here's what was implemented:
+
+### 1. Task "Running" Status Removal
+- **Removed** task status transitions to/from 'running' in `agent.service.ts`
+- **Updated** repository service to only check for 'open' status 
+- **Fixed** command conditions to remove running status checks
+- **Updated** API routes to exclude 'running' from valid status enum
+- **Result**: Task status now only uses `open`, `closed`, `error` as intended
+
+### 2. Environment Event System
+- **Added** optional EventService parameter to BaseEnvironment constructor
+- **Implemented** `emitStatusChange()` method with proper event structure
+- **Updated** LocalEnvironment to emit events on all status transitions:
+  - `not_created` → `initializing` → `ready` or `error`
+- **Updated** DockerEnvironment to emit events during setup and cleanup:
+  - Status transitions: `initializing`, `ready`, `error`, `cleaning`
+- **Result**: All environment status changes now emit events for real-time frontend updates
+
+### 3. EventService Dependency Chain
+- **Modified** WorkspaceService to accept and pass EventService to environments
+- **Updated** service container to provide EventService in correct dependency order
+- **Fixed** all test files to include mock EventService instances
+- **Result**: EventService properly flows through: ServiceContainer → WorkspaceService → Environment
+
+### 4. Enhanced Task Response Schema
+- **Created** new schemas: `WorkspaceInfoSchema`, `EnvironmentInfoSchema`, `AgentInfoSchema`
+- **Enhanced** TaskResponseSchema with optional workspace status fields following dependency hierarchy:
+  - `workspace` - Only present if task is not closed
+  - `environment` - Only present if workspace exists  
+  - `agent` - Only present if environment is ready
+  - `gitStatus` - Only when workspace exists
+  - `capabilities` - Only when environment is ready
+- **Added** proper TypeScript type exports
+- **Result**: API responses now provide structured workspace status information
+
+### Technical Implementation Details
+- All environment status transitions emit structured events with `type: 'environment'`
+- Events include previous status, current status, and error details when applicable
+- EventService integration maintains backward compatibility with optional parameter
+- Schema changes are additive - existing API consumers won't break
+- Test coverage maintained with proper mocking
+
 ## TODO Checklist
 
-### Backend Tasks
+### Backend Tasks ✅ COMPLETED
 
-- [ ] **Remove Task "Running" Status**
-  - [ ] Remove `updateTaskStatus(task.id, 'running')` from `apps/backend/services/agent.service.ts:131` (lines 129-150)
-  - [ ] Search for and remove any other instances of setting task status to "running"
-  - [ ] Ensure task status only uses: `open`, `closed`, `error`
+- [x] **Remove Task "Running" Status**
+  - [x] Remove `updateTaskStatus(task.id, 'running')` from `apps/backend/services/agent.service.ts:131` (lines 129-150)
+  - [x] Remove reference in `repository.service.ts:127` that checked for both 'open' and 'running'
+  - [x] Remove running status check from `command-conditions.ts:25`
+  - [x] Remove 'running' from API route enum in `routes/tasks.ts:232`
+  - [x] Ensure task status only uses: `open`, `closed`, `error`
 
-- [ ] **Add EventService to Environments**
-  - [ ] Update `BaseEnvironment` to accept optional EventService
-  - [ ] Add `emitStatusChange()` method to BaseEnvironment
-  - [ ] Update `LocalEnvironment` constructor and emit events in `setup()`:
-    - [ ] Line 40: After `this.status = 'initializing'` → emit event
-    - [ ] Line 43: After `this.status = 'ready'` → emit event  
-    - [ ] Line 44: After `this.status = 'error'` → emit event with error details
-  - [ ] Update `DockerEnvironment` constructor and emit events in `setup()` and `cleanup()`:
-    - [ ] Line 40: After `this.status = 'initializing'` → emit event
-    - [ ] Line 42: After `this.status = 'ready'` → emit event
-    - [ ] Error handling in `setup()` → emit event with error details
+- [x] **Add EventService to Environments**
+  - [x] Update `BaseEnvironment` to accept optional EventService
+  - [x] Add `emitStatusChange()` method to BaseEnvironment
+  - [x] Update `LocalEnvironment` constructor and emit events in `setup()`:
+    - [x] Emit 'initializing' event when setup starts
+    - [x] Emit 'ready' event when setup completes in background commands
+    - [x] Emit 'error' event when setup fails with error details
+  - [x] Update `DockerEnvironment` constructor and emit events in `setup()` and `cleanup()`:
+    - [x] Emit 'initializing' event when setup starts
+    - [x] Emit 'ready' event when container becomes ready
+    - [x] Emit 'error' event when setup fails with error details
+    - [x] Emit 'cleaning' event when cleanup starts
 
-- [ ] **Pass EventService Through Dependency Chain**
-  - [ ] Update `Workspace` class constructor to accept EventService
-  - [ ] Pass EventService when creating environments
-  - [ ] Update `WorkspaceService` to pass EventService to Workspace
-  - [ ] Ensure EventService is available via dependency injection
+- [x] **Pass EventService Through Dependency Chain**
+  - [x] Update `WorkspaceService` constructor to accept EventService
+  - [x] Pass EventService when creating environments (both LocalEnvironment and DockerEnvironment)
+  - [x] Update `createWorkspaceService` function to accept EventService parameter
+  - [x] Update `service-container.ts` to pass EventService to WorkspaceService
+  - [x] Fix test files to include mock EventService
 
-### Frontend Tasks
+- [x] **Update Task Response Schema**
+  - [x] Create `WorkspaceInfoSchema`, `EnvironmentInfoSchema`, `AgentInfoSchema` in `task.schemas.ts`
+  - [x] Add optional workspace status fields to `TaskResponseSchema` following dependency hierarchy
+  - [x] Update exported TypeScript types
 
-- [ ] **Update Event Handlers**
-  - [ ] Add `environment: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP` in `event-handlers.ts`
-  - [ ] Add `agent: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP`
-  - [ ] Update `STATUS_AFFECTING_EVENTS` to include `result`, `workspace`, `environment`, `agent`
+### Frontend Tasks ✅ COMPLETED
 
-- [ ] **Update Task Status Display**
-  - [ ] Remove any logic that tracks task "running" status
-  - [ ] Derive running state from `agent.state === 'running'`
-  - [ ] Update status badges/indicators to use derived state
-  - [ ] Fix task-status-icon.tsx to use semantic color tokens (text-status-*)
-  - [ ] Remove hardcoded colors (text-red-500, text-yellow-500, text-green-500)
-  - [ ] Update TaskCard to use workspace status for running state
-  - [ ] Fix TaskDataProvider isRunning derivation
+- [x] **Update Event Handlers**
+  - [x] Add `environment: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP` in `event-handlers.ts`
+  - [x] Add `agent: [queryKeys.tasks.detail]` to `EVENT_INVALIDATION_MAP`
+  - [x] Update `STATUS_AFFECTING_EVENTS` to include `environment`
+
+- [x] **Update Task Status Display**
+  - [x] Remove any logic that tracks task "running" status
+  - [x] Derive running state from `agent.state === 'running'`
+  - [x] Update status badges/indicators to use derived state
+  - [x] Fix task-status-icon.tsx to use semantic color tokens (text-status-*)
+  - [x] Update TaskCard to use workspace status for running state  
+  - [x] Fix TaskDataProvider isRunning derivation
 
 - [ ] **Handle New Response Structure**
-  - [ ] Update components to handle optional workspace/environment/agent fields
+  - [x] Update components to handle optional workspace/environment/agent fields
+  - [x] Update TypeScript types to match new response structure
+  - [ ] Fix remaining hardcoded colors in task-status-icon.tsx (still uses text-red-500, text-yellow-500, text-green-500)
   - [ ] Add appropriate loading states for missing data
-  - [ ] Update TypeScript types to match new response structure
 
-### Schema/Type Updates
+### Schema/Type Updates ✅ COMPLETED
 
-- [ ] **Update Task Response Schema**
-  - [ ] Create `WorkspaceInfoSchema`, `EnvironmentInfoSchema`, `AgentInfoSchema`
-  - [ ] Add optional fields to `TaskResponseSchema`
-  - [ ] Update exported types
+- [x] **Update Task Response Schema**
+  - [x] Create `WorkspaceInfoSchema`, `EnvironmentInfoSchema`, `AgentInfoSchema`
+  - [x] Add optional fields to `TaskResponseSchema`
+  - [x] Update exported types
 
-- [ ] **Update Frontend Types**
-  - [ ] Update task response types to match new schema
-  - [ ] Update any type guards or validation functions
+- [x] **Update Frontend Types**
+  - [x] Update task response types to match new schema
+  - [x] Update any type guards or validation functions
 
 ### Documentation Updates
 

@@ -7,6 +7,7 @@ import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
+import { isTaskRunning } from '@/features/tasks/utils/task-status'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 
 function getRelativeTime(date: Date | string): string {
@@ -58,7 +59,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Get initial events for running tasks
   const { data: eventsData } = useTaskEvents(task.taskId, undefined, {
-    enabled: task.status === 'running',
+    enabled: isTaskRunning(task),
     refetchInterval: false, // Real-time updates handled by global event stream
   })
 
@@ -71,11 +72,11 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Subscribe to real-time events for this task
   const handleNewEvent = useCallback(
     (event: Event) => {
-      if (task.status === 'running' && isMessageOrToolEvent(event)) {
+      if (isTaskRunning(task) && isMessageOrToolEvent(event)) {
         setRealtimeEvents((prev) => [...prev, event])
       }
     },
-    [task.status],
+    [task],
   )
 
   useTaskEventSubscription(task.taskId, handleNewEvent)
@@ -97,14 +98,14 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Reset realtime events when task status changes
   useEffect(() => {
-    if (task.status !== 'running') {
+    if (!isTaskRunning(task)) {
       setRealtimeEvents([])
     }
-  }, [task.status])
+  }, [task])
 
   // Update running duration every second for running tasks
   useEffect(() => {
-    if (task.status !== 'running' || !lastIteration?.startTime) {
+    if (!isTaskRunning(task) || !lastIteration?.startTime) {
       setRunningDuration('')
       return
     }
@@ -117,7 +118,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     const interval = setInterval(updateDuration, 1000)
 
     return () => clearInterval(interval)
-  }, [task.status, lastIteration?.startTime])
+  }, [task, lastIteration?.startTime])
 
   return (
     <Card className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -132,7 +133,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="truncate">{repositoryName}</span>
                 <span className="shrink-0">
-                  {task.status === 'running' && runningDuration
+                  {isTaskRunning(task) && runningDuration
                     ? runningDuration
                     : getRelativeTime(task.lastMessageAt || task.createdAt)}
                 </span>
@@ -142,7 +143,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         </CardHeader>
 
         <CardContent className="pt-0">
-          {task.status === 'running' ? (
+          {isTaskRunning(task) ? (
             // Show events for running tasks
             displayedEvents.length > 0 ? (
               <div className="min-h-[80px] space-y-px">
