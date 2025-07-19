@@ -65,8 +65,6 @@ describe('TaskUIProvider', () => {
       </TaskUIProvider>,
     )
 
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true')
-    expect(screen.getByTestId('chat-scroll-position')).toHaveTextContent('undefined')
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0')
     expect(screen.getByTestId('selected-file-key')).toHaveTextContent('none')
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('0')
@@ -165,17 +163,10 @@ describe('TaskUIProvider State Isolation', () => {
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-1')
 
     // Initial state should be default
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true') // default
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
     expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // default
 
-    // Start with task-1, update its state
-    act(() => {
-      screen.getByTestId('update-chat-state').click()
-    })
-
-    // Verify task-1 chat state is updated
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('false')
+    // Start with task-1, update its git diff state
 
     act(() => {
       screen.getByTestId('update-git-diff-state').click()
@@ -198,7 +189,6 @@ describe('TaskUIProvider State Isolation', () => {
 
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-2')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-2')
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true') // default
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
     expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // default
 
@@ -216,7 +206,6 @@ describe('TaskUIProvider State Isolation', () => {
 
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-1')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-1')
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('false') // preserved
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2') // preserved
     expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // preserved
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none') // task-1 didn't set this
@@ -228,48 +217,47 @@ describe('TaskUIProvider State Isolation', () => {
 
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-2')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-2')
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true') // task-2 default (never changed)
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('2') // task-2 preserved
   })
 
   it('should maintain independent state updates across tasks', () => {
     render(<MultiTaskTest />)
 
-    // Task 1: Set chat state
+    // Task 1: Set git diff state
     act(() => {
-      screen.getByTestId('update-chat-state').click()
+      screen.getByTestId('update-git-diff-state').click()
     })
 
-    const task1ChatState = screen.getByTestId('chat-is-at-bottom').textContent
+    const task1GitState = screen.getByTestId('expanded-files-count').textContent
 
     // Switch to Task 2
     act(() => {
       screen.getByTestId('switch-to-task-2').click()
     })
 
-    // Task 2: Set different git diff state
+    // Task 2: Set different iteration state
     act(() => {
-      screen.getByTestId('update-git-diff-state').click()
+      screen.getByTestId('update-iteration').click()
     })
 
-    const task2GitState = screen.getByTestId('expanded-files-count').textContent
+    const task2IterationState = screen.getByTestId('selected-iteration').textContent
 
     // Switch back to Task 1
     act(() => {
       screen.getByTestId('switch-to-task-1').click()
     })
 
-    // Task 1 should have its chat state but not task 2's git state
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent(task1ChatState!)
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default, not task 2's state
+    // Task 1 should have its git state preserved but not task 2's iteration state
+    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent(task1GitState!)
+    expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none') // default, not task 2's state
 
     // Switch back to Task 2
     act(() => {
       screen.getByTestId('switch-to-task-2').click()
     })
 
-    // Task 2 should have its git state but not task 1's chat state
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent(task2GitState!)
-    expect(screen.getByTestId('chat-is-at-bottom')).toHaveTextContent('true') // default, not task 1's state
+    // Task 2 should have its iteration state but not task 1's git state
+    expect(screen.getByTestId('selected-iteration')).toHaveTextContent(task2IterationState!)
+    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default, not task 1's state
   })
 })
