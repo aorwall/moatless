@@ -1,22 +1,22 @@
 import type { UpdateClaudeSettingsRequest } from '@moatless/types'
 import { Eye, EyeOff, Loader2, RotateCcw, Save } from 'lucide-react'
-import { useId, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useClaudeSettings, useUpdateClaudeSettings } from '@/features/settings'
+import {
+  ConfigurationGroup,
+  ConfigurationInput,
+  ConfigurationItem,
+  ConfigurationSectionWrapper,
+} from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
-import { Input } from '@/lib/components/ui/input'
-import { Label } from '@/lib/components/ui/label'
-import { Separator } from '@/lib/components/ui/separator'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function ClaudeConfigurationSection() {
   const { data: claudeSettings, isLoading: claudeLoading, error: claudeError } = useClaudeSettings()
   const updateClaudeSettings = useUpdateClaudeSettings()
 
-  const binDirId = useId()
-  const configDirId = useId()
-  const oauthTokenId = useId()
   const [showToken, setShowToken] = useState(false)
 
   // Derive form data directly from settings - no effects needed (following derived state pattern)
@@ -61,93 +61,76 @@ export function ClaudeConfigurationSection() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Claude Binary Directory */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        <div className="space-y-1">
-          <Label htmlFor={binDirId} className="text-sm font-medium">
-            Claude Bin Directory
-          </Label>
-          <p className="text-sm text-muted-foreground">Directory containing Claude Code binary</p>
-        </div>
-        <Input
-          id={binDirId}
-          type="text"
-          placeholder="Auto-detect (optional)"
-          value={claudeFormData.binDir || ''}
-          onChange={(e) => {
-            const value = e.target.value.trim()
-            setClaudeUserModifications((prev) => ({
-              ...prev,
-              binDir: value === '' ? null : value,
-            }))
-          }}
-        />
-      </div>
-
-      {/* Claude Config Directory */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        <div className="space-y-1">
-          <Label htmlFor={configDirId} className="text-sm font-medium">
-            Claude Config Directory
-          </Label>
-          <p className="text-sm text-muted-foreground">Directory for Claude Code configuration</p>
-        </div>
-        <Input
-          id={configDirId}
-          type="text"
-          placeholder="Auto-detect (optional)"
-          value={claudeFormData.configDir || ''}
-          onChange={(e) => {
-            const value = e.target.value.trim()
-            setClaudeUserModifications((prev) => ({
-              ...prev,
-              configDir: value === '' ? null : value,
-            }))
-          }}
-        />
-      </div>
-
-      {/* OAuth Token */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        <div className="space-y-1">
-          <Label htmlFor={oauthTokenId} className="text-sm font-medium">
-            Claude OAuth Token
-          </Label>
-          <p className="text-sm text-muted-foreground">
-            OAuth token for Claude Code authentication (run `claude setup-token` to get it)
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Input
-            id={oauthTokenId}
-            type={showToken ? 'text' : 'password'}
-            placeholder={
-              claudeFormData.oauthToken ? 'Token configured' : 'Enter your Claude OAuth token'
-            }
-            value={claudeFormData.oauthToken || ''}
-            className="flex-1 font-mono"
+    <ConfigurationSectionWrapper>
+      <ConfigurationGroup>
+        <ConfigurationItem
+          label="Claude Bin Directory"
+          description="Directory containing Claude Code binary"
+        >
+          <ConfigurationInput
+            type="text"
+            placeholder="Auto-detect (optional)"
+            value={claudeFormData.binDir || ''}
             onChange={(e) => {
               const value = e.target.value.trim()
               setClaudeUserModifications((prev) => ({
                 ...prev,
-                oauthToken: value === '' ? null : value,
+                binDir: value === '' ? null : value,
               }))
             }}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => setShowToken(!showToken)}
-            title={showToken ? 'Hide token' : 'Show token'}
-          >
-            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
+        </ConfigurationItem>
 
-      <Separator />
+        <ConfigurationItem
+          label="Claude Config Directory"
+          description="Directory for Claude Code configuration"
+        >
+          <ConfigurationInput
+            type="text"
+            placeholder="Auto-detect (optional)"
+            value={claudeFormData.configDir || ''}
+            onChange={(e) => {
+              const value = e.target.value.trim()
+              setClaudeUserModifications((prev) => ({
+                ...prev,
+                configDir: value === '' ? null : value,
+              }))
+            }}
+          />
+        </ConfigurationItem>
+
+        <ConfigurationItem
+          label="Claude OAuth Token"
+          description="OAuth token for Claude Code authentication (run `claude setup-token` to get it)"
+        >
+          <div className="flex gap-2">
+            <ConfigurationInput
+              type={showToken ? 'text' : 'password'}
+              placeholder={
+                claudeFormData.oauthToken ? 'Token configured' : 'Enter your Claude OAuth token'
+              }
+              value={claudeFormData.oauthToken || ''}
+              className="flex-1 font-mono"
+              onChange={(e) => {
+                const value = e.target.value.trim()
+                setClaudeUserModifications((prev) => ({
+                  ...prev,
+                  oauthToken: value === '' ? null : value,
+                }))
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setShowToken(!showToken)}
+              title={showToken ? 'Hide token' : 'Show token'}
+            >
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+        </ConfigurationItem>
+      </ConfigurationGroup>
 
       {/* Actions */}
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between pt-4">
@@ -190,6 +173,6 @@ export function ClaudeConfigurationSection() {
           Save Settings
         </Button>
       </div>
-    </div>
+    </ConfigurationSectionWrapper>
   )
 }

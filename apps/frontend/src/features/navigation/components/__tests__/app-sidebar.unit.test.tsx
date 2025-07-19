@@ -52,13 +52,6 @@ vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
   }),
 }))
 
-// Mock settings dialog context
-vi.mock('@/lib/contexts/settings-dialog-context', () => ({
-  useSettingsDialog: () => ({
-    showDialog: vi.fn(),
-  }),
-}))
-
 describe('AppSidebar', () => {
   it('should render all main sections', () => {
     render(<AppSidebar />)

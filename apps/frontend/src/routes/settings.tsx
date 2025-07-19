@@ -1,8 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Settings } from 'lucide-react'
 import { useState } from 'react'
-import { GeneralConfigurationSection, SystemStatusCard } from '@/features/settings'
-import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
+import { SettingsDialog, SystemStatusCard } from '@/features/settings'
 import { Button } from '@/lib/components/ui/button'
 
 export const Route = createFileRoute('/settings')({
@@ -10,17 +9,15 @@ export const Route = createFileRoute('/settings')({
 })
 
 function SettingsPage() {
-  const [showDialog, setShowDialog] = useState(false)
-  const [activeSection, setActiveSection] = useState('general')
+  const navigate = useNavigate()
+  const [showDialog, setShowDialog] = useState(true) // Auto-open dialog on route load
 
-  const sections = [
-    {
-      id: 'general',
-      label: 'General',
-      icon: <Settings className="h-4 w-4" />,
-      component: <GeneralConfigurationSection />,
-    },
-  ]
+  const handleDialogChange = (open: boolean) => {
+    setShowDialog(open)
+    if (!open) {
+      navigate({ to: '/' })
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -37,15 +34,7 @@ function SettingsPage() {
             </Button>
           </div>
 
-          <ResponsiveConfigurationDialog
-            open={showDialog}
-            onOpenChange={setShowDialog}
-            title="Settings"
-            description="Configure your application preferences"
-            sections={sections}
-            activeSection={activeSection}
-            onSectionChange={setActiveSection}
-          />
+          <SettingsDialog open={showDialog} onOpenChange={handleDialogChange} />
         </div>
       </div>
     </div>
