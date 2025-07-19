@@ -47,7 +47,7 @@ if (rootElement && !rootElement.innerHTML) {
         <GlobalEventStreamProvider>
           <RouterProvider router={router} />
           <ReactQueryDevtools initialIsOpen={false} />
-          <Toaster position="top-right" />
+          <Toaster position="bottom-right" />
         </GlobalEventStreamProvider>
       </QueryClientProvider>
     </StrictMode>,
