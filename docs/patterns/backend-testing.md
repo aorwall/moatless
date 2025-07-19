@@ -1,143 +1,63 @@
 # Backend Testing Guidelines
 
-This document provides testing guidelines for the backend application. These instructions are designed for LLMs to understand when and how to write different types of tests.
-
 ## Critical Testing Principles
 
-### Test Level Selection Strategy
-
 **ALWAYS write unit tests** for any backend component. Unit tests are mandatory for all business logic, error handling, and state management.
-
-Additionally, you may ALSO write integration or E2E tests when appropriate:
-
-**Mandatory**:
-- UNIT tests → Always required for all components
-
-**Optional (choose based on use case)**:
-- INTEGRATION tests → When you need to verify real component interactions
-- E2E tests → When you need to verify complete user workflows
 
 **Decision Matrix**:
 1. Write UNIT tests for all business logic (mandatory)
 2. ADD integration tests if testing real system interactions is critical
-3. ADD E2E tests if testing complete user journeys is critical
+   - Narrow scope: Single component + external system
+   - Broad scope: Multiple components working together
 
-### The Three Test Levels Explained
+## Test Levels
 
-#### UNIT TESTS (*.test.ts or *.unit.test.ts)
-**Purpose**: Test business logic in isolation with all external dependencies mocked
+### UNIT TESTS (*.test.ts or *.unit.test.ts)
+- **Purpose**: Test business logic in isolation
+- **Mock**: ALL external dependencies (filesystem, network, databases, child processes, other services/modules, time-based operations)
+- **Use for**: Algorithms, validation, error handling, state management, configuration parsing
 
-**When to write unit tests**:
-- Testing algorithms, calculations, or data transformations
-- Testing error handling logic
-- Testing state management
-- Testing configuration parsing
-- Testing validation logic
+### INTEGRATION TESTS (*.integration.test.ts)
+- **Purpose**: Test real system interactions
+- **Two scopes**:
 
-**What to mock in unit tests**:
-- ALL external dependencies (file system, network, databases, child processes)
-- ALL other services and modules
-- Time-based operations (use fake timers)
+**Narrow Integration**: One component + real external system
+- DockerEnvironment + real Docker
+- GitService + real Git
+- Storage + real filesystem
+- Database service + real database
+- **Mock**: Other app components only
 
-**Example scenarios**:
-- Testing if DockerEnvironment correctly transitions states
-- Testing if TaskService validates input parameters
-- Testing if error recovery logic executes correct steps
-- Testing if configuration is parsed correctly
+**Broad Integration**: Multiple components working together
+- Complete workflows: API → Service → External System → Results
+- User journeys: Register → Login → Access resources
+- **Mock**: Only external third-party services
 
-#### INTEGRATION TESTS (*.integration.test.ts)
-**Purpose**: Test how a single component integrates with its external dependencies
-
-**Scope**: One component + its real external system (NOT the whole application)
-
-**When to write integration tests**:
-- Testing if a service correctly uses an external system
-- Verifying integration points work as expected
-- Testing error handling with real external systems
-- Validating configuration and setup of external dependencies
-
-**What to test in integration tests**:
-- DockerEnvironment + real Docker (container lifecycle, command execution)
-- Repository service + real Git (clone, commit, push operations)
-- Storage service + real file system (read, write, permissions)
-- Database service + real database (queries, transactions)
-
-**What to mock in integration tests**:
-- Other application components (mock the rest of your app)
-- Third-party services not being tested
-- Nothing about the external system being tested
-
-**Example scenarios**:
-- DockerEnvironment creates and manages real containers
-- GitService performs real Git operations on repositories
-- FileStorage correctly handles file permissions and errors
-- DatabaseService handles real connection failures
-
-#### E2E TESTS (*.e2e.test.ts)
-**Purpose**: Test complete user workflows through the entire application stack
-
-**Scope**: Multiple components working together to complete user journeys
-
-**When to write E2E tests**:
-- Testing complete business workflows
-- Verifying critical user paths work correctly
-- Testing component interactions in production-like scenarios
-- Validating the system works as users expect
-
-**What to test in E2E tests**:
-- Complete task execution: API → Task Service → Workspace → Docker → Agent → Results
-- Full repository workflow: Create repo → Configure → Create tasks → View results
-- User authentication flow: Register → Login → Access protected resources
-- Preview server lifecycle: Start server → Make changes → See updates → Stop server
-
-**What to mock in E2E tests**:
-- External third-party services only (payment gateways, external APIs)
-- Nothing internal to the application
-
-**Key difference from integration tests**:
-- Integration: "Does DockerEnvironment work correctly with Docker?"
-- E2E: "Can a user create a task that runs in Docker and see results?"
-
-## Test Naming and Performance Requirements
-
-### File Naming Conventions
-- Unit tests: `*.test.ts` or `*.unit.test.ts` 
-- Integration tests: `*.integration.test.ts`
-- E2E tests: `*.e2e.test.ts`
+**Key distinction**:
+- Narrow: "Does DockerEnvironment work with Docker?"
+- Broad: "Does the complete task execution workflow function?"
 
 ## Data Directory Management
 
-### Test Setup
-All backend tests automatically get isolated temporary directories:
-
 ```typescript
-// This is handled automatically by test setup
-// In your tests, just use:
 import { getDataDir } from '../utils/data-dir.js'
-
-const dataDir = getDataDir() // Returns temp directory in tests
+const dataDir = getDataDir() // Auto-isolated in tests
+// NEVER access process.env.DATA_DIR directly
 ```
 
-### Production vs Test Behavior
-- **Production**: `getDataDir()` returns `~/.moatless` or `DATA_DIR` env var
-- **Tests**: `getDataDir()` returns isolated temp directory
-- **Never**: Access `process.env.DATA_DIR` directly
-
-## Common Testing Patterns
+## Testing Patterns
 
 ### Pattern 1: Service with External Dependencies
 
 ```typescript
-// ALWAYS write unit tests (mandatory)
+// ALWAYS: Unit tests (mandatory)
 describe('TaskService - Unit Tests', () => {
   let mockStorage: MockedStorage
-  let mockWorkspace: MockedWorkspace
   let service: TaskService
 
   beforeEach(() => {
     mockStorage = createMockStorage()
-    mockWorkspace = createMockWorkspace()
-    service = new TaskService(mockStorage, mockWorkspace)
+    service = new TaskService(mockStorage)
   })
 
   it('should validate task parameters', () => {
@@ -147,30 +67,21 @@ describe('TaskService - Unit Tests', () => {
   it('should handle storage errors gracefully', () => {
     // Test error handling
   })
-
-  it('should emit correct events', () => {
-    // Test event emission logic
-  })
 })
 
-// OPTIONALLY add integration tests if needed
+// OPTIONAL: Integration tests
 describe('TaskService - Integration Tests', () => {
   let service: TaskService
   let tempDir: string
 
   beforeEach(async () => {
     tempDir = await createTempDir()
-    const storage = new FileStorage(tempDir)
-    const workspace = new WorkspaceService(storage)
-    service = new TaskService(storage, workspace)
+    const storage = new FileStorage(tempDir) // Real storage
+    service = new TaskService(storage)
   })
 
   it('should persist task to storage', async () => {
     // Test with real file system
-  })
-
-  it('should handle concurrent task creation', async () => {
-    // Test real concurrency scenarios
   })
 })
 ```
@@ -178,394 +89,101 @@ describe('TaskService - Integration Tests', () => {
 ### Pattern 2: External System Integration
 
 ```typescript
-// For components that integrate with external systems (Docker, Git, etc.)
-
-// ALWAYS write unit tests (mandatory)
+// Unit tests (mandatory)
 describe('DockerEnvironment - Unit Tests', () => {
   beforeEach(() => {
     vi.mock('node:child_process', () => ({
-      execSync: vi.fn((cmd) => {
-        if (cmd.includes('docker inspect')) return 'running'
-        if (cmd.includes('docker create')) return 'container-id'
-        return 'mocked'
-      })
+      execSync: vi.fn(cmd => 'mocked response')
     }))
   })
 
   it('should handle state transitions correctly', () => {
     // Test business logic with mocked Docker
   })
-
-  it('should recover from error states', () => {
-    // Test error recovery logic
-  })
-
-  it('should clean up resources on teardown', () => {
-    // Test cleanup logic
-  })
 })
 
-// OPTIONALLY add integration tests to verify Docker integration
+// Narrow integration tests
 describe('DockerEnvironment - Integration Tests', () => {
-  // This tests ONLY DockerEnvironment + Docker, not the full app
   let env: DockerEnvironment
 
-  beforeEach(() => {
-    // Create DockerEnvironment instance directly
-    env = new DockerEnvironment('test-task', mockConfig, '/test/workspace')
-  })
-
   afterEach(async () => {
-    // Clean up real Docker resources
-    await env.teardown()
+    await env.teardown() // Clean real resources
   })
 
   it('should create real Docker container', async () => {
     await env.setup()
-    
-    // Verify real container exists
     const result = await execAsync('docker ps')
     expect(result).toContain(env.getContainerName())
   })
 
-  it('should execute commands in real container', async () => {
+  it('should recover from container errors', async () => {
     await env.setup()
-    const result = await env.runCommand('echo "Hello from Docker"')
-    expect(result.exitCode).toBe(0)
-    expect(result.output).toBe('Hello from Docker')
-  })
-
-  it('should recover from container in error state', async () => {
-    // Test the self-healing behavior with real Docker
-    await env.setup()
-    
-    // Force container into error state
     await execAsync(`docker kill ${env.getContainerName()}`)
-    
-    // Should recover
-    await env.ensureContainerReady()
-    const result = await env.runCommand('echo "Recovered"')
+    await env.ensureContainerReady() // Should self-heal
+    const result = await env.runCommand('echo "OK"')
     expect(result.exitCode).toBe(0)
   })
 })
-```
 
-### Pattern 3: API Routes
-
-```typescript
-// For API route testing
-
-// ALWAYS write unit tests for route handlers
-describe('Task Routes - Unit Tests', () => {
-  let mockTaskService: MockedTaskService
-
-  beforeEach(() => {
-    mockTaskService = createMockTaskService()
-  })
-
-  it('should validate request payload', async () => {
-    // Test validation logic
-  })
-
-  it('should handle service errors', async () => {
-    // Test error handling
-  })
-})
-
-// OFTEN write integration tests for API endpoints
-describe('Task Routes - Integration Tests', () => {
-  let app: App
-  let mockTaskService: MockedTaskService
-
-  beforeEach(() => {
-    mockTaskService = createMockTaskService()
-    app = buildApp({ taskService: mockTaskService })
-  })
-
-  it('should handle POST /tasks', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/v1/tasks',
-      payload: { ... }
-    })
-    expect(res.statusCode).toBe(201)
-  })
-})
-
-// OPTIONALLY add E2E tests for critical workflows
-describe('Task Routes - E2E Tests', () => {
-  let server: Server
-
-  beforeAll(async () => {
-    server = await startRealServer()
-  })
-
-  it('should create and execute task', async () => {
-    // Test complete flow with real services
-  })
-})
-```
-
-## Anti-Patterns to Avoid
-
-### 1. Missing Unit Tests
-**WRONG**: Writing only integration or E2E tests without unit tests
-```typescript
-// DON'T DO THIS
-describe('DockerEnvironment - Integration Tests', () => { ... })
-// Missing unit tests!
-```
-
-**RIGHT**: Always have unit tests, add other levels as needed
-```typescript
-// DO THIS - Always have unit tests
-describe('DockerEnvironment - Unit Tests', () => {
-  // Test all business logic with mocked Docker
-})
-
-// Optionally add integration tests if needed
-describe('DockerEnvironment - Integration Tests', () => {
-  // Test real Docker container creation
-})
-```
-
-### 2. Fake Integration Tests
-**WRONG**: "Integration" tests that expect failures due to missing dependencies
-```typescript
-// DON'T DO THIS
-describe('DockerEnvironment - Integration Tests', () => {
-  it('should fail when container does not exist', async () => {
-    // This is not integration testing!
-    const result = await env.runCommand('echo test')
-    expect(result.error).toMatch(/container not found/)
-  })
-})
-```
-
-**RIGHT**: Integration tests should test successful integration
-```typescript
-// DO THIS
-describe('DockerEnvironment - Integration Tests', () => {
-  it('should execute commands in real container', async () => {
-    await env.setup() // Creates real container
-    const result = await env.runCommand('echo test')
-    expect(result.output).toBe('test')
-  })
-})
-```
-
-### 3. Over-Mocking in Integration Tests
-**WRONG**: Mocking everything in an integration test
-```typescript
-// DON'T DO THIS in integration tests
-describe('TaskService - Integration Tests', () => {
-  let mockStorage, mockWorkspace, mockEventBus // Too much mocking!
-})
-```
-
-**RIGHT**: Use real implementations in integration tests
-```typescript
-// DO THIS
-describe('TaskService - Integration Tests', () => {
-  let realStorage, realWorkspace // Use real implementations
-})
-```
-
-## Test Selection Examples
-
-### Example: Docker-based Task Execution
-
-This example shows how the same feature (Docker task execution) is tested at different levels:
-
-**Unit Test** (test business logic):
-```typescript
-describe('DockerEnvironment - Unit Tests', () => {
-  it('should transition to error state on container failure', () => {
-    // Mock Docker commands
-    vi.mocked(execSync).mockImplementation((cmd) => {
-      if (cmd.includes('docker inspect')) throw new Error('Container crashed')
-    })
-    
-    const env = new DockerEnvironment(...)
-    expect(env.getStatus()).toBe('error')
-  })
-})
-```
-
-**Integration Test** (test component + Docker):
-```typescript
-describe('DockerEnvironment - Integration Tests', () => {
-  it('should manage real Docker container lifecycle', async () => {
-    const env = new DockerEnvironment('task-1', config, '/workspace')
-    
-    // Test with real Docker
-    await env.setup()
-    const result = await env.runCommand('npm install')
-    expect(result.exitCode).toBe(0)
-    
-    await env.teardown()
-    // Verify container is removed
-  })
-})
-```
-
-**E2E Test** (test complete workflow):
-```typescript
-describe('Docker Task Execution - E2E Tests', () => {
-  it('should execute task in Docker from API to completion', async () => {
-    // Create repository with Docker config
+// Broad integration tests
+describe('Task Execution - Integration Tests (Broad)', () => {
+  it('should execute task from API to completion', async () => {
     const repo = await api.post('/repositories', {
-      name: 'Test Repo',
-      codeExecution: { type: 'docker', image: 'node:18' }
+      codeExecution: { type: 'docker' }
     })
-    
-    // Create and start task
     const task = await api.post('/tasks', {
       repositoryId: repo.id,
-      message: 'Create index.js with console.log("Hello")'
+      message: 'Create index.js'
     })
-    
-    // Wait for completion
     await waitForTaskCompletion(task.id)
-    
-    // Verify file was created
     const file = await api.get(`/tasks/${task.id}/files/index.js`)
-    expect(file.content).toContain('console.log("Hello")')
+    expect(file).toBeDefined()
   })
 })
 ```
 
-### Example 1: Testing a Caching Service
+## Anti-Patterns
 
-**Scenario**: Service that caches API responses in Redis
-
-**Unit Test** (test caching logic):
-```typescript
-it('should return cached value when available', () => {
-  const mockRedis = { get: vi.fn().mockResolvedValue('cached') }
-  const service = new CacheService(mockRedis)
-  // Test caching algorithm
-})
-```
-
-**Integration Test** (test with real Redis):
-```typescript
-it('should store and retrieve from Redis', async () => {
-  const redis = new Redis({ host: 'localhost' })
-  const service = new CacheService(redis)
-  // Test actual Redis operations
-})
-```
-
-### Example 2: Testing File Processing
-
-**Scenario**: Service that processes uploaded files
-
-**Unit Test** (test processing logic):
-```typescript
-it('should validate file format', () => {
-  const mockFile = { name: 'test.pdf', size: 1000 }
-  const result = service.validateFile(mockFile)
-  // Test validation logic
-})
-```
-
-**Integration Test** (test with real files):
-```typescript
-it('should process uploaded file', async () => {
-  const tempFile = await createTempFile('test.pdf')
-  const result = await service.processFile(tempFile)
-  // Test actual file operations
-})
-```
-
-### Example 3: Testing Authentication Flow
-
-**Scenario**: Complete authentication system
-
-**E2E Test** (test complete flow):
-```typescript
-it('should handle login → authenticate → access protected resource', async () => {
-  // Create user
-  await api.post('/register', { email, password })
-  
-  // Login
-  const { token } = await api.post('/login', { email, password })
-  
-  // Access protected resource
-  const result = await api.get('/protected', {
-    headers: { Authorization: `Bearer ${token}` }
-  })
-  
-  expect(result.status).toBe(200)
-})
-```
+1. **Missing unit tests**: Always have unit tests, even with integration tests
+2. **Fake integration tests**: Test successful integration, not expected failures
+   ```typescript
+   // WRONG: Testing failure without real system
+   it('should fail when container missing', () => {})
+   
+   // RIGHT: Test real integration
+   it('should execute in real container', () => {})
+   ```
+3. **Over-mocking in integration tests**: Use real implementations for what you're testing
 
 ## Quick Decision Guide
 
-Follow this process:
+1. **Always**: Write unit tests
+2. **Single component + external system?** → Narrow integration test
+3. **Multiple components workflow?** → Broad integration test
 
-1. **Always start with unit tests** → Test all business logic, error handling, state management
-2. **Do I need to verify this component works with a real external system?** → Add integration tests
-3. **Do I need to verify a complete user workflow through multiple components?** → Add E2E tests
-
-### Scope-Based Examples:
+### Examples by Component:
 
 **DockerEnvironment**:
-- Unit tests: Mock Docker, test state management, error handling
-- Integration tests: Real Docker, test container lifecycle (just DockerEnvironment + Docker)
-- E2E tests: Full workflow (API → Task → DockerEnvironment → Agent → Results)
-
-**Git Service**:
-- Unit tests: Mock git commands, test branch logic
-- Integration tests: Real git repos, test clone/commit/push (just GitService + Git)
-- E2E tests: Create repo → make changes → view diff in UI
+- Unit: Mock Docker, test logic
+- Narrow integration: Real Docker container operations
+- Broad integration: API → Task → Docker → Results
 
 **API Routes**:
-- Unit tests: Test validation, error handling logic
-- Integration tests: Test route with mocked services (just route + HTTP)
-- E2E tests: Test complete user actions through API
-
-### Key Question:
-- "Am I testing how ONE component uses an external system?" → Integration test
-- "Am I testing how MULTIPLE components work together for a user?" → E2E test
+- Unit: Test validation logic
+- Narrow integration: Route + real database
+- Broad integration: Complete user workflows
 
 ## Special Cases
 
-### Server/Process Management Tests
-- Always use E2E tests (*.e2e.test.ts)
-- These inherently take >2s due to process startup
-
-### SSE/WebSocket Tests
-- Unit tests: Mock connections
-- E2E tests: Use real connections
-
-### Database Tests
-- Unit tests: Mock database calls
-- Integration tests: Use test database
-
-### External API Tests
-- Unit tests: Mock HTTP calls
-- Integration tests: Use API mocks/stubs
-- E2E tests: Consider using sandbox environments
+- **Server/Process Management**: Use broad integration tests
+- **SSE/WebSocket**: Mock in unit, real connections in integration
+- **Database**: Mock in unit, test database in integration
+- **External APIs**: Mock in unit, use stubs/sandboxes in integration
 
 ## Remember
 
-1. **Unit tests are MANDATORY** for all components - test business logic with mocks
-2. **Integration tests** = One component + its external system (e.g., DockerEnvironment + Docker)
-3. **E2E tests** = Complete user workflows through multiple components
-4. **Choose by SCOPE, not performance** - Integration tests can be slow if needed
-5. **Name files correctly** to indicate test level
-6. **Mock appropriately**:
-   - Unit: Mock everything external
-   - Integration: Mock other app components, use real external system
-   - E2E: Mock only third-party services
-
-Test priority:
-- Always: Comprehensive unit tests
-- Often: Integration tests for components using external systems
-- Selectively: E2E tests for critical user journeys
-
-The key distinction:
-- Integration tests verify "Does this component correctly use Docker/Git/Database?"
-- E2E tests verify "Can a user complete their task using our system?"
+- Unit tests are MANDATORY
+- Integration tests verify real interactions (narrow or broad scope)
+- Choose by scope, not performance
+- Mock appropriately based on test level
+- Name files correctly: `*.test.ts` (unit) or `*.integration.test.ts` (integration)
