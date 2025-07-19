@@ -114,7 +114,6 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
   // Initialize auto-scroll with proper options
   const { scrollRef } = useAutoScroll({
-    // Scroll on mount
     scrollOnMount: true,
     dependencies: [messages], // Re-evaluate scroll when messages change
   })
@@ -128,7 +127,12 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   }, [messages, initialMessageCount])
 
   // Custom hooks for extracted functionality
-  const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
+
+  const { isAtBottom, scrollToBottom } = useScrollManager({
+    scrollRef,
+    bottomRef,
+    dependencies: [messages],
+  })
 
   // Fix ScrollArea viewport styles
   useEffect(() => {

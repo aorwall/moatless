@@ -35,6 +35,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "postinstall": "turbo run build --filter=@moatless/types",
     "dev": "node scripts/dev-with-port.js",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
