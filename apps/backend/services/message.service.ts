@@ -128,9 +128,16 @@ export class MessageService {
   private transformAgentMessagesToMessages(agentMessages: AgentMessage[]): Message[] {
     const messages: Message[] = []
     const toolResultsMap = new Map<string, AgentMessage>()
+    const seenUuids = new Set<string>()
 
-    // First pass: collect all tool results by tool_use_id
+    // First pass: collect all tool results by tool_use_id and filter duplicates
     for (const agentMessage of agentMessages) {
+      // Skip messages with duplicate UUIDs
+      if (seenUuids.has(agentMessage.uuid)) {
+        continue
+      }
+      seenUuids.add(agentMessage.uuid)
+
       if (agentMessage.type === 'user' && agentMessage.message) {
         const apiMessage = agentMessage.message
         if (apiMessage.content && Array.isArray(apiMessage.content)) {
@@ -147,8 +154,8 @@ export class MessageService {
     const processedIds = new Set<string>()
 
     for (const agentMessage of agentMessages) {
-      // Skip if already processed as a tool result
-      if (processedIds.has(agentMessage.uuid)) {
+      // Skip if already processed as a tool result or is a duplicate UUID
+      if (processedIds.has(agentMessage.uuid) || !seenUuids.has(agentMessage.uuid)) {
         continue
       }
 
