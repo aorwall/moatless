@@ -1152,14 +1152,20 @@ export async function getFileChangeInfo(
   status: 'added' | 'modified' | 'deleted' | 'renamed' | 'unchanged'
 }> {
   try {
-    // Get the detailed git diff
-    const gitDiff = await getGitDiffDetailed(repoPath, baseBranch)
+    // Get the best reference to compare against (same logic as getGitDiffDetailed)
+    const { reference: compareBase } = await getBestCompareReference(repoPath, baseBranch)
 
-    // Find the file in the diff
-    const fileDiff = gitDiff.files.find((f) => f.filename === filePath)
+    // Check if file has changes using git diff --numstat for this specific file
+    const { stdout: numstatOutput } = await execAsync(
+      `git diff --numstat "${compareBase}" -- "${filePath}"`,
+      {
+        cwd: repoPath,
+        timeout: 10000,
+      },
+    )
 
-    if (!fileDiff) {
-      // File is unchanged
+    if (!numstatOutput.trim()) {
+      // No changes for this file
       return {
         oldContent: null,
         additions: 0,
@@ -1169,23 +1175,41 @@ export async function getFileChangeInfo(
       }
     }
 
-    // Get old content based on status
-    let oldContent: string | null = null
+    // Parse numstat output: additions<TAB>deletions<TAB>filename
+    const [additionsStr, deletionsStr] = numstatOutput.trim().split('\t')
+    const additions = Number.parseInt(additionsStr, 10) || 0
+    const deletions = Number.parseInt(deletionsStr, 10) || 0
 
-    if (fileDiff.status === 'modified' || fileDiff.status === 'deleted') {
-      // Get the file content from the base branch
-      oldContent = await getFileAtRevision(repoPath, filePath, gitDiff.compareBase)
-    } else if (fileDiff.status === 'added') {
-      // New file, no old content
-      oldContent = null
+    // Get file status (A=added, M=modified, D=deleted, R=renamed) for this specific file
+    const { stdout: statusOutput } = await execAsync(
+      `git diff --name-status "${compareBase}" -- "${filePath}"`,
+      {
+        cwd: repoPath,
+        timeout: 10000,
+      },
+    )
+
+    let status: 'added' | 'modified' | 'deleted' | 'renamed' = 'modified'
+    if (statusOutput.trim()) {
+      const statusCode = statusOutput.trim().split('\t')[0]
+      if (statusCode.startsWith('A')) status = 'added'
+      else if (statusCode.startsWith('D')) status = 'deleted'
+      else if (statusCode.startsWith('R')) status = 'renamed'
+      else status = 'modified'
+    }
+
+    // Get old content if file was modified or deleted
+    let oldContent: string | null = null
+    if (status === 'modified' || status === 'deleted') {
+      oldContent = await getFileAtRevision(repoPath, filePath, compareBase)
     }
 
     return {
       oldContent,
-      additions: fileDiff.additions,
-      deletions: fileDiff.deletions,
+      additions,
+      deletions,
       isModified: true,
-      status: fileDiff.status,
+      status,
     }
   } catch (error) {
     throw new Error(
