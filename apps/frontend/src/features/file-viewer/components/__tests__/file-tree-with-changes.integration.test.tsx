@@ -7,7 +7,9 @@ import { useFileTreeWithChanges } from '../../api/use-file-tree-with-changes'
 import { FileTree } from '../file-tree'
 
 // Mock the API hook
-vi.mock('../../api/use-file-tree-with-changes')
+vi.mock('../../api/use-file-tree-with-changes', () => ({
+  useFileTreeWithChanges: vi.fn(),
+}))
 
 describe('FileTree with Git Changes - Integration Tests', () => {
   const mockTaskId = 'test-task-123'
