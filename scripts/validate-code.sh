@@ -30,7 +30,15 @@ echo "" >&2
 
 # Run TypeScript type checking
 echo "🔍 Running TypeScript type check..." >&2
-if bun run type:check; then
+# Run type check and capture output, filtering out transitive closure warnings
+TYPE_CHECK_OUTPUT=$(bun run type:check 2>&1)
+TYPE_CHECK_EXIT_CODE=$?
+
+# Filter out the warnings and display the rest
+echo "$TYPE_CHECK_OUTPUT" | grep -v "WARNING Unable to calculate transitive closures" | grep -v "No lockfile entry found for '@emnapi" >&2
+
+# Check the actual exit code of the type check command
+if [ $TYPE_CHECK_EXIT_CODE -eq 0 ]; then
   echo "✓ TypeScript type check passed" >&2
 else
   echo "" >&2
