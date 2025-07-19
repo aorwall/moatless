@@ -22,8 +22,11 @@ export function isUserAgentMessage(message: unknown): message is UserAgentMessag
     'type' in message &&
     message.type === 'user' &&
     'message' in message &&
-    typeof (message as any).message === 'object' &&
-    (message as any).message.role === 'user'
+    typeof (message as Record<string, unknown>).message === 'object' &&
+    (message as Record<string, unknown>).message !== null &&
+    typeof (message as Record<string, unknown>).message === 'object' &&
+    'role' in ((message as Record<string, unknown>).message as Record<string, unknown>) &&
+    ((message as Record<string, unknown>).message as Record<string, unknown>).role === 'user'
   )
 }
 
@@ -34,8 +37,10 @@ export function isAssistantAgentMessage(message: unknown): message is AssistantA
     'type' in message &&
     message.type === 'assistant' &&
     'message' in message &&
-    typeof (message as any).message === 'object' &&
-    (message as any).message.role === 'assistant'
+    typeof (message as Record<string, unknown>).message === 'object' &&
+    (message as Record<string, unknown>).message !== null &&
+    'role' in ((message as Record<string, unknown>).message as Record<string, unknown>) &&
+    ((message as Record<string, unknown>).message as Record<string, unknown>).role === 'assistant'
   )
 }
 
@@ -43,7 +48,7 @@ export function isAssistantAgentMessage(message: unknown): message is AssistantA
 export function isAgentMessage(obj: unknown): obj is AgentMessage {
   if (!obj || typeof obj !== 'object') return false
 
-  const candidate = obj as any
+  const candidate = obj as Record<string, unknown>
 
   // Check required fields
   if (

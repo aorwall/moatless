@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AppSidebar } from '../app-sidebar'
@@ -7,12 +8,8 @@ vi.mock('../sidebar-tasks', () => ({
   SidebarTasks: () => <div data-testid="sidebar-tasks">Tasks</div>,
 }))
 
-vi.mock('../sidebar-repositories', () => ({
-  SidebarRepositories: () => <div data-testid="sidebar-repositories">Repositories</div>,
-}))
-
-vi.mock('../sidebar-commands', () => ({
-  SidebarCommands: () => <div data-testid="sidebar-commands">Commands</div>,
+vi.mock('@/features/repositories', () => ({
+  RepositoriesConfigurationDialog: () => null,
 }))
 
 // Mock UI components
@@ -42,6 +39,7 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
+  useNavigate: () => vi.fn(),
 }))
 
 // Mock global event stream
@@ -52,9 +50,23 @@ vi.mock('@/features/events/contexts/global-event-stream-provider', () => ({
   }),
 }))
 
+// Create a wrapper component with providers
+const wrapper = ({ children }: { children: React.ReactNode }) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  })
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+}
+
+const renderWithProviders = (ui: React.ReactElement) => {
+  return render(ui, { wrapper })
+}
+
 describe('AppSidebar', () => {
   it('should render all main sections', () => {
-    render(<AppSidebar />)
+    renderWithProviders(<AppSidebar />)
 
     // Check main structure
     expect(screen.getByTestId('sidebar')).toBeInTheDocument()
@@ -64,13 +76,13 @@ describe('AppSidebar', () => {
   })
 
   it('should display application title', () => {
-    render(<AppSidebar />)
+    renderWithProviders(<AppSidebar />)
 
     expect(screen.getByText('Moatless Vibe')).toBeInTheDocument()
   })
 
   it('should render navigation links', () => {
-    render(<AppSidebar />)
+    renderWithProviders(<AppSidebar />)
 
     // Check main navigation items
     const dashboardLink = screen.getByRole('link', { name: /dashboard/i })
@@ -83,14 +95,14 @@ describe('AppSidebar', () => {
   })
 
   it('should render all sidebar sections', () => {
-    render(<AppSidebar />)
+    renderWithProviders(<AppSidebar />)
 
     // Check that all sections are rendered
     expect(screen.getByTestId('sidebar-tasks')).toBeInTheDocument()
   })
 
   it('should display version in footer', () => {
-    render(<AppSidebar />)
+    renderWithProviders(<AppSidebar />)
 
     expect(screen.getByText('v1.0.0')).toBeInTheDocument()
   })
