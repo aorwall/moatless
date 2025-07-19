@@ -1,100 +1,37 @@
-import type { PreviewConfig, UpdateRepositoryRequest } from '@moatless/types'
-import { createFileRoute } from '@tanstack/react-router'
-import { toast } from 'sonner'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Settings } from 'lucide-react'
+import { useState } from 'react'
 import {
-  PreviewConfigForm,
-  RepositoryForm,
-  useDetectFramework,
+  RepositoriesConfigurationDialog,
   useRepository,
-  useUpdateRepository,
+  VerificationDialog,
 } from '@/features/repositories'
-import { CodeExecutionConfig } from '@/features/repositories/components/code-execution-config'
-import { VerificationDialog } from '@/features/repositories/components/verification-dialog'
+import { Badge } from '@/lib/components/ui/badge'
+import { Button } from '@/lib/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { getErrorMessage } from '@/lib/utils/error'
 
 export const Route = createFileRoute('/repositories/$repositoryId')({
-  component: RepositoryEdit,
+  component: RepositoryDetail,
 })
 
-function RepositoryEdit() {
+function RepositoryDetail() {
+  const navigate = useNavigate()
   const { repositoryId } = Route.useParams()
+  const [configOpen, setConfigOpen] = useState(false)
 
   const { data: repository, isLoading, error } = useRepository(repositoryId)
-  const updateRepository = useUpdateRepository()
-  const detectFramework = useDetectFramework(repositoryId)
-
-  const handleSubmit = (data: UpdateRepositoryRequest) => {
-    updateRepository.mutate(
-      { repoId: repositoryId, request: data },
-      {
-        onSuccess: () => {
-          toast.success('Repository updated successfully')
-        },
-        onError: (error) => {
-          toast.error('Failed to update repository', {
-            description: getErrorMessage(error),
-          })
-        },
-      },
-    )
-  }
-
-  const handleCodeExecutionUpdate = (codeExecution: UpdateRepositoryRequest['codeExecution']) => {
-    if (!codeExecution) {
-      return
-    }
-
-    updateRepository.mutate(
-      { repoId: repositoryId, request: { codeExecution: codeExecution } },
-      {
-        onSuccess: () => {
-          toast.success('Code execution settings updated successfully')
-        },
-        onError: (error) => {
-          toast.error('Failed to update code execution settings', {
-            description: getErrorMessage(error),
-          })
-        },
-      },
-    )
-  }
-
-  const handlePreviewConfigUpdate = (previewConfig: UpdateRepositoryRequest['previewConfig']) => {
-    updateRepository.mutate(
-      { repoId: repositoryId, request: { previewConfig } },
-      {
-        onSuccess: () => {
-          toast.success('Preview configuration updated successfully')
-        },
-        onError: (error) => {
-          toast.error('Failed to update preview configuration', {
-            description: getErrorMessage(error),
-          })
-        },
-      },
-    )
-  }
-
-  const handleDetectFramework = async (): Promise<PreviewConfig | undefined> => {
-    try {
-      const result = await detectFramework.mutateAsync()
-      toast.success('Framework detected successfully')
-      return result as PreviewConfig
-    } catch (error) {
-      toast.error('Failed to detect framework', {
-        description: getErrorMessage(error),
-      })
-      return undefined
-    }
-  }
 
   if (isLoading) {
     return (
       <div className="container mx-auto py-6">
-        <div className="max-w-2xl mx-auto space-y-4">
+        <div className="max-w-4xl mx-auto space-y-4">
           <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-64 w-full" />
+          <div className="grid gap-4 md:grid-cols-3">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
         </div>
       </div>
     )
@@ -103,37 +40,83 @@ function RepositoryEdit() {
   if (error || !repository) {
     return (
       <div className="container mx-auto py-6">
-        <div className="max-w-2xl mx-auto text-center">
+        <div className="max-w-4xl mx-auto text-center">
           <p className="text-destructive">{error ? error.message : 'Repository not found'}</p>
         </div>
       </div>
     )
   }
 
+  const handleCloseConfig = (open: boolean) => {
+    setConfigOpen(open)
+    // Navigate back to list when dialog closes
+    if (!open) {
+      navigate({ to: '/repositories' })
+    }
+  }
+
   return (
     <div className="container mx-auto py-6">
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Repository Configuration</h1>
-          <VerificationDialog repositoryId={repositoryId} />
+          <div>
+            <h1 className="text-2xl font-bold">{repository.name}</h1>
+            {repository.description && (
+              <p className="text-muted-foreground mt-1">{repository.description}</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <VerificationDialog repositoryId={repositoryId} />
+            <Button onClick={() => setConfigOpen(true)}>
+              <Settings className="h-4 w-4 mr-2" />
+              Configure
+            </Button>
+          </div>
         </div>
-        <RepositoryForm
-          repository={repository}
-          onSubmit={handleSubmit}
-          isSubmitting={updateRepository.isPending}
-        />
-        <CodeExecutionConfig
-          codeExecution={repository.codeExecution}
-          onUpdate={handleCodeExecutionUpdate}
-          isSubmitting={updateRepository.isPending}
-          repositoryId={repositoryId}
-        />
-        <PreviewConfigForm
-          previewConfig={repository.previewConfig}
-          onUpdate={handlePreviewConfigUpdate}
-          isSubmitting={updateRepository.isPending}
-          repositoryId={repositoryId}
-          onDetect={handleDetectFramework}
+
+        {/* Simple summary cards */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Repository Path</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">{repository.path}</p>
+              {repository.useGitWorktrees && (
+                <Badge variant="secondary" className="mt-2">
+                  Git Worktrees
+                </Badge>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Code Execution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Badge
+                variant={repository.codeExecution?.type === 'docker' ? 'default' : 'secondary'}
+              >
+                {repository.codeExecution?.type || 'Not configured'}
+              </Badge>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Preview Environment</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">{repository.previewConfig?.framework || 'Not configured'}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <RepositoriesConfigurationDialog
+          open={configOpen}
+          onOpenChange={handleCloseConfig}
+          initialRepositoryId={repositoryId}
         />
       </div>
     </div>
