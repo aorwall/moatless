@@ -1,6 +1,20 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
-import { GitStatusSchema } from './task.schemas.js'
+
+// Git Status Schema (duplicated from task.schemas.ts to avoid circular dependency)
+const GitStatusSchema = z.object({
+  currentBranch: z.string(),
+  baseBranch: z.string(),
+  hasUncommittedChanges: z.boolean(),
+  hasConflicts: z.boolean(),
+  status: z.string(),
+  commitsAhead: z.number(),
+  commitsBehind: z.number(),
+  originExists: z.boolean(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
+  modifications: z.number().optional(),
+})
 
 // ============================================
 // Workspace Enums and Base Types
