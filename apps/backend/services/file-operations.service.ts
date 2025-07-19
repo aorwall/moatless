@@ -209,26 +209,30 @@ export class FileOperations {
       const { getFileChangeInfo } = await import('../utils/git-utils.js')
       const changeInfo = await getFileChangeInfo(this.workspacePath, filePath, this.originalBranch)
 
-      // Only include change information if the file is actually modified
-      if (changeInfo.isModified) {
-        return {
-          content,
-          oldContent: changeInfo.oldContent || undefined,
-          additions: changeInfo.additions,
-          deletions: changeInfo.deletions,
-          isModified: changeInfo.isModified,
-        }
+      // Always return all fields, even if the file is not modified
+      return {
+        content,
+        oldContent: changeInfo.oldContent || undefined,
+        additions: changeInfo.additions,
+        deletions: changeInfo.deletions,
+        isModified: changeInfo.isModified,
       }
     } catch (error) {
-      // If we can't get git info, just return the content without change info
+      // If we can't get git info, return default values for change info
       this.logger.debug('Failed to get file change info', {
         filePath,
         error: error instanceof Error ? error.message : String(error),
       })
-    }
 
-    // Return just the content if no changes or error getting change info
-    return { content }
+      // Return content with default values for change info
+      return {
+        content,
+        oldContent: undefined,
+        additions: 0,
+        deletions: 0,
+        isModified: false,
+      }
+    }
   }
 
   /**
