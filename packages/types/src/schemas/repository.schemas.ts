@@ -112,6 +112,39 @@ export const SuggestedRepositoriesResponseSchema = z.object({
   suggestions: z.array(SuggestedRepositorySchema),
 })
 
+// Repository list response schema
+export const RepositoryListResponseSchema = z.object({
+  repositories: z.array(RepositoryConfigSchema),
+})
+
+// File search response schemas
+export const RepositoryFileSearchResultSchema = z.object({
+  path: z.string(),
+  type: z.string(),
+  size: z.number().optional(),
+})
+
+export const RepositoryFileSearchResponseSchema = z.object({
+  files: z.array(RepositoryFileSearchResultSchema),
+})
+
+// Branch list response schema
+export const BranchListResponseSchema = z.object({
+  branches: z.array(z.string()),
+})
+
+// Preview config response schema
+export const PreviewConfigResponseSchema = z.object({
+  previewConfig: z.object({
+    framework: z.string().optional(),
+    buildCommand: z.string().optional(),
+    devCommand: z.string().optional(),
+    startCommand: z.string().optional(),
+    installCommand: z.string().optional(),
+    port: z.number().optional(),
+  }),
+})
+
 // Type exports
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
@@ -122,3 +155,8 @@ export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type VerificationResponse = z.infer<typeof VerificationResponseSchema>
 export type SuggestedRepository = z.infer<typeof SuggestedRepositorySchema>
 export type SuggestedRepositoriesResponse = z.infer<typeof SuggestedRepositoriesResponseSchema>
+export type RepositoryListResponse = z.infer<typeof RepositoryListResponseSchema>
+export type RepositoryFileSearchResult = z.infer<typeof RepositoryFileSearchResultSchema>
+export type RepositoryFileSearchResponse = z.infer<typeof RepositoryFileSearchResponseSchema>
+export type BranchListResponse = z.infer<typeof BranchListResponseSchema>
+export type PreviewConfigResponse = z.infer<typeof PreviewConfigResponseSchema>

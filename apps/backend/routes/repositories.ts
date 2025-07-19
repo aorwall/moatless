@@ -1,8 +1,12 @@
 import type { RepositoryList } from '@moatless/types'
 import {
+  BranchListResponseSchema,
   CreateRepositorySchema,
   FileSearchSchema,
+  PreviewConfigResponseSchema,
   RepositoryConfigSchema,
+  RepositoryFileSearchResponseSchema,
+  RepositoryListResponseSchema,
   RepositoryNotFoundError,
   SuggestedRepositoriesResponseSchema,
   UpdateRepositorySchema,
@@ -12,38 +16,7 @@ import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
-import { z } from 'zod'
 import type { AppBindings } from '../app.js'
-
-// Response schemas - using shared schemas from @moatless/types
-const repositoryListResponseSchema = z.object({
-  repositories: z.array(RepositoryConfigSchema),
-})
-
-const fileSearchResultSchema = z.object({
-  files: z.array(
-    z.object({
-      path: z.string(),
-      type: z.string(),
-      size: z.number().optional(),
-    }),
-  ),
-})
-
-const branchesResponseSchema = z.object({
-  branches: z.array(z.string()),
-})
-
-const previewConfigResponseSchema = z.object({
-  previewConfig: z.object({
-    framework: z.string().optional(),
-    buildCommand: z.string().optional(),
-    devCommand: z.string().optional(),
-    startCommand: z.string().optional(),
-    installCommand: z.string().optional(),
-    port: z.number().optional(),
-  }),
-})
 
 export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: string) {
   // Create repository
@@ -95,7 +68,7 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
           description: 'List of repositories',
           content: {
             'application/json': {
-              schema: resolver(repositoryListResponseSchema),
+              schema: resolver(RepositoryListResponseSchema),
             },
           },
         },
@@ -326,7 +299,7 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
           description: 'File search results',
           content: {
             'application/json': {
-              schema: resolver(fileSearchResultSchema),
+              schema: resolver(RepositoryFileSearchResponseSchema),
             },
           },
         },
@@ -383,7 +356,7 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
           description: 'List of git branches',
           content: {
             'application/json': {
-              schema: resolver(branchesResponseSchema),
+              schema: resolver(BranchListResponseSchema),
             },
           },
         },
@@ -436,7 +409,7 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
           description: 'Detected framework configuration',
           content: {
             'application/json': {
-              schema: resolver(previewConfigResponseSchema),
+              schema: resolver(PreviewConfigResponseSchema),
             },
           },
         },
