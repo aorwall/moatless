@@ -54,17 +54,20 @@ export * from './settings.js'
 export * from './task.js'
 export * from './usage.js'
 export type {
+  AgentState,
   BaseWorkspace,
   CommandResult,
   DockerWorkspace,
+  EnvironmentStatus,
   LocalWorkspace,
   ServerStatus,
   Workspace,
   WorkspaceCapabilities,
   WorkspaceChange,
+  WorkspaceChangeStatus,
+  WorkspaceExistence,
   WorkspaceFile,
   WorkspaceFileSearchResult,
-  WorkspaceState,
+  WorkspaceStatusResponse,
   WorkspaceType,
 } from './workspace.js'
-export { WorkspaceStatus } from './workspace.js'

@@ -3,8 +3,10 @@
 // Re-export CommandResult and ServerStatus from task schemas (they're defined there)
 export type { CommandResult, ServerStatus } from '../schemas/task.schemas.js'
 export type {
+  AgentState,
   BaseWorkspace,
   DockerWorkspace,
+  EnvironmentStatus,
   FileTreeNode,
   FileTreeWithChangesResponse,
   GitChangeStatus,
@@ -13,12 +15,12 @@ export type {
   Workspace,
   WorkspaceCapabilities,
   WorkspaceChange,
+  WorkspaceChangeStatus,
+  WorkspaceExistence,
   WorkspaceFile,
   WorkspaceFileSearchResult,
   WorkspaceSetupRequest,
   WorkspaceSetupResponse,
-  WorkspaceState,
-  WorkspaceStatus,
   WorkspaceStatusResponse,
   WorkspaceType,
 } from '../schemas/workspace.schemas.js'

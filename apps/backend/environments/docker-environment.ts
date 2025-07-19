@@ -37,11 +37,11 @@ export class DockerEnvironment extends BaseEnvironment {
     return 'docker'
   }
 
-  getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
+  getStatus(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     return this.getContainerStatus()
   }
 
-  private getContainerStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
+  private getContainerStatus(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     // Always generate the container name deterministically
     const containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
 
@@ -53,7 +53,7 @@ export class DockerEnvironment extends BaseEnvironment {
       ).trim()
 
       if (!containerStatus) {
-        return 'not_setup'
+        return 'not_created'
       }
 
       if (containerStatus === 'created') {
@@ -71,14 +71,14 @@ export class DockerEnvironment extends BaseEnvironment {
       if (containerStatus === 'exited' || containerStatus === 'dead') {
         return 'error'
       }
-      return 'not_setup'
+      return 'not_created'
     } catch (error: any) {
       // Container doesn't exist
       if (
         error?.stderr?.toString().includes('No such object') ||
         error?.message?.includes('No such object')
       ) {
-        return 'not_setup'
+        return 'not_created'
       }
       // Other errors
       this.logger.debug('Error checking container status', {
@@ -556,7 +556,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     // Handle states that need action
     switch (status) {
-      case 'not_setup':
+      case 'not_created':
         this.logger.info('Container not setup, starting setup process')
         await this.setup()
         break
@@ -663,7 +663,7 @@ export class DockerEnvironment extends BaseEnvironment {
         throw new Error(error)
       }
 
-      if (status === 'not_setup') {
+      if (status === 'not_created') {
         throw new Error('Container lost during wait - setup may have failed')
       }
 
@@ -1060,7 +1060,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     // Check if container exists before trying to clean it up
     const status = this.getStatus()
-    if (status === 'not_setup') {
+    if (status === 'not_created') {
       return
     }
 

@@ -28,6 +28,7 @@ export function TaskHeader() {
     iterations,
     workspaceGitStatus,
     workspaceEnvironment,
+    agentState,
   } = useTaskData()
   const { data: repositories } = useRepositoriesList()
   const { rightPanelView, setRightPanelView } = usePanelView()
@@ -264,7 +265,7 @@ export function TaskHeader() {
           </div>
 
           {/* Action buttons */}
-          {status !== 'running' && status !== 'closed' && status !== 'merged' && (
+          {agentState !== 'running' && status !== 'closed' && status !== 'merged' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -278,7 +279,7 @@ export function TaskHeader() {
                       gitStatus.commitsAhead === 0 ||
                       gitStatus.status === 'diverged' ||
                       gitStatus.hasConflicts ||
-                      status === 'running' ||
+                      agentState === 'running' ||
                       status === 'error'
                     }
                     className="h-7 px-2"
@@ -290,7 +291,7 @@ export function TaskHeader() {
                 <TooltipContent>
                   {!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0 ? (
                     <p>No unmerged commits to merge</p>
-                  ) : status === 'running' ? (
+                  ) : agentState === 'running' ? (
                     <p>Cannot merge: agent is running</p>
                   ) : gitStatus.status === 'diverged' || gitStatus.hasConflicts ? (
                     <p>Cannot merge: conflicts detected</p>
@@ -301,7 +302,7 @@ export function TaskHeader() {
               </Tooltip>
             </TooltipProvider>
           )}
-          {status !== 'running' && status !== 'closed' && status !== 'merged' && gitStatus && (
+          {agentState !== 'running' && status !== 'closed' && status !== 'merged' && gitStatus && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -311,7 +312,7 @@ export function TaskHeader() {
                     onClick={handleSync}
                     disabled={
                       syncWorkspace.isPending ||
-                      status === 'running' ||
+                      agentState === 'running' ||
                       status === 'error' ||
                       !gitStatus.commitsBehind ||
                       gitStatus.commitsBehind === 0 ||
@@ -330,7 +331,7 @@ export function TaskHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {status === 'running' ? (
+                  {agentState === 'running' ? (
                     <p>Cannot sync: agent is running</p>
                   ) : !gitStatus.commitsBehind || gitStatus.commitsBehind === 0 ? (
                     <p>Already up to date with main</p>
@@ -355,7 +356,7 @@ export function TaskHeader() {
                     variant="outline"
                     size="sm"
                     onClick={handleClose}
-                    disabled={closeTask.isPending || status === 'running'}
+                    disabled={closeTask.isPending || agentState === 'running'}
                     className="h-7 px-2"
                   >
                     {closeTask.isPending ? (
@@ -367,7 +368,7 @@ export function TaskHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {status === 'running' ? (
+                  {agentState === 'running' ? (
                     <p>Cannot close: agent is running</p>
                   ) : (
                     <p>Close task and teardown workspace</p>

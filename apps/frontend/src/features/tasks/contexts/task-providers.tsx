@@ -9,8 +9,8 @@ interface TaskProvidersProps {
 
 /**
  * Composed provider that includes task data and UI providers.
- * TaskDataProvider now handles events, workspace status, and task metadata.
- * TaskUIProvider handles local UI state.
+ * TaskDataProvider handles events, workspace status, and task metadata.
+ * TaskUIProvider handles local UI state (panel views, selections).
  */
 export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
@@ -41,7 +41,6 @@ export {
 } from './task-data-provider'
 export {
   TaskUIProvider,
-  useChatState,
   useGitDiffState,
   usePanelSizes,
   usePanelView,
