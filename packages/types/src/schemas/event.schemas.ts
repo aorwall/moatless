@@ -13,6 +13,7 @@ export const EventTypeSchema = z.enum([
   'result',
   'error',
   'workspace',
+  'environment',
   'server',
   'tool',
   'completion',
@@ -95,6 +96,12 @@ export const WorkspaceEventSchema = BaseEventSchema.extend({
   payload: EventPayloadSchema,
 })
 
+// Environment event
+export const EnvironmentEventSchema = BaseEventSchema.extend({
+  type: z.literal('environment'),
+  payload: EventPayloadSchema,
+})
+
 // Server event
 export const ServerEventSchema = BaseEventSchema.extend({
   type: z.literal('server'),
@@ -119,6 +126,7 @@ export const SpecificEventSchema = z.discriminatedUnion('type', [
   MessageEventSchema,
   ErrorEventSchema,
   WorkspaceEventSchema,
+  EnvironmentEventSchema,
   ServerEventSchema,
   ResultEventSchema,
   TaskStatusEventSchema,
@@ -200,6 +208,7 @@ export type { ClaudeCodeSDKMessage, SDKResultMessage } from '../types/claude.js'
 export type MessageEvent = z.infer<typeof MessageEventSchema>
 export type ErrorEvent = z.infer<typeof ErrorEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
+export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
 export type ResultEvent = z.infer<typeof ResultEventSchema>
 export type TaskStatusEvent = z.infer<typeof TaskStatusEventSchema>

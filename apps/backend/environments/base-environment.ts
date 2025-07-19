@@ -89,7 +89,7 @@ export abstract class BaseEnvironment {
   /**
    * Get the environment status
    */
-  abstract getStatus(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning'
+  abstract getStatus(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning'
 
   /**
    * Get any error message

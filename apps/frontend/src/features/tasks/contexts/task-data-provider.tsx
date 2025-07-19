@@ -30,8 +30,10 @@ interface TaskDataContextValue {
   // Git diff data
   gitDiff: GitDiffResponse | undefined
 
-  // Workspace status (conditional polling)
-  workspaceStatus: string | undefined
+  // Separated workspace state (conditional polling)
+  workspaceState: string | undefined
+  environmentStatus: string | undefined
+  agentState: string | undefined
   workspaceReady: boolean
   workspaceHasChanges: boolean
   workspaceGitStatus: WorkspaceStatusResponse['gitStatus'] | undefined
@@ -89,9 +91,10 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     enabled: !!taskId && !taskId.startsWith('temp-'),
     refetchInterval: (query) => {
       const data = query.state.data as WorkspaceStatusResponse | undefined
-      const status = data?.status
+      const envStatus = data?.environment?.status
+      const agentState = data?.agent?.state
       // Only poll when in transitional states
-      if (status === 'setting_up' || status === 'running') {
+      if (envStatus === 'initializing' || envStatus === 'cleaning' || agentState === 'running') {
         return 3000 // 3 seconds for transitional states
       }
       return false // Stop polling when stable
@@ -152,9 +155,10 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     const task = taskQuery.data
     if (!task) return null
 
-    const isRunning = task.status === 'running'
     const iterations = task.iterations || []
     const lastIteration = iterations.length > 0 ? iterations[iterations.length - 1] : null
+    // Check if there's an active iteration instead of task status
+    const isRunning = lastIteration?.status === 'active'
     const runningStartTime =
       isRunning && lastIteration?.startTime ? new Date(lastIteration.startTime) : undefined
 
@@ -165,8 +169,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       iterations,
       createdAt: task.createdAt,
       isRunning,
-      canExecute: task.status === 'open' || task.status === 'running',
-      isComplete: task.status === 'closed' || task.status === 'merged' || task.status === 'error',
+      canExecute: task.status === 'open', // Can execute if task is open
+      isComplete: task.status === 'closed', // Complete if task is closed
       runningStartTime,
     }
   }, [taskQuery.data])
@@ -176,12 +180,16 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     if (!workspace) return null
 
     return {
-      status: workspace.status,
-      isReady: workspace.status === 'idle' || workspace.status === 'running',
+      // Use the new separated state structure
+      workspaceState: workspace.workspace?.state,
+      environmentStatus: workspace.environment?.status,
+      agentState: workspace.agent?.state,
+      isReady: workspace.environment?.status === 'ready',
       hasChanges:
         workspace.gitStatus?.hasUncommittedChanges || workspace.gitStatus?.hasConflicts || false,
       gitStatus: workspace.gitStatus,
       environment: workspace.environment,
+      capabilities: workspace.capabilities,
     }
   }, [workspaceQuery.data])
 
@@ -288,9 +296,10 @@ export function useWorkspaceStatusWithLoading() {
     enabled: !!taskId && !taskId.startsWith('temp-'),
     refetchInterval: (query) => {
       const data = query.state.data as WorkspaceStatusResponse | undefined
-      const status = data?.status
+      const envStatus = data?.environment?.status
+      const agentState = data?.agent?.state
       // Only poll when in transitional states
-      if (status === 'setting_up' || status === 'running') {
+      if (envStatus === 'initializing' || envStatus === 'cleaning' || agentState === 'running') {
         return 3000 // 3 seconds for transitional states
       }
       return false // Stop polling when stable
@@ -300,8 +309,10 @@ export function useWorkspaceStatusWithLoading() {
 
   const workspace = workspaceQuery.data
   return {
-    workspaceStatus: workspace?.status,
-    workspaceReady: workspace?.status === 'idle' || workspace?.status === 'running',
+    workspaceState: workspace?.workspace?.state,
+    environmentStatus: workspace?.environment?.status,
+    agentState: workspace?.agent?.state,
+    workspaceReady: workspace?.environment?.status === 'ready',
     workspaceHasChanges:
       workspace?.gitStatus?.hasUncommittedChanges || workspace?.gitStatus?.hasConflicts || false,
     isLoading: workspaceQuery.isLoading,

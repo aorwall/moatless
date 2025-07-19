@@ -6,17 +6,27 @@ import { GitStatusSchema } from './task.schemas.js'
 // Workspace Enums and Base Types
 // ============================================
 
-export const WorkspaceStatusSchema = z.enum(['not_setup', 'setting_up', 'idle', 'running'])
-
 export const WorkspaceTypeSchema = z.enum(['local', 'docker'])
 
-export const WorkspaceStateSchema = z.enum([
-  'not_setup',
+export const EnvironmentStatusSchema = z.enum([
+  'not_created',
   'initializing',
   'ready',
-  'error',
   'cleaning',
+  'error',
 ])
+
+export const WorkspaceExistenceSchema = z.enum(['exists', 'missing', 'invalid'])
+
+export const WorkspaceChangeStatusSchema = z.enum([
+  'no_changes',
+  'merged',
+  'committed_unmerged',
+  'uncommitted',
+  'conflicts',
+])
+
+export const AgentStateSchema = z.enum(['idle', 'running'])
 
 // ============================================
 // Workspace Schemas
@@ -26,7 +36,7 @@ export const BaseWorkspaceSchema = z.object({
   id: z.string(),
   type: WorkspaceTypeSchema,
   repositoryId: z.string(),
-  status: WorkspaceStateSchema,
+  status: EnvironmentStatusSchema,
   createdAt: dateSchema,
   error: z.string().optional(),
 })
@@ -142,16 +152,18 @@ export const WorkspaceSetupRequestSchema = z.object({})
 export const WorkspaceSetupResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
-  status: WorkspaceStatusSchema,
+  status: EnvironmentStatusSchema,
 })
 
 // ============================================
 // Derived Types
 // ============================================
 
-export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>
 export type WorkspaceType = z.infer<typeof WorkspaceTypeSchema>
-export type WorkspaceState = z.infer<typeof WorkspaceStateSchema>
+export type EnvironmentStatus = z.infer<typeof EnvironmentStatusSchema>
+export type WorkspaceExistence = z.infer<typeof WorkspaceExistenceSchema>
+export type WorkspaceChangeStatus = z.infer<typeof WorkspaceChangeStatusSchema>
+export type AgentState = z.infer<typeof AgentStateSchema>
 export type BaseWorkspace = z.infer<typeof BaseWorkspaceSchema>
 export type LocalWorkspace = z.infer<typeof LocalWorkspaceSchema>
 export type DockerWorkspace = z.infer<typeof DockerWorkspaceSchema>
@@ -172,27 +184,27 @@ export type WorkspaceSetupResponse = z.infer<typeof WorkspaceSetupResponseSchema
 
 // Workspace Status Response
 export const WorkspaceStatusResponseSchema = z.object({
-  status: z.enum(['not_setup', 'setting_up', 'idle', 'running']),
-  gitStatus: GitStatusSchema.optional(),
-  backgroundTaskCount: z.number(),
+  workspace: z.object({
+    state: WorkspaceExistenceSchema,
+    path: z.string().optional(),
+    changeStatus: WorkspaceChangeStatusSchema,
+  }),
   environment: z.object({
     type: z.enum(['local', 'docker']),
-    status: z.enum(['not_setup', 'initializing', 'ready', 'error', 'cleaning']),
+    status: EnvironmentStatusSchema,
     error: z.string().optional(),
-    createdAt: z.string(), // ISO date string
-    capabilities: z.object({
-      fileOperations: z.boolean(),
-      commandExecution: z.boolean(),
-    }),
+    createdAt: z.string(),
   }),
-  gitChanges: z
-    .object({
-      totalChanges: z.number(),
-      totalAdditions: z.number(),
-      totalDeletions: z.number(),
-      files: z.array(z.string()),
-    })
-    .optional(),
+  agent: z.object({
+    state: AgentStateSchema,
+    type: z.string().optional(),
+  }),
+  gitStatus: GitStatusSchema.optional(),
+  capabilities: z.object({
+    fileOperations: z.boolean(),
+    commandExecution: z.boolean(),
+    serverManagement: z.boolean(),
+  }),
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>

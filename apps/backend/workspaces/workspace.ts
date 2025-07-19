@@ -1,15 +1,18 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
+  AgentState,
   CommandResult,
+  EnvironmentStatus,
   FileTreeNode,
   FileTreeWithChangesResponse,
   GitChanges,
   GitStatus,
   RepositoryConfig,
   ServerStatus,
+  WorkspaceChangeStatus,
+  WorkspaceExistence,
   Workspace as WorkspaceInfo,
-  WorkspaceStatus,
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import type { BaseEnvironment } from '../environments/base-environment.js'
@@ -53,7 +56,7 @@ export class Workspace {
     return this.environment.getType()
   }
 
-  get status(): 'not_setup' | 'initializing' | 'ready' | 'error' | 'cleaning' {
+  get status(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     return this.environment.getStatus()
   }
 
@@ -445,15 +448,26 @@ export class Workspace {
     }
 
     return {
-      status: this.getStatus(),
-      gitStatus,
-      backgroundTaskCount,
+      workspace: {
+        state: await this.getWorkspaceExistence(),
+        path: this.getWorkspacePath(),
+        changeStatus: await this.getWorkspaceChangeStatus(),
+      },
       environment: {
         type: environmentType,
         status: environmentStatus,
         error: environmentError,
         createdAt: environmentCreatedAt.toISOString(),
-        capabilities,
+      },
+      agent: {
+        state: await this.getAgentState(),
+        type: undefined, // Agent type will be set by calling code
+      },
+      gitStatus,
+      capabilities: {
+        fileOperations: fileOperationsAvailable,
+        commandExecution: environmentStatus === 'ready',
+        serverManagement: environmentStatus === 'ready',
       },
     }
   }
@@ -756,5 +770,82 @@ export class Workspace {
         this.sortTreeNodes(node.children)
       }
     }
+  }
+
+  /**
+   * Get workspace existence state
+   */
+  private async getWorkspaceExistence(): Promise<'exists' | 'missing' | 'invalid'> {
+    try {
+      const workspacePath = this.getWorkspacePath()
+      const exists = await fs
+        .access(workspacePath)
+        .then(() => true)
+        .catch(() => false)
+
+      if (!exists) {
+        return 'missing'
+      }
+
+      // Check if it's a valid git repository
+      const gitDir = path.join(workspacePath, '.git')
+      const isGitRepo = await fs
+        .access(gitDir)
+        .then(() => true)
+        .catch(() => false)
+
+      return isGitRepo ? 'exists' : 'invalid'
+    } catch {
+      return 'invalid'
+    }
+  }
+
+  /**
+   * Get workspace change status
+   */
+  private async getWorkspaceChangeStatus(): Promise<
+    'no_changes' | 'merged' | 'committed_unmerged' | 'uncommitted' | 'conflicts'
+  > {
+    try {
+      const gitStatus = await this.getGitStatus()
+
+      if (!gitStatus) {
+        return 'no_changes'
+      }
+
+      // Check for conflicts
+      if (gitStatus.hasConflicts) {
+        return 'conflicts'
+      }
+
+      // Check for uncommitted changes
+      if (gitStatus.hasUncommittedChanges) {
+        return 'uncommitted'
+      }
+
+      // Check if we have commits ahead of main
+      if (gitStatus.commitsAhead > 0) {
+        return 'committed_unmerged'
+      }
+
+      // If we're on main and up to date
+      if (gitStatus.commitsBehind === 0 && gitStatus.commitsAhead === 0) {
+        return 'merged'
+      }
+
+      return 'no_changes'
+    } catch {
+      return 'no_changes'
+    }
+  }
+
+  /**
+   * Get agent state - for now this is a simple implementation
+   * In the future, this could check if there are active agent processes
+   */
+  private async getAgentState(): Promise<'idle' | 'running'> {
+    // For now, assume agent is idle
+    // This could be enhanced to check actual agent processes
+    return 'idle'
   }
 }

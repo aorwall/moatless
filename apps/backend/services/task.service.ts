@@ -269,9 +269,7 @@ export class TaskService {
     // Capture git data even for failed iterations
     await this.captureGitDataForIteration(task.taskId, iteration)
 
-    // Update task status to error after failure
-    const previousStatus = task.status
-    task.status = 'error'
+    // Task status remains unchanged - only iteration status changes
 
     // Save task with updated iteration and status
     await this.storage.saveTask(task)
@@ -487,14 +485,11 @@ export class TaskService {
           try {
             const task = await this.storage.getTask(taskId)
             if (task) {
-              const previousStatus = task.status
-              task.status = 'error'
-
-              // Also update the iteration status to error if it exists
+              // Only update iteration status to failed, not task status
               if (task.iterations.length > 0) {
                 const lastIteration = task.iterations[task.iterations.length - 1]
                 if (lastIteration.status === 'active') {
-                  lastIteration.status = 'error'
+                  lastIteration.status = 'failed'
                 }
               }
 
@@ -530,13 +525,11 @@ export class TaskService {
     } catch (error) {
       logger.error('Background workspace setup failed', error as Error, { taskId })
 
-      // Update task status to error
+      // Task status remains unchanged - workspace setup error doesn't affect task status
       try {
         const task = await this.storage.getTask(taskId)
         if (task) {
-          const previousStatus = task.status
-          task.status = 'error'
-          await this.storage.saveTask(task)
+          // No task status change needed
 
           // Emit status change event
           await this.eventService.emitEvent({
@@ -597,24 +590,19 @@ export class TaskService {
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
     }
 
-    // Update task status to running
-    const previousStatus = task.status
-    task.status = 'running'
-
     // Update iteration status to active
     lastIteration.status = 'active'
 
     // Save task with updated statuses
     await this.storage.saveTask(task)
 
-    // Emit status change event
+    // Emit iteration status change event
     await this.eventService.emitEvent({
       taskId,
       type: 'task_status',
-      subType: 'running',
+      subType: 'active',
       payload: {
-        status: 'running',
-        previousStatus,
+        status: 'active',
         iterationNumber: lastIteration.iterationNumber,
       },
       eventId: randomUUID(),
@@ -649,8 +637,8 @@ export class TaskService {
               )
               if (updatedIteration) {
                 const previousStatus = updatedTask.status
-                updatedTask.status = 'error'
-                updatedIteration.status = 'error'
+                // Only update iteration status, not task status
+                updatedIteration.status = 'failed'
 
                 await this.storage.saveTask(updatedTask)
 
@@ -777,14 +765,17 @@ export class TaskService {
       throw new TaskNotFoundError(taskId)
     }
 
-    // If task exists and status is running, check if agent is still running
-    if (task && task.status === 'running') {
-      const isAgentRunning = await this.agentService.getTaskRunningStatus(taskId)
+    // If task exists and has active iteration, check if agent is still running
+    if (task && task.iterations.length > 0) {
+      const lastIteration = task.iterations[task.iterations.length - 1]
+      if (lastIteration.status === 'active') {
+        const isAgentRunning = await this.agentService.getTaskRunningStatus(taskId)
 
-      // If agent is not running, update task status to open
-      if (!isAgentRunning) {
-        task.status = 'open'
-        await this.storage.saveTask(task)
+        // If agent is not running, update iteration status to failed
+        if (!isAgentRunning) {
+          lastIteration.status = 'failed'
+          await this.storage.saveTask(task)
+        }
       }
     }
 
@@ -994,21 +985,18 @@ export class TaskService {
     await this.storage.saveTask(metadata)
 
     // Now start the iteration by updating its status to 'active' and starting execution
-    const previousStatus = metadata.status
-    metadata.status = 'running'
     iteration.status = 'active'
 
     // Save task with updated statuses
     await this.storage.saveTask(metadata)
 
-    // Emit status change event
+    // Emit iteration status change event
     await this.eventService.emitEvent({
       taskId,
       type: 'task_status',
-      subType: 'running',
+      subType: 'active',
       payload: {
-        status: 'running',
-        previousStatus,
+        status: 'active',
         iterationNumber: iteration.iterationNumber,
       },
       eventId: randomUUID(),
@@ -1030,9 +1018,8 @@ export class TaskService {
 
         // Update status to error on agent failure
         try {
-          const previousStatus = metadata.status
-          metadata.status = 'error'
-          iteration.status = 'error'
+          // Only update iteration status, not task status
+          iteration.status = 'failed'
           // Ensure we never set null for error messages
           const errorMessage = error instanceof Error ? error.message : String(error)
           iteration.result = errorMessage || 'Unknown error occurred'
