@@ -27,6 +27,39 @@ export const SystemStatusCheckSchema = z.object({
   }),
 })
 
+// Update settings schema
+export const updateSettingsSchema = z
+  .object({
+    dataDir: z.string().nullable().optional(),
+    defaultWorkspaceType: z.enum(['docker', 'local']).nullable().optional(),
+    binDir: z.string().nullable().optional(),
+    configDir: z.string().nullable().optional(),
+    oauthToken: z.string().nullable().optional(),
+    claude: z
+      .object({
+        binDir: z.string().nullable().optional(),
+        configDir: z.string().nullable().optional(),
+        oauthToken: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+    github: z
+      .object({
+        token: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+  })
+  .strict()
+
+// Settings response schema
+export const SettingsResponseSchema = z.object({
+  settings: ApplicationSettingsSchema,
+  status: SystemStatusCheckSchema,
+})
+
 // Derived types
 export type ApplicationSettings = z.infer<typeof ApplicationSettingsSchema>
 export type SystemStatusCheck = z.infer<typeof SystemStatusCheckSchema>
+export type UpdateSettingsSchemaType = z.infer<typeof updateSettingsSchema>
+export type SettingsResponse = z.infer<typeof SettingsResponseSchema>

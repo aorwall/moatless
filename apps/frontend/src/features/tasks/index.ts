@@ -10,25 +10,33 @@ export { EventViewer } from './components/event-viewer'
 export { GitDiffViewer } from './components/git-diff-viewer'
 export { TaskPage } from './components/task-page'
 
-// Dual-Context Pattern (simplified from Tri-Context)
+// Tri-Context Pattern for performance optimization
 export {
   TaskDataProvider,
   TaskProviders,
   TaskUIProvider,
+  // Data hooks
   useEventStream,
   useGitDiff,
+  // UI hooks
+  useGitDiffState,
+  useGitDiffWithLoading,
+  useLatestContextTokens,
   usePanelSizes,
   usePanelView,
   useSelectedFile,
   useSelectedIteration,
   useStreamingStatus,
-  // Specialized hooks for efficient re-renders
   useTaskData,
+  useTaskDuration,
   useTaskEvents,
   useTaskIterations,
+  useTaskLoadingError,
+  useTaskMetadata,
   useTaskStatus,
   useTaskUI,
   useWorkspaceStatus,
+  useWorkspaceStatusWithLoading,
 } from './contexts/task-providers'
 
 // Hooks

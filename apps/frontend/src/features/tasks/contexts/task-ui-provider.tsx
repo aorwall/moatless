@@ -1,16 +1,7 @@
 import type { TaskIteration } from '@moatless/types'
-import { CLAUDE_MODELS, type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
 type PanelView = 'files' | 'preview'
-
-interface ChatState {
-  scrollPosition?: number
-  isAtBottom: boolean
-  message: string
-  selectedModel?: ClaudeModel
-  resumeConversation: boolean
-}
 
 interface GitDiffState {
   expandedFiles: Set<string>
@@ -28,9 +19,6 @@ interface TaskUIState {
   }
   selectedFile: string
 
-  // Chat state
-  chatState: ChatState
-
   // Git diff state
   gitDiffState: GitDiffState
 }
@@ -44,7 +32,6 @@ interface TaskUIContextValue {
   setSelectedIteration: (iteration?: TaskIteration) => void
   setPanelSizes: (sizes: { left: number; right: number }) => void
   setSelectedFile: (file: string) => void
-  updateChatState: (updates: Partial<ChatState>) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
 }
 
@@ -56,17 +43,6 @@ interface TaskUIProviderProps {
 }
 
 function getDefaultTaskUIState(): TaskUIState {
-  // Initialize model from localStorage for new tasks, fallback to default
-  const getInitialModel = (): ClaudeModel => {
-    if (typeof window !== 'undefined') {
-      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
-      if (savedModel && Object.values(CLAUDE_MODELS).includes(savedModel)) {
-        return savedModel
-      }
-    }
-    return DEFAULT_CLAUDE_MODEL
-  }
-
   return {
     rightPanelView: 'files',
     selectedIteration: undefined,
@@ -75,12 +51,6 @@ function getDefaultTaskUIState(): TaskUIState {
       right: 40,
     },
     selectedFile: '',
-    chatState: {
-      isAtBottom: true,
-      message: '',
-      selectedModel: getInitialModel(),
-      resumeConversation: true,
-    },
     gitDiffState: {
       expandedFiles: new Set(),
       expandedPaths: new Set(),
@@ -151,18 +121,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
-  const updateChatState = useCallback(
-    (updates: Partial<ChatState>) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, chatState: { ...state.chatState, ...updates } })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
   const updateGitDiffState = useCallback(
     (updates: Partial<GitDiffState>) => {
       setTaskStates((prev) => {
@@ -183,7 +141,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setSelectedIteration,
       setPanelSizes,
       setSelectedFile,
-      updateChatState,
       updateGitDiffState,
     }),
     // Include all dependencies - callbacks are stable
@@ -193,7 +150,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setSelectedIteration,
       setPanelSizes,
       setSelectedFile,
-      updateChatState,
       updateGitDiffState,
     ],
   )
@@ -211,52 +167,6 @@ export function useTaskUI() {
     throw new Error('useTaskUI must be used within TaskUIProvider')
   }
   return context
-}
-
-// Specialized hooks for chat message and model state
-export function useChatMessage() {
-  const { currentState, updateChatState } = useTaskUI()
-
-  // Memoize the clear function to prevent unnecessary re-renders
-  const clearMessage = useCallback(() => {
-    updateChatState({ message: '' })
-  }, [updateChatState])
-
-  return {
-    message: currentState.chatState.message,
-    setMessage: (message: string) => updateChatState({ message }),
-    clearMessage,
-  }
-}
-
-export function useChatModel() {
-  const { currentState, updateChatState } = useTaskUI()
-
-  // Memoize the setSelectedModel function to include localStorage persistence
-  const setSelectedModel = useCallback(
-    (model: ClaudeModel | undefined) => {
-      updateChatState({ selectedModel: model })
-
-      // Save to localStorage as preference for future new tasks (not for syncing existing tasks)
-      if (model && typeof window !== 'undefined') {
-        localStorage.setItem('lastSelectedModel', model)
-      }
-    },
-    [updateChatState],
-  )
-
-  return {
-    selectedModel: currentState.chatState.selectedModel,
-    setSelectedModel,
-  }
-}
-
-export function useChatResumeConversation() {
-  const { currentState, updateChatState } = useTaskUI()
-  return {
-    resumeConversation: currentState.chatState.resumeConversation,
-    setResumeConversation: (resume: boolean) => updateChatState({ resumeConversation: resume }),
-  }
 }
 
 // Specialized hooks for specific UI state
@@ -278,11 +188,6 @@ export function usePanelSizes() {
 export function useSelectedFile() {
   const { currentState, setSelectedFile } = useTaskUI()
   return { selectedFile: currentState.selectedFile, setSelectedFile }
-}
-
-export function useChatState() {
-  const { currentState, updateChatState } = useTaskUI()
-  return { chatState: currentState.chatState, updateChatState }
 }
 
 export function useGitDiffState() {

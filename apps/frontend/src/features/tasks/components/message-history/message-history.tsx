@@ -8,7 +8,6 @@ import { useParams } from '@tanstack/react-router'
 import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
-import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
@@ -103,7 +102,8 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
 
   // Use specialized hooks from tri-context pattern
   const { taskId, isLoading: isLoadingTask } = useTaskData()
-  const { chatState, updateChatState } = useChatState()
+  const [scrollPosition, setScrollPosition] = useState<number | undefined>(undefined)
+  const [isAtBottomState, setIsAtBottomState] = useState(true)
 
   // Fetch messages for this task
   const {
@@ -117,7 +117,7 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   // Initialize auto-scroll with proper options
   const { scrollRef } = useAutoScroll({
     // Scroll on mount only if there's no saved scroll position
-    scrollOnMount: chatState.scrollPosition === undefined,
+    scrollOnMount: scrollPosition === undefined,
     dependencies: [messages], // Re-evaluate scroll when messages change
   })
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -132,10 +132,10 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   // Custom hooks for extracted functionality
   const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef, bottomRef })
 
-  // Update chat state when scroll position changes
+  // Update local state when scroll position changes
   useEffect(() => {
-    updateChatState({ isAtBottom })
-  }, [isAtBottom, updateChatState])
+    setIsAtBottomState(isAtBottom)
+  }, [isAtBottom])
 
   // Fix ScrollArea viewport styles
   useEffect(() => {

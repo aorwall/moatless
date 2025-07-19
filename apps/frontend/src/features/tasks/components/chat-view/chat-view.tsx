@@ -3,11 +3,6 @@ import { useParams } from '@tanstack/react-router'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskData, useWorkspaceStatus } from '@/features/tasks/contexts/task-providers'
-import {
-  useChatMessage,
-  useChatModel,
-  useChatResumeConversation,
-} from '@/features/tasks/contexts/task-ui-provider'
 import { useSendMessage, useStopAgent, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -29,26 +24,41 @@ function ChatViewComponent({ className }: ChatViewProps) {
   // Get workspace status from context (doesn't block loading)
   useWorkspaceStatus()
 
-  // Chat UI state from TaskUI context
-  const { message, setMessage, clearMessage } = useChatMessage()
-  const { selectedModel, setSelectedModel } = useChatModel()
-  const { resumeConversation, setResumeConversation } = useChatResumeConversation()
-
-  // Local component state for file uploads
+  // Local state for chat values
+  const [message, setMessage] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
+  const [resumeConversation, setResumeConversation] = useState(true)
 
-  // Model selector
+  // Model selector state - local with initial value from localStorage
+  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(() => {
+    if (typeof window !== 'undefined') {
+      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
+      if (savedModel) return savedModel
+    }
+    return 'claude-3-5-sonnet-20241022'
+  })
+
   const modelSelector = useModelSelector(selectedModel)
 
-  // Stop agent mutation
-  const stopAgent = useStopAgent(params.taskId)
-
-  // Update context when model selector changes (isolated per task, no localStorage sync)
+  // Update local state and localStorage when model selector changes
   useEffect(() => {
     if (modelSelector.value && modelSelector.value !== selectedModel) {
       setSelectedModel(modelSelector.value as ClaudeModel)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('lastSelectedModel', modelSelector.value)
+      }
     }
-  }, [modelSelector.value, selectedModel, setSelectedModel])
+  }, [modelSelector.value, selectedModel])
+
+  // Clear state when task changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
+  useEffect(() => {
+    setMessage('')
+    setUploadedFiles([])
+  }, [params.taskId])
+
+  // Stop agent mutation
+  const stopAgent = useStopAgent(params.taskId)
 
   // Fetch available commands for this task
   const { data: commandsData } = useTaskCommands(params.taskId, {
@@ -65,7 +75,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
     },
   })
 
-  // Handle sending message - combines task message sending and chat input logic
+  // Handle sending message
   const handleChatSubmit = useCallback(() => {
     // If running, stop the agent instead of sending message
     if (status === 'running') {
@@ -81,12 +91,6 @@ function ChatViewComponent({ className }: ChatViewProps) {
     if (!sendMessage.isPending) {
       const filePaths = uploadedFiles.map((f) => f.absolutePath)
 
-      // Create a stable callback that clears both message and files
-      const clearMessageAndFiles = () => {
-        clearMessage()
-        setUploadedFiles([])
-      }
-
       sendMessage.mutate(
         {
           message: message.trim(),
@@ -96,7 +100,9 @@ function ChatViewComponent({ className }: ChatViewProps) {
         },
         {
           onSuccess: () => {
-            clearMessageAndFiles()
+            // Clear state after successful send
+            setMessage('')
+            setUploadedFiles([])
           },
         },
       )
@@ -104,10 +110,9 @@ function ChatViewComponent({ className }: ChatViewProps) {
   }, [
     status,
     stopAgent,
-    message,
     sendMessage,
+    message,
     uploadedFiles,
-    clearMessage,
     resumeConversation,
     modelSelector.value,
   ])
