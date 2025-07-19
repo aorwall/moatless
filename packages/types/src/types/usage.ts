@@ -12,10 +12,13 @@ export interface PerModelStats {
   messageCount: number
 }
 
+// Placeholder type to avoid circular dependency with SDKMessage
+type SDKMessagePlaceholder = Record<string, unknown>
+
 export interface SessionBlock {
   startTime: Date
   endTime: Date
-  entries: any[] // SDKMessage[] - using any to avoid circular dependency
+  entries: SDKMessagePlaceholder[] // SDKMessage[] - using placeholder to avoid circular dependency
   tokenCounts: TokenCounts
   costUSD: number
   sentMessagesCount: number

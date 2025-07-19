@@ -43,7 +43,7 @@ export function fromJSON<T>(json: string): T {
  * This ensures compatibility with Zod schemas that use .optional()
  * which expects undefined, not null
  */
-export function removeNullsFromOptionalFields<T extends Record<string, any>>(
+export function removeNullsFromOptionalFields<T extends Record<string, unknown>>(
   obj: T,
   optionalFields: string[],
 ): T {
@@ -51,7 +51,7 @@ export function removeNullsFromOptionalFields<T extends Record<string, any>>(
     return obj
   }
 
-  const cleaned: any = { ...obj }
+  const cleaned = { ...obj } as Record<string, unknown>
 
   for (const field of optionalFields) {
     if (field in cleaned && cleaned[field] === null) {
@@ -61,7 +61,7 @@ export function removeNullsFromOptionalFields<T extends Record<string, any>>(
 
   // Handle nested objects like iterations
   if ('iterations' in cleaned && Array.isArray(cleaned.iterations)) {
-    cleaned.iterations = cleaned.iterations.map((iteration: any) => {
+    cleaned.iterations = cleaned.iterations.map((iteration: unknown) => {
       if (!iteration || typeof iteration !== 'object') {
         return iteration
       }
@@ -86,7 +86,10 @@ export function removeNullsFromOptionalFields<T extends Record<string, any>>(
         'willNotResume',
       ]
 
-      return removeNullsFromOptionalFields(iteration, iterationOptionalFields)
+      return removeNullsFromOptionalFields(
+        iteration as Record<string, unknown>,
+        iterationOptionalFields,
+      )
     })
   }
 
