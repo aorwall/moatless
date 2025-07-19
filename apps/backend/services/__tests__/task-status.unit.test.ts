@@ -282,7 +282,7 @@ describe('Task Status Management', () => {
       expect(retrievedTask.iterations[0]).toMatchObject({
         initialMessage: 'Test message',
       })
-      
+
       // Iteration status may be 'created' or 'active' depending on timing of background execution
       expect(['created', 'active']).toContain(retrievedTask.iterations[0].status)
     })
