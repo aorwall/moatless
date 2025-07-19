@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   CommandResult,
+  EnvironmentStatus,
   FileTreeNode,
   FileTreeWithChangesResponse,
   GitChanges,
@@ -308,26 +309,27 @@ export class Workspace {
   // Status and Utility Methods
   // ============================================
 
-  getStatus(): WorkspaceStatus {
+  getStatus(): EnvironmentStatus {
     // Check if agent is running
     if (this.runningAgent) {
-      return 'running'
+      return 'ready' // Running agents indicate workspace is ready
     }
 
     // Map environment status to workspace status
     const envStatus = this.environment.getStatus()
     switch (envStatus) {
-      case 'not_setup':
-        return 'not_setup'
+      case 'not_created':
+        return 'not_created'
       case 'initializing':
-        return 'setting_up'
+        return 'initializing'
       case 'ready':
-        return 'idle'
+        return 'ready'
       case 'error':
+        return 'error'
       case 'cleaning':
-        return 'idle' // Map error/cleaning to idle for backwards compatibility
+        return 'cleaning'
       default:
-        return 'not_setup'
+        return 'not_created'
     }
   }
 
@@ -400,8 +402,8 @@ export class Workspace {
   async canExecuteCommands(): Promise<boolean> {
     try {
       const status = this.getStatus()
-      // Commands can only be executed when workspace is idle
-      return status === 'idle'
+      // Commands can only be executed when workspace is ready
+      return status === 'ready'
     } catch {
       return false
     }
@@ -436,12 +438,6 @@ export class Workspace {
 
     // Check if file operations are available (workspace path exists on disk)
     const fileOperationsAvailable = await this.isWorkspacePathValid()
-
-    // Determine capabilities based on environment status and file operations availability
-    const _capabilities = {
-      fileOperations: fileOperationsAvailable,
-      commandExecution: environmentStatus === 'ready',
-    }
 
     return {
       workspace: {

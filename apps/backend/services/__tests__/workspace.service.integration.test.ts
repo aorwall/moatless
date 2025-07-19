@@ -87,7 +87,13 @@ describe('WorkspaceService Integration Tests', () => {
       saveTask: vi.fn(),
     } as any
 
-    workspaceService = new WorkspaceService(repositoryService, storage)
+    // Mock settings service
+    const mockSettingsService = {
+      getDataDir: () => '/tmp/.moatless',
+      getDefaultWorkspaceType: () => 'local',
+    } as any
+
+    workspaceService = new WorkspaceService(repositoryService, storage, mockSettingsService)
   })
 
   afterEach(async () => {

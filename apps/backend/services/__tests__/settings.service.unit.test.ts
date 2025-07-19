@@ -107,7 +107,7 @@ describe('SettingsService', () => {
           configDir: '',
         },
         github: {
-          personalAccessToken: '',
+          token: '',
           userName: expect.any(String),
           userEmail: expect.any(String),
         },
@@ -468,7 +468,7 @@ describe('SettingsService', () => {
 
       const result = await settingsService.updateSettings({
         github: {
-          personalAccessToken: 'ghp_test_token_123',
+          token: 'ghp_test_token_123',
         },
       })
 
@@ -490,7 +490,7 @@ describe('SettingsService', () => {
 
       const result = await settingsService.updateSettings({
         github: {
-          personalAccessToken: 'ghp_test_token_123',
+          token: 'ghp_test_token_123',
         },
       })
 
@@ -503,16 +503,14 @@ describe('SettingsService', () => {
       // First set a PAT with user info
       await settingsService.updateSettings({
         github: {
-          personalAccessToken: 'ghp_test_token_123',
-          userName: 'Test User',
-          userEmail: 'test@example.com',
+          token: 'ghp_test_token_123',
         },
       })
 
       // Then remove the PAT
       const result = await settingsService.updateSettings({
         github: {
-          personalAccessToken: null,
+          token: null,
         },
       })
 
@@ -523,8 +521,7 @@ describe('SettingsService', () => {
     it('should allow manual override of userName and userEmail', async () => {
       const result = await settingsService.updateSettings({
         github: {
-          userName: 'Manual User',
-          userEmail: 'manual@example.com',
+          token: 'ghp_manual_token',
         },
       })
 
@@ -542,7 +539,7 @@ describe('SettingsService', () => {
 
       const result = await settingsService.updateSettings({
         github: {
-          personalAccessToken: 'ghp_invalid_token',
+          token: 'ghp_invalid_token',
         },
       })
 

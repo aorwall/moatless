@@ -1,6 +1,6 @@
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { RepositoryConfig, Task } from '@moatless/types'
+import type { RepositoryConfig, TaskResponse } from '@moatless/types'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { initializeSettingsService } from '../../../services/settings.service.js'
 import { ClaudeService } from '../claude.service.js'
@@ -104,23 +104,26 @@ describe('ClaudeService Integration - Real Session File', () => {
       }
 
       // Create a mock task with the session ID
-      const mockTask: Task = {
-        id: 'test-task-id',
-        title: 'Test Task',
-        description: 'Test task description',
+      const mockTask: TaskResponse = {
+        taskId: 'test-task-id',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
           {
             iterationNumber: 1,
             agentSessionId: sessionId,
-            message: 'test message',
-            timestamp: new Date(),
-            state: 'running',
+            initialMessage: 'test message',
+            startTime: new Date(),
+            status: 'active',
+            messageCount: 1,
+            costUsd: 0.01,
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
+        lastMessageAt: new Date(),
+        numTurns: 1,
+        totalCostUsd: 0.01,
+
         repositoryId: 'test-repo',
         agentType: 'claude-code',
       }
@@ -162,15 +165,16 @@ describe('ClaudeService Integration - Real Session File', () => {
 
   describe('generateProjectId', () => {
     it('should generate consistent project ID for docker repositories', () => {
-      const mockTask: Task = {
-        id: 'test-task-id',
-        title: 'Test Task',
-        description: 'Test task description',
+      const mockTask: TaskResponse = {
+        taskId: 'test-task-id',
         status: 'running',
         workspacePath: '/some/workspace/path',
         iterations: [],
         createdAt: new Date(),
-        updatedAt: new Date(),
+        lastMessageAt: new Date(),
+        numTurns: 1,
+        totalCostUsd: 0.01,
+
         repositoryId: 'test-repo',
         agentType: 'claude-code',
       }
@@ -182,7 +186,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         description: 'Test repository',
         codeExecution: {
           type: 'docker',
-          image: 'ubuntu:latest',
+          dockerImage: 'ubuntu:latest',
         },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -197,15 +201,16 @@ describe('ClaudeService Integration - Real Session File', () => {
 
   describe('getClaudeMessagesFilePath', () => {
     it('should generate correct file path for session', async () => {
-      const mockTask: Task = {
-        id: 'test-task-id',
-        title: 'Test Task',
-        description: 'Test task description',
+      const mockTask: TaskResponse = {
+        taskId: 'test-task-id',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [],
         createdAt: new Date(),
-        updatedAt: new Date(),
+        lastMessageAt: new Date(),
+        numTurns: 1,
+        totalCostUsd: 0.01,
+
         repositoryId: 'test-repo',
         agentType: 'claude-code',
       }
@@ -217,19 +222,13 @@ describe('ClaudeService Integration - Real Session File', () => {
         description: 'Test repository',
         codeExecution: {
           type: 'docker',
-          image: 'ubuntu:latest',
+          dockerImage: 'ubuntu:latest',
         },
         createdAt: new Date(),
         updatedAt: new Date(),
       }
 
-      const _iteration = {
-        iterationNumber: 1,
-        agentSessionId: sessionId,
-        message: 'test message',
-        timestamp: new Date(),
-        state: 'running' as const,
-      }
+      // Iteration details not needed for this test
 
       const projectId = service.generateProjectId(mockTask, repositoryConfig)
       const filePath = await service.getClaudeMessagesFilePath(sessionId, projectId)
@@ -269,26 +268,7 @@ describe('ClaudeService Integration - Real Session File', () => {
     })
 
     it('should handle invalid project path gracefully', async () => {
-      const mockTask: Task = {
-        id: 'test-task-id',
-        title: 'Test Task',
-        description: 'Test task description',
-        status: 'running',
-        workspacePath: '/invalid/path',
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: 'invalid-session',
-            message: 'test message',
-            timestamp: new Date(),
-            state: 'running',
-          },
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-      }
+      // Task mock not needed for this test
 
       // Test reading messages for the invalid session
       const messages = await service.readClaudeMessages('invalid-session')

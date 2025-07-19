@@ -154,7 +154,7 @@ exit 1
     console.log('Failing server logs:', serverStatus.logs)
   }, 30000)
 
-  it('should handle npm/pnpm command not found errors', async () => {
+  it('should handle npm/bun command not found errors', async () => {
     // Simulate the specific error from the issue: "start:frontend" not found
     const packageJsonContent = `{
   "name": "test-app",
@@ -187,14 +187,14 @@ exit 1
     expect(serverStatus.running).toBe(false)
     expect(serverStatus.configured).toBe(true)
 
-    // Verify error details capture the npm/pnpm error
+    // Verify error details capture the npm/bun error
     expect(serverStatus.error).toBeDefined()
     expect(serverStatus.error).toContain('Failed to start server')
 
     // Should contain information about the missing script
     expect(serverStatus.error).toMatch(/start:frontend.*(not found|doesn't exist)/i)
 
-    // Logs should contain pnpm error details
+    // Logs should contain bun error details
     expect(serverStatus.logs).toBeDefined()
 
     console.log('NPM error message:', serverStatus.error)

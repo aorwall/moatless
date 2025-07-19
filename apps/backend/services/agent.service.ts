@@ -67,10 +67,10 @@ export class AgentService {
       workspaceType: workspace.type,
     })
 
-    if (status === 'setting_up') {
+    if (status === 'initializing') {
       throw new Error('Workspace is still setting up')
     }
-    if (status === 'running') {
+    if (status === 'ready' && workspace.runningAgent) {
       throw new Error('Agent is already running')
     }
 
@@ -97,7 +97,7 @@ export class AgentService {
         newStatus: recreatedStatus,
       })
 
-      if (recreatedStatus !== 'idle') {
+      if (recreatedStatus !== 'ready') {
         throw new Error('Workspace recreation failed - workspace not ready')
       }
     }
@@ -120,14 +120,7 @@ export class AgentService {
     this.runningAgents.set(taskId, agent)
 
     try {
-      // Update task status to running
-      const task = await this.storage.getTask(taskId)
-      if (task) {
-        task.status = 'running'
-        await this.storage.saveTask(task)
-      }
-
-      // Execute agent in background
+      // Execute agent in background (task status remains 'open' during execution)
       await this.runAgentExecution(agent, message, taskId, iteration, workspace, resumeSessionId)
     } finally {
       // Always clean up running agent tracking
@@ -334,7 +327,7 @@ export class AgentService {
 
     while (Date.now() - startWait < maxWaitTime) {
       const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace && workspace.getStatus() === 'idle') {
+      if (workspace && workspace.getStatus() === 'ready') {
         const waitTime = Date.now() - startWait
         agentLogger.info('Workspace recreated successfully', {
           taskId,

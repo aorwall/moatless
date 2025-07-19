@@ -1,4 +1,4 @@
-import type { Command, Task, TaskIteration } from '@moatless/types'
+import type { Command, TaskIteration, TaskResponse } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { filterAvailableCommands, isCommandAvailable } from '../command-conditions.js'
 
@@ -47,7 +47,7 @@ describe('Command Conditions', () => {
           },
         }
 
-        const runningTask: Task = {
+        const runningTask: TaskResponse = {
           taskId: 'test-task',
           status: 'running',
           agentType: 'test',
@@ -59,7 +59,7 @@ describe('Command Conditions', () => {
           iterations: [],
         }
 
-        const openTask: Task = {
+        const openTask: TaskResponse = {
           ...runningTask,
           status: 'open',
         }
@@ -78,7 +78,7 @@ describe('Command Conditions', () => {
           },
         }
 
-        const openTask: Task = {
+        const openTask: TaskResponse = {
           taskId: 'test-task',
           status: 'open',
           agentType: 'test',
@@ -90,12 +90,12 @@ describe('Command Conditions', () => {
           iterations: [],
         }
 
-        const runningTask: Task = {
+        const runningTask: TaskResponse = {
           ...openTask,
           status: 'running',
         }
 
-        const errorTask: Task = {
+        const errorTask: TaskResponse = {
           ...openTask,
           status: 'error',
         }
@@ -120,7 +120,7 @@ describe('Command Conditions', () => {
         const errorIteration: TaskIteration = {
           iterationNumber: 1,
           startTime: new Date(),
-          status: 'error',
+          status: 'failed',
           messageCount: 1,
           costUsd: 0,
         }
@@ -168,7 +168,7 @@ describe('Command Conditions', () => {
         const errorIteration: TaskIteration = {
           iterationNumber: 1,
           startTime: new Date(),
-          status: 'error',
+          status: 'failed',
           messageCount: 1,
           costUsd: 0,
         }
@@ -426,7 +426,7 @@ describe('Command Conditions', () => {
           },
         }
 
-        const task: Task = {
+        const task: TaskResponse = {
           taskId: 'test-task',
           status: 'open',
           agentType: 'test',
@@ -468,7 +468,7 @@ describe('Command Conditions', () => {
         expect(
           isCommandAvailable(command, {
             task,
-            lastIteration: { ...completedIteration, status: 'error' },
+            lastIteration: { ...completedIteration, status: 'failed' },
             workspaceHasChanges: true,
           }),
         ).toBe(false)
@@ -522,7 +522,7 @@ describe('Command Conditions', () => {
         lastIteration: {
           iterationNumber: 1,
           startTime: new Date(),
-          status: 'error' as const,
+          status: 'failed' as const,
           messageCount: 1,
           costUsd: 0,
         },

@@ -17,33 +17,40 @@ describe('ClaudeCodeAgent', () => {
 
       // Mock the query function to yield a message with usage data
       const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(async function* () {
-        const textMessage: SDKMessage = {
-          type: 'assistant',
-          message: {
-            id: 'msg_123',
-            type: 'message',
-            role: 'assistant',
-            model: 'claude-opus-4-20250514',
-            content: [
-              {
-                type: 'text',
-                text: 'This is a message with usage data.',
+      vi.mocked(query).mockImplementation(() => {
+        const generator = async function* () {
+          const textMessage: SDKMessage = {
+            type: 'assistant',
+            message: {
+              id: 'msg_123',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-opus-4-20250514',
+              content: [
+                {
+                  type: 'text',
+                  text: 'This is a message with usage data.',
+                },
+              ],
+              stop_reason: 'end_turn',
+              stop_sequence: null,
+              usage: {
+                input_tokens: 4,
+                output_tokens: 20,
+                cache_creation_input_tokens: 99604,
+                cache_read_input_tokens: 10161,
               },
-            ],
-            stop_reason: 'end_turn',
-            stop_sequence: null,
-            usage: {
-              input_tokens: 4,
-              output_tokens: 20,
-              cache_creation_input_tokens: 99604,
-              cache_read_input_tokens: 10161,
             },
-          },
-          parent_tool_use_id: null,
-          session_id: 'test-session',
+            parent_tool_use_id: null,
+            session_id: 'test-session',
+          }
+          yield textMessage
         }
-        yield textMessage
+        const gen = generator()
+        return {
+          ...gen,
+          interrupt: vi.fn(),
+        }
       })
 
       const events: unknown[] = []
@@ -64,22 +71,29 @@ describe('ClaudeCodeAgent', () => {
 
       // Mock the query function to yield a message without usage data
       const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(async function* () {
-        const textMessage: SDKMessage = {
-          type: 'user',
-          message: {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'User message without usage data.',
-              },
-            ],
-          },
-          parent_tool_use_id: null,
-          session_id: 'test-session',
+      vi.mocked(query).mockImplementation(() => {
+        const generator = async function* () {
+          const textMessage: SDKMessage = {
+            type: 'user',
+            message: {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'User message without usage data.',
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            session_id: 'test-session',
+          }
+          yield textMessage
         }
-        yield textMessage
+        const gen = generator()
+        return {
+          ...gen,
+          interrupt: vi.fn(),
+        }
       })
 
       const events: unknown[] = []
@@ -102,31 +116,38 @@ describe('ClaudeCodeAgent', () => {
 
       // Mock the query function to yield a regular text message
       const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(async function* () {
-        const textMessage: SDKMessage = {
-          type: 'assistant',
-          message: {
-            id: 'msg_123',
-            type: 'message',
-            role: 'assistant',
-            model: 'claude-opus-4-20250514',
-            content: [
-              {
-                type: 'text',
-                text: 'This is a regular text message.',
+      vi.mocked(query).mockImplementation(() => {
+        const generator = async function* () {
+          const textMessage: SDKMessage = {
+            type: 'assistant',
+            message: {
+              id: 'msg_123',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-opus-4-20250514',
+              content: [
+                {
+                  type: 'text',
+                  text: 'This is a regular text message.',
+                },
+              ],
+              stop_reason: 'end_turn',
+              stop_sequence: null,
+              usage: {
+                input_tokens: 10,
+                output_tokens: 20,
               },
-            ],
-            stop_reason: 'end_turn',
-            stop_sequence: null,
-            usage: {
-              input_tokens: 10,
-              output_tokens: 20,
             },
-          },
-          parent_tool_use_id: null,
-          session_id: 'test-session',
+            parent_tool_use_id: null,
+            session_id: 'test-session',
+          }
+          yield textMessage
         }
-        yield textMessage
+        const gen = generator()
+        return {
+          ...gen,
+          interrupt: vi.fn(),
+        }
       })
 
       const events: unknown[] = []

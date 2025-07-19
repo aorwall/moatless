@@ -54,8 +54,8 @@ describe('Settings Workflow Integration (broad)', () => {
       expect(body.settings).toEqual({})
       expect(body.defaults.dataDir).toBe(tempDir)
       expect(body.defaults.defaultWorkspaceType).toBe('local')
-      expect(body.defaults.claude.binDir).toBe('')
-      expect(body.defaults.claude.configDir).toBe('')
+      expect(body.defaults.claude?.binDir).toBe('')
+      expect(body.defaults.claude?.configDir).toBe('')
 
       // 2. PUT settings - update all fields
       const fullUpdate: UpdateSettingsRequest = {

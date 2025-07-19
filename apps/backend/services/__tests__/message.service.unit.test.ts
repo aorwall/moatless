@@ -1,10 +1,10 @@
-import type { AgentMessage, Task } from '@moatless/types'
+import type { AgentMessage, TaskResponse } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageService } from '../message.service.js'
 
 describe('MessageService Unit Tests', () => {
   let service: MessageService
-  let mockTask: Task
+  let mockTask: TaskResponse
   let mockClaudeService: any
 
   beforeEach(() => {
@@ -20,21 +20,24 @@ describe('MessageService Unit Tests', () => {
       iterations: [
         {
           iterationNumber: 1,
-          agentSessionId: 'session-123',
           status: 'completed',
           startTime: new Date(),
           messageCount: 1,
           costUsd: 0.01,
-          updatedAt: new Date(),
-        } as any,
+        },
       ],
       workspacePath: '/test/workspace',
-    } as Task
+    }
 
     mockClaudeService = {
       readClaudeMessages: vi.fn().mockResolvedValue([]),
     }
-    service = new MessageService(mockClaudeService)
+
+    const mockTaskService = {
+      getTask: vi.fn(),
+    } as any
+
+    service = new MessageService(mockClaudeService, mockTaskService)
   })
 
   afterEach(() => {
@@ -315,7 +318,7 @@ describe('MessageService Unit Tests', () => {
             result: 'Tests have been added and are passing.',
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithIterations)
 
@@ -359,7 +362,7 @@ describe('MessageService Unit Tests', () => {
             }),
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithJsonResult)
 
@@ -388,7 +391,7 @@ describe('MessageService Unit Tests', () => {
             }),
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithArrayContent)
 
@@ -424,7 +427,7 @@ describe('MessageService Unit Tests', () => {
             }),
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithMessageField)
 
@@ -447,7 +450,7 @@ describe('MessageService Unit Tests', () => {
             result: 'Plain text result that is not JSON',
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithPlainTextResult)
 
@@ -479,7 +482,7 @@ describe('MessageService Unit Tests', () => {
             result: 'Valid response',
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithEmptyIterations)
 
@@ -502,7 +505,7 @@ describe('MessageService Unit Tests', () => {
             // No result field
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithUserOnlyIterations)
 
@@ -525,7 +528,7 @@ describe('MessageService Unit Tests', () => {
             result: '{ invalid json content that cannot be parsed',
           },
         ],
-      } as Task
+      } as TaskResponse
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithInvalidJson)
 
@@ -760,7 +763,7 @@ describe('MessageService Unit Tests', () => {
             // This iteration has no Claude file
           },
         ],
-      } as Task
+      } as TaskResponse
 
       // Mock Claude service to return messages
       const agentUserMessage: AgentMessage = {
@@ -856,7 +859,7 @@ describe('MessageService Unit Tests', () => {
             // This iteration has no Claude file
           },
         ],
-      } as Task
+      } as TaskResponse
 
       // Mock Claude service to return empty array - will fall back to task iterations
       mockClaudeService.readClaudeMessages.mockResolvedValue([])
@@ -889,7 +892,7 @@ describe('MessageService Unit Tests', () => {
             result: 'Response without workspace',
           },
         ],
-      } as Task
+      } as TaskResponse
 
       // Claude service will be called but should handle missing workspace path gracefully
       mockClaudeService.readClaudeMessages.mockResolvedValue([])
@@ -939,7 +942,7 @@ describe('MessageService Unit Tests', () => {
             // No Claude file
           },
         ],
-      } as Task
+      } as TaskResponse
 
       // This test doesn't make sense anymore since ClaudeService handles all files at once
       // When Claude messages exist, we use them exclusively; when they don't, we fall back to iterations

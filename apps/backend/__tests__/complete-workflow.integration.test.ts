@@ -33,7 +33,7 @@ import { logger } from '../utils/logger.js'
  *
  * To run with full agent functionality:
  * 1. Run "claude login" to authenticate
- * 2. Run "pnpm test complete-workflow-e2e"
+ * 2. Run "bun test complete-workflow-e2e"
  */
 
 describe('Complete Workflow Integration Test (broad)', () => {

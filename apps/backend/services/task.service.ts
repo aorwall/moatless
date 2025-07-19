@@ -271,27 +271,25 @@ export class TaskService {
 
     // Task status remains unchanged - only iteration status changes
 
-    // Save task with updated iteration and status
+    // Save task with updated iteration
     await this.storage.saveTask(task)
 
-    // Emit task status change event if status actually changed
-    if (previousStatus !== 'error') {
-      await this.eventService.emitEvent({
-        taskId: task.taskId,
-        type: 'task_status',
-        subType: 'error',
-        payload: {
-          status: 'error',
-          previousStatus,
-          iterationNumber: iteration.iterationNumber,
-          error: iteration.error?.message,
-        },
-        eventId: randomUUID(),
-        timestamp: new Date(),
-        agentType: task.agentType,
-        isError: true,
-      })
-    }
+    // Emit iteration status change event
+    await this.eventService.emitEvent({
+      taskId: task.taskId,
+      type: 'task_status',
+      subType: 'failed',
+      payload: {
+        status: 'failed',
+        previousStatus: 'active',
+        iterationNumber: iteration.iterationNumber,
+        error: iteration.error?.message,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      agentType: task.agentType,
+      isError: true,
+    })
   }
 
   /**
@@ -500,12 +498,12 @@ export class TaskService {
                 eventId: randomUUID(),
                 taskId,
                 type: 'task_status',
-                subType: 'error',
+                subType: 'failed',
                 isError: true,
                 agentType: task.agentType,
                 payload: {
-                  status: 'error',
-                  previousStatus,
+                  status: 'failed',
+                  previousStatus: 'active',
                   error: error instanceof Error ? error.message : String(error),
                 },
               })
@@ -529,6 +527,7 @@ export class TaskService {
       try {
         const task = await this.storage.getTask(taskId)
         if (task) {
+          const previousStatus = task.status
           // No task status change needed
 
           // Emit status change event
@@ -584,7 +583,7 @@ export class TaskService {
 
     while (Date.now() - startWait < maxWaitTime) {
       const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace && workspace.getStatus() === 'idle') {
+      if (workspace && workspace.getStatus() === 'ready') {
         break
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -692,7 +691,7 @@ export class TaskService {
         'https://github.com/aorwall/hello-world-ui.git',
         'npm install',
         {
-          serverStartCommand: 'pnpm run dev',
+          serverStartCommand: 'bun run dev',
           injectionStrategy: {
             method: 'html-injection',
           },
@@ -1031,12 +1030,12 @@ export class TaskService {
             eventId: randomUUID(),
             taskId,
             type: 'task_status',
-            subType: 'error',
+            subType: 'failed',
             isError: true,
             agentType: metadata.agentType,
             payload: {
-              status: 'error',
-              previousStatus,
+              status: 'failed',
+              previousStatus: 'active',
               error: error instanceof Error ? error.message : String(error),
               iterationNumber: iteration.iterationNumber,
             },

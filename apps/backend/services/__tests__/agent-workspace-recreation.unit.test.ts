@@ -28,7 +28,7 @@ describe('AgentService - Workspace Recreation', () => {
     useGitWorktrees: true,
     codeExecution: {
       type: 'local' as const,
-      setupCommands: ['pnpm install'],
+      setupCommands: ['bun install'],
     },
     variables: {},
     createdAt: new Date(),

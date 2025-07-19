@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs'
 import type { Event, Task, Workspace } from '@moatless/types'
-import { EventType } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FileStorage } from '../storage.js'
 
@@ -136,7 +135,7 @@ describe('FileStorage', () => {
       const events: Event[] = [
         {
           eventId: 'evt-1',
-          type: EventType.START,
+          type: 'start',
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,
@@ -145,7 +144,7 @@ describe('FileStorage', () => {
         },
         {
           eventId: 'evt-2',
-          type: EventType.MESSAGE,
+          type: 'message',
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,

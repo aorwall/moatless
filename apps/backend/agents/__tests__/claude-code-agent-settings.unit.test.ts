@@ -120,10 +120,18 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     })
 
     it('should set environment variables when settings are configured', async () => {
+      // Create mock GitHub service
+      const mockGitHubService = {
+        apiBaseUrl: 'https://api.github.com',
+        getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+        getUserEmails: vi.fn().mockResolvedValue(null),
+        validateToken: vi.fn().mockResolvedValue(false),
+        getTokenScopes: vi.fn().mockResolvedValue(null),
+      } as any
+
       // Save settings with Claude configuration
-      const settingsService = (
-        await import('../../services/settings.service.js')
-      ).getSettingsService()
+      const { SettingsService } = await import('../../services/settings.service.js')
+      const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -146,10 +154,18 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       process.env.CLAUDE_BIN_DIR = '/env/bin'
       process.env.CLAUDE_CONFIG_DIR = '/env/config'
 
+      // Create mock GitHub service
+      const mockGitHubService = {
+        apiBaseUrl: 'https://api.github.com',
+        getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+        getUserEmails: vi.fn().mockResolvedValue(null),
+        validateToken: vi.fn().mockResolvedValue(false),
+        getTokenScopes: vi.fn().mockResolvedValue(null),
+      } as any
+
       // Reinitialize settings service to pick up env vars
-      const settingsService = (
-        await import('../../services/settings.service.js')
-      ).getSettingsService()
+      const { SettingsService } = await import('../../services/settings.service.js')
+      const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
 
       await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
@@ -166,10 +182,18 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       process.env.CLAUDE_BIN_DIR = '/env/bin'
       process.env.CLAUDE_CONFIG_DIR = '/env/config'
 
+      // Create mock GitHub service
+      const mockGitHubService = {
+        apiBaseUrl: 'https://api.github.com',
+        getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+        getUserEmails: vi.fn().mockResolvedValue(null),
+        validateToken: vi.fn().mockResolvedValue(false),
+        getTokenScopes: vi.fn().mockResolvedValue(null),
+      } as any
+
       // Initialize settings service and override with settings
-      const settingsService = (
-        await import('../../services/settings.service.js')
-      ).getSettingsService()
+      const { SettingsService } = await import('../../services/settings.service.js')
+      const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -188,10 +212,18 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     })
 
     it('should handle partial Claude settings', async () => {
+      // Create mock GitHub service
+      const mockGitHubService = {
+        apiBaseUrl: 'https://api.github.com',
+        getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+        getUserEmails: vi.fn().mockResolvedValue(null),
+        validateToken: vi.fn().mockResolvedValue(false),
+        getTokenScopes: vi.fn().mockResolvedValue(null),
+      } as any
+
       // Set only binDir in settings
-      const settingsService = (
-        await import('../../services/settings.service.js')
-      ).getSettingsService()
+      const { SettingsService } = await import('../../services/settings.service.js')
+      const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -210,10 +242,18 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     })
 
     it('should not set environment variables for whitespace-only strings', async () => {
+      // Create mock GitHub service
+      const mockGitHubService = {
+        apiBaseUrl: 'https://api.github.com',
+        getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+        getUserEmails: vi.fn().mockResolvedValue(null),
+        validateToken: vi.fn().mockResolvedValue(false),
+        getTokenScopes: vi.fn().mockResolvedValue(null),
+      } as any
+
       // Set settings with whitespace-only strings
-      const settingsService = (
-        await import('../../services/settings.service.js')
-      ).getSettingsService()
+      const { SettingsService } = await import('../../services/settings.service.js')
+      const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {
@@ -232,10 +272,18 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     })
 
     it('should reset environment variables when settings are cleared', async () => {
+      // Create mock GitHub service
+      const mockGitHubService = {
+        apiBaseUrl: 'https://api.github.com',
+        getAuthenticatedUser: vi.fn().mockResolvedValue(null),
+        getUserEmails: vi.fn().mockResolvedValue(null),
+        validateToken: vi.fn().mockResolvedValue(false),
+        getTokenScopes: vi.fn().mockResolvedValue(null),
+      } as any
+
       // First set some settings
-      const settingsService = (
-        await import('../../services/settings.service.js')
-      ).getSettingsService()
+      const { SettingsService } = await import('../../services/settings.service.js')
+      const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
         claude: {

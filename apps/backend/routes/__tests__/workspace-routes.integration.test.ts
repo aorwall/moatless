@@ -47,16 +47,23 @@ describe('Workspace Routes - Integration Tests', () => {
     // Mock workspace service methods
     vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValue(mockWorkspace as any)
     vi.spyOn(app.services.workspace, 'getWorkspaceStatus').mockResolvedValue({
-      status: 'idle' as any,
-      backgroundTaskCount: 0,
+      workspace: {
+        state: 'exists',
+        changeStatus: 'no_changes',
+        path: '/test/workspace',
+      },
+      agent: {
+        state: 'idle',
+      },
       environment: {
         type: 'local',
         status: 'ready',
         createdAt: new Date().toISOString(),
-        capabilities: {
-          fileOperations: true,
-          commandExecution: true,
-        },
+      },
+      capabilities: {
+        fileOperations: true,
+        commandExecution: true,
+        serverManagement: true,
       },
       gitStatus: {
         currentBranch: 'main',

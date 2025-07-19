@@ -1,4 +1,4 @@
-import type { RepositoryConfig, Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/types'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { ClaudeService } from '../../agents/claude-code/claude.service.js'
 import { fileExists } from '../../agents/claude-code/claude-utils.js'
@@ -13,18 +13,6 @@ describe('MessageService Integration - Real Session Data', () => {
   let mockTaskService: TaskService
 
   const sessionId = '58a94d13-647a-4d38-b628-fa057f26ec91'
-  const repositoryConfig: RepositoryConfig = {
-    id: 'test-repo',
-    name: 'Test Repository',
-    path: '/Users/albert/repos/moatless/moatless-swarm-ui',
-    description: 'Test repository for message service integration',
-    codeExecution: {
-      type: 'docker',
-      image: 'ubuntu:latest',
-    },
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }
 
   beforeAll(async () => {
     const settingsService = await initializeSettingsService()
@@ -36,7 +24,7 @@ describe('MessageService Integration - Real Session Data', () => {
       // Add other required methods as stubs if needed
     } as any
 
-    messageService = createMessageService(claudeService, mockTaskService, repositoryConfig)
+    messageService = createMessageService(claudeService, mockTaskService)
 
     // Check if the session file exists
     const homeDir = require('node:os').homedir()
@@ -58,17 +46,13 @@ describe('MessageService Integration - Real Session Data', () => {
       }
 
       // Create a mock task with the real session ID
-      const mockTask: Task = {
-        id: 'test-task-message-service',
+      const mockTask: TaskResponse = {
         taskId: 'test-task-message-service',
-        title: 'Test Task for Message Service',
-        description: 'Testing message service integration',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
           {
             iterationNumber: 1,
-            agentSessionId: sessionId, // This is the key - using the real session ID
             startTime: new Date('2025-07-18T07:01:47.948Z'),
             endTime: new Date('2025-07-18T07:02:07.457Z'),
             status: 'completed',
@@ -79,7 +63,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -126,11 +109,8 @@ describe('MessageService Integration - Real Session Data', () => {
         return
       }
 
-      const mockTask: Task = {
-        id: 'test-task-tools',
+      const mockTask: TaskResponse = {
         taskId: 'test-task-tools',
-        title: 'Test Task for Tool Messages',
-        description: 'Testing tool use message handling',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
@@ -144,7 +124,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -187,12 +166,9 @@ describe('MessageService Integration - Real Session Data', () => {
 
     it('should fall back to task iterations when Claude files are not accessible', async () => {
       // Create a task with a non-existent session ID
-      const mockTask: Task = {
-        id: 'test-task-fallback',
+      const mockTask: TaskResponse = {
         taskId: 'test-task-fallback',
-        title: 'Test Task for Fallback',
-        description: 'Testing fallback to task iterations',
-        status: 'completed',
+        status: 'closed',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
           {
@@ -222,7 +198,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -282,11 +257,8 @@ describe('MessageService Integration - Real Session Data', () => {
         return
       }
 
-      const mockTask: Task = {
-        id: 'test-task-complex',
+      const mockTask: TaskResponse = {
         taskId: 'test-task-complex',
-        title: 'Test Complex Messages',
-        description: 'Testing complex message structures',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
@@ -300,7 +272,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -323,23 +294,22 @@ describe('MessageService Integration - Real Session Data', () => {
 
       // Check for consistent eventId format
       for (const message of messages) {
-        expect(typeof message.eventId).toBe('string')
-        expect(message.eventId.length).toBeGreaterThan(0)
+        if (message.eventId) {
+          expect(typeof message.eventId).toBe('string')
+          expect(message.eventId.length).toBeGreaterThan(0)
+        }
       }
 
       console.log('Message structure validation passed:', {
         allHaveTimestamps: messages.every((msg) => msg.timestamp instanceof Date),
         allHaveUniqueIds: uniqueIds.size === messageIds.length,
-        allHaveEventIds: messages.every((msg) => typeof msg.eventId === 'string'),
+        allHaveEventIds: messages.every((msg) => !msg.eventId || typeof msg.eventId === 'string'),
       })
     })
 
     it('should handle empty or malformed iterations gracefully', async () => {
-      const mockTaskWithEmptyIterations: Task = {
-        id: 'test-task-empty',
+      const mockTaskWithEmptyIterations: TaskResponse = {
         taskId: 'test-task-empty',
-        title: 'Test Empty Iterations',
-        description: 'Testing empty iteration handling',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
@@ -364,7 +334,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -393,11 +362,8 @@ describe('MessageService Integration - Real Session Data', () => {
       }
 
       const taskId = 'test-task-get-messages'
-      const mockTask: Task = {
-        id: taskId,
+      const mockTask: TaskResponse = {
         taskId: taskId,
-        title: 'Test Task for Get Messages',
-        description: 'Testing getTaskMessages method',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
@@ -411,7 +377,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -447,7 +412,7 @@ describe('MessageService Integration - Real Session Data', () => {
       const nonExistentTaskId = 'non-existent-task-id-12345'
 
       // Mock the TaskService to return null
-      vi.mocked(mockTaskService.getTask).mockResolvedValue(null)
+      vi.mocked(mockTaskService.getTask).mockResolvedValue(undefined as any)
 
       await expect(messageService.getTaskMessages(nonExistentTaskId)).rejects.toThrow(
         `Task not found: ${nonExistentTaskId}`,
@@ -458,16 +423,12 @@ describe('MessageService Integration - Real Session Data', () => {
 
     it('should throw error for non-Claude Code tasks', async () => {
       const taskId = 'non-claude-task'
-      const mockTask: Task = {
-        id: taskId,
+      const mockTask: TaskResponse = {
         taskId: taskId,
-        title: 'Non-Claude Task',
-        description: 'Testing with non-Claude agent type',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'some-other-agent', // Not claude-code
@@ -485,11 +446,8 @@ describe('MessageService Integration - Real Session Data', () => {
 
     it('should handle task without Claude session', async () => {
       const taskId = 'test-task-no-session'
-      const mockTask: Task = {
-        id: taskId,
+      const mockTask: TaskResponse = {
         taskId: taskId,
-        title: 'Test Task Without Session',
-        description: 'Testing task without Claude session',
         status: 'running',
         workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
         iterations: [
@@ -505,7 +463,6 @@ describe('MessageService Integration - Real Session Data', () => {
           },
         ],
         createdAt: new Date(),
-        updatedAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
         agentType: 'claude-code',
@@ -542,7 +499,7 @@ describe('MessageService Integration - Real Session Data', () => {
 
   describe('service factory function', () => {
     it('should create MessageService instance with factory function', () => {
-      const service = createMessageService(claudeService, mockTaskService, repositoryConfig)
+      const service = createMessageService(claudeService, mockTaskService)
 
       expect(service).toBeInstanceOf(MessageService)
       expect(service).toBeDefined()

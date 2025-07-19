@@ -71,9 +71,9 @@ describe('ClaudeService AgentMessage Parsing', () => {
     expect(secondMsg.uuid).toBe('e127ad75-ca76-4278-9a44-9df0212bdc64')
     expect(secondMsg.parentUuid).toBe('b87215e7-8274-4a86-84c0-01998dd143cd')
     expect(secondMsg.message.role).toBe('assistant')
-    expect(secondMsg.message.model).toBe('claude-opus-4-20250514')
+    expect((secondMsg.message as any).model).toBe('claude-opus-4-20250514')
     expect(Array.isArray(secondMsg.message.content)).toBe(true)
-    const textContent = secondMsg.message.content[0]
+    const textContent = (secondMsg.message.content as any[])[0]
     expect(textContent.type).toBe('text')
     expect(textContent.text).toContain("I'll create a git commit")
 
@@ -82,7 +82,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
     expect(thirdMsg.type).toBe('assistant')
     expect(thirdMsg.uuid).toBe('d17a3e06-4bae-4105-b260-26e2594d6364')
     expect(thirdMsg.parentUuid).toBe('e127ad75-ca76-4278-9a44-9df0212bdc64')
-    const toolUse1 = thirdMsg.message.content[0]
+    const toolUse1 = (thirdMsg.message.content as any[])[0]
     expect(toolUse1.type).toBe('tool_use')
     expect(toolUse1.name).toBe('Bash')
     expect(toolUse1.input.command).toBe('git status')
@@ -91,7 +91,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
     const fourthMsg = messages[3]
     expect(fourthMsg.type).toBe('assistant')
     expect(fourthMsg.uuid).toBe('65c16e85-cac1-4715-97f9-00aa38d19397')
-    const toolUse2 = fourthMsg.message.content[0]
+    const toolUse2 = (fourthMsg.message.content as any[])[0]
     expect(toolUse2.type).toBe('tool_use')
     expect(toolUse2.name).toBe('Bash')
     expect(toolUse2.input.command).toBe('git diff --cached')
@@ -100,10 +100,10 @@ describe('ClaudeService AgentMessage Parsing', () => {
     const fifthMsg = messages[4]
     expect(fifthMsg.type).toBe('user')
     expect(fifthMsg.uuid).toBe('00d372ae-09a6-441a-8fa3-42e01c952845')
-    expect(fifthMsg.toolUseResult).toBeDefined()
-    expect(fifthMsg.toolUseResult?.stdout).toBe('')
-    expect(fifthMsg.toolUseResult?.interrupted).toBe(false)
-    const toolResult = fifthMsg.message.content[0]
+    expect((fifthMsg as any).toolUseResult).toBeDefined()
+    expect((fifthMsg as any).toolUseResult?.stdout).toBe('')
+    expect((fifthMsg as any).toolUseResult?.interrupted).toBe(false)
+    const toolResult = (fifthMsg.message.content as any[])[0]
     expect(toolResult.type).toBe('tool_result')
     expect(toolResult.tool_use_id).toBe('toolu_01Qugm9A5Pp9FhdUkmiF42do')
     expect(toolResult.is_error).toBe(false)
@@ -177,8 +177,8 @@ describe('ClaudeService AgentMessage Parsing', () => {
     expect(messages).toHaveLength(1)
     const parsed = messages[0]
     expect(parsed.gitBranch).toBe('feature-branch')
-    expect(parsed.requestId).toBe('req-123')
+    expect((parsed as any).requestId).toBe('req-123')
     expect(parsed.isSidechain).toBe(true)
-    expect(parsed.message.usage?.server_tool_use?.web_search_requests).toBe(2)
+    expect((parsed.message as any).usage?.server_tool_use?.web_search_requests).toBe(2)
   })
 })

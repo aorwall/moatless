@@ -1,12 +1,11 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import {
-  type CreateRepositoryRequest,
-  type CreateTaskRequest,
-  type Event,
-  EventType,
-  type RepositoryConfig,
+import type {
+  CreateRepositoryRequest,
+  CreateTaskRequest,
+  Event,
+  RepositoryConfig,
 } from '@moatless/types'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../test/helper.js'
@@ -392,7 +391,7 @@ describe('Worker API Integration Test', () => {
       const testEvent: Event = {
         eventId: 'test-event-123',
         agentType: 'claude-code',
-        type: EventType.MESSAGE,
+        type: 'message',
         taskId: createdTaskId,
         isError: false,
         payload: {

@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import type { GitChanges, GitSyncStatus } from '@moatless/types'
 import { logger } from './logger.js'
 
-const execAsync = promisify(exec)
+export const execAsync = promisify(exec)
 
 export interface GitDiffFile {
   status: 'added' | 'modified' | 'deleted' | 'renamed'

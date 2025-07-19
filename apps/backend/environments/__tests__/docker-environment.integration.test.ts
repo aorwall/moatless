@@ -11,11 +11,13 @@ const execAsync = promisify(exec)
 
 // Only mock what's necessary for the test environment
 vi.mock('../../utils/port-allocation.js')
-vi.mock('../../services/settings.service.js', () => ({
-  getSettingsService: () => ({
-    getClaudeSettings: () => ({ configDir: '/tmp/.claude' }),
-  }),
-}))
+
+// Create a mock settings service
+const mockSettingsService = {
+  getClaudeSettings: () => ({ configDir: '/tmp/.claude' }),
+  getDataDir: () => '/tmp/.moatless',
+  initialize: () => Promise.resolve(),
+} as any
 
 const mockFindAvailablePort = vi.mocked(findAvailablePort)
 
@@ -104,7 +106,12 @@ describe('DockerEnvironment - Integration Tests', () => {
       },
     }
 
-    return new DockerEnvironment(taskId, mockRepositoryConfig as any, tempWorkspace)
+    return new DockerEnvironment(
+      taskId,
+      mockRepositoryConfig as any,
+      tempWorkspace,
+      mockSettingsService,
+    )
   }
 
   describe('Container Lifecycle Management', () => {
@@ -133,6 +140,7 @@ describe('DockerEnvironment - Integration Tests', () => {
         'lifecycle-tests',
         mockRepositoryConfig as any,
         groupWorkspace,
+        mockSettingsService,
       )
 
       // Initially should be not_setup
@@ -403,7 +411,12 @@ describe('DockerEnvironment - Integration Tests', () => {
         },
       }
 
-      const errorEnv = new DockerEnvironment('error-task', errorConfig as any, tempWorkspace)
+      const errorEnv = new DockerEnvironment(
+        'error-task',
+        errorConfig as any,
+        tempWorkspace,
+        mockSettingsService,
+      )
 
       // Setup should fail
       await expect(errorEnv.setup()).rejects.toThrow()

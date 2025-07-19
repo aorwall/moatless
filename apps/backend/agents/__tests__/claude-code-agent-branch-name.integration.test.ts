@@ -11,7 +11,7 @@ import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
  * To run these tests successfully:
  * 1. Install Claude Code CLI: npm install -g @anthropic-ai/claude-code
  * 2. Configure your API key: claude auth login
- * 3. Run the tests: pnpm test claude-code-agent-branch-name.integration
+ * 3. Run the tests: bun test claude-code-agent-branch-name.integration
  */
 describe('ClaudeCodeAgent - Branch Name Generation Integration', () => {
   let agent: ClaudeCodeAgent
