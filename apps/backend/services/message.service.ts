@@ -1,17 +1,12 @@
-import type { SDKMessage } from '@anthropic-ai/claude-code'
 import type {
+  AgentMessage,
   AssistantMessage,
   AssistantMessageContent,
   Message,
   ToolResult,
   UserMessage,
 } from '@moatless/types'
-import {
-  isToolResultContent,
-  isToolUseContent,
-  type SDKAssistantMessage,
-  type SDKUserMessage,
-} from '@moatless/types'
+import { isToolResultContent, isToolUseContent } from '@moatless/types'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
@@ -48,7 +43,7 @@ export class MessageService {
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
     try {
-      const allSdkMessages: SDKMessage[] = []
+      const allAgentMessages: AgentMessage[] = []
 
       // Iterate over all task iterations and read messages for each session
       for (const iteration of task.iterations) {
@@ -61,17 +56,17 @@ export class MessageService {
         }
 
         // Read messages for this specific session
-        const sdkMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
-        allSdkMessages.push(...sdkMessages)
+        const agentMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
+        allAgentMessages.push(...agentMessages)
       }
 
       // If we got messages from Claude files, transform and return them
-      if (allSdkMessages.length > 0) {
+      if (allAgentMessages.length > 0) {
         logger.info('Found Claude messages', {
           taskId: task.taskId,
-          messageCount: allSdkMessages.length,
+          messageCount: allAgentMessages.length,
         })
-        return this.transformSDKMessagesToMessages(allSdkMessages)
+        return this.transformAgentMessagesToMessages(allAgentMessages)
       }
 
       // Fall back to creating messages from task iterations if no Claude files
@@ -128,53 +123,57 @@ export class MessageService {
   }
 
   /**
-   * Transform SDK messages directly into UI messages (bypassing events)
+   * Transform agent messages directly into UI messages (bypassing events)
    */
-  private transformSDKMessagesToMessages(sdkMessages: SDKMessage[]): Message[] {
+  private transformAgentMessagesToMessages(agentMessages: AgentMessage[]): Message[] {
     const messages: Message[] = []
-    const toolResultsMap = new Map<string, SDKMessage>()
+    const toolResultsMap = new Map<string, AgentMessage>()
 
     // First pass: collect all tool results by tool_use_id
-    for (const sdkMessage of sdkMessages) {
-      if (this.isSDKUserMessage(sdkMessage)) {
-        const apiMessage = sdkMessage.message
+    for (const agentMessage of agentMessages) {
+      if (agentMessage.type === 'user' && agentMessage.message) {
+        const apiMessage = agentMessage.message
         if (apiMessage.content && Array.isArray(apiMessage.content)) {
           for (const content of apiMessage.content) {
             if (isToolResultContent(content)) {
-              toolResultsMap.set(content.tool_use_id, sdkMessage)
+              toolResultsMap.set(content.tool_use_id, agentMessage)
             }
           }
         }
       }
     }
 
-    // Second pass: transform SDK messages to UI messages
+    // Second pass: transform agent messages to UI messages
     const processedIds = new Set<string>()
 
-    for (const sdkMessage of sdkMessages) {
+    for (const agentMessage of agentMessages) {
       // Skip if already processed as a tool result
-      if (processedIds.has(this.getSDKMessageId(sdkMessage))) {
+      if (processedIds.has(agentMessage.uuid)) {
         continue
       }
 
-      if (this.isSDKAssistantMessage(sdkMessage)) {
-        const message = this.transformSDKAssistantMessage(sdkMessage, toolResultsMap, processedIds)
+      if (agentMessage.type === 'assistant' && agentMessage.message) {
+        const message = this.transformAgentAssistantMessage(
+          agentMessage,
+          toolResultsMap,
+          processedIds,
+        )
         if (message) {
           messages.push(message)
         }
-      } else if (this.isSDKUserMessage(sdkMessage)) {
+      } else if (agentMessage.type === 'user' && agentMessage.message) {
         // Only include user messages that are not tool results
-        const apiMessage = sdkMessage.message
+        const apiMessage = agentMessage.message
         if (apiMessage.content && Array.isArray(apiMessage.content)) {
           const hasToolResult = apiMessage.content.some(isToolResultContent)
           if (!hasToolResult) {
-            const message = this.transformSDKUserMessage(sdkMessage)
+            const message = this.transformAgentUserMessage(agentMessage)
             if (message) {
               messages.push(message)
             }
           }
         } else {
-          const message = this.transformSDKUserMessage(sdkMessage)
+          const message = this.transformAgentUserMessage(agentMessage)
           if (message) {
             messages.push(message)
           }
@@ -183,22 +182,6 @@ export class MessageService {
     }
 
     return messages
-  }
-
-  private isSDKAssistantMessage(sdkMessage: SDKMessage): sdkMessage is SDKAssistantMessage {
-    return 'message' in sdkMessage && sdkMessage.message?.role === 'assistant'
-  }
-
-  private isSDKUserMessage(sdkMessage: SDKMessage): sdkMessage is SDKUserMessage {
-    return 'message' in sdkMessage && sdkMessage.message?.role === 'user'
-  }
-
-  private getSDKMessageId(sdkMessage: SDKMessage): string {
-    const timestamp =
-      'timestamp' in sdkMessage && typeof sdkMessage.timestamp === 'number'
-        ? sdkMessage.timestamp
-        : Date.now()
-    return `${timestamp}-${JSON.stringify(sdkMessage).slice(0, 100)}`
   }
 
   /**
@@ -266,12 +249,16 @@ export class MessageService {
     return iteration.result
   }
 
-  private transformSDKAssistantMessage(
-    sdkMessage: SDKAssistantMessage,
-    toolResultsMap: Map<string, SDKMessage>,
+  private transformAgentAssistantMessage(
+    agentMessage: AgentMessage,
+    toolResultsMap: Map<string, AgentMessage>,
     processedIds: Set<string>,
   ): AssistantMessage | null {
-    const apiMessage = sdkMessage.message
+    if (agentMessage.type !== 'assistant' || !agentMessage.message) {
+      return null
+    }
+
+    const apiMessage = agentMessage.message
     const content: AssistantMessageContent[] = []
 
     if (apiMessage.content && Array.isArray(apiMessage.content)) {
@@ -286,9 +273,9 @@ export class MessageService {
           const toolResult = toolResultsMap.get(toolUseId)
 
           let toolResultContent: ToolResult | undefined
-          if (toolResult && this.isSDKUserMessage(toolResult)) {
+          if (toolResult && toolResult.type === 'user') {
             // Mark the tool result as processed
-            processedIds.add(this.getSDKMessageId(toolResult))
+            processedIds.add(toolResult.uuid)
 
             // Extract tool result content
             const toolResultAPI = toolResult.message
@@ -304,7 +291,7 @@ export class MessageService {
                       ? resultContent.content
                       : JSON.stringify(resultContent.content),
                   is_error: resultContent.is_error,
-                  eventId: this.getSDKMessageId(toolResult),
+                  eventId: toolResult.uuid,
                 }
               }
             }
@@ -321,24 +308,24 @@ export class MessageService {
       }
     }
 
-    const timestamp =
-      'timestamp' in sdkMessage && typeof sdkMessage.timestamp === 'number'
-        ? sdkMessage.timestamp
-        : Date.now()
     return {
-      id: this.getSDKMessageId(sdkMessage),
+      id: agentMessage.uuid,
       role: 'assistant',
       content:
         content.length === 1 && content[0].type === 'text' && content[0].text
           ? content[0].text
           : content,
-      timestamp: new Date(timestamp),
-      eventId: this.getSDKMessageId(sdkMessage),
+      timestamp: new Date(agentMessage.timestamp),
+      eventId: agentMessage.uuid,
     }
   }
 
-  private transformSDKUserMessage(sdkMessage: SDKUserMessage): UserMessage | null {
-    const apiMessage = sdkMessage.message
+  private transformAgentUserMessage(agentMessage: AgentMessage): UserMessage | null {
+    if (agentMessage.type !== 'user' || !agentMessage.message) {
+      return null
+    }
+
+    const apiMessage = agentMessage.message
 
     // Extract text content from user message
     let textContent = ''
@@ -355,16 +342,12 @@ export class MessageService {
       return null
     }
 
-    const timestamp =
-      'timestamp' in sdkMessage && typeof sdkMessage.timestamp === 'number'
-        ? sdkMessage.timestamp
-        : Date.now()
     return {
-      id: this.getSDKMessageId(sdkMessage),
+      id: agentMessage.uuid,
       role: 'user',
       content: textContent,
-      timestamp: new Date(timestamp),
-      eventId: this.getSDKMessageId(sdkMessage),
+      timestamp: new Date(agentMessage.timestamp),
+      eventId: agentMessage.uuid,
     }
   }
 }

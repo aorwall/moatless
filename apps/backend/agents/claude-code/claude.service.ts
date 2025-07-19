@@ -6,6 +6,7 @@ import type {
   SDKMessage,
 } from '@anthropic-ai/claude-code'
 import type {
+  AgentMessage,
   ClaudeSessionUsageResponse,
   ClaudeUsagePlan,
   ClaudeUsageResponse,
@@ -395,8 +396,8 @@ export class ClaudeService {
   /**
    * Read Claude messages for a specific agent session
    */
-  public async readClaudeMessages(agentSessionId: string): Promise<SDKMessage[]> {
-    const messages: SDKMessage[] = []
+  public async readClaudeMessages(agentSessionId: string): Promise<AgentMessage[]> {
+    const messages: AgentMessage[] = []
 
     // Try to find the session file
     const filePath = await this.findMessagesFile(agentSessionId)
@@ -412,10 +413,10 @@ export class ClaudeService {
 
       for (const line of lines) {
         try {
-          const sdkMessage = JSON.parse(line) as SDKMessage
-          messages.push(sdkMessage)
+          const agentMessage = JSON.parse(line) as AgentMessage
+          messages.push(agentMessage)
         } catch (parseError) {
-          logger.warn('Failed to parse Claude SDK message', {
+          logger.warn('Failed to parse Claude agent message', {
             agentSessionId,
             error: parseError instanceof Error ? parseError.message : String(parseError),
           })

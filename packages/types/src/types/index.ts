@@ -1,5 +1,7 @@
 // Re-export all types from schemas (schema-first approach)
 export * from '../schemas/index.js'
+// Re-export types from individual type files (avoiding conflicts)
+export * from './agent-message.js'
 // For api.ts and workspace.ts, explicitly export only non-conflicting exports
 export type {
   EventListResponse,
@@ -7,7 +9,6 @@ export type {
   MergeTaskResponse,
   TaskListResponse,
 } from './api.js'
-// Re-export types from individual type files (avoiding conflicts)
 export * from './api-errors.js'
 export * from './claude.js'
 export * from './claude-code.js'

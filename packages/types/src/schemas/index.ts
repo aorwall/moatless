@@ -1,3 +1,4 @@
+export * from './agent-message.schemas.js'
 export * from './api.schemas.js'
 export * from './command.schemas.js'
 export * from './event.schemas.js'

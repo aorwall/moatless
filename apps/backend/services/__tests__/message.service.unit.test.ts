@@ -1,5 +1,4 @@
-import type { SDKMessage } from '@anthropic-ai/claude-code'
-import type { Task } from '@moatless/types'
+import type { AgentMessage, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageService } from '../message.service.js'
 
@@ -44,17 +43,35 @@ describe('MessageService Unit Tests', () => {
 
   describe('Message Transformation', () => {
     it('should transform simple user and assistant messages', async () => {
-      const sdkUserMessage: SDKMessage = {
+      const agentUserMessage: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
           content: 'Hello, how are you?',
         },
-        timestamp: 1234567890000,
-      } as unknown as SDKMessage
+        uuid: 'user-msg-123',
+        timestamp: '2024-01-01T10:00:00.000Z',
+      }
 
-      const sdkAssistantMessage: SDKMessage = {
+      const agentAssistantMessage: AgentMessage = {
+        parentUuid: 'user-msg-123',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'assistant',
         message: {
+          id: 'msg-123',
+          type: 'message',
           role: 'assistant',
+          model: 'claude-3-opus',
           content: [
             {
               type: 'text',
@@ -62,25 +79,41 @@ describe('MessageService Unit Tests', () => {
             },
           ],
         },
-        timestamp: 1234567890001,
-      } as unknown as SDKMessage
+        uuid: 'assistant-msg-123',
+        timestamp: '2024-01-01T10:00:01.000Z',
+      }
 
-      // Mock the claude service to return the SDK messages
-      mockClaudeService.readClaudeMessages.mockResolvedValue([sdkUserMessage, sdkAssistantMessage])
+      // Mock the claude service to return the agent messages
+      mockClaudeService.readClaudeMessages.mockResolvedValue([
+        agentUserMessage,
+        agentAssistantMessage,
+      ])
 
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(2)
       expect(result[0].role).toBe('user')
       expect(result[0].content).toBe('Hello, how are you?')
+      expect(result[0].id).toBe('user-msg-123')
       expect(result[1].role).toBe('assistant')
       expect(result[1].content).toBe('I am doing well, thank you!')
+      expect(result[1].id).toBe('assistant-msg-123')
     })
 
     it('should handle tool use messages with results', async () => {
-      const toolUseMessage: SDKMessage = {
+      const toolUseMessage: AgentMessage = {
+        parentUuid: 'user-msg-123',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'assistant',
         message: {
+          id: 'msg-456',
+          type: 'message',
           role: 'assistant',
+          model: 'claude-3-opus',
           content: [
             {
               type: 'tool_use',
@@ -90,10 +123,18 @@ describe('MessageService Unit Tests', () => {
             },
           ],
         },
-        timestamp: 1234567890000,
-      } as unknown as SDKMessage
+        uuid: 'tool-use-msg-123',
+        timestamp: '2024-01-01T10:00:02.000Z',
+      }
 
-      const toolResultMessage: SDKMessage = {
+      const toolResultMessage: AgentMessage = {
+        parentUuid: 'tool-use-msg-123',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
           content: [
@@ -105,10 +146,11 @@ describe('MessageService Unit Tests', () => {
             },
           ],
         },
-        timestamp: 1234567890001,
-      } as unknown as SDKMessage
+        uuid: 'tool-result-msg-123',
+        timestamp: '2024-01-01T10:00:03.000Z',
+      }
 
-      // Mock the claude service to return the SDK messages
+      // Mock the claude service to return the agent messages
       mockClaudeService.readClaudeMessages.mockResolvedValue([toolUseMessage, toolResultMessage])
 
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
@@ -125,13 +167,21 @@ describe('MessageService Unit Tests', () => {
     })
 
     it('should handle malformed JSON gracefully', async () => {
-      const validMessage: SDKMessage = {
+      const validMessage: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
           content: 'Valid message',
         },
-        timestamp: 1234567890000,
-      } as unknown as SDKMessage
+        uuid: 'valid-msg-123',
+        timestamp: '2024-01-01T10:00:00.000Z',
+      }
 
       // Mock the claude service to return only the valid message
       mockClaudeService.readClaudeMessages.mockResolvedValue([validMessage])
@@ -143,21 +193,37 @@ describe('MessageService Unit Tests', () => {
     })
 
     it('should skip empty user messages', async () => {
-      const emptyUserMessage: SDKMessage = {
+      const emptyUserMessage: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
           content: '',
         },
-        timestamp: 1234567890000,
-      } as unknown as SDKMessage
+        uuid: 'empty-msg-123',
+        timestamp: '2024-01-01T10:00:00.000Z',
+      }
 
-      const validUserMessage: SDKMessage = {
+      const validUserMessage: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
           content: 'Valid message',
         },
-        timestamp: 1234567890001,
-      } as unknown as SDKMessage
+        uuid: 'valid-msg-456',
+        timestamp: '2024-01-01T10:00:01.000Z',
+      }
 
       // Mock the claude service to return both messages
       mockClaudeService.readClaudeMessages.mockResolvedValue([emptyUserMessage, validUserMessage])
@@ -191,21 +257,30 @@ describe('MessageService Unit Tests', () => {
     })
 
     it('should handle messages without timestamps', async () => {
-      const messageWithoutTimestamp: SDKMessage = {
+      const messageWithTimestamp: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-123',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
-          content: 'Message without timestamp',
+          content: 'Message with timestamp',
         },
-      } as unknown as SDKMessage
+        uuid: 'msg-no-ts-123',
+        timestamp: '2024-01-01T10:00:00.000Z',
+      }
 
-      // Mock the claude service to return the message without timestamp
-      mockClaudeService.readClaudeMessages.mockResolvedValue([messageWithoutTimestamp])
+      // Mock the claude service to return the message
+      mockClaudeService.readClaudeMessages.mockResolvedValue([messageWithTimestamp])
 
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
       expect(result[0].timestamp).toBeInstanceOf(Date)
-      expect(result[0].content).toBe('Message without timestamp')
+      expect(result[0].content).toBe('Message with timestamp')
     })
   })
 
@@ -460,6 +535,204 @@ describe('MessageService Unit Tests', () => {
     })
   })
 
+  describe('Real-world AgentMessage Examples', () => {
+    it('should parse user message with commit request', async () => {
+      const userMessage: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
+        version: '1.0.35',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'commit changes',
+        },
+        uuid: 'b87215e7-8274-4a86-84c0-01998dd143cd',
+        timestamp: '2025-06-27T09:05:45.614Z',
+      }
+
+      mockClaudeService.readClaudeMessages.mockResolvedValue([userMessage])
+
+      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe('commit changes')
+      expect(result[0].id).toBe('b87215e7-8274-4a86-84c0-01998dd143cd')
+      expect(result[0].timestamp).toEqual(new Date('2025-06-27T09:05:45.614Z'))
+    })
+
+    it('should parse assistant message with tool use', async () => {
+      const assistantMessage: AgentMessage = {
+        parentUuid: 'e127ad75-ca76-4278-9a44-9df0212bdc64',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
+        version: '1.0.35',
+        message: {
+          id: 'msg_01USKTt6JCUs8NSKExGdCHTv',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-opus-4-20250514',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_011o12pQ7EEhYmKNCeawnPKN',
+              name: 'Bash',
+              input: {
+                command: 'git status',
+                description: 'Check current git status',
+              },
+            },
+          ],
+          stop_reason: null,
+          stop_sequence: null,
+          usage: {
+            input_tokens: 4,
+            cache_creation_input_tokens: 8404,
+            cache_read_input_tokens: 10164,
+            output_tokens: 3,
+            service_tier: 'standard',
+          },
+        },
+        requestId: 'req_011CQYTbqesGwzdZ2KmpeKve',
+        type: 'assistant',
+        uuid: 'd17a3e06-4bae-4105-b260-26e2594d6364',
+        timestamp: '2025-06-27T09:05:52.318Z',
+      }
+
+      mockClaudeService.readClaudeMessages.mockResolvedValue([assistantMessage])
+
+      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      const content = result[0].content as any[]
+      expect(content[0].type).toBe('tool_use')
+      expect(content[0].tool_name).toBe('Bash')
+      expect(content[0].tool_use_id).toBe('toolu_011o12pQ7EEhYmKNCeawnPKN')
+    })
+
+    it('should parse error message from assistant', async () => {
+      const errorMessage: AgentMessage = {
+        parentUuid: 'fd64c7c9-a911-4c03-8d3f-f9336ae81cab',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        sessionId: 'f2489aab-3628-4eb6-b826-09defec35152',
+        version: '1.0.55',
+        gitBranch: 'workspace-test-task-1752855167445',
+        type: 'assistant',
+        message: {
+          id: '338afb05-c1a6-496e-ab9b-19be38ad8078',
+          model: '<synthetic>',
+          role: 'assistant',
+          stop_reason: 'stop_sequence',
+          stop_sequence: '',
+          type: 'message',
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            server_tool_use: {
+              web_search_requests: 0,
+            },
+            service_tier: null,
+          },
+          content: [
+            {
+              type: 'text',
+              text: 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired. Please obtain a new token or refresh your existing token."}}',
+            },
+          ],
+        },
+        uuid: '8c7eaeba-42a5-45cb-b39c-b7c9b8fe5769',
+        timestamp: '2025-07-18T16:15:25.140Z',
+      }
+
+      mockClaudeService.readClaudeMessages.mockResolvedValue([errorMessage])
+
+      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      expect(result[0].content).toContain('API Error: 401')
+      expect(result[0].content).toContain('OAuth token has expired')
+    })
+
+    it('should handle tool result with output', async () => {
+      const toolResultMsg: AgentMessage = {
+        parentUuid: '00d372ae-09a6-441a-8fa3-42e01c952845',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
+        version: '1.0.35',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            {
+              tool_use_id: 'toolu_011t94XWe5afDcEVuhwF5u4q',
+              type: 'tool_result',
+              content:
+                "6c89efa Merge branch 'workspace-77e52a31-2cc7-45d3-9574-e79744e000ff' into main\n289b655 fix: remove redundant running indicator Badge from chat header",
+              is_error: false,
+            },
+          ],
+        },
+        uuid: '4d299b0b-89f6-48be-bd57-61c06ad92f80',
+        timestamp: '2025-06-27T09:05:54.422Z',
+        toolUseResult: {
+          stdout:
+            "6c89efa Merge branch 'workspace-77e52a31-2cc7-45d3-9574-e79744e000ff' into main\n289b655 fix: remove redundant running indicator Badge from chat header",
+          stderr: '',
+          interrupted: false,
+          isImage: false,
+        },
+      }
+
+      // This is typically paired with a tool use message
+      const toolUseMsg: AgentMessage = {
+        parentUuid: 'parent-123',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
+        version: '1.0.35',
+        type: 'assistant',
+        message: {
+          id: 'msg-123',
+          type: 'message',
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_011t94XWe5afDcEVuhwF5u4q',
+              name: 'git',
+              input: { command: 'git log' },
+            },
+          ],
+        },
+        uuid: 'tool-use-123',
+        timestamp: '2025-06-27T09:05:53.000Z',
+      }
+
+      mockClaudeService.readClaudeMessages.mockResolvedValue([toolUseMsg, toolResultMsg])
+
+      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('assistant')
+      const content = result[0].content as any[]
+      expect(content[0].tool_result?.content).toContain('6c89efa Merge branch')
+    })
+  })
+
   describe('Mixed Claude Files and Task Iterations', () => {
     it('should use Claude messages when available', async () => {
       const taskWithMixedIterations = {
@@ -490,16 +763,33 @@ describe('MessageService Unit Tests', () => {
       } as Task
 
       // Mock Claude service to return messages
-      const sdkUserMessage = {
+      const agentUserMessage: AgentMessage = {
+        parentUuid: null,
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-1',
+        version: '1.0.35',
+        type: 'user',
         message: {
           role: 'user',
           content: 'Claude file user message',
         },
-        timestamp: 1704100800000,
-      } as unknown as SDKMessage
+        uuid: 'user-claude-123',
+        timestamp: '2024-01-01T10:00:00.000Z',
+      }
 
-      const sdkAssistantMessage = {
+      const agentAssistantMessage: AgentMessage = {
+        parentUuid: 'user-claude-123',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/test/workspace',
+        sessionId: 'session-1',
+        version: '1.0.35',
+        type: 'assistant',
         message: {
+          id: 'msg-claude-456',
+          type: 'message',
           role: 'assistant',
           content: [
             {
@@ -508,10 +798,14 @@ describe('MessageService Unit Tests', () => {
             },
           ],
         },
-        timestamp: 1704100860000,
-      } as unknown as SDKMessage
+        uuid: 'assistant-claude-456',
+        timestamp: '2024-01-01T10:01:00.000Z',
+      }
 
-      mockClaudeService.readClaudeMessages.mockResolvedValue([sdkUserMessage, sdkAssistantMessage])
+      mockClaudeService.readClaudeMessages.mockResolvedValue([
+        agentUserMessage,
+        agentAssistantMessage,
+      ])
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithMixedIterations)
 
