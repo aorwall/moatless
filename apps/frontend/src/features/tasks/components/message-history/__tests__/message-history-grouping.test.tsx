@@ -31,7 +31,6 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { useParams } from '@tanstack/react-router'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
-import { useChatState } from '@/features/tasks/contexts/task-ui-provider'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
@@ -102,15 +101,6 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     } as any)
-    vi.mocked(useChatState).mockReturnValue({
-      chatState: {
-        scrollPosition: undefined,
-        isAtBottom: true,
-        message: '',
-        resumeConversation: false,
-      },
-      updateChatState: vi.fn(),
-    })
     vi.mocked(useAutoScroll).mockReturnValue({
       scrollRef: { current: null },
       isAtBottom: true,

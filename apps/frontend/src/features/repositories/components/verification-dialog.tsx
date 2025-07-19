@@ -87,12 +87,12 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
               {/* Overall Status */}
               <div className="flex items-center gap-2 p-3 border rounded-lg">
                 {getStatusIcon(
-                  verificationResult.status === 'idle' &&
+                  verificationResult.agent.state === 'idle' &&
                     verificationResult.environment.status === 'ready',
                 )}
                 <span className="font-medium">Overall Status</span>
                 {getStatusBadge(
-                  verificationResult.status === 'idle' &&
+                  verificationResult.agent.state === 'idle' &&
                     verificationResult.environment.status === 'ready',
                 )}
               </div>
@@ -100,14 +100,16 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
               {/* Workspace Status */}
               <div className="border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  {getStatusIcon(verificationResult.status === 'idle')}
+                  {getStatusIcon(verificationResult.agent.state === 'idle')}
                   <h3 className="font-medium">Workspace Status</h3>
-                  <Badge variant={verificationResult.status === 'idle' ? 'default' : 'destructive'}>
-                    {verificationResult.status}
+                  <Badge
+                    variant={verificationResult.agent.state === 'idle' ? 'default' : 'destructive'}
+                  >
+                    {verificationResult.agent.state}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mb-2">
-                  Background tasks: {verificationResult.backgroundTaskCount}
+                  Workspace state: {verificationResult.workspace.state}
                 </p>
                 {verificationResult.gitStatus && (
                   <div className="mt-2">
@@ -150,45 +152,40 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
                   </div>
                   <div>
                     File Operations:{' '}
-                    {verificationResult.environment.capabilities.fileOperations
-                      ? 'Enabled'
-                      : 'Disabled'}
+                    {verificationResult.capabilities.fileOperations ? 'Enabled' : 'Disabled'}
                   </div>
                   <div>
                     Command Execution:{' '}
-                    {verificationResult.environment.capabilities.commandExecution
-                      ? 'Enabled'
-                      : 'Disabled'}
+                    {verificationResult.capabilities.commandExecution ? 'Enabled' : 'Disabled'}
                   </div>
                 </div>
               </div>
 
-              {/* Git Changes */}
-              {verificationResult.gitChanges && (
+              {/* Git Status */}
+              {verificationResult.gitStatus && (
                 <div className="border rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    {getStatusIcon(verificationResult.gitChanges.totalChanges === 0)}
-                    <h3 className="font-medium">Git Changes</h3>
+                    {getStatusIcon(!verificationResult.gitStatus.hasUncommittedChanges)}
+                    <h3 className="font-medium">Git Status</h3>
                     <Badge
                       variant={
-                        verificationResult.gitChanges.totalChanges === 0 ? 'default' : 'secondary'
+                        !verificationResult.gitStatus.hasUncommittedChanges
+                          ? 'default'
+                          : 'secondary'
                       }
                     >
-                      {verificationResult.gitChanges.totalChanges} changes
+                      {verificationResult.gitStatus.hasUncommittedChanges
+                        ? 'Changes present'
+                        : 'Clean'}
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1">
-                    <div>Additions: {verificationResult.gitChanges.totalAdditions}</div>
-                    <div>Deletions: {verificationResult.gitChanges.totalDeletions}</div>
-                    <div>Files: {verificationResult.gitChanges.files.length}</div>
-                    {verificationResult.gitChanges.files.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-xs mb-1">Changed files:</p>
-                        <div className="text-xs font-mono space-y-1">
-                          {verificationResult.gitChanges.files.map((file) => (
-                            <div key={file}>{file}</div>
-                          ))}
-                        </div>
+                    <div>Current branch: {verificationResult.gitStatus.currentBranch}</div>
+                    <div>Base branch: {verificationResult.gitStatus.baseBranch}</div>
+                    <div>Status: {verificationResult.gitStatus.status}</div>
+                    {verificationResult.gitStatus.hasUncommittedChanges && (
+                      <div className="mt-2 text-xs text-yellow-600">
+                        There are uncommitted changes in the workspace
                       </div>
                     )}
                   </div>

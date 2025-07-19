@@ -41,12 +41,14 @@ export const updateSettingsSchema = z
         configDir: z.string().nullable().optional(),
         oauthToken: z.string().nullable().optional(),
       })
+      .strict()
       .nullable()
       .optional(),
     github: z
       .object({
         token: z.string().nullable().optional(),
       })
+      .strict()
       .nullable()
       .optional(),
   })

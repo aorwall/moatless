@@ -1,4 +1,5 @@
 import type { ClaudeModel, Command, UploadFileResponse } from '@moatless/types'
+import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useParams } from '@tanstack/react-router'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -32,10 +33,12 @@ function ChatViewComponent({ className }: ChatViewProps) {
   // Model selector state - local with initial value from localStorage
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>(() => {
     if (typeof window !== 'undefined') {
-      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
-      if (savedModel) return savedModel
+      const savedModel = localStorage.getItem('lastSelectedModel')
+      if (savedModel && Object.values(CLAUDE_MODELS).includes(savedModel as ClaudeModel)) {
+        return savedModel as ClaudeModel
+      }
     }
-    return 'claude-3-5-sonnet-20241022'
+    return CLAUDE_MODELS.SONNET_4
   })
 
   const modelSelector = useModelSelector(selectedModel)
@@ -188,8 +191,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
   }
 
   // Check if last iteration has an error
-  const lastIterationHasError =
-    lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
+  const lastIterationHasError = lastIteration && lastIteration.status === 'failed'
 
   const isTaskRunning = status === 'running'
 

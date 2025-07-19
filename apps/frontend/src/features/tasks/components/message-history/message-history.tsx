@@ -127,6 +127,7 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   }, [messages, initialMessageCount])
 
   // Custom hooks for extracted functionality
+
   const { isAtBottom, scrollToBottom } = useScrollManager({
     scrollRef,
     bottomRef,

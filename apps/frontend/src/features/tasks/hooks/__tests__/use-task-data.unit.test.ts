@@ -39,8 +39,15 @@ describe('useTaskData', () => {
       ],
     }
     const mockWorkspaceStatus = {
-      status: 'idle' as const,
-      backgroundTaskCount: 0,
+      workspace: {
+        state: 'exists' as const,
+        changeStatus: 'no_changes' as const,
+        path: '/tmp/test-workspace',
+      },
+      agent: {
+        state: 'idle' as const,
+        type: 'claude-code',
+      },
       gitStatus: {
         currentBranch: 'test-branch',
         baseBranch: 'main',
@@ -55,10 +62,11 @@ describe('useTaskData', () => {
         type: 'local' as const,
         status: 'ready' as const,
         createdAt: new Date().toISOString(),
-        capabilities: {
-          fileOperations: true,
-          commandExecution: true,
-        },
+      },
+      capabilities: {
+        fileOperations: true,
+        commandExecution: true,
+        serverManagement: true,
       },
     }
 
@@ -114,7 +122,15 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({
-      status: 'idle' as const,
+      workspace: {
+        state: 'exists' as const,
+        changeStatus: 'no_changes' as const,
+        path: '/tmp/test-workspace',
+      },
+      agent: {
+        state: 'idle' as const,
+        type: 'claude-code',
+      },
       gitStatus: {
         currentBranch: 'test-branch',
         baseBranch: 'main',
@@ -125,15 +141,15 @@ describe('useTaskData', () => {
         commitsBehind: 0,
         originExists: true,
       },
-      backgroundTaskCount: 0,
       environment: {
         type: 'local' as const,
         status: 'ready' as const,
         createdAt: new Date().toISOString(),
-        capabilities: {
-          fileOperations: true,
-          commandExecution: true,
-        },
+      },
+      capabilities: {
+        fileOperations: true,
+        commandExecution: true,
+        serverManagement: true,
       },
     })
 

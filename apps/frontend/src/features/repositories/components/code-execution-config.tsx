@@ -217,8 +217,8 @@ export function CodeExecutionConfig({
       setupCommands: formData.setup_commands
         ? formData.setup_commands
             .split('\n')
-            .map((cmd) => cmd.trim())
-            .filter((cmd) => cmd.length > 0)
+            .map((cmd: string) => cmd.trim())
+            .filter((cmd: string) => cmd.length > 0)
         : undefined,
       envVars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
     }
