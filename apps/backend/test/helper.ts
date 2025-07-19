@@ -82,7 +82,7 @@ export async function build(): Promise<TestApp> {
   testApp.listen = async (options: { port: number; host?: string }): Promise<void> => {
     const { serve } = await import('@hono/node-server')
 
-    // Start a real HTTP server for E2E tests
+    // Start a real HTTP server for integration tests
     const server = serve({
       fetch: app.fetch,
       port: options.port,

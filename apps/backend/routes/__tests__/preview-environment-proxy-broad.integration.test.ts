@@ -1,7 +1,7 @@
 import http from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-describe('Preview Environment Proxy - E2E Tests', () => {
+describe('Preview Environment Proxy - Integration Tests (broad)', () => {
   let mockPreviewServer: http.Server
   let previewPort: number
 

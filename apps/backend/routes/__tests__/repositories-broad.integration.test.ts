@@ -10,7 +10,7 @@ vi.mock('../../utils/repository', () => ({
   validateRepositoryAccess: vi.fn().mockResolvedValue(undefined),
 }))
 
-describe('Repository Routes E2E', () => {
+describe('Repository Routes Integration (broad)', () => {
   let app: any
   let createdRepositoryId: string
   let tempDir: string
@@ -415,7 +415,7 @@ describe('Repository Routes E2E', () => {
   })
 })
 
-describe('Repositories E2E - Additional Tests', () => {
+describe('Repositories Integration - Additional Tests (broad)', () => {
   let app: any
   let tempDir: string
 

@@ -339,26 +339,323 @@ export function createGitDiffFixture(fileCount: number): GitDiffResponse
 - Mandate use of shared mocks
 - Include test writing guidelines
 
-## Task Breakdown Summary
+## Progress Update (2024-01-19)
 
-### High Priority Tasks (Complete First)
-1. [ ] Task 1.1: Create mock factory structure
-2. [ ] Task 1.2: Implement core mock factories
-3. [ ] Task 2.1: Rename E2E test files
-4. [ ] Task 2.2: Update test descriptions
-5. [ ] Task 3.1: Identify duplicate mocks
-6. [ ] Task 4.1: Update backend-testing.md
+### ✅ COMPLETED High Priority Tasks
+1. [x] **Task 1.1: Create mock factory structure** ✅
+   - Created `/packages/types/src/test-utils/index.ts`
+   - Created `/packages/types/src/test-utils/mocks/index.ts`
+   - Created `/packages/types/src/test-utils/factories/index.ts`
+   - Created `/apps/backend/test/mocks/index.ts`
+   - Created `/apps/backend/test/helpers/index.ts`
+   - Updated `packages/types/package.json` with test-utils export
 
-### Medium Priority Tasks
-7. [ ] Task 1.3: Implement test data builders
-8. [ ] Task 1.4: Implement test helpers
-9. [ ] Task 2.3: Update vitest.config.ts
-10. [ ] Task 3.2: Replace inline mocks
-11. [ ] Task 3.3: Standardize mock patterns
-12. [ ] Task 4.2: Create mock usage guide
+2. [x] **Task 1.2: Implement core mock factories** ✅
+   - **Task 1.2.1**: Created `/packages/types/src/test-utils/mocks/task.mock.ts` with:
+     - `createMockTask()`, `createMockTaskIteration()`, `createMockTaskWithIterations()`
+     - `createMockGitDiffFile()`, `createMockGitDiffResponse()`, `createMockGitStatus()`
+   - **Task 1.2.2**: Created `/packages/types/src/test-utils/mocks/repository.mock.ts` with:
+     - `createMockRepository()`, `createMockCodeExecution()`, `createMockDockerCodeExecution()`
+     - `createMockPreviewConfig()`, `createMockRepositoryWithPreview()`, `createMockDockerRepository()`
+     - `createMockRepositoryList()`, `createMockBranchListResponse()`, `createMockFileSearchResponse()`
+   - **Task 1.2.3**: Created `/packages/types/src/test-utils/mocks/message.mock.ts` with:
+     - `createMockMessage()`, `createMockUserMessage()`, `createMockAssistantMessage()`
+     - `createMockTextContent()`, `createMockToolUseContent()`, `createMockToolResult()`
+     - `createMockMessageWithToolUse()`, `createMockMessageWithToolResult()`, `createMockMessagesResponse()`
+     - `createMockToolCallGroup()`
+   - **Task 1.2.4**: Created `/packages/types/src/test-utils/mocks/event.mock.ts` with:
+     - `createMockEvent()`, `createMockMessageEvent()`, `createMockErrorEvent()`
+     - `createMockWorkspaceEvent()`, `createMockServerEvent()`, `createMockResultEvent()`
+     - `createMockTaskStatusEvent()`, `createMockEventListResponse()`, `createMockStreamStatusResponse()`
+     - `createMockEventStream()` for testing SSE streams
+   - **Task 1.2.5**: Created `/packages/types/src/test-utils/mocks/environment.mock.ts` with:
+     - `createMockLocalWorkspace()`, `createMockDockerWorkspace()`, `createMockWorkspace()`
+     - `createMockWorkspaceWithError()`, `createMockWorkspaceCapabilities()`, `createMockWorkspaceStatusResponse()`
+     - `createMockFileTreeWithChanges()`, `createMockSyncWorkspaceResponse()`, `createMockSyncWorkspaceWithConflicts()`
+     - Preview environment mocks: `createMockPreviewEnvironmentMetadata()`, `createMockProcessValidation()`
+   - **Task 1.2.6**: Created `/apps/backend/test/mocks/services.mock.ts` with:
+     - `createMockStorageBackend()`, `createMockStorageWithData()`, `createMockEventService()`
+     - `createMockLogger()`, `createMockSettingsService()`, `createMockAgentService()`
+     - `createMockTaskService()`, `createMockWorkspaceService()`
 
-### Low Priority Tasks
-13. [ ] Task 4.3: Update contributing guidelines
+3. [x] **Task 2.1: Rename E2E test files** ✅
+   - Renamed 10 test files from `.e2e.test.ts` to `.integration.test.ts`:
+     - `complete-workflow.e2e.test.ts` → `complete-workflow.integration.test.ts`
+     - `docker-workspace-e2e.test.ts` → `docker-workspace.integration.test.ts`
+     - `graceful-shutdown.e2e.test.ts` → `graceful-shutdown.integration.test.ts`
+     - `settings-workflow.e2e.test.ts` → `settings-workflow.integration.test.ts`
+     - `server-lifecycle-e2e.test.ts` → `server-lifecycle.integration.test.ts`
+     - `preview-environment-proxy.e2e.test.ts` → `preview-environment-proxy-broad.integration.test.ts`
+     - `repositories.e2e.test.ts` → `repositories-broad.integration.test.ts`
+     - `repositories-suggestions.e2e.test.ts` → `repositories-suggestions-broad.integration.test.ts`
+     - `events-sse-real-server.e2e.test.ts` → `events-sse-real-server.integration.test.ts`
+     - `preview-environment-shutdown.e2e.test.ts` → `preview-environment-shutdown.integration.test.ts`
+
+4. [x] **Task 2.2: Update test descriptions** ✅
+   - Updated all `describe()` blocks to remove "E2E" terminology
+   - Replaced with "Integration Test (broad)" or "Integration Tests (broad)"
+   - Updated comments in 20+ test files to use proper terminology
+
+5. [x] **Task 3.1: Identify duplicate mocks** ✅
+   - **Logger mocks**: Found 11 duplicate `vi.mock('../utils/logger.js')` instances
+   - **Port allocation mocks**: Found 4 duplicate `vi.mock('../utils/port-allocation.js')` instances  
+   - **Node.js fs mocks**: Found 4 duplicate `vi.mock('node:fs')` instances
+   - **Settings service mocks**: Multiple duplicate implementations
+   - **Storage backend mocks**: Various inline implementations across tests
+
+6. [x] **Task 2.3: Update vitest.config.ts** ✅
+   - Removed `'**/*.e2e.test.{ts,js}'` from include patterns in `/apps/backend/vitest.config.ts`
+   - Configuration now only includes unit and integration test patterns
+
+### 🔄 IN PROGRESS Medium Priority Tasks
+7. [ ] **Task 1.3: Implement test data builders** - Ready to start
+8. [ ] **Task 1.4: Implement test helpers** - Ready to start  
+9. [ ] **Task 3.2: Replace inline mocks** - **NEXT PRIORITY**
+10. [ ] **Task 3.3: Standardize mock patterns** - Depends on 3.2
+11. [ ] **Task 4.2: Create mock usage guide** - Pending
+12. [ ] **Task 4.1: Update backend-testing.md** - Pending
+
+### ⏳ Remaining Low Priority Tasks
+13. [ ] **Task 4.3: Update contributing guidelines** - Final task
+
+## 🎯 Next Steps for LLM
+
+The **highest priority** remaining task is **Task 3.2: Replace inline mocks with shared factories**.
+
+### **Files Created and Ready to Use:**
+
+**Shared Mock Factories (Framework Agnostic):**
+- `/packages/types/src/test-utils/mocks/task.mock.ts` - Task, GitDiff, GitStatus mocks
+- `/packages/types/src/test-utils/mocks/repository.mock.ts` - Repository, CodeExecution, PreviewConfig mocks  
+- `/packages/types/src/test-utils/mocks/message.mock.ts` - Message, ToolResult, ToolCallGroup mocks
+- `/packages/types/src/test-utils/mocks/event.mock.ts` - Event, MessageEvent, ErrorEvent mocks
+- `/packages/types/src/test-utils/mocks/environment.mock.ts` - Workspace, PreviewEnvironment mocks
+
+**Backend Service Mocks (Vitest-dependent):**
+- `/apps/backend/test/mocks/services.mock.ts` - StorageBackend, EventService, Logger mocks
+
+**Barrel Exports for Easy Importing:**
+- `/packages/types/src/test-utils/index.ts` - Main export
+- `/packages/types/src/test-utils/mocks/index.ts` - All mock factories
+- `/apps/backend/test/mocks/index.ts` - Backend service mocks
+
+### **Target Files for Mock Replacement:**
+
+**High-Priority Files with Logger Mocks (11 instances):**
+1. `/apps/backend/environments/__tests__/local-environment.unit.test.ts`
+2. `/apps/backend/environments/__tests__/docker-environment.unit.test.ts` 
+3. `/apps/backend/agents/__tests__/claude-code-agent-settings.unit.test.ts`
+4. `/apps/backend/__tests__/settings-workflow.integration.test.ts`
+5. `/apps/backend/routes/__tests__/settings.integration.test.ts`
+6. `/apps/backend/services/__tests__/preview-environment.service.integration.test.ts`
+7. `/apps/backend/services/__tests__/settings.service.unit.test.ts`
+8. `/apps/backend/services/__tests__/workspace.service.integration.test.ts`
+9. `/apps/backend/services/__tests__/agent.service.unit.test.ts`
+10. `/apps/backend/services/__tests__/preview-server.unit.test.ts`
+11. `/apps/backend/utils/__tests__/logger.unit.test.ts`
+
+**Files with Port Allocation Mocks (4 instances):**
+1. `/apps/backend/environments/__tests__/docker-environment.integration.test.ts`
+2. `/apps/backend/environments/__tests__/docker-environment.unit.test.ts`
+3. `/apps/backend/services/__tests__/workspace.unit.test.ts`
+4. `/apps/backend/services/__tests__/preview-server.unit.test.ts`
+
+**Files with Node.js fs Mocks (4 instances):**
+1. `/apps/backend/environments/__tests__/local-environment.unit.test.ts`
+2. `/apps/backend/services/__tests__/preview-environment.service.integration.test.ts`
+3. `/apps/backend/services/__tests__/workspace.unit.test.ts`
+4. `/apps/backend/services/__tests__/file-operations.service.test.ts`
+
+### **Example Migration Pattern:**
+
+**Before:**
+```typescript
+vi.mock('../../utils/logger.js', () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+  createTaskLogger: vi.fn().mockReturnValue({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })
+}))
+```
+
+**After:**
+```typescript
+import { createMockLogger } from '../../test/mocks/services.mock.js'
+
+vi.mock('../../utils/logger.js', () => ({
+  logger: createMockLogger(),
+  createTaskLogger: vi.fn().mockReturnValue(createMockLogger())
+}))
+```
+
+### **How to Use the Created Mock Factories:**
+
+**Import patterns:**
+```typescript
+// For pure data mocks (no test framework dependency)
+import { 
+  createMockTask, 
+  createMockRepository, 
+  createMockEvent 
+} from '@moatless/types/test-utils'
+
+// For backend service mocks (with vi.fn())
+import { 
+  createMockStorageBackend, 
+  createMockLogger,
+  createMockEventService 
+} from '../test/mocks/services.mock.js'
+```
+
+**Usage in tests:**
+```typescript
+const mockTask = createMockTask({ 
+  taskId: 'custom-id', 
+  status: 'completed' 
+})
+
+const mockStorage = createMockStorageBackend({
+  getTask: vi.fn().mockResolvedValue(mockTask)
+})
+```
+
+## 🧹 **Phase 5: Test Cleanup and Consolidation**
+
+### **Files/Tests Identified for Removal**
+
+#### **Obsolete Skipped Tests** 
+These tests are skipped with clear removal indicators and should be deleted:
+
+1. **`complete-workflow.integration.test.ts:491`**
+   ```typescript
+   it.skip('should track agent status changes during execution - REMOVED: agent status no longer part of API', async () => {
+   ```
+   - **Reason**: Agent status functionality removed from API
+   - **Action**: Delete this entire test block (lines 491-580+)
+
+2. **`worker-api.integration.test.ts:226`**
+   ```typescript
+   it.skip('should start worker mode and fetch task/repository from API - SKIPPED: Worker workspace initialization needs refactoring', async () => {
+   ```
+   - **Reason**: Worker workspace initialization needs refactoring
+   - **Action**: Delete or fix the test, don't leave it skipped indefinitely
+
+#### **Redundant Mock Files**
+After implementing shared mock factories, these files have overlapping functionality:
+
+1. **`/apps/backend/test/mocks/workspace.mock.ts`**
+   - **Overlaps with**: New environment.mock.ts and services.mock.ts
+   - **Contains**: Agent, Environment, and Workspace mocks
+   - **Action**: Consolidate functions into shared mocks, then delete
+   - **Migration**: 
+     - Move `createMockAgent()` → services.mock.ts
+     - Move workspace functions → environment.mock.ts  
+     - Update imports in dependent test files
+
+2. **`/apps/backend/test/mocks/git-utils.mock.ts`**
+   - **Status**: Keep - specialized git utility mocks
+   - **Action**: No removal needed, but could benefit from consolidation
+
+#### **Skipped Tests Requiring Decision**
+
+**SSE/Events Tests** (8 skipped tests in events-global-stream.integration.test.ts):
+```typescript
+it.skip('should establish SSE connection and set proper headers', async () => {
+it.skip('should register global connection with SSE manager', async () => {
+// ... 6 more skipped SSE tests
+```
+- **Reason**: Unclear why skipped - may be infrastructure related  
+- **Action**: **Investigate and either fix or remove** - don't leave permanently skipped
+- **Priority**: Medium - affects real-time functionality
+
+**Rate Limiting Test** (error-handling.integration.test.ts:114):
+```typescript
+it.skip('should return 429 when rate limit is exceeded', async () => {
+```
+- **Reason**: Rate limiting not implemented or needs refactoring
+- **Action**: **Remove if rate limiting not planned**, or implement properly
+
+#### **Workspace Setup Tests** (2 skipped tests):
+```typescript
+// workspace.unit.test.ts:252
+it.skip('should handle workspace setup failures', async () => {
+
+// agent-workspace-recreation tests (2 files)
+it.skip('should throw error if workspace recreation fails', async () => {
+```
+- **Reason**: Workspace failure handling needs implementation
+- **Action**: **Implement proper error handling** or remove if not needed
+
+### **Task 5.1: Remove Obsolete Tests**
+**Priority**: Medium  
+**Files to Update**:
+
+1. **Remove confirmed obsolete tests**:
+   - Delete agent status test in complete-workflow.integration.test.ts
+   - Remove or fix worker initialization test
+
+2. **Investigate skipped tests**:
+   - SSE tests: Fix infrastructure or remove if not needed
+   - Rate limiting: Remove if not implementing feature
+   - Workspace error handling: Implement or remove
+
+### **Task 5.2: Consolidate Mock Files**
+**Priority**: Medium  
+**Dependencies**: Task 3.2 (Replace inline mocks)
+
+1. **Migrate workspace.mock.ts functions**:
+   ```typescript
+   // Move to services.mock.ts
+   export { createMockAgent } from '../test/mocks/services.mock.js'
+   
+   // Move to environment.mock.ts  
+   export { createMockWorkspace, createMockDockerWorkspace } from '@moatless/types/test-utils'
+   ```
+
+2. **Update dependent files** (7+ files import workspace.mock.ts):
+   ```bash
+   # Find files importing workspace.mock.ts
+   grep -r "workspace\.mock" apps/backend --include="*.ts"
+   ```
+
+3. **Delete workspace.mock.ts** after migration complete
+
+### **Task 5.3: Standardize Skip Patterns**
+**Priority**: Low
+
+**Current skip patterns found**:
+- `it.skip('description - REMOVED: reason')` ✅ Good - clear removal reason
+- `it.skip('description - SKIPPED: reason')` ❌ Unclear - needs decision  
+- `it.skip('description')` ❌ Bad - no reason given
+
+**Standard pattern to enforce**:
+```typescript
+// For tests to be removed
+it.skip('test name - REMOVE: specific reason why obsolete', async () => {
+
+// For tests temporarily disabled (should be rare)
+it.skip('test name - TODO: what needs to be implemented/fixed', async () => {
+```
+
+### **Benefits of Cleanup**:
+1. **Reduced maintenance burden** - no dead code to maintain
+2. **Clearer test intent** - only valid, working tests remain  
+3. **Improved CI speed** - fewer skipped tests to process
+4. **Better developer experience** - no confusion about test status
+5. **Consolidated mocking** - single source of truth for test data
+
+### **Cleanup Success Criteria**:
+- [ ] Zero skipped tests without clear removal/fix timeline
+- [ ] No duplicate mock implementations
+- [ ] All test files have clear purpose and work correctly
+- [ ] No `.skip()` tests older than 30 days without resolution plan
 
 ## Migration Checklist
 

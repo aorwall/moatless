@@ -15,7 +15,6 @@ export default defineConfig({
       '**/*.test.{ts,js}',
       '**/*.unit.test.{ts,js}',
       '**/*.integration.test.{ts,js}',
-      '**/*.e2e.test.{ts,js}',
     ],
 
     // Exclude patterns

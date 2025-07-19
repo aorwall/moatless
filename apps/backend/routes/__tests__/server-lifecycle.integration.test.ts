@@ -27,7 +27,7 @@ import { build } from '../../test/helper.js'
  * - Can be started and stopped cleanly
  */
 
-describe('Server Lifecycle E2E Test', () => {
+describe('Server Lifecycle Integration Test (broad)', () => {
   let app: any
   let tempDir: string
   let createdRepositoryId: string
