@@ -1,6 +1,6 @@
 import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
 import { vi } from 'vitest'
-import type { EventHandler, EventService } from '../../services/event.service.js'
+import type { EventService } from '../../services/event.service.js'
 import type { StorageBackend } from '../../services/storage.js'
 
 // Storage Backend Mocks

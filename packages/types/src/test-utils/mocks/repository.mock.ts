@@ -3,7 +3,6 @@ import type {
   CodeExecution,
   FileSearchResponse,
   PreviewConfig,
-  RepositoryConfig,
   RepositoryList,
   RepositoryResponse,
 } from '../../types/repository.js'
