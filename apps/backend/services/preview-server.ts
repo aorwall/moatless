@@ -21,6 +21,7 @@ interface ServerStartResult {
 export class PreviewServer {
   private process?: ChildProcess
   private port?: number
+  private actualPort?: number
   private pid?: number
   private logFile?: string
   private startTime?: number
@@ -134,6 +135,7 @@ export class PreviewServer {
         const actualPort = await this.detectPortFromLogs()
         if (actualPort) {
           this.logger.info(`Detected server running on port ${actualPort} from logs`)
+          this.actualPort = actualPort
           this.port = actualPort
           break
         }
@@ -149,6 +151,7 @@ export class PreviewServer {
         const actualPort = await this.detectPortFromLogs()
         if (actualPort) {
           this.logger.info(`Final detection: server running on port ${actualPort}`)
+          this.actualPort = actualPort
           this.port = actualPort
         }
       }
@@ -390,25 +393,36 @@ export class PreviewServer {
     try {
       const content = await fs.readFile(this.logFile, 'utf-8')
 
-      // Common patterns for port detection
+      // Common patterns for port detection - order matters, more specific first
       const patterns = [
-        /http:\/\/localhost:(\d+)/gi,
+        /➜\s+Local:\s+http:\/\/localhost:(\d+)/gi, // Vite specific
         /Local:\s+http:\/\/localhost:(\d+)/gi,
+        /http:\/\/localhost:(\d+)/gi,
         /listening on port (\d+)/gi,
         /Server running on port (\d+)/gi,
         /Started server on .*:(\d+)/gi,
         /Listening on .*:(\d+)/gi,
+        /server started.*:(\d+)/gi,
+        /running on.*:(\d+)/gi,
+        /available on.*:(\d+)/gi,
       ]
+
+      this.logger.debug('Scanning logs for port patterns...', {
+        logLength: content.length,
+        logPreview: content.slice(-500),
+      })
 
       for (const pattern of patterns) {
         const matches = [...content.matchAll(pattern)]
         if (matches.length > 0) {
           // Return the last match (most recent)
           const port = Number.parseInt(matches[matches.length - 1][1], 10)
-          this.logger.debug(`Detected port ${port} from logs using pattern: ${pattern}`)
+          this.logger.info(`Detected port ${port} from logs using pattern: ${pattern}`)
           return port
         }
       }
+
+      this.logger.debug('No port patterns matched in logs')
     } catch (error) {
       this.logger.debug('Error detecting port from logs:', {
         error: error instanceof Error ? error.message : String(error),
@@ -427,6 +441,7 @@ export class PreviewServer {
     this.process = undefined
     this.pid = undefined
     this.port = undefined
+    this.actualPort = undefined
     this.startTime = undefined
   }
 
@@ -440,7 +455,11 @@ export class PreviewServer {
   }
 
   getPort(): number | undefined {
-    return this.port
+    return this.actualPort || this.port
+  }
+
+  getActualPort(): number | undefined {
+    return this.actualPort
   }
 
   async proxyRequest(request: {
@@ -453,12 +472,27 @@ export class PreviewServer {
     headers: Headers
     body: string | Buffer
   }> {
-    if (!this.port || !this.process || this.process.exitCode !== null) {
-      throw new Error('Server is not running')
+    // Use actualPort if available, otherwise fall back to port
+    const targetPort = this.actualPort || this.port
+
+    if (!targetPort) {
+      throw new Error('No port available for proxying - server may not be running')
     }
 
-    const url = `http://localhost:${this.port}${request.path}`
-    this.logger.debug('Proxying request', { url, method: request.method })
+    // Check if we have a process or if the port is in use (server might be running independently)
+    if (!this.checkPortInUseSync(targetPort)) {
+      throw new Error(`Server is not running on port ${targetPort}`)
+    }
+
+    const url = `http://localhost:${targetPort}${request.path}`
+    this.logger.debug('Proxying request', {
+      url,
+      method: request.method,
+      targetPort,
+      actualPort: this.actualPort,
+      allocatedPort: this.port,
+      processRunning: this.process && this.process.exitCode === null,
+    })
 
     try {
       const fetchOptions: RequestInit = {
