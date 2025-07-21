@@ -35,13 +35,12 @@ export {
   useTaskMetadata,
   useTaskStatus,
   useTaskUI,
-  useWorkspaceStatus,
-  useWorkspaceStatusWithLoading,
 } from './contexts/task-providers'
 
 // Hooks
 export * from './hooks/use-task-data'
 export * from './hooks/use-tasks'
+export * from './hooks/use-workspace-status'
 
 // Utils
 export * from './utils/format-duration'

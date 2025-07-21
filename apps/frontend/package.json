@@ -21,6 +21,7 @@
     "post-edit-hook": "../../scripts/validate-code.sh"
   },
   "dependencies": {
+    "@git-diff-view/file": "^0.0.30",
     "@git-diff-view/react": "^0.0.30",
     "@moatless/types": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.14",

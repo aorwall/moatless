@@ -1,10 +1,4 @@
-import type {
-  Event,
-  GitDiffResponse,
-  TaskIteration,
-  TaskResponse,
-  WorkspaceStatusResponse,
-} from '@moatless/types'
+import type { Event, GitDiffResponse, TaskIteration, TaskResponse } from '@moatless/types'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createContext,
@@ -30,15 +24,6 @@ interface TaskDataContextValue {
 
   // Git diff data
   gitDiff: GitDiffResponse | undefined
-
-  // Separated workspace state (conditional polling)
-  workspaceState: string | undefined
-  environmentStatus: string | undefined
-  agentState: string | undefined
-  workspaceReady: boolean
-  workspaceHasChanges: boolean
-  workspaceGitStatus: WorkspaceStatusResponse['gitStatus'] | undefined
-  workspaceEnvironment: WorkspaceStatusResponse['environment'] | undefined
 
   // Derived flags for components (stable primitives)
   canExecute: boolean
@@ -141,8 +126,9 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     const iterations = task.iterations || []
     const lastIteration = iterations.length > 0 ? iterations[iterations.length - 1] : null
 
-    // Derive agent running state from new agent.state field instead of iteration status
-    const isRunning = task.agent?.state === 'running'
+    // Derive running state from last iteration status for now
+    // TODO: This will need to come from workspace status when components are updated
+    const isRunning = lastIteration?.status === 'active'
     const runningStartTime =
       isRunning && lastIteration?.startTime ? new Date(lastIteration.startTime) : undefined
 
@@ -156,33 +142,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       canExecute: task.status === 'open', // Can execute if task is open
       isComplete: task.status === 'closed', // Complete if task is closed
       runningStartTime,
-      // Include the new workspace status fields from TaskResponse
-      workspace: task.workspace,
-      environment: task.environment,
-      agent: task.agent,
-      gitStatus: task.gitStatus,
-      capabilities: task.capabilities,
     }
   }, [taskQuery.data])
-
-  const workspacePrimitives = useMemo(() => {
-    if (!taskPrimitives) return null
-
-    return {
-      // Use workspace status fields from TaskResponse
-      workspaceState: taskPrimitives.workspace?.state,
-      environmentStatus: taskPrimitives.environment?.status,
-      agentState: taskPrimitives.agent?.state,
-      isReady: taskPrimitives.environment?.status === 'ready',
-      hasChanges:
-        taskPrimitives.gitStatus?.hasUncommittedChanges ||
-        taskPrimitives.gitStatus?.hasConflicts ||
-        false,
-      gitStatus: taskPrimitives.gitStatus,
-      environment: taskPrimitives.environment,
-      capabilities: taskPrimitives.capabilities,
-    }
-  }, [taskPrimitives])
 
   // Event primitives
   const eventPrimitives = useMemo(() => {
@@ -214,15 +175,6 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       // Git diff data
       gitDiff: gitDiffQuery.data,
 
-      // Separated workspace state (conditional polling)
-      workspaceState: workspacePrimitives?.workspaceState,
-      environmentStatus: workspacePrimitives?.environmentStatus,
-      agentState: workspacePrimitives?.agentState,
-      workspaceReady: workspacePrimitives?.isReady ?? false,
-      workspaceHasChanges: workspacePrimitives?.hasChanges ?? false,
-      workspaceGitStatus: workspacePrimitives?.gitStatus,
-      workspaceEnvironment: workspacePrimitives?.environment,
-
       // Derived flags (stable primitives)
       canExecute: taskPrimitives?.canExecute ?? false,
       isRunning: taskPrimitives?.isRunning ?? false,
@@ -244,7 +196,6 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     [
       taskId,
       taskPrimitives,
-      workspacePrimitives,
       gitDiffQuery.data,
       eventPrimitives,
       streamingEvents,
@@ -274,44 +225,6 @@ export function useTaskData() {
 export function useTaskStatus() {
   const { status, isRunning, canExecute, isComplete } = useTaskData()
   return { status, isRunning, canExecute, isComplete }
-}
-
-export function useWorkspaceStatus() {
-  const { workspaceState, environmentStatus, agentState, workspaceReady, workspaceHasChanges } =
-    useTaskData()
-  return { workspaceState, environmentStatus, agentState, workspaceReady, workspaceHasChanges }
-}
-
-export function useWorkspaceStatusWithLoading() {
-  const { taskId } = useTaskData()
-  const workspaceQuery = useQuery({
-    queryKey: queryKeys.tasks.workspaceStatus(taskId),
-    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
-    enabled: !!taskId && !taskId.startsWith('temp-'),
-    refetchInterval: (query) => {
-      const data = query.state.data as WorkspaceStatusResponse | undefined
-      const envStatus = data?.environment?.status
-      const agentState = data?.agent?.state
-      // Only poll when in transitional states
-      if (envStatus === 'initializing' || envStatus === 'cleaning' || agentState === 'running') {
-        return 3000 // 3 seconds for transitional states
-      }
-      return false // Stop polling when stable
-    },
-    staleTime: 2000, // Consider data stale after 2 seconds
-  })
-
-  const workspace = workspaceQuery.data
-  return {
-    workspaceState: workspace?.workspace?.state,
-    environmentStatus: workspace?.environment?.status,
-    agentState: workspace?.agent?.state,
-    workspaceReady: workspace?.environment?.status === 'ready',
-    workspaceHasChanges:
-      workspace?.gitStatus?.hasUncommittedChanges || workspace?.gitStatus?.hasConflicts || false,
-    isLoading: workspaceQuery.isLoading,
-    error: workspaceQuery.error,
-  }
 }
 
 export function useTaskIterations() {

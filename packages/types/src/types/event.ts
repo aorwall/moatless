@@ -1,5 +1,6 @@
 // Re-export all event types from event schemas
 export type {
+  AgentEvent,
   BaseEvent,
   ErrorEvent,
   Event,

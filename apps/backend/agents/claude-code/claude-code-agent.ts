@@ -55,6 +55,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
       let eventCount = 0
       let hasStartedProcessing = false
+      let hasEmittedStarted = false
 
       agentLogger.info('Initiating Claude Code SDK query', {
         promptLength: message.length,
@@ -73,6 +74,16 @@ export class ClaudeCodeAgent extends BaseAgent {
           eventCount,
           sdkMessage,
         })
+
+        // Emit 'agent started' event on first real event (not system/init)
+        if (!hasEmittedStarted && sdkMessage.type !== 'system') {
+          hasEmittedStarted = true
+          yield this.createEventWithContextTokens(
+            { type: 'agent', subType: 'started' },
+            'agent',
+            false,
+          )
+        }
 
         if (this.stopRequested) {
           agentLogger.info('Stop requested, breaking from SDK query loop', { eventCount })
@@ -140,6 +151,18 @@ export class ClaudeCodeAgent extends BaseAgent {
           exitCode,
         })
 
+        // Emit agent error event
+        yield this.createEventWithContextTokens(
+          {
+            type: 'agent',
+            subType: 'error',
+            error: error.message,
+            exitCode,
+          },
+          'agent',
+          true,
+        )
+
         // Only throw if it's truly unexpected
         throw error
       }
@@ -147,6 +170,19 @@ export class ClaudeCodeAgent extends BaseAgent {
         stopRequested: this.stopRequested,
         sessionId: this.sessionId,
       })
+
+      // Emit agent error event
+      yield this.createEventWithContextTokens(
+        {
+          type: 'agent',
+          subType: 'error',
+          error: error instanceof Error ? error.message : String(error),
+          stackTrace: error instanceof Error ? error.stack : undefined,
+        },
+        'agent',
+        true,
+      )
+
       throw error
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
@@ -169,20 +205,27 @@ export class ClaudeCodeAgent extends BaseAgent {
   }
 
   private createEventWithContextTokens(
-    payload: ClaudeCodeSDKMessage,
+    payload: ClaudeCodeSDKMessage | Record<string, unknown>,
     type: z.infer<typeof EventTypeSchema>,
     isError = false,
   ): Event {
-    const contextTokens = calculateContextTokens(payload)
+    const contextTokens =
+      'type' in payload && 'session_id' in payload
+        ? calculateContextTokens(payload as ClaudeCodeSDKMessage)
+        : 0
+
+    const sessionId =
+      'session_id' in payload ? (payload as ClaudeCodeSDKMessage).session_id : this.sessionId
 
     return {
       eventId: crypto.randomUUID(),
       agentType: this.getAgentType(),
       type,
+      subType: 'subType' in payload ? (payload.subType as string) : undefined,
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),
-      agentSessionId: payload.session_id,
+      agentSessionId: sessionId,
       isError,
       contextTokens,
       payload,

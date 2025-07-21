@@ -9,19 +9,22 @@ export interface TaskStatusConfig {
 }
 
 /**
- * Determines if a task is currently running based on agent state.
- * This is the new preferred way to check if a task is running.
+ * Determines if a task is currently running based on iteration status.
+ * Note: This is a temporary implementation. The actual running state
+ * should come from workspace status when available.
  */
-export function isTaskRunning(task: Pick<Task, 'agent'>): boolean {
-  return task.agent?.state === 'running'
+export function isTaskRunning(task: Pick<Task, 'iterations'>): boolean {
+  const lastIteration = task.iterations?.[task.iterations.length - 1]
+  return lastIteration?.status === 'active'
 }
 
 /**
- * Gets the display status for a task, handling both legacy task.status
- * and new agent-based running state.
+ * Gets the display status for a task.
+ * Note: This is a temporary implementation. The actual running state
+ * should come from workspace status when available.
  */
-export function getTaskDisplayStatus(task: Task): string {
-  // If agent is running, show as running regardless of task status
+export function getTaskDisplayStatus(task: Pick<Task, 'status' | 'iterations'>): string {
+  // If last iteration is active, show as running regardless of task status
   if (isTaskRunning(task)) {
     return 'running'
   }

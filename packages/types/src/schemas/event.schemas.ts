@@ -18,6 +18,7 @@ export const EventTypeSchema = z.enum([
   'tool',
   'completion',
   'task_status',
+  'agent',
 ])
 
 // ============================================
@@ -121,6 +122,13 @@ export const TaskStatusEventSchema = BaseEventSchema.extend({
   payload: TaskStatusPayloadSchema,
 })
 
+// Agent event
+export const AgentEventSchema = BaseEventSchema.extend({
+  type: z.literal('agent'),
+  subType: z.string(), // 'started' | 'error' | etc
+  payload: EventPayloadSchema,
+})
+
 // Union of all specific event types
 export const SpecificEventSchema = z.discriminatedUnion('type', [
   MessageEventSchema,
@@ -130,6 +138,7 @@ export const SpecificEventSchema = z.discriminatedUnion('type', [
   ServerEventSchema,
   ResultEventSchema,
   TaskStatusEventSchema,
+  AgentEventSchema,
 ])
 
 // ============================================
@@ -212,6 +221,7 @@ export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
 export type ResultEvent = z.infer<typeof ResultEventSchema>
 export type TaskStatusEvent = z.infer<typeof TaskStatusEventSchema>
+export type AgentEvent = z.infer<typeof AgentEventSchema>
 export type SpecificEvent = z.infer<typeof SpecificEventSchema>
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
 export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>

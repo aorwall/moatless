@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.bun
+.npm
 
 # Build outputs
 dist/
@@ -51,7 +53,6 @@ uploads
 # NPM package files
 *.tgz
 *.tar.gz
-
 
 .local
 .config
