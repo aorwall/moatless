@@ -29,7 +29,10 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
 
   // Determine if file has changes (for diff mode)
   const hasChanges = data?.isModified && data?.oldContent
-  const [viewMode, setViewMode] = useState<'code' | 'diff'>('code')
+
+  // Auto-set diff view when file has changes (derived state pattern)
+  const initialViewMode = hasChanges ? 'diff' : 'code'
+  const [viewMode, setViewMode] = useState<'code' | 'diff'>(initialViewMode)
 
   // Memoize content processing
   const content = useMemo(() => {
