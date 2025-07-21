@@ -25,17 +25,12 @@ if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
 fi
 
 # Configure git worktree environment if needed
-if [ "$USE_GIT_WORKTREES" = "true" ] && [ -f "$WORKSPACE_DIR/.git" ]; then
+if [ "$USE_GIT_WORKTREES" = "true" ] && [ -n "$GIT_WORKTREE_NAME" ]; then
     echo "Detected git worktree, configuring git environment..."
     
-    # Read the gitdir path from the .git file
-    GITDIR=$(cat "$WORKSPACE_DIR/.git" | sed 's/gitdir: //')
-    
-    # Extract the worktree name from the path
-    WORKTREE_NAME=$(basename "$GITDIR")
-    
-    # Set git environment variables instead of modifying files
-    export GIT_DIR="/main-repo-git/worktrees/$WORKTREE_NAME"
+    # Use the worktree name passed from the Docker environment setup
+    # instead of reading from the .git file which contains host paths
+    export GIT_DIR="/main-repo-git/worktrees/$GIT_WORKTREE_NAME"
     export GIT_WORK_TREE="$WORKSPACE_DIR"
     
     echo "Configured git environment variables:"
