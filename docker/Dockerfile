@@ -207,9 +207,9 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 COPY dist /tmp/moatless-vibe/dist
 COPY bin /tmp/moatless-vibe/bin
 COPY package.json README.md LICENSE /tmp/moatless-vibe/
-# Remove the prepare script that causes issues in Docker and install package
+# Remove the prepare and postinstall scripts that cause issues in Docker and install package
 RUN cd /tmp/moatless-vibe && \
-    node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))" && \
+    node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; delete pkg.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))" && \
     npm pack && \
     npm install -g ./moatless-vibe-*.tgz && \
     rm -rf /tmp/moatless-vibe
