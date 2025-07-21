@@ -6,19 +6,14 @@ import { dateSchema } from '../utils/validation.js'
 // ============================================
 
 // Event type enum using string literals (following schema design patterns)
+// Consolidated from 12 types to 5 logical types
 export const EventTypeSchema = z.enum([
-  'message',
-  'start',
-  'stop',
-  'result',
-  'error',
-  'workspace',
-  'environment',
-  'server',
-  'tool',
-  'completion',
-  'task_status',
-  'agent',
+  'task', // Task lifecycle (replaces task_status)
+  'taskIteration', // Task iteration execution (new)
+  'workspace', // Workspace operations (unchanged)
+  'environment', // Environment setup/status (unchanged)
+  'agent', // Agent lifecycle + messages + results (consolidated)
+  'server', // Server management (unchanged)
 ])
 
 // ============================================
@@ -62,11 +57,17 @@ export const ErrorPayloadSchema = z.object({
   code: z.string().optional(),
 })
 
-// Task status payload schema
-export const TaskStatusPayloadSchema = z.object({
+// Task payload schema
+export const TaskPayloadSchema = z.object({
   status: z.string(),
   previousStatus: z.string(),
-  iterationNumber: z.number().optional(),
+})
+
+// Task iteration payload schema
+export const TaskIterationPayloadSchema = z.object({
+  status: z.string(),
+  previousStatus: z.string(),
+  iterationNumber: z.number(),
 })
 
 // ============================================
@@ -78,66 +79,59 @@ export const EventSchema = BaseEventSchema.extend({
   payload: EventPayloadSchema,
 })
 
-// Message event
-export const MessageEventSchema = BaseEventSchema.extend({
-  type: z.literal('message'),
-  payload: ClaudeCodeSDKMessageSchema,
+// Task event
+export const TaskEventSchema = BaseEventSchema.extend({
+  type: z.literal('task'),
+  subType: z.enum(['created', 'open', 'closed']),
+  payload: TaskPayloadSchema,
 })
 
-// Error event
-export const ErrorEventSchema = BaseEventSchema.extend({
-  type: z.literal('error'),
-  isError: z.literal(true),
-  payload: ErrorPayloadSchema,
+// Task iteration event
+export const TaskIterationEventSchema = BaseEventSchema.extend({
+  type: z.literal('taskIteration'),
+  subType: z.enum(['created', 'active', 'completed', 'error']),
+  payload: TaskIterationPayloadSchema,
 })
 
 // Workspace event
 export const WorkspaceEventSchema = BaseEventSchema.extend({
   type: z.literal('workspace'),
+  subType: z.enum(['ready', 'destroyed', 'error']),
   payload: EventPayloadSchema,
 })
 
 // Environment event
 export const EnvironmentEventSchema = BaseEventSchema.extend({
   type: z.literal('environment'),
+  subType: z.enum(['initializing', 'ready', 'error', 'cleaning']),
   payload: EventPayloadSchema,
 })
 
 // Server event
 export const ServerEventSchema = BaseEventSchema.extend({
   type: z.literal('server'),
+  subType: z.enum(['starting', 'started', 'stopped', 'error']),
   payload: EventPayloadSchema,
 })
 
-// Result event
-export const ResultEventSchema = BaseEventSchema.extend({
-  type: z.literal('result'),
-  payload: SDKResultMessageSchema,
-})
-
-// Task status event
-export const TaskStatusEventSchema = BaseEventSchema.extend({
-  type: z.literal('task_status'),
-  subType: z.string(), // The status that was changed to
-  payload: TaskStatusPayloadSchema,
-})
-
-// Agent event
+// Agent event (consolidated: messages, results, lifecycle)
 export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
-  subType: z.string(), // 'started' | 'error' | etc
-  payload: EventPayloadSchema,
+  subType: z.enum(['started', 'stopped', 'message', 'completed', 'error']),
+  payload: z.union([
+    ClaudeCodeSDKMessageSchema, // for 'message' subtype
+    SDKResultMessageSchema, // for 'completed' subtype
+    EventPayloadSchema, // for other subtypes
+  ]),
 })
 
 // Union of all specific event types
 export const SpecificEventSchema = z.discriminatedUnion('type', [
-  MessageEventSchema,
-  ErrorEventSchema,
+  TaskEventSchema,
+  TaskIterationEventSchema,
   WorkspaceEventSchema,
   EnvironmentEventSchema,
   ServerEventSchema,
-  ResultEventSchema,
-  TaskStatusEventSchema,
   AgentEventSchema,
 ])
 
@@ -214,13 +208,11 @@ export type EventPayload = z.infer<typeof EventPayloadSchema>
 export type Event = z.infer<typeof EventSchema>
 // Re-export types from claude.js
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from '../types/claude.js'
-export type MessageEvent = z.infer<typeof MessageEventSchema>
-export type ErrorEvent = z.infer<typeof ErrorEventSchema>
+export type TaskEvent = z.infer<typeof TaskEventSchema>
+export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
-export type ResultEvent = z.infer<typeof ResultEventSchema>
-export type TaskStatusEvent = z.infer<typeof TaskStatusEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 export type SpecificEvent = z.infer<typeof SpecificEventSchema>
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>

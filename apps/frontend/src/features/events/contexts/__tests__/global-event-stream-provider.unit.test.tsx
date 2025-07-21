@@ -29,7 +29,7 @@ function TestComponent({
   // Subscribe to test events
   React.useEffect(() => {
     const unsubscribeTask = subscribeToTask('task-123', onEvent)
-    const unsubscribeType = subscribeToType('task_status', onEvent)
+    const unsubscribeType = subscribeToType('task', onEvent)
 
     return () => {
       unsubscribeTask()
@@ -110,7 +110,8 @@ describe('GlobalEventStreamProvider', () => {
     // Simulate a task status event
     const taskStatusEvent = {
       id: 'event-1',
-      type: 'task_status',
+      type: 'task',
+      subType: 'open',
       taskId: 'task-123',
       timestamp: Date.now(),
       data: { status: 'running', previousStatus: 'created' },
@@ -151,7 +152,8 @@ describe('GlobalEventStreamProvider', () => {
     // Simulate events for different tasks
     const task1Event = {
       id: 'event-1',
-      type: 'task_status',
+      type: 'task',
+      subType: 'open',
       taskId: 'task-123',
       timestamp: Date.now(),
       data: { status: 'running' },

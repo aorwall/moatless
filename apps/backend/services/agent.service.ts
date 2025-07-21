@@ -270,8 +270,8 @@ export class AgentService {
       // Emit error event - task service will handle the task/iteration updates
       await this.eventService.emitEvent({
         taskId,
-        type: 'error',
-        subType: 'execution_failed',
+        type: 'agent',
+        subType: 'error',
         payload: {
           error: error instanceof Error ? error.message : String(error),
           stackTrace: error instanceof Error ? error.stack : undefined,

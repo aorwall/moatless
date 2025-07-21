@@ -1,12 +1,11 @@
 import type {
-  ErrorEvent,
+  AgentEvent,
   Event,
   EventListResponse,
-  MessageEvent,
-  ResultEvent,
   ServerEvent,
   StreamStatusResponse,
-  TaskStatusEvent,
+  TaskEvent,
+  TaskIterationEvent,
   WorkspaceEvent,
 } from '../../types/event.js'
 
@@ -14,7 +13,8 @@ export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
     eventId: 'event-123',
     agentType: 'claude-code',
-    type: 'message',
+    type: 'agent',
+    subType: 'message',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
@@ -23,11 +23,12 @@ export function createMockEvent(overrides?: Partial<Event>): Event {
   }
 }
 
-export function createMockMessageEvent(overrides?: Partial<MessageEvent>): MessageEvent {
+export function createMockAgentMessageEvent(overrides?: Partial<AgentEvent>): AgentEvent {
   return {
     eventId: 'message-event-123',
     agentType: 'claude-code',
-    type: 'message',
+    type: 'agent',
+    subType: 'message',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
@@ -44,11 +45,15 @@ export function createMockMessageEvent(overrides?: Partial<MessageEvent>): Messa
   }
 }
 
-export function createMockErrorEvent(error: string, overrides?: Partial<ErrorEvent>): ErrorEvent {
+export function createMockAgentErrorEvent(
+  error: string,
+  overrides?: Partial<AgentEvent>,
+): AgentEvent {
   return {
     eventId: 'error-event-123',
     agentType: 'claude-code',
-    type: 'error',
+    type: 'agent',
+    subType: 'error',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: true,
@@ -66,6 +71,7 @@ export function createMockWorkspaceEvent(overrides?: Partial<WorkspaceEvent>): W
     eventId: 'workspace-event-123',
     agentType: 'claude-code',
     type: 'workspace',
+    subType: 'ready',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
@@ -83,6 +89,7 @@ export function createMockServerEvent(overrides?: Partial<ServerEvent>): ServerE
     eventId: 'server-event-123',
     agentType: 'claude-code',
     type: 'server',
+    subType: 'started',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
@@ -95,11 +102,12 @@ export function createMockServerEvent(overrides?: Partial<ServerEvent>): ServerE
   }
 }
 
-export function createMockResultEvent(overrides?: Partial<ResultEvent>): ResultEvent {
+export function createMockAgentCompletedEvent(overrides?: Partial<AgentEvent>): AgentEvent {
   return {
     eventId: 'result-event-123',
     agentType: 'claude-code',
-    type: 'result',
+    type: 'agent',
+    subType: 'completed',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
@@ -112,14 +120,14 @@ export function createMockResultEvent(overrides?: Partial<ResultEvent>): ResultE
   }
 }
 
-export function createMockTaskStatusEvent(
-  status: string,
-  overrides?: Partial<TaskStatusEvent>,
-): TaskStatusEvent {
+export function createMockTaskEvent(
+  status: 'created' | 'open' | 'closed',
+  overrides?: Partial<TaskEvent>,
+): TaskEvent {
   return {
-    eventId: 'task-status-event-123',
+    eventId: 'task-event-123',
     agentType: 'claude-code',
-    type: 'task_status',
+    type: 'task',
     subType: status,
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
@@ -127,6 +135,26 @@ export function createMockTaskStatusEvent(
     payload: {
       status,
       previousStatus: 'open',
+    },
+    ...overrides,
+  }
+}
+
+export function createMockTaskIterationEvent(
+  status: 'created' | 'active' | 'completed' | 'error',
+  overrides?: Partial<TaskIterationEvent>,
+): TaskIterationEvent {
+  return {
+    eventId: 'task-iteration-event-123',
+    agentType: 'claude-code',
+    type: 'taskIteration',
+    subType: status,
+    taskId: 'task-123',
+    timestamp: new Date('2024-01-01T00:00:00Z'),
+    isError: status === 'error',
+    payload: {
+      status,
+      previousStatus: 'created',
       iterationNumber: 1,
     },
     ...overrides,
@@ -137,7 +165,7 @@ export function createMockEventListResponse(eventCount = 5): EventListResponse {
   const items: Event[] = []
 
   for (let i = 0; i < eventCount; i++) {
-    const eventTypes = ['message', 'workspace', 'server', 'result'] as const
+    const eventTypes = ['agent', 'workspace', 'server', 'task'] as const
     const type = eventTypes[i % eventTypes.length]
 
     items.push(

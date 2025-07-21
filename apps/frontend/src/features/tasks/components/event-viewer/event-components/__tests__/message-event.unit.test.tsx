@@ -7,8 +7,8 @@ import { MessageEvent } from '../message-event'
 describe('MessageEvent', () => {
   const createMessageEvent = (payload: Record<string, unknown>): Event => ({
     eventId: 'test-event',
-    type: 'message',
-    subType: '',
+    type: 'agent',
+    subType: 'message',
     taskId: 'test-task',
     iterationId: 1,
     timestamp: new Date('2025-01-01T00:00:00Z'),
@@ -221,7 +221,8 @@ describe('MessageEvent', () => {
     it('should handle SDK assistant message with content array', () => {
       const event: Event = {
         eventId: 'e81f1d4c-d470-4bf0-bf53-8e20468fb922',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
@@ -268,7 +269,8 @@ describe('MessageEvent', () => {
     it('should handle SDK tool use message', () => {
       const event: Event = {
         eventId: 'b9e99242-2bef-4dc9-b47a-56028303a971',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.552Z'),
@@ -316,7 +318,8 @@ describe('MessageEvent', () => {
     it('should handle SDK user message with tool result', () => {
       const event: Event = {
         eventId: 'a2370d8d-c3de-4e31-8ebb-77a91eb27cfc',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:38.105Z'),
@@ -349,7 +352,8 @@ describe('MessageEvent', () => {
     it('should handle SDK message with multiple content items', () => {
       const event: Event = {
         eventId: 'test-multiple-content',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: 'test-task',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
@@ -397,7 +401,8 @@ describe('MessageEvent', () => {
     it('should handle SDK message with empty content array', () => {
       const event: Event = {
         eventId: 'test-empty-content',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: 'test-task',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),
@@ -429,7 +434,8 @@ describe('MessageEvent', () => {
     it('should correctly identify role from payload.type when message.role differs', () => {
       const event: Event = {
         eventId: 'test-role-priority',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: 'test-task',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:37.087Z'),

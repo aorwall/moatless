@@ -16,18 +16,18 @@ export * from './claude-content.js'
 export * from './command.js'
 // Export event types from event.js
 export type {
+  AgentEvent,
   BaseEvent,
   ClaudeCodeSDKMessage,
-  ErrorEvent,
+  EnvironmentEvent,
   Event,
   EventPayload,
   EventType,
-  MessageEvent,
-  ResultEvent,
   SDKResultMessage,
   ServerEvent,
   SpecificEvent,
-  TaskStatusEvent,
+  TaskEvent,
+  TaskIterationEvent,
   WorkspaceEvent,
 } from './event.js'
 export * from './message.js'

@@ -1,4 +1,4 @@
-import type { Event, EventType } from '@moatless/types'
+import type { Event, EventType, WorkspaceStatusResponse } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -57,6 +57,35 @@ export function GlobalEventStreamProvider({
 
       // Use smart invalidation mapping for all events with taskId
       if (event.taskId) {
+        // Apply optimistic updates for workspace status events
+        if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
+          const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
+          queryClient.setQueryData(queryKey, (old: WorkspaceStatusResponse | undefined) => {
+            if (!old) return old
+
+            switch (event.type) {
+              case 'agent':
+                if (event.subType === 'started') {
+                  return { ...old, agentState: 'running', isRunning: true }
+                }
+                if (event.subType === 'stopped' || event.subType === 'error') {
+                  return { ...old, agentState: 'idle', isRunning: false }
+                }
+                break
+              case 'environment':
+                return {
+                  ...old,
+                  environmentStatus: event.subType,
+                  workspaceReady: event.subType === 'ready',
+                  canExecute: event.subType === 'ready' && old.agentState === 'idle',
+                }
+              case 'workspace':
+                return { ...old, workspaceState: event.subType }
+            }
+            return old
+          })
+        }
+
         const invalidationKeys = getInvalidationKeys(event)
 
         if (invalidationKeys.length > 0) {
@@ -76,26 +105,6 @@ export function GlobalEventStreamProvider({
               })
             }
           })
-        }
-      }
-
-      // Handle subType-specific invalidations (legacy support)
-      if (event.taskId && event.subType) {
-        switch (event.subType) {
-          case 'iteration:created':
-          case 'iteration:updated':
-          case 'task:created':
-          case 'task:updated':
-            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(event.taskId) })
-            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
-            break
-
-          case 'tool:start':
-          case 'tool:result':
-          case 'tool:error':
-            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.messages(event.taskId) })
-            queryClient.invalidateQueries({ queryKey: queryKeys.tasks.events(event.taskId) })
-            break
         }
       }
 

@@ -2,17 +2,16 @@
 export type {
   AgentEvent,
   BaseEvent,
-  ErrorEvent,
+  EnvironmentEvent,
   Event,
   EventListResponse,
   EventPayload,
   EventType,
-  MessageEvent,
-  ResultEvent,
   ServerEvent,
   SpecificEvent,
   StreamStatusResponse,
-  TaskStatusEvent,
+  TaskEvent,
+  TaskIterationEvent,
   WorkspaceEvent,
 } from '../schemas/event.schemas.js'
 

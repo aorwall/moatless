@@ -1,11 +1,11 @@
 import { query } from '@anthropic-ai/claude-code'
 import type {
+  AgentEvent,
   BranchNameAndSummary,
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
   EventTypeSchema,
-  ResultEvent,
 } from '@moatless/types'
 import type { z } from 'zod'
 
@@ -106,9 +106,14 @@ export class ClaudeCodeAgent extends BaseAgent {
             isError,
             subtype: 'subtype' in sdkMessage ? sdkMessage.subtype : undefined,
           })
-          yield this.createEventWithContextTokens(sdkMessage, 'result', isError) as ResultEvent
+          yield this.createEventWithContextTokens(
+            sdkMessage,
+            'agent',
+            isError,
+            'completed',
+          ) as AgentEvent
         } else {
-          yield this.createEventWithContextTokens(sdkMessage, 'message')
+          yield this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message')
         }
       }
 
@@ -208,6 +213,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     payload: ClaudeCodeSDKMessage | Record<string, unknown>,
     type: z.infer<typeof EventTypeSchema>,
     isError = false,
+    subType?: string,
   ): Event {
     const contextTokens =
       'type' in payload && 'session_id' in payload
@@ -221,7 +227,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       eventId: crypto.randomUUID(),
       agentType: this.getAgentType(),
       type,
-      subType: 'subType' in payload ? (payload.subType as string) : undefined,
+      subType: subType || ('subType' in payload ? (payload.subType as string) : undefined),
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),

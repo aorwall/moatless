@@ -5,20 +5,20 @@ import {
   EVENT_INVALIDATION_MAP,
   getInvalidationKeys,
   isStatusAffectingEvent,
-  STATUS_AFFECTING_EVENTS,
   shouldInvalidateTaskList,
 } from '../event-handlers'
 
 describe('event-handlers', () => {
   describe('getInvalidationKeys', () => {
-    it('should return correct invalidation keys for TASK_STATUS event', () => {
+    it('should return correct invalidation keys for TASK event', () => {
       const event: Event = {
         eventId: 'event-1',
-        type: 'task_status',
+        type: 'task',
+        subType: 'open',
         taskId: 'task-123',
         agentType: 'test',
         isError: false,
-        payload: { status: 'running' },
+        payload: { status: 'open' },
       }
 
       const keys = getInvalidationKeys(event)
@@ -28,10 +28,11 @@ describe('event-handlers', () => {
       expect(keys[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })
 
-    it('should return correct invalidation keys for RESULT event', () => {
+    it('should return correct invalidation keys for AGENT COMPLETED event', () => {
       const event: Event = {
         eventId: 'event-2',
-        type: 'result',
+        type: 'agent',
+        subType: 'completed',
         taskId: 'task-456',
         agentType: 'test',
         isError: false,
@@ -46,10 +47,11 @@ describe('event-handlers', () => {
       expect(keys[1]('task-456')).toEqual(queryKeys.tasks.gitDiff('task-456'))
     })
 
-    it('should return correct invalidation keys for MESSAGE event', () => {
+    it('should return correct invalidation keys for AGENT MESSAGE event', () => {
       const event: Event = {
         eventId: 'event-3',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: 'task-789',
         agentType: 'test',
         isError: false,
@@ -82,7 +84,12 @@ describe('event-handlers', () => {
 
   describe('shouldInvalidateTaskList', () => {
     it('should return true for status-affecting events', () => {
-      const statusEvents = [{ type: 'error' }, { type: 'task_status' }]
+      const statusEvents = [
+        { type: 'task', subType: 'open' },
+        { type: 'task', subType: 'closed' },
+        { type: 'taskIteration', subType: 'completed' },
+        { type: 'agent', subType: 'error' },
+      ]
 
       statusEvents.forEach((event) => {
         expect(shouldInvalidateTaskList(event as any)).toBe(true)
@@ -91,11 +98,8 @@ describe('event-handlers', () => {
 
     it('should return false for non-status-affecting events', () => {
       const nonStatusEvents = [
-        { type: 'message' },
-        { type: 'workspace' },
-        { type: 'tool' },
-        { type: 'server' },
-        { type: 'result' }, // RESULT no longer affects task status directly
+        { type: 'agent', subType: 'message' },
+        { type: 'taskIteration', subType: 'created' },
       ]
 
       nonStatusEvents.forEach((event) => {
@@ -106,8 +110,14 @@ describe('event-handlers', () => {
 
   describe('isStatusAffectingEvent', () => {
     it('should identify status-affecting events correctly', () => {
-      STATUS_AFFECTING_EVENTS.forEach((eventType) => {
-        expect(isStatusAffectingEvent({ type: eventType } as any)).toBe(true)
+      const statusEvents = [
+        { type: 'task', subType: 'open' },
+        { type: 'taskIteration', subType: 'active' },
+        { type: 'agent', subType: 'started' },
+      ]
+
+      statusEvents.forEach((event) => {
+        expect(isStatusAffectingEvent(event as any)).toBe(true)
       })
     })
   })
@@ -115,21 +125,26 @@ describe('event-handlers', () => {
   describe('EVENT_INVALIDATION_MAP', () => {
     it('should not include tasks.all invalidation for any event', () => {
       // Verify that no event type invalidates all tasks
-      Object.entries(EVENT_INVALIDATION_MAP).forEach(([_eventType, invalidationFns]) => {
+      Object.entries(EVENT_INVALIDATION_MAP).forEach(([_eventType, typeMapping]) => {
+        const invalidationFns = Array.isArray(typeMapping)
+          ? typeMapping
+          : Object.values(typeMapping).flat()
         invalidationFns.forEach((fn) => {
-          const result = fn('test-task-id')
-          // Ensure no invalidation key equals ['tasks'] which would invalidate all tasks
-          expect(result).not.toEqual(['tasks'])
-          expect(result).not.toEqual(queryKeys.tasks.all)
+          if (typeof fn === 'function') {
+            const result = fn('test-task-id')
+            // Ensure no invalidation key equals ['tasks'] which would invalidate all tasks
+            expect(result).not.toEqual(['tasks'])
+            expect(result).not.toEqual(queryKeys.tasks.all)
+          }
         })
       })
     })
 
     it('should only invalidate specific task resources', () => {
-      // Verify TASK_STATUS only invalidates the specific task
-      const taskStatusInvalidations = EVENT_INVALIDATION_MAP['task_status']
-      expect(taskStatusInvalidations).toHaveLength(1)
-      expect(taskStatusInvalidations[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
+      // Verify TASK only invalidates the specific task
+      const taskInvalidations = EVENT_INVALIDATION_MAP['task']['*']
+      expect(taskInvalidations).toHaveLength(1)
+      expect(taskInvalidations[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })
   })
 })

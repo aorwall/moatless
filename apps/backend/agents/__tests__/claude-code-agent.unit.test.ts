@@ -58,8 +58,8 @@ describe('ClaudeCodeAgent', () => {
         events.push(event)
       }
 
-      // Find the message event
-      const messageEvent = events.find((e: any) => e.type === 'message')
+      // Find the agent message event
+      const messageEvent = events.find((e: any) => e.type === 'agent' && e.subType === 'message')
       expect(messageEvent).toBeDefined()
       // Verify contextTokens is calculated correctly: 4 + 99604 + 10161 = 109769
       expect((messageEvent as any).contextTokens).toBe(109769)
@@ -101,8 +101,8 @@ describe('ClaudeCodeAgent', () => {
         events.push(event)
       }
 
-      // Find the message event
-      const messageEvent = events.find((e: any) => e.type === 'message')
+      // Find the agent message event
+      const messageEvent = events.find((e: any) => e.type === 'agent' && e.subType === 'message')
       expect(messageEvent).toBeDefined()
       // Verify contextTokens is undefined when no usage data
       expect((messageEvent as any).contextTokens).toBeUndefined()
@@ -155,10 +155,10 @@ describe('ClaudeCodeAgent', () => {
         events.push(event)
       }
 
-      // Find the message event
-      const messageEvent = events.find((e: any) => e.type === 'message')
+      // Find the agent message event
+      const messageEvent = events.find((e: any) => e.type === 'agent' && e.subType === 'message')
       expect(messageEvent).toBeDefined()
-      expect((messageEvent as any).subType).toBeUndefined()
+      expect((messageEvent as any).subType).toBe('message')
       expect((messageEvent as any).payload.message.content[0].type).toBe('text')
     })
   })

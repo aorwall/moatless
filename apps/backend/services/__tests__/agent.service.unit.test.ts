@@ -309,7 +309,8 @@ describe('AgentService', () => {
       vi.mocked(mockAgent.run).mockImplementation(async function* () {
         yield {
           eventId: 'error-1',
-          type: 'error',
+          type: 'agent',
+          subType: 'error',
           taskId: 'task-1',
           timestamp: new Date(),
           agentType: 'claude-code',
@@ -333,7 +334,8 @@ describe('AgentService', () => {
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: 'task-1',
-          type: 'error',
+          type: 'agent',
+          subType: 'error',
           isError: true,
         }),
       )

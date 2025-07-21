@@ -79,9 +79,11 @@ export class TaskService {
   private shouldHandleEvent(event: Event): boolean {
     // Handle events that affect task state
     return (
-      event.type === 'result' ||
-      event.type === 'error' ||
-      (event.type === 'message' && event.contextTokens !== undefined) ||
+      (event.type === 'agent' && event.subType === 'completed') ||
+      (event.type === 'agent' && event.subType === 'error') ||
+      (event.type === 'agent' &&
+        event.subType === 'message' &&
+        event.contextTokens !== undefined) ||
       event.agentSessionId !== undefined // Handle any event with agentSessionId
     )
   }
@@ -124,14 +126,17 @@ export class TaskService {
 
       // Handle different event types
       switch (event.type) {
-        case 'result':
-          await this.handleResultEvent(task, iteration, event)
-          break
-        case 'error':
-          await this.handleErrorEvent(task, iteration, event)
-          break
-        case 'message':
-          await this.handleMessageEvent(task, iteration, event)
+        case 'agent':
+          if (event.subType === 'completed') {
+            await this.handleResultEvent(task, iteration, event)
+          } else if (event.subType === 'error') {
+            await this.handleErrorEvent(task, iteration, event)
+          } else if (event.subType === 'message') {
+            await this.handleMessageEvent(task, iteration, event)
+          } else if (event.agentSessionId) {
+            // For any other agent event type, just save if we updated agentSessionId
+            await this.storage.saveTask(task)
+          }
           break
         default:
           // For any other event type, just save if we updated agentSessionId
@@ -226,12 +231,11 @@ export class TaskService {
     if (previousStatus !== newStatus) {
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: 'task_status',
-        subType: newStatus,
+        type: 'task',
+        subType: newStatus as 'open' | 'closed',
         payload: {
           status: newStatus,
           previousStatus,
-          iterationNumber: iteration.iterationNumber,
         },
         eventId: randomUUID(),
         timestamp: new Date(),
@@ -277,13 +281,12 @@ export class TaskService {
     // Emit iteration status change event
     await this.eventService.emitEvent({
       taskId: task.taskId,
-      type: 'task_status',
-      subType: 'failed',
+      type: 'taskIteration',
+      subType: 'error',
       payload: {
-        status: 'failed',
+        status: 'error',
         previousStatus: 'active',
         iterationNumber: iteration.iterationNumber,
-        error: iteration.error?.message,
       },
       eventId: randomUUID(),
       timestamp: new Date(),
@@ -405,7 +408,7 @@ export class TaskService {
       // Emit task created event
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: 'task_status',
+        type: 'task',
         subType: 'open',
         payload: {
           status: 'open',
@@ -497,14 +500,15 @@ export class TaskService {
               await this.eventService.emitEvent({
                 eventId: randomUUID(),
                 taskId,
-                type: 'task_status',
-                subType: 'failed',
+                type: 'taskIteration',
+                subType: 'error',
                 isError: true,
                 agentType: task.agentType,
+                timestamp: new Date(),
                 payload: {
-                  status: 'failed',
+                  status: 'error',
                   previousStatus: 'active',
-                  error: error instanceof Error ? error.message : String(error),
+                  iterationNumber: iteration.iterationNumber,
                 },
               })
             }
@@ -534,14 +538,14 @@ export class TaskService {
           await this.eventService.emitEvent({
             eventId: randomUUID(),
             taskId,
-            type: 'task_status',
-            subType: 'error',
+            type: 'task',
+            subType: 'open',
             isError: true,
             agentType: task.agentType,
+            timestamp: new Date(),
             payload: {
-              status: 'error',
-              previousStatus,
-              error: error instanceof Error ? error.message : String(error),
+              status: 'open',
+              previousStatus: task.status,
             },
           })
         }
@@ -598,10 +602,11 @@ export class TaskService {
     // Emit iteration status change event
     await this.eventService.emitEvent({
       taskId,
-      type: 'task_status',
+      type: 'taskIteration',
       subType: 'active',
       payload: {
         status: 'active',
+        previousStatus: lastIteration.status,
         iterationNumber: lastIteration.iterationNumber,
       },
       eventId: randomUUID(),
@@ -645,14 +650,14 @@ export class TaskService {
                 await this.eventService.emitEvent({
                   eventId: randomUUID(),
                   taskId,
-                  type: 'task_status',
+                  type: 'taskIteration',
                   subType: 'error',
                   isError: true,
                   agentType: updatedTask.agentType,
+                  timestamp: new Date(),
                   payload: {
                     status: 'error',
-                    previousStatus,
-                    error: error instanceof Error ? error.message : String(error),
+                    previousStatus: iteration.status,
                     iterationNumber: lastIteration.iterationNumber,
                   },
                 })
@@ -992,10 +997,11 @@ export class TaskService {
     // Emit iteration status change event
     await this.eventService.emitEvent({
       taskId,
-      type: 'task_status',
+      type: 'taskIteration',
       subType: 'active',
       payload: {
         status: 'active',
+        previousStatus: 'created',
         iterationNumber: iteration.iterationNumber,
       },
       eventId: randomUUID(),
@@ -1029,14 +1035,14 @@ export class TaskService {
           await this.eventService.emitEvent({
             eventId: randomUUID(),
             taskId,
-            type: 'task_status',
-            subType: 'failed',
+            type: 'taskIteration',
+            subType: 'error',
             isError: true,
             agentType: metadata.agentType,
+            timestamp: new Date(),
             payload: {
-              status: 'failed',
+              status: 'error',
               previousStatus: 'active',
-              error: error instanceof Error ? error.message : String(error),
               iterationNumber: iteration.iterationNumber,
             },
           })
@@ -1102,7 +1108,7 @@ export class TaskService {
     // Emit status change event
     await this.eventService.emitEvent({
       taskId,
-      type: 'task_status',
+      type: 'task',
       subType: 'closed',
       payload: {
         status: 'closed',
