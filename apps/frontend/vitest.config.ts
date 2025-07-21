@@ -38,7 +38,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@moatless/types': path.resolve(__dirname, '../../packages/types'),
+      '@moatless/types': path.resolve(__dirname, '../../packages/types/src'),
       '@test-utils': path.resolve(__dirname, './src/test-utils'),
     },
   },

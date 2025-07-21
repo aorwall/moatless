@@ -55,7 +55,7 @@ vi.mock('../assistant-message', () => ({
 
 // Remove the ToolCallGroup mock - we want to test the real implementation
 
-describe.skip('MessageHistory - Tool Call Grouping', () => {
+describe('MessageHistory - Tool Call Grouping', () => {
   const wrapper = createQueryWrapper()
 
   const mockHooks = () => {

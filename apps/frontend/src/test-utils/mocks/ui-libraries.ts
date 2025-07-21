@@ -95,11 +95,11 @@ export function createUILibraryMocks() {
 
 /**
  * Helper to mock all UI libraries at once
+ * Note: vi.mock() calls must be hoisted and can't be called dynamically
+ * Use createUILibraryMocks() instead and mock each library individually in your test file
  */
 export function mockAllUILibraries() {
-  const mocks = createUILibraryMocks()
-
-  Object.entries(mocks).forEach(([moduleName, exports]) => {
-    vi.mock(moduleName, () => exports)
-  })
+  throw new Error(
+    'mockAllUILibraries() cannot be used because vi.mock() must be hoisted. Use createUILibraryMocks() instead.',
+  )
 }
