@@ -65,8 +65,6 @@ export async function registerWorkerRoutes(app: Hono<AppBindings>, prefix: strin
           throw new HTTPException(404, { message: `Task ${taskId} not found` })
         }
 
-        logger.info(`Emitting event ${JSON.stringify(event)}`)
-
         // Emit the event through the event service
         await eventService.emitEvent(event)
 

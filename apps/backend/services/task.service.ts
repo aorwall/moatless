@@ -785,7 +785,7 @@ export class TaskService {
 
   /**
    * Enriches a task with workspace status fields following the dependency hierarchy:
-   * - workspace: Only present if task is not closed
+   * - workspace: Only present if task is not closed and last iteration has active status
    * - environment: Only present if workspace exists
    * - agent: Only present if environment is ready
    * - gitStatus: Only when workspace exists
@@ -797,8 +797,17 @@ export class TaskService {
       return task
     }
 
+    // Check if last iteration has active status
+    const lastIteration =
+      task.iterations.length > 0 ? task.iterations[task.iterations.length - 1] : null
+
+    // Only enrich with workspace status if last iteration is active
+    if (!lastIteration || lastIteration.status !== 'active') {
+      return task
+    }
+
     try {
-      // Get workspace status for non-closed tasks
+      // Get workspace status for tasks with active last iteration
       const workspaceStatus = await this.workspaceService.getWorkspaceStatus(task.taskId)
 
       const enriched: Task = {
