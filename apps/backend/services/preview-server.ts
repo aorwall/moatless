@@ -47,25 +47,27 @@ export class PreviewServer {
       throw new Error('Server is already running')
     }
 
-    // Allocate port for preview server
-    this.port = await findAvailablePort('preview')
-    this.logger.info('Allocated port:', { port: this.port })
-
-    // Replace port placeholder in command
     const originalCommand = this.serverCommand
-    const command = this.serverCommand.replace(this.portPlaceholder, String(this.port))
+    let command = this.serverCommand
+    let allocatedPort: number | undefined
 
-    this.logger.info('Port placeholder replacement:', {
-      originalCommand,
-      placeholder: this.portPlaceholder,
-      port: this.port,
-      finalCommand: command,
-    })
+    // Only allocate a port if the command contains the placeholder
+    if (originalCommand.includes(this.portPlaceholder)) {
+      allocatedPort = await findAvailablePort('preview')
+      this.port = allocatedPort
+      command = this.serverCommand.replace(this.portPlaceholder, String(this.port))
 
-    // Check if the command actually contains the placeholder
-    if (!originalCommand.includes(this.portPlaceholder)) {
-      this.logger.warn(`Port placeholder '${this.portPlaceholder}' not found in command!`)
-      this.logger.warn('The server will likely start on its default port.')
+      this.logger.info('Port placeholder replacement:', {
+        originalCommand,
+        placeholder: this.portPlaceholder,
+        allocatedPort: this.port,
+        finalCommand: command,
+      })
+    } else {
+      this.logger.info('No port placeholder found - will detect actual port from server startup:', {
+        originalCommand,
+        placeholder: this.portPlaceholder,
+      })
     }
 
     // Setup log file
@@ -109,16 +111,8 @@ export class PreviewServer {
 
       this.logger.debug(`Waiting up to ${maxWait} seconds for server to start...`)
 
-      // Track pre-existing ports
-      const preExistingPorts = new Set<number>()
-      const commonPorts = [3000, 3001, 3002, 8000, 8080, 4000, 5000]
-      for (const port of commonPorts) {
-        if (await this.checkPortInUse(port)) {
-          preExistingPorts.add(port)
-          this.logger.debug(`Port ${port} was already in use before starting server`)
-        }
-      }
-
+      // For commands with port placeholder, check the allocated port
+      // For commands without placeholder, scan for newly opened ports
       while (elapsed < maxWait) {
         await new Promise((resolve) => setTimeout(resolve, checkInterval * 1000))
         elapsed += checkInterval
@@ -128,13 +122,15 @@ export class PreviewServer {
           break
         }
 
-        // Check if port is now in use
-        if (await this.checkPortInUse(this.port)) {
-          this.logger.info(`Server is now listening on port ${this.port}`)
-          break
+        if (this.port) {
+          // We have an allocated port, check if it's in use
+          if (await this.checkPortInUse(this.port)) {
+            this.logger.info(`Server is now listening on allocated port ${this.port}`)
+            break
+          }
         }
 
-        // Try to detect actual port from logs
+        // Always try to detect actual port from logs (handles both cases)
         const actualPort = await this.detectPortFromLogs()
         if (actualPort) {
           this.logger.info(`Detected server running on port ${actualPort} from logs`)
@@ -147,27 +143,25 @@ export class PreviewServer {
         }
       }
 
-      // Check final status
-      const portInUse = await this.checkPortInUse(this.port)
-      this.logger.info(`Final port check - Port ${this.port} in use: ${portInUse}`)
-
-      // Try one more time to detect from logs
-      if (!portInUse) {
+      // Final port detection
+      if (!this.port) {
+        // Last attempt to detect from logs
         const actualPort = await this.detectPortFromLogs()
-        if (actualPort && actualPort !== this.port) {
+        if (actualPort) {
           this.logger.info(`Final detection: server running on port ${actualPort}`)
           this.port = actualPort
-          // Check if this detected port is actually in use
-          const actualPortInUse = await this.checkPortInUse(actualPort)
-          this.logger.info(`Detected port ${actualPort} in use: ${actualPortInUse}`)
         }
       }
+
+      // Verify the final port is actually in use
+      const portInUse = this.port ? await this.checkPortInUse(this.port) : false
+      this.logger.info(`Final port check - Port ${this.port || 'unknown'} in use: ${portInUse}`)
 
       if (this.process.exitCode !== null) {
         await logStream.close()
 
         // Check if server is running despite process exit
-        if (!portInUse) {
+        if (!portInUse || !this.port) {
           let errorLogs = ''
           try {
             const content = await fs.readFile(this.logFile, 'utf-8')
@@ -176,10 +170,16 @@ export class PreviewServer {
             // Ignore read errors
           }
           throw new Error(
-            `Server failed to start. Exit code: ${this.process.exitCode}. Check logs at ${this.logFile}. Recent logs: ${errorLogs}`,
+            `Server failed to start. Exit code: ${this.process.exitCode}. Port detected: ${this.port || 'none'}. Check logs at ${this.logFile}. Recent logs: ${errorLogs}`,
           )
         }
         this.logger.info(`Parent process exited but server is running on port ${this.port}`)
+      }
+
+      // Ensure we have a valid port before proceeding
+      if (!this.port) {
+        await logStream.close()
+        throw new Error('Could not detect server port from logs or allocated port')
       }
 
       await logStream.close()
