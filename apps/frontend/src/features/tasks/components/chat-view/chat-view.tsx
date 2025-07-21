@@ -3,8 +3,9 @@ import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useParams } from '@tanstack/react-router'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useTaskData, useWorkspaceStatus } from '@/features/tasks/contexts/task-providers'
+import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useSendMessage, useStopAgent, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
@@ -23,7 +24,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
   const { status, iterations, repositoryId } = useTaskData()
 
   // Get workspace status from context (doesn't block loading)
-  useWorkspaceStatus()
+  useWorkspaceStatusWithTask(params.taskId)
 
   // Local state for chat values
   const [message, setMessage] = useState('')

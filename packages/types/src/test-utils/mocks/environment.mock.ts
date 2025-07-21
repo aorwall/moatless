@@ -68,20 +68,19 @@ export function createMockWorkspaceStatusResponse(
   overrides?: Partial<WorkspaceStatusResponse>,
 ): WorkspaceStatusResponse {
   return {
-    workspace: {
-      state: 'exists',
-      changeStatus: 'no_changes',
-      path: '/tmp/test-workspace',
-    },
-    environment: {
-      type: 'local',
-      status: 'ready',
-      createdAt: '2024-01-01T00:00:00Z',
-    },
-    agent: {
-      state: 'idle',
-      type: 'claude-code',
-    },
+    // Workspace info
+    workspaceState: 'exists',
+    workspacePath: '/tmp/test-workspace',
+    workspaceChangeStatus: 'no_changes',
+
+    // Environment info
+    environmentType: 'local',
+    environmentStatus: 'ready',
+    environmentCreatedAt: '2024-01-01T00:00:00Z',
+
+    // Agent info
+    agentState: 'idle',
+    agentType: 'claude-code',
     capabilities: {
       fileOperations: true,
       commandExecution: true,
@@ -100,6 +99,12 @@ export function createMockWorkspaceStatusResponse(
       deletions: 5,
       modifications: 3,
     },
+
+    // Computed states
+    isRunning: false,
+    workspaceReady: true,
+    canExecute: true,
+
     ...overrides,
   }
 }

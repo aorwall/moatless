@@ -1,13 +1,6 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
 import { TaskStatusSchema } from './base.schemas.js'
-import {
-  AgentInfoSchema,
-  CapabilitiesSchema,
-  EnvironmentInfoSchema,
-  GitStatusSchema,
-  WorkspaceInfoSchema,
-} from './workspace.schemas.js'
 
 // Query schemas
 
@@ -128,12 +121,6 @@ export const TaskResponseSchema = z.object({
   totalCostUsd: z.number(),
   iterations: z.array(TaskIterationSchema),
   workspacePath: z.string().optional(),
-  // Optional workspace status fields that follow dependency hierarchy
-  workspace: WorkspaceInfoSchema.optional(), // Only present if task is not closed
-  environment: EnvironmentInfoSchema.optional(), // Only present if workspace exists
-  agent: AgentInfoSchema.optional(), // Only present if environment is ready
-  gitStatus: GitStatusSchema.optional(), // Only when workspace exists
-  capabilities: CapabilitiesSchema.optional(), // Only when environment is ready
 })
 
 export const TaskListResponseSchema = z.object({

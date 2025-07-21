@@ -44,7 +44,7 @@ export const WorkspaceChangeStatusSchema = z.enum([
   'conflicts',
 ])
 
-export const AgentStateSchema = z.enum(['idle', 'running'])
+export const AgentStateSchema = z.enum(['idle', 'running', 'none'])
 
 // ============================================
 // Workspace Schemas
@@ -235,13 +235,33 @@ export const CapabilitiesSchema = z.object({
 // Workspace Status Response Schema
 // ============================================
 
-// Workspace Status Response using shared schemas
+// Workspace Status Response with flattened structure
 export const WorkspaceStatusResponseSchema = z.object({
-  workspace: WorkspaceInfoSchema,
-  environment: EnvironmentInfoSchema,
-  agent: AgentInfoSchema,
+  // Workspace info
+  workspaceState: WorkspaceExistenceSchema,
+  workspacePath: z.string(),
+  workspaceChangeStatus: WorkspaceChangeStatusSchema.optional(),
+
+  // Environment info
+  environmentType: z.enum(['local', 'docker']),
+  environmentStatus: EnvironmentStatusSchema,
+  environmentError: z.string().optional(),
+  environmentCreatedAt: z.string(),
+
+  // Agent info
+  agentState: AgentStateSchema.or(z.literal('none')).default('none'),
+  agentType: z.string().optional(),
+
+  // Git status (already flat)
   gitStatus: GitStatusSchema.optional(),
+
+  // Capabilities (already flat)
   capabilities: CapabilitiesSchema,
+
+  // Computed states
+  isRunning: z.boolean(),
+  workspaceReady: z.boolean(),
+  canExecute: z.boolean(),
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>

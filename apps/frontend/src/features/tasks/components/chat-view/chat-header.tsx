@@ -6,6 +6,7 @@ import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
@@ -17,11 +18,13 @@ import {
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function ChatHeader() {
-  const { taskId, status, agentType, repositoryId, iterations, workspaceGitStatus } = useTaskData()
+  const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
   const { data: repositories } = useRepositoriesList()
 
-  // Use workspace git status instead of iteration git sync status
-  const gitStatus = workspaceGitStatus
+  // Get workspace status separately
+  const workspaceStatus = useWorkspaceStatusWithTask(taskId)
+  const workspace = workspaceStatus.data
+  const gitStatus = workspace?.gitStatus
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
@@ -121,7 +124,7 @@ export function ChatHeader() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="truncate">{repositoryName}</span>
               <span>•</span>
-              <TaskStatusIcon task={task} />
+              <TaskStatusIcon task={task} workspace={workspace} />
               {gitStatus && (
                 <>
                   {gitStatus.commitsAhead > 0 && (

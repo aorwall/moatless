@@ -87,29 +87,29 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
               {/* Overall Status */}
               <div className="flex items-center gap-2 p-3 border rounded-lg">
                 {getStatusIcon(
-                  verificationResult.agent.state === 'idle' &&
-                    verificationResult.environment.status === 'ready',
+                  verificationResult.agentState === 'idle' &&
+                    verificationResult.environmentStatus === 'ready',
                 )}
                 <span className="font-medium">Overall Status</span>
                 {getStatusBadge(
-                  verificationResult.agent.state === 'idle' &&
-                    verificationResult.environment.status === 'ready',
+                  verificationResult.agentState === 'idle' &&
+                    verificationResult.environmentStatus === 'ready',
                 )}
               </div>
 
               {/* Workspace Status */}
               <div className="border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  {getStatusIcon(verificationResult.agent.state === 'idle')}
+                  {getStatusIcon(verificationResult.agentState === 'idle')}
                   <h3 className="font-medium">Workspace Status</h3>
                   <Badge
-                    variant={verificationResult.agent.state === 'idle' ? 'default' : 'destructive'}
+                    variant={verificationResult.agentState === 'idle' ? 'default' : 'destructive'}
                   >
-                    {verificationResult.agent.state}
+                    {verificationResult.agentState}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mb-2">
-                  Workspace state: {verificationResult.workspace.state}
+                  Workspace state: {verificationResult.workspaceState}
                 </p>
                 {verificationResult.gitStatus && (
                   <div className="mt-2">
@@ -129,26 +129,24 @@ export function VerificationDialog({ repositoryId }: VerificationDialogProps) {
               {/* Environment */}
               <div className="border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  {getStatusIcon(verificationResult.environment.status === 'ready')}
+                  {getStatusIcon(verificationResult.environmentStatus === 'ready')}
                   <h3 className="font-medium">
-                    Environment ({verificationResult.environment.type})
+                    Environment ({verificationResult.environmentType})
                   </h3>
                   <Badge
                     variant={
-                      verificationResult.environment.status === 'ready' ? 'default' : 'destructive'
+                      verificationResult.environmentStatus === 'ready' ? 'default' : 'destructive'
                     }
                   >
-                    {verificationResult.environment.status}
+                    {verificationResult.environmentStatus}
                   </Badge>
                 </div>
-                {verificationResult.environment.error && (
-                  <p className="text-sm text-red-500 mb-2">
-                    {verificationResult.environment.error}
-                  </p>
+                {verificationResult.environmentError && (
+                  <p className="text-sm text-red-500 mb-2">{verificationResult.environmentError}</p>
                 )}
                 <div className="text-xs text-muted-foreground space-y-1">
                   <div>
-                    Created: {new Date(verificationResult.environment.createdAt).toLocaleString()}
+                    Created: {new Date(verificationResult.environmentCreatedAt).toLocaleString()}
                   </div>
                   <div>
                     File Operations:{' '}

@@ -587,8 +587,15 @@ export class WorkspaceService {
     const workspace = await this.getOrCreateWorkspace(taskId)
     const backgroundTaskCount = this.backgroundTasks.get(taskId)?.size || 0
 
-    // Delegate to workspace method
-    return workspace.getWorkspaceStatus(backgroundTaskCount)
+    // Get workspace status from workspace
+    const status = await workspace.getWorkspaceStatus(backgroundTaskCount)
+
+    // Set agent type from task if available
+    if (task.agentType) {
+      status.agentType = task.agentType
+    }
+
+    return status
   }
 
   async startServer(taskId: string): Promise<ServerStatus> {

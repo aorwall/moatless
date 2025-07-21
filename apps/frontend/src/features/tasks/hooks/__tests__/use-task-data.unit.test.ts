@@ -39,15 +39,21 @@ describe('useTaskData', () => {
       ],
     }
     const mockWorkspaceStatus = {
-      workspace: {
-        state: 'exists' as const,
-        changeStatus: 'no_changes' as const,
-        path: '/tmp/test-workspace',
-      },
-      agent: {
-        state: 'idle' as const,
-        type: 'claude-code',
-      },
+      // Workspace info
+      workspaceState: 'exists' as const,
+      workspacePath: '/tmp/test-workspace',
+      workspaceChangeStatus: 'no_changes' as const,
+
+      // Environment info
+      environmentType: 'local' as const,
+      environmentStatus: 'ready' as const,
+      environmentCreatedAt: new Date().toISOString(),
+
+      // Agent info
+      agentState: 'idle' as const,
+      agentType: 'claude-code',
+
+      // Git status
       gitStatus: {
         currentBranch: 'test-branch',
         baseBranch: 'main',
@@ -58,16 +64,18 @@ describe('useTaskData', () => {
         commitsBehind: 0,
         originExists: true,
       },
-      environment: {
-        type: 'local' as const,
-        status: 'ready' as const,
-        createdAt: new Date().toISOString(),
-      },
+
+      // Capabilities
       capabilities: {
         fileOperations: true,
         commandExecution: true,
         serverManagement: true,
       },
+
+      // Computed states
+      isRunning: false,
+      workspaceReady: true,
+      canExecute: true,
     }
 
     // Setup mock responses
@@ -122,15 +130,21 @@ describe('useTaskData', () => {
     vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
     vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({
-      workspace: {
-        state: 'exists' as const,
-        changeStatus: 'no_changes' as const,
-        path: '/tmp/test-workspace',
-      },
-      agent: {
-        state: 'idle' as const,
-        type: 'claude-code',
-      },
+      // Workspace info
+      workspaceState: 'exists' as const,
+      workspacePath: '/tmp/test-workspace',
+      workspaceChangeStatus: 'no_changes' as const,
+
+      // Environment info
+      environmentType: 'local' as const,
+      environmentStatus: 'ready' as const,
+      environmentCreatedAt: new Date().toISOString(),
+
+      // Agent info
+      agentState: 'idle' as const,
+      agentType: 'claude-code',
+
+      // Git status
       gitStatus: {
         currentBranch: 'test-branch',
         baseBranch: 'main',
@@ -141,16 +155,18 @@ describe('useTaskData', () => {
         commitsBehind: 0,
         originExists: true,
       },
-      environment: {
-        type: 'local' as const,
-        status: 'ready' as const,
-        createdAt: new Date().toISOString(),
-      },
+
+      // Capabilities
       capabilities: {
         fileOperations: true,
         commandExecution: true,
         serverManagement: true,
       },
+
+      // Computed states
+      isRunning: false,
+      workspaceReady: true,
+      canExecute: true,
     })
 
     // Render the hook

@@ -114,13 +114,22 @@
    - Payload includes previousStatus, new status, and optional iteration number
    - Triggers frontend to refresh task details and lists
 
-2. **Environment Status Changes**: Track environment lifecycle transitions
+2. **Agent Status Changes**: Track agent execution lifecycle
+   - Emission points: apps/backend/agents/claude-code/claude-code-agent.ts:81,155,175
+   - Event type: `agent`
+   - Subtypes:
+     - `started`: Emitted when agent begins processing (first non-system event received)
+     - `error`: Emitted when agent encounters an error during execution
+   - Payload includes error details for error events
+   - Allows frontend to track agent progress and handle failures
+
+3. **Environment Status Changes**: Track environment lifecycle transitions
    - Should emit when environment status changes (not_created → initializing → ready)
    - Event type: `environment`
    - Subtype contains new status value (e.g., 'ready', 'error')
    - Allows frontend to update workspace status displays
 
-3. **Event Service**: Central event distribution hub - apps/backend/services/event.service.ts:16
+4. **Event Service**: Central event distribution hub - apps/backend/services/event.service.ts:16
    - Maintains in-memory event cache per task for fast retrieval
    - Emits to task-specific channel: `task:${taskId}` for targeted updates
    - Emits to global channel for system-wide listeners
@@ -146,6 +155,45 @@
    - useTask hook fetches updated task with iterations - apps/frontend/src/features/tasks/hooks/use-tasks.ts:46
    - useWorkspaceStatus hook retrieves new environment/agent states
    - Task context propagates changes to all child components
+
+## Workspace Status Architecture
+
+### Separation of Concerns
+As of recent changes, workspace status is fetched separately from task data to improve performance and enable more granular cache invalidation:
+
+1. **Task Data**: Core task metadata (status, iterations, cost, etc.)
+   - Fetched via `/api/v1/tasks/:taskId` endpoint
+   - Cached with longer stale time (30s) as it changes less frequently
+   - Includes only task-specific information, no workspace state
+
+2. **Workspace Status**: Dynamic workspace state (agent, environment, git)
+   - Fetched via `/api/v1/tasks/:taskId/workspace-status` endpoint
+   - Only fetched when task status is `open` (not needed for closed/merged tasks)
+   - Polled during transitional states (agent running, environment initializing)
+   - Cached with shorter stale time (2s) for real-time updates
+
+### Smart Fetching Strategy
+The `useWorkspaceStatus` hook implements intelligent fetching:
+```typescript
+// Only fetch workspace status for open tasks
+const shouldFetch = task?.status === 'open'
+
+// Poll during transitional states
+const shouldPoll = workspace?.agent?.state === 'running' || 
+                  workspace?.environment?.status === 'initializing' ||
+                  workspace?.environment?.status === 'cleaning'
+```
+
+### Cache Invalidation Patterns
+Different event types trigger specific cache invalidations:
+- **Task events** (`task`, `task_status`, `iteration`): Invalidate task queries only
+- **Workspace events** (`agent`, `environment`): Invalidate workspace status only
+- **Result events** (`result`, `message`): Invalidate both task and dependent queries
+
+This separation ensures:
+- Task lists don't refetch when only workspace status changes
+- Workspace polling doesn't trigger unnecessary task data fetches
+- Components can subscribe to only the data they need
 
 ## Key State Transitions
 

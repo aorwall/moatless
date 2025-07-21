@@ -439,28 +439,44 @@ export class Workspace {
     // Check if file operations are available (workspace path exists on disk)
     const fileOperationsAvailable = await this.isWorkspacePathValid()
 
+    // Get agent state
+    const agentState = await this.getAgentState()
+
+    // Compute derived states
+    const isRunning = agentState === 'running'
+    const workspaceReady = environmentStatus === 'ready'
+    const canExecute = workspaceReady && agentState === 'idle'
+
     return {
-      workspace: {
-        state: await this.getWorkspaceExistence(),
-        path: this.getWorkspacePath(),
-        changeStatus: await this.getWorkspaceChangeStatus(),
-      },
-      environment: {
-        type: environmentType,
-        status: environmentStatus,
-        error: environmentError,
-        createdAt: environmentCreatedAt.toISOString(),
-      },
-      agent: {
-        state: await this.getAgentState(),
-        type: undefined, // Agent type will be set by calling code
-      },
+      // Workspace info
+      workspaceState: await this.getWorkspaceExistence(),
+      workspacePath: this.getWorkspacePath(),
+      workspaceChangeStatus: await this.getWorkspaceChangeStatus(),
+
+      // Environment info
+      environmentType,
+      environmentStatus,
+      environmentError,
+      environmentCreatedAt: environmentCreatedAt.toISOString(),
+
+      // Agent info
+      agentState,
+      agentType: undefined, // Agent type will be set by calling code
+
+      // Git status (already flat)
       gitStatus,
+
+      // Capabilities
       capabilities: {
         fileOperations: fileOperationsAvailable,
         commandExecution: environmentStatus === 'ready',
         serverManagement: environmentStatus === 'ready',
       },
+
+      // Computed states
+      isRunning,
+      workspaceReady,
+      canExecute,
     }
   }
 
@@ -835,9 +851,15 @@ export class Workspace {
    * Get agent state - for now this is a simple implementation
    * In the future, this could check if there are active agent processes
    */
-  private async getAgentState(): Promise<'idle' | 'running'> {
-    // For now, assume agent is idle
-    // This could be enhanced to check actual agent processes
+  private async getAgentState(): Promise<'idle' | 'running' | 'none'> {
+    // Check if we have an active agent
+    // For now, return 'none' if environment is not ready
+    const environment = this.getEnvironment()
+    if (environment.getStatus() !== 'ready') {
+      return 'none'
+    }
+
+    // TODO: This could be enhanced to check actual agent processes
     return 'idle'
   }
 }

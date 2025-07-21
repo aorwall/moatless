@@ -7,6 +7,7 @@ import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
 import { useWorkspaceSetup } from '@/features/tasks/hooks/use-workspace-setup'
+import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -20,21 +21,15 @@ import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function TaskHeader() {
-  const {
-    taskId,
-    status,
-    agentType,
-    repositoryId,
-    iterations,
-    workspaceGitStatus,
-    workspaceEnvironment,
-    agentState,
-  } = useTaskData()
+  const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
   const { data: repositories } = useRepositoriesList()
   const { rightPanelView, setRightPanelView } = usePanelView()
 
-  // Use workspace git status instead of iteration git sync status
-  const gitStatus = workspaceGitStatus
+  // Get workspace status separately
+  const workspaceStatus = useWorkspaceStatusWithTask(taskId)
+  const workspace = workspaceStatus.data
+  const gitStatus = workspace?.gitStatus
+  const isAgentRunning = workspace?.isRunning ?? false
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
@@ -179,7 +174,11 @@ export function TaskHeader() {
               {repositoryName}
             </span>
             <span className="text-muted-foreground">•</span>
-            <TaskStatusIcon task={{ status: status as any, iterations }} showText={false} />
+            <TaskStatusIcon
+              task={{ status: status as any, iterations }}
+              workspace={workspace}
+              showText={false}
+            />
             {gitStatusInfo && (
               <>
                 <span className="text-muted-foreground">•</span>
@@ -198,34 +197,34 @@ export function TaskHeader() {
                 {contextTokens.toLocaleString()} tokens
               </Badge>
             )}
-            {workspaceEnvironment && (
+            {workspace && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Badge
-                      variant={workspaceEnvironment.status === 'ready' ? 'default' : 'secondary'}
+                      variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
                       className={cn(
                         'text-xs cursor-pointer',
-                        workspaceEnvironment.status === 'error' &&
+                        workspace.environmentStatus === 'error' &&
                           'bg-red-100 text-red-800 border-red-200',
-                        workspaceEnvironment.status === 'not_created' &&
+                        workspace.environmentStatus === 'not_created' &&
                           'bg-yellow-100 text-yellow-800 border-yellow-200',
                       )}
                       onClick={
-                        workspaceEnvironment.status === 'not_created' ? handleSetup : undefined
+                        workspace.environmentStatus === 'not_created' ? handleSetup : undefined
                       }
                     >
-                      {workspaceEnvironment.type} env: {workspaceEnvironment.status}
-                      {workspaceEnvironment.status === 'not_created' && ' ▶'}
+                      {workspace.environmentType} env: {workspace.environmentStatus}
+                      {workspace.environmentStatus === 'not_created' && ' ▶'}
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {workspaceEnvironment.status === 'not_created' ? (
+                    {workspace.environmentStatus === 'not_created' ? (
                       <p>Click to setup workspace environment</p>
-                    ) : workspaceEnvironment.status === 'error' ? (
-                      <p>Environment error: {workspaceEnvironment.error || 'Unknown error'}</p>
+                    ) : workspace.environmentStatus === 'error' ? (
+                      <p>Environment error: {workspace.environmentError || 'Unknown error'}</p>
                     ) : (
-                      <p>Environment status: {workspaceEnvironment.status}</p>
+                      <p>Environment status: {workspace.environmentStatus}</p>
                     )}
                   </TooltipContent>
                 </Tooltip>
@@ -265,7 +264,7 @@ export function TaskHeader() {
           </div>
 
           {/* Action buttons */}
-          {agentState !== 'running' && status !== 'closed' && status !== 'merged' && (
+          {!isAgentRunning && status !== 'closed' && status !== 'merged' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -279,7 +278,7 @@ export function TaskHeader() {
                       gitStatus.commitsAhead === 0 ||
                       gitStatus.status === 'diverged' ||
                       gitStatus.hasConflicts ||
-                      agentState === 'running' ||
+                      isAgentRunning ||
                       status === 'error'
                     }
                     className="h-7 px-2"
@@ -291,7 +290,7 @@ export function TaskHeader() {
                 <TooltipContent>
                   {!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0 ? (
                     <p>No unmerged commits to merge</p>
-                  ) : agentState === 'running' ? (
+                  ) : isAgentRunning ? (
                     <p>Cannot merge: agent is running</p>
                   ) : gitStatus.status === 'diverged' || gitStatus.hasConflicts ? (
                     <p>Cannot merge: conflicts detected</p>
@@ -302,7 +301,7 @@ export function TaskHeader() {
               </Tooltip>
             </TooltipProvider>
           )}
-          {agentState !== 'running' && status !== 'closed' && status !== 'merged' && gitStatus && (
+          {!isAgentRunning && status !== 'closed' && status !== 'merged' && gitStatus && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -312,7 +311,7 @@ export function TaskHeader() {
                     onClick={handleSync}
                     disabled={
                       syncWorkspace.isPending ||
-                      agentState === 'running' ||
+                      isAgentRunning ||
                       status === 'error' ||
                       !gitStatus.commitsBehind ||
                       gitStatus.commitsBehind === 0 ||
@@ -331,7 +330,7 @@ export function TaskHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {agentState === 'running' ? (
+                  {isAgentRunning ? (
                     <p>Cannot sync: agent is running</p>
                   ) : !gitStatus.commitsBehind || gitStatus.commitsBehind === 0 ? (
                     <p>Already up to date with main</p>
@@ -356,7 +355,7 @@ export function TaskHeader() {
                     variant="outline"
                     size="sm"
                     onClick={handleClose}
-                    disabled={closeTask.isPending || agentState === 'running'}
+                    disabled={closeTask.isPending || isAgentRunning}
                     className="h-7 px-2"
                   >
                     {closeTask.isPending ? (
@@ -368,7 +367,7 @@ export function TaskHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {agentState === 'running' ? (
+                  {isAgentRunning ? (
                     <p>Cannot close: agent is running</p>
                   ) : (
                     <p>Close task and teardown workspace</p>
