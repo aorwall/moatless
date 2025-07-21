@@ -35,4 +35,5 @@ export interface EventListResponse {
 }
 
 // Re-export task schema types that are used in API
-export type { GitStatus, MergeTaskResponse } from '../schemas/task.schemas.js'
+export type { MergeTaskResponse } from '../schemas/task.schemas.js'
+export type { GitStatus } from '../schemas/workspace.schemas.js'

@@ -778,7 +778,83 @@ export class TaskService {
       }
     }
 
-    return task
+    // Enrich task with workspace status following dependency hierarchy
+    const enrichedTask = await this.enrichTaskWithWorkspaceStatus(task)
+    return enrichedTask
+  }
+
+  /**
+   * Enriches a task with workspace status fields following the dependency hierarchy:
+   * - workspace: Only present if task is not closed
+   * - environment: Only present if workspace exists
+   * - agent: Only present if environment is ready
+   * - gitStatus: Only when workspace exists
+   * - capabilities: Only when environment is ready
+   */
+  private async enrichTaskWithWorkspaceStatus(task: Task): Promise<Task> {
+    // For closed tasks, return minimal response
+    if (task.status === 'closed') {
+      return task
+    }
+
+    try {
+      // Get workspace status for non-closed tasks
+      const workspaceStatus = await this.workspaceService.getWorkspaceStatus(task.taskId)
+
+      const enriched: Task = {
+        ...task,
+        workspace: {
+          state: workspaceStatus.workspace.state,
+          path: workspaceStatus.workspace.path,
+          ...(workspaceStatus.workspace.state === 'exists' && {
+            changeStatus: workspaceStatus.workspace.changeStatus,
+          }),
+        },
+      }
+
+      // Only include environment if workspace exists
+      if (workspaceStatus.workspace.state === 'exists') {
+        enriched.environment = {
+          type: workspaceStatus.environment.type,
+          status: workspaceStatus.environment.status,
+          createdAt: workspaceStatus.environment.createdAt,
+          ...(workspaceStatus.environment.error && {
+            error: workspaceStatus.environment.error,
+          }),
+        }
+
+        // Include git status when workspace exists
+        if (workspaceStatus.gitStatus) {
+          enriched.gitStatus = workspaceStatus.gitStatus
+        }
+
+        // Only include agent if environment is ready
+        if (workspaceStatus.environment.status === 'ready') {
+          enriched.agent = {
+            state: workspaceStatus.agent.state,
+            ...(workspaceStatus.agent.type && {
+              type: workspaceStatus.agent.type,
+            }),
+          }
+
+          // Include capabilities when environment is ready
+          if (workspaceStatus.capabilities) {
+            enriched.capabilities = workspaceStatus.capabilities
+          }
+        }
+      }
+
+      return enriched
+    } catch (error) {
+      // If workspace status fails, return task with minimal workspace info
+      return {
+        ...task,
+        workspace: {
+          state: 'missing' as const,
+          path: task.workspacePath || '',
+        },
+      }
+    }
   }
 
   async listTasks(
@@ -797,12 +873,14 @@ export class TaskService {
         if (status) {
           // If status is explicitly provided, only include tasks with that status
           if (task.status === status) {
-            tasks.push(task)
+            const enrichedTask = await this.enrichTaskWithWorkspaceStatus(task)
+            tasks.push(enrichedTask)
           }
         } else {
           // If no status filter, exclude closed tasks by default
           if (task.status !== 'closed') {
-            tasks.push(task)
+            const enrichedTask = await this.enrichTaskWithWorkspaceStatus(task)
+            tasks.push(enrichedTask)
           }
         }
       }
