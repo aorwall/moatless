@@ -1,0 +1,20 @@
+{
+  "installMethod": "unknown",
+  "autoUpdates": true,
+  "firstStartTime": "2025-07-21T07:19:05.841Z",
+  "userID": "96e117d7b77c51a51b0b89ffcfaff6a7ccc7f099e3347faf824898de4c5004be",
+  "projects": {
+    "/Users/albert/repos/moatless/moatless-swarm-ui/apps/backend": {
+      "allowedTools": [],
+      "history": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": false,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false
+    }
+  }
+}
