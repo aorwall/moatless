@@ -355,7 +355,7 @@ export class PreviewServer {
         resolve(false)
       })
 
-      client.connect(port, '127.0.0.1')
+      client.connect(port, 'localhost')
     })
   }
 
