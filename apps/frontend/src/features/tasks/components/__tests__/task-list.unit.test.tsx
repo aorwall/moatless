@@ -1,5 +1,5 @@
 import type { Task } from '@moatless/types'
-import { createMockTask } from '@moatless/types/test-utils'
+import { createMockRepository, createMockTask } from '@moatless/types/test-utils'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -51,8 +51,8 @@ describe('TaskList', () => {
     // Default mock implementations
     vi.mocked(useRepositoriesList).mockReturnValue(
       createMockQuery([
-        { id: 'repo-1', name: 'Test Repository 1' },
-        { id: 'repo-2', name: 'Test Repository 2' },
+        createMockRepository({ id: 'repo-1', name: 'Test Repository 1' }),
+        createMockRepository({ id: 'repo-2', name: 'Test Repository 2' }),
       ]),
     )
 
@@ -314,7 +314,7 @@ describe('TaskList', () => {
 
   describe('Edge Cases', () => {
     it('handles missing repository data gracefully', () => {
-      vi.mocked(useRepositoriesList).mockReturnValue(createMockQuery(undefined))
+      vi.mocked(useRepositoriesList).mockReturnValue(createMockQuery([]))
 
       const task = createMockTask({ repositoryId: 'repo-1' })
 

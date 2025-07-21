@@ -98,10 +98,26 @@ describe('MessageHistory - Unit Tests', () => {
       agentType: 'test-agent',
       repositoryId: 'test-repo',
       iterations: [],
-      messages: [],
-      workspaceId: 'test-workspace',
       createdAt: new Date(),
-      updatedAt: new Date(),
+      gitDiff: undefined,
+      workspaceState: undefined,
+      environmentStatus: undefined,
+      agentState: undefined,
+      workspaceReady: false,
+      workspaceHasChanges: false,
+      workspaceGitStatus: undefined,
+      workspaceEnvironment: undefined,
+      canExecute: false,
+      isRunning: false,
+      isComplete: true,
+      runningStartTime: undefined,
+      events: [],
+      streamingEvents: [],
+      isStreaming: false,
+      streamingError: null,
+      latestEventId: null,
+      hasNewEvents: false,
+      error: null,
     })
     vi.mocked(useAutoScroll).mockReturnValue({
       scrollRef: { current: null },
@@ -377,8 +393,8 @@ describe('MessageHistory - Unit Tests', () => {
 
   describe('Error handling', () => {
     it('handles null/undefined messages gracefully', () => {
-      // Mock useTaskMessages to return null/undefined
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(null))
+      // Mock useTaskMessages to return empty array
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery([]))
 
       render(<MessageHistory />, { wrapper })
 
