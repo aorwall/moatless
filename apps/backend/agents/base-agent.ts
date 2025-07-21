@@ -16,6 +16,7 @@ export interface AgentRunOptions {
   onProgress?: (event: Event) => void
   iterationNumber?: number
   resume?: string
+  model?: string
 }
 
 export abstract class BaseAgent {

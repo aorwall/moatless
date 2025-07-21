@@ -128,12 +128,13 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   // Agent execution endpoint - returns immediately and runs agent in background
   app.post('/execute-agent', async (c) => {
     const body = await c.req.json()
-    const { taskId, message, agentType, runOptions } = body
+    const { taskId, message, agentType, runOptions, model } = body
 
     logger.info('Received agent execution request', {
       taskId,
       agentType,
       workspaceDir: runOptions?.workspaceDir,
+      model,
     })
 
     try {
@@ -141,9 +142,10 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       const adjustedRunOptions = {
         ...runOptions,
         workspaceDir: config.workspaceDir,
+        model,
       }
 
-      agentInstance = await environment.createAgent(agentType || 'claude-code', adjustedRunOptions)
+      agentInstance = await environment.createAgent(agentType || 'claude-code', { model })
 
       // Run agent in background and emit events to main API
       runAgentInBackground(

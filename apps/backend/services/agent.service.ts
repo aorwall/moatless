@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { SDKResultMessage } from '@moatless/types'
 import { type TaskIteration, TaskNotFoundError } from '@moatless/types'
 
-import type { BaseAgent } from '../agents/base-agent.js'
+import type { AgentRunOptions, BaseAgent } from '../agents/base-agent.js'
 import { logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
 import type { StorageBackend } from './storage.js'
@@ -180,13 +180,13 @@ export class AgentService {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
     try {
-      const runOptions = {
+      const runOptions: AgentRunOptions = {
         workspaceDir: workspace.getWorkspacePath(),
         iterationNumber: iteration.iterationNumber,
         resume: resumeSessionId,
       }
 
-      agentLogger.info('Starting agent execution with options', runOptions)
+      agentLogger.info('Starting agent execution with options', { ...runOptions })
 
       // Prepare message with file references if provided
       let finalMessage = message

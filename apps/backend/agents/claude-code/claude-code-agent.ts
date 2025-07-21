@@ -227,8 +227,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
     }
 
-    // Add model if provided
-    if (options.model) {
+    // Add model if provided (prioritize runOptions.model over options.model)
+    if (runOptions.model) {
+      sdkOptions.model = runOptions.model
+    } else if (options.model) {
       sdkOptions.model = options.model
     }
 

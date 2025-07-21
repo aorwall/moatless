@@ -44,6 +44,7 @@ export class ProxyAgent extends BaseAgentClass {
           agentType: this.agentType,
           taskId: this.taskId,
           message,
+          model: runOptions?.model,
           runOptions: {
             ...runOptions,
             workspaceDir: '/repo',
