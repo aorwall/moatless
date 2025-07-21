@@ -2,6 +2,7 @@ import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockErrorQuery, createMockLoadingQuery, createMockQuery } from '@/test-utils/mocks'
 import { createWrapper } from '@/test-utils/render'
 import { useFileTreeWithChanges } from '../../api/use-file-tree-with-changes'
 import { FileTree } from '../file-tree'
@@ -79,12 +80,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should display file tree with git status indicators', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -110,12 +106,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should show correct git status indicators for different file types', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -133,12 +124,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should display staged badge for staged files', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -149,12 +135,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should display addition/deletion counts', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -170,12 +151,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should handle file selection', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     const user = userEvent.setup()
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
@@ -190,12 +166,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should expand/collapse directories', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     const user = userEvent.setup()
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
@@ -220,12 +191,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should display loading state', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      error: null,
-      isSuccess: false,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockLoadingQuery())
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -237,12 +203,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
 
   it('should display error state', async () => {
     const mockError = new Error('Failed to fetch file tree')
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: mockError,
-      isSuccess: false,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockErrorQuery(mockError))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -266,12 +227,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       },
     }
 
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: emptyResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(emptyResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -301,12 +257,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       },
     }
 
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: noChangesResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(noChangesResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -319,12 +270,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should highlight selected file', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     const user = userEvent.setup()
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
@@ -380,12 +326,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
       },
     }
 
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: nestedResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(nestedResponse))
 
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {
       wrapper: createWrapper(),
@@ -398,12 +339,7 @@ describe('FileTree with Git Changes - Integration Tests', () => {
   })
 
   it('should filter to show only changed files when toggle is pressed', async () => {
-    vi.mocked(useFileTreeWithChanges).mockReturnValue({
-      data: mockFileTreeResponse,
-      isLoading: false,
-      error: null,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useFileTreeWithChanges).mockReturnValue(createMockQuery(mockFileTreeResponse))
 
     const user = userEvent.setup()
     render(<FileTree taskId={mockTaskId} onFileSelect={mockOnFileSelect} />, {

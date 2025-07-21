@@ -1,15 +1,24 @@
 import type { Task } from '@moatless/types'
+import { createMockTask } from '@moatless/types/test-utils'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useDeleteTask } from '@/features/tasks/hooks/use-tasks'
-import { createMockTask } from '@/test-utils/factories'
+import { createMockMutation, createMockQuery } from '@/test-utils/mocks'
 import { TaskList } from '../task-list'
 
 // Mock dependencies
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, to, params }: any) => <a href={`${to}/${params?.taskId}`}>{children}</a>,
+  Link: ({
+    children,
+    to,
+    params,
+  }: {
+    children: React.ReactNode
+    to: string
+    params?: { taskId?: string }
+  }) => <a href={`${to}/${params?.taskId}`}>{children}</a>,
 }))
 
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
@@ -40,18 +49,14 @@ describe('TaskList', () => {
     global.confirm = vi.fn(() => true)
 
     // Default mock implementations
-    vi.mocked(useRepositoriesList).mockReturnValue({
-      data: [
+    vi.mocked(useRepositoriesList).mockReturnValue(
+      createMockQuery([
         { id: 'repo-1', name: 'Test Repository 1' },
         { id: 'repo-2', name: 'Test Repository 2' },
-      ],
-      isLoading: false,
-    } as any)
+      ]),
+    )
 
-    vi.mocked(useDeleteTask).mockReturnValue({
-      mutate: mockDeleteMutate,
-      isPending: false,
-    } as any)
+    vi.mocked(useDeleteTask).mockReturnValue(createMockMutation({ mutate: mockDeleteMutate }))
   })
 
   describe('Rendering', () => {
@@ -292,10 +297,9 @@ describe('TaskList', () => {
     })
 
     it('disables delete buttons when deletion is pending', () => {
-      vi.mocked(useDeleteTask).mockReturnValue({
-        mutate: mockDeleteMutate,
-        isPending: true,
-      } as any)
+      vi.mocked(useDeleteTask).mockReturnValue(
+        createMockMutation({ mutate: mockDeleteMutate, isPending: true }),
+      )
 
       const tasks = [createMockTask({ taskId: 'task-1' }), createMockTask({ taskId: 'task-2' })]
 
@@ -310,10 +314,7 @@ describe('TaskList', () => {
 
   describe('Edge Cases', () => {
     it('handles missing repository data gracefully', () => {
-      vi.mocked(useRepositoriesList).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-      } as any)
+      vi.mocked(useRepositoriesList).mockReturnValue(createMockQuery(undefined))
 
       const task = createMockTask({ repositoryId: 'repo-1' })
 

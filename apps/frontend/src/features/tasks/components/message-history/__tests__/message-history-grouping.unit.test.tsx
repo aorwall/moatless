@@ -1,6 +1,7 @@
 import type { AssistantMessage, Message } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockQuery } from '@/test-utils/mocks'
 import { createQueryWrapper } from '@/test-utils/mocks/providers'
 import { MessageHistory } from '../message-history'
 
@@ -35,35 +36,6 @@ import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 
-const createMockQueryResult = (data: any) => ({
-  data,
-  isLoading: false,
-  error: null,
-  refetch: vi.fn(),
-  isError: false,
-  isPending: false,
-  isLoadingError: false,
-  isRefetchError: false,
-  isSuccess: true,
-  status: 'success' as const,
-  fetchStatus: 'idle' as const,
-  isFetching: false,
-  isRefetching: false,
-  isStale: false,
-  dataUpdatedAt: Date.now(),
-  errorUpdatedAt: 0,
-  errorUpdateCount: 0,
-  failureCount: 0,
-  failureReason: null,
-  isFetched: true,
-  isFetchedAfterMount: true,
-  isInitialLoading: false,
-  isPlaceholderData: false,
-  isPreviousData: false,
-  isPaused: false,
-  promise: Promise.resolve(data),
-})
-
 // Mock the child components to focus on MessageHistory logic
 vi.mock('../user-message', () => ({
   UserMessageComponent: ({ message }: { message: Message }) => (
@@ -95,12 +67,11 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
       agentType: 'test-agent',
       repositoryId: 'test-repo',
       iterations: [],
-      fileContext: [],
       messages: [],
       workspaceId: 'test-workspace',
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as any)
+    })
     vi.mocked(useAutoScroll).mockReturnValue({
       scrollRef: { current: null },
       isAtBottom: true,
@@ -137,7 +108,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -181,7 +152,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -239,7 +210,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -304,7 +275,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -349,7 +320,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(initialMessages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(initialMessages))
 
       const { rerender } = render(<MessageHistory />, { wrapper })
 
@@ -378,7 +349,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(updatedMessages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(updatedMessages))
 
       rerender(<MessageHistory />)
 
@@ -443,7 +414,7 @@ describe.skip('MessageHistory - Tool Call Grouping', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 

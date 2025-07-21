@@ -44,6 +44,37 @@ if (!globalThis.IS_REACT_ACT_ENVIRONMENT) {
 
 ## Centralized Mock Utilities
 
+### Data Mocks from @moatless/types
+
+Use mock utilities from the shared types package for consistent test data:
+
+```typescript
+import { 
+  createMockTask,
+  createMockTaskIteration,
+  createMockTaskWithIterations,
+  createMockRepository,
+  createMockEnvironment,
+  createMockMessage,
+  createMockEvent
+} from '@moatless/types/test-utils'
+
+// Create mock task data
+const mockTask = createMockTask({
+  taskId: 'test-123',
+  status: 'completed'
+})
+
+// Create task with iterations
+const mockTaskWithIterations = createMockTaskWithIterations(3)
+
+// Create mock repository
+const mockRepo = createMockRepository({
+  name: 'my-test-repo',
+  previewConfig: createMockPreviewConfig()
+})
+```
+
 ### API Hook Mocks
 
 ```typescript
@@ -53,6 +84,11 @@ import {
   createMockErrorQuery,
   createMockMutation 
 } from '@/test-utils/mocks'
+
+// Use mock data from @moatless/types
+import { createMockTask } from '@moatless/types/test-utils'
+
+const taskData = createMockTask()
 
 // Mock successful data
 vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
@@ -134,7 +170,23 @@ vi.mocked(useTask).mockReturnValue(createMockQuery(taskData))
 
 ## Key Testing Principles
 
-### 1. Strategic Mocking - Decision Tree
+### 1. Mock Placement and Import Order
+
+```typescript
+// ✅ CORRECT: vi.mock() calls MUST come before all imports
+vi.mock('@/features/tasks/hooks/use-tasks')
+vi.mock('@/features/repositories/hooks/use-repositories')
+
+import { render, screen } from '@testing-library/react'
+import { useTask } from '@/features/tasks/hooks/use-tasks'
+import { TaskViewer } from '../task-viewer'
+
+// ❌ INCORRECT: vi.mock() after imports causes hoisting issues
+import { TaskViewer } from '../task-viewer'
+vi.mock('@/features/tasks/hooks/use-tasks') // This will fail!
+```
+
+### 2. Strategic Mocking - Decision Tree
 
 ```
 Is it an external dependency?
@@ -177,7 +229,7 @@ Is it an external dependency?
 - Utility functions
 - Type definitions or constants
 
-### 2. Test Behavior, Not Implementation
+### 3. Test Behavior, Not Implementation
 
 **Concrete Rule**: Test what users see and interact with, not how the code works internally.
 
@@ -209,7 +261,7 @@ expect(screen.getByRole('dialog')).toBeInTheDocument()
 expect(screen.queryByText('Modal Content')).toBeVisible()
 ```
 
-### 3. Integration Testing Pattern
+### 4. Integration Testing Pattern
 
 ```typescript
 // Mock only external dependencies
@@ -284,9 +336,11 @@ it('updates when SSE event received', async () => {
 **Forbidden Patterns**:
 - `.skip()` or `.only()` in committed code
 - `console.log()` statements (use `debug()` from testing-library)
-- `any` type assertions in expectations
+- `any` type assertions in expectations or test data
 - Hardcoded timeouts > 1000ms
 - Direct module state mutation
+- Manual mock creation when @moatless/types utilities exist
+- vi.mock() calls after imports
 
 ## Troubleshooting
 
@@ -353,15 +407,22 @@ describe('ComponentName', () => {
 
 ## Factory Functions
 
+Use factory functions from @moatless/types for consistent test data:
+
 ```typescript
-// src/test-utils/factories/task.factory.ts
-export const createMockTask = (overrides?: Partial<Task>): Task => ({
-  id: 'task-' + Math.random().toString(36).substr(2, 9),
-  title: 'Default Task Title',
-  status: 'active',
-  created_at: new Date().toISOString(),
-  ...overrides,
-})
+// Import from shared types package
+import { 
+  createMockTask,
+  createMockRepository,
+  createMockEnvironment,
+  createMockGitStatus,
+  createMockGitDiffResponse
+} from '@moatless/types/test-utils'
+
+// Use in tests
+const task = createMockTask({ status: 'completed' })
+const repo = createMockRepository({ name: 'my-repo' })
+const gitStatus = createMockGitStatus({ hasUncommittedChanges: true })
 ```
 
 ## Performance Optimization
@@ -411,8 +472,11 @@ export { createAllProvidersWrapper }
 
 ### Testing Checklist
 - [ ] Use proper naming convention (*.unit.test.tsx or *.integration.test.tsx)
+- [ ] Place all vi.mock() calls before imports
+- [ ] Use mock utilities from @moatless/types/test-utils for data creation
+- [ ] No `as any` type assertions - use proper mock utilities instead
 - [ ] No meaningless assertions
-- [ ] Use centralized mocks from @/test-utils/mocks
+- [ ] Use centralized mocks from @/test-utils/mocks for API states
 - [ ] Test all states (loading, error, success)
 - [ ] Clean up after tests (timers, subscriptions)
 - [ ] Test runs in appropriate time for its category

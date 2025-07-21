@@ -1,8 +1,3 @@
-import type { Task } from '@moatless/types'
-import { QueryClient } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { queryKeys } from '@/lib/api/query-keys'
-
 // Move vi.mock calls to the top before any imports that use them
 vi.mock('@/features/tasks/api/tasks')
 
@@ -15,8 +10,11 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   }
 })
 
-// Import after mocking
+import type { Task } from '@moatless/types'
+import { QueryClient } from '@tanstack/react-query'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { tasksApi } from '@/features/tasks/api/tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 
 describe('Create Task Flow - Data Sync Integration', () => {
   let queryClient: QueryClient

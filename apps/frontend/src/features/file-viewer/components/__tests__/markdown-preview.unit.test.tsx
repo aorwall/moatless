@@ -1,8 +1,3 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import mermaid from 'mermaid'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MarkdownPreview } from '../markdown-preview'
-
 // Mock mermaid module
 vi.mock('mermaid', () => ({
   default: {
@@ -24,6 +19,11 @@ vi.mock('@/lib/components/ui/dialog', () => ({
   DialogHeader: ({ children }: any) => <div>{children}</div>,
   DialogTitle: ({ children }: any) => <h2>{children}</h2>,
 }))
+
+import { render, screen, waitFor } from '@testing-library/react'
+import mermaid from 'mermaid'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MarkdownPreview } from '../markdown-preview'
 
 // Custom waitFor with reduced timeout for faster tests
 const fastWaitFor = (fn: () => void, options = {}) => waitFor(fn, { timeout: 1000, ...options })

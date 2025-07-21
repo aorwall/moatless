@@ -1,6 +1,7 @@
 import type { Message } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockQuery } from '@/test-utils/mocks'
 import { createQueryWrapper } from '@/test-utils/mocks/providers'
 import { MessageHistory } from '../message-history'
 
@@ -34,35 +35,6 @@ import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
-
-const createMockQueryResult = (data: any) => ({
-  data,
-  isLoading: false,
-  error: null,
-  refetch: vi.fn(),
-  isError: false,
-  isPending: false,
-  isLoadingError: false,
-  isRefetchError: false,
-  isSuccess: true,
-  status: 'success' as const,
-  fetchStatus: 'idle' as const,
-  isFetching: false,
-  isRefetching: false,
-  isStale: false,
-  dataUpdatedAt: Date.now(),
-  errorUpdatedAt: 0,
-  errorUpdateCount: 0,
-  failureCount: 0,
-  failureReason: null,
-  isFetched: true,
-  isFetchedAfterMount: true,
-  isInitialLoading: false,
-  isPlaceholderData: false,
-  isPreviousData: false,
-  isPaused: false,
-  promise: Promise.resolve(data),
-})
 
 // Mock the child components to focus on MessageHistory logic
 vi.mock('../user-message', () => ({
@@ -126,12 +98,11 @@ describe('MessageHistory - Unit Tests', () => {
       agentType: 'test-agent',
       repositoryId: 'test-repo',
       iterations: [],
-      fileContext: [],
       messages: [],
       workspaceId: 'test-workspace',
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as any)
+    })
     vi.mocked(useAutoScroll).mockReturnValue({
       scrollRef: { current: null },
       isAtBottom: true,
@@ -151,7 +122,7 @@ describe('MessageHistory - Unit Tests', () => {
 
   describe('Rendering', () => {
     it('renders empty state when no messages provided', () => {
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult([]) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery([]))
 
       render(<MessageHistory />, { wrapper })
 
@@ -168,7 +139,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -187,7 +158,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -218,7 +189,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -266,7 +237,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -289,7 +260,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -306,7 +277,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -327,7 +298,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -351,7 +322,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -372,7 +343,7 @@ describe('MessageHistory - Unit Tests', () => {
         },
       ]
 
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
@@ -392,7 +363,7 @@ describe('MessageHistory - Unit Tests', () => {
       }))
 
       // Mock the useTaskMessages hook to return our test messages
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       const { container } = render(<MessageHistory />, { wrapper })
 
@@ -407,7 +378,7 @@ describe('MessageHistory - Unit Tests', () => {
   describe('Error handling', () => {
     it('handles null/undefined messages gracefully', () => {
       // Mock useTaskMessages to return null/undefined
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(null) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(null))
 
       render(<MessageHistory />, { wrapper })
 
@@ -425,7 +396,7 @@ describe('MessageHistory - Unit Tests', () => {
       ] as Message[]
 
       // Mock useTaskMessages to return malformed messages
-      vi.mocked(useTaskMessages).mockReturnValue(createMockQueryResult(messages) as any)
+      vi.mocked(useTaskMessages).mockReturnValue(createMockQuery(messages))
 
       render(<MessageHistory />, { wrapper })
 
