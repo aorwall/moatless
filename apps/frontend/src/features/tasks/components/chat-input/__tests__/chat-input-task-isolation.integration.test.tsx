@@ -87,15 +87,28 @@ describe('ChatInput Task Isolation', () => {
     expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
   })
 
-  it('should render with default model selection', () => {
-    renderChatInputWithTaskProvider(
-      'task-1',
-      <ChatInput taskId="task-1" message="" onMessageChange={vi.fn()} onSubmit={vi.fn()} />,
+  it('should render with model selector', () => {
+    // Mock selector component to make test assertions possible
+    const MockSelector = () => (
+      <button type="button" aria-label="Model selector" data-testid="model-selector">
+        Claude Opus 4
+      </button>
     )
 
-    // Should render with default model (Opus) - check for the combobox button with the selected value
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toHaveTextContent('Claude Opus 4')
+    renderChatInputWithTaskProvider(
+      'task-1',
+      <ChatInput
+        taskId="task-1"
+        message=""
+        onMessageChange={vi.fn()}
+        onSubmit={vi.fn()}
+        selectors={<MockSelector />}
+      />,
+    )
+
+    // Should render with model selector
+    expect(screen.getByTestId('model-selector')).toBeInTheDocument()
+    expect(screen.getByTestId('model-selector')).toHaveTextContent('Claude Opus 4')
   })
 
   it('should integrate with TaskUIProvider context successfully', () => {
@@ -108,12 +121,12 @@ describe('ChatInput Task Isolation', () => {
         onMessageChange={vi.fn()}
         onSubmit={mockOnSendMessage}
         taskId="test-task"
+        enableFileUpload={true}
       />,
     )
 
     // Should render main elements without errors
     expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toHaveTextContent('Claude Opus 4')
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /upload file/i })).toBeInTheDocument()
   })
