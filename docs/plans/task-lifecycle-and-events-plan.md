@@ -546,11 +546,6 @@ All backend tasks have been completed successfully. Here's what was implemented:
   - [ ] Add state dependency matrix
   - [ ] Update state transition descriptions
 
-- [ ] **Update API Documentation**
-  - [ ] Document new response structure
-  - [ ] Add examples for different states
-  - [ ] Document when fields are present/absent
-
 ### Testing Tasks
 
 - [ ] **Backend Tests**
