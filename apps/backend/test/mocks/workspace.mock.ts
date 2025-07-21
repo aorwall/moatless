@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import type { BaseAgent } from '../../agents/base-agent.js'
+import { TestAgent } from '../../agents/test-agent.js'
 import type { BaseEnvironment } from '../../environments/base-environment.js'
 import type { Workspace } from '../../workspaces/workspace.js'
 
@@ -8,15 +9,17 @@ import type { Workspace } from '../../workspaces/workspace.js'
  * Following the Strategic Mocking Pattern
  */
 
-export function createMockAgent(overrides?: Partial<BaseAgent>): BaseAgent {
-  return {
-    run: vi.fn().mockImplementation(async function* () {
-      yield { type: 'test', payload: {} }
-    }),
-    getSessionId: vi.fn().mockReturnValue('mock-session-id'),
-    stop: vi.fn(),
-    ...overrides,
-  } as unknown as BaseAgent
+export function createMockAgent(overrides?: Partial<BaseAgent> & { options?: any }): BaseAgent {
+  // Use TestAgent for consistent test behavior
+  const agent = new TestAgent('test-task-mock', overrides?.options || {})
+
+  // Apply any overrides (except options which was already used)
+  if (overrides) {
+    const { options, ...rest } = overrides
+    Object.assign(agent, rest)
+  }
+
+  return agent
 }
 
 export function createMockEnvironment(overrides?: Partial<BaseEnvironment>): BaseEnvironment {

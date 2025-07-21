@@ -162,4 +162,169 @@ describe('ClaudeCodeAgent', () => {
       expect((messageEvent as any).payload.message.content[0].type).toBe('text')
     })
   })
+
+  describe('Model Parameter Handling', () => {
+    it('should use model from runOptions over constructor options', async () => {
+      const taskId = 'test-task-id'
+      const constructorModel = 'claude-3-opus-20240229'
+      const runOptionsModel = 'claude-3-sonnet-20240320'
+
+      // Create agent with model in constructor options
+      const agent = new ClaudeCodeAgent(taskId, { model: constructorModel })
+
+      // Mock the query function to capture the options passed
+      let capturedOptions: any
+      const { query } = await import('@anthropic-ai/claude-code')
+      vi.mocked(query).mockImplementation(
+        ({ prompt: _prompt, abortController: _abortController, options }) => {
+          capturedOptions = options
+          const generator = async function* () {
+            const textMessage: SDKMessage = {
+              type: 'assistant',
+              message: {
+                id: 'msg_123',
+                type: 'message',
+                role: 'assistant',
+                model: runOptionsModel, // Should use the model from runOptions
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Response using model from runOptions.',
+                  },
+                ],
+                stop_reason: 'end_turn',
+                stop_sequence: null,
+              },
+              parent_tool_use_id: null,
+              session_id: 'test-session',
+            }
+            yield textMessage
+          }
+          const gen = generator()
+          return {
+            ...gen,
+            interrupt: vi.fn(),
+          }
+        },
+      )
+
+      // Run with model in runOptions
+      const events: unknown[] = []
+      for await (const event of agent.run('test message', { model: runOptionsModel })) {
+        events.push(event)
+      }
+
+      // Verify the model from runOptions was used
+      expect(capturedOptions).toBeDefined()
+      expect(capturedOptions.model).toBe(runOptionsModel)
+    })
+
+    it('should use model from constructor options when not in runOptions', async () => {
+      const taskId = 'test-task-id'
+      const constructorModel = 'claude-3-opus-20240229'
+
+      // Create agent with model in constructor options
+      const agent = new ClaudeCodeAgent(taskId, { model: constructorModel })
+
+      // Mock the query function to capture the options passed
+      let capturedOptions: any
+      const { query } = await import('@anthropic-ai/claude-code')
+      vi.mocked(query).mockImplementation(
+        ({ prompt: _prompt, abortController: _abortController, options }) => {
+          capturedOptions = options
+          const generator = async function* () {
+            const textMessage: SDKMessage = {
+              type: 'assistant',
+              message: {
+                id: 'msg_123',
+                type: 'message',
+                role: 'assistant',
+                model: constructorModel,
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Response using model from constructor.',
+                  },
+                ],
+                stop_reason: 'end_turn',
+                stop_sequence: null,
+              },
+              parent_tool_use_id: null,
+              session_id: 'test-session',
+            }
+            yield textMessage
+          }
+          const gen = generator()
+          return {
+            ...gen,
+            interrupt: vi.fn(),
+          }
+        },
+      )
+
+      // Run without model in runOptions
+      const events: unknown[] = []
+      for await (const event of agent.run('test message', {})) {
+        events.push(event)
+      }
+
+      // Verify the model from constructor options was used
+      expect(capturedOptions).toBeDefined()
+      expect(capturedOptions.model).toBe(constructorModel)
+    })
+
+    it('should use default model when no model is specified', async () => {
+      const taskId = 'test-task-id'
+      const defaultModel = 'claude-sonnet-4-20250514'
+
+      // Create agent without model
+      const agent = new ClaudeCodeAgent(taskId)
+
+      // Mock the query function to capture the options passed
+      let capturedOptions: any
+      const { query } = await import('@anthropic-ai/claude-code')
+      vi.mocked(query).mockImplementation(
+        ({ prompt: _prompt, abortController: _abortController, options }) => {
+          capturedOptions = options
+          const generator = async function* () {
+            const textMessage: SDKMessage = {
+              type: 'assistant',
+              message: {
+                id: 'msg_123',
+                type: 'message',
+                role: 'assistant',
+                model: defaultModel,
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Response using default model.',
+                  },
+                ],
+                stop_reason: 'end_turn',
+                stop_sequence: null,
+              },
+              parent_tool_use_id: null,
+              session_id: 'test-session',
+            }
+            yield textMessage
+          }
+          const gen = generator()
+          return {
+            ...gen,
+            interrupt: vi.fn(),
+          }
+        },
+      )
+
+      // Run without model
+      const events: unknown[] = []
+      for await (const event of agent.run('test message')) {
+        events.push(event)
+      }
+
+      // Verify the default model was used
+      expect(capturedOptions).toBeDefined()
+      expect(capturedOptions.model).toBe(defaultModel)
+    })
+  })
 })

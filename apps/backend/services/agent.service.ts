@@ -121,7 +121,15 @@ export class AgentService {
 
     try {
       // Execute agent in background (task status remains 'open' during execution)
-      await this.runAgentExecution(agent, message, taskId, iteration, workspace, resumeSessionId)
+      await this.runAgentExecution(
+        agent,
+        message,
+        taskId,
+        iteration,
+        workspace,
+        resumeSessionId,
+        model,
+      )
     } finally {
       // Always clean up running agent tracking
       this.runningAgents.delete(taskId)
@@ -176,6 +184,7 @@ export class AgentService {
     iteration: TaskIteration,
     workspace: Awaited<ReturnType<WorkspaceService['getOrCreateWorkspace']>>,
     resumeSessionId?: string,
+    model?: string,
   ): Promise<void> {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
@@ -184,6 +193,7 @@ export class AgentService {
         workspaceDir: workspace.getWorkspacePath(),
         iterationNumber: iteration.iterationNumber,
         resume: resumeSessionId,
+        model,
       }
 
       agentLogger.info('Starting agent execution with options', { ...runOptions })

@@ -1,5 +1,8 @@
 import type { Event } from '@moatless/types'
-import { EventSchema, WorkerEventResponseSchema } from '@moatless/types/schemas/event.schemas'
+import { schemas } from '@moatless/types'
+
+const { EventSchema, WorkerEventResponseSchema } = schemas
+
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeRoute } from 'hono-openapi'
