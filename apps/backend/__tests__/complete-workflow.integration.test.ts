@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../services/event.service.js'
 import { build } from '../test/helper.js'
+import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import {
   createTestRepository,
@@ -47,8 +47,9 @@ describe('Complete Workflow Integration Test (broad)', () => {
   let collectedEvents: Event[] = []
 
   beforeEach(async () => {
-    // Create a temporary directory for our test git repository
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-e2e-test-'))
+    // Create a temporary directory for our test git repository within the data directory
+    const dataDir = getDataDir()
+    tempDir = await fs.mkdtemp(path.join(dataDir, 'moatless-e2e-test-'))
 
     // Skip reading Claude events from disk for tests
     process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
