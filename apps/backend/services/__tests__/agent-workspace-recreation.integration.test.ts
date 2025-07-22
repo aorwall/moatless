@@ -11,7 +11,7 @@ import type { EventService } from '../event.service.js'
 import type { StorageBackend } from '../storage.js'
 import type { WorkspaceService } from '../workspace.service.js'
 
-describe('AgentService - Workspace Recreation Integration Tests', () => {
+describe('AgentService - Workspace Recreation', () => {
   let agentService: AgentService
   let mockStorage: StorageBackend
   let mockEventService: EventService
@@ -39,7 +39,7 @@ describe('AgentService - Workspace Recreation Integration Tests', () => {
 
   beforeEach(async () => {
     // Setup test data directory
-    tempDataDir = await setupTestDataDir('agent-workspace-integration')
+    tempDataDir = await setupTestDataDir('agent-workspace')
 
     // Setup mock storage
     mockStorage = {
@@ -147,7 +147,7 @@ describe('AgentService - Workspace Recreation Integration Tests', () => {
 
   // NOTE: This test is slow (30s timeout) and should be moved to integration tests
   // Keeping it here but skipping in fast test suite
-  it.skip('should throw error if workspace recreation fails after timeout', async () => {
+  it.skip('should throw error if workspace recreation fails', async () => {
     const iteration = {
       iterationNumber: 1,
       startTime: new Date(),

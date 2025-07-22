@@ -102,12 +102,16 @@ describe('SettingsService', () => {
       expect(result.defaults).toEqual({
         dataDir: tempDir,
         defaultWorkspaceType: 'local',
+        binDir: '',
+        configDir: '',
+        oauthToken: '',
         claude: {
           binDir: '',
           configDir: '',
+          oauthToken: '',
         },
         github: {
-          token: '',
+          personalAccessToken: '',
           userName: expect.any(String),
           userEmail: expect.any(String),
         },
@@ -331,8 +335,8 @@ describe('SettingsService', () => {
         // Reset
         await settingsService.resetSettings()
 
-        // Check file contents in original location
-        const settingsPath = path.join(tempDir, 'settings.json')
+        // Check file contents in current data directory (customDataDir)
+        const settingsPath = path.join(customDataDir, 'settings.json')
         const fileContent = await fs.readFile(settingsPath, 'utf-8')
         const savedSettings = JSON.parse(fileContent)
         expect(savedSettings).toEqual({})
@@ -390,6 +394,7 @@ describe('SettingsService', () => {
       process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
 
       const service = new SettingsService(mockGitHubService)
+      await service.initialize()
       expect(service.getDefaultWorkspaceType()).toBe('docker')
 
       // Override with settings

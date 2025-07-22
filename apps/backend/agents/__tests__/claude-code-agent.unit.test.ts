@@ -4,8 +4,30 @@ import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 // Mock the @anthropic-ai/claude-code module
 vi.mock('@anthropic-ai/claude-code', () => ({
-  query: vi.fn().mockImplementation(async function* () {
-    // Mock implementation that yields test messages
+  query: vi.fn().mockImplementation(() => {
+    const generator = async function* () {
+      // Default empty generator - will be overridden in tests
+      yield {
+        type: 'assistant',
+        message: {
+          id: 'msg_default',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-sonnet-4-20250514',
+          content: [{ type: 'text', text: 'Default test message' }],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+        },
+        parent_tool_use_id: null,
+        session_id: 'default-session',
+      }
+    }
+    const gen = generator()
+    return {
+      ...gen,
+      [Symbol.asyncIterator]: () => gen,
+      interrupt: vi.fn(),
+    }
   }),
 }))
 
@@ -49,6 +71,7 @@ describe('ClaudeCodeAgent', () => {
         const gen = generator()
         return {
           ...gen,
+          [Symbol.asyncIterator]: () => gen,
           interrupt: vi.fn(),
         }
       })
@@ -92,6 +115,7 @@ describe('ClaudeCodeAgent', () => {
         const gen = generator()
         return {
           ...gen,
+          [Symbol.asyncIterator]: () => gen,
           interrupt: vi.fn(),
         }
       })
@@ -146,6 +170,7 @@ describe('ClaudeCodeAgent', () => {
         const gen = generator()
         return {
           ...gen,
+          [Symbol.asyncIterator]: () => gen,
           interrupt: vi.fn(),
         }
       })
@@ -203,6 +228,7 @@ describe('ClaudeCodeAgent', () => {
           const gen = generator()
           return {
             ...gen,
+            [Symbol.asyncIterator]: () => gen,
             interrupt: vi.fn(),
           }
         },
@@ -257,6 +283,7 @@ describe('ClaudeCodeAgent', () => {
           const gen = generator()
           return {
             ...gen,
+            [Symbol.asyncIterator]: () => gen,
             interrupt: vi.fn(),
           }
         },
@@ -311,6 +338,7 @@ describe('ClaudeCodeAgent', () => {
           const gen = generator()
           return {
             ...gen,
+            [Symbol.asyncIterator]: () => gen,
             interrupt: vi.fn(),
           }
         },
@@ -322,9 +350,9 @@ describe('ClaudeCodeAgent', () => {
         events.push(event)
       }
 
-      // Verify the default model was used
+      // Verify no model was set (should be undefined when not specified)
       expect(capturedOptions).toBeDefined()
-      expect(capturedOptions.model).toBe(defaultModel)
+      expect(capturedOptions.model).toBeUndefined()
     })
   })
 })

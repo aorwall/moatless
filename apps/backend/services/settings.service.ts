@@ -134,9 +134,15 @@ export class SettingsService {
 
   getClaudeSettings(): Required<ClaudeSettings> {
     return {
-      binDir: this.settings?.binDir || this.defaults.claude.binDir,
-      configDir: this.settings?.configDir || this.defaults.claude.configDir,
-      oauthToken: this.settings?.oauthToken || this.defaults.claude.oauthToken,
+      binDir: this.settings?.claude?.binDir || this.settings?.binDir || this.defaults.claude.binDir,
+      configDir:
+        this.settings?.claude?.configDir ||
+        this.settings?.configDir ||
+        this.defaults.claude.configDir,
+      oauthToken:
+        this.settings?.claude?.oauthToken ||
+        this.settings?.oauthToken ||
+        this.defaults.claude.oauthToken,
     }
   }
 

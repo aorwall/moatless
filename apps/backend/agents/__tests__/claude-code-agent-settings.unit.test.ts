@@ -5,29 +5,37 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the Claude Code SDK
 vi.mock('@anthropic-ai/claude-code', () => ({
-  query: vi.fn().mockImplementation(async function* () {
-    yield {
-      type: 'assistant',
-      message: {
-        id: 'msg_123',
-        type: 'message',
-        role: 'assistant',
-        model: 'claude-opus-4-20250514',
-        content: [
-          {
-            type: 'text',
-            text: 'This is a regular text message.',
+  query: vi.fn().mockImplementation(() => {
+    const generator = async function* () {
+      yield {
+        type: 'assistant',
+        message: {
+          id: 'msg_123',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-opus-4-20250514',
+          content: [
+            {
+              type: 'text',
+              text: 'This is a regular text message.',
+            },
+          ],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
           },
-        ],
-        stop_reason: 'end_turn',
-        stop_sequence: null,
-        usage: {
-          input_tokens: 10,
-          output_tokens: 20,
         },
-      },
-      parent_tool_use_id: null,
-      session_id: 'test-session',
+        parent_tool_use_id: null,
+        session_id: 'test-session',
+      }
+    }
+    const gen = generator()
+    return {
+      ...gen,
+      [Symbol.asyncIterator]: () => gen,
+      interrupt: vi.fn(),
     }
   }),
 }))

@@ -75,8 +75,8 @@ export class ClaudeCodeAgent extends BaseAgent {
           sdkMessage,
         })
 
-        // Emit 'agent started' event on first real event (not system/init)
-        if (!hasEmittedStarted && sdkMessage.type !== 'system') {
+        // Emit 'agent started' event on first event
+        if (!hasEmittedStarted) {
           hasEmittedStarted = true
           yield this.createEventWithContextTokens(
             { type: 'agent', subType: 'started' },
