@@ -436,6 +436,7 @@ export class TaskService {
         task.taskId,
         params.repositoryId,
         params.originalBranch || params.branchName, // Use originalBranch if provided, fallback to branchName for backward compatibility
+        params.newBranch, // When set, create branch with this name and also worktree if we use worktree with a filepath normalized name
       )
       task.workspacePath = workspace.getWorkspacePath()
 
@@ -487,8 +488,9 @@ export class TaskService {
             const task = await this.storage.getTask(taskId)
             if (task) {
               // Only update iteration status to failed, not task status
+              let lastIteration: any = null
               if (task.iterations.length > 0) {
-                const lastIteration = task.iterations[task.iterations.length - 1]
+                lastIteration = task.iterations[task.iterations.length - 1]
                 if (lastIteration.status === 'active') {
                   lastIteration.status = 'failed'
                 }
@@ -496,21 +498,23 @@ export class TaskService {
 
               await this.storage.saveTask(task)
 
-              // Emit error event
-              await this.eventService.emitEvent({
-                eventId: randomUUID(),
-                taskId,
-                type: 'taskIteration',
-                subType: 'error',
-                isError: true,
-                agentType: task.agentType,
-                timestamp: new Date(),
-                payload: {
-                  status: 'error',
-                  previousStatus: 'active',
-                  iterationNumber: iteration.iterationNumber,
-                },
-              })
+              // Emit error event only if there's a last iteration
+              if (lastIteration) {
+                await this.eventService.emitEvent({
+                  eventId: randomUUID(),
+                  taskId,
+                  type: 'taskIteration',
+                  subType: 'error',
+                  isError: true,
+                  agentType: task.agentType,
+                  timestamp: new Date(),
+                  payload: {
+                    status: 'error',
+                    previousStatus: 'active',
+                    iterationNumber: lastIteration.iterationNumber,
+                  },
+                })
+              }
             }
           } catch (updateError) {
             logger.error(
@@ -531,7 +535,6 @@ export class TaskService {
       try {
         const task = await this.storage.getTask(taskId)
         if (task) {
-          const previousStatus = task.status
           // No task status change needed
 
           // Emit status change event
@@ -640,7 +643,6 @@ export class TaskService {
                 (it) => it.iterationNumber === lastIteration.iterationNumber,
               )
               if (updatedIteration) {
-                const previousStatus = updatedTask.status
                 // Only update iteration status, not task status
                 updatedIteration.status = 'failed'
 
@@ -657,7 +659,7 @@ export class TaskService {
                   timestamp: new Date(),
                   payload: {
                     status: 'error',
-                    previousStatus: iteration.status,
+                    previousStatus: lastIteration.status,
                     iterationNumber: lastIteration.iterationNumber,
                   },
                 })

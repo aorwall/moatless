@@ -35,5 +35,9 @@ export interface EventListResponse {
 }
 
 // Re-export task schema types that are used in API
-export type { MergeTaskResponse } from '../schemas/task.schemas.js'
+export type {
+  CreateTaskRequest,
+  CreateVibeTaskRequest,
+  MergeTaskResponse,
+} from '../schemas/task.schemas.js'
 export type { GitStatus } from '../schemas/workspace.schemas.js'

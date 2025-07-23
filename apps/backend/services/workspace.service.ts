@@ -29,8 +29,9 @@ export class WorkspaceService {
     taskId: string,
     repositoryId: string,
     branchName?: string,
+    newBranch?: string,
   ): Promise<Workspace> {
-    logger.info('Starting workspace creation', { taskId, repositoryId, branchName })
+    logger.info('Starting workspace creation', { taskId, repositoryId, branchName, newBranch })
 
     const repository = await this.repositoryService.getRepositoryById(repositoryId)
     if (!repository) {
@@ -46,7 +47,12 @@ export class WorkspaceService {
     })
 
     // Create workspace path for local repositories
-    const workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
+    const workspacePath = await this.createWorkspaceRepository(
+      repository,
+      taskId,
+      branchName,
+      newBranch,
+    )
 
     logger.info('Workspace repository created', {
       taskId,
@@ -88,6 +94,7 @@ export class WorkspaceService {
     repo: RepositoryConfig,
     taskId: string,
     branchName?: string,
+    newBranch?: string,
   ): Promise<string> {
     if (!(await this.pathExists(repo.path))) {
       throw new WorkspaceError(`Repository path does not exist: ${repo.path}`, taskId, 400)
@@ -110,7 +117,7 @@ export class WorkspaceService {
     }
 
     // Create worktree if it doesn't exist or recreate if removed
-    await this.ensureWorktreeExists(repo, taskId, workspacePath, branchName)
+    await this.ensureWorktreeExists(repo, taskId, workspacePath, branchName, newBranch)
 
     return workspacePath
   }
@@ -162,6 +169,7 @@ export class WorkspaceService {
     taskId: string,
     workspacePath: string,
     branchName?: string,
+    newBranch?: string,
   ): Promise<void> {
     const workspaceLogger = logger.child({ taskId })
 
@@ -182,8 +190,8 @@ export class WorkspaceService {
       workspaceLogger.info('Worktree does not exist, creating new one', { workspacePath })
     }
 
-    // Get the workspace branch name
-    const workspaceBranchName = this.getBranchName(taskId)
+    // Get the workspace branch name - use newBranch if provided, otherwise generate one
+    const workspaceBranchName = newBranch || this.getBranchName(taskId)
 
     // Check if the workspace branch already exists
     const workspaceBranchExists = await this.checkBranchExists(repo.path, workspaceBranchName)
@@ -435,7 +443,12 @@ export class WorkspaceService {
         workspacePath = existingWorkspacePath
       } else {
         // Create new workspace path
-        workspacePath = await this.createWorkspaceRepository(repository, taskId, branchName)
+        workspacePath = await this.createWorkspaceRepository(
+          repository,
+          taskId,
+          branchName,
+          undefined,
+        )
       }
 
       // Create the appropriate environment based on repository config

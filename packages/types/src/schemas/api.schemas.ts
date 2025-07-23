@@ -10,28 +10,7 @@ import { TaskResponseSchema } from './task.schemas.js'
 // Request Schemas
 // ============================================
 
-// Create Task
-export const CreateTaskRequestSchema = z.object({
-  agentType: z.string(),
-  repositoryId: z.string(),
-  message: z.string().optional(),
-  branchName: z.string().optional(), // Name for the new workspace branch (deprecated, use originalBranch)
-  originalBranch: z.string().optional(), // Branch to create from (the source branch)
-  start: z.boolean().optional(),
-  model: z.string().optional(),
-  filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
-})
-
-// Create Vibe Task
-export const CreateVibeTaskRequestSchema = z.object({
-  agentType: z.string(),
-  templateId: z.string(),
-  repositoryName: z.string(), // Name for the new repository
-  message: z.string().optional(),
-  start: z.boolean().optional(),
-  model: z.string().optional(),
-  filePaths: z.array(z.string()).optional(),
-})
+// Note: CreateTaskRequestSchema and CreateVibeTaskRequestSchema moved to task.schemas.ts
 
 // Send Message
 export const SendMessageRequestSchema = z.object({
@@ -157,8 +136,8 @@ export const FileSearchQuerySchema = z.object({
 // ============================================
 // Derived Types
 // ============================================
-export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
-export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
+// Re-export task request types from task.schemas.ts for backward compatibility
+export type { CreateTaskRequest, CreateVibeTaskRequest } from './task.schemas.js'
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 export type UploadFileResponse = z.infer<typeof UploadFileResponseSchema>
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>

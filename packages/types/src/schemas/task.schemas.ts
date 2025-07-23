@@ -213,6 +213,33 @@ export const ServerLogsResponseExtendedSchema = z.object({
   truncated: z.boolean(),
 })
 
+// Request schemas moved from api.schemas.ts
+
+// Create Task
+export const CreateTaskRequestSchema = z.object({
+  agentType: z.string(),
+  repositoryId: z.string(),
+  message: z.string().optional(),
+  branchName: z.string().optional(), // Name for the new workspace branch (deprecated, use originalBranch)
+  originalBranch: z.string().optional(), // Branch to create from (the source branch)
+  newBranch: z.string().optional(), // When set, create branch with this name and also worktree if we use worktree with a filepath normalized name
+  start: z.boolean().optional(),
+  model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
+})
+
+// Create Vibe Task
+export const CreateVibeTaskRequestSchema = z.object({
+  agentType: z.string(),
+  templateId: z.string(),
+  repositoryName: z.string(), // Name for the new repository
+  message: z.string().optional(),
+  newBranch: z.string().optional(), // When set, create branch with this name and also worktree if we use worktree with a filepath normalized name
+  start: z.boolean().optional(),
+  model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(),
+})
+
 // Additional schemas for task operations
 export const MergeTaskSchema = z.object({
   targetBranch: z.string().optional().default('main'),
@@ -246,6 +273,8 @@ export type CommandResult = z.infer<typeof CommandResultSchema>
 export type ServerStatus = z.infer<typeof ServerStatusSchema>
 export type ServerStopResponse = z.infer<typeof ServerStopResponseSchema>
 export type ServerLogsResponseExtended = z.infer<typeof ServerLogsResponseExtendedSchema>
+export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
+export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
 export type MergeTask = z.infer<typeof MergeTaskSchema>
 export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
 export type GitDiffFile = z.infer<typeof GitDiffFileSchema>
