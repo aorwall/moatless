@@ -1,15 +1,14 @@
-import { exec, execSync } from 'node:child_process'
-import { existsSync, promises as fs } from 'node:fs'
+import { exec } from 'node:child_process'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
+import type { DockerService } from '../services/docker.service.js'
 import type { EventService } from '../services/event.service.js'
-import type { SettingsService } from '../services/settings.service.js'
-import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
-import { findAvailablePort } from '../utils/port-allocation.js'
 import { BaseEnvironment } from './base-environment.js'
 
 const execAsync = promisify(exec)
@@ -26,7 +25,8 @@ export class DockerEnvironment extends BaseEnvironment {
     taskId: string,
     repositoryConfig: RepositoryConfig,
     workspacePath: string,
-    private settingsService: SettingsService,
+    private dockerService: DockerService,
+    private claudeService: ClaudeService,
     eventService?: EventService,
   ) {
     super(taskId, repositoryConfig, eventService)
@@ -44,50 +44,8 @@ export class DockerEnvironment extends BaseEnvironment {
 
   private getContainerStatus(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
     // Always generate the container name deterministically
-    const containerName = generateContainerName(this.repositoryConfig.name, this.taskId)
-
-    // Check container status docker inspect
-    try {
-      const containerStatus = execSync(
-        `docker inspect --format='{{.State.Status}}' "${containerName}"`,
-        { encoding: 'utf8', timeout: 2000 },
-      ).trim()
-
-      if (!containerStatus) {
-        return 'not_created'
-      }
-
-      if (containerStatus === 'created') {
-        return 'initializing'
-      }
-
-      if (containerStatus === 'running') {
-        return 'ready'
-      }
-
-      if (containerStatus === 'removing') {
-        return 'cleaning'
-      }
-
-      if (containerStatus === 'exited' || containerStatus === 'dead') {
-        return 'error'
-      }
-      return 'not_created'
-    } catch (error: any) {
-      // Container doesn't exist
-      if (
-        error?.stderr?.toString().includes('No such object') ||
-        error?.message?.includes('No such object')
-      ) {
-        return 'not_created'
-      }
-      // Other errors
-      this.logger.debug('Error checking container status', {
-        error: error?.message,
-        stderr: error?.stderr?.toString(),
-      })
-      return 'error'
-    }
+    const containerName = this.getContainerName()
+    return this.dockerService.getContainerStatus(containerName)
   }
 
   getCreatedAt(): Date {
@@ -103,8 +61,7 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   getContainerName(): string {
-    // Always generate the container name deterministically
-    return generateContainerName(this.repositoryConfig.name, this.taskId)
+    return this.dockerService.generateContainerName(this.repositoryConfig.name, this.taskId)
   }
 
   getPort(): number | undefined {
@@ -142,83 +99,21 @@ export class DockerEnvironment extends BaseEnvironment {
       throw error
     }
 
-    // Find Claude config using settings service (optional for tests)
-    const claudeSettings = this.settingsService.getClaudeSettings()
-
-    // Determine Claude config directory
-    let claudeConfigDir: string
-    if (claudeSettings.configDir) {
-      claudeConfigDir = claudeSettings.configDir
-    } else if (process.env.CLAUDE_CONFIG_HOME) {
-      claudeConfigDir = process.env.CLAUDE_CONFIG_HOME
-    } else {
-      claudeConfigDir = path.join(process.env.HOME || '', '.claude')
-    }
-
-    let claudeConfigPath: string | null = null
-    let foundCredentialsPath: string | null = null
-
-    // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
-    const configJsonPath = path.join(claudeConfigDir, '.config.json')
-    if (existsSync(configJsonPath)) {
-      claudeConfigPath = configJsonPath
-      this.logger.info('Found Claude config at CLAUDE_CONFIG_DIR/.config.json', {
-        configJsonPath,
-      })
-    }
-
-    if (!claudeConfigPath) {
-      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
-      if (existsSync(claudeJsonPath)) {
-        claudeConfigPath = claudeJsonPath
-        this.logger.info('Found Claude config at USER_HOME/.claude.json', { claudeJsonPath })
+    // Validate Claude authentication using ClaudeService
+    const claudeAuth = this.claudeService.validateClaudeAuthentication()
+    if (!claudeAuth.isValid && claudeAuth.error) {
+      if (claudeAuth.hasConfig && !claudeAuth.hasCredentials && !claudeAuth.hasOAuthToken) {
+        // This is a critical error - fail setup
+        this.logger.error(claudeAuth.error)
+        throw new Error(claudeAuth.error)
       }
-    }
-
-    // Check for credentials file - try both .credentials.json and .credentials
-    const credentialsJsonPath = path.join(claudeConfigDir, '.credentials.json')
-    const credentialsPath = path.join(claudeConfigDir, '.credentials')
-    if (existsSync(credentialsJsonPath)) {
-      foundCredentialsPath = credentialsJsonPath
-      this.logger.info('Found Claude credentials at .credentials.json', { credentialsJsonPath })
-    } else if (existsSync(credentialsPath)) {
-      foundCredentialsPath = credentialsPath
-      this.logger.info('Found Claude credentials at .credentials', { credentialsPath })
-    }
-
-    // Only warn if no Claude config is found (don't throw error for tests)
-    if (!claudeConfigPath) {
-      this.logger.warn('No Claude config found - Claude Code agent may not work properly', {
-        searchedPaths: [configJsonPath, path.join(process.env.HOME || '', '.claude.json')],
-      })
-    }
-
-    // Check if we have OAuth token from settings
-    const claudeOauthToken = this.settingsService.getClaudeSettings().oauthToken
-
-    // Fail if no credentials found and no OAuth token when Claude config exists
-    if (!foundCredentialsPath && !claudeOauthToken && claudeConfigPath) {
-      const errorMsg =
-        'No Claude credentials found (.credentials or .credentials.json) and no OAuth token configured - Claude Code agent will not work. Run `claude setup-token` to get an OAuth token.'
-      this.logger.error(errorMsg, {
-        searchedPaths: [credentialsJsonPath, credentialsPath],
-      })
-      throw new Error(errorMsg)
-    }
-    if (!foundCredentialsPath && !claudeOauthToken) {
-      this.logger.warn(
-        'No Claude credentials or OAuth token found - Claude Code agent may not work properly',
-        {
-          searchedPaths: [credentialsJsonPath, credentialsPath],
-        },
-      )
+      // This is a warning - continue but log
+      this.logger.warn(claudeAuth.error)
     }
 
     try {
-      // Allocate port for worker
-      const workerPort = await findAvailablePort('worker')
-
-      this.workerPortMapping = { containerPort: 8001, hostPort: workerPort }
+      // Allocate port for worker using DockerService
+      this.workerPortMapping = await this.dockerService.allocateWorkerPort()
 
       this.image =
         this.repositoryConfig.codeExecution.dockerImage || 'moatless-vibe-universal:latest'
@@ -226,7 +121,7 @@ export class DockerEnvironment extends BaseEnvironment {
       this.logger.info('Creating Docker container', {
         containerName: containerName,
         image: this.image,
-        workerPort,
+        workerPort: this.workerPortMapping.hostPort,
       })
 
       await this.createOrReuseContainer()
@@ -258,25 +153,17 @@ export class DockerEnvironment extends BaseEnvironment {
 
       await this.waitForContainerReady()
 
-      // Copy Claude config files if they exist (commenting out credentials copying as we now use OAuth token)
-      if (claudeConfigPath) {
-        this.logger.info('Copying Claude config to container', { claudeConfigPath })
+      // Copy Claude config files if they exist using ClaudeService
+      const claudePaths = this.claudeService.getClaudeConfigPaths()
+      if (claudePaths.configPath) {
+        this.logger.info('Copying Claude config to container', {
+          configPath: claudePaths.configPath,
+        })
         await execAsync(
-          `docker cp "${claudeConfigPath}" "${containerName}:/home/ubuntu/.claude/.claude.json"`,
+          `docker cp "${claudePaths.configPath}" "${containerName}:/home/ubuntu/.claude/.claude.json"`,
         )
-      }
 
-      // Commented out credentials file copying - we now use CLAUDE_CODE_OAUTH_TOKEN env var
-      // if (foundCredentialsPath) {
-      //   this.logger.info('Copying Claude credentials to container', { foundCredentialsPath })
-      //   await execAsync(
-      //     `docker cp "${foundCredentialsPath}" "${containerName}:/home/ubuntu/.claude/.credentials.json"`,
-      //   )
-      // }
-
-      // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
-      // Only run this if we copied at least one file
-      if (claudeConfigPath) {
+        // Fix ownership of entire .claude directory and its contents to ubuntu user (run as root)
         await execAsync(
           `docker exec --user root "${containerName}" chown -R ubuntu:ubuntu /home/ubuntu/.claude`,
         )
@@ -317,8 +204,8 @@ export class DockerEnvironment extends BaseEnvironment {
   private async createOrReuseContainer(): Promise<void> {
     const containerName = this.getContainerName()
 
-    // Check if container already exists
-    const existingContainer = await this.getExistingContainer()
+    // Check if container already exists using DockerService
+    const existingContainer = await this.dockerService.getExistingContainer(containerName)
 
     if (existingContainer) {
       this.logger.info('Found existing container', {
@@ -334,7 +221,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
       // If container is stopped, remove it and create a new one
       this.logger.info('Container is stopped, removing it and creating new one')
-      await this.removeExistingContainer(existingContainer.id)
+      await this.dockerService.removeExistingContainer(existingContainer.id)
     }
 
     // No existing container found or removed stopped container, create a new one
@@ -342,218 +229,27 @@ export class DockerEnvironment extends BaseEnvironment {
     await this.createContainer()
   }
 
-  private async getExistingContainer(): Promise<{ id: string; status: string } | null> {
-    const containerName = this.getContainerName()
-
-    try {
-      // Use exact name match with ^/name$ pattern to avoid partial matches
-      const { stdout } = await execAsync(
-        `docker ps -a --filter "name=^/${containerName}$" --format "{{.ID}},{{.Status}}"`,
-      )
-
-      if (!stdout.trim()) {
-        this.logger.debug('No existing container found with exact name match')
-        return null
-      }
-
-      const lines = stdout.trim().split('\n')
-      for (const line of lines) {
-        const [id, status] = line.split(',')
-        if (id && status) {
-          this.logger.debug('Found existing container', {
-            containerId: id.trim(),
-            status: status.trim(),
-          })
-          return { id: id.trim(), status: status.trim() }
-        }
-      }
-
-      return null
-    } catch (error) {
-      this.logger.debug('Error checking for existing container', { error })
-      return null
-    }
-  }
-
-  private async removeExistingContainer(containerId: string): Promise<void> {
-    try {
-      this.logger.info('Removing existing container', { containerId })
-
-      // First try to stop the container if it's running
-      try {
-        await execAsync(`docker stop ${containerId}`)
-        this.logger.debug('Container stopped', { containerId })
-      } catch (_stopError) {
-        // Container might already be stopped, continue with removal
-        this.logger.debug('Container stop failed (may already be stopped)', { containerId })
-      }
-
-      // Remove the container
-      await execAsync(`docker rm ${containerId}`)
-      this.logger.info('Container removed successfully', { containerId })
-    } catch (error) {
-      this.logger.error('Failed to remove existing container', error as Error, { containerId })
-      throw error
-    }
-  }
-
   private async createContainer(): Promise<void> {
     const containerName = this.getContainerName()
-    let createCommand = `docker create --name "${containerName}"`
-
-    // Add moatless labels for easy cleanup
-    createCommand += ` --label "created-by=moatless"`
-    createCommand += ` --label "moatless.task-id=${this.taskId}"`
-    createCommand += ` --label "moatless.created-at=${new Date().toISOString()}"`
-
-    // Use repository path as container workspace path
-    const containerWorkspacePath = this.repositoryConfig.path
-
-    // Set working directory to container workspace path
-    createCommand += ` -w "${containerWorkspacePath}"`
-
-    // Add volume mappings
-    const dataDir = process.env.DATA_DIR || './data'
-    createCommand += ` -v "${this.workspacePath}:${containerWorkspacePath}"`
-    createCommand += ` -v "${dataDir}:/data"`
-
-    // Add main repo .git directory mount for worktrees
-    if (this.repositoryConfig.useGitWorktrees) {
-      // The repository path is the main repository path when using worktrees
-      const mainRepoPath = this.repositoryConfig.path
-      createCommand += ` -v "${mainRepoPath}/.git:/main-repo-git"`
-      createCommand += ` -e "MAIN_REPO_PATH=${mainRepoPath}"`
-      createCommand += ` -e "USE_GIT_WORKTREES=true"`
-
-      // Extract worktree name for git configuration
-      const worktreeName = path.basename(this.workspacePath)
-      createCommand += ` -e "GIT_WORKTREE_NAME=${worktreeName}"`
-    }
-
-    // Mount Claude config directory using settings service
-    const containerClaudeConfigDir = '/home/ubuntu/.claude'
-    const claudeSettings = this.settingsService.getClaudeSettings()
-
-    // Determine host Claude config directory
-    let hostClaudeConfigDir: string
-    if (claudeSettings.configDir) {
-      hostClaudeConfigDir = claudeSettings.configDir
-    } else if (process.env.CLAUDE_CONFIG_DIR) {
-      hostClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
-    } else {
-      hostClaudeConfigDir = path.join(process.env.HOME || '', '.claude')
-    }
-
-    // Mount projects directory if it exists
-    const projectsDir = path.join(hostClaudeConfigDir, 'projects')
-    if (existsSync(projectsDir)) {
-      createCommand += ` -v "${projectsDir}:${containerClaudeConfigDir}/projects"`
-    }
 
     if (!this.workerPortMapping) {
       throw new Error('Worker port not allocated')
     }
 
-    // Add port mappings
-    createCommand += ` -p ${this.workerPortMapping.hostPort}:${this.workerPortMapping.containerPort}`
-
-    // Add environment variables
-    const port = process.env.PORT || '8000'
-    const apiUrl =
-      process.env.WORKER_API_URL || process.env.API_URL || `http://host.docker.internal:${port}`
-    const apiKey = process.env.WORKER_API_KEY || process.env.API_KEY || 'test-key'
-
-    createCommand += ` -e "WORKER_MODE=true"`
-    createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
-    createCommand += ` -e "WORKER_API_KEY=${apiKey}"`
-    createCommand += ` -e "WORKER_TASK_ID=${this.taskId}"`
-    createCommand += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
-    createCommand += ` -e "DATA_DIR=/data"`
-    createCommand += ` -e "PORT=${this.workerPortMapping?.containerPort || 8001}"`
-    createCommand += ` -e "LOG_LEVEL=info"`
-
-    // Pass through Claude authentication environment variables
-    if (process.env.CLAUDE_AUTH_DIR) {
-      createCommand += ` -e "CLAUDE_AUTH_DIR=${process.env.CLAUDE_AUTH_DIR}"`
-    }
-    if (process.env.ANTHROPIC_API_KEY) {
-      createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
-    }
-
-    // Pass Claude OAuth token if available
-    if (claudeSettings.oauthToken) {
-      createCommand += ` -e "CLAUDE_CODE_OAUTH_TOKEN=${claudeSettings.oauthToken}"`
-    }
-
-    createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
-    createCommand += ` -e "HOME=${containerWorkspacePath}"`
-
-    if (process.env.CLAUDE_CODE_MOCK) {
-      createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
-    }
-
-    // Pass GitHub settings if configured
-    const githubSettings = this.settingsService.getGitHubSettings()
-    if (githubSettings.personalAccessToken) {
-      createCommand += ` -e "GITHUB_TOKEN=${githubSettings.personalAccessToken}"`
-    }
-    if (githubSettings.userName) {
-      createCommand += ` -e "GIT_USER_NAME=${githubSettings.userName}"`
-    }
-    if (githubSettings.userEmail) {
-      createCommand += ` -e "GIT_USER_EMAIL=${githubSettings.userEmail}"`
-    }
-
-    // Add repository-specific environment variables
-    const envVars = this.repositoryConfig.codeExecution.envVars || {}
-    for (const [key, value] of Object.entries(envVars)) {
-      createCommand += ` -e "${key}=${value}"`
-    }
-
-    // Pass setup commands to container
-    const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
-    if (setupCommands.length > 0) {
-      // Encode setup commands as JSON and pass as environment variable
-      const setupCommandsJson = JSON.stringify(setupCommands)
-      createCommand += ` -e "SETUP_COMMANDS=${setupCommandsJson.replace(/"/g, '\\"')}"`
-    }
-
-    createCommand += ` ${this.image}`
-
-    this.logger.debug('Creating container', { createCommand })
-
-    try {
-      const { stdout } = await execAsync(createCommand)
-      const containerId = stdout.trim()
-      this.logger.info('Container created', { containerName: containerName, containerId })
-    } catch (error) {
-      this.logger.error('Failed to create container', error as Error)
-      throw error
-    }
+    // Use DockerService to create container with all configuration
+    await this.dockerService.createContainer(
+      containerName,
+      this.taskId,
+      this.repositoryConfig,
+      this.workspacePath,
+      this.workerPortMapping,
+      this.image,
+    )
   }
 
   private async startContainer(): Promise<void> {
     const containerName = this.getContainerName()
-    this.logger.info('Starting container', { containerName: containerName })
-
-    try {
-      // Check if container is already running
-      const { stdout } = await execAsync(
-        `docker ps --filter "name=^/${containerName}$" --format "{{.ID}}"`,
-      )
-
-      if (stdout.trim()) {
-        this.logger.info('Container is already running', { containerName: containerName })
-        return
-      }
-
-      // Container is not running, start it
-      await execAsync(`docker start ${containerName}`)
-      this.logger.info('Container started', { containerName: containerName })
-    } catch (error) {
-      this.logger.error('Failed to start container', error as Error)
-      throw error
-    }
+    await this.dockerService.startContainer(containerName)
   }
 
   /**
@@ -708,37 +404,19 @@ export class DockerEnvironment extends BaseEnvironment {
     }
 
     const containerName = this.getContainerName()
-
     this.logger.debug(`Running command via docker exec: ${command}`)
 
     const startTime = Date.now()
 
     try {
-      // Build docker exec command with git environment variables if needed
-      const containerWorkspacePath = this.repositoryConfig.path
-      let dockerCommand = `docker exec -w "${containerWorkspacePath}"`
-
-      // Add git environment variables if using worktrees
-      if (this.repositoryConfig.useGitWorktrees) {
-        const worktreeName = path.basename(this.workspacePath)
-        dockerCommand += ` -e "GIT_DIR=/main-repo-git/worktrees/${worktreeName}"`
-        dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
-      }
-
-      // Pass through git user configuration to ensure commits use correct author
-      const githubSettings = this.settingsService.getGitHubSettings()
-      if (githubSettings.userName) {
-        dockerCommand += ` -e "GIT_AUTHOR_NAME=${githubSettings.userName}"`
-        dockerCommand += ` -e "GIT_COMMITTER_NAME=${githubSettings.userName}"`
-      }
-      if (githubSettings.userEmail) {
-        dockerCommand += ` -e "GIT_AUTHOR_EMAIL=${githubSettings.userEmail}"`
-        dockerCommand += ` -e "GIT_COMMITTER_EMAIL=${githubSettings.userEmail}"`
-      }
-
-      dockerCommand += ` ${containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
-
-      const { stdout, stderr } = await execAsync(dockerCommand, { timeout })
+      // Use DockerService to execute command in container
+      const { stdout, stderr } = await this.dockerService.executeCommandInContainer(
+        containerName,
+        command,
+        this.repositoryConfig,
+        this.workspacePath,
+        timeout,
+      )
 
       return {
         exitCode: 0,
@@ -1119,24 +797,8 @@ export class DockerEnvironment extends BaseEnvironment {
     // Emit event for cleaning status
     await this.emitStatusChange('cleaning', previousStatus)
 
-    try {
-      // Stop container
-      await execAsync(`docker stop ${containerName}`)
-      this.logger.info('Container stopped', { containerName: containerName })
-    } catch (error) {
-      this.logger.warn('Failed to stop container', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-
-    try {
-      // Remove container
-      await execAsync(`docker rm ${containerName}`)
-      this.logger.info('Container removed', { containerName: containerName })
-    } catch (error) {
-      this.logger.warn('Failed to remove container', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
+    // Use DockerService to stop and remove container
+    await this.dockerService.stopContainer(containerName)
+    await this.dockerService.removeContainer(containerName)
   }
 }

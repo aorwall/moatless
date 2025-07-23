@@ -30,15 +30,12 @@ export class ProxyAgent extends BaseAgentClass {
     const workerUrl = `http://localhost:${this.workerPort}/execute-agent`
 
     try {
-      // Make HTTP request to worker to execute agent
-
       this.logger.info('Executing agent via proxy', { workerUrl })
 
       const response = await fetch(workerUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
         },
         body: JSON.stringify({
           agentType: this.agentType,
@@ -51,54 +48,16 @@ export class ProxyAgent extends BaseAgentClass {
           },
         }),
       })
-      this.logger.info('Agent execution response', { response })
+
       if (!response.ok) {
         const error = await response.text()
         throw new Error(`Failed to execute agent in worker: ${error}`)
       }
 
-      // Parse SSE stream from worker
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
+      const result = await response.json()
+      this.logger.info('Agent execution started', { status: result.status })
 
-      if (!reader) {
-        throw new Error('No response body')
-      }
-
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') {
-              return
-            }
-            try {
-              const parsedData = JSON.parse(data)
-
-              // Check if this is a session event (special case not in EventType enum)
-              if (parsedData.type === 'session' && parsedData.sessionId) {
-                this.remoteSessionId = parsedData.sessionId
-              }
-
-              // Yield the event regardless of type
-              const event = parsedData as Event
-
-              yield event
-            } catch (error) {
-              this.logger.error('Failed to parse event from worker', error as Error, { data })
-            }
-          }
-        }
-      }
+      yield* []
     } catch (error) {
       this.logger.error('Error executing agent via proxy', error as Error, { workerUrl })
       throw error

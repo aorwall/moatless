@@ -31,3 +31,4 @@ This directory contains architectural patterns specifically written for LLMs (La
 - [API Patterns and Best Practices](api-best-practices.md) - Schema-first API architecture and implementation patterns
 - [Schema Design Patterns](schema-design-patterns.md) - Zod schema design principles and anti-patterns
 - [Dependency Injection](./dependency-injection.md) - Service container pattern for TypeScript Hono applications
+- [Docker Architecture](./docker-architecture.md) - Complete Docker-based code execution architecture and lifecycle

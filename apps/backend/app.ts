@@ -96,6 +96,14 @@ export async function createApp(): Promise<AppWithServices> {
             return null
           }
         },
+        onFound: (path: string, c) => {
+          // Set proper MIME type for source maps
+          if (path.endsWith('.js.map')) {
+            c.header('Content-Type', 'application/json')
+          } else if (path.endsWith('.css.map')) {
+            c.header('Content-Type', 'application/json')
+          }
+        },
       }),
     )
 

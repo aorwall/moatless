@@ -52,7 +52,7 @@
     "test:all": "turbo run test:all",
     "test:ui": "turbo run test:ui",
     "test:coverage": "turbo run test:coverage",
-    "type:check": "turbo run type:check",
+    "type:check": "./scripts/type-check-filtered.sh",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",

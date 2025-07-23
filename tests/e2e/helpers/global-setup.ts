@@ -4,6 +4,10 @@ import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import type { FullConfig } from '@playwright/test'
+import dotenv from 'dotenv'
+
+// Load environment variables from .env file
+dotenv.config()
 
 // Store server process info globally for teardown
 declare global {
@@ -46,9 +50,21 @@ function isPortAvailable(port: number): Promise<boolean> {
 }
 
 async function globalSetup(config: FullConfig) {
-  // Create a temporary directory for test repositories
-  tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-e2e-test-'))
-  console.log('Created temp directory:', tempDir)
+  // Check if Claude OAuth token is set
+  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    console.warn('⚠️  WARNING: CLAUDE_CODE_OAUTH_TOKEN is not set in environment variables.')
+    console.warn('   E2E tests that use Claude Code agent will fail without this token.')
+    console.warn('   Set it in your .env file or environment: CLAUDE_CODE_OAUTH_TOKEN=your-token')
+    console.warn('')
+    throw new Error('E2E tests require a Claude Code OAuth token')
+  }
+
+  // Create a persistent temporary directory for test data (not removed after tests)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  tempDir = path.join(os.tmpdir(), `moatless-e2e-data-${timestamp}`)
+  await fs.mkdir(tempDir, { recursive: true })
+  console.log('Created persistent temp directory:', tempDir)
+  console.log('Note: This directory will not be automatically removed after tests complete')
 
   // Set variables for test
   process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
@@ -56,9 +72,17 @@ async function globalSetup(config: FullConfig) {
   process.env.NODE_ENV = 'test'
   process.env.E2E_TEMP_DIR = tempDir
 
+  // Find an available port first (before build)
+  const availablePort = await findAvailablePort(
+    process.env.E2E_PORT ? Number.parseInt(process.env.E2E_PORT, 10) : 3002,
+  )
+  
+  // Set API URL for the build process
+  process.env.VITE_API_URL = `http://127.0.0.1:${availablePort}`
+  
   // Build the application first
-  console.log('Building application for E2E tests...')
-  const buildProcess = spawn('bun', ['build'], {
+  console.log(`Building application for E2E tests with API URL: ${process.env.VITE_API_URL}...`)
+  const buildProcess = spawn('bun', ['run', 'build'], {
     stdio: 'inherit',
     env: process.env,
   })
@@ -74,11 +98,6 @@ async function globalSetup(config: FullConfig) {
     buildProcess.on('error', reject)
   })
 
-  // Find an available port
-  const availablePort = await findAvailablePort(
-    process.env.E2E_PORT ? Number.parseInt(process.env.E2E_PORT, 10) : 3002,
-  )
-
   // Store the port globally for tests to use
   globalThis.__E2E_SERVER_PORT__ = availablePort
 
@@ -92,8 +111,10 @@ async function globalSetup(config: FullConfig) {
       ...process.env,
       PORT: availablePort.toString(),
       NODE_ENV: 'production', // Use production mode to enable static file serving
+      LOG_LEVEL: 'debug', // Enable debug logging for E2E tests
       SKIP_CLAUDE_DISK_EVENTS: 'true',
       USE_CONSOLE_LOGGING: 'true',
+      DATA_DIR: tempDir, // Use the temporary directory for data storage
     },
     stdio: 'pipe',
   })

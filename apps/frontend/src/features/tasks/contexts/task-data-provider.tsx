@@ -308,7 +308,7 @@ export function useLatestContextTokens() {
     // Find the last message event with contextTokens
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i]
-      if (event.type === 'message' && event.contextTokens) {
+      if (event.type === 'agent' && event.subType === 'message' && event.contextTokens) {
         return event.contextTokens
       }
     }

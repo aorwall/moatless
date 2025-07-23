@@ -13,6 +13,7 @@ const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 describe('PreviewServer - Unit Tests', () => {
   let previewServer: PreviewServer
   let mockLogger: any
+  let mockFindAvailablePort: any
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -28,7 +29,8 @@ describe('PreviewServer - Unit Tests', () => {
 
     // Mock port allocation utility - import after mocking
     const { findAvailablePort } = await import('../../utils/port-allocation.js')
-    vi.mocked(findAvailablePort).mockResolvedValue(3000)
+    mockFindAvailablePort = vi.mocked(findAvailablePort)
+    mockFindAvailablePort.mockResolvedValue(3000)
 
     previewServer = new PreviewServer('test-task', '/test/workspace', 'npm run dev', {
       NODE_ENV: 'development',

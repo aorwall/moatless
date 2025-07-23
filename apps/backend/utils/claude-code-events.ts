@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
-import type { ClaudeCodeSettings, Event, ResultEvent, Task } from '@moatless/types'
+import type { AgentEvent, ClaudeCodeSettings, Event, Task } from '@moatless/types'
 
 import { calculateContextTokens } from './context-tokens.js'
 import { logger } from './logger.js'
@@ -24,19 +24,21 @@ export function sdkMessageToEvent(
     return {
       eventId: crypto.randomUUID(),
       agentType: 'claude-code',
-      type: 'result',
+      type: 'agent',
+      subType: 'completed',
       taskId,
       iterationId: iterationNumber,
       isError,
       contextTokens,
       payload: sdkMessage,
-    } as ResultEvent
+    } as AgentEvent
   }
 
   return {
     eventId: crypto.randomUUID(),
     agentType: 'claude-code',
-    type: 'message',
+    type: 'agent',
+    subType: 'message',
     taskId,
     iterationId: iterationNumber,
     isError,

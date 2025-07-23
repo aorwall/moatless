@@ -40,7 +40,7 @@ export class TestAgent extends BaseAgent {
     this.sessionId = `test-session-${Date.now()}-${this.executionCount}`
 
     // Emit start event
-    yield this.createEvent('start', {
+    yield this.createEvent('agent', 'started', {
       message: 'Test agent starting',
       model,
       sessionId: this.sessionId,
@@ -49,6 +49,7 @@ export class TestAgent extends BaseAgent {
     // If configured to error, emit error event
     if (this.shouldError) {
       yield this.createEvent(
+        'agent',
         'error',
         {
           error: this.errorMessage,
@@ -60,7 +61,7 @@ export class TestAgent extends BaseAgent {
     }
 
     // Emit message event simulating agent response
-    yield this.createEvent('message', {
+    yield this.createEvent('agent', 'message', {
       type: 'assistant',
       message: {
         id: `msg-test-${this.executionCount}`,
@@ -88,7 +89,7 @@ export class TestAgent extends BaseAgent {
 
     // Check if stop was requested
     if (this.stopRequested) {
-      yield this.createEvent('stop', {
+      yield this.createEvent('agent', 'stopped', {
         message: 'Test agent stopped by user',
         model,
       })
@@ -102,7 +103,7 @@ export class TestAgent extends BaseAgent {
     }
 
     // Emit completion event
-    yield this.createEvent('completion', {
+    yield this.createEvent('agent', 'completed', {
       message: 'Test completed successfully',
       model,
       inputMessage: message,
@@ -174,13 +175,15 @@ export class TestAgent extends BaseAgent {
   // Helper method to create events with consistent structure
   private createEvent(
     type: Event['type'],
+    subType: string,
     payload: Record<string, unknown>,
     isError = false,
   ): Event {
     return {
-      eventId: `test-event-${type}-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      eventId: `test-event-${type}-${subType}-${Date.now()}-${Math.random().toString(36).substring(7)}`,
       agentType: 'test-agent',
       type,
+      subType,
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),

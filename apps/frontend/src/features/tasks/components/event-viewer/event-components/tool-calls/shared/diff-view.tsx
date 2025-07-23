@@ -3,8 +3,6 @@ import { useMemo } from 'react'
 import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 
-import '../../../../git-diff-viewer/github-diff.css'
-
 interface DiffViewProps {
   diffContent: string
   fallback?: ReactNode

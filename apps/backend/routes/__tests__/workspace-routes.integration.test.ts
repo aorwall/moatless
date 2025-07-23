@@ -47,19 +47,19 @@ describe('Workspace Routes - Integration Tests', () => {
     // Mock workspace service methods
     vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValue(mockWorkspace as any)
     vi.spyOn(app.services.workspace, 'getWorkspaceStatus').mockResolvedValue({
-      workspace: {
-        state: 'exists',
-        changeStatus: 'no_changes',
-        path: '/test/workspace',
-      },
-      agent: {
-        state: 'idle',
-      },
-      environment: {
-        type: 'local',
-        status: 'ready',
-        createdAt: new Date().toISOString(),
-      },
+      // Flattened workspace status structure
+      workspaceState: 'exists',
+      workspacePath: '/test/workspace',
+      workspaceChangeStatus: 'no_changes',
+
+      // Environment info
+      environmentType: 'local',
+      environmentStatus: 'ready',
+      environmentCreatedAt: new Date().toISOString(),
+
+      // Agent info
+      agentState: 'idle',
+
       capabilities: {
         fileOperations: true,
         commandExecution: true,
@@ -75,6 +75,11 @@ describe('Workspace Routes - Integration Tests', () => {
         commitsBehind: 0,
         originExists: true,
       },
+
+      // Computed states
+      isRunning: false,
+      workspaceReady: true,
+      canExecute: true,
     })
   })
 

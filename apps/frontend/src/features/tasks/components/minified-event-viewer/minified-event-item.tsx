@@ -1,4 +1,4 @@
-import type { Event, MessageEvent } from '@moatless/types'
+import type { AgentEvent, Event } from '@moatless/types'
 import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/types'
 import {
   Bot,
@@ -99,10 +99,10 @@ function getToolSummary(toolContent: ToolUseContent): string {
 }
 
 function extractToolContent(event: Event): ToolUseContent | null {
-  if (event.type !== 'message') return null
+  if (event.type !== 'agent' || event.subType !== 'message') return null
 
-  const messageEvent = event as MessageEvent
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   if (
     payload?.type === 'assistant' &&
@@ -120,10 +120,10 @@ function extractToolContent(event: Event): ToolUseContent | null {
 }
 
 function extractToolResult(event: Event): string | null {
-  if (event.type !== 'message') return null
+  if (event.type !== 'agent' || event.subType !== 'message') return null
 
-  const messageEvent = event as MessageEvent
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   if (
     payload?.type === 'user' &&
@@ -147,9 +147,9 @@ export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
   const toolContent = extractToolContent(event)
 
   // For non-tool message events, check if it's a text message
-  if (event.type === 'message' && !toolContent) {
-    const messageEvent = event as MessageEvent
-    const payload = messageEvent.payload
+  if (event.type === 'agent' && event.subType === 'message' && !toolContent) {
+    const agentEvent = event as AgentEvent
+    const payload = agentEvent.payload
 
     // Handle text messages
     if (payload?.type === 'assistant' && payload.message?.content) {

@@ -359,37 +359,6 @@ const handleScroll = useCallback(() => {
 }, [isAtBottom])
 ```
 
-### 2. GitDiffViewer Component (git-diff-viewer.tsx)
-
-#### Auto-expand Files (Lines 131-138)
-**Current Pattern:**
-```typescript
-// Auto-expand all files when parsedFiles changes
-React.useEffect(() => {
-  if (parsedFiles.length > 0) {
-    const allFileKeys = new Set(
-      parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`),
-    )
-    updateGitDiffState({ expandedFiles: allFileKeys })
-  }
-}, [parsedFiles, updateGitDiffState])
-```
-
-**Issue:** This effect syncs UI state with data changes. Could be handled during initial render or as a user action.
-
-**Recommended Refactor:**
-```typescript
-// Calculate initial expanded state directly
-const initialExpandedFiles = useMemo(() => {
-  if (parsedFiles.length > 0 && expandedFiles.size === 0) {
-    return new Set(
-      parsedFiles.map((f) => `${f.oldPath || f.oldRevision}-${f.newPath || f.newRevision}`)
-    )
-  }
-  return expandedFiles
-}, [parsedFiles, expandedFiles])
-```
-
 ### 3. ChatForm Component (chat-form.tsx)
 
 #### Initial Textarea Resize (Lines 123-133)

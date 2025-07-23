@@ -251,7 +251,7 @@ This separation ensures:
 
 ## Status Computation
 
-### Workspace Status Response Structure (Flattened)
+### Workspace Status Response Structure
 Returned by: apps/backend/workspaces/workspace.ts:426
 ```typescript
 {

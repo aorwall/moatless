@@ -14,7 +14,12 @@ export function useMessageCounting({ events, isStreaming }: UseMessageCountingPr
     if (isStreaming && events.length) {
       // Count message events with role assistant for each iteration
       events.forEach((event) => {
-        if (event.type === 'message' && event.payload?.role === 'assistant' && event.iterationId) {
+        if (
+          event.type === 'agent' &&
+          event.subType === 'message' &&
+          event.payload?.role === 'assistant' &&
+          event.iterationId
+        ) {
           const currentCount = counts.get(event.iterationId) || 0
           counts.set(event.iterationId, currentCount + 1)
         }

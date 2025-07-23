@@ -1,4 +1,4 @@
-import type { Event, MessageEvent, Task } from '@moatless/types'
+import type { AgentEvent, Event, Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
@@ -31,10 +31,10 @@ function getRelativeTime(date: Date | string): string {
 }
 
 function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
-  if (event.type !== 'message') return false
+  if (event.type !== 'agent' || event.subType !== 'message') return false
 
-  const messageEvent = event as MessageEvent
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   // Skip user messages (which are usually tool results)
   if (payload?.type === 'user') return false

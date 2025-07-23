@@ -25,8 +25,8 @@ describe('useTaskData', () => {
     const taskId = 'test-task-123'
     const mockTask = createMockTask({ taskId })
     const mockEvents = [
-      createMockEvent({ taskId, type: 'message' }),
-      createMockEvent({ taskId, type: 'tool' }),
+      createMockEvent({ taskId, type: 'agent', subType: 'message' }),
+      createMockEvent({ taskId, type: 'agent', subType: 'message' }),
     ]
     const mockGitDiff = {
       diff: 'diff --git a/file.ts b/file.ts\n+added line',

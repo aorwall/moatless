@@ -37,6 +37,13 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
 
   // Handle Zod validation errors
   if (error instanceof ZodError) {
+    console.error('Validation error:', {
+      requestId,
+      path: c.req.path,
+      method: c.req.method,
+      issues: error.issues,
+    })
+
     return c.json(
       {
         error: {

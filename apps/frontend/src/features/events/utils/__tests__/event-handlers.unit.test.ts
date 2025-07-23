@@ -142,7 +142,7 @@ describe('event-handlers', () => {
 
     it('should only invalidate specific task resources', () => {
       // Verify TASK only invalidates the specific task
-      const taskInvalidations = EVENT_INVALIDATION_MAP['task']['*']
+      const taskInvalidations = EVENT_INVALIDATION_MAP.task['*']
       expect(taskInvalidations).toHaveLength(1)
       expect(taskInvalidations[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })

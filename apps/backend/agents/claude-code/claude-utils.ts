@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { promisify } from 'node:util'
 import type { SystemStatusCheck } from '@moatless/types'
+import type { DockerService } from '../../services/docker.service.js'
 
 const execAsync = promisify(exec)
 
@@ -161,39 +162,41 @@ export async function isValidClaudeConfigPath(configPath: string): Promise<boole
 }
 
 /**
- * Check if Docker is running
- */
-export async function isDockerRunning(): Promise<boolean> {
-  try {
-    await execAsync('docker info', { timeout: 5000 })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Get Docker version
- */
-export async function getDockerVersion(): Promise<string | null> {
-  try {
-    const { stdout } = await execAsync('docker --version', { timeout: 5000 })
-    return stdout.trim()
-  } catch {
-    return null
-  }
-}
-
-/**
  * Perform comprehensive system status check
  */
-export async function checkSystemStatus(): Promise<SystemStatusCheck> {
-  const [binPath, configPath, dockerRunning, dockerVersion] = await Promise.all([
-    findClaudeBinPath(),
-    findClaudeConfigPath(),
-    isDockerRunning(),
-    getDockerVersion(),
-  ])
+export async function checkSystemStatus(dockerService?: DockerService): Promise<SystemStatusCheck> {
+  let dockerRunning = false
+  let dockerVersion: string | null = null
+
+  if (dockerService) {
+    const [binPath, configPath, dr, dv] = await Promise.all([
+      findClaudeBinPath(),
+      findClaudeConfigPath(),
+      dockerService.isDockerRunning(),
+      dockerService.getDockerVersion(),
+    ])
+    dockerRunning = dr
+    dockerVersion = dv
+
+    const binPathResult = binPath
+    const configPathResult = configPath
+
+    return {
+      claude: {
+        binPath: binPathResult,
+        configPath: configPathResult,
+        isValidBin: binPathResult !== null,
+        isValidConfig: configPathResult !== null,
+      },
+      docker: {
+        isRunning: dockerRunning,
+        version: dockerVersion,
+      },
+    }
+  }
+
+  // Fallback when no dockerService provided - skip Docker checks
+  const [binPath, configPath] = await Promise.all([findClaudeBinPath(), findClaudeConfigPath()])
 
   return {
     claude: {

@@ -13,8 +13,8 @@ describe('ToolCallEvent', () => {
     toolResult?: Event,
   ): MergedEvent => ({
     eventId: 'test-event',
-    type: 'message',
-    subType: 'tool_call',
+    type: 'agent',
+    subType: 'message',
     taskId: 'test-task',
     iterationId: 1,
     timestamp: new Date('2025-01-01T00:00:00Z'),
@@ -54,8 +54,8 @@ describe('ToolCallEvent', () => {
   it('should render tool call with result', () => {
     const toolResult: Event = {
       eventId: 'result-event',
-      type: 'message',
-      subType: '',
+      type: 'agent',
+      subType: 'message',
       taskId: 'test-task',
       iterationId: 1,
       timestamp: new Date('2025-01-01T00:00:01Z'),
@@ -96,8 +96,8 @@ describe('ToolCallEvent', () => {
 
     const toolResult: Event = {
       eventId: 'result-event',
-      type: 'message',
-      subType: '',
+      type: 'agent',
+      subType: 'message',
       taskId: 'test-task',
       iterationId: 1,
       timestamp: new Date('2025-01-01T00:00:01Z'),
@@ -137,8 +137,8 @@ describe('ToolCallEvent', () => {
   it('should use dark background for tool results', () => {
     const toolResult: Event = {
       eventId: 'result-event',
-      type: 'message',
-      subType: '',
+      type: 'agent',
+      subType: 'message',
       taskId: 'test-task',
       iterationId: 1,
       timestamp: new Date('2025-01-01T00:00:01Z'),

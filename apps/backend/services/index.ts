@@ -1,4 +1,3 @@
-import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
@@ -31,7 +30,6 @@ export * from '../agents/base-agent.js'
 export * from '../agents/claude-code/claude.service.js'
 export { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 // Export all services and types
-export * from './agent.service.js'
 export * from './command.service.js'
 export * from './event.service.js'
 export * from './preview-environment.service.js'

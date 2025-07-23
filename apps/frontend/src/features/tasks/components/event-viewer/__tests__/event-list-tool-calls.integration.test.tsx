@@ -1,4 +1,4 @@
-import type { Event, MessageEvent, ToolUseContent } from '@moatless/types'
+import type { AgentEvent, Event, ToolUseContent } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -14,7 +14,7 @@ vi.mock('../event-components/tool-calls/ls-tool-call', () => ({
 }))
 
 vi.mock('../event-components/tool-call-event', () => ({
-  ToolCallEvent: ({ event }: { event: MessageEvent }) => {
+  ToolCallEvent: ({ event }: { event: AgentEvent }) => {
     const payload = event.payload
     const content = (payload as any)?.message?.content || []
     const toolUse = content.find((item: any): item is ToolUseContent => item.type === 'tool_use')
@@ -33,8 +33,8 @@ describe('EventList Tool Calls', () => {
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
         agentType: 'claude-code',
-        type: 'message',
-        subType: 'tool_call',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:32.511Z'),
@@ -43,7 +43,8 @@ describe('EventList Tool Calls', () => {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: 'agent',
+            subType: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -88,8 +89,8 @@ describe('EventList Tool Calls', () => {
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
         agentType: 'claude-code',
-        type: 'message',
-        subType: 'tool_call',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:32.511Z'),
@@ -98,7 +99,8 @@ describe('EventList Tool Calls', () => {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: 'agent',
+            subType: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [
@@ -117,8 +119,8 @@ describe('EventList Tool Calls', () => {
       {
         eventId: '93d6016e-b264-4be3-b045-2fad6884abea',
         agentType: 'claude-code',
-        type: 'message',
-        subType: 'tool_result',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:33.137Z'),
@@ -152,7 +154,8 @@ describe('EventList Tool Calls', () => {
       {
         eventId: 'c9703494-c72d-4e00-b564-9af669ca73e6',
         agentType: 'claude-code',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: '7f5ddcd4-ca18-485a-9306-4b91ef6782d8',
         iterationId: 1,
         timestamp: new Date('2025-06-25T12:38:32.511Z'),
@@ -161,7 +164,8 @@ describe('EventList Tool Calls', () => {
           type: 'assistant',
           message: {
             id: 'msg_01WJ4oGMtXCUrUKfRCcg2z4H',
-            type: 'message',
+            type: 'agent',
+            subType: 'message',
             role: 'assistant',
             model: 'claude-opus-4-20250514',
             content: [

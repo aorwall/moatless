@@ -2,15 +2,16 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { RepositoryConfig, ServerStatus, WorkspaceStatusResponse } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
 import { createGitWorktree, getBranchList, isGitRepository, isGitWorktree } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
+import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
-import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
@@ -21,8 +22,9 @@ export class WorkspaceService {
   constructor(
     private repositoryService: RepositoryService,
     private storage: StorageBackend,
-    private settingsService: SettingsService,
     private eventService: EventService,
+    private dockerService: DockerService,
+    private claudeService: ClaudeService,
   ) {}
 
   async createWorkspace(
@@ -68,7 +70,8 @@ export class WorkspaceService {
         taskId,
         repository,
         workspacePath,
-        this.settingsService,
+        this.dockerService,
+        this.claudeService,
         this.eventService,
       )
     } else {
@@ -459,7 +462,8 @@ export class WorkspaceService {
           taskId,
           repository,
           workspacePath,
-          this.settingsService,
+          this.dockerService,
+          this.claudeService,
           this.eventService,
         )
       } else {
@@ -791,8 +795,15 @@ export class WorkspaceService {
 export function createWorkspaceService(
   repositoryService: RepositoryService,
   storage: StorageBackend,
-  settingsService: SettingsService,
   eventService: EventService,
+  dockerService: DockerService,
+  claudeService: ClaudeService,
 ): WorkspaceService {
-  return new WorkspaceService(repositoryService, storage, settingsService, eventService)
+  return new WorkspaceService(
+    repositoryService,
+    storage,
+    eventService,
+    dockerService,
+    claudeService,
+  )
 }

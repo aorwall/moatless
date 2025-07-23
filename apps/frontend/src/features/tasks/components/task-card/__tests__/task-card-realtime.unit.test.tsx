@@ -18,7 +18,8 @@ vi.mock('@/features/tasks/hooks/use-tasks', () => ({
       {
         eventId: 'initial-1',
         taskId: 'task-123',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         payload: { type: 'assistant', content: 'Initial message' },
         agentType: 'test-agent',
         isError: false,
@@ -87,7 +88,8 @@ describe('TaskCard Real-time Updates', () => {
     const newEvent: Event = {
       eventId: 'realtime-1',
       taskId: 'task-123',
-      type: 'message',
+      type: 'agent',
+      subType: 'message',
       payload: { type: 'assistant', content: 'Real-time message' },
       agentType: 'test-agent',
       isError: false,
@@ -122,7 +124,8 @@ describe('TaskCard Real-time Updates', () => {
     const newEvents: Event[] = Array.from({ length: 4 }, (_, i) => ({
       eventId: `realtime-${i + 1}`,
       taskId: 'task-123',
-      type: 'message',
+      type: 'agent',
+      subType: 'message',
       payload: { type: 'assistant', content: `Message ${i + 1}` },
       agentType: 'test-agent',
       isError: false,
@@ -162,7 +165,8 @@ describe('TaskCard Real-time Updates', () => {
     const newEvent: Event = {
       eventId: 'realtime-1',
       taskId: 'task-123',
-      type: 'message',
+      type: 'agent',
+      subType: 'message',
       payload: { type: 'assistant', content: 'Real-time message' },
       agentType: 'test-agent',
       isError: false,
@@ -207,7 +211,8 @@ describe('TaskCard Real-time Updates', () => {
     const duplicateEvent: Event = {
       eventId: 'duplicate-1',
       taskId: 'task-123',
-      type: 'message',
+      type: 'agent',
+      subType: 'message',
       payload: { type: 'assistant', content: 'Duplicate message' },
       agentType: 'test-agent',
       isError: false,

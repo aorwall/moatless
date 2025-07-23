@@ -22,7 +22,9 @@ const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 describe('DockerEnvironment - Unit Tests', () => {
   let dockerEnvironment: DockerEnvironment
   let mockLogger: any
-  let mockSettingsService: any
+  let mockDockerService: any
+  let mockClaudeService: any
+  let mockEventService: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -36,10 +38,36 @@ describe('DockerEnvironment - Unit Tests', () => {
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
 
-    // Mock settings service
-    mockSettingsService = {
-      getClaudeSettings: vi.fn().mockReturnValue({ configDir: '/tmp/.claude' }),
-      getDataDir: vi.fn().mockReturnValue('/tmp/.moatless'),
+    // Mock docker service
+    mockDockerService = {
+      getContainerStatus: vi.fn().mockReturnValue('not_created'),
+      generateContainerName: vi.fn().mockReturnValue('moatless-test-repo-test-task'),
+      allocateWorkerPort: vi.fn().mockResolvedValue({ containerPort: 8001, hostPort: 3000 }),
+      createContainer: vi.fn().mockResolvedValue(undefined),
+      startContainer: vi.fn().mockResolvedValue(undefined),
+      stopContainer: vi.fn().mockResolvedValue(undefined),
+      removeContainer: vi.fn().mockResolvedValue(undefined),
+      executeCommandInContainer: vi.fn().mockResolvedValue({ stdout: 'mocked output', stderr: '' }),
+    }
+
+    // Mock claude service
+    mockClaudeService = {
+      validateClaudeAuthentication: vi.fn().mockReturnValue({
+        isValid: true,
+        hasConfig: false,
+        hasCredentials: false,
+        hasOAuthToken: true,
+      }),
+      getClaudeConfigPaths: vi.fn().mockReturnValue({
+        configPath: null,
+        credentialsPath: null,
+        claudeConfigDir: '/tmp/.claude',
+      }),
+    }
+
+    // Mock event service
+    mockEventService = {
+      emitEvent: vi.fn().mockResolvedValue(undefined),
     }
 
     // Mock port allocation utility
@@ -68,7 +96,9 @@ describe('DockerEnvironment - Unit Tests', () => {
       'test-task',
       mockRepositoryConfig as any,
       '/test/workspace',
-      mockSettingsService,
+      mockDockerService,
+      mockClaudeService,
+      mockEventService,
     )
   })
 
@@ -95,8 +125,8 @@ describe('DockerEnvironment - Unit Tests', () => {
       expect(dockerEnvironment.getError()).toBeUndefined()
     })
 
-    it('should initially be in not_setup status', () => {
-      expect(dockerEnvironment.getStatus()).toBe('not_setup')
+    it('should initially be in not_created status', () => {
+      expect(dockerEnvironment.getStatus()).toBe('not_created')
     })
   })
 
@@ -125,7 +155,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'docker-task',
         dockerConfig as any,
         '/docker/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -154,7 +186,9 @@ describe('DockerEnvironment - Unit Tests', () => {
           `task-${index}`,
           repoConfig as any,
           `/workspace-${index}`,
-          mockSettingsService,
+          mockDockerService,
+          mockClaudeService,
+          mockEventService,
         )
 
         expect(env.getType()).toBe('docker')
@@ -195,7 +229,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'env-task',
         configWithEnvVars as any,
         '/env/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -219,7 +255,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'commands-task',
         configWithCommands as any,
         '/commands/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -243,7 +281,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'workdir-task',
         configWithWorkDir as any,
         '/workdir/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -264,7 +304,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'default-task',
         configWithoutWorkDir as any,
         '/default/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -293,7 +335,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'preview-task',
         configWithPreview as any,
         '/preview/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -314,7 +358,9 @@ describe('DockerEnvironment - Unit Tests', () => {
         'no-preview-task',
         configWithoutPreview as any,
         '/no-preview/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
@@ -350,7 +396,9 @@ describe('DockerEnvironment - Unit Tests', () => {
           'test-task',
           config as any,
           '/test/workspace',
-          mockSettingsService,
+          mockDockerService,
+          mockClaudeService,
+          mockEventService,
         )
 
         expect(env.getType()).toBe('docker')
@@ -361,14 +409,14 @@ describe('DockerEnvironment - Unit Tests', () => {
   describe('Error State Management', () => {
     it('should track error state correctly', () => {
       expect(dockerEnvironment.getError()).toBeUndefined()
-      expect(dockerEnvironment.getStatus()).toBe('not_setup')
+      expect(dockerEnvironment.getStatus()).toBe('not_created')
     })
   })
 
   describe('Setup State Management', () => {
-    it('should have not_setup status initially', () => {
-      // Initially not_setup since no container name is set
-      expect(dockerEnvironment.getStatus()).toBe('not_setup')
+    it('should have not_created status initially', () => {
+      // Initially not_created since no container exists
+      expect(dockerEnvironment.getStatus()).toBe('not_created')
     })
 
     it('should store error message when error occurs', () => {
@@ -410,11 +458,13 @@ describe('DockerEnvironment - Unit Tests', () => {
         'minimal-task',
         minimalConfig as any,
         '/minimal/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
-      expect(env.getStatus()).toBe('not_setup')
+      expect(env.getStatus()).toBe('not_created')
     })
   })
 
@@ -457,11 +507,13 @@ describe('DockerEnvironment - Unit Tests', () => {
         'complex-task',
         complexConfig as any,
         '/complex/workspace',
-        mockSettingsService,
+        mockDockerService,
+        mockClaudeService,
+        mockEventService,
       )
 
       expect(env.getType()).toBe('docker')
-      expect(env.getStatus()).toBe('not_setup')
+      expect(env.getStatus()).toBe('not_created')
     })
   })
 })

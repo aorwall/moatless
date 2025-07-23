@@ -1,5 +1,4 @@
 import { exec } from 'node:child_process'
-import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
@@ -367,15 +366,6 @@ export class LocalEnvironment extends BaseEnvironment {
       if (!force) {
         throw error
       }
-    }
-  }
-
-  private async pathExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath)
-      return true
-    } catch {
-      return false
     }
   }
 }

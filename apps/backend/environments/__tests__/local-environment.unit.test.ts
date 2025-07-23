@@ -95,8 +95,8 @@ describe('LocalEnvironment - Unit Tests', () => {
       expect(localEnvironment.getError()).toBeUndefined()
     })
 
-    it('should initially be in not_setup status', () => {
-      expect(localEnvironment.getStatus()).toBe('not_setup')
+    it('should initially be in not_created status', () => {
+      expect(localEnvironment.getStatus()).toBe('not_created')
     })
   })
 
@@ -195,7 +195,7 @@ describe('LocalEnvironment - Unit Tests', () => {
   describe('Error State Management', () => {
     it('should track error state correctly', () => {
       expect(localEnvironment.getError()).toBeUndefined()
-      expect(localEnvironment.getStatus()).toBe('not_setup')
+      expect(localEnvironment.getStatus()).toBe('not_created')
     })
   })
 

@@ -1,7 +1,7 @@
 import type {
+  AgentEvent,
   ClaudeCodeSDKMessage,
   Event,
-  MessageEvent,
   SDKAssistantMessage,
   SDKUserMessage,
 } from '@moatless/types'
@@ -11,8 +11,8 @@ export interface MergedEvent extends Event {
   toolResult?: Event
 }
 
-function isMessageEvent(event: Event): event is MessageEvent {
-  return event.type === 'message'
+function isAgentMessageEvent(event: Event): event is AgentEvent {
+  return event.type === 'agent' && event.subType === 'message'
 }
 
 function hasAssistantMessage(
@@ -36,7 +36,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
 
   // First pass: collect all tool results by tool_use_id
   for (const event of events) {
-    if (isMessageEvent(event)) {
+    if (isAgentMessageEvent(event)) {
       // Check if payload structure is as expected
       if (!event.payload || typeof event.payload !== 'object') {
         console.warn(
@@ -46,7 +46,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
         continue
       }
 
-      if (hasUserMessage(event.payload)) {
+      if (hasUserMessage(event.payload as any)) {
         const { message } = event.payload
 
         if (message.content && Array.isArray(message.content)) {
@@ -70,7 +70,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
       continue
     }
 
-    if (isMessageEvent(event)) {
+    if (isAgentMessageEvent(event)) {
       // Check if payload structure is as expected
       if (!event.payload || typeof event.payload !== 'object') {
         console.warn(
@@ -81,7 +81,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
         continue
       }
 
-      if (hasAssistantMessage(event.payload)) {
+      if (hasAssistantMessage(event.payload as any)) {
         const { message } = event.payload
         let hasToolUse = false
         let processedAsToolCall = false
@@ -129,7 +129,7 @@ export function mergeToolEvents(events: Event[]): (Event | MergedEvent)[] {
           // No content array, add as-is
           mergedEvents.push(event)
         }
-      } else if (!hasUserMessage(event.payload)) {
+      } else if (!hasUserMessage(event.payload as any)) {
         // Message event but neither assistant nor user type
 
         mergedEvents.push(event)

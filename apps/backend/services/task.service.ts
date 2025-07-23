@@ -921,7 +921,7 @@ export class TaskService {
               await this.storage.saveTask(task)
             }
           }
-        } catch (error) {
+        } catch (_error) {
           // If we can't get workspace/environment, assume agent is not running
           lastIteration.status = 'failed'
           await this.storage.saveTask(task)

@@ -11,7 +11,7 @@ import { useTemplatesList } from '@/features/templates'
 // Repository selector hook
 export function useRepositorySelector(enabled = true, initialValue = '') {
   const [selected, setSelected] = useState(initialValue)
-  const { data, isLoading } = useRepositoriesList({ enabled })
+  const { data, isLoading, error, isError } = useRepositoriesList({ enabled })
 
   const items = useMemo(
     () =>
@@ -31,18 +31,20 @@ export function useRepositorySelector(enabled = true, initialValue = '') {
       value: selected,
       onChange,
       loading: isLoading,
+      error,
+      isError,
       placeholder: 'Select repository',
       items,
       width: 'w-[180px]',
     }),
-    [selected, onChange, isLoading, items],
+    [selected, onChange, isLoading, error, isError, items],
   )
 }
 
 // Branch selector hook
 export function useBranchSelector(repositoryId?: string, enabled = true) {
   const [selected, setSelected] = useState('')
-  const { data, isLoading } = useBranches(repositoryId || '', {
+  const { data, isLoading, error, isError } = useBranches(repositoryId || '', {
     enabled: enabled && !!repositoryId,
   })
 
@@ -64,12 +66,14 @@ export function useBranchSelector(repositoryId?: string, enabled = true) {
       value: selected,
       onChange,
       loading: isLoading,
+      error,
+      isError,
       placeholder: 'Select branch',
       items,
       width: 'w-[140px]',
       disabled: !repositoryId,
     }),
-    [selected, onChange, isLoading, items, repositoryId],
+    [selected, onChange, isLoading, error, isError, items, repositoryId],
   )
 }
 

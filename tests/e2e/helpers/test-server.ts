@@ -59,9 +59,8 @@ export async function createTestRepository(
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: 'echo "E2E Repository setup complete"',
+        setupCommands: ['echo "E2E Repository setup complete"'],
       },
-      variables: {},
     }),
   })
 

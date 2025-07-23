@@ -31,15 +31,10 @@ async function globalTeardown(config: FullConfig) {
     globalThis.__E2E_SERVER_PID__ = undefined
   }
 
-  // Clean up temp directory if it exists
+  // Keep temp directory persistent for debugging - do not clean up
   const tempDir = process.env.E2E_TEMP_DIR
   if (tempDir) {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true })
-      console.log('Cleaned up temp directory:', tempDir)
-    } catch (error) {
-      console.warn('Failed to clean up temp directory:', error)
-    }
+    console.log('Temp directory preserved for inspection:', tempDir)
   }
 
   // Clean up test variables

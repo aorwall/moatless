@@ -332,11 +332,11 @@ export async function waitForTaskResult(
 ): Promise<{ success: boolean; event: Event }> {
   await waitForEvents(
     monitor,
-    (events) => events.some((e) => e.taskId === taskId && e.type === 'result'),
+    (events) => events.some((e) => e.taskId === taskId && e.type === 'agent' && e.subType === 'completed'),
     timeoutMs,
   )
 
-  const resultEvent = monitor.events.find((e) => e.taskId === taskId && e.type === 'result')
+  const resultEvent = monitor.events.find((e) => e.taskId === taskId && e.type === 'agent' && e.subType === 'completed')
   if (!resultEvent) {
     throw new Error(`Result event for task ${taskId} not found`)
   }

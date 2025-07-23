@@ -391,7 +391,8 @@ describe('Worker API Integration Test', () => {
       const testEvent: Event = {
         eventId: 'test-event-123',
         agentType: 'claude-code',
-        type: 'message',
+        type: 'agent',
+        subType: 'message',
         taskId: createdTaskId,
         isError: false,
         payload: {

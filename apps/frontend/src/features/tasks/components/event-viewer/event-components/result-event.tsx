@@ -1,10 +1,10 @@
-import type { ResultEvent as ResultEventType, SDKResultMessage } from '@moatless/types'
+import type { AgentEvent, SDKResultMessage } from '@moatless/types'
 import { AlertCircle, CheckCircle, Clock, Coins } from 'lucide-react'
 
 import { EventHeader } from './event-header'
 
 interface ResultEventProps {
-  event: ResultEventType
+  event: AgentEvent
 }
 
 export function ResultEvent({ event }: ResultEventProps) {

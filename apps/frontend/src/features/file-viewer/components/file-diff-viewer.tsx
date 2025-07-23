@@ -1,7 +1,7 @@
+//import '@git-diff-view/react/styles/diff-view.css'
+import { DiffFile, generateDiffFile } from '@git-diff-view/file'
 import { DiffModeEnum, DiffView } from '@git-diff-view/react'
 import { useMemo } from 'react'
-import '@git-diff-view/react/styles/diff-view.css'
-import { DiffFile, generateDiffFile } from '@git-diff-view/file'
 import { useTheme } from '@/lib/components/theme-provider'
 
 interface FileDiffViewerProps {

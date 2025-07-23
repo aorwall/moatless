@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ClaudeService } from '../../agents/claude-code/claude.service.js'
 import * as gitUtils from '../../utils/git-utils.js'
+import type { DockerService } from '../docker.service.js'
 import type { EventService } from '../event.service.js'
 import type { RepositoryService } from '../repository.service.js'
-import type { SettingsService } from '../settings.service.js'
 import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
 
@@ -10,8 +11,9 @@ describe('WorkspaceService newBranch Unit Tests', () => {
   let workspaceService: WorkspaceService
   let mockRepositoryService: RepositoryService
   let mockStorage: StorageBackend
-  let mockSettingsService: SettingsService
   let mockEventService: EventService
+  let mockDockerService: DockerService
+  let mockClaudeService: ClaudeService
 
   const mockRepository = {
     id: 'test-repo',
@@ -29,16 +31,18 @@ describe('WorkspaceService newBranch Unit Tests', () => {
 
     mockStorage = {} as any
 
-    mockSettingsService = {
-      getSettings: vi.fn().mockResolvedValue({
-        general: {
-          dataDir: '/test/data',
-          gitWorktreeDir: '/test/worktrees',
-        },
+    mockEventService = {} as any
+
+    mockDockerService = {
+      generateContainerName: vi.fn((repoName: string, taskId: string) => {
+        return `moatless-${repoName}-${taskId}`.toLowerCase()
       }),
+      getContainerStatus: vi.fn().mockReturnValue('not_created'),
+      checkDockerAvailable: vi.fn().mockResolvedValue({ available: true }),
+      allocateWorkerPort: vi.fn().mockResolvedValue({ containerPort: 8001, hostPort: 4000 }),
     } as any
 
-    mockEventService = {} as any
+    mockClaudeService = {} as any
 
     // Mock git utilities
     vi.spyOn(gitUtils, 'isGitRepository').mockResolvedValue(true)
@@ -50,8 +54,9 @@ describe('WorkspaceService newBranch Unit Tests', () => {
     workspaceService = new WorkspaceService(
       mockRepositoryService,
       mockStorage,
-      mockSettingsService,
       mockEventService,
+      mockDockerService,
+      mockClaudeService,
     )
 
     // Mock private methods

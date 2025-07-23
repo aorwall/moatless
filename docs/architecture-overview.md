@@ -95,23 +95,6 @@ Tasks represent AI-powered coding sessions that coordinate all other components.
 
 📖 **[Task Architecture Documentation](./features/tasks.md)**
 
-### 2. Events - Real-time Communication
-Server-Sent Events (SSE) provide unidirectional real-time updates from backend to frontend.
-
-**Key Responsibilities:**
-- Stream task progress events
-- Broadcast system-wide updates
-- Maintain persistent connections
-- Handle reconnection gracefully
-
-**Key Features:**
-- Dual emission pattern (task-specific and global)
-- Automatic reconnection with exponential backoff
-- Event deduplication
-- Type-safe event system
-
-📖 **[Event Architecture Documentation](./features/events.md)**
-
 ### 3. Repositories - Codebase Configuration
 Repositories define how codebases are accessed and executed within the system.
 
@@ -162,23 +145,6 @@ Preview environments allow testing changes in real-time with development servers
 - DOM inspection capabilities
 
 📖 **[Preview Environment Documentation](features/preview-environments.md)**
-
-### 6. Agents - AI Task Processors
-Agents are the AI models that process tasks and generate code modifications.
-
-**Key Responsibilities:**
-- Process user messages
-- Execute tool calls
-- Generate code changes
-- Emit progress events
-
-**Key Features:**
-- Claude Code integration
-- Tool execution framework
-- Streaming responses
-- Error recovery
-
-📖 **[Agent Architecture Documentation](features/agents.md)**
 
 ## API Architecture
 

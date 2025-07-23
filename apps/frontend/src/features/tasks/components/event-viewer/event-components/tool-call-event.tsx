@@ -1,4 +1,4 @@
-import type { Event, MessageEvent } from '@moatless/types'
+import type { AgentEvent, Event } from '@moatless/types'
 import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/types'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -170,10 +170,10 @@ const renderToolCall = (content: ToolUseContent): ReactNode => {
 }
 
 const extractToolResult = (event: Event): string => {
-  if (event.type !== 'message') return 'No result'
+  if (event.type !== 'agent' || event.subType !== 'message') return 'No result'
 
-  const messageEvent = event as MessageEvent
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   if (
     payload?.type === 'user' &&
@@ -238,12 +238,12 @@ const ToolResultPreview = ({ result }: { result: string }) => {
 }
 
 export function ToolCallEvent({ event }: ToolCallEventProps) {
-  if (event.type !== 'message') {
-    return <div className="text-sm text-muted-foreground">Not a message event</div>
+  if (event.type !== 'agent' || event.subType !== 'message') {
+    return <div className="text-sm text-muted-foreground">Not an agent message event</div>
   }
 
-  const messageEvent = event as MessageEvent
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   if (!payload) {
     return <div className="text-sm text-muted-foreground">No payload</div>

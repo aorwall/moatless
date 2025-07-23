@@ -48,7 +48,8 @@ export function createMockTaskIteration(
 export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
     eventId: 'event-123',
-    type: 'message',
+    type: 'agent',
+    subType: 'message',
     agentType: 'test-agent',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
@@ -65,7 +66,8 @@ export function createMockMessageEvent(
   role: 'user' | 'assistant' = 'user',
 ): Event {
   return createMockEvent({
-    type: 'message',
+    type: 'agent',
+    subType: 'message',
     payload: {
       role,
       content,
@@ -76,7 +78,8 @@ export function createMockMessageEvent(
 
 export function createMockToolEvent(toolName: string, input: unknown): Event {
   return createMockEvent({
-    type: 'tool',
+    type: 'agent',
+    subType: 'message',
     payload: {
       toolName: toolName,
       input,

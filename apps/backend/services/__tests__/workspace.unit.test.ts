@@ -124,7 +124,6 @@ describe('WorkspaceService', () => {
   let service: WorkspaceService
   let storage: StorageBackend
   let repositoryService: RepositoryService
-  let settingsService: any
   let tempDir: string
 
   const mockTask = {
@@ -202,26 +201,31 @@ describe('WorkspaceService', () => {
     vi.spyOn(repositoryService, 'createRepository').mockResolvedValue(mockRepository as any)
     vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValue(mockRepository as any)
 
-    // Mock settings service
-    settingsService = {
-      getClaudeSettings: vi.fn().mockReturnValue({
-        binDir: '',
-        configDir: '',
-      }),
-      getGitHubSettings: vi.fn().mockReturnValue({
-        personalAccessToken: '',
-        userName: '',
-        userEmail: '',
-      }),
-      getDefaultWorkspaceType: vi.fn().mockReturnValue('local'),
-    }
-
     // Mock event service
     const eventService = {
       emitEvent: vi.fn(),
     } as any
 
-    service = new WorkspaceService(repositoryService, storage, settingsService, eventService)
+    // Mock docker service
+    const dockerService = {
+      generateContainerName: vi.fn((repoName: string, taskId: string) => {
+        return `moatless-${repoName}-${taskId}`.toLowerCase()
+      }),
+      getContainerStatus: vi.fn().mockReturnValue('not_created'),
+      checkDockerAvailable: vi.fn().mockResolvedValue({ available: true }),
+      allocateWorkerPort: vi.fn().mockResolvedValue({ containerPort: 8001, hostPort: 4000 }),
+    } as any
+
+    // Mock claude service
+    const claudeService = {} as any
+
+    service = new WorkspaceService(
+      repositoryService,
+      storage,
+      eventService,
+      dockerService,
+      claudeService,
+    )
   })
 
   afterEach(async () => {
@@ -235,7 +239,7 @@ describe('WorkspaceService', () => {
 
       expect(retrievedWorkspace.id).toBe('test-task')
       expect(retrievedWorkspace.type).toBe('local')
-      expect(retrievedWorkspace.getStatus()).toBe('not_setup') // Status before setup is called
+      expect(retrievedWorkspace.getStatus()).toBe('not_created') // Status before setup is called
       expect(retrievedWorkspace.repositoryId).toBe(mockRepository.id)
       expect(retrievedWorkspace.getWorkspacePath()).toBe('/test/repo')
     })
@@ -346,7 +350,7 @@ describe('WorkspaceService', () => {
       const workspace = await service.getOrCreateWorkspace('test-task')
 
       expect(workspace.type).toBe('docker')
-      expect(workspace.status).toBe('not_setup') // Status before setup is called
+      expect(workspace.status).toBe('not_created') // Status before setup is called
       // Container name is generated but container is not created until setup is called
       const workspaceInfo = workspace.toWorkspaceInfo()
       expect(workspaceInfo.type).toBe('docker')

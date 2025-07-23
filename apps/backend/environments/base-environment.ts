@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
 import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
@@ -170,4 +171,86 @@ export abstract class BaseEnvironment {
    * Get the creation timestamp
    */
   abstract getCreatedAt(): Date
+
+  // ===============================
+  // Shared Utility Methods
+  // ===============================
+
+  /**
+   * Check if a path exists (shared utility for both environment types)
+   */
+  protected async pathExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Create environment variables object from configuration (shared utility)
+   */
+  protected createEnvironmentVariables(
+    baseEnvVars: Record<string, string>,
+    repositoryEnvVars?: Record<string, string>,
+  ): Record<string, string> {
+    return {
+      ...baseEnvVars,
+      ...(repositoryEnvVars || {}),
+    }
+  }
+
+  /**
+   * Format command string for safe execution (shared utility)
+   */
+  protected formatContainerCommand(command: string): string {
+    // Escape double quotes in the command
+    return command.replace(/"/g, '\\"')
+  }
+
+  /**
+   * Handle background task execution with proper error handling (shared utility)
+   */
+  protected async handleBackgroundTasks(
+    tasks: Array<() => Promise<void>>,
+    onError?: (error: Error, taskIndex: number) => Promise<void>,
+  ): Promise<void> {
+    const promises = tasks.map(async (task, index) => {
+      try {
+        await task()
+      } catch (error) {
+        if (onError) {
+          await onError(error as Error, index)
+        } else {
+          throw error
+        }
+      }
+    })
+
+    await Promise.all(promises)
+  }
+
+  /**
+   * Validate repository configuration (shared utility)
+   */
+  protected validateRepositoryConfig(config: RepositoryConfig): void {
+    if (!config.id) {
+      throw new Error('Repository configuration must have an ID')
+    }
+    if (!config.path) {
+      throw new Error('Repository configuration must have a path')
+    }
+    if (!config.codeExecution) {
+      throw new Error('Repository configuration must have code execution settings')
+    }
+  }
+
+  /**
+   * Get safe timeout value with bounds checking (shared utility)
+   */
+  protected getSafeTimeout(timeout?: number, defaultTimeout = 30000, maxTimeout = 600000): number {
+    if (!timeout) return defaultTimeout
+    return Math.min(Math.max(timeout, 1000), maxTimeout) // Min 1s, max 10min
+  }
 }

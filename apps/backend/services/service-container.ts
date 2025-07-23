@@ -1,6 +1,6 @@
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
-import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
+import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { GitHubService } from './github.service.js'
 import type { MessageService } from './message.service.js'
@@ -15,9 +15,9 @@ import type { WorkspaceService } from './workspace.service.js'
  * Service container interface containing all application services.
  */
 export interface ServiceContainer {
-  agent: AgentService
   claude: ClaudeService
   command: CommandService
+  docker: DockerService
   event: EventService
   github: GitHubService
   message: MessageService
@@ -44,9 +44,9 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { getGitHubService } = await import('./github.service.js')
   const { createSettingsService } = await import('./settings.service.js')
   const { createRepositoryService } = await import('./repository.service.js')
-  const { createAgentService } = await import('./agent.service.js')
   const { createClaudeService } = await import('../agents/claude-code/claude.service.js')
   const { createCommandService } = await import('./command.service.js')
+  const { createDockerService } = await import('./docker.service.js')
   const { createEventService } = await import('./event.service.js')
   const { createMessageService } = await import('./message.service.js')
   const { createPreviewEnvironmentService } = await import('./preview-environment.service.js')
@@ -66,6 +66,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)
+  container.docker = createDockerService(container.settings)
 
   // 3. Services with multiple dependencies
   container.event = createEventService(container.storage)
@@ -73,8 +74,9 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.workspace = createWorkspaceService(
     container.repository,
     container.storage,
-    container.settings,
     container.event,
+    container.docker,
+    container.claude,
   )
   container.previewEnvironment = createPreviewEnvironmentService(
     container.storage,
@@ -90,10 +92,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Set claude service on repository service for suggested repositories
   container.repository.setClaudeService(container.claude)
 
-  // 4. Services that need event and workspace
-  container.agent = createAgentService(container.storage, container.event, container.workspace)
-
-  // 6. Task service needs many dependencies
+  // Task service needs many dependencies
   container.task = createTaskService(
     container.storage,
     container.event,

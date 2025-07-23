@@ -7,7 +7,6 @@ export * from './api/tasks'
 export { ChatView } from './components/chat-view'
 export { CreateTaskForm } from './components/create-task-form'
 export { EventViewer } from './components/event-viewer'
-export { GitDiffViewer } from './components/git-diff-viewer'
 export { TaskPage } from './components/task-page'
 
 // Tri-Context Pattern for performance optimization

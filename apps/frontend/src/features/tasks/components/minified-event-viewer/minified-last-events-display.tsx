@@ -1,4 +1,4 @@
-import type { Event, MessageEvent } from '@moatless/types'
+import type { AgentEvent, Event } from '@moatless/types'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
@@ -15,10 +15,10 @@ interface MinifiedLastThreeEventsDisplayProps {
 }
 
 function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
-  if (event.type !== 'message') return false
+  if (event.type !== 'agent' || event.subType !== 'message') return false
 
-  const messageEvent = event as MessageEvent
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   // Skip user messages (which are usually tool results)
   if (payload?.type === 'user') return false

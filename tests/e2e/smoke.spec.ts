@@ -1,38 +1,43 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * Smoke test to validate E2E infrastructure is working correctly
+ * Essential smoke tests to validate the application is working correctly
  */
 
-test.describe('E2E Infrastructure Smoke Test', () => {
-  test('should load the application homepage', async ({ page }) => {
+test.describe('Essential Application Tests', () => {
+  test('should load the React application', async ({ page }) => {
     // Navigate to the application
     await page.goto('/')
 
-    // Wait for the page to load - be more permissive with loading state
+    // Wait for the page to load
     await page.waitForLoadState('domcontentloaded')
 
-    // Check that we can access the basic application
-    // This validates that:
-    // 1. Server is running on the expected port
-    // 2. Client build is accessible
-    // 3. Basic routing works
+    // Check that the React app root element exists and has been hydrated
+    const appRoot = page.locator('#app')
+    await expect(appRoot).toBeVisible()
 
-    // Wait for the page to have content - look for any indication the app loaded
-    try {
-      // First try to wait for title
-      await expect(page).toHaveTitle(/Moatless|React|Vite/i, { timeout: 30000 })
-    } catch {
-      // If title doesn't match, at least check that page loads some content
-      await expect(page.locator('body')).not.toBeEmpty({ timeout: 30000 })
-      console.log('⚠️ App loaded but title may not match expected pattern')
-    }
+    // Wait for React to render something inside the app root
+    await expect(appRoot).not.toBeEmpty()
 
-    console.log('✅ Homepage loaded successfully')
+    // Check for essential UI elements that indicate the app loaded correctly
+    // Look for the main layout structure
+    const mainContent = page.locator('main')
+    await expect(mainContent).toBeVisible({ timeout: 10000 })
+
+    console.log('✅ React application loaded successfully')
   })
 
-  test('should be able to access API endpoints', async ({ page, baseURL }) => {
-    // Test basic API accessibility
+  test('should load the application with proper title', async ({ page }) => {
+    await page.goto('/')
+
+    // Check the page title - update this based on your actual app title
+    await expect(page).toHaveTitle(/Moatless|Vibe/i, { timeout: 10000 })
+
+    console.log('✅ Application title verified')
+  })
+
+  test('should access repositories API endpoint', async ({ page, baseURL }) => {
+    // Test that the repositories endpoint returns the expected structure
     const response = await page.request.get(`${baseURL}/api/v1/repositories`)
     expect(response.status()).toBe(200)
 
@@ -40,23 +45,40 @@ test.describe('E2E Infrastructure Smoke Test', () => {
     expect(data).toHaveProperty('repositories')
     expect(Array.isArray(data.repositories)).toBe(true)
 
-    console.log('✅ API endpoints accessible')
+    // When using a temporary data directory, the list should be empty
+    console.log(`✅ Repositories API accessible - found ${data.repositories.length} repositories`)
   })
 
-  test('should be able to establish SSE connection', async ({ page, baseURL }) => {
-    // Navigate to the app first to establish proper context
-    await page.goto('/')
-
-    // Test SSE connection via direct request (avoids CORS issues)
-    const response = await page.request.get(`${baseURL}/api/v1/events/stream/status`)
+  test('should access settings API endpoint', async ({ page, baseURL }) => {
+    // Test that the settings endpoint works
+    const response = await page.request.get(`${baseURL}/api/v1/settings/status`)
     expect(response.status()).toBe(200)
 
     const status = await response.json()
+    expect(status).toHaveProperty('docker')
+    expect(status).toHaveProperty('claude')
+    expect(status.docker).toHaveProperty('isRunning')
+    expect(status.claude).toHaveProperty('isValidBin')
+
+    console.log('✅ Settings API accessible')
+    console.log(`  - Docker running: ${status.docker.isRunning}`)
+    console.log(`  - Claude valid: ${status.claude.isValidBin}`)
+  })
+
+  test('should verify SSE event stream endpoint', async ({ page, baseURL }) => {
+    // Navigate to the app first to establish context
+    await page.goto('/')
+
+    // Test SSE connection status endpoint
+    const statusResponse = await page.request.get(`${baseURL}/api/v1/events/stream/status`)
+    expect(statusResponse.status()).toBe(200)
+
+    const status = await statusResponse.json()
     expect(status).toHaveProperty('globalConnections')
     expect(status).toHaveProperty('taskConnections')
+    expect(status).toHaveProperty('totalConnections')
 
-    // Test SSE endpoint availability using fetch with AbortController
-    // We need to abort the connection quickly since SSE keeps the connection open
+    // Test that SSE endpoint is accessible
     const sseTest = await page.evaluate(async (url) => {
       const controller = new AbortController()
 
@@ -68,16 +90,16 @@ test.describe('E2E Infrastructure Smoke Test', () => {
           signal: controller.signal,
         })
 
-        // Abort after checking the response
-        setTimeout(() => controller.abort(), 100)
+        // Abort immediately after checking the response
+        setTimeout(() => controller.abort(), 10)
 
         return {
           status: response.status,
           contentType: response.headers.get('content-type'),
           ok: response.ok,
         }
-      } catch (error) {
-        // If it's an abort error, that's expected
+      } catch (error: any) {
+        // AbortError is expected
         if (error.name === 'AbortError') {
           return { status: 200, ok: true, aborted: true }
         }
@@ -91,19 +113,26 @@ test.describe('E2E Infrastructure Smoke Test', () => {
       expect(sseTest.contentType).toContain('text/event-stream')
     }
 
-    console.log('✅ SSE endpoints are accessible')
+    console.log('✅ SSE event stream endpoint is accessible')
   })
 
-  test('should have required dependencies available', async ({ page, baseURL }) => {
-    // Check that the global event stream status endpoint works
-    const response = await page.request.get(`${baseURL}/api/v1/events/stream/status`)
-    expect(response.status()).toBe(200)
+  test('should handle temporary data directory', async ({ page, baseURL }) => {
+    // Verify that the application is using the temporary data directory set by tests
+    const settingsResponse = await page.request.get(`${baseURL}/api/v1/settings/general`)
+    expect(settingsResponse.status()).toBe(200)
 
-    const status = await response.json()
-    expect(status).toHaveProperty('globalConnections')
-    expect(status).toHaveProperty('taskConnections')
-    expect(status).toHaveProperty('totalConnections')
+    const settingsData = await settingsResponse.json()
+    
+    // The test environment should be using E2E_TEMP_DIR
+    if (process.env.E2E_TEMP_DIR) {
+      console.log(`✅ Using temporary data directory: ${process.env.E2E_TEMP_DIR}`)
+    }
 
-    console.log('✅ Event stream infrastructure ready')
+    // Verify empty repositories list (since we're using a temp directory)
+    const repoResponse = await page.request.get(`${baseURL}/api/v1/repositories`)
+    const repoData = await repoResponse.json()
+    
+    console.log('✅ Temporary data directory confirmed - repositories list is empty')
+    expect(repoData.repositories).toHaveLength(0)
   })
 })

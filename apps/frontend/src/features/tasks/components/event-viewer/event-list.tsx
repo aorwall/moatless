@@ -1,8 +1,4 @@
-import type {
-  Event,
-  MessageEvent as MessageEventType,
-  ResultEvent as ResultEventType,
-} from '@moatless/types'
+import type { AgentEvent, Event } from '@moatless/types'
 import { isToolUseContent } from '@moatless/types'
 import React from 'react'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
@@ -26,10 +22,10 @@ const PayloadRenderer = ({ payload }: { payload: unknown }) => {
 
 // Helper to check if an event contains tool calls
 function hasToolCall(event: Event): boolean {
-  if (event.type !== 'message') return false
+  if (event.type !== 'agent' || event.subType !== 'message') return false
 
-  const messageEvent = event as MessageEventType
-  const payload = messageEvent.payload
+  const agentEvent = event as AgentEvent
+  const payload = agentEvent.payload
 
   // Check if it's an assistant message with content
   if (
@@ -48,21 +44,26 @@ const EventContent = ({ event }: { event: Event | MergedEvent }) => {
     switch (event.type) {
       case 'workspace':
         return <WorkspaceEvent event={event} />
-      case 'message':
-        // Check if it's a merged event with tool result
-        if ('toolResult' in event) {
-          return <ToolCallEvent event={event as MergedEvent} />
-        }
+      case 'agent':
+        if (event.subType === 'message') {
+          // Check if it's a merged event with tool result
+          if ('toolResult' in event) {
+            return <ToolCallEvent event={event as MergedEvent} />
+          }
 
-        // Check if it's a tool call by examining the content
-        if (hasToolCall(event)) {
-          return <ToolCallEvent event={event as MergedEvent} />
-        }
+          // Check if it's a tool call by examining the content
+          if (hasToolCall(event)) {
+            return <ToolCallEvent event={event as MergedEvent} />
+          }
 
-        // For text messages and other non-tool messages
-        return <MessageEvent event={event} />
-      case 'result':
-        return <ResultEvent event={event as ResultEventType} />
+          // For text messages and other non-tool messages
+          return <MessageEvent event={event} />
+        }
+        if (event.subType === 'completed') {
+          return <ResultEvent event={event as AgentEvent} />
+        }
+        // For other agent subtypes, fall through to default
+        break
       default:
         return (
           <div className="text-sm text-muted-foreground">

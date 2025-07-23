@@ -135,7 +135,8 @@ describe('FileStorage', () => {
       const events: Event[] = [
         {
           eventId: 'evt-1',
-          type: 'start',
+          type: 'agent',
+          subType: 'started',
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,
@@ -144,7 +145,8 @@ describe('FileStorage', () => {
         },
         {
           eventId: 'evt-2',
-          type: 'message',
+          type: 'agent',
+          subType: 'message',
           taskId: 'task-123',
           timestamp: new Date(),
           isError: false,

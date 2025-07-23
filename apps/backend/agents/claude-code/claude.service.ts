@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type {
@@ -716,6 +716,157 @@ export class ClaudeService {
     })
 
     return entries
+  }
+
+  // ===============================
+  // Docker-specific Configuration Methods
+  // ===============================
+
+  /**
+   * Get Claude configuration file paths for Docker environment setup
+   */
+  getClaudeConfigPaths(): {
+    configPath: string | null
+    credentialsPath: string | null
+    claudeConfigDir: string
+  } {
+    const claudeSettings = this.settingsService.getClaudeSettings()
+
+    // Determine Claude config directory
+    let claudeConfigDir: string
+    if (claudeSettings.configDir) {
+      claudeConfigDir = claudeSettings.configDir
+    } else if (process.env.CLAUDE_CONFIG_HOME) {
+      claudeConfigDir = process.env.CLAUDE_CONFIG_HOME
+    } else {
+      claudeConfigDir = path.join(process.env.HOME || '', '.claude')
+    }
+
+    let claudeConfigPath: string | null = null
+    let foundCredentialsPath: string | null = null
+
+    // First try CLAUDE_CONFIG_HOME/.config.json, then fallback to USER_HOME/.claude.json
+    const configJsonPath = path.join(claudeConfigDir, '.config.json')
+    if (existsSync(configJsonPath)) {
+      claudeConfigPath = configJsonPath
+    }
+
+    if (!claudeConfigPath) {
+      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
+      if (existsSync(claudeJsonPath)) {
+        claudeConfigPath = claudeJsonPath
+      }
+    }
+
+    // Check for credentials file - try both .credentials.json and .credentials
+    const credentialsJsonPath = path.join(claudeConfigDir, '.credentials.json')
+    const credentialsPath = path.join(claudeConfigDir, '.credentials')
+    if (existsSync(credentialsJsonPath)) {
+      foundCredentialsPath = credentialsJsonPath
+    } else if (existsSync(credentialsPath)) {
+      foundCredentialsPath = credentialsPath
+    }
+
+    return {
+      configPath: claudeConfigPath,
+      credentialsPath: foundCredentialsPath,
+      claudeConfigDir,
+    }
+  }
+
+  /**
+   * Validate Claude authentication for Docker environment
+   */
+  validateClaudeAuthentication(): {
+    isValid: boolean
+    hasConfig: boolean
+    hasCredentials: boolean
+    hasOAuthToken: boolean
+    error?: string
+  } {
+    const { configPath, credentialsPath } = this.getClaudeConfigPaths()
+    const claudeOauthToken = this.settingsService.getClaudeSettings().oauthToken
+
+    const hasConfig = !!configPath
+    const hasCredentials = !!credentialsPath
+    const hasOAuthToken = !!claudeOauthToken
+
+    // Fail if no credentials found and no OAuth token when Claude config exists
+    if (!hasCredentials && !hasOAuthToken && hasConfig) {
+      return {
+        isValid: false,
+        hasConfig,
+        hasCredentials,
+        hasOAuthToken,
+        error:
+          'No Claude credentials found (.credentials or .credentials.json) and no OAuth token configured - Claude Code agent will not work. Run `claude setup-token` to get an OAuth token.',
+      }
+    }
+
+    if (!hasCredentials && !hasOAuthToken) {
+      return {
+        isValid: false,
+        hasConfig,
+        hasCredentials,
+        hasOAuthToken,
+        error:
+          'No Claude credentials or OAuth token found - Claude Code agent may not work properly',
+      }
+    }
+
+    return {
+      isValid: true,
+      hasConfig,
+      hasCredentials,
+      hasOAuthToken,
+    }
+  }
+
+  /**
+   * Get Claude container mount paths for Docker volume mounting
+   */
+  getClaudeContainerMounts(): string[] {
+    const { claudeConfigDir } = this.getClaudeConfigPaths()
+    const mounts: string[] = []
+
+    // Mount projects directory if it exists
+    const projectsDir = path.join(claudeConfigDir, 'projects')
+    if (existsSync(projectsDir)) {
+      mounts.push(`${projectsDir}:/home/ubuntu/.claude/projects`)
+    }
+
+    return mounts
+  }
+
+  /**
+   * Generate Docker environment variables for Claude configuration
+   */
+  getClaudeDockerEnvironmentVariables(): Record<string, string> {
+    const envVars: Record<string, string> = {}
+    const claudeSettings = this.settingsService.getClaudeSettings()
+
+    // Set Claude config directory
+    envVars.CLAUDE_CONFIG_DIR = '/home/ubuntu/.claude'
+    envVars.HOME = '/workspace' // This will be overridden by container workspace
+
+    // Pass through Claude authentication environment variables
+    if (process.env.CLAUDE_AUTH_DIR) {
+      envVars.CLAUDE_AUTH_DIR = process.env.CLAUDE_AUTH_DIR
+    }
+    if (process.env.ANTHROPIC_API_KEY) {
+      envVars.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
+    }
+
+    // Pass Claude OAuth token if available
+    if (claudeSettings.oauthToken) {
+      envVars.CLAUDE_CODE_OAUTH_TOKEN = claudeSettings.oauthToken
+    }
+
+    if (process.env.CLAUDE_CODE_MOCK) {
+      envVars.CLAUDE_CODE_MOCK = process.env.CLAUDE_CODE_MOCK
+    }
+
+    return envVars
   }
 }
 

@@ -119,7 +119,7 @@ export function TaskHeader() {
     }
   }
 
-  const handleSetup = () => {
+  const _handleSetup = () => {
     if (taskId) {
       setupWorkspace.mutate({ taskId })
     }

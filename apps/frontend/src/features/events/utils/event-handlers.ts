@@ -54,8 +54,8 @@ export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {
 
   // Check for subType-specific mapping
   if (typeof typeMapping === 'object' && !Array.isArray(typeMapping)) {
-    const subTypeKeys = event.subType && typeMapping[event.subType as keyof typeof typeMapping]
-    const wildcardKeys = typeMapping['*']
+    const subTypeKeys = event.subType && (typeMapping as any)[event.subType]
+    const wildcardKeys = (typeMapping as any)['*']
 
     // Use subType-specific keys if available, otherwise fall back to wildcard
     const keys = subTypeKeys || wildcardKeys
@@ -75,7 +75,7 @@ export function shouldInvalidateTaskList(event: Event): boolean {
   if (!event.subType) return true
 
   // Check if the specific subType affects status
-  return subtypes.includes(event.subType as any)
+  return (subtypes as any).includes(event.subType)
 }
 
 export function isStatusAffectingEvent(event: Event): boolean {

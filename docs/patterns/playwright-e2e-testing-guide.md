@@ -4,14 +4,26 @@
 
 The Moatless Vibe uses Playwright for end-to-end testing, validating the complete user experience from UI interactions through backend processing to agent execution. The test suite includes infrastructure validation, smoke tests, and comprehensive workflow tests with real Claude Code agents.
 
+## Event Schema
+
+The application uses a consolidated event system with 5 main event types. For complete details about event types, subtypes, and state transitions, see [Task Lifecycle Pattern](./task-lifecycle.md#backend-event-emission).
+
+### Key Changes for E2E Testing
+
+When testing event flows, note these important changes:
+- **Agent messages**: Previously `type: 'message'`, now `type: 'agent', subType: 'message'`
+- **Task completion**: Previously `type: 'result'`, now `type: 'agent', subType: 'completed'` 
+- **Error events**: All error events now use the `error` subType (not `failed`)
+- **Tool calls**: No longer separate events - they're part of agent messages
+
 ## Test Categories & Running Tests
 
-### 1. Smoke Tests (`smoke.spec.ts`)
+### 1. Essential Smoke Tests (`smoke.spec.ts`)
 Quick validation that the application is running correctly:
-- Homepage loads successfully
-- API endpoints respond (repositories, events)
-- SSE connections can be established
-- Event stream infrastructure is ready
+- React application loads and renders
+- API endpoints respond (repositories, settings, events)
+- SSE event stream connections work
+- Temporary data directory is used correctly
 
 **Run time**: ~5-10 seconds
 
@@ -20,22 +32,7 @@ Quick validation that the application is running correctly:
 bun test:e2e smoke.spec.ts
 ```
 
-### 2. Infrastructure Tests (`infrastructure-test.spec.ts`)
-Validates E2E testing framework components without a server:
-- Event monitoring utilities
-- API request/response validation
-- Event filtering logic
-- Connection resilience simulation
-- TypeScript interface validation
-
-**Run time**: ~10-15 seconds
-
-```bash
-# Run infrastructure tests only (fastest)
-bun exec playwright test --config=playwright-infrastructure.config.ts
-```
-
-### 3. UI Task Workflow Tests (`ui-task-complete-workflow.spec.ts`)
+### 2. UI Task Workflow Tests (`ui-task-complete-workflow.spec.ts`)
 Complete user journey through the UI:
 - Creates a test repository
 - Form inputs and validation
@@ -91,7 +88,14 @@ bun test:e2e event-flow-complete.spec.ts
    bun build
    ```
 
-3. **Port Configuration**: Tests automatically find available ports starting from 3002.
+3. **Set Claude OAuth Token** (required for tests using Claude Code agent):
+   ```bash
+   # Add to your .env file:
+   CLAUDE_CODE_OAUTH_TOKEN=your-oauth-token-here
+   ```
+   Without this token, E2E tests that create tasks with Claude Code agents will fail.
+
+4. **Port Configuration**: Tests automatically find available ports starting from 3002.
 
 ### Automatic Port Detection
 
@@ -109,6 +113,19 @@ E2E_PORT=4000 bun test:e2e
 ```
 
 **How it works**: The setup automatically scans ports starting from 3002 (or your custom port) and selects the first available one. The selected port is displayed in the terminal output.
+
+### Temporary Data Directory
+
+E2E tests use a temporary data directory to ensure test isolation:
+- A new temporary directory is created for each test run
+- The directory is automatically cleaned up after tests complete
+- This ensures tests don't interfere with your local development data
+- Repository lists will be empty in tests unless explicitly created
+
+The temporary directory path is shown in the test output:
+```
+Created temp directory: /var/folders/.../moatless-e2e-test-xxxxx
+```
 
 ## Common Test Commands
 
