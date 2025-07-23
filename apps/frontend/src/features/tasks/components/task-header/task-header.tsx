@@ -197,39 +197,6 @@ export function TaskHeader() {
                 {contextTokens.toLocaleString()} tokens
               </Badge>
             )}
-            {workspace && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge
-                      variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
-                      className={cn(
-                        'text-xs cursor-pointer',
-                        workspace.environmentStatus === 'error' &&
-                          'bg-red-100 text-red-800 border-red-200',
-                        workspace.environmentStatus === 'not_created' &&
-                          'bg-yellow-100 text-yellow-800 border-yellow-200',
-                      )}
-                      onClick={
-                        workspace.environmentStatus === 'not_created' ? handleSetup : undefined
-                      }
-                    >
-                      {workspace.environmentType} env: {workspace.environmentStatus}
-                      {workspace.environmentStatus === 'not_created' && ' ▶'}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {workspace.environmentStatus === 'not_created' ? (
-                      <p>Click to setup workspace environment</p>
-                    ) : workspace.environmentStatus === 'error' ? (
-                      <p>Environment error: {workspace.environmentError || 'Unknown error'}</p>
-                    ) : (
-                      <p>Environment status: {workspace.environmentStatus}</p>
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
           </div>
         </div>
 
