@@ -16,7 +16,6 @@ const execAsync = promisify(exec)
 
 export class DockerEnvironment extends BaseEnvironment {
   private image = ''
-  private runningAgent?: BaseAgent
   private _createdAt = new Date()
   private _error?: string
   private workspacePath: string
@@ -1007,8 +1006,46 @@ export class DockerEnvironment extends BaseEnvironment {
     })
   }
 
+  async *runAgent(
+    agentType: string,
+    message: string,
+    options?: {
+      workspaceDir?: string
+      iterationNumber?: number
+      resume?: string
+      model?: string
+    },
+  ): AsyncGenerator<any> {
+    this.logger.info('Running agent', { agentType, taskId: this.taskId })
+
+    // Create agent options
+    const agentOptions = options?.model ? { model: options.model } : {}
+
+    // Create agent instance
+    const agent = await this.createAgent(agentType, agentOptions)
+    this.currentAgent = agent
+
+    try {
+      // Prepare run options
+      const runOptions = {
+        workspaceDir: options?.workspaceDir || this.repositoryConfig.path,
+        iterationNumber: options?.iterationNumber,
+        resume: options?.resume,
+        model: options?.model,
+      }
+
+      // Run the agent and yield all events
+      for await (const event of agent.run(message, runOptions)) {
+        yield event
+      }
+    } finally {
+      // Clear the current agent when done
+      this.currentAgent = undefined
+    }
+  }
+
   async stopAgent(): Promise<boolean> {
-    if (!this.runningAgent) {
+    if (!this.currentAgent) {
       return false
     }
 
@@ -1029,25 +1066,13 @@ export class DockerEnvironment extends BaseEnvironment {
         this.logger.error('Failed to stop agent in worker', new Error(error))
       }
 
-      this.runningAgent = undefined
+      this.currentAgent = undefined
       return true
     } catch (error) {
       this.logger.error('Error stopping agent', error as Error)
-      this.runningAgent = undefined
+      this.currentAgent = undefined
       return false
     }
-  }
-
-  isRunning(): boolean {
-    return !!this.runningAgent
-  }
-
-  setRunningAgent(agent: BaseAgent): void {
-    this.runningAgent = agent
-  }
-
-  getRunningAgent(): BaseAgent | undefined {
-    return this.runningAgent
   }
 
   async teardown(force = false): Promise<void> {

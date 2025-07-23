@@ -12,7 +12,6 @@ import { BaseEnvironment } from './base-environment.js'
 const execAsync = promisify(exec)
 
 export class LocalEnvironment extends BaseEnvironment {
-  private _runningAgent?: BaseAgent
   private setupInProgress = false
   private setupComplete = false
   private workspacePath = ''
@@ -294,26 +293,60 @@ export class LocalEnvironment extends BaseEnvironment {
     throw new Error(`Unknown agent type: ${agentType}`)
   }
 
+  async *runAgent(
+    agentType: string,
+    message: string,
+    options?: {
+      workspaceDir?: string
+      iterationNumber?: number
+      resume?: string
+      model?: string
+    },
+  ): AsyncGenerator<any> {
+    this.logger.info('Running agent', { agentType, taskId: this.taskId })
+
+    // Create agent options
+    const agentOptions = options?.model ? { model: options.model } : {}
+
+    // Create agent instance
+    const agent = await this.createAgent(agentType, agentOptions)
+    this.currentAgent = agent
+
+    try {
+      // Prepare run options
+      const runOptions = {
+        workspaceDir: options?.workspaceDir || this.workspacePath,
+        iterationNumber: options?.iterationNumber,
+        resume: options?.resume,
+        model: options?.model,
+      }
+
+      // Run the agent and yield all events
+      for await (const event of agent.run(message, runOptions)) {
+        yield event
+      }
+    } finally {
+      // Clear the current agent when done
+      this.currentAgent = undefined
+    }
+  }
+
   async stopAgent(): Promise<boolean> {
-    if (!this._runningAgent) {
+    if (!this.currentAgent) {
       return false
     }
 
     this.logger.info('Stopping running agent')
 
     try {
-      await this._runningAgent.stop()
-      this._runningAgent = undefined
+      await this.currentAgent.stop()
+      this.currentAgent = undefined
       return true
     } catch (error) {
       this.logger.error('Error stopping agent', error as Error)
-      this._runningAgent = undefined
+      this.currentAgent = undefined
       return false
     }
-  }
-
-  isRunning(): boolean {
-    return !!this._runningAgent
   }
 
   async teardown(force = false): Promise<void> {
@@ -335,14 +368,6 @@ export class LocalEnvironment extends BaseEnvironment {
         throw error
       }
     }
-  }
-
-  setRunningAgent(agent: BaseAgent): void {
-    this._runningAgent = agent
-  }
-
-  getRunningAgent(): BaseAgent | undefined {
-    return this._runningAgent
   }
 
   private async pathExists(filePath: string): Promise<boolean> {

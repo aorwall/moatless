@@ -3,11 +3,13 @@ import * as gitUtils from '../../utils/git-utils.js'
 import type { EventService } from '../event.service.js'
 import type { RepositoryService } from '../repository.service.js'
 import type { SettingsService } from '../settings.service.js'
+import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 describe('WorkspaceService newBranch Unit Tests', () => {
   let workspaceService: WorkspaceService
   let mockRepositoryService: RepositoryService
+  let mockStorage: StorageBackend
   let mockSettingsService: SettingsService
   let mockEventService: EventService
 
@@ -24,6 +26,8 @@ describe('WorkspaceService newBranch Unit Tests', () => {
     mockRepositoryService = {
       getRepositoryById: vi.fn().mockResolvedValue(mockRepository),
     } as any
+
+    mockStorage = {} as any
 
     mockSettingsService = {
       getSettings: vi.fn().mockResolvedValue({
@@ -45,18 +49,18 @@ describe('WorkspaceService newBranch Unit Tests', () => {
     // Create WorkspaceService instance
     workspaceService = new WorkspaceService(
       mockRepositoryService,
+      mockStorage,
       mockSettingsService,
       mockEventService,
     )
 
     // Mock private methods
     vi.spyOn(workspaceService as any, 'pathExists').mockResolvedValue(true) // Repository path exists
-    vi.spyOn(workspaceService as any, 'checkBranchExists').mockImplementation(
-      (repoPath: string, branchName: string) => {
-        // Return true for common branches to avoid "branch does not exist" errors
-        return Promise.resolve(['main', 'develop', 'master'].includes(branchName))
-      },
-    )
+    vi.spyOn(workspaceService as any, 'checkBranchExists').mockImplementation((...args: any[]) => {
+      const branchName = args[1] as string
+      // Return true for common branches to avoid "branch does not exist" errors
+      return Promise.resolve(['main', 'develop', 'master'].includes(branchName))
+    })
     vi.spyOn(workspaceService as any, 'getBranchName').mockReturnValue('workspace-task-123')
   })
 
@@ -67,7 +71,6 @@ describe('WorkspaceService newBranch Unit Tests', () => {
   describe('ensureWorktreeExists with newBranch', () => {
     it('should use newBranch when provided instead of generated branch name', async () => {
       const taskId = 'test-task-123'
-      const workspacePath = '/test/worktrees/workspace-task-123'
       const sourceBranch = 'main'
       const newBranch = 'feature/custom-branch'
 
@@ -119,7 +122,8 @@ describe('WorkspaceService newBranch Unit Tests', () => {
 
       // Mock that the newBranch already exists
       vi.spyOn(workspaceService as any, 'checkBranchExists').mockImplementation(
-        (repoPath: string, branchName: string) => {
+        (...args: any[]) => {
+          const branchName = args[1] as string
           return Promise.resolve(branchName === newBranch)
         },
       )

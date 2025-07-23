@@ -74,12 +74,10 @@ export class Workspace {
   }
 
   get runningAgent(): BaseAgent | undefined {
-    if (!this.environment.isRunning()) {
-      return undefined
-    }
-
+    // Use the currentAgent from the environment directly
     if (isLocalEnvironment(this.environment) || isDockerEnvironment(this.environment)) {
-      return this.environment.getRunningAgent()
+      const agentStatus = this.environment.getAgentStatus()
+      return agentStatus.state === 'running' ? (this.environment as any).currentAgent : undefined
     }
 
     return undefined
@@ -852,14 +850,13 @@ export class Workspace {
    * In the future, this could check if there are active agent processes
    */
   private async getAgentState(): Promise<'idle' | 'running' | 'none'> {
-    // Check if we have an active agent
-    // For now, return 'none' if environment is not ready
     const environment = this.getEnvironment()
     if (environment.getStatus() !== 'ready') {
       return 'none'
     }
 
-    // TODO: This could be enhanced to check actual agent processes
-    return 'idle'
+    // Use the environment's agent status
+    const agentStatus = environment.getAgentStatus()
+    return agentStatus.state
   }
 }

@@ -1,6 +1,5 @@
 import type { CreateTaskRequest } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentService } from '../agent.service.js'
 import type { CommandService } from '../command.service.js'
 import type { EventService } from '../event.service.js'
 import type { RepositoryService } from '../repository.service.js'
@@ -13,7 +12,6 @@ describe('TaskService newBranch Integration Tests', () => {
   let mockStorage: StorageBackend
   let mockEventService: EventService
   let mockWorkspaceService: WorkspaceService
-  let mockAgentService: AgentService
   let mockCommandService: CommandService
   let mockRepositoryService: RepositoryService
 
@@ -41,10 +39,6 @@ describe('TaskService newBranch Integration Tests', () => {
       trackBackgroundTask: vi.fn(),
     } as any
 
-    mockAgentService = {
-      executeAgent: vi.fn().mockResolvedValue(undefined),
-    } as any
-
     mockCommandService = {} as any
     mockRepositoryService = {} as any
 
@@ -53,7 +47,6 @@ describe('TaskService newBranch Integration Tests', () => {
       mockStorage,
       mockEventService,
       mockWorkspaceService,
-      mockAgentService,
       mockCommandService,
       mockRepositoryService,
     )

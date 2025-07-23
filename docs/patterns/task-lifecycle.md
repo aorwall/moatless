@@ -73,23 +73,23 @@
    - Validates last iteration has `status: 'created'` (pending execution)
    - Waits for workspace to reach 'idle' state (max 30s)
    - Updates iteration `status: 'active'` to indicate processing started
-   - Emits `task_status` event with `subType: 'active'` for UI updates
-   - Calls agentService.executeAgent with iteration message
+   - Emits `taskIteration` event with `subType: 'active'` for UI updates
+   - Calls executeAgentViaEnvironment with iteration message
 
-2. **executeAgent**: Orchestrates agent creation and execution - apps/backend/services/agent.service.ts:23
-   - Validates no other agent running for this task - apps/backend/services/agent.service.ts:55
-   - Gets or creates workspace, validates it's ready - apps/backend/services/agent.service.ts:61
-   - Creates agent instance via environment (Claude Code agent) - apps/backend/services/agent.service.ts:117
-   - Tracks agent in runningAgents map for status queries
-   - Delegates to runAgentExecution for actual processing - apps/backend/services/agent.service.ts:131
-
-3. **runAgentExecution**: Processes agent messages and events - apps/backend/services/agent.service.ts:200
-   - Prepares message with file attachments if provided
-   - Executes agent.run generator with workspace path and iteration number
-   - Captures agent session ID for resume capability
+2. **executeAgentViaEnvironment**: Orchestrates agent creation and execution - apps/backend/services/task.service.ts:94
+   - Gets workspace and validates it's ready - apps/backend/services/task.service.ts:106
+   - Uses environment.runAgent() to create agent and execute it - apps/backend/services/task.service.ts:164
+   - Captures agent session ID for resume capability from environment.getAgentStatus()
    - Streams events to eventService as they're generated
    - Updates iteration end time and duration on completion
    - Emits error event if agent execution fails
+
+3. **environment.runAgent**: Processes agent messages and events - apps/backend/environments/base-environment.ts:53
+   - Creates agent instance using environment's createAgent method
+   - Stores agent in environment.currentAgent for status tracking
+   - Executes agent.run generator with workspace path and iteration number
+   - Yields all events from agent execution
+   - Clears currentAgent when execution completes or fails
 
 4. **Agent Event Handling**: Reacts to agent events to update state - apps/backend/services/task.service.ts:61
    - handleResultEvent: Processes execution completion - apps/backend/services/task.service.ts:154
@@ -109,9 +109,10 @@
 ### Backend Event Emission
 
 1. **Task Status Changes**: Emitted when task or iteration status changes
-   - Emission points: apps/backend/services/task.service.ts:227,279,408,600,646,994,1030,1104
-   - Event type: `task_status`
-   - Payload includes previousStatus, new status, and optional iteration number
+   - Task-level events: Event type `task` for task creation, opening, closing
+   - Iteration-level events: Event type `taskIteration` for iteration status changes
+   - SubTypes: `created`, `active`, `completed`, `error` (replaces `failed`)
+   - Payload includes previousStatus, new status, and iteration number
    - Triggers frontend to refresh task details and lists
 
 2. **Agent Status Changes**: Track agent execution lifecycle
@@ -186,9 +187,10 @@ const shouldPoll = workspace?.agent?.state === 'running' ||
 
 ### Cache Invalidation Patterns
 Different event types trigger specific cache invalidations:
-- **Task events** (`task`, `task_status`, `iteration`): Invalidate task queries only
-- **Workspace events** (`agent`, `environment`): Invalidate workspace status only
-- **Result events** (`result`, `message`): Invalidate both task and dependent queries
+- **Task events** (`task`, `taskIteration`): Invalidate task queries only
+- **Workspace events** (`workspace`): Invalidate workspace status and related queries
+- **Agent events** (`agent`): SubType-aware invalidation - `message` only affects messages, `completed` affects task and git
+- **Environment events** (`environment`): Invalidate workspace status only
 
 This separation ensures:
 - Task lists don't refetch when only workspace status changes
@@ -229,11 +231,11 @@ This separation ensures:
 - **getWorkspaceStatus**: Returns comprehensive status object - apps/backend/services/workspace.service.ts:566
 - **cleanupWorkspace**: Tears down environment and releases resources - apps/backend/services/workspace.service.ts:483
 
-### Agent Service  
-- **executeAgent**: Main entry for agent execution requests - apps/backend/services/agent.service.ts:23
-- **processAgentExecution**: Validates state and creates agent - apps/backend/services/agent.service.ts:44
-- **runAgentExecution**: Executes agent and streams events - apps/backend/services/agent.service.ts:200
-- **stopAgent**: Interrupts running agent execution - apps/backend/services/agent.service.ts:164
+### Environment (replaces Agent Service)
+- **runAgent**: Main entry for agent execution requests - apps/backend/environments/base-environment.ts:53
+- **getAgentStatus**: Returns current agent status and session information - apps/backend/environments/base-environment.ts:67
+- **stopAgent**: Interrupts running agent execution - apps/backend/environments/base-environment.ts:86
+- **isRunning**: Checks if agent is currently executing - apps/backend/environments/base-environment.ts:135
 
 ### Workspace Class
 - **getWorkspaceStatus**: Computes full status with all sub-states - apps/backend/workspaces/workspace.ts:426
@@ -249,31 +251,39 @@ This separation ensures:
 
 ## Status Computation
 
-### Workspace Status Response Structure
+### Workspace Status Response Structure (Flattened)
 Returned by: apps/backend/workspaces/workspace.ts:426
 ```typescript
 {
-  workspace: {
-    state: 'exists' | 'missing' | 'invalid',
-    path: string,
-    changeStatus: 'no_changes' | 'merged' | 'committed_unmerged' | 'uncommitted' | 'conflicts'
-  },
-  environment: {
-    type: 'local' | 'docker',
-    status: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
-    error?: string,
-    createdAt: string
-  },
-  agent: {
-    state: 'idle' | 'running',
-    type?: string
-  },
-  gitStatus: GitStatus,
+  // Workspace info (flattened)
+  workspaceState: 'exists' | 'missing' | 'invalid',
+  workspacePath: string,
+  workspaceChangeStatus?: 'no_changes' | 'merged' | 'committed_unmerged' | 'uncommitted' | 'conflicts',
+  
+  // Environment info (flattened)
+  environmentType: 'local' | 'docker',
+  environmentStatus: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
+  environmentError?: string,
+  environmentCreatedAt: string,
+  
+  // Agent info (flattened)
+  agentState: 'idle' | 'running' | 'none',
+  agentType?: string,
+  
+  // Git status (unchanged)
+  gitStatus?: GitStatus,
+  
+  // Capabilities (unchanged)
   capabilities: {
     fileOperations: boolean,
     commandExecution: boolean,
     serverManagement: boolean
-  }
+  },
+  
+  // Computed states (added)
+  isRunning: boolean,
+  workspaceReady: boolean,
+  canExecute: boolean
 }
 ```
 

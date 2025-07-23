@@ -98,7 +98,6 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.storage,
     container.event,
     container.workspace,
-    container.agent,
     container.command,
     container.repository,
   )

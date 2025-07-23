@@ -15,7 +15,6 @@ import { RepositoryTemplate, TaskNotFoundError, ValidationError } from '@moatles
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
-import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
@@ -47,7 +46,6 @@ export class TaskService {
     private storage: StorageBackend,
     private eventService: EventService,
     private workspaceService: WorkspaceService,
-    private agentService: AgentService,
     private commandService: CommandService,
     private repositoryService: RepositoryService,
   ) {
@@ -86,6 +84,143 @@ export class TaskService {
         event.contextTokens !== undefined) ||
       event.agentSessionId !== undefined // Handle any event with agentSessionId
     )
+  }
+
+  /**
+   * Execute an agent via environment (replacement for agentService.executeAgent)
+   */
+  private async executeAgentViaEnvironment(
+    taskId: string,
+    message: string,
+    iteration: TaskIteration,
+    agentType = 'claude-code',
+    resumeSessionId?: string,
+    model?: string,
+  ): Promise<void> {
+    const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
+
+    // Get workspace and validate state
+    agentLogger.info('Getting workspace for agent execution', { taskId })
+    const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+    const status = workspace.getStatus()
+
+    if (status === 'initializing') {
+      throw new Error('Workspace is still setting up')
+    }
+
+    // Check if workspace path actually exists
+    const isWorkspaceValid = await workspace.isWorkspacePathValid()
+    if (!isWorkspaceValid) {
+      throw new Error('Workspace path is invalid - workspace needs to be recreated')
+    }
+
+    agentLogger.info('Getting environment from workspace', {
+      agentType,
+      workspaceStatus: status,
+      hasResumeSession: !!resumeSessionId,
+      model,
+    })
+
+    // Get environment from workspace
+    const environment = workspace.getEnvironment()
+
+    // Prepare message with file attachments if provided
+    let finalMessage = message
+    if (iteration.attachments && iteration.attachments.length > 0) {
+      // Get the absolute paths for the uploaded files
+      const filePaths: string[] = iteration.attachments.map((attachment) => attachment.path)
+
+      // Log each attachment
+      for (const attachment of iteration.attachments) {
+        agentLogger.info('File attachment included', {
+          filename: attachment.filename,
+          path: attachment.path,
+          mimeType: attachment.mimeType,
+        })
+      }
+
+      // Append file information to message
+      finalMessage = `${message}\n\nUploaded files:\n${filePaths.join('\n')}`
+      agentLogger.info('Message with file attachments prepared', {
+        fileCount: filePaths.length,
+        messageLength: finalMessage.length,
+      })
+    }
+
+    try {
+      // Run agent using environment's runAgent method
+      const runOptions = {
+        workspaceDir: workspace.getWorkspacePath(),
+        iterationNumber: iteration.iterationNumber,
+        resume: resumeSessionId,
+        model,
+      }
+
+      agentLogger.info('Starting agent execution with options', { ...runOptions })
+
+      // Process agent events using environment's runAgent method
+      for await (const event of environment.runAgent(agentType, finalMessage, runOptions)) {
+        // Capture session ID if it's not already set
+        const agentStatus = environment.getAgentStatus()
+        if (!iteration.agentSessionId && agentStatus.sessionId) {
+          iteration.agentSessionId = agentStatus.sessionId
+          agentLogger.debug('Captured agent session ID', { sessionId: iteration.agentSessionId })
+        }
+
+        if (event.type === 'agent' && event.subType === 'completed') {
+          const resultPayload = event.payload
+          agentLogger.info('Agent execution completed', {
+            costUsd: resultPayload.total_cost_usd,
+            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+            isError: event.isError,
+            subtype: resultPayload.subtype,
+          })
+
+          // Set basic iteration data for local tracking
+          iteration.costUsd = resultPayload.total_cost_usd ?? 0
+          iteration.endTime = new Date()
+          iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
+        }
+
+        // Emit agent events to event service with agentSessionId
+        agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
+        await this.eventService.emitEvent({
+          ...event,
+          agentSessionId: iteration.agentSessionId,
+        })
+      }
+
+      agentLogger.info('Agent execution completed successfully', {
+        iterationNumber: iteration.iterationNumber,
+        status: iteration.status,
+      })
+    } catch (error) {
+      agentLogger.error('Agent execution failed', error as Error)
+
+      // Set basic iteration data for local tracking
+      iteration.status = 'failed'
+      iteration.endTime = new Date()
+      iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
+
+      // Emit error event - task service will handle the task/iteration updates
+      await this.eventService.emitEvent({
+        taskId,
+        type: 'agent',
+        subType: 'error',
+        payload: {
+          error: error instanceof Error ? error.message : String(error),
+          stackTrace: error instanceof Error ? error.stack : undefined,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        agentType: 'claude-code',
+        isError: true,
+        iterationId: iteration.iterationNumber,
+        agentSessionId: iteration.agentSessionId,
+      })
+
+      throw error
+    }
   }
 
   /**
@@ -620,55 +755,53 @@ export class TaskService {
 
     // Execute the agent with the iteration's initial message
     if (lastIteration.initialMessage || lastIteration.commandName) {
-      const executeTask = this.agentService
-        .executeAgent(
+      const executeTask = this.executeAgentViaEnvironment(
+        taskId,
+        lastIteration.initialMessage || '',
+        lastIteration,
+        'claude-code',
+        undefined,
+        lastIteration.model,
+      ).catch(async (error) => {
+        logger.error('Failed to execute agent during task start', error as Error, {
           taskId,
-          lastIteration.initialMessage || '',
-          lastIteration,
-          'claude-code',
-          undefined,
-          lastIteration.model,
-        )
-        .catch(async (error) => {
-          logger.error('Failed to execute agent during task start', error as Error, {
-            taskId,
-            iterationNumber: lastIteration.iterationNumber,
-          })
-
-          // Update status to error on agent failure
-          try {
-            const updatedTask = await this.storage.getTask(taskId)
-            if (updatedTask) {
-              const updatedIteration = updatedTask.iterations.find(
-                (it) => it.iterationNumber === lastIteration.iterationNumber,
-              )
-              if (updatedIteration) {
-                // Only update iteration status, not task status
-                updatedIteration.status = 'failed'
-
-                await this.storage.saveTask(updatedTask)
-
-                // Emit error event
-                await this.eventService.emitEvent({
-                  eventId: randomUUID(),
-                  taskId,
-                  type: 'taskIteration',
-                  subType: 'error',
-                  isError: true,
-                  agentType: updatedTask.agentType,
-                  timestamp: new Date(),
-                  payload: {
-                    status: 'error',
-                    previousStatus: lastIteration.status,
-                    iterationNumber: lastIteration.iterationNumber,
-                  },
-                })
-              }
-            }
-          } catch (saveError) {
-            logger.error('Failed to update task status after agent error', saveError as Error)
-          }
+          iterationNumber: lastIteration.iterationNumber,
         })
+
+        // Update status to error on agent failure
+        try {
+          const updatedTask = await this.storage.getTask(taskId)
+          if (updatedTask) {
+            const updatedIteration = updatedTask.iterations.find(
+              (it) => it.iterationNumber === lastIteration.iterationNumber,
+            )
+            if (updatedIteration) {
+              // Only update iteration status, not task status
+              updatedIteration.status = 'failed'
+
+              await this.storage.saveTask(updatedTask)
+
+              // Emit error event
+              await this.eventService.emitEvent({
+                eventId: randomUUID(),
+                taskId,
+                type: 'taskIteration',
+                subType: 'error',
+                isError: true,
+                agentType: updatedTask.agentType,
+                timestamp: new Date(),
+                payload: {
+                  status: 'error',
+                  previousStatus: lastIteration.status,
+                  iterationNumber: lastIteration.iterationNumber,
+                },
+              })
+            }
+          }
+        } catch (saveError) {
+          logger.error('Failed to update task status after agent error', saveError as Error)
+        }
+      })
 
       // Track the background agent execution
       this.workspaceService.trackBackgroundTask(taskId, executeTask)
@@ -775,10 +908,21 @@ export class TaskService {
     if (task && task.iterations.length > 0) {
       const lastIteration = task.iterations[task.iterations.length - 1]
       if (lastIteration.status === 'active') {
-        const isAgentRunning = await this.agentService.getTaskRunningStatus(taskId)
+        try {
+          const workspace = await this.workspaceService.getWorkspace(taskId)
+          if (workspace) {
+            const environment = workspace.getEnvironment()
+            const agentStatus = environment.getAgentStatus()
+            const isAgentRunning = agentStatus.state === 'running'
 
-        // If agent is not running, update iteration status to failed
-        if (!isAgentRunning) {
+            // If agent is not running, update iteration status to failed
+            if (!isAgentRunning) {
+              lastIteration.status = 'failed'
+              await this.storage.saveTask(task)
+            }
+          }
+        } catch (error) {
+          // If we can't get workspace/environment, assume agent is not running
           lastIteration.status = 'failed'
           await this.storage.saveTask(task)
         }
@@ -1017,41 +1161,46 @@ export class TaskService {
       ? `Previous result:\n${prependedResult}\n\n${message}`
       : message
 
-    // Execute agent through AgentService in background
-    const backgroundTask = this.agentService
-      .executeAgent(taskId, finalMessage, iteration, 'claude-code', resumeSessionId, model)
-      .catch(async (error) => {
-        logger.error('Background agent execution failed', error as Error, { taskId })
+    // Execute agent through environment in background
+    const backgroundTask = this.executeAgentViaEnvironment(
+      taskId,
+      finalMessage,
+      iteration,
+      'claude-code',
+      resumeSessionId,
+      model,
+    ).catch(async (error) => {
+      logger.error('Background agent execution failed', error as Error, { taskId })
 
-        // Update status to error on agent failure
-        try {
-          // Only update iteration status, not task status
-          iteration.status = 'failed'
-          // Ensure we never set null for error messages
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          iteration.result = errorMessage || 'Unknown error occurred'
+      // Update status to error on agent failure
+      try {
+        // Only update iteration status, not task status
+        iteration.status = 'failed'
+        // Ensure we never set null for error messages
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        iteration.result = errorMessage || 'Unknown error occurred'
 
-          await this.storage.saveTask(metadata)
+        await this.storage.saveTask(metadata)
 
-          // Emit error event
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            taskId,
-            type: 'taskIteration',
-            subType: 'error',
-            isError: true,
-            agentType: metadata.agentType,
-            timestamp: new Date(),
-            payload: {
-              status: 'error',
-              previousStatus: 'active',
-              iterationNumber: iteration.iterationNumber,
-            },
-          })
-        } catch (saveError) {
-          logger.error('Failed to update task status after agent error', saveError as Error)
-        }
-      })
+        // Emit error event
+        await this.eventService.emitEvent({
+          eventId: randomUUID(),
+          taskId,
+          type: 'taskIteration',
+          subType: 'error',
+          isError: true,
+          agentType: metadata.agentType,
+          timestamp: new Date(),
+          payload: {
+            status: 'error',
+            previousStatus: 'active',
+            iterationNumber: iteration.iterationNumber,
+          },
+        })
+      } catch (saveError) {
+        logger.error('Failed to update task status after agent error', saveError as Error)
+      }
+    })
 
     // Track the background task in WorkspaceService for status reporting
     this.workspaceService.trackBackgroundTask(taskId, backgroundTask)
@@ -1084,7 +1233,18 @@ export class TaskService {
     logger.debug('Closing task', { taskId })
 
     // Stop any running agent
-    await this.agentService.stopAgent(taskId)
+    try {
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (workspace) {
+        const environment = workspace.getEnvironment()
+        await environment.stopAgent()
+      }
+    } catch (error) {
+      // Log error but continue with cleanup
+      logger.warn('Failed to stop agent during task close', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
 
     // Stop preview server if running
     try {
@@ -1188,16 +1348,8 @@ export function createTaskService(
   storage: StorageBackend,
   eventService: EventService,
   workspaceService: WorkspaceService,
-  agentService: AgentService,
   commandService: CommandService,
   repositoryService: RepositoryService,
 ): TaskService {
-  return new TaskService(
-    storage,
-    eventService,
-    workspaceService,
-    agentService,
-    commandService,
-    repositoryService,
-  )
+  return new TaskService(storage, eventService, workspaceService, commandService, repositoryService)
 }

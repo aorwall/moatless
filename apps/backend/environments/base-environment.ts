@@ -4,6 +4,8 @@ import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 
 export abstract class BaseEnvironment {
+  protected currentAgent?: BaseAgent
+
   constructor(
     protected readonly taskId: string,
     protected readonly repositoryConfig: RepositoryConfig,
@@ -43,6 +45,40 @@ export abstract class BaseEnvironment {
    * Create an agent instance for execution
    */
   abstract createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent>
+
+  /**
+   * Run an agent with the given message and options
+   * This replaces the separate createAgent + execute pattern
+   */
+  abstract runAgent(
+    agentType: string,
+    message: string,
+    options?: {
+      workspaceDir?: string
+      iterationNumber?: number
+      resume?: string
+      model?: string
+    },
+  ): AsyncGenerator<any>
+
+  /**
+   * Get the current agent status
+   */
+  getAgentStatus(): {
+    agentType?: string
+    state: 'idle' | 'running' | 'none'
+    sessionId?: string
+  } {
+    if (!this.currentAgent) {
+      return { state: 'none' }
+    }
+
+    return {
+      agentType: this.currentAgent.getAgentType(),
+      state: 'running', // If we have a current agent, it's running
+      sessionId: this.currentAgent.getSessionId(),
+    }
+  }
 
   /**
    * Stop the running agent for this workspace
@@ -96,7 +132,9 @@ export abstract class BaseEnvironment {
   /**
    * Check if an agent is currently running in this workspace
    */
-  abstract isRunning(): boolean
+  isRunning(): boolean {
+    return !!this.currentAgent
+  }
 
   /**
    * Set up the environment (starts the environment, then run setup commands)

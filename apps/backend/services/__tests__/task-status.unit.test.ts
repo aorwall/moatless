@@ -62,7 +62,6 @@ describe('Task Status Management', () => {
       mockStorage,
       mockEventService,
       mockWorkspaceService,
-      mockAgentService,
       mockCommandService,
       mockRepositoryService,
     )
