@@ -1,8 +1,7 @@
 import type { UpdateGeneralSettingsRequest } from '@moatless/types'
-import { FolderOpen, Loader2, RotateCcw, Save } from 'lucide-react'
+import { FolderOpen, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { toast } from 'sonner'
-import { useGeneralSettings, useUpdateGeneralSettings } from '@/features/settings'
+import { useGeneralSettings } from '@/features/settings'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -12,7 +11,6 @@ import {
 } from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
-import { getErrorMessage } from '@/lib/utils/error'
 
 export function GeneralConfigurationSection() {
   const {
@@ -119,48 +117,6 @@ export function GeneralConfigurationSection() {
           />
         </ConfigurationItem>
       </ConfigurationGroup>
-
-      {/* Actions */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between pt-4">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            // Reset to defaults by clearing modifications
-            setGeneralUserModifications({})
-            toast.success('Settings reset to defaults')
-          }}
-          disabled={false}
-        >
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Reset to Defaults
-        </Button>
-        <Button
-          onClick={() => {
-            updateGeneralSettings.mutate(generalFormData, {
-              onSuccess: () => {
-                setGeneralUserModifications({})
-                toast.success('Settings saved successfully')
-              },
-              onError: (error) => {
-                toast.error('Failed to save settings', {
-                  description: getErrorMessage(error),
-                })
-              },
-            })
-          }}
-          disabled={updateGeneralSettings.isPending}
-          size="sm"
-        >
-          {updateGeneralSettings.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-2 h-4 w-4" />
-          )}
-          Save Settings
-        </Button>
-      </div>
     </ConfigurationSectionWrapper>
   )
 }

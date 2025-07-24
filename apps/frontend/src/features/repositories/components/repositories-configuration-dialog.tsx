@@ -29,8 +29,8 @@ export function RepositoriesConfigurationDialog({
     }
   }, [repositories, activeSection, initialRepositoryId, showNewRepository])
 
-  // Filter and map repositories to sections
-  const sections = useMemo(() => {
+  // Create stable sections metadata - only recreate when actual section data changes
+  const stableSections = useMemo(() => {
     const filtered = searchQuery
       ? repositories.filter(
           (repo) =>
@@ -43,7 +43,9 @@ export function RepositoriesConfigurationDialog({
       id: repo.id,
       label: repo.name,
       icon: <FolderGit2 className="h-4 w-4" />,
-      component: <RepositoryAllConfigSection repositoryId={repo.id} />,
+      // Store only metadata, not component instances
+      componentType: 'repository' as const,
+      repositoryId: repo.id,
     }))
 
     // Add "new repository" section if active
@@ -53,31 +55,53 @@ export function RepositoriesConfigurationDialog({
           id: 'new',
           label: 'New Repository',
           icon: <Plus className="h-4 w-4" />,
-          component: (
-            <RepositoryNewSection
-              onCancel={() => {
-                setShowNewRepository(false)
-                // Switch to first repository or empty state
-                if (repositories.length > 0) {
-                  setActiveSection(repositories[0].id)
-                }
-              }}
-              onSuccess={async (repositoryId) => {
-                setShowNewRepository(false)
-                // Refresh repositories list
-                await refetch()
-                // Switch to the newly created repository
-                setActiveSection(repositoryId)
-              }}
-            />
-          ),
+          componentType: 'new' as const,
         },
         ...repoSections,
       ]
     }
 
     return repoSections
-  }, [repositories, searchQuery, showNewRepository, refetch])
+  }, [repositories, searchQuery, showNewRepository])
+
+  // Create stable component rendering with proper memoization
+  const activeComponent = useMemo(() => {
+    const currentSection = stableSections.find((s) => s.id === activeSection)
+    if (!currentSection) return null
+
+    if (currentSection.componentType === 'new') {
+      return (
+        <RepositoryNewSection
+          key="new-repository" // Stable key
+          onCancel={() => {
+            setShowNewRepository(false)
+            // Switch to first repository or empty state
+            if (repositories.length > 0) {
+              setActiveSection(repositories[0].id)
+            }
+          }}
+          onSuccess={async (repositoryId) => {
+            setShowNewRepository(false)
+            // Refresh repositories list
+            await refetch()
+            // Switch to the newly created repository
+            setActiveSection(repositoryId)
+          }}
+        />
+      )
+    }
+
+    if (currentSection.componentType === 'repository' && currentSection.repositoryId) {
+      return (
+        <RepositoryAllConfigSection
+          key={currentSection.repositoryId} // Stable key based on repository ID
+          repositoryId={currentSection.repositoryId}
+        />
+      )
+    }
+
+    return null
+  }, [stableSections, activeSection, repositories, refetch])
 
   const handleAddRepository = () => {
     setShowNewRepository(true)
@@ -103,7 +127,12 @@ export function RepositoriesConfigurationDialog({
       onOpenChange={onOpenChange}
       title="Repositories"
       description="Configure your repositories"
-      sections={sections}
+      sections={stableSections.map((section) => ({
+        id: section.id,
+        label: section.label,
+        icon: section.icon,
+        component: section.id === activeSection ? activeComponent : null,
+      }))}
       activeSection={activeSection}
       onSectionChange={setActiveSection}
       searchable

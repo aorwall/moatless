@@ -1,5 +1,5 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
-import { ChevronDown, Play, Wand2 } from 'lucide-react'
+import { ChevronDown, Loader2, Play, Save, Wand2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useDetectFramework } from '@/features/repositories/hooks/use-detect-framework'
@@ -24,7 +24,6 @@ import {
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible'
 import { Input } from '@/lib/components/ui/input'
-import { debounce } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface RepositoryAllConfigSectionProps {
@@ -70,12 +69,24 @@ function EnvironmentVariablesList({ variables, onChange }: EnvironmentVariablesL
           placeholder="Key"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newKey && newValue) {
+              e.preventDefault()
+              handleAdd()
+            }
+          }}
           className="flex-1"
         />
         <Input
           placeholder="Value"
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newKey && newValue) {
+              e.preventDefault()
+              handleAdd()
+            }
+          }}
           className="flex-1"
         />
         <Button
@@ -129,24 +140,45 @@ function ConfigurationSkeleton() {
 
 export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfigSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
-  const updateRepository = useUpdateRepository()
   const detectFramework = useDetectFramework(repositoryId)
   const runSetupScript = useRunSetupScript()
+  const updateRepository = useUpdateRepository()
 
-  // Debounced update handler
-  const debouncedUpdate = useMemo(
-    () =>
-      debounce((updates: UpdateRepositoryRequest) => {
-        updateRepository.mutate(
-          { repoId: repositoryId, request: updates },
-          {
-            onSuccess: () => toast.success('Repository updated'),
-            onError: (error) => toast.error(getErrorMessage(error)),
-          },
-        )
-      }, 500),
-    [repositoryId, updateRepository],
+  // Derive base form data from repository - following derived state pattern
+  const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(
+    () => ({
+      name: repository?.name || '',
+      description: repository?.description || '',
+      path: repository?.path || '',
+      useGitWorktrees: repository?.useGitWorktrees || false,
+      codeExecution: repository?.codeExecution || { type: 'local' },
+      previewConfig: repository?.previewConfig || {},
+    }),
+    [repository],
   )
+
+  // Track user modifications locally
+  const [userModifications, setUserModifications] = useState<Partial<UpdateRepositoryRequest>>({})
+
+  // Merge derived data with user modifications
+  const formData = useMemo(
+    () => ({
+      ...baseFormData,
+      ...userModifications,
+    }),
+    [baseFormData, userModifications],
+  )
+
+  // Update a specific field
+  const updateField = <K extends keyof UpdateRepositoryRequest>(
+    field: K,
+    value: UpdateRepositoryRequest[K],
+  ) => {
+    setUserModifications({
+      ...userModifications,
+      [field]: value,
+    })
+  }
 
   const handleValidateExecution = () => {
     runSetupScript.mutate(repositoryId, {
@@ -155,12 +187,38 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
     })
   }
 
+  const handleSave = () => {
+    if (Object.keys(userModifications).length === 0) return
+
+    updateRepository.mutate(
+      { repoId: repositoryId, request: userModifications },
+      {
+        onSuccess: () => {
+          setUserModifications({})
+          toast.success('Repository updated successfully')
+        },
+        onError: (error) => {
+          toast.error('Failed to update repository', {
+            description: getErrorMessage(error),
+          })
+        },
+      },
+    )
+  }
+
+  const handleDiscard = () => {
+    setUserModifications({})
+    toast.success('Changes discarded')
+  }
+
+  const hasChanges = Object.keys(userModifications).length > 0
+
   const handleDetectFramework = async () => {
     try {
       const detected = await detectFramework.mutateAsync()
       if (detected) {
-        debouncedUpdate({ previewConfig: detected })
-        toast.success('Framework detected and updated')
+        updateField('previewConfig', detected)
+        toast.success('Framework detected and will be saved')
       }
     } catch (error) {
       toast.error(getErrorMessage(error))
@@ -183,8 +241,8 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
       <ConfigurationGroup title="General Settings">
         <ConfigurationItem label="Repository Name" description="Display name for your repository">
           <ConfigurationInput
-            value={repository.name}
-            onChange={(e) => debouncedUpdate({ name: e.target.value })}
+            value={formData.name || ''}
+            onChange={(e) => updateField('name', e.target.value)}
           />
         </ConfigurationItem>
 
@@ -193,16 +251,16 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           description="Optional description of this repository"
         >
           <ConfigurationTextarea
-            value={repository.description || ''}
-            onChange={(e) => debouncedUpdate({ description: e.target.value })}
+            value={formData.description || ''}
+            onChange={(e) => updateField('description', e.target.value)}
             rows={3}
           />
         </ConfigurationItem>
 
         <ConfigurationItem label="Repository Path" description="Local path to your repository">
           <ConfigurationInput
-            value={repository.path}
-            onChange={(e) => debouncedUpdate({ path: e.target.value })}
+            value={formData.path || ''}
+            onChange={(e) => updateField('path', e.target.value)}
           />
         </ConfigurationItem>
 
@@ -211,8 +269,8 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           description="Use git worktrees for isolated environments"
         >
           <ConfigurationSwitch
-            checked={repository.useGitWorktrees || false}
-            onCheckedChange={(checked) => debouncedUpdate({ useGitWorktrees: checked })}
+            checked={formData.useGitWorktrees || false}
+            onCheckedChange={(checked) => updateField('useGitWorktrees', checked)}
           />
         </ConfigurationItem>
       </ConfigurationGroup>
@@ -224,10 +282,11 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           description="Choose how to run code in this repository"
         >
           <ConfigurationSelect
-            value={repository.codeExecution?.type || 'local'}
+            value={formData.codeExecution?.type || 'local'}
             onValueChange={(value) =>
-              debouncedUpdate({
-                codeExecution: { ...repository.codeExecution, type: value as 'local' | 'docker' },
+              updateField('codeExecution', {
+                ...formData.codeExecution,
+                type: value as 'local' | 'docker',
               })
             }
             options={[
@@ -237,19 +296,18 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           />
         </ConfigurationItem>
 
-        {repository.codeExecution?.type === 'docker' && (
+        {formData.codeExecution?.type === 'docker' && (
           <ConfigurationItem
             label="Docker Image"
             description="Docker image to use for code execution"
           >
             <ConfigurationInput
-              value={repository.codeExecution.dockerImage || ''}
+              value={formData.codeExecution.dockerImage || ''}
               onChange={(e) =>
-                debouncedUpdate({
-                  codeExecution: {
-                    ...repository.codeExecution,
-                    dockerImage: e.target.value,
-                  },
+                updateField('codeExecution', {
+                  type: formData.codeExecution?.type || 'local',
+                  ...formData.codeExecution,
+                  dockerImage: e.target.value,
                 })
               }
               placeholder="e.g., node:20-alpine"
@@ -263,13 +321,12 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
         >
           <div className="space-y-2">
             <ConfigurationTextarea
-              value={repository.codeExecution?.setupCommands?.join('\n') || ''}
+              value={formData.codeExecution?.setupCommands?.join('\n') || ''}
               onChange={(e) =>
-                debouncedUpdate({
-                  codeExecution: {
-                    ...repository.codeExecution,
-                    setupCommands: e.target.value.split('\n').filter(Boolean),
-                  },
+                updateField('codeExecution', {
+                  type: formData.codeExecution?.type || 'local',
+                  ...formData.codeExecution,
+                  setupCommands: e.target.value.split('\n').filter(Boolean),
                 })
               }
               placeholder="npm install&#10;npm run build"
@@ -292,13 +349,12 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           description="Variables available during code execution"
         >
           <EnvironmentVariablesList
-            variables={repository.codeExecution?.envVars || {}}
+            variables={formData.codeExecution?.envVars || {}}
             onChange={(vars) =>
-              debouncedUpdate({
-                codeExecution: {
-                  ...repository.codeExecution,
-                  envVars: vars,
-                },
+              updateField('codeExecution', {
+                type: formData.codeExecution?.type || 'local',
+                ...formData.codeExecution,
+                envVars: vars,
               })
             }
           />
@@ -310,13 +366,11 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
         <ConfigurationItem label="Framework" description="Web framework used in this repository">
           <div className="flex gap-2">
             <ConfigurationSelect
-              value={repository.previewConfig?.framework || 'unknown'}
+              value={formData.previewConfig?.framework || 'unknown'}
               onValueChange={(value) =>
-                debouncedUpdate({
-                  previewConfig: {
-                    ...repository.previewConfig,
-                    framework: value as 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown',
-                  },
+                updateField('previewConfig', {
+                  ...formData.previewConfig,
+                  framework: value as 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown',
                 })
               }
               options={[
@@ -344,13 +398,11 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           description="Version of the framework (optional)"
         >
           <ConfigurationInput
-            value={repository.previewConfig?.frameworkVersion || ''}
+            value={formData.previewConfig?.frameworkVersion || ''}
             onChange={(e) =>
-              debouncedUpdate({
-                previewConfig: {
-                  ...repository.previewConfig,
-                  frameworkVersion: e.target.value,
-                },
+              updateField('previewConfig', {
+                ...formData.previewConfig,
+                frameworkVersion: e.target.value,
               })
             }
             placeholder="e.g., 14.0.0"
@@ -359,13 +411,11 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
 
         <ConfigurationItem label="Start Command" description="Command to start the preview server">
           <ConfigurationInput
-            value={repository.previewConfig?.serverStartCommand || ''}
+            value={formData.previewConfig?.serverStartCommand || ''}
             onChange={(e) =>
-              debouncedUpdate({
-                previewConfig: {
-                  ...repository.previewConfig,
-                  serverStartCommand: e.target.value,
-                },
+              updateField('previewConfig', {
+                ...formData.previewConfig,
+                serverStartCommand: e.target.value,
               })
             }
             placeholder="e.g., npm run dev"
@@ -374,15 +424,13 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
 
         <ConfigurationItem label="Script Injection" description="How to inject the preview script">
           <ConfigurationSelect
-            value={repository.previewConfig?.injectionStrategy?.method || 'html-injection'}
+            value={formData.previewConfig?.injectionStrategy?.method || 'html-injection'}
             onValueChange={(value) =>
-              debouncedUpdate({
-                previewConfig: {
-                  ...repository.previewConfig,
-                  injectionStrategy: {
-                    method: value as 'html-injection' | 'middleware',
-                    config: {},
-                  },
+              updateField('previewConfig', {
+                ...formData.previewConfig,
+                injectionStrategy: {
+                  method: value as 'html-injection' | 'middleware',
+                  config: {},
                 },
               })
             }
@@ -393,21 +441,18 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           />
         </ConfigurationItem>
 
-        {repository.previewConfig?.injectionStrategy?.method === 'html-injection' && (
+        {formData.previewConfig?.injectionStrategy?.method === 'html-injection' && (
           <ConfigurationItem label="HTML File Path" description="Path to the main HTML file">
             <ConfigurationInput
-              value={repository.previewConfig?.injectionStrategy?.config?.htmlFilePath || ''}
+              value={formData.previewConfig?.injectionStrategy?.config?.htmlFilePath || ''}
               onChange={(e) =>
-                debouncedUpdate({
-                  previewConfig: {
-                    ...repository.previewConfig,
-                    injectionStrategy: {
-                      method:
-                        repository.previewConfig?.injectionStrategy?.method || 'html-injection',
-                      config: {
-                        ...repository.previewConfig?.injectionStrategy?.config,
-                        htmlFilePath: e.target.value,
-                      },
+                updateField('previewConfig', {
+                  ...formData.previewConfig,
+                  injectionStrategy: {
+                    method: formData.previewConfig?.injectionStrategy?.method || 'html-injection',
+                    config: {
+                      ...formData.previewConfig?.injectionStrategy?.config,
+                      htmlFilePath: e.target.value,
                     },
                   },
                 })
@@ -433,6 +478,30 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           </div>
         </CollapsibleHelpSection>
       </ConfigurationGroup>
+
+      {/* Save/Discard buttons at section level */}
+      <div className="flex justify-end gap-3 pt-6 border-t">
+        <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
+          Discard Changes
+        </Button>
+        <Button
+          type="button"
+          onClick={handleSave}
+          disabled={!hasChanges || updateRepository.isPending}
+        >
+          {updateRepository.isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              Save Changes
+            </>
+          )}
+        </Button>
+      </div>
     </ConfigurationSection>
   )
 }

@@ -64,13 +64,13 @@ function SettingsDialog() {
       id: 'general',
       label: 'General',
       icon: <Settings className="h-4 w-4" />,
-      component: <GeneralSettingsSection />,
+      component: <GeneralSettingsSection />, // Self-contained with own save/discard
     },
     {
       id: 'claude-code',
       label: 'Claude Code',
       icon: <Code className="h-4 w-4" />,
-      component: <ClaudeCodeSettingsSection />,
+      component: <ClaudeCodeSettingsSection />, // Self-contained with own save/discard
     },
   ]
 
@@ -83,9 +83,346 @@ function SettingsDialog() {
       sections={sections}
       activeSection={activeSection}
       onSectionChange={setActiveSection}
+      // No footer props needed - each section handles its own save/discard
     />
   )
 }
+```
+
+## ⚠️ Critical Implementation Patterns
+
+### Stable Component Pattern (Prevents Re-render Issues)
+
+**Problem**: Component recreation causing focus loss and form submission issues.
+
+When implementing dynamic sections (search/filter), avoid creating component instances in render loops. This causes React to unmount/remount components, leading to:
+- Input fields losing focus while typing
+- Form submission triggered on Enter key
+- Component state being reset
+- Performance degradation
+
+**❌ Bad: Component recreation causes focus loss**
+```typescript
+const sections = useMemo(() => {
+  const filtered = repositories.filter(repo => 
+    repo.name.includes(searchQuery)
+  )
+  
+  return filtered.map(repo => ({
+    id: repo.id,
+    label: repo.name,
+    // This creates new component instances on every search!
+    component: <RepositorySection repositoryId={repo.id} />
+  }))
+}, [repositories, searchQuery]) // searchQuery change = components recreated
+
+// This also recreates components on every render
+<ResponsiveConfigurationDialog
+  sections={sections.map(section => ({
+    ...section,
+    component: section.id === activeSection ? renderActiveComponent() : null
+  }))}
+/>
+```
+
+**✅ Good: Stable Component Pattern**
+```typescript
+// 1. Create stable section metadata only
+const stableSections = useMemo(() => {
+  const filtered = repositories.filter(repo => 
+    repo.name.includes(searchQuery)
+  )
+  
+  return filtered.map(repo => ({
+    id: repo.id,
+    label: repo.name,
+    icon: <FolderGit2 className="h-4 w-4" />,
+    // Store metadata, not component instances
+    componentType: 'repository' as const,
+    repositoryId: repo.id,
+  }))
+}, [repositories, searchQuery])
+
+// 2. Create stable component with proper memoization and keys
+const activeComponent = useMemo(() => {
+  const currentSection = stableSections.find(s => s.id === activeSection)
+  if (!currentSection) return null
+  
+  if (currentSection.componentType === 'repository' && currentSection.repositoryId) {
+    return (
+      <RepositorySection
+        key={currentSection.repositoryId} // Stable key prevents recreation
+        repositoryId={currentSection.repositoryId}
+        // Pass state management props for lifting state
+        userModifications={currentRepositoryModifications}
+        onUserModificationsChange={handleUserModificationsChange}
+      />
+    )
+  }
+  // Handle other component types...
+  return null
+}, [
+  stableSections,
+  activeSection,
+  currentRepositoryModifications,
+  handleUserModificationsChange,
+  // Only include dependencies that actually matter
+])
+
+// 3. Pass stable references to dialog
+<ResponsiveConfigurationDialog
+  sections={stableSections.map(section => ({
+    id: section.id,
+    label: section.label,
+    icon: section.icon,
+    component: section.id === activeSection ? activeComponent : null,
+  }))}
+  // ... other props
+/>
+```
+
+**Key Principles:**
+1. **Separate Data from Components**: Store component metadata, not instances
+2. **Stable Keys**: Use stable, meaningful keys (like IDs) for React reconciliation
+3. **Proper Memoization**: Use `useMemo` with correct dependency arrays
+4. **Avoid Function Calls in Render**: Don't call component-creating functions during render
+
+### Form Submission Prevention Pattern
+
+**Problem**: Enter key in input fields triggers unwanted form submission.
+
+Configuration dialogs can have implicit form contexts that cause Enter key events to bubble up and trigger form submission, disrupting the user experience.
+
+**✅ Solution: Comprehensive Form Prevention**
+
+#### 1. Button Type Safety
+```typescript
+// ❌ Bad: Buttons without explicit type can submit forms
+<Button onClick={onSave} disabled={!hasChanges}>Save</Button>
+
+// ✅ Good: Explicit button type prevents form submission
+<Button type="button" onClick={onSave} disabled={!hasChanges}>Save</Button>
+```
+
+#### 2. Input Field Protection
+```typescript
+// ConfigurationInput component with form prevention
+export interface ConfigurationInputProps extends InputHTMLAttributes<HTMLInputElement> {
+  allowFormSubmit?: boolean
+}
+
+export function ConfigurationInput({ 
+  allowFormSubmit = false, 
+  onKeyDown, 
+  ...props 
+}: ConfigurationInputProps) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // Prevent form submission on Enter unless explicitly allowed
+    if (e.key === 'Enter' && !allowFormSubmit) {
+      e.preventDefault()
+    }
+    
+    // Call original onKeyDown if provided
+    onKeyDown?.(e)
+  }
+
+  return <Input onKeyDown={handleKeyDown} {...props} />
+}
+```
+
+#### 3. Textarea Field Protection
+```typescript
+export function ConfigurationTextarea({ 
+  allowFormSubmit = false, 
+  onKeyDown, 
+  ...props 
+}: ConfigurationTextareaProps) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // For textareas, prevent Ctrl+Enter form submission
+    // (regular Enter should still work for new lines)
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !allowFormSubmit) {
+      e.preventDefault()
+    }
+    
+    onKeyDown?.(e)
+  }
+
+  return <Textarea onKeyDown={handleKeyDown} {...props} />
+}
+```
+
+#### 4. Dialog Footer Button Safety
+```typescript
+// Both desktop and mobile dialogs need explicit button types
+<div className="flex justify-between gap-3">
+  <Button
+    type="button" // Prevents form submission
+    variant="outline"
+    onClick={onDiscard}
+    disabled={!hasChanges || isSaving}
+  >
+    {discardButtonText}
+  </Button>
+  <Button
+    type="button" // Prevents form submission
+    onClick={onSave}
+    disabled={!hasChanges || isSaving}
+  >
+    {saveButtonText}
+  </Button>
+</div>
+```
+
+### Self-Contained Section Pattern (Recommended)
+
+**Problem**: Complex state lifting between dialog and sections causes issues with component recreation and state management.
+
+**✅ Solution: Self-Contained Sections with Local Save/Discard**
+
+Each configuration section manages its own state and provides its own save/discard buttons. This eliminates complex state lifting and makes each section independent.
+
+#### Section Implementation
+```typescript
+export function RepositoryConfigSection({ repositoryId }: { repositoryId: string }) {
+  const { data: repository } = useRepository(repositoryId)
+  const updateRepository = useUpdateRepository()
+  
+  // Derive base form data from server state
+  const baseFormData = useMemo(() => ({
+    name: repository?.name || '',
+    description: repository?.description || '',
+    // ... other fields
+  }), [repository])
+  
+  // Track user modifications locally
+  const [userModifications, setUserModifications] = useState<Partial<UpdateRepositoryRequest>>({})
+  
+  // Merge server data with user modifications
+  const formData = useMemo(() => ({
+    ...baseFormData,
+    ...userModifications,
+  }), [baseFormData, userModifications])
+  
+  // Check for unsaved changes
+  const hasChanges = Object.keys(userModifications).length > 0
+  
+  // Update specific field
+  const updateField = (field: string, value: any) => {
+    setUserModifications({
+      ...userModifications,
+      [field]: value,
+    })
+  }
+  
+  // Handle save
+  const handleSave = () => {
+    if (!hasChanges) return
+    
+    updateRepository.mutate(
+      { repoId: repositoryId, request: userModifications },
+      {
+        onSuccess: () => {
+          setUserModifications({})
+          toast.success('Repository updated successfully')
+        },
+        onError: (error) => {
+          toast.error('Failed to update repository', {
+            description: getErrorMessage(error),
+          })
+        }
+      }
+    )
+  }
+  
+  return (
+    <ConfigurationSection>
+      <ConfigurationInput
+        value={formData.name || ''}
+        onChange={(e) => updateField('name', e.target.value)}
+      />
+      {/* More form fields */}
+      
+      {/* Save/Discard buttons at section level */}
+      <div className="flex justify-end gap-3 pt-6 border-t">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setUserModifications({})}
+          disabled={!hasChanges}
+        >
+          Discard Changes
+        </Button>
+        <Button
+          type="button"
+          onClick={handleSave}
+          disabled={!hasChanges || updateRepository.isPending}
+        >
+          {updateRepository.isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              Save Changes
+            </>
+          )}
+        </Button>
+      </div>
+    </ConfigurationSection>
+  )
+}
+```
+
+**Key Benefits:**
+- **Simpler Implementation**: No complex state lifting or synchronization
+- **Better Isolation**: Each section is completely independent
+- **Easier Testing**: Test sections in isolation without dialog context
+- **No State Tracking Issues**: Eliminates activeSection tracking problems
+- **Clear User Intent**: Save button is right next to the fields being edited
+
+### ⚠️ Never Use Form Elements in Configuration Dialogs
+
+**Problem**: `<form>` elements can cause unwanted form submission behavior when Enter is pressed.
+
+**❌ Bad: Form element causes submission issues**
+```typescript
+// This will submit the form when Enter is pressed in inputs
+<form onSubmit={(e) => { e.preventDefault(); handleAdd() }}>
+  <Input value={key} onChange={(e) => setKey(e.target.value)} />
+  <Input value={value} onChange={(e) => setValue(e.target.value)} />
+  <Button type="submit">Add</Button>
+</form>
+```
+
+**✅ Good: Use div with explicit button handlers**
+```typescript
+<div className="flex items-center gap-2">
+  <Input
+    value={key}
+    onChange={(e) => setKey(e.target.value)}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter' && key && value) {
+        e.preventDefault()
+        handleAdd()
+      }
+    }}
+  />
+  <Input
+    value={value}
+    onChange={(e) => setValue(e.target.value)}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter' && key && value) {
+        e.preventDefault()
+        handleAdd()
+      }
+    }}
+  />
+  <Button type="button" onClick={handleAdd} disabled={!(key && value)}>
+    Add
+  </Button>
+</div>
 ```
 
 ### Repository Configuration Example
@@ -290,6 +627,83 @@ Following the derived state pattern:
 - Direct event handlers for updates
 - Calculate derived values during render
 - Use React Query for server state
+
+### Configuration Section with Derived State Pattern
+
+When building configuration sections that need to track changes and provide save functionality:
+
+```typescript
+export function ConfigurationSection({ id }: { id: string }) {
+  const { data: serverData } = useServerData(id)
+  const updateMutation = useUpdateData()
+
+  // Derive base form data from server data
+  const baseFormData = useMemo(() => ({
+    name: serverData?.name || '',
+    description: serverData?.description || '',
+    // ... other fields
+  }), [serverData])
+
+  // Track user modifications separately
+  const [userModifications, setUserModifications] = useState<Partial<FormData>>({})
+
+  // Merge server data with user changes
+  const formData = useMemo(
+    () => ({ ...baseFormData, ...userModifications }),
+    [baseFormData, userModifications]
+  )
+
+  // Check for unsaved changes
+  const hasChanges = Object.keys(userModifications).length > 0
+
+  // Update specific field
+  const updateField = (field: string, value: any) => {
+    setUserModifications(prev => ({ ...prev, [field]: value }))
+  }
+
+  // Save changes
+  const handleSave = () => {
+    updateMutation.mutate(userModifications, {
+      onSuccess: () => {
+        setUserModifications({})
+        toast.success('Changes saved')
+      }
+    })
+  }
+
+  return (
+    <ConfigurationSection>
+      <ConfigurationInput
+        value={formData.name}
+        onChange={(e) => updateField('name', e.target.value)}
+      />
+      {/* More fields */}
+      
+      <div className="flex justify-end gap-3 pt-6">
+        <Button
+          variant="outline"
+          onClick={() => setUserModifications({})}
+          disabled={!hasChanges}
+        >
+          Discard Changes
+        </Button>
+        <Button
+          onClick={handleSave}
+          disabled={!hasChanges || updateMutation.isPending}
+        >
+          Save Changes
+        </Button>
+      </div>
+    </ConfigurationSection>
+  )
+}
+```
+
+This pattern provides:
+- No auto-save behavior that can disrupt user experience
+- Clear indication of unsaved changes
+- Explicit save/discard actions
+- Better performance (no debounced API calls on every keystroke)
 
 ## Styling and Theming
 
