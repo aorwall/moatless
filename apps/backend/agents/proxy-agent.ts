@@ -54,7 +54,7 @@ export class ProxyAgent extends BaseAgentClass {
         throw new Error(`Failed to execute agent in worker: ${error}`)
       }
 
-      const result = await response.json()
+      const result = (await response.json()) as { status: string }
       this.logger.info('Agent execution started', { status: result.status })
 
       yield* []

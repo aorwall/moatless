@@ -690,8 +690,13 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const services = c.get('services')
       const taskId = getTaskId(c)
 
-      // Stop agent through AgentService
-      const stopped = await services.agent.stopAgent(taskId)
+      // Stop agent through workspace environment
+      const workspace = await services.workspace.getWorkspace(taskId)
+      let stopped = false
+
+      if (workspace) {
+        stopped = await workspace.stopAgent()
+      }
 
       return c.json({
         status: stopped ? 'stopped' : 'not_running',

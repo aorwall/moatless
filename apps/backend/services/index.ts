@@ -15,7 +15,6 @@ export interface Services {
   command: CommandService
   workspace: WorkspaceService
   previewEnvironment: PreviewEnvironmentService
-  agent: AgentService
   task: TaskService
 }
 
