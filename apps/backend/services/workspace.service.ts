@@ -5,7 +5,7 @@ import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moa
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
-import { createGitWorktree, getBranchList, isGitRepository, isGitWorktree } from '../utils/index.js'
+import { branchExists, createGitWorktree, isGitRepository, isGitWorktree } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
@@ -232,12 +232,11 @@ export class WorkspaceService {
   }
 
   /**
-   * Checks if a branch exists in the repository
+   * Checks if a branch exists in the repository (locally or on remote)
    */
   private async checkBranchExists(repoPath: string, branchName: string): Promise<boolean> {
     try {
-      const branches = await getBranchList(repoPath)
-      return branches.includes(branchName)
+      return await branchExists(repoPath, branchName)
     } catch (error) {
       logger.error('Failed to check branch existence', error as Error, {
         repoPath,

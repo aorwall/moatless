@@ -185,7 +185,7 @@ export class RepositoryService {
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line.length > 0)
-        .map((line) => line.replace(/^\*\s*/, '')) // Remove current branch marker
+        .map((line) => line.replace(/^[*+]\s*/, '')) // Remove current branch marker (* or +)
         .map((line) => line.replace(/^remotes\/origin\//, '')) // Remove remote prefix
         .filter((line) => !line.includes('HEAD ->')) // Remove HEAD pointer
         .filter((line) => !line.startsWith('workspace-')) // Filter out workspace branches

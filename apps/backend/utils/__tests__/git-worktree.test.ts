@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createGitWorktree, isGitWorktree } from '../index.js'
+import { branchExists, createGitWorktree, isGitWorktree } from '../index.js'
 
 const execAsync = promisify(exec)
 
@@ -88,5 +88,63 @@ describe('Git Worktree Fix Test', () => {
     // Should not be valid
     const isValidRegular = await isGitWorktree(regularDir)
     expect(isValidRegular).toBe(false)
+  })
+
+  it('should handle remote-only branches when creating worktree', async () => {
+    const workspacePath = path.join(testWorktreeDir, `workspace-remote-${Date.now()}`)
+    const remoteBranchName = 'feature/remote-only-branch'
+
+    // Create a bare repository to act as remote
+    const remoteRepoPath = path.join(testWorktreeDir, 'remote-repo.git')
+    await execAsync(`git init --bare ${remoteRepoPath}`)
+
+    // Add remote to test repo
+    await execAsync(`git remote add origin ${remoteRepoPath}`, { cwd: testRepoPath })
+
+    // Create and push a branch to remote
+    await execAsync(`git checkout -b ${remoteBranchName}`, { cwd: testRepoPath })
+    await fs.writeFile(path.join(testRepoPath, 'remote-file.txt'), 'Remote content')
+    await execAsync('git add .', { cwd: testRepoPath })
+    await execAsync('git commit -m "Remote branch commit"', { cwd: testRepoPath })
+    await execAsync(`git push origin ${remoteBranchName}`, { cwd: testRepoPath })
+
+    // Switch back to main and delete the local branch
+    await execAsync('git checkout main', { cwd: testRepoPath })
+    await execAsync(`git branch -D ${remoteBranchName}`, { cwd: testRepoPath })
+
+    // Verify the branch doesn't exist locally but exists on remote
+    const { stdout: localBranches } = await execAsync('git branch', { cwd: testRepoPath })
+    expect(localBranches).not.toContain(remoteBranchName)
+
+    const { stdout: remoteBranches } = await execAsync('git branch -r', { cwd: testRepoPath })
+    expect(remoteBranches).toContain(`origin/${remoteBranchName}`)
+
+    // Test the branchExists function recognizes remote branches
+    const exists = await branchExists(testRepoPath, remoteBranchName)
+    expect(exists).toBe(true)
+
+    // Create worktree from remote-only branch
+    await createGitWorktree(testRepoPath, workspacePath, remoteBranchName)
+
+    // Verify worktree was created successfully
+    const isValid = await isGitWorktree(workspacePath)
+    expect(isValid).toBe(true)
+
+    // Verify it's on the correct branch
+    const { stdout: currentBranch } = await execAsync('git branch --show-current', {
+      cwd: workspacePath,
+    })
+    expect(currentBranch.trim()).toBe(remoteBranchName)
+
+    // Verify the file from remote branch exists
+    const fileExists = await fs
+      .access(path.join(workspacePath, 'remote-file.txt'))
+      .then(() => true)
+      .catch(() => false)
+    expect(fileExists).toBe(true)
+
+    // Clean up remote
+    await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {})
+    await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {})
   })
 })
