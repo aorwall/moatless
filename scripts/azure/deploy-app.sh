@@ -38,13 +38,14 @@ print_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
 }
 
-# Check if running as moatless user or with sudo
+# Check user permissions
 check_user() {
-    if [ "$EUID" -eq 0 ]; then
-        print_info "Running as root, will switch to moatless user for operations"
-    elif [ "$USER" != "moatless" ]; then
-        print_warning "Not running as moatless user, switching context"
-        exec sudo -u moatless bash "$0" "$@"
+    # We'll run as the current user (azureuser) and use sudo where needed
+    print_info "Running as user: $USER"
+    
+    # Ensure we have sudo access
+    if ! sudo -n true 2>/dev/null; then
+        print_warning "This script requires sudo privileges for some operations"
     fi
 }
 
@@ -92,12 +93,11 @@ deploy_code() {
         
         print_info "Cloning repository..."
         
-        # Ensure parent directory has correct permissions
+        # Ensure parent directory exists
         sudo mkdir -p "$(dirname "$APP_DIR")"
-        sudo chown moatless:moatless "$(dirname "$APP_DIR")"
         
-        # Clone as moatless user
-        sudo -u moatless git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
+        # Clone repository
+        git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
         cd "$APP_DIR"
     fi
     
@@ -113,13 +113,13 @@ install_dependencies() {
     
     # Ensure Bun is available
     if ! command -v bun &> /dev/null; then
-        export BUN_INSTALL="/home/moatless/.bun"
+        export BUN_INSTALL="$HOME/.bun"
         export PATH="$BUN_INSTALL/bin:$PATH"
     fi
     
     # Install dependencies
     print_info "Running bun install..."
-    sudo -u moatless bash -c "export BUN_INSTALL=/home/moatless/.bun && export PATH=\$BUN_INSTALL/bin:\$PATH && bun install"
+    bun install
 }
 
 # Build application
@@ -130,7 +130,7 @@ build_application() {
     
     # Build the application
     print_info "Running bun run build..."
-    sudo -u moatless bash -c "export BUN_INSTALL=/home/moatless/.bun && export PATH=\$BUN_INSTALL/bin:\$PATH && bun run build"
+    bun run build
     
     print_info "Build completed successfully"
 }
@@ -172,9 +172,8 @@ USE_CONSOLE_LOGGING=false
 EOF
     fi
     
-    # Set proper permissions
-    sudo chown moatless:moatless "$ENV_FILE"
-    sudo chmod 600 "$ENV_FILE"
+    # Set proper permissions (readable by the service user)
+    sudo chmod 644 "$ENV_FILE"
     
     print_warning "Please review and update $ENV_FILE with your specific configuration"
 }
@@ -198,12 +197,12 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=moatless
-Group=moatless
+User=azureuser
+Group=azureuser
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_FILE
-Environment="BUN_INSTALL=/home/moatless/.bun"
-Environment="PATH=/home/moatless/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="BUN_INSTALL=/home/azureuser/.bun"
+Environment="PATH=/home/azureuser/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Start command
 ExecStart=/usr/bin/node $APP_DIR/apps/backend/dist/index.js

@@ -183,26 +183,22 @@ configure_firewall() {
     sudo ufw status verbose
 }
 
-# Create application user and directories
+# Create application directories
 setup_application() {
     print_info "Setting up application environment..."
     
-    # Create application user (if not exists)
-    if ! id "moatless" &>/dev/null; then
-        print_info "Creating moatless user..."
-        sudo useradd -m -s /bin/bash moatless
-        sudo usermod -aG docker moatless
-    fi
+    # Add current user to docker group
+    sudo usermod -aG docker $USER
     
     # Create application directories
     sudo mkdir -p /opt/moatless-vibe
     sudo mkdir -p /var/lib/moatless-vibe/data
     sudo mkdir -p /var/log/moatless-vibe
     
-    # Set permissions
-    sudo chown -R moatless:moatless /opt/moatless-vibe
-    sudo chown -R moatless:moatless /var/lib/moatless-vibe
-    sudo chown -R moatless:moatless /var/log/moatless-vibe
+    # Set permissions for current user
+    sudo chown -R $USER:$USER /opt/moatless-vibe
+    sudo chown -R $USER:$USER /var/lib/moatless-vibe
+    sudo chown -R $USER:$USER /var/log/moatless-vibe
     
     # Create systemd directory for user
     sudo mkdir -p /etc/systemd/system

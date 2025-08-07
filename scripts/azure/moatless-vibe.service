@@ -6,12 +6,12 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=moatless
-Group=moatless
+User=azureuser
+Group=azureuser
 WorkingDirectory=/opt/moatless-vibe
 EnvironmentFile=/opt/moatless-vibe/.env
-Environment="BUN_INSTALL=/home/moatless/.bun"
-Environment="PATH=/home/moatless/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="BUN_INSTALL=/home/azureuser/.bun"
+Environment="PATH=/home/azureuser/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Start command
 ExecStart=/usr/bin/node /opt/moatless-vibe/apps/backend/dist/index.js
