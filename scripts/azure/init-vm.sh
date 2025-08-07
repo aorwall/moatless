@@ -29,7 +29,7 @@ update_system() {
     print_info "Updating system packages..."
     sudo apt-get update
     sudo apt-get upgrade -y
-    sudo apt-get install -y curl wget git build-essential
+    sudo apt-get install -y curl wget git build-essential unzip
 }
 
 # Install Node.js 22.x
