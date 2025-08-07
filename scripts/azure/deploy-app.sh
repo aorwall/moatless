@@ -59,6 +59,9 @@ deploy_code() {
         print_info "Repository exists, pulling latest changes..."
         cd "$APP_DIR"
         
+        # Add safe.directory config to avoid ownership issues
+        git config --global --add safe.directory "$APP_DIR"
+        
         # Check current remote URL
         CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
         
