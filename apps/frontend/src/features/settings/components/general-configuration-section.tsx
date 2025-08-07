@@ -1,7 +1,7 @@
 import type { UpdateGeneralSettingsRequest } from '@moatless/types'
 import { FolderOpen, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useGeneralSettings } from '@/features/settings'
+import { useGeneralSettings, useUpdateGeneralSettings } from '@/features/settings'
 import {
   ConfigurationGroup,
   ConfigurationInput,
