@@ -365,12 +365,19 @@ export class RepositoryService {
         'echo "HOME=$HOME"',
         'echo "USER=$USER"',
         'whoami',
-        'ls -la ~/.ssh/known_hosts 2>&1 || echo "known_hosts not found"',
+        'pwd',
+        'ls -la ~/.ssh/ 2>&1 || echo "SSH directory not found"',
+        'ls -la ~/.ssh/id_* 2>&1 || echo "No SSH keys found"',
+        'ssh-add -l 2>&1 || echo "No keys in agent"',
       ]
 
       for (const cmd of debugCommands) {
         const result = await this.executeCommand(cmd, repoDir)
-        logger.info('Debug SSH environment', { command: cmd, output: result.output })
+        logger.info('Debug SSH environment', {
+          command: cmd,
+          output: result.output,
+          error: result.error,
+        })
       }
     }
 
@@ -385,11 +392,25 @@ export class RepositoryService {
 
       if (!testResult.success || testResult.error?.includes('Permission denied')) {
         // Permission issue detected, use SSH command that bypasses host checking
-        // We need to export the variable first, then run the command
-        cloneCommand = `export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" && ${cloneCommand}`
-        logger.info('SSH permission issue detected, applying workaround', {
+        // Also explicitly specify the SSH key location
+        // Try to find which SSH key exists
+        let sshKeyPath = '/home/azureuser/.ssh/id_ed25519'
+        const keyCheckResult = await this.executeCommand(
+          `test -f ${sshKeyPath} && echo "exists" || echo "not found"`,
+          repoDir,
+        )
+
+        if (keyCheckResult.output?.includes('not found')) {
+          // Try RSA key as fallback
+          sshKeyPath = '/home/azureuser/.ssh/id_rsa'
+        }
+
+        cloneCommand = `export GIT_SSH_COMMAND="ssh -i ${sshKeyPath} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" && ${cloneCommand}`
+        logger.info('SSH permission issue detected, applying workaround with explicit key', {
           testError: testResult.error,
           output: testResult.output,
+          sshKeyPath,
+          keyExists: keyCheckResult.output,
         })
       } else {
         logger.info('SSH permissions OK, proceeding with normal clone')
