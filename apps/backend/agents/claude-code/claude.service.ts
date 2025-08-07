@@ -909,18 +909,63 @@ export class ClaudeService {
   /**
    * Validate Claude paths and return their validity status
    */
-  validateClaudePaths(
+  async validateClaudePaths(
     binDir: string,
     configDir: string,
-  ): {
+  ): Promise<{
     binDirValid: boolean
     configDirValid: boolean
-  } {
+    claudeVersion?: string
+    error?: string
+  }> {
     // Check if binDir exists and contains claude executable
     let binDirValid = false
+    let claudeVersion: string | undefined
+    let error: string | undefined
+
     if (binDir) {
       const claudeBinPath = path.join(binDir, 'claude')
-      binDirValid = existsSync(claudeBinPath)
+
+      // First check if file exists
+      if (existsSync(claudeBinPath)) {
+        // Try to execute claude --version to verify it's working
+        try {
+          const { exec } = await import('node:child_process')
+          const { promisify } = await import('node:util')
+          const execAsync = promisify(exec)
+
+          const { stdout, stderr } = await execAsync(`"${claudeBinPath}" --version`, {
+            timeout: 5000, // 5 second timeout
+            env: {
+              ...process.env,
+              HOME: process.env.HOME || '/home/azureuser',
+              USER: process.env.USER || 'azureuser',
+            },
+          })
+
+          if (stdout) {
+            binDirValid = true
+            claudeVersion = stdout.trim()
+            logger.info('Claude binary validated successfully', {
+              claudeBinPath,
+              version: claudeVersion,
+            })
+          } else if (stderr) {
+            error = `Claude binary error: ${stderr}`
+            logger.error('Claude binary failed validation', new Error(stderr), {
+              claudeBinPath,
+            })
+          }
+        } catch (execError) {
+          error = `Failed to execute claude --version: ${execError instanceof Error ? execError.message : String(execError)}`
+          logger.error('Failed to validate claude binary', execError as Error, {
+            claudeBinPath,
+            error,
+          })
+        }
+      } else {
+        error = `Claude binary not found at ${claudeBinPath}`
+      }
     }
 
     // Check if configDir exists
@@ -929,6 +974,8 @@ export class ClaudeService {
     return {
       binDirValid,
       configDirValid,
+      claudeVersion,
+      error,
     }
   }
 

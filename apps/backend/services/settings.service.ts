@@ -94,8 +94,20 @@ export class SettingsService {
       if (!this.defaults.claude.binDir) {
         const detectedBinDir = tempClaudeService.findClaudeBinDir()
         if (detectedBinDir) {
-          this.defaults.claude.binDir = detectedBinDir
-          logger.info('Detected Claude bin directory', { binDir: detectedBinDir })
+          // Validate that claude binary actually works
+          const validation = await tempClaudeService.validateClaudePaths(detectedBinDir, '')
+          if (validation.binDirValid) {
+            this.defaults.claude.binDir = detectedBinDir
+            logger.info('Detected and validated Claude bin directory', {
+              binDir: detectedBinDir,
+              version: validation.claudeVersion,
+            })
+          } else {
+            logger.warn('Detected Claude bin directory but validation failed', {
+              binDir: detectedBinDir,
+              error: validation.error,
+            })
+          }
         }
       }
 
