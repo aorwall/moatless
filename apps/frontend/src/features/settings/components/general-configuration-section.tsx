@@ -1,7 +1,7 @@
 import type { UpdateGeneralSettingsRequest } from '@moatless/types'
 import { FolderOpen, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useGeneralSettings, useUpdateGeneralSettings } from '@/features/settings'
+import { useGeneralSettings } from '@/features/settings'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -18,7 +18,7 @@ export function GeneralConfigurationSection() {
     isLoading: generalLoading,
     error: generalError,
   } = useGeneralSettings()
-  const updateGeneralSettings = useUpdateGeneralSettings()
+  // const updateGeneralSettings = useUpdateGeneralSettings() // TODO: Use for saving settings
 
   // Derive form data directly from settings - no effects needed (following derived state pattern)
   const baseGeneralFormData = useMemo<UpdateGeneralSettingsRequest>(

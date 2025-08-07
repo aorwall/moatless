@@ -6,7 +6,6 @@ import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceSetup } from '@/features/tasks/hooks/use-workspace-setup'
 import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -75,19 +74,19 @@ export function TaskHeader() {
     },
   })
 
-  const setupWorkspace = useWorkspaceSetup({
-    onSuccess: (data) => {
-      toast.success('Workspace setup completed', {
-        description: data.message,
-      })
-    },
-    onError: (error) => {
-      console.error('Failed to setup workspace:', error)
-      toast.error('Failed to setup workspace', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
+  // const setupWorkspace = useWorkspaceSetup({
+  //   onSuccess: (data) => {
+  //     toast.success('Workspace setup completed', {
+  //       description: data.message,
+  //     })
+  //   },
+  //   onError: (error) => {
+  //     console.error('Failed to setup workspace:', error)
+  //     toast.error('Failed to setup workspace', {
+  //       description: getErrorMessage(error),
+  //     })
+  //   },
+  // })
 
   const handleMerge = () => {
     if (taskId && status) {
@@ -119,11 +118,11 @@ export function TaskHeader() {
     }
   }
 
-  const _handleSetup = () => {
-    if (taskId) {
-      setupWorkspace.mutate({ taskId })
-    }
-  }
+  // const _handleSetup = () => {
+  //   if (taskId) {
+  //     setupWorkspace.mutate({ taskId })
+  //   }
+  // }
 
   if (!status) {
     return null

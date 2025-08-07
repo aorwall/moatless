@@ -75,6 +75,8 @@ const mockRepoSelector = {
   value: 'repo-123',
   onChange: vi.fn(),
   loading: false,
+  error: null,
+  isError: false,
   placeholder: 'Select repository',
   items: [
     { id: 'repo-123', label: 'Test Repo 1' },
@@ -87,6 +89,8 @@ const mockBranchSelector = {
   value: 'main',
   onChange: vi.fn(),
   loading: false,
+  error: null,
+  isError: false,
   placeholder: 'Select branch',
   items: [
     { id: 'main', label: 'main' },
