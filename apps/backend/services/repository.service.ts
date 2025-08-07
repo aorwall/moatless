@@ -385,9 +385,11 @@ export class RepositoryService {
 
       if (!testResult.success || testResult.error?.includes('Permission denied')) {
         // Permission issue detected, use SSH command that bypasses host checking
-        cloneCommand = `GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" ${cloneCommand}`
+        // We need to export the variable first, then run the command
+        cloneCommand = `export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" && ${cloneCommand}`
         logger.info('SSH permission issue detected, applying workaround', {
           testError: testResult.error,
+          output: testResult.output,
         })
       } else {
         logger.info('SSH permissions OK, proceeding with normal clone')
@@ -397,6 +399,14 @@ export class RepositoryService {
     const cloneResult = await this.executeCommand(cloneCommand, repoDir)
 
     if (!cloneResult.success) {
+      // Log the full error for debugging
+      logger.error('Git clone failed', new Error(cloneResult.error || 'Unknown error'), {
+        command: isSSH ? 'git clone [SSH URL]' : 'git clone [HTTPS URL]',
+        exitCode: cloneResult.exit_code,
+        output: cloneResult.output,
+        isSSH,
+      })
+
       // Remove PAT from error message for security
       const sanitizedError = cloneResult.error?.replace(pat || '', '***')
 
