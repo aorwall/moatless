@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
+import { basicAuth } from './middleware/basic-auth.js'
 import { errorHandler } from './middleware/error-handler.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
@@ -37,6 +38,11 @@ export async function createApp(): Promise<AppWithServices> {
 
   // Security headers
   app.use('*', secureHeaders())
+
+  // Authentication middleware (choose one: basicAuth or tokenAuth)
+  // Basic Auth is easier for browser access, Token Auth is better for API access
+  app.use('*', basicAuth) // Use basic auth by default
+  // app.use('*', tokenAuth) // Alternative: use token auth
 
   // CORS
   app.use(
