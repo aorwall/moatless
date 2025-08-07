@@ -16,11 +16,15 @@ export const updateClaudeSettingsSchema = z
   })
   .strict()
 
-// Response schema - just return the values directly
+// Response schema - includes validation and override status
 export const ClaudeSettingsResponseSchema = z.object({
   binDir: z.string(),
   configDir: z.string(),
   oauthToken: z.string(),
+  binDirValid: z.boolean(),
+  configDirValid: z.boolean(),
+  binDirOverridden: z.boolean(),
+  configDirOverridden: z.boolean(),
 })
 
 // Derived types

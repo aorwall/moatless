@@ -169,10 +169,36 @@ export class SettingsService {
   }
 
   async getClaudeSettingsResponse(): Promise<ClaudeSettingsResponse> {
+    const binDir = this.settings?.binDir || this.defaults.claude.binDir
+    const configDir = this.settings?.configDir || this.defaults.claude.configDir
+    const oauthToken = this.settings?.oauthToken || this.defaults.claude.oauthToken
+
+    // Check if paths are valid
+    const path = await import('node:path')
+    const { existsSync } = await import('node:fs')
+
+    // Check if binDir exists and contains claude executable
+    let binDirValid = false
+    if (binDir) {
+      const claudeBinPath = path.join(binDir, 'claude')
+      binDirValid = existsSync(claudeBinPath)
+    }
+
+    // Check if configDir exists
+    const configDirValid = configDir ? existsSync(configDir) : false
+
+    // Check if values were overridden by user
+    const binDirOverridden = !!this.settings?.binDir
+    const configDirOverridden = !!this.settings?.configDir
+
     return {
-      binDir: this.settings?.binDir || this.defaults.claude.binDir,
-      configDir: this.settings?.configDir || this.defaults.claude.configDir,
-      oauthToken: this.settings?.oauthToken || this.defaults.claude.oauthToken,
+      binDir,
+      configDir,
+      oauthToken,
+      binDirValid,
+      configDirValid,
+      binDirOverridden,
+      configDirOverridden,
     }
   }
 

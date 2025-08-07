@@ -823,6 +823,32 @@ export class ClaudeService {
   }
 
   /**
+   * Validate Claude paths and return their validity status
+   */
+  validateClaudePaths(
+    binDir: string,
+    configDir: string,
+  ): {
+    binDirValid: boolean
+    configDirValid: boolean
+  } {
+    // Check if binDir exists and contains claude executable
+    let binDirValid = false
+    if (binDir) {
+      const claudeBinPath = path.join(binDir, 'claude')
+      binDirValid = existsSync(claudeBinPath)
+    }
+
+    // Check if configDir exists
+    const configDirValid = configDir ? existsSync(configDir) : false
+
+    return {
+      binDirValid,
+      configDirValid,
+    }
+  }
+
+  /**
    * Get Claude container mount paths for Docker volume mounting
    */
   getClaudeContainerMounts(): string[] {
