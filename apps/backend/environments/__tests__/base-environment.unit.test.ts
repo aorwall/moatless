@@ -73,7 +73,7 @@ class TestEnvironment extends BaseEnvironment {
     return { status: 'running', port: 3000 }
   }
 
-  async getServerLogs(lines?: number): Promise<string> {
+  async getServerLogs(_lines?: number): Promise<string> {
     return 'Test logs'
   }
 
@@ -81,7 +81,7 @@ class TestEnvironment extends BaseEnvironment {
     return 3000
   }
 
-  async proxyPreviewRequest(request: any): Promise<any> {
+  async proxyPreviewRequest(_request: any): Promise<any> {
     return {
       status: 200,
       headers: new Headers(),
@@ -89,7 +89,7 @@ class TestEnvironment extends BaseEnvironment {
     }
   }
 
-  async runCommand(command: string, timeout?: number): Promise<any> {
+  async runCommand(_command: string, _timeout?: number): Promise<any> {
     return {
       success: true,
       output: 'Test output',
@@ -98,11 +98,11 @@ class TestEnvironment extends BaseEnvironment {
     }
   }
 
-  async setup(iterationNumber?: number): Promise<void> {
+  async setup(_iterationNumber?: number): Promise<void> {
     this._status = 'ready'
   }
 
-  async teardown(force?: boolean): Promise<void> {
+  async teardown(_force?: boolean): Promise<void> {
     this._status = 'cleaning'
   }
 
