@@ -128,9 +128,10 @@ build_application() {
     
     cd "$APP_DIR"
     
-    # Build the application
+    # Build the application with production API URL
     print_info "Running bun run build..."
-    bun run build
+    # In production, frontend and backend are on same host/port
+    VITE_API_URL="" bun run build
     
     print_info "Build completed successfully"
 }
