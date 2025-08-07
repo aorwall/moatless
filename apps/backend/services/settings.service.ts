@@ -395,11 +395,12 @@ export class SettingsService {
         delete this.settings.github.userEmail
       } else {
         this.settings.github.personalAccessToken = update.personalAccessToken
-        shouldFetchUserInfo = true
+        // Only fetch user info if userName and userEmail are not explicitly provided
+        shouldFetchUserInfo = update.userName === undefined && update.userEmail === undefined
       }
     }
 
-    // If a new PAT was provided, fetch user info from GitHub
+    // If a new PAT was provided and no manual overrides, fetch user info from GitHub
     if (shouldFetchUserInfo && this.settings.github.personalAccessToken) {
       const githubUser = await this.githubService.getAuthenticatedUser(
         this.settings.github.personalAccessToken,
@@ -421,22 +422,22 @@ export class SettingsService {
       } else {
         logger.warn('Failed to fetch GitHub user info, using git config defaults')
       }
-    } else {
-      // Allow manual override of userName and userEmail
-      if (update.userName !== undefined) {
-        if (update.userName === null) {
-          delete this.settings.github.userName
-        } else {
-          this.settings.github.userName = update.userName
-        }
-      }
+    }
 
-      if (update.userEmail !== undefined) {
-        if (update.userEmail === null) {
-          delete this.settings.github.userEmail
-        } else {
-          this.settings.github.userEmail = update.userEmail
-        }
+    // Allow manual override of userName and userEmail
+    if (update.userName !== undefined) {
+      if (update.userName === null) {
+        delete this.settings.github.userName
+      } else {
+        this.settings.github.userName = update.userName
+      }
+    }
+
+    if (update.userEmail !== undefined) {
+      if (update.userEmail === null) {
+        delete this.settings.github.userEmail
+      } else {
+        this.settings.github.userEmail = update.userEmail
       }
     }
 
