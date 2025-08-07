@@ -823,6 +823,91 @@ export class ClaudeService {
   }
 
   /**
+   * Find Claude bin directory by checking common locations
+   */
+  findClaudeBinDir(): string {
+    // Check common locations for Claude executable
+    // Prioritize system and npm global locations
+    const possiblePaths = [
+      '/usr/bin', // Common system location (as found on your server)
+      '/usr/local/bin',
+      '/opt/homebrew/bin', // macOS with Homebrew
+    ]
+
+    // Add npm global bin directories (for npm-installed claude)
+    // Check for nvm paths
+    if (process.env.NVM_BIN) {
+      possiblePaths.push(process.env.NVM_BIN)
+    }
+
+    // Check for standard npm global paths
+    const npmPrefixes = [
+      path.join(os.homedir(), '.npm-global'),
+      path.join(os.homedir(), '.nvm', 'versions', 'node'), // nvm installations
+      '/usr/local', // npm global prefix on many systems
+    ]
+
+    for (const prefix of npmPrefixes) {
+      const npmBinPath = path.join(prefix, 'bin')
+      if (existsSync(npmBinPath)) {
+        possiblePaths.push(npmBinPath)
+      }
+      // Also check nvm version subdirectories
+      if (prefix.includes('.nvm')) {
+        try {
+          const versionDirs = require('fs').readdirSync(path.join(prefix))
+          for (const version of versionDirs) {
+            const versionBinPath = path.join(prefix, version, 'bin')
+            if (existsSync(versionBinPath)) {
+              possiblePaths.push(versionBinPath)
+            }
+          }
+        } catch {
+          // Ignore errors reading nvm directories
+        }
+      }
+    }
+
+    // Add user-specific paths
+    possiblePaths.push(path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), 'bin'))
+
+    // Add PATH directories as fallback
+    if (process.env.PATH) {
+      const pathDirs = process.env.PATH.split(path.delimiter)
+      possiblePaths.push(...pathDirs)
+    }
+
+    // Look for claude executable in each path
+    for (const dir of possiblePaths) {
+      const claudePath = path.join(dir, 'claude')
+      if (existsSync(claudePath)) {
+        return dir
+      }
+    }
+
+    return ''
+  }
+
+  /**
+   * Find Claude config directory
+   */
+  findClaudeConfigDir(): string {
+    // First check CLAUDE_CONFIG_DIR env var
+    if (process.env.CLAUDE_CONFIG_DIR && existsSync(process.env.CLAUDE_CONFIG_DIR)) {
+      return process.env.CLAUDE_CONFIG_DIR
+    }
+
+    // Check default location
+    const defaultConfigDir = path.join(os.homedir(), '.claude')
+    if (existsSync(defaultConfigDir)) {
+      return defaultConfigDir
+    }
+
+    // Return default even if it doesn't exist yet
+    return defaultConfigDir
+  }
+
+  /**
    * Validate Claude paths and return their validity status
    */
   validateClaudePaths(
@@ -862,37 +947,6 @@ export class ClaudeService {
     }
 
     return mounts
-  }
-
-  /**
-   * Generate Docker environment variables for Claude configuration
-   */
-  getClaudeDockerEnvironmentVariables(): Record<string, string> {
-    const envVars: Record<string, string> = {}
-    const claudeSettings = this.settingsService.getClaudeSettings()
-
-    // Set Claude config directory
-    envVars.CLAUDE_CONFIG_DIR = '/home/ubuntu/.claude'
-    envVars.HOME = '/workspace' // This will be overridden by container workspace
-
-    // Pass through Claude authentication environment variables
-    if (process.env.CLAUDE_AUTH_DIR) {
-      envVars.CLAUDE_AUTH_DIR = process.env.CLAUDE_AUTH_DIR
-    }
-    if (process.env.ANTHROPIC_API_KEY) {
-      envVars.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
-    }
-
-    // Pass Claude OAuth token if available
-    if (claudeSettings.oauthToken) {
-      envVars.CLAUDE_CODE_OAUTH_TOKEN = claudeSettings.oauthToken
-    }
-
-    if (process.env.CLAUDE_CODE_MOCK) {
-      envVars.CLAUDE_CODE_MOCK = process.env.CLAUDE_CODE_MOCK
-    }
-
-    return envVars
   }
 }
 

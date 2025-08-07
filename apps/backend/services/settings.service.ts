@@ -69,11 +69,47 @@ export class SettingsService {
       this.defaults.github.userName = gitUserName || ''
       this.defaults.github.userEmail = gitUserEmail || ''
 
+      // Try to detect Claude paths if not set
+      if (!this.defaults.claude.binDir || !this.defaults.claude.configDir) {
+        await this.detectClaudePaths()
+      }
+
       // Load settings from file if it exists
       await this.loadSettings()
     } catch (error) {
       logger.error('Failed to initialize settings service', error as Error)
       // Continue with defaults if loading fails
+    }
+  }
+
+  private async detectClaudePaths(): Promise<void> {
+    try {
+      // Import ClaudeService dynamically to avoid circular dependency
+      const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+
+      // Create a temporary instance just for path detection
+      const tempClaudeService = new ClaudeService(this as any)
+
+      // Detect bin directory if not set
+      if (!this.defaults.claude.binDir) {
+        const detectedBinDir = tempClaudeService.findClaudeBinDir()
+        if (detectedBinDir) {
+          this.defaults.claude.binDir = detectedBinDir
+          logger.info('Detected Claude bin directory', { binDir: detectedBinDir })
+        }
+      }
+
+      // Detect config directory if not set
+      if (!this.defaults.claude.configDir) {
+        const detectedConfigDir = tempClaudeService.findClaudeConfigDir()
+        if (detectedConfigDir) {
+          this.defaults.claude.configDir = detectedConfigDir
+          logger.info('Detected Claude config directory', { configDir: detectedConfigDir })
+        }
+      }
+    } catch (error) {
+      logger.debug('Could not detect Claude paths', { error })
+      // Continue without detected paths
     }
   }
 
@@ -169,9 +205,34 @@ export class SettingsService {
   }
 
   async getClaudeSettingsResponse(): Promise<ClaudeSettingsResponse> {
-    const binDir = this.settings?.binDir || this.defaults.claude.binDir
-    const configDir = this.settings?.configDir || this.defaults.claude.configDir
+    // Get configured values or defaults (which may have been detected)
+    let binDir = this.settings?.binDir || this.defaults.claude.binDir
+    let configDir = this.settings?.configDir || this.defaults.claude.configDir
     const oauthToken = this.settings?.oauthToken || this.defaults.claude.oauthToken
+
+    // If paths are still empty, try to detect them now
+    if (!binDir || !configDir) {
+      try {
+        const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+        const tempClaudeService = new ClaudeService(this as any)
+
+        if (!binDir) {
+          const detectedBinDir = tempClaudeService.findClaudeBinDir()
+          if (detectedBinDir) {
+            binDir = detectedBinDir
+          }
+        }
+
+        if (!configDir) {
+          const detectedConfigDir = tempClaudeService.findClaudeConfigDir()
+          if (detectedConfigDir) {
+            configDir = detectedConfigDir
+          }
+        }
+      } catch (error) {
+        logger.debug('Could not detect Claude paths in getClaudeSettingsResponse', { error })
+      }
+    }
 
     // Check if paths are valid
     const path = await import('node:path')
