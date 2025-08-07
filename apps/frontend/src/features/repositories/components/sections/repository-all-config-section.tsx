@@ -257,6 +257,12 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
           />
         </ConfigurationItem>
 
+        {repository?.remoteUrl && (
+          <ConfigurationItem label="GitHub URL" description="Remote repository URL (read-only)">
+            <ConfigurationInput value={repository.remoteUrl} disabled className="bg-muted" />
+          </ConfigurationItem>
+        )}
+
         <ConfigurationItem label="Repository Path" description="Local path to your repository">
           <ConfigurationInput
             value={formData.path || ''}
