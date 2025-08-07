@@ -19,12 +19,14 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { isRegularGitRepository } from '../utils/git-utils.js'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
+import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class RepositoryService {
   private workspaceService?: WorkspaceService
   private claudeService?: ClaudeService
+  private settingsService?: SettingsService
 
   constructor(private storage: StorageBackend) {}
 
@@ -38,19 +40,38 @@ export class RepositoryService {
     this.claudeService = claudeService
   }
 
+  // Setter for SettingsService
+  setSettingsService(settingsService: SettingsService): void {
+    this.settingsService = settingsService
+  }
+
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
+    let finalPath = request.path
+    let finalName = request.name
+
+    // Handle GitHub repository
+    if (request.sourceType === 'github' && request.remoteUrl) {
+      const cloneResult = await this.cloneGitHubRepository(request.remoteUrl, request.name)
+      finalPath = cloneResult.path
+      finalName = cloneResult.name
+    } else if (!request.path) {
+      throw new ValidationError('Path is required for local repositories', { path: request.path })
+    }
+
     // Validate repository configuration
-    await this.validateRepository(request)
+    await this.validateRepository({ ...request, path: finalPath })
 
     // Auto-detect framework for local repositories if not provided
     const previewConfig = request.previewConfig
 
     const repository: RepositoryConfig = {
       id: randomUUID(),
-      name: request.name,
+      name: finalName,
       description: request.description,
-      path: request.path,
-      useGitWorktrees: request.useGitWorktrees,
+      path: finalPath!,
+      remoteUrl: request.remoteUrl,
+      sourceType: request.sourceType || 'local',
+      useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
       originalBranch: request.originalBranch,
       codeExecution: request.codeExecution,
       previewConfig,
@@ -225,8 +246,107 @@ export class RepositoryService {
   }
 
   async validateRepository(repository: CreateRepositoryRequest | RepositoryConfig): Promise<void> {
-    // Validate path exists
-    await this.validateLocalRepository(repository)
+    // Skip validation for GitHub repos that haven't been cloned yet
+    if (repository.sourceType === 'github' && !repository.path) {
+      return
+    }
+
+    // Validate path exists for local repos or already cloned GitHub repos
+    if (repository.path) {
+      await this.validateLocalRepository({ path: repository.path })
+    } else {
+      throw new ValidationError('Path is required for local repositories', { repository })
+    }
+  }
+
+  /**
+   * Clone a GitHub repository using the PAT from settings
+   */
+  private async cloneGitHubRepository(
+    remoteUrl: string,
+    suggestedName?: string,
+  ): Promise<{ path: string; name: string }> {
+    if (!this.settingsService) {
+      throw new Error('SettingsService not available')
+    }
+
+    // Parse GitHub URL to extract owner and repo name
+    const githubUrlPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
+    const match = remoteUrl.match(githubUrlPattern)
+
+    if (!match) {
+      throw new ValidationError('Invalid GitHub URL format', { url: remoteUrl })
+    }
+
+    const [, owner, repoName] = match
+    const finalName = suggestedName || repoName
+
+    // Get GitHub PAT from settings
+    const githubSettings = this.settingsService.getGitHubSettings()
+    const pat = githubSettings.personalAccessToken
+
+    // Determine clone directory
+    const dataDir = this.settingsService.getDataDir()
+    const repoDir = process.env.REPO_DIR || path.join(dataDir, 'repos')
+
+    // Ensure repos directory exists
+    await fs.mkdir(repoDir, { recursive: true })
+
+    const clonePath = path.join(repoDir, finalName)
+
+    // Check if directory already exists
+    try {
+      await fs.access(clonePath)
+      throw new ValidationError(`Repository directory already exists: ${clonePath}`, {
+        path: clonePath,
+      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+    }
+
+    // Build clone URL with authentication if PAT is available
+    let cloneUrl = remoteUrl
+    if (pat) {
+      // Add PAT authentication to the URL
+      const urlWithAuth = remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
+      cloneUrl = urlWithAuth
+    }
+
+    logger.info('Cloning GitHub repository', {
+      owner,
+      repo: repoName,
+      path: clonePath,
+      hasAuth: !!pat,
+    })
+
+    // Clone the repository
+    const cloneResult = await this.executeCommand(`git clone "${cloneUrl}" "${finalName}"`, repoDir)
+
+    if (!cloneResult.success) {
+      // Remove PAT from error message for security
+      const sanitizedError = cloneResult.error?.replace(pat || '', '***')
+      throw new ValidationError(`Failed to clone repository: ${sanitizedError}`, {
+        url: remoteUrl,
+        error: sanitizedError,
+      })
+    }
+
+    // Remove the remote URL with PAT and set it back to the original URL
+    if (pat) {
+      await this.executeCommand(`git remote set-url origin "${remoteUrl}"`, clonePath)
+    }
+
+    logger.info('Successfully cloned GitHub repository', {
+      name: finalName,
+      path: clonePath,
+    })
+
+    return {
+      path: clonePath,
+      name: finalName,
+    }
   }
 
   private async validateLocalRepository(repo: { path: string }): Promise<void> {

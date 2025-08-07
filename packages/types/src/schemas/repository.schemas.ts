@@ -56,6 +56,8 @@ export const RepositoryConfigSchema = z.object({
   description: z.string().optional(),
   // Repository fields moved here
   path: z.string(),
+  remoteUrl: z.string().optional(), // GitHub or other remote URL
+  sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
 
@@ -69,7 +71,9 @@ export const CreateRepositorySchema = z.object({
   name: repositoryNameSchema,
   description: z.string().optional(),
   // Repository fields
-  path: z.string(),
+  path: z.string().optional(), // Made optional - will be auto-generated for GitHub repos
+  remoteUrl: z.string().optional(), // GitHub URL for cloning
+  sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
   // Original fields
@@ -82,6 +86,8 @@ export const UpdateRepositorySchema = z.object({
   description: z.string().optional(),
   // Repository fields
   path: z.string().optional(),
+  remoteUrl: z.string().optional(),
+  sourceType: z.enum(['local', 'github']).optional(),
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
   // Original fields

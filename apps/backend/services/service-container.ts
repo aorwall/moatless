@@ -92,6 +92,9 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Set claude service on repository service for suggested repositories
   container.repository.setClaudeService(container.claude)
 
+  // Set settings service on repository service for GitHub cloning
+  container.repository.setSettingsService(container.settings)
+
   // Task service needs many dependencies
   container.task = createTaskService(
     container.storage,
