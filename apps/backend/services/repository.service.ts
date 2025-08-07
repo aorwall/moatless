@@ -16,6 +16,7 @@ import {
   ValidationError,
 } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { getDataDir } from '../utils/data-dir.js'
 import { isRegularGitRepository } from '../utils/git-utils.js'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
@@ -314,7 +315,7 @@ export class RepositoryService {
     const pat = githubSettings.personalAccessToken
 
     // Determine clone directory
-    const dataDir = this.settingsService.getDataDir()
+    const dataDir = getDataDir()
     const repoDir = process.env.REPO_DIR || path.join(dataDir, 'repos')
 
     // Ensure repos directory exists
@@ -359,28 +360,6 @@ export class RepositoryService {
       hasAuth: !isSSH && !!pat,
     })
 
-    // Debug environment for SSH issues
-    if (isSSH) {
-      const debugCommands = [
-        'echo "HOME=$HOME"',
-        'echo "USER=$USER"',
-        'whoami',
-        'pwd',
-        'ls -la ~/.ssh/ 2>&1 || echo "SSH directory not found"',
-        'ls -la ~/.ssh/id_* 2>&1 || echo "No SSH keys found"',
-        'ssh-add -l 2>&1 || echo "No keys in agent"',
-      ]
-
-      for (const cmd of debugCommands) {
-        const result = await this.executeCommand(cmd, repoDir)
-        logger.info('Debug SSH environment', {
-          command: cmd,
-          output: result.output,
-          error: result.error,
-        })
-      }
-    }
-
     // Clone the repository with SSH workaround for systemd services
     let cloneCommand = `git clone "${cloneUrl}" "${finalName}"`
 
@@ -391,10 +370,13 @@ export class RepositoryService {
       const testResult = await this.executeCommand('cat ~/.ssh/known_hosts 2>&1', repoDir)
 
       if (!testResult.success || testResult.error?.includes('Permission denied')) {
-        // Permission issue detected, use SSH command that bypasses host checking
-        // Also explicitly specify the SSH key location
-        // Try to find which SSH key exists
-        let sshKeyPath = '/home/azureuser/.ssh/id_ed25519'
+        // Permission issue detected - likely running under systemd
+        // Use SSH key from data directory with host checking bypass
+        const dataDir = getDataDir()
+        const serviceSSHDir = `${path.dirname(dataDir)}/.ssh`
+
+        // Check for ed25519 key first, then RSA
+        let sshKeyPath = `${serviceSSHDir}/id_ed25519`
         const keyCheckResult = await this.executeCommand(
           `test -f ${sshKeyPath} && echo "exists" || echo "not found"`,
           repoDir,
@@ -402,13 +384,11 @@ export class RepositoryService {
 
         if (keyCheckResult.output?.includes('not found')) {
           // Try RSA key as fallback
-          sshKeyPath = '/home/azureuser/.ssh/id_rsa'
+          sshKeyPath = `${serviceSSHDir}/id_rsa`
         }
 
         cloneCommand = `export GIT_SSH_COMMAND="ssh -i ${sshKeyPath} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" && ${cloneCommand}`
-        logger.info('SSH permission issue detected, applying workaround with explicit key', {
-          testError: testResult.error,
-          output: testResult.output,
+        logger.info('Using service SSH key for systemd environment', {
           sshKeyPath,
           keyExists: keyCheckResult.output,
         })
