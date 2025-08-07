@@ -61,6 +61,7 @@
     "biome:fix": "./scripts/biome-fix.sh",
     "format": "biome check --write",
     "check:turbo": "turbo run biome:check type:check test:fast",
+    "check:pre-push": "turbo run biome:check type:check",
     "post-edit-hook": "./scripts/validate-code.sh",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
     "prepare": "husky"
