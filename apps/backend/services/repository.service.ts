@@ -359,8 +359,42 @@ export class RepositoryService {
       hasAuth: !isSSH && !!pat,
     })
 
-    // Clone the repository
-    const cloneResult = await this.executeCommand(`git clone "${cloneUrl}" "${finalName}"`, repoDir)
+    // Debug environment for SSH issues
+    if (isSSH) {
+      const debugCommands = [
+        'echo "HOME=$HOME"',
+        'echo "USER=$USER"',
+        'whoami',
+        'ls -la ~/.ssh/known_hosts 2>&1 || echo "known_hosts not found"',
+      ]
+
+      for (const cmd of debugCommands) {
+        const result = await this.executeCommand(cmd, repoDir)
+        logger.info('Debug SSH environment', { command: cmd, output: result.output })
+      }
+    }
+
+    // Clone the repository with SSH workaround for systemd services
+    let cloneCommand = `git clone "${cloneUrl}" "${finalName}"`
+
+    // Apply SSH workaround if SSH URL and we detect permission issues
+    // This is needed for systemd services or containerized environments
+    if (isSSH) {
+      // First, try to detect if we'll have permission issues
+      const testResult = await this.executeCommand('cat ~/.ssh/known_hosts 2>&1', repoDir)
+
+      if (!testResult.success || testResult.error?.includes('Permission denied')) {
+        // Permission issue detected, use SSH command that bypasses host checking
+        cloneCommand = `GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" ${cloneCommand}`
+        logger.info('SSH permission issue detected, applying workaround', {
+          testError: testResult.error,
+        })
+      } else {
+        logger.info('SSH permissions OK, proceeding with normal clone')
+      }
+    }
+
+    const cloneResult = await this.executeCommand(cloneCommand, repoDir)
 
     if (!cloneResult.success) {
       // Remove PAT from error message for security
