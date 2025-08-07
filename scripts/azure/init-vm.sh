@@ -69,6 +69,14 @@ install_nodejs() {
         print_error "Node.js installation failed!"
         exit 1
     fi
+    
+    # Install Claude Code CLI globally
+    print_info "Installing Claude Code CLI..."
+    sudo npm install -g @anthropic-ai/claude-code
+    
+    # Verify Claude Code installation
+    CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "not installed")
+    print_info "Claude Code CLI installed: $CLAUDE_VERSION"
 }
 
 # Install Bun
