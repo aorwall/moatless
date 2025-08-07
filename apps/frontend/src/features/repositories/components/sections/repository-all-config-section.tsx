@@ -1,9 +1,10 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
-import { ChevronDown, Loader2, Play, Save, Wand2 } from 'lucide-react'
+import { ChevronDown, Loader2, Play, Save, Trash2, Wand2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useDetectFramework } from '@/features/repositories/hooks/use-detect-framework'
 import {
+  useDeleteRepository,
   useRepository,
   useRunSetupScript,
   useUpdateRepository,
@@ -17,6 +18,16 @@ import {
   ConfigurationSwitch,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/lib/components/ui/alert-dialog'
 import { Button } from '@/lib/components/ui/button'
 import {
   Collapsible,
@@ -28,6 +39,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 interface RepositoryAllConfigSectionProps {
   repositoryId: string
+  onDeleted?: () => void
 }
 
 // Environment Variables List Component
@@ -138,11 +150,16 @@ function ConfigurationSkeleton() {
   )
 }
 
-export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfigSectionProps) {
+export function RepositoryAllConfigSection({
+  repositoryId,
+  onDeleted,
+}: RepositoryAllConfigSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
   const detectFramework = useDetectFramework(repositoryId)
   const runSetupScript = useRunSetupScript()
   const updateRepository = useUpdateRepository()
+  const deleteRepository = useDeleteRepository()
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern
   const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(
@@ -212,6 +229,22 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
   }
 
   const hasChanges = Object.keys(userModifications).length > 0
+
+  const handleDelete = () => {
+    deleteRepository.mutate(repositoryId, {
+      onSuccess: () => {
+        toast.success('Repository deleted successfully')
+        setShowDeleteDialog(false)
+        onDeleted?.()
+      },
+      onError: (error) => {
+        toast.error('Failed to delete repository', {
+          description: getErrorMessage(error),
+        })
+        setShowDeleteDialog(false)
+      },
+    })
+  }
 
   const handleDetectFramework = async () => {
     try {
@@ -485,29 +518,71 @@ export function RepositoryAllConfigSection({ repositoryId }: RepositoryAllConfig
         </CollapsibleHelpSection>
       </ConfigurationGroup>
 
-      {/* Save/Discard buttons at section level */}
-      <div className="flex justify-end gap-3 pt-6 border-t">
-        <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
-          Discard Changes
-        </Button>
+      {/* Save/Discard/Delete buttons at section level */}
+      <div className="flex justify-between gap-3 pt-6 border-t">
         <Button
           type="button"
-          onClick={handleSave}
-          disabled={!hasChanges || updateRepository.isPending}
+          variant="destructive"
+          onClick={() => setShowDeleteDialog(true)}
+          disabled={deleteRepository.isPending}
         >
-          {updateRepository.isPending ? (
+          {deleteRepository.isPending ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
+              Deleting...
             </>
           ) : (
             <>
-              <Save className="mr-2 h-4 w-4" />
-              Save Changes
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete Repository
             </>
           )}
         </Button>
+        <div className="flex gap-3">
+          <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
+            Discard Changes
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={!hasChanges || updateRepository.isPending}
+          >
+            {updateRepository.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Save Changes
+              </>
+            )}
+          </Button>
+        </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Repository</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{repository?.name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteRepository.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteRepository.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteRepository.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ConfigurationSection>
   )
 }

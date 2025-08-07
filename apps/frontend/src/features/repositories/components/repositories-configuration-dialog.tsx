@@ -96,12 +96,28 @@ export function RepositoriesConfigurationDialog({
         <RepositoryAllConfigSection
           key={currentSection.repositoryId} // Stable key based on repository ID
           repositoryId={currentSection.repositoryId}
+          onDeleted={async () => {
+            // Refresh repositories list
+            await refetch()
+            // Switch to first repository or close dialog if none left
+            const remainingRepos = repositories.filter((r) => r.id !== currentSection.repositoryId)
+            if (remainingRepos.length > 0) {
+              setActiveSection(remainingRepos[0].id)
+            } else {
+              setShowNewRepository(false)
+              setActiveSection('')
+              // Close dialog if no repositories left
+              if (remainingRepos.length === 0) {
+                onOpenChange(false)
+              }
+            }
+          }}
         />
       )
     }
 
     return null
-  }, [stableSections, activeSection, repositories, refetch])
+  }, [stableSections, activeSection, repositories, refetch, onOpenChange])
 
   const handleAddRepository = () => {
     setShowNewRepository(true)

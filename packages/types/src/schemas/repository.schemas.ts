@@ -60,6 +60,7 @@ export const RepositoryConfigSchema = z.object({
   sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
+  deleted: z.boolean().optional(), // Soft deletion flag
 
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
