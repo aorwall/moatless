@@ -10,8 +10,11 @@ vi.mock('../../utils/logger.js')
 class TestEnvironment extends BaseEnvironment {
   private _isRunning = false
   public testStatus: 'idle' | 'running' = 'idle'
+  private _status: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' = 'ready'
+  private _error?: string
+  private _createdAt = new Date()
 
-  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+  async createAgent(agentType: string, _options?: AgentOptions): Promise<BaseAgent> {
     const mockAgent: BaseAgent = {
       run: vi.fn().mockReturnValue(async function* (): AsyncGenerator<Event> {
         yield { type: 'message', agentType, content: 'test event' } as any
@@ -56,6 +59,72 @@ class TestEnvironment extends BaseEnvironment {
   isRunning(): boolean {
     return this._isRunning
   }
+
+  // Implement all required abstract methods
+  async startServer(): Promise<any> {
+    return { status: 'running', port: 3000 }
+  }
+
+  async stopServer(): Promise<boolean> {
+    return true
+  }
+
+  async getServerStatus(): Promise<any> {
+    return { status: 'running', port: 3000 }
+  }
+
+  async getServerLogs(lines?: number): Promise<string> {
+    return 'Test logs'
+  }
+
+  getPreviewPort(): number | undefined {
+    return 3000
+  }
+
+  async proxyPreviewRequest(request: any): Promise<any> {
+    return {
+      status: 200,
+      headers: new Headers(),
+      body: 'Test response',
+    }
+  }
+
+  async runCommand(command: string, timeout?: number): Promise<any> {
+    return {
+      success: true,
+      output: 'Test output',
+      error: '',
+      exitCode: 0,
+    }
+  }
+
+  async setup(iterationNumber?: number): Promise<void> {
+    this._status = 'ready'
+  }
+
+  async teardown(force?: boolean): Promise<void> {
+    this._status = 'cleaning'
+  }
+
+  getWorkspacePath(): string {
+    return '/test/workspace'
+  }
+
+  getType(): 'local' | 'docker' {
+    return 'local'
+  }
+
+  getStatus(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
+    return this._status
+  }
+
+  getError(): string | undefined {
+    return this._error
+  }
+
+  getCreatedAt(): Date {
+    return this._createdAt
+  }
 }
 
 describe('BaseEnvironment - Unit Tests', () => {
@@ -67,8 +136,8 @@ describe('BaseEnvironment - Unit Tests', () => {
     name: 'Test Repository',
     path: '/test/path',
     codeExecution: { type: 'local' },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
   }
 
   beforeEach(() => {

@@ -133,7 +133,7 @@ describe('ProxyAgent - Unit Tests', () => {
       const generator = proxyAgent.run('test message')
 
       await expect(async () => {
-        for await (const event of generator) {
+        for await (const _ of generator) {
           // Should throw before yielding anything
         }
       }).rejects.toThrow('Failed to execute agent in worker: Worker not available')
@@ -153,7 +153,7 @@ describe('ProxyAgent - Unit Tests', () => {
       const generator = proxyAgent.run('test message')
 
       await expect(async () => {
-        for await (const event of generator) {
+        for await (const _ of generator) {
           // Should throw before yielding anything
         }
       }).rejects.toThrow('Network error')
@@ -298,7 +298,7 @@ describe('ProxyAgent - Unit Tests', () => {
       const generator = proxyAgent.run('test message')
 
       await expect(async () => {
-        for await (const event of generator) {
+        for await (const _ of generator) {
           // Should throw before yielding anything
         }
       }).rejects.toThrow('Invalid JSON')
@@ -319,7 +319,7 @@ describe('ProxyAgent - Unit Tests', () => {
       await expect(
         Promise.race([
           (async () => {
-            for await (const event of generator) {
+            for await (const _ of generator) {
               // Should never reach here
             }
           })(),
@@ -363,7 +363,7 @@ describe('ProxyAgent - Unit Tests', () => {
         json: async () => ({ branch: 'feature/test', summary: 'Test summary' }),
       })
 
-      const result = await proxyAgent.getBranchNameAndSummary('test message')
+      await proxyAgent.getBranchNameAndSummary('test message')
 
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:8001/agent-branch-summary',

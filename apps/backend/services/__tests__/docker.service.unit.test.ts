@@ -5,7 +5,7 @@ import type { SettingsService } from '../settings.service.js'
 // Mock child_process at the module level
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
-  exec: vi.fn((cmd, opts, cb) => {
+  exec: vi.fn((_cmd, opts, cb) => {
     const callback = typeof opts === 'function' ? opts : cb
     if (callback) {
       callback(null, { stdout: 'Docker info output', stderr: '' }, null)

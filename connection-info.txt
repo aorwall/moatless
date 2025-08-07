@@ -1,0 +1,7 @@
+VM_NAME=moatless-vibe-vm
+RESOURCE_GROUP=rg-amplifier
+PUBLIC_IP=13.79.185.158
+FQDN=moatless-vibe.northeurope.cloudapp.azure.com
+SSH_USER=azureuser
+SSH_COMMAND=ssh azureuser@13.79.185.158
+APP_URL=http://13.79.185.158:8000
