@@ -831,7 +831,6 @@ export class ClaudeService {
     const possiblePaths = [
       '/usr/bin', // Common system location (as found on your server)
       '/usr/local/bin',
-      '/opt/homebrew/bin', // macOS with Homebrew
     ]
 
     // Add npm global bin directories (for npm-installed claude)
