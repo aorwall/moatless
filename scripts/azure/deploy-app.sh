@@ -11,7 +11,7 @@ DATA_DIR="/var/lib/moatless-vibe/data"
 LOG_DIR="/var/log/moatless-vibe"
 SERVICE_FILE="/etc/systemd/system/moatless-vibe.service"
 ENV_FILE="$APP_DIR/.env"
-REPO_URL="${REPO_URL:-https://github.com/aorwall/moatless-vibe.git}"
+REPO_URL="${REPO_URL:-git@github.com:aorwall/moatless-vibe.git}"  # Use SSH by default
 BRANCH="${BRANCH:-main}"
 
 # Colors for output
@@ -58,17 +58,48 @@ deploy_code() {
     if [ -d "$APP_DIR/.git" ]; then
         print_info "Repository exists, pulling latest changes..."
         cd "$APP_DIR"
-        sudo -u moatless git fetch origin
-        sudo -u moatless git checkout "$BRANCH"
-        sudo -u moatless git pull origin "$BRANCH"
+        
+        # Check current remote URL
+        CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+        
+        # Update remote if needed (in case we switched from HTTPS to SSH)
+        if [ "$CURRENT_REMOTE" != "$REPO_URL" ]; then
+            print_info "Updating remote URL to: $REPO_URL"
+            git remote set-url origin "$REPO_URL"
+        fi
+        
+        # Fetch and pull latest changes
+        git fetch origin
+        git checkout "$BRANCH"
+        
+        # Check if we have uncommitted changes
+        if [ -n "$(git status --porcelain)" ]; then
+            print_warning "Uncommitted changes detected, stashing them..."
+            git stash push -m "Auto-stash before deployment $(date +%Y%m%d_%H%M%S)"
+        fi
+        
+        git pull origin "$BRANCH"
     else
+        # Check if directory exists but is not a git repo
+        if [ -d "$APP_DIR" ]; then
+            print_warning "Directory exists but is not a git repository"
+            print_info "Backing up existing directory..."
+            sudo mv "$APP_DIR" "$APP_DIR.backup.$(date +%Y%m%d_%H%M%S)"
+        fi
+        
         print_info "Cloning repository..."
-        sudo rm -rf "$APP_DIR"
+        
+        # Ensure parent directory has correct permissions
+        sudo mkdir -p "$(dirname "$APP_DIR")"
+        sudo chown moatless:moatless "$(dirname "$APP_DIR")"
+        
+        # Clone as moatless user
         sudo -u moatless git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
         cd "$APP_DIR"
     fi
     
     print_info "Current commit: $(git rev-parse --short HEAD)"
+    print_info "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 }
 
 # Install dependencies

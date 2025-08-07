@@ -64,6 +64,12 @@ update_code() {
     # Save current commit hash
     OLD_COMMIT=$(git rev-parse --short HEAD)
     
+    # Check if we have uncommitted changes
+    if [ -n "$(git status --porcelain)" ]; then
+        print_warning "Uncommitted changes detected, stashing them..."
+        sudo -u moatless git stash push -m "Auto-stash before update $(date +%Y%m%d_%H%M%S)"
+    fi
+    
     # Fetch and pull latest changes
     sudo -u moatless git fetch origin
     sudo -u moatless git checkout "$BRANCH"
