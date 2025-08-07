@@ -30,7 +30,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/moatless-vibe/data /var/log/moatless-vibe /tmp
+ReadWritePaths=/var/lib/moatless-vibe/data /var/log/moatless-vibe /tmp /opt/repos
 
 # Resource limits
 LimitNOFILE=65536
