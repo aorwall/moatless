@@ -48,15 +48,28 @@ export function RepositoryNewSection({ onCancel, onSuccess }: RepositoryNewSecti
       }
 
       // Extract name from URL for validation
-      const githubUrlPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/
-      const match = remoteUrl.match(githubUrlPattern)
+      // Support both HTTPS and SSH URLs
+      const httpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/
+      const sshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
 
-      if (!match) {
-        toast.error('Please enter a valid GitHub repository URL')
-        return
+      let repoName: string | undefined
+
+      // Try HTTPS pattern first
+      let match = remoteUrl.match(httpsPattern)
+      if (match) {
+        repoName = match[1]
+      } else {
+        // Try SSH pattern
+        match = remoteUrl.match(sshPattern)
+        if (match) {
+          repoName = match[2]
+        }
       }
 
-      const repoName = match[1]
+      if (!repoName) {
+        toast.error('Please enter a valid GitHub repository URL (HTTPS or SSH)')
+        return
+      }
 
       repositoryData = {
         name: repoName, // Auto-extracted name
@@ -200,7 +213,7 @@ export function RepositoryNewSection({ onCancel, onSuccess }: RepositoryNewSecti
             <ConfigurationInput
               value={formData.remoteUrl}
               onChange={(e) => handleGitHubUrlChange(e.target.value)}
-              placeholder="https://github.com/owner/repository"
+              placeholder="https://github.com/owner/repository or git@github.com:owner/repository.git"
               className={errors.remoteUrl ? 'border-destructive' : ''}
               autoFocus
             />

@@ -99,7 +99,8 @@ export class RepositoryService {
     for (const key of keys) {
       const repoId = key.replace('repositories/', '')
       const repo = await this.storage.getRepository(repoId)
-      if (repo) repositories.push(repo)
+      // Filter out soft-deleted repositories
+      if (repo && !repo.deleted) repositories.push(repo)
     }
 
     // Sort by creation date (newest first)
@@ -137,6 +138,11 @@ export class RepositoryService {
       throw new RepositoryNotFoundError(repoId)
     }
 
+    // Check if already deleted
+    if (repository.deleted) {
+      return // Already deleted, nothing to do
+    }
+
     // Check if repository is in use by any open or running tasks
     const tasks = await this.storage.list('tasks/')
     for (const taskKey of tasks) {
@@ -150,7 +156,14 @@ export class RepositoryService {
       }
     }
 
-    await this.storage.delete(`repositories/${repoId}`)
+    // Perform soft deletion by setting the deleted flag
+    const updatedRepository = {
+      ...repository,
+      deleted: true,
+      updatedAt: new Date(),
+    }
+
+    await this.saveRepository(updatedRepository)
   }
 
   async runSetupScript(repository: RepositoryConfig): Promise<SetupScriptResponse> {
@@ -271,14 +284,29 @@ export class RepositoryService {
     }
 
     // Parse GitHub URL to extract owner and repo name
-    const githubUrlPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
-    const match = remoteUrl.match(githubUrlPattern)
+    // Support both HTTPS and SSH URLs
+    const httpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
+    const sshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
 
-    if (!match) {
-      throw new ValidationError('Invalid GitHub URL format', { url: remoteUrl })
+    let owner: string
+    let repoName: string
+    let isSSH = false
+
+    // Try HTTPS pattern first
+    let match = remoteUrl.match(httpsPattern)
+    if (match) {
+      ;[, owner, repoName] = match
+    } else {
+      // Try SSH pattern
+      match = remoteUrl.match(sshPattern)
+      if (match) {
+        ;[, owner, repoName] = match
+        isSSH = true
+      } else {
+        throw new ValidationError('Invalid GitHub URL format', { url: remoteUrl })
+      }
     }
 
-    const [, owner, repoName] = match
     const finalName = suggestedName || repoName
 
     // Get GitHub PAT from settings
@@ -306,10 +334,19 @@ export class RepositoryService {
       }
     }
 
-    // Build clone URL with authentication if PAT is available
+    // Build clone URL with authentication if needed
     let cloneUrl = remoteUrl
-    if (pat) {
-      // Add PAT authentication to the URL
+
+    if (isSSH) {
+      // SSH URLs use SSH keys for authentication, no need to modify the URL
+      // The system's SSH configuration will handle authentication
+      logger.info('Using SSH URL for cloning - ensure SSH keys are configured', {
+        owner,
+        repo: repoName,
+        path: clonePath,
+      })
+    } else if (pat) {
+      // For HTTPS URLs, add PAT authentication if available
       const urlWithAuth = remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
       cloneUrl = urlWithAuth
     }
@@ -318,7 +355,8 @@ export class RepositoryService {
       owner,
       repo: repoName,
       path: clonePath,
-      hasAuth: !!pat,
+      isSSH,
+      hasAuth: !isSSH && !!pat,
     })
 
     // Clone the repository
@@ -327,14 +365,25 @@ export class RepositoryService {
     if (!cloneResult.success) {
       // Remove PAT from error message for security
       const sanitizedError = cloneResult.error?.replace(pat || '', '***')
-      throw new ValidationError(`Failed to clone repository: ${sanitizedError}`, {
+
+      let errorMessage = `Failed to clone repository: ${sanitizedError}`
+      if (isSSH) {
+        errorMessage += '\n\nFor SSH URLs, ensure you have SSH keys configured for GitHub access.'
+      } else if (!pat) {
+        errorMessage +=
+          '\n\nFor HTTPS URLs, consider adding a GitHub Personal Access Token in settings.'
+      }
+
+      throw new ValidationError(errorMessage, {
         url: remoteUrl,
         error: sanitizedError,
+        isSSH,
       })
     }
 
-    // Remove the remote URL with PAT and set it back to the original URL
-    if (pat) {
+    // For HTTPS URLs with PAT, remove the PAT from the remote URL for security
+    // SSH URLs don't need this step
+    if (!isSSH && pat) {
       await this.executeCommand(`git remote set-url origin "${remoteUrl}"`, clonePath)
     }
 
