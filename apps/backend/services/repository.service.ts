@@ -274,6 +274,44 @@ export class RepositoryService {
   }
 
   /**
+   * Generate a unique clone path by adding numeric suffix if directory exists
+   */
+  private async generateUniqueClonePath(
+    baseDir: string,
+    baseName: string,
+  ): Promise<{ path: string; name: string }> {
+    const basePath = path.join(baseDir, baseName)
+
+    try {
+      await fs.access(basePath)
+      // Directory exists, try with numeric suffixes
+      let counter = 2
+      while (true) {
+        const uniqueName = `${baseName}-${counter}`
+        const uniquePath = path.join(baseDir, uniqueName)
+
+        try {
+          await fs.access(uniquePath)
+          // This path also exists, try next number
+          counter++
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            // Path doesn't exist, we can use it
+            return { path: uniquePath, name: uniqueName }
+          }
+          throw error
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        // Base path doesn't exist, we can use it
+        return { path: basePath, name: baseName }
+      }
+      throw error
+    }
+  }
+
+  /**
    * Clone a GitHub repository using the PAT from settings
    */
   private async cloneGitHubRepository(
@@ -308,7 +346,7 @@ export class RepositoryService {
       }
     }
 
-    const finalName = suggestedName || repoName
+    let finalName = suggestedName || repoName
 
     // Get GitHub PAT from settings
     const githubSettings = this.settingsService.getGitHubSettings()
@@ -321,19 +359,10 @@ export class RepositoryService {
     // Ensure repos directory exists
     await fs.mkdir(repoDir, { recursive: true })
 
-    const clonePath = path.join(repoDir, finalName)
-
-    // Check if directory already exists
-    try {
-      await fs.access(clonePath)
-      throw new ValidationError(`Repository directory already exists: ${clonePath}`, {
-        path: clonePath,
-      })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error
-      }
-    }
+    // Generate unique clone path (handles conflicts automatically)
+    const uniqueCloneInfo = await this.generateUniqueClonePath(repoDir, finalName)
+    const clonePath = uniqueCloneInfo.path
+    finalName = uniqueCloneInfo.name
 
     // Build clone URL with authentication if needed
     let cloneUrl = remoteUrl
