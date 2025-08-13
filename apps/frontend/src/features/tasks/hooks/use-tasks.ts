@@ -100,6 +100,7 @@ export function useSendMessage(
       fileIds?: string[]
       filePaths?: string[]
       commandName?: string
+      agentMode?: string
     }
   >,
 ) {
@@ -115,11 +116,21 @@ export function useSendMessage(
       fileIds?: string[]
       filePaths?: string[]
       commandName?: string
+      agentMode?: string
     }
   >({
     mutationKey: ['tasks', taskId, 'sendMessage'],
-    mutationFn: ({ message, resume, model, fileIds, filePaths, commandName }) =>
-      tasksApi.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName),
+    mutationFn: ({ message, resume, model, fileIds, filePaths, commandName, agentMode }) =>
+      tasksApi.sendMessage(
+        taskId,
+        message,
+        resume,
+        model,
+        fileIds,
+        filePaths,
+        commandName,
+        agentMode,
+      ),
     onSuccess: async (data, variables, context) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.lists(),

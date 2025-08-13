@@ -140,3 +140,36 @@ export function useModelSelector(initial: ClaudeModel = DEFAULT_CLAUDE_MODEL) {
     [selected, onChange, items],
   )
 }
+
+// Agent mode selector hook
+export function useAgentModeSelector(initial: 'edit' | 'plan' = 'edit') {
+  const [selected, setSelected] = useState<'edit' | 'plan'>(initial)
+
+  // Sync internal state when initial value changes (e.g., when switching tasks)
+  useEffect(() => {
+    setSelected(initial)
+  }, [initial])
+
+  const items = useMemo(
+    () => [
+      { id: 'edit', label: 'Edit Mode' },
+      { id: 'plan', label: 'Plan Mode' },
+    ],
+    [],
+  )
+
+  const onChange = useCallback((value: string) => {
+    setSelected(value as 'edit' | 'plan')
+  }, [])
+
+  return useMemo(
+    () => ({
+      value: selected,
+      onChange,
+      placeholder: 'Mode',
+      items,
+      width: 'w-[100px]',
+    }),
+    [selected, onChange, items],
+  )
+}

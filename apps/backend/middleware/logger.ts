@@ -37,12 +37,22 @@ export const logger: MiddlewareHandler<AppBindings> = async (c, next) => {
       requestId,
     })
   } else {
-    appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
-      method,
-      path,
-      status,
-      duration,
-      requestId,
-    })
+    if (method === 'GET' && status === 200) {
+      appLogger.debug(`${method} ${path} ${status} ${duration}ms`, {
+        method,
+        path,
+        status,
+        duration,
+        requestId,
+      })
+    } else {
+      appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
+        method,
+        path,
+        status,
+        duration,
+        requestId,
+      })
+    }
   }
 }

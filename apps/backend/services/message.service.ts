@@ -62,7 +62,7 @@ export class MessageService {
 
       // If we got messages from Claude files, transform and return them
       if (allAgentMessages.length > 0) {
-        logger.info('Found Claude messages', {
+        logger.debug('Found Claude messages', {
           taskId: task.taskId,
           messageCount: allAgentMessages.length,
         })

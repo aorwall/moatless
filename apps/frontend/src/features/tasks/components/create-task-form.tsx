@@ -4,6 +4,10 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { RepositorySelector } from '@/features/tasks/components/chat-input/repository-selector'
+import {
+  GenericSelector,
+  useAgentModeSelector,
+} from '@/features/tasks/components/chat-input/selectors'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -22,6 +26,9 @@ export function CreateTaskForm() {
   const navigate = useNavigate()
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>('')
   const [selectedBranch, setSelectedBranch] = useState<string>('__none__')
+
+  // Agent mode selector with default 'edit'
+  const agentModeSelector = useAgentModeSelector('edit')
 
   const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList()
 
@@ -51,6 +58,7 @@ export function CreateTaskForm() {
       repositoryId: selectedRepositoryId,
       branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
       model: DEFAULT_CLAUDE_MODEL, // Use default model for now
+      agentMode: agentModeSelector.value,
     }
 
     // Validate using schema
@@ -123,6 +131,16 @@ export function CreateTaskForm() {
             </p>
           </div>
         )}
+
+        <div className="space-y-2">
+          <Label htmlFor="agentMode" className="text-sm font-medium text-foreground">
+            Agent Mode
+          </Label>
+          <GenericSelector {...agentModeSelector} />
+          <p className="text-xs text-muted-foreground">
+            Choose between Edit mode (makes changes) or Plan mode (creates plans)
+          </p>
+        </div>
 
         {createTask.error && (
           <div className="rounded-md bg-status-error/10 p-4 text-sm text-status-error">

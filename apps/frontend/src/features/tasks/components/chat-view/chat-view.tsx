@@ -8,7 +8,7 @@ import { useSendMessage, useStopAgent, useTaskCommands } from '@/features/tasks/
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
-import { GenericSelector, useModelSelector } from '../chat-input/selectors'
+import { GenericSelector, useAgentModeSelector, useModelSelector } from '../chat-input/selectors'
 import { MessageHistory } from '../message-history'
 import { CommandButtons } from './command-buttons'
 
@@ -28,28 +28,15 @@ function ChatViewComponent({ className }: ChatViewProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [resumeConversation, setResumeConversation] = useState(true)
 
-  // Model selector state - local with initial value from localStorage
-  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(() => {
-    if (typeof window !== 'undefined') {
-      const savedModel = localStorage.getItem('lastSelectedModel')
-      if (savedModel && Object.values(CLAUDE_MODELS).includes(savedModel as ClaudeModel)) {
-        return savedModel as ClaudeModel
-      }
-    }
-    return CLAUDE_MODELS.SONNET_4
-  })
+  // Derive initial values from last iteration
+  const lastIteration =
+    iterations && iterations.length > 0 ? iterations[iterations.length - 1] : null
+  const lastIterationModel = lastIteration?.model as ClaudeModel
+  const lastIterationAgentMode = lastIteration?.agentMode as 'edit' | 'plan'
 
-  const modelSelector = useModelSelector(selectedModel)
-
-  // Update local state and localStorage when model selector changes
-  useEffect(() => {
-    if (modelSelector.value && modelSelector.value !== selectedModel) {
-      setSelectedModel(modelSelector.value as ClaudeModel)
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('lastSelectedModel', modelSelector.value)
-      }
-    }
-  }, [modelSelector.value, selectedModel])
+  // Initialize selectors with values from last iteration or defaults
+  const modelSelector = useModelSelector(lastIterationModel || CLAUDE_MODELS.SONNET_4)
+  const agentModeSelector = useAgentModeSelector(lastIterationAgentMode || 'edit')
 
   // Clear state when task changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
@@ -98,6 +85,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
           resume: resumeConversation,
           model: modelSelector.value as ClaudeModel,
           filePaths,
+          agentMode: agentModeSelector.value,
         },
         {
           onSuccess: () => {
@@ -116,6 +104,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
     uploadedFiles,
     resumeConversation,
     modelSelector.value,
+    agentModeSelector.value,
   ])
 
   // Handle sending message to task for commands - wrapped in useCallback for stable reference
@@ -140,10 +129,6 @@ function ChatViewComponent({ className }: ChatViewProps) {
     },
     [sendMessage],
   )
-
-  // Get last iteration for ChatInput
-  const lastIteration =
-    iterations && iterations.length > 0 ? iterations[iterations.length - 1] : null
 
   // Get available commands from the API response
   const availableCommands = useMemo(() => {
@@ -261,7 +246,12 @@ function ChatViewComponent({ className }: ChatViewProps) {
                 enableFileUpload={true}
                 files={uploadedFiles}
                 onFilesChange={setUploadedFiles}
-                selectors={<GenericSelector {...modelSelector} />}
+                selectors={
+                  <>
+                    <GenericSelector {...modelSelector} />
+                    <GenericSelector {...agentModeSelector} />
+                  </>
+                }
               />
             </div>
           </div>

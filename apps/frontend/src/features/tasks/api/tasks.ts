@@ -60,6 +60,7 @@ export const tasksApi = {
     fileIds?: string[],
     filePaths?: string[],
     commandName?: string,
+    agentMode?: string,
   ): Promise<SimpleTaskResponse> {
     return await apiClient.post<SimpleTaskResponse>(`/api/v1/tasks/${taskId}/messages`, {
       message,
@@ -68,6 +69,7 @@ export const tasksApi = {
       fileIds,
       filePaths,
       commandName,
+      agentMode,
     })
   },
 

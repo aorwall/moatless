@@ -228,6 +228,7 @@ export const CreateTaskRequestSchema = z.object({
   start: z.boolean().optional(),
   model: z.string().optional(),
   filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
+  agentMode: z.enum(['edit', 'plan']).optional(), // Agent mode for task creation
 })
 
 // Create Vibe Task

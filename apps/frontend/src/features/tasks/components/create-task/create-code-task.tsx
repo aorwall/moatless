@@ -6,6 +6,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
 import {
   GenericSelector,
+  useAgentModeSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
@@ -44,6 +45,17 @@ export function CreateCodeTask({
 
   const modelSelector = useModelSelector(initialModel)
 
+  // Initialize agent mode selector with saved value
+  const initialAgentMode = (() => {
+    if (typeof window !== 'undefined') {
+      const savedAgentMode = localStorage.getItem('lastSelectedAgentMode') as 'edit' | 'plan'
+      return savedAgentMode || 'edit'
+    }
+    return 'edit'
+  })()
+
+  const agentModeSelector = useAgentModeSelector(initialAgentMode)
+
   // Determine initial repository value
   const initialRepositoryId = (() => {
     if (defaultRepositoryId) return defaultRepositoryId
@@ -78,6 +90,13 @@ export function CreateCodeTask({
     }
   }, [modelSelector.value])
 
+  // Save selected agent mode to localStorage
+  useEffect(() => {
+    if (agentModeSelector.value) {
+      localStorage.setItem('lastSelectedAgentMode', agentModeSelector.value)
+    }
+  }, [agentModeSelector.value])
+
   // Auto-select first branch when branches are loaded
   useEffect(() => {
     if (repoSelector.value && branchSelector.items.length > 0 && !branchSelector.value) {
@@ -101,6 +120,7 @@ export function CreateCodeTask({
         model: modelSelector.value,
         filePaths,
         originalBranch: branchSelector.value,
+        agentMode: agentModeSelector.value,
       },
       {
         onSuccess: () => {
@@ -141,6 +161,7 @@ export function CreateCodeTask({
               <GenericSelector {...repoSelector} />
               <GenericSelector {...branchSelector} />
               <GenericSelector {...modelSelector} />
+              <GenericSelector {...agentModeSelector} />
             </>
           }
         />
