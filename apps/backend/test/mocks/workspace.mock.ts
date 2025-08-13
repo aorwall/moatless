@@ -35,7 +35,6 @@ export function createMockEnvironment(overrides?: Partial<BaseEnvironment>): Bas
       command: 'echo test',
       output: 'test',
       exitCode: 0,
-      durationMs: 100,
     }),
     isRunning: vi.fn().mockReturnValue(false),
     setup: vi.fn().mockResolvedValue(undefined),

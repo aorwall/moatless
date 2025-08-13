@@ -53,7 +53,6 @@ describe('Create Task Flow - Data Sync Integration', () => {
           messageCount: 5,
           costUsd: 0.05,
           status: 'active',
-          durationMs: 15000,
         },
       ],
     }

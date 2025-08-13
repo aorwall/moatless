@@ -179,7 +179,6 @@ export class TaskService {
           // Set basic iteration data for local tracking
           iteration.costUsd = resultPayload.total_cost_usd ?? 0
           iteration.endTime = new Date()
-          iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
         }
 
         // Emit agent events to event service with agentSessionId
@@ -199,8 +198,8 @@ export class TaskService {
 
       // Set basic iteration data for local tracking
       iteration.status = 'failed'
+      iteration.result = `Agent execution failed: ${error instanceof Error ? error.message : String(error)}. Agent: ${agentType}, Model: ${model || 'default'}, Resuming: ${!!resumeSessionId}`
       iteration.endTime = new Date()
-      iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
       // Emit error event - task service will handle the task/iteration updates
       await this.eventService.emitEvent({
@@ -327,13 +326,10 @@ export class TaskService {
         errorMessage = 'Error occurred during execution'
       }
 
-      iteration.error = {
-        message: errorMessage,
-        timestamp: new Date(),
-      }
-
       if ('result' in resultPayload && resultPayload.result !== null) {
         iteration.result = resultPayload.result
+      } else {
+        iteration.result = errorMessage
       }
     } else {
       // Handle successful result
@@ -349,7 +345,6 @@ export class TaskService {
     }
 
     iteration.endTime = new Date()
-    iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
     // Capture git data when iteration completes
     await this.captureGitDataForIteration(task.taskId, iteration)
@@ -397,13 +392,8 @@ export class TaskService {
 
     // Save error to iteration
     iteration.status = 'failed'
-    iteration.error = {
-      message: (event.payload?.error as string) || 'Agent execution failed',
-      stack: event.payload?.stackTrace as string | undefined,
-      timestamp: new Date(),
-    }
+    iteration.result = `${(event.payload?.error as string) || 'Agent execution failed'}${event.payload?.stackTrace ? '\nStack: ' + event.payload.stackTrace : ''}`
     iteration.endTime = new Date()
-    iteration.durationMs = iteration.endTime.getTime() - iteration.startTime.getTime()
 
     // Capture git data even for failed iterations
     await this.captureGitDataForIteration(task.taskId, iteration)
@@ -628,6 +618,8 @@ export class TaskService {
                 lastIteration = task.iterations[task.iterations.length - 1]
                 if (lastIteration.status === 'active') {
                   lastIteration.status = 'failed'
+                  lastIteration.result = `Failed to start task after workspace setup: ${error instanceof Error ? error.message : String(error)}`
+                  lastIteration.endTime = new Date()
                 }
               }
 
@@ -778,6 +770,8 @@ export class TaskService {
             if (updatedIteration) {
               // Only update iteration status, not task status
               updatedIteration.status = 'failed'
+              updatedIteration.result = `Agent failed to start: ${error instanceof Error ? error.message : String(error)}`
+              updatedIteration.endTime = new Date()
 
               await this.storage.saveTask(updatedTask)
 
@@ -918,12 +912,16 @@ export class TaskService {
             // If agent is not running, update iteration status to failed
             if (!isAgentRunning) {
               lastIteration.status = 'failed'
+              lastIteration.result = `Agent stopped unexpectedly. Last state: ${agentStatus.state}, Session: ${agentStatus.sessionId || 'none'}`
+              lastIteration.endTime = new Date()
               await this.storage.saveTask(task)
             }
           }
         } catch (_error) {
           // If we can't get workspace/environment, assume agent is not running
           lastIteration.status = 'failed'
+          lastIteration.result = `Failed to verify agent status: ${_error instanceof Error ? _error.message : 'Workspace unavailable'}`
+          lastIteration.endTime = new Date()
           await this.storage.saveTask(task)
         }
       }
@@ -1178,7 +1176,8 @@ export class TaskService {
         iteration.status = 'failed'
         // Ensure we never set null for error messages
         const errorMessage = error instanceof Error ? error.message : String(error)
-        iteration.result = errorMessage || 'Unknown error occurred'
+        iteration.result = `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${model || 'default'}, Resuming: ${!!resumeSessionId}`
+        iteration.endTime = new Date()
 
         await this.storage.saveTask(metadata)
 

@@ -70,7 +70,7 @@ describe('Date Handling Consistency', () => {
     expect(result.timestamp.toISOString()).toBe('2024-01-15T10:30:00.000Z')
   })
 
-  it('should handle error timestamps in tasks', () => {
+  it('should handle failed iterations with result', () => {
     const taskData = {
       taskId: 'test-123',
       createdAt: new Date(),
@@ -84,20 +84,20 @@ describe('Date Handling Consistency', () => {
         {
           iterationNumber: 1,
           startTime: new Date(),
+          endTime: new Date(),
           status: 'failed',
           messageCount: 1,
           costUsd: 0.01,
-          error: {
-            message: 'Test error',
-            timestamp: '2024-01-15T10:30:00Z',
-          },
+          result: 'Test error occurred',
         },
       ],
     }
 
     const result = TaskResponseSchema.parse(taskData)
 
-    // Should convert error timestamp string to Date
-    expect(result.iterations[0].error?.timestamp).toBeInstanceOf(Date)
+    // Should handle failed iteration with result
+    expect(result.iterations[0].status).toBe('failed')
+    expect(result.iterations[0].result).toBe('Test error occurred')
+    expect(result.iterations[0].endTime).toBeInstanceOf(Date)
   })
 })

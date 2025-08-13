@@ -38,7 +38,6 @@ export function createMockTaskIteration(
     costUsd: 0.01,
     initialMessage: `Test iteration ${iteration} message`,
     result: 'Task completed successfully',
-    durationMs: 10000,
     gitDiff: undefined,
     ...overrides,
   }

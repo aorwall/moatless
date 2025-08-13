@@ -48,7 +48,6 @@ export const TaskIterationSchema = z.object({
   initialMessage: z.string().optional(),
   commandName: z.string().optional(),
   result: z.string().optional(),
-  durationMs: z.number().optional(),
   gitDiff: z.string().optional(),
   commitHash: z.string().optional(),
   merged: z.boolean().optional(),
@@ -95,13 +94,6 @@ export const TaskIterationSchema = z.object({
         mimeType: z.string(),
       }),
     )
-    .optional(),
-  error: z
-    .object({
-      message: z.string(),
-      stack: z.string().optional(),
-      timestamp: dateSchema,
-    })
     .optional(),
   willNotResume: z.boolean().optional(),
 })

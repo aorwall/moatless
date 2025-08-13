@@ -413,13 +413,16 @@ describe('Complete Workflow Integration Test (broad)', () => {
     expect(firstIteration.result!.length).toBeGreaterThan(0)
 
     expect(firstIteration.costUsd).toBeGreaterThan(0)
-    expect(firstIteration.durationMs).toBeGreaterThan(0)
     expect(firstIteration.endTime).toBeTruthy()
+    // Check duration can be calculated from timestamps
+    const duration =
+      new Date(firstIteration.endTime!).getTime() - new Date(firstIteration.startTime).getTime()
+    expect(duration).toBeGreaterThan(0)
 
     console.log('Task iteration completed:', {
       status: firstIteration.status,
       costUsd: firstIteration.costUsd,
-      durationMs: firstIteration.durationMs,
+      durationMs: duration,
       resultLength: firstIteration.result?.length,
       resultPreview: `${firstIteration.result?.substring(0, 100)}...`,
     })
@@ -780,13 +783,16 @@ describe('Complete Workflow Integration Test (broad)', () => {
       expect(firstIteration.result!.length).toBeGreaterThan(0)
 
       expect(firstIteration.costUsd).toBeGreaterThan(0)
-      expect(firstIteration.durationMs).toBeGreaterThan(0)
       expect(firstIteration.endTime).toBeTruthy()
+      // Check duration can be calculated from timestamps
+      const duration =
+        new Date(firstIteration.endTime!).getTime() - new Date(firstIteration.startTime).getTime()
+      expect(duration).toBeGreaterThan(0)
 
       console.log('Task iteration completed:', {
         status: firstIteration.status,
         costUsd: firstIteration.costUsd,
-        durationMs: firstIteration.durationMs,
+        durationMs: duration,
         resultLength: firstIteration.result?.length,
         resultPreview: `${firstIteration.result?.substring(0, 100)}...`,
       })

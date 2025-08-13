@@ -37,9 +37,12 @@ export function TaskIteration({
   }
 
   const getIterationTiming = () => {
+    const duration = iteration.endTime
+      ? new Date(iteration.endTime).getTime() - new Date(iteration.startTime).getTime()
+      : 0
     return {
       isRunning: isRunningIteration,
-      duration: iteration.durationMs || 0,
+      duration,
       startTime:
         iteration.startTime instanceof Date
           ? iteration.startTime.toISOString()
@@ -71,32 +74,12 @@ export function TaskIteration({
       )}
 
       {/* Result Message or Error */}
-      {iteration.status === 'failed' && iteration.error ? (
+      {iteration.status === 'failed' && iteration.result ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            <div className="space-y-3">
-              {/* Show result first if available */}
-              {iteration.result && (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
-                </div>
-              )}
-
-              {/* Error message */}
-              <div>Error: {iteration.error.message}</div>
-
-              {/* Expandable stack trace */}
-              {iteration.error.stack && (
-                <details className="mt-2">
-                  <summary className="text-xs cursor-pointer hover:underline">
-                    Show stack trace
-                  </summary>
-                  <pre className="mt-2 text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
-                    {iteration.error.stack}
-                  </pre>
-                </details>
-              )}
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{iteration.result}</ReactMarkdown>
             </div>
           </AlertDescription>
         </Alert>

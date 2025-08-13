@@ -32,7 +32,6 @@ export function createMockTaskIteration(overrides?: Partial<TaskIteration>): Tas
     costUsd: 0.05,
     contextTokens: 1000,
     initialMessage: 'Test message',
-    durationMs: 300000,
     ...overrides,
   }
 }

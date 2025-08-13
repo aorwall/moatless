@@ -191,7 +191,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               ) : (
                 // Default: show last result
                 <p className="text-sm text-muted-foreground line-clamp-4">
-                  {lastIteration?.result || lastIteration?.error?.message || 'No results yet'}
+                  {lastIteration?.result || 'No results yet'}
                 </p>
               )}
             </div>
