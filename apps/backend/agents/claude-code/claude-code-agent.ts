@@ -45,10 +45,11 @@ export class ClaudeCodeAgent extends BaseAgent {
     try {
       const sdkOptions = this.buildSDKOptions(runOptions)
 
-      agentLogger.debug('SDK options built', {
+      agentLogger.info('Claude Code SDK options configured', {
         model: sdkOptions.model,
         allowedTools: sdkOptions.allowedTools,
         permissionMode: sdkOptions.permissionMode,
+        agentMode: runOptions.agentMode,
         cwd: sdkOptions.cwd,
         resume: sdkOptions.resume,
       })
@@ -292,6 +293,8 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     agentLogger.info('Built SDK options successfully', {
       model: sdkOptions.model,
+      permissionMode: sdkOptions.permissionMode,
+      agentMode: runOptions.agentMode,
       cwd: sdkOptions.cwd,
       hasResumeSession: !!sdkOptions.resume,
       allowedToolsCount: sdkOptions.allowedTools?.length,

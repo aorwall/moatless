@@ -100,7 +100,7 @@ export class TaskService {
     const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
 
     // Get workspace and validate state
-    agentLogger.info('Getting workspace for agent execution', { taskId })
+    agentLogger.debug('Getting workspace for agent execution', { taskId })
     const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
     const status = workspace.getStatus()
 
@@ -114,7 +114,7 @@ export class TaskService {
       throw new Error('Workspace path is invalid - workspace needs to be recreated')
     }
 
-    agentLogger.info('Getting environment from workspace', {
+    agentLogger.debug('Getting environment from workspace', {
       agentType,
       workspaceStatus: status,
       hasResumeSession: !!resumeSessionId,
@@ -499,6 +499,7 @@ export class TaskService {
       hasMessage: !!params.message,
       hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
       start: params.start ?? true,
+      agentMode: params.agentMode,
     })
 
     const now = new Date()
@@ -524,7 +525,7 @@ export class TaskService {
         undefined,
         params.filePaths,
         'created',
-        undefined, // agentMode defaults to undefined (edit mode)
+        params.agentMode, // agentMode from create task request
       )
       task.iterations.push(iteration)
     }
@@ -1012,6 +1013,17 @@ export class TaskService {
         }
       }
     }
+
+    logger.info('Task iteration created', {
+      taskId: task.taskId,
+      iterationNumber: iteration.iterationNumber,
+      status: iteration.status,
+      model: iteration.model,
+      agentMode: iteration.agentMode,
+      commandName: iteration.commandName,
+      hasMessage: !!iteration.initialMessage,
+      hasAttachments: !!(iteration.attachments && iteration.attachments.length > 0),
+    })
 
     return iteration
   }
