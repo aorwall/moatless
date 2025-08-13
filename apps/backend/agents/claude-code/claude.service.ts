@@ -414,7 +414,10 @@ export class ClaudeService {
       for (const line of lines) {
         try {
           const agentMessage = JSON.parse(line) as AgentMessage
-          messages.push(agentMessage)
+
+          // Transform ExitPlanMode tool calls to regular text messages
+          const transformedMessage = this.transformExitPlanModeMessage(agentMessage)
+          messages.push(transformedMessage)
         } catch (parseError) {
           logger.warn('Failed to parse Claude agent message', {
             agentSessionId,
@@ -443,6 +446,73 @@ export class ClaudeService {
     }
 
     return messages
+  }
+
+  /**
+   * Transform ExitPlanMode tool calls into regular text messages
+   */
+  private transformExitPlanModeMessage(message: AgentMessage): AgentMessage {
+    // Only process assistant messages
+    if (message.type !== 'assistant') {
+      return message
+    }
+
+    // Check if message has content
+    if (
+      !('message' in message) ||
+      !message.message ||
+      !('content' in message.message) ||
+      !message.message.content
+    ) {
+      return message
+    }
+
+    const content = Array.isArray(message.message.content)
+      ? message.message.content
+      : [message.message.content]
+    let hasExitPlanMode = false
+    let extractedPlan: string | null = null
+
+    // Look for ExitPlanMode tool calls
+    for (const contentItem of content) {
+      if (
+        contentItem &&
+        typeof contentItem === 'object' &&
+        'type' in contentItem &&
+        contentItem.type === 'tool_use' &&
+        'name' in contentItem &&
+        contentItem.name === 'ExitPlanMode' &&
+        'input' in contentItem &&
+        contentItem.input &&
+        typeof contentItem.input === 'object' &&
+        'plan' in contentItem.input
+      ) {
+        hasExitPlanMode = true
+        extractedPlan = contentItem.input.plan as string
+        logger.info('Transforming ExitPlanMode tool call to text message', {
+          planLength: extractedPlan?.length,
+        })
+        break
+      }
+    }
+
+    // Transform the message if ExitPlanMode was found
+    if (hasExitPlanMode && extractedPlan) {
+      return {
+        ...message,
+        message: {
+          ...message.message,
+          content: [
+            {
+              type: 'text',
+              text: extractedPlan,
+            },
+          ],
+        },
+      }
+    }
+
+    return message
   }
 
   private calculateMessageCost(usage: any, pricing: ModelPricing): number {

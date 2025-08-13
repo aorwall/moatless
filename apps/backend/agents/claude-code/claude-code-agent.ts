@@ -19,6 +19,7 @@ import { type AgentRunOptions, BaseAgent } from '../base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController?: AbortController
+  private extractedPlan?: string
 
   constructor(taskId: string, options: ClaudeCodeOptions = {}) {
     super(taskId, options)
@@ -76,6 +77,10 @@ export class ClaudeCodeAgent extends BaseAgent {
           sdkMessage,
         })
 
+        // Log detailed info about each message for debugging
+        const logInfo = this.getSDKMessageLogInfo(sdkMessage)
+        agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, { eventCount })
+
         // Emit 'agent started' event on first event
         if (!hasEmittedStarted) {
           hasEmittedStarted = true
@@ -96,6 +101,39 @@ export class ClaudeCodeAgent extends BaseAgent {
           agentLogger.info('Session ID captured from SDK', { sessionId: this.sessionId })
         }
 
+        // Check for ExitPlanMode tool call
+        if (
+          sdkMessage.type === 'assistant' &&
+          'message' in sdkMessage &&
+          sdkMessage.message &&
+          'content' in sdkMessage.message &&
+          sdkMessage.message.content
+        ) {
+          const content = Array.isArray(sdkMessage.message.content)
+            ? sdkMessage.message.content
+            : [sdkMessage.message.content]
+          for (const contentItem of content) {
+            if (
+              contentItem &&
+              typeof contentItem === 'object' &&
+              'type' in contentItem &&
+              contentItem.type === 'tool_use' &&
+              'name' in contentItem &&
+              contentItem.name === 'ExitPlanMode' &&
+              'input' in contentItem &&
+              contentItem.input &&
+              typeof contentItem.input === 'object' &&
+              'plan' in contentItem.input
+            ) {
+              this.extractedPlan = contentItem.input.plan as string
+              agentLogger.info('ExitPlanMode detected, plan extracted', {
+                planLength: this.extractedPlan?.length,
+              })
+              break
+            }
+          }
+        }
+
         // Mark that we've started processing beyond init
         if (sdkMessage.type !== 'system' || hasStartedProcessing) {
           hasStartedProcessing = true
@@ -106,13 +144,39 @@ export class ClaudeCodeAgent extends BaseAgent {
           agentLogger.info('Received result message from SDK', {
             isError,
             subtype: 'subtype' in sdkMessage ? sdkMessage.subtype : undefined,
+            hasExtractedPlan: !!this.extractedPlan,
           })
-          yield this.createEventWithContextTokens(
-            sdkMessage,
-            'agent',
-            isError,
-            'completed',
-          ) as AgentEvent
+
+          // Create the result event with extracted plan if available
+          let resultEvent: AgentEvent
+          if (this.extractedPlan) {
+            agentLogger.info('Including extracted plan in result event', {
+              planLength: this.extractedPlan.length,
+            })
+            // Create event with modified payload to include the plan as result
+            const eventWithPlan = this.createEventWithContextTokens(
+              sdkMessage,
+              'agent',
+              isError,
+              'completed',
+            ) as AgentEvent
+            eventWithPlan.payload = {
+              ...eventWithPlan.payload,
+              result: this.extractedPlan,
+            }
+            resultEvent = eventWithPlan
+            // Reset extracted plan after using it
+            this.extractedPlan = undefined
+          } else {
+            resultEvent = this.createEventWithContextTokens(
+              sdkMessage,
+              'agent',
+              isError,
+              'completed',
+            ) as AgentEvent
+          }
+
+          yield resultEvent
         } else {
           yield this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message')
         }
@@ -301,6 +365,43 @@ export class ClaudeCodeAgent extends BaseAgent {
     })
 
     return sdkOptions
+  }
+
+  private getSDKMessageLogInfo(sdkMessage: ClaudeCodeSDKMessage): string {
+    let detailedInfo = ''
+
+    // Check if this message has content (assistant/user messages have message.content)
+    if (
+      'message' in sdkMessage &&
+      sdkMessage.message &&
+      'content' in sdkMessage.message &&
+      sdkMessage.message.content
+    ) {
+      const content = Array.isArray(sdkMessage.message.content)
+        ? sdkMessage.message.content
+        : [sdkMessage.message.content]
+      const contentTypes = content
+        .map((item: unknown) => {
+          if (item && typeof item === 'object' && 'type' in item) {
+            if (item.type === 'tool_use' && 'name' in item) {
+              return `tool_use:${item.name}`
+            }
+            return item.type as string
+          }
+          return 'unknown'
+        })
+        .join(', ')
+      detailedInfo += `, content: [${contentTypes}]`
+    }
+
+    // Add result info if it's a result message
+    if (sdkMessage.type === 'result') {
+      const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : 'unknown'
+      const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
+      detailedInfo += `, subtype: ${subtype}, error: ${isError}`
+    }
+
+    return detailedInfo
   }
 
   private async cleanup(): Promise<void> {
