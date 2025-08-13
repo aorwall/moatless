@@ -3,9 +3,8 @@ import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useParams } from '@tanstack/react-router'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useTaskData } from '@/features/tasks/contexts/task-providers'
+import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useSendMessage, useStopAgent, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
@@ -22,9 +21,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
   // Use specialized hooks from tri-context pattern
   const { status, iterations, repositoryId } = useTaskData()
-
-  // Get workspace status from context (doesn't block loading)
-  useWorkspaceStatusWithTask(params.taskId)
+  const isTaskRunning = useIsAgentRunning()
 
   // Local state for chat values
   const [message, setMessage] = useState('')
@@ -66,7 +63,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
   // Fetch available commands for this task
   const { data: commandsData } = useTaskCommands(params.taskId, {
-    enabled: !!params.taskId && status !== 'running',
+    enabled: !!params.taskId && !isTaskRunning,
   })
 
   // Task message sending hook
@@ -82,7 +79,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
   // Handle sending message
   const handleChatSubmit = useCallback(() => {
     // If running, stop the agent instead of sending message
-    if (status === 'running') {
+    if (isTaskRunning) {
       stopAgent.mutate()
       return
     }
@@ -112,7 +109,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
       )
     }
   }, [
-    status,
+    isTaskRunning,
     stopAgent,
     sendMessage,
     message,
@@ -150,9 +147,9 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
   // Get available commands from the API response
   const availableCommands = useMemo(() => {
-    if (!commandsData || status === 'running') return []
+    if (!commandsData || isTaskRunning) return []
     return commandsData.commands
-  }, [commandsData, status])
+  }, [commandsData, isTaskRunning])
 
   // Handle command click
   const handleCommandClick = useCallback(
@@ -172,7 +169,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
   // Helper functions for ChatInput
   const getButtonText = () => {
-    if (status === 'running') {
+    if (isTaskRunning) {
       return 'Running'
     }
     if (status === 'completed' || status === 'failed') {
@@ -182,7 +179,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
   }
 
   const getPlaceholderText = () => {
-    if (status === 'running') {
+    if (isTaskRunning) {
       return 'Task is running... Type your next request'
     }
     if (status === 'completed' || status === 'failed') {
@@ -193,8 +190,6 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
   // Check if last iteration has an error
   const lastIterationHasError = lastIteration && lastIteration.status === 'failed'
-
-  const isTaskRunning = status === 'running'
 
   // Disable sending based on conditions
   const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())

@@ -26,16 +26,17 @@ export {
   useEventStream,
   useGitDiff,
   useGitDiffWithLoading,
+  useIsAgentRunning,
   useLatestContextTokens,
   useStreamingStatus,
   useTaskData,
-  useTaskDuration,
   // Event hooks (now in TaskDataProvider)
   useTaskEvents,
   useTaskIterations,
   useTaskLoadingError,
   useTaskMetadata,
   useTaskStatus,
+  useWorkspaceStatus,
 } from './task-data-provider'
 export {
   TaskUIProvider,

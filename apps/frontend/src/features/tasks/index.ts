@@ -20,6 +20,7 @@ export {
   // UI hooks
   useGitDiffState,
   useGitDiffWithLoading,
+  useIsAgentRunning,
   useLatestContextTokens,
   usePanelSizes,
   usePanelView,
@@ -27,13 +28,13 @@ export {
   useSelectedIteration,
   useStreamingStatus,
   useTaskData,
-  useTaskDuration,
   useTaskEvents,
   useTaskIterations,
   useTaskLoadingError,
   useTaskMetadata,
   useTaskStatus,
   useTaskUI,
+  useWorkspaceStatus,
 } from './contexts/task-providers'
 
 // Hooks

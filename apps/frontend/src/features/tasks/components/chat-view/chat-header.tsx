@@ -3,10 +3,13 @@ import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import {
+  useIsAgentRunning,
+  useTaskData,
+  useWorkspaceStatus,
+} from '@/features/tasks/contexts/task-data-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
@@ -21,10 +24,10 @@ export function ChatHeader() {
   const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
   const { data: repositories } = useRepositoriesList()
 
-  // Get workspace status separately
-  const workspaceStatus = useWorkspaceStatusWithTask(taskId)
-  const workspace = workspaceStatus.data
+  // Get workspace status and agent running state
+  const workspace = useWorkspaceStatus()
   const gitStatus = workspace?.gitStatus
+  const isAgentRunning = useIsAgentRunning()
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
@@ -157,7 +160,7 @@ export function ChatHeader() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {status !== 'running' && status !== 'closed' && status !== 'merged' && (
+          {!isAgentRunning && status !== 'closed' && status !== 'merged' && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -171,7 +174,7 @@ export function ChatHeader() {
                       gitStatus.commitsAhead === 0 ||
                       gitStatus.status === 'diverged' ||
                       gitStatus.hasConflicts ||
-                      status === 'running' ||
+                      isAgentRunning ||
                       status === 'error'
                     }
                     className="h-7 px-2 cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
@@ -183,7 +186,7 @@ export function ChatHeader() {
                 <TooltipContent>
                   {!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0 ? (
                     <p>No unmerged commits to merge</p>
-                  ) : status === 'running' ? (
+                  ) : isAgentRunning ? (
                     <p>Cannot merge: agent is running</p>
                   ) : gitStatus.status === 'diverged' || gitStatus.hasConflicts ? (
                     <p>Cannot merge: conflicts detected</p>
@@ -194,7 +197,7 @@ export function ChatHeader() {
               </Tooltip>
             </TooltipProvider>
           )}
-          {status !== 'running' && status !== 'closed' && status !== 'merged' && gitStatus && (
+          {!isAgentRunning && status !== 'closed' && status !== 'merged' && gitStatus && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -204,7 +207,7 @@ export function ChatHeader() {
                     onClick={handleSync}
                     disabled={
                       syncWorkspace.isPending ||
-                      status === 'running' ||
+                      isAgentRunning ||
                       status === 'error' ||
                       !gitStatus.commitsBehind ||
                       gitStatus.commitsBehind === 0 ||
@@ -223,7 +226,7 @@ export function ChatHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {status === 'running' ? (
+                  {isAgentRunning ? (
                     <p>Cannot sync: agent is running</p>
                   ) : !gitStatus.commitsBehind || gitStatus.commitsBehind === 0 ? (
                     <p>Already up to date with main</p>
@@ -248,7 +251,7 @@ export function ChatHeader() {
                     variant="outline"
                     size="sm"
                     onClick={handleClose}
-                    disabled={closeTask.isPending || status === 'running'}
+                    disabled={closeTask.isPending || isAgentRunning}
                     className="h-7 px-2 cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-colors"
                   >
                     {closeTask.isPending ? (
@@ -260,7 +263,7 @@ export function ChatHeader() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {status === 'running' ? (
+                  {isAgentRunning ? (
                     <p>Cannot close: agent is running</p>
                   ) : (
                     <p>Close task and teardown workspace</p>

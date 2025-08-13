@@ -2,11 +2,14 @@ import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import {
+  useIsAgentRunning,
+  useTaskData,
+  useWorkspaceStatus,
+} from '@/features/tasks/contexts/task-data-provider'
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -24,11 +27,10 @@ export function TaskHeader() {
   const { data: repositories } = useRepositoriesList()
   const { rightPanelView, setRightPanelView } = usePanelView()
 
-  // Get workspace status separately
-  const workspaceStatus = useWorkspaceStatusWithTask(taskId)
-  const workspace = workspaceStatus.data
+  // Get workspace status and agent running state
+  const workspace = useWorkspaceStatus()
   const gitStatus = workspace?.gitStatus
-  const isAgentRunning = workspace?.isRunning ?? false
+  const isAgentRunning = useIsAgentRunning()
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {
