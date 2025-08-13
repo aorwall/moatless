@@ -154,6 +154,7 @@ export class TaskService {
         iterationNumber: iteration.iterationNumber,
         resume: resumeSessionId,
         model,
+        agentMode: iteration.agentMode,
       }
 
       agentLogger.info('Starting agent execution with options', { ...runOptions })
@@ -523,6 +524,7 @@ export class TaskService {
         undefined,
         params.filePaths,
         'created',
+        undefined, // agentMode defaults to undefined (edit mode)
       )
       task.iterations.push(iteration)
     }
@@ -951,6 +953,7 @@ export class TaskService {
     fileIds?: string[],
     filePaths?: string[],
     initialStatus: 'created' | 'active' = 'active',
+    agentMode?: 'edit' | 'plan',
   ): Promise<TaskIteration> {
     // Validate that either message or commandName is provided
     if (!message && !commandName) {
@@ -972,6 +975,7 @@ export class TaskService {
       initialMessage: message,
       commandName,
       model,
+      agentMode,
     }
 
     // Add file attachments if provided
@@ -1025,7 +1029,16 @@ export class TaskService {
     }
 
     // Use the command's prompt as the message
-    await this.sendMessage(taskId, command.prompt, resume, model, undefined, filePaths, commandName)
+    await this.sendMessage(
+      taskId,
+      command.prompt,
+      resume,
+      model,
+      undefined,
+      filePaths,
+      commandName,
+      command.agentMode || 'edit',
+    )
   }
 
   async sendMessage(
@@ -1036,6 +1049,7 @@ export class TaskService {
     fileIds?: string[],
     filePaths?: string[],
     commandName?: string,
+    agentMode?: 'edit' | 'plan',
   ): Promise<void> {
     const metadata = await this.getTask(taskId)
 
@@ -1062,6 +1076,7 @@ export class TaskService {
       fileIds,
       filePaths,
       'created',
+      agentMode,
     )
 
     // Check if command has willNotResume flag set

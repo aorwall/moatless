@@ -36,6 +36,15 @@ export const TaskCommandSchema = z.object({
   filePaths: z.array(z.string()).optional(),
 })
 
+// Message schema for task messages endpoint
+export const TaskMessageSchema = z.object({
+  message: z.string(),
+  resume: z.boolean().optional().default(true),
+  model: z.string().optional(),
+  filePaths: z.array(z.string()).optional(),
+  agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
+})
+
 // Response schemas for OpenAPI
 export const TaskIterationSchema = z.object({
   iterationNumber: z.number(),
@@ -53,6 +62,7 @@ export const TaskIterationSchema = z.object({
   merged: z.boolean().optional(),
   agentSessionId: z.string().optional(),
   model: z.string().optional(),
+  agentMode: z.enum(['edit', 'plan']).optional(),
   gitStatus: z
     .object({
       status: z.string(),
@@ -252,6 +262,7 @@ export type CommandExecution = z.infer<typeof CommandExecutionSchema>
 export type ServerLogsQuery = z.infer<typeof ServerLogsQuerySchema>
 export type FileContent = z.infer<typeof FileContentSchema>
 export type TaskCommand = z.infer<typeof TaskCommandSchema>
+export type TaskMessage = z.infer<typeof TaskMessageSchema>
 export type TaskIteration = z.infer<typeof TaskIterationSchema>
 export type TaskResponse = z.infer<typeof TaskResponseSchema>
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>

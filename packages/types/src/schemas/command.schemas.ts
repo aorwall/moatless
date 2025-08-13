@@ -48,6 +48,7 @@ export const CommandSchema = z.object({
   variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
   active: z.boolean().optional(), // Whether command is active/visible (defaults to true)
   willNotResume: z.boolean().optional(), // Whether this command creates iterations that won't be resumed
+  agentMode: z.enum(['edit', 'plan']).optional(), // Agent mode for this command (defaults to 'edit')
 })
 
 export const CreateCommandSchema = z.object({
@@ -59,6 +60,7 @@ export const CreateCommandSchema = z.object({
   variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
   active: z.boolean().optional(),
   willNotResume: z.boolean().optional(),
+  agentMode: z.enum(['edit', 'plan']).optional(),
 })
 
 export const UpdateCommandSchema = z.object({
@@ -70,6 +72,7 @@ export const UpdateCommandSchema = z.object({
   variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
   active: z.boolean().optional(),
   willNotResume: z.boolean().optional(),
+  agentMode: z.enum(['edit', 'plan']).optional(),
 })
 
 // Parameter schemas

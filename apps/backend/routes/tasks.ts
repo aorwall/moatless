@@ -353,9 +353,18 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       const body = await c.req.json()
       const validatedBody = SendMessageRequestSchema.parse(body)
-      const { message, resume, model, fileIds, filePaths, commandName } = validatedBody
+      const { message, resume, model, fileIds, filePaths, commandName, agentMode } = validatedBody
 
-      await taskService.sendMessage(taskId, message, resume, model, fileIds, filePaths, commandName)
+      await taskService.sendMessage(
+        taskId,
+        message,
+        resume,
+        model,
+        fileIds,
+        filePaths,
+        commandName,
+        agentMode,
+      )
       return c.json({ status: 'sent', timestamp: new Date().toISOString() })
     },
   )
@@ -452,7 +461,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       const body = await c.req.json()
-      const { commandName, resume, model, filePaths } = body
+      const validatedBody = TaskCommandSchema.parse(body)
+      const { commandName, resume, model, filePaths } = validatedBody
 
       await taskService.sendCommand(taskId, commandName, resume, model, filePaths)
       return c.json({ status: 'sent', timestamp: new Date().toISOString() })

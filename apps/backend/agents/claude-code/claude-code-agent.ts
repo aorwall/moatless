@@ -269,9 +269,12 @@ export class ClaudeCodeAgent extends BaseAgent {
       })
     }
 
+    // Translate agentMode to permissionMode
+    const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'acceptEdits'
+
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools: ['WebFetch', 'WebSearch', 'Bash'],
-      permissionMode: 'acceptEdits',
+      permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
     }

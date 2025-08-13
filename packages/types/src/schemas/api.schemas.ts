@@ -20,6 +20,7 @@ export const SendMessageRequestSchema = z.object({
   fileIds: z.array(z.string()).optional(), // Deprecated, use filePaths
   filePaths: z.array(z.string()).optional(), // Absolute file paths
   commandName: z.string().optional(),
+  agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
 })
 
 // General Upload (not tied to task)

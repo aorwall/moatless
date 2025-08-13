@@ -17,6 +17,7 @@ export interface AgentRunOptions {
   iterationNumber?: number
   resume?: string
   model?: string
+  agentMode?: 'edit' | 'plan'
 }
 
 export abstract class BaseAgent {

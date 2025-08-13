@@ -300,6 +300,7 @@ export class LocalEnvironment extends BaseEnvironment {
       iterationNumber?: number
       resume?: string
       model?: string
+      agentMode?: 'edit' | 'plan'
     },
   ): AsyncGenerator<any> {
     this.logger.info('Running agent', { agentType, taskId: this.taskId })
@@ -318,6 +319,7 @@ export class LocalEnvironment extends BaseEnvironment {
         iterationNumber: options?.iterationNumber,
         resume: options?.resume,
         model: options?.model,
+        agentMode: options?.agentMode,
       }
 
       // Run the agent and yield all events
