@@ -902,27 +902,34 @@ export class TaskService {
     if (task && task.iterations.length > 0) {
       const lastIteration = task.iterations[task.iterations.length - 1]
       if (lastIteration.status === 'active') {
-        try {
-          const workspace = await this.workspaceService.getWorkspace(taskId)
-          if (workspace) {
-            const environment = workspace.getEnvironment()
-            const agentStatus = environment.getAgentStatus()
-            const isAgentRunning = agentStatus.state === 'running'
+        // Add grace period for newly started iterations (5 seconds)
+        const iterationAge = Date.now() - new Date(lastIteration.startTime).getTime()
+        const INITIALIZATION_GRACE_PERIOD_MS = 5000
 
-            // If agent is not running, update iteration status to failed
-            if (!isAgentRunning) {
-              lastIteration.status = 'failed'
-              lastIteration.result = `Agent stopped unexpectedly. Last state: ${agentStatus.state}, Session: ${agentStatus.sessionId || 'none'}`
-              lastIteration.endTime = new Date()
-              await this.storage.saveTask(task)
+        // Only check agent status if iteration has been running for more than the grace period
+        if (iterationAge > INITIALIZATION_GRACE_PERIOD_MS) {
+          try {
+            const workspace = await this.workspaceService.getWorkspace(taskId)
+            if (workspace) {
+              const environment = workspace.getEnvironment()
+              const agentStatus = environment.getAgentStatus()
+              const isAgentRunning = agentStatus.state === 'running'
+
+              // If agent is not running after grace period, update iteration status to failed
+              if (!isAgentRunning) {
+                lastIteration.status = 'failed'
+                lastIteration.result = `Agent stopped unexpectedly after ${Math.round(iterationAge / 1000)}s. Last state: ${agentStatus.state}, Session: ${agentStatus.sessionId || 'none'}`
+                lastIteration.endTime = new Date()
+                await this.storage.saveTask(task)
+              }
             }
+          } catch (_error) {
+            // If we can't get workspace/environment after grace period, assume agent is not running
+            lastIteration.status = 'failed'
+            lastIteration.result = `Failed to verify agent status after ${Math.round(iterationAge / 1000)}s: ${_error instanceof Error ? _error.message : 'Workspace unavailable'}`
+            lastIteration.endTime = new Date()
+            await this.storage.saveTask(task)
           }
-        } catch (_error) {
-          // If we can't get workspace/environment, assume agent is not running
-          lastIteration.status = 'failed'
-          lastIteration.result = `Failed to verify agent status: ${_error instanceof Error ? _error.message : 'Workspace unavailable'}`
-          lastIteration.endTime = new Date()
-          await this.storage.saveTask(task)
         }
       }
     }
