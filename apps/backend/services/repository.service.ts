@@ -90,7 +90,12 @@ export class RepositoryService {
   }
 
   async getRepositoryById(repoId: string): Promise<RepositoryConfig | null> {
-    return await this.storage.getRepository(repoId)
+    const repository = await this.storage.getRepository(repoId)
+    // Return null for soft-deleted repositories
+    if (repository?.deleted) {
+      return null
+    }
+    return repository
   }
 
   async listRepositories(): Promise<RepositoryConfig[]> {
@@ -134,7 +139,8 @@ export class RepositoryService {
   }
 
   async deleteRepository(repoId: string): Promise<void> {
-    const repository = await this.getRepositoryById(repoId)
+    // Get repository directly from storage to check if it exists (including deleted ones)
+    const repository = await this.storage.getRepository(repoId)
     if (!repository) {
       throw new RepositoryNotFoundError(repoId)
     }

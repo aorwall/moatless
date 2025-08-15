@@ -16,7 +16,7 @@ describe('Repository Routes', () => {
     it('should create a new repository', async () => {
       const mockRepository = {
         id: 'test-env-id',
-        name: 'Test Repository',
+        name: 'test-repository',
         description: 'A test repository',
         path: '/test/path',
         useGitWorktrees: false,
@@ -35,7 +35,7 @@ describe('Repository Routes', () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            name: 'Test Repository',
+            name: 'test-repository',
             description: 'A test repository',
             path: '/test/path',
             useGitWorktrees: false,
@@ -48,7 +48,7 @@ describe('Repository Routes', () => {
 
       expect(response.status).toBe(200)
       const body = (await response.json()) as any
-      expect(body.name).toBe('Test Repository')
+      expect(body.name).toBe('test-repository')
       expect(body.id).toBe('test-env-id')
       expect(body.createdAt).toBeDefined()
     })
@@ -149,13 +149,28 @@ describe('Repository Routes', () => {
       const body = (await response.json()) as any
       expect(body.error.code).toBe('REPOSITORY_NOT_FOUND')
     })
+
+    it('should return 404 for soft-deleted repository', async () => {
+      // The service now returns null for deleted repositories
+      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(null)
+
+      const response = await app.fetch(
+        new Request('http://localhost/api/v1/repositories/deleted-repo', {
+          method: 'GET',
+        }),
+      )
+
+      expect(response.status).toBe(404)
+      const body = (await response.json()) as any
+      expect(body.error.code).toBe('REPOSITORY_NOT_FOUND')
+    })
   })
 
   describe('PUT /api/repositories/:repositoryId', () => {
     it('should update repository', async () => {
       const updatedEnvironment = {
         id: 'env-123',
-        name: 'Updated Name',
+        name: 'updated-name',
         description: 'Updated description',
         path: '/test/path',
         useGitWorktrees: false,
@@ -181,7 +196,7 @@ describe('Repository Routes', () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            name: 'Updated Name',
+            name: 'updated-name',
             description: 'Updated description',
           }),
         }),
@@ -189,7 +204,7 @@ describe('Repository Routes', () => {
 
       expect(response.status).toBe(200)
       const body = (await response.json()) as any
-      expect(body.name).toBe('Updated Name')
+      expect(body.name).toBe('updated-name')
       expect(body.description).toBe('Updated description')
     })
   })
