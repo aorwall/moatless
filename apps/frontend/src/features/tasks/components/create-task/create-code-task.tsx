@@ -19,6 +19,7 @@ import {
 interface CreateCodeTaskProps {
   className?: string
   maxHeight?: string
+  minHeight?: string
   showTitle?: boolean
   title?: string
   defaultMessage?: string
@@ -34,6 +35,7 @@ interface CreateCodeTaskProps {
 export function CreateCodeTask({
   className = '',
   maxHeight = '300px',
+  minHeight,
   showTitle = false,
   title = 'What should we build today?',
   defaultMessage,
@@ -116,6 +118,7 @@ export function CreateCodeTask({
           buttonText={createTask.isPending ? 'Starting...' : 'Start Task'}
           loading={createTask.isPending}
           maxHeight={maxHeight}
+          minHeight={minHeight}
           repositoryId={repoSelector.value}
           enableFileUpload={true}
           files={uploadedFiles}

@@ -22,19 +22,20 @@ function TaskDashboardSkeleton() {
   )
 }
 
-function EmptyTaskState() {
+function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
   const preferences = useTaskPreferences()
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
         {/* Task Creation Components */}
-        {preferences.viewMode === 'code' ? (
+        {viewMode === 'code' ? (
           <CreateCodeTask
             showTitle={true}
             title="What should we build today?"
             className="w-full"
             maxHeight="300px"
+            minHeight="80px"
             model={preferences.model}
             onModelChange={preferences.setModel}
             agentMode={preferences.agentMode}
@@ -48,6 +49,7 @@ function EmptyTaskState() {
             title="What should we vibe today?"
             className="w-full"
             maxHeight="300px"
+            minHeight="80px"
             model={preferences.model}
             onModelChange={preferences.setModel}
             templateId={preferences.templateId}
@@ -66,15 +68,13 @@ function EmptyTaskState() {
   )
 }
 
-function TaskDashboardHeader({ taskCount }: { taskCount: number }) {
-  return (
-    <div className="flex items-center justify-between mb-4">
-      <h1 className="text-2xl font-bold">Tasks</h1>
-    </div>
-  )
+type ViewMode = 'code' | 'vibe'
+
+interface TaskDashboardProps {
+  viewMode: ViewMode
 }
 
-export function TaskDashboard() {
+export function TaskDashboard({ viewMode }: TaskDashboardProps) {
   const preferences = useTaskPreferences()
 
   // Fetch tasks with higher limit for dashboard
@@ -127,7 +127,7 @@ export function TaskDashboard() {
   }
 
   if (!sortedTasks.length) {
-    return <EmptyTaskState />
+    return <EmptyTaskState viewMode={viewMode} />
   }
 
   return (
@@ -135,12 +135,13 @@ export function TaskDashboard() {
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
         {/* Task Creation Components */}
-        {preferences.viewMode === 'code' ? (
+        {viewMode === 'code' ? (
           <CreateCodeTask
             showTitle={true}
             title="What should we build today?"
             className="w-full"
             maxHeight="300px"
+            minHeight="80px"
             model={preferences.model}
             onModelChange={preferences.setModel}
             agentMode={preferences.agentMode}
@@ -154,6 +155,7 @@ export function TaskDashboard() {
             title="What should we vibe today?"
             className="w-full"
             maxHeight="300px"
+            minHeight="80px"
             model={preferences.model}
             onModelChange={preferences.setModel}
             templateId={preferences.templateId}
@@ -164,7 +166,9 @@ export function TaskDashboard() {
 
       {/* Tasks Section */}
       <div className="border-t pt-8">
-        <TaskDashboardHeader taskCount={sortedTasks.length} />
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold">Tasks</h1>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {sortedTasks.map((task: Task) => {
             const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId

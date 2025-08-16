@@ -15,6 +15,7 @@ import {
 interface CreateVibeTaskProps {
   className?: string
   maxHeight?: string
+  minHeight?: string
   showTitle?: boolean
   title?: string
   defaultMessage?: string
@@ -28,6 +29,7 @@ interface CreateVibeTaskProps {
 export function CreateVibeTask({
   className = '',
   maxHeight = '300px',
+  minHeight,
   showTitle = false,
   title = 'What should we vibe today?',
   defaultMessage,
@@ -105,6 +107,7 @@ export function CreateVibeTask({
           buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}
           loading={createVibeTask.isPending}
           maxHeight={maxHeight}
+          minHeight={minHeight}
           enableFileUpload={true}
           files={uploadedFiles}
           onFilesChange={setUploadedFiles}
