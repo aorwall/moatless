@@ -1,5 +1,5 @@
 import type { AgentEvent, Event } from '@moatless/types'
-import { isToolResultContent, isToolUseContent, type ToolUseContent } from '@moatless/types'
+import { isToolUseContent, type ToolUseContent } from '@moatless/types'
 import {
   Bot,
   Code2,
@@ -13,10 +13,9 @@ import {
   Search,
   Terminal,
 } from 'lucide-react'
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
 
 interface MinifiedEventItemProps {
-  event: Event | MergedEvent
+  event: Event
 }
 
 const MAX_TEXT_LENGTH = 100
@@ -119,30 +118,7 @@ function extractToolContent(event: Event): ToolUseContent | null {
   return null
 }
 
-function extractToolResult(event: Event): string | null {
-  if (event.type !== 'agent' || event.subType !== 'message') return null
-
-  const agentEvent = event as AgentEvent
-  const payload = agentEvent.payload
-
-  if (
-    payload?.type === 'user' &&
-    payload.message?.content &&
-    Array.isArray(payload.message.content)
-  ) {
-    for (const content of payload.message.content) {
-      if (isToolResultContent(content)) {
-        return content.content || null
-      }
-    }
-  }
-
-  return null
-}
-
 export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
-  const isMerged = 'toolResult' in event
-
   // Check if it's a tool call
   const toolContent = extractToolContent(event)
 
@@ -187,19 +163,7 @@ export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
 
   const toolName = toolContent.name
   const summary = getToolSummary(toolContent)
-  const hasError = event.isError || (isMerged && event.toolResult?.isError)
-
-  // Extract result for merged events
-  let resultSummary = ''
-  if (isMerged && event.toolResult) {
-    const result = extractToolResult(event.toolResult)
-    if (result) {
-      const lines = result.split('\n').filter((line) => line.trim())
-      if (lines.length > 0) {
-        resultSummary = truncateText(lines[0], 60)
-      }
-    }
-  }
+  const hasError = event.isError
 
   return (
     <div className="flex items-start gap-2 text-xs">
@@ -211,7 +175,6 @@ export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
       <div className="flex-1 min-w-0">
         <span className={`font-medium ${hasError ? 'text-destructive' : ''}`}>{toolName}</span>
         {summary && <span className="text-muted-foreground ml-1 break-words">{summary}</span>}
-        {resultSummary && <span className="text-muted-foreground ml-1">→ {resultSummary}</span>}
       </div>
     </div>
   )

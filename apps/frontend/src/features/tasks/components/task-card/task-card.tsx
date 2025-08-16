@@ -8,7 +8,6 @@ import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTaskEvents } from '@/features/tasks/hooks/use-tasks'
 import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
@@ -33,7 +32,7 @@ function getRelativeTime(date: Date | string): string {
   return `${years}y ago`
 }
 
-function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
+function isMessageOrToolEvent(event: Event): boolean {
   if (event.type !== 'agent' || event.subType !== 'message') return false
 
   const agentEvent = event as AgentEvent

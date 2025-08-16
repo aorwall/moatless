@@ -2,19 +2,18 @@ import type { AgentEvent, Event } from '@moatless/types'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
-import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events.ts'
 import { Progress } from '@/lib/components/ui/progress.tsx'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedLastThreeEventsDisplayProps {
-  events: Array<Event | MergedEvent>
+  events: Array<Event>
   className?: string
   isRunning?: boolean
   runningStartTime?: Date
   latestContextTokens?: number | null
 }
 
-function isMessageOrToolEvent(event: Event | MergedEvent): boolean {
+function isMessageOrToolEvent(event: Event): boolean {
   if (event.type !== 'agent' || event.subType !== 'message') return false
 
   const agentEvent = event as AgentEvent

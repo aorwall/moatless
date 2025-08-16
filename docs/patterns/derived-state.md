@@ -437,7 +437,7 @@ const dropdownPosition = useMemo(() => {
 #### Event Filtering (Lines 43-51)
 **Current Pattern:**
 ```typescript
-const [displayedEvents, setDisplayedEvents] = useState<Array<Event | MergedEvent>>([])
+const [displayedEvents, setDisplayedEvents] = useState<Array<Event>>([])
 
 // Filter and update displayed events
 useEffect(() => {
