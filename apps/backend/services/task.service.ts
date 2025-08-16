@@ -814,10 +814,9 @@ export class TaskService {
     logger.info('Starting vibe task creation from template', {
       agentType: params.agentType,
       templateId: params.templateId,
-      repositoryName: params.repositoryName,
       hasMessage: !!params.message,
+      model: params.model,
       hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
-      start: params.start ?? true,
     })
 
     // Define available templates - in future this could be stored in database
@@ -841,6 +840,17 @@ export class TaskService {
     if (!template) {
       throw new ValidationError(`Template with id ${params.templateId} not found`, 'templateId')
     }
+
+    // Generate task ID first (we'll need it for the repository name if not provided)
+    const taskId = randomUUID()
+
+    // Auto-generate repository name using template name + first 8 chars of task ID
+    const repositoryName = `${template.name.toLowerCase().replace(/\s+/g, '-')}-task-${taskId.slice(0, 8)}`
+
+    logger.info('Generated repository name', {
+      repositoryName,
+      taskId: taskId.slice(0, 8),
+    })
 
     // Create a directory for cloning the template
     const dataDir = getDataDir()
@@ -870,7 +880,7 @@ export class TaskService {
 
     // Create a new repository from the template
     const repository = await this.repositoryService.createRepository({
-      name: params.repositoryName,
+      name: repositoryName,
       description: `Created from template: ${template.name}`,
       path: templateRepoDir,
       useGitWorktrees: false,
@@ -882,13 +892,14 @@ export class TaskService {
     })
 
     // Create a task with the new repository
+    // Vibe tasks always start immediately
     const createTaskParams: CreateTaskRequest = {
       agentType: params.agentType,
       repositoryId: repository.id,
       message: params.message,
-      start: params.start,
+      start: true, // Always start vibe tasks immediately
       model: params.model,
-      filePaths: params.filePaths,
+      filePaths: params.filePaths, // Support file uploads for context
     }
 
     const task = await this.createTask(createTaskParams)

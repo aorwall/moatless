@@ -101,9 +101,6 @@ describe('CreateVibeTask', () => {
     vi.mocked(useCreateVibeTask).mockReturnValue(mockCreateVibeTask as any)
     vi.mocked(useTemplateSelector).mockReturnValue(mockTemplateSelector)
     vi.mocked(useModelSelector).mockReturnValue(mockModelSelector as any)
-
-    // Mock Date.now() for consistent repository naming
-    vi.spyOn(Date, 'now').mockReturnValue(1234567890)
   })
 
   afterEach(() => {
@@ -162,11 +159,9 @@ describe('CreateVibeTask', () => {
       {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        repositoryName: 'hello-world-ui-1234567890',
         message: 'Create a landing page',
         model: 'claude-opus-4-20250514',
         filePaths: [],
-        start: true,
       },
       expect.any(Object),
     )
@@ -189,11 +184,9 @@ describe('CreateVibeTask', () => {
         {
           agentType: 'vibe',
           templateId: 'hello-world-ui',
-          repositoryName: 'hello-world-ui-1234567890',
           message: 'Create a landing page',
           model: 'claude-opus-4-20250514',
           filePaths: [],
-          start: true,
         },
         undefined,
       )
@@ -265,11 +258,8 @@ describe('CreateVibeTask', () => {
     expect(textarea).toHaveValue('Default vibe message')
   })
 
-  it('generates unique repository name based on template and timestamp', async () => {
+  it('does not include repository name in API call', async () => {
     const user = userEvent.setup()
-
-    // Test with different timestamps
-    vi.spyOn(Date, 'now').mockReturnValue(9876543210)
 
     renderComponent()
 
@@ -281,9 +271,15 @@ describe('CreateVibeTask', () => {
 
     expect(mockCreateVibeTask.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        repositoryName: 'hello-world-ui-9876543210',
+        templateId: 'hello-world-ui',
+        message: 'Create something',
+        filePaths: [],
       }),
       expect.any(Object),
     )
+
+    // Verify repositoryName is NOT included
+    const callArgs = vi.mocked(mockCreateVibeTask.mutate).mock.calls[0][0]
+    expect(callArgs).not.toHaveProperty('repositoryName')
   })
 })

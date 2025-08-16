@@ -231,16 +231,13 @@ export const CreateTaskRequestSchema = z.object({
   agentMode: z.enum(['edit', 'plan']).optional(), // Agent mode for task creation
 })
 
-// Create Vibe Task
+// Create Vibe Task (simplified - vibe tasks always start immediately and don't support branches)
 export const CreateVibeTaskRequestSchema = z.object({
   agentType: z.string(),
   templateId: z.string(),
-  repositoryName: z.string(), // Name for the new repository
   message: z.string().optional(),
-  newBranch: z.string().optional(), // When set, create branch with this name and also worktree if we use worktree with a filepath normalized name
-  start: z.boolean().optional(),
   model: z.string().optional(),
-  filePaths: z.array(z.string()).optional(),
+  filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
 })
 
 // Additional schemas for task operations

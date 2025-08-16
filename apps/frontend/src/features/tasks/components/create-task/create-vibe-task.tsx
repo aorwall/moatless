@@ -54,9 +54,6 @@ export function CreateVibeTask({
       return
     }
 
-    // Generate a repository name based on template and timestamp
-    const repositoryName = `${effectiveTemplateId}-${Date.now()}`
-
     // Extract file paths from uploaded files
     const filePaths = uploadedFiles.map((f) => f.absolutePath)
 
@@ -64,11 +61,9 @@ export function CreateVibeTask({
       {
         agentType: 'claude-code',
         templateId: effectiveTemplateId,
-        repositoryName,
         message: message.trim(),
         model: modelSelector.value,
         filePaths,
-        start: true,
       },
       {
         onSuccess: () => {

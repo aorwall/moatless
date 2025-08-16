@@ -117,10 +117,10 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       const body = await c.req.json()
       const validatedBody = CreateVibeTaskRequestSchema.parse(body)
-      const { model, filePaths, ...taskData } = validatedBody
+      const { filePaths, ...taskData } = validatedBody
 
       try {
-        const taskId = await taskService.createVibeTask({ ...taskData, model, filePaths })
+        const taskId = await taskService.createVibeTask({ ...taskData, filePaths })
 
         // Get the task to return the current status
         const task = await taskService.getTask(taskId)

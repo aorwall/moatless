@@ -80,74 +80,63 @@ describe('Task Schemas with newBranch field', () => {
       const validData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        repositoryName: 'my-new-repo',
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
       expect(result).toEqual(validData)
-      expect(result.newBranch).toBeUndefined()
+      expect(result.message).toBeUndefined()
+      expect(result.model).toBeUndefined()
+      expect(result.filePaths).toBeUndefined()
     })
 
-    it('should validate with newBranch field provided', () => {
+    it('should validate with optional message and model', () => {
       const validData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        repositoryName: 'my-new-repo',
-        newBranch: 'feature/initial-setup',
+        message: 'Build a dashboard',
+        model: 'claude-3-haiku',
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
       expect(result).toEqual(validData)
-      expect(result.newBranch).toBe('feature/initial-setup')
+      expect(result.message).toBe('Build a dashboard')
+      expect(result.model).toBe('claude-3-haiku')
     })
 
-    it('should validate with all optional fields including newBranch', () => {
+    it('should validate with all optional fields', () => {
       const validData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        repositoryName: 'my-new-repo',
         message: 'Initialize project with custom setup',
-        newBranch: 'feature/custom-init',
-        start: false,
         model: 'claude-3-haiku',
         filePaths: ['/templates/config.json'],
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
       expect(result).toEqual(validData)
-      expect(result.newBranch).toBe('feature/custom-init')
+      expect(result.filePaths).toEqual(['/templates/config.json'])
     })
 
-    it('should accept various branch name formats', () => {
-      const testCases = [
-        'feature/new-feature',
-        'bugfix/issue-123',
-        'hotfix/critical-fix',
-        'develop',
-        'main',
-        'user/feature-branch',
-        'v1.0.0-release',
-      ]
-
-      for (const branchName of testCases) {
-        const validData = {
-          agentType: 'claude-code',
-          templateId: 'hello-world-ui',
-          repositoryName: 'my-new-repo',
-          newBranch: branchName,
-        }
-
-        const result = CreateVibeTaskRequestSchema.parse(validData)
-        expect(result.newBranch).toBe(branchName)
+    it('should accept various file paths', () => {
+      const validData = {
+        agentType: 'claude-code',
+        templateId: 'hello-world-ui',
+        filePaths: ['/absolute/path/file.txt', '/tmp/upload.json', '/Users/test/document.md'],
       }
+
+      const result = CreateVibeTaskRequestSchema.parse(validData)
+      expect(result.filePaths).toEqual([
+        '/absolute/path/file.txt',
+        '/tmp/upload.json',
+        '/Users/test/document.md',
+      ])
     })
 
-    it('should reject invalid newBranch type', () => {
+    it('should reject invalid filePaths type', () => {
       const invalidData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        repositoryName: 'my-new-repo',
-        newBranch: ['feature', 'branch'], // Should be string, not array
+        filePaths: 'not-an-array', // Should be array
       }
 
       expect(() => CreateVibeTaskRequestSchema.parse(invalidData)).toThrow()
@@ -155,8 +144,8 @@ describe('Task Schemas with newBranch field', () => {
 
     it('should reject missing required fields', () => {
       const invalidData = {
-        newBranch: 'feature/branch',
-        // Missing agentType, templateId, and repositoryName
+        message: 'Some message',
+        // Missing agentType and templateId
       }
 
       expect(() => CreateVibeTaskRequestSchema.parse(invalidData)).toThrow()
@@ -179,18 +168,16 @@ describe('Task Schemas with newBranch field', () => {
       expect(result.newBranch).toBeUndefined()
     })
 
-    it('should maintain backward compatibility for CreateVibeTaskRequestSchema without newBranch', () => {
+    it('should maintain backward compatibility for CreateVibeTaskRequestSchema', () => {
       const existingData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        repositoryName: 'existing-vibe-repo',
         message: 'Existing vibe task',
-        start: true,
       }
 
       const result = CreateVibeTaskRequestSchema.parse(existingData)
       expect(result).toEqual(existingData)
-      expect(result.newBranch).toBeUndefined()
+      expect(result.filePaths).toBeUndefined()
     })
   })
 })
