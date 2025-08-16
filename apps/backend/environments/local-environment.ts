@@ -100,17 +100,36 @@ export class LocalEnvironment extends BaseEnvironment {
 
       // Port allocation would be handled here if needed
 
-      // Run setup commands in background
-      this.runSetupCommandsInBackground(startTime).catch(async (error) => {
-        const previousStatus = this.getStatus()
-        this._error = error instanceof Error ? error.message : String(error)
-        await this.emitStatusChange(
-          this.getStatus(),
-          previousStatus,
-          error instanceof Error ? error : String(error),
-        )
-        this.logger.error('Background setup commands failed', error as Error)
-      })
+      // Run setup commands synchronously
+      const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
+      this.logger.info(`Found ${setupCommands.length} setup commands to run`, { setupCommands })
+
+      for (const command of setupCommands) {
+        this.logger.info(`Running setup command: ${command}`)
+        const commandStartTime = Date.now()
+        const result = await this.runCommand(command, 300000) // 5 minutes timeout
+        const commandDuration = Date.now() - commandStartTime
+
+        this.logger.info('Setup command completed', {
+          command,
+          exitCode: result.exitCode,
+          durationMs: commandDuration,
+          outputLength: result.output.length,
+          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''), // First 500 chars
+        })
+
+        if (result.exitCode !== 0) {
+          throw new Error(
+            `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
+          )
+        }
+      }
+
+      // Mark setup as complete
+      this.setupComplete = true
+      this.setupInProgress = false
+      const previousStatus = 'initializing'
+      await this.emitStatusChange(this.getStatus(), previousStatus)
 
       this.logger.info('LocalEnvironment setup completed', {
         workspacePath: this.workspacePath,
@@ -136,49 +155,45 @@ export class LocalEnvironment extends BaseEnvironment {
     }
   }
 
-  private async runSetupCommandsInBackground(startTime: number): Promise<void> {
-    try {
-      const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
-
-      for (const command of setupCommands) {
-        this.logger.info(`Running setup command: ${command}`)
-        const result = await this.runCommand(command, 300000) // 5 minutes timeout
-
-        if (result.exitCode !== 0) {
-          this.logger.warn(`Setup command failed: ${command}`, {
-            exitCode: result.exitCode,
-            output: result.output,
-          })
-        }
-      }
-
-      const previousStatus = this.getStatus()
-      this.setupComplete = true
-      this.setupInProgress = false
-      await this.emitStatusChange(this.getStatus(), previousStatus)
-
-      this.logger.info('Setup commands completed successfully', {
-        totalSetupTimeMs: Date.now() - startTime,
-      })
-    } catch (error) {
-      this.setupInProgress = false
-      throw error
-    }
-  }
-
   async runCommand(command: string, timeout = 30000): Promise<CommandResult> {
-    this.logger.debug(`Running command: ${command}`)
+    this.logger.info('Starting command execution', {
+      command,
+      workspacePath: this.workspacePath,
+      timeout,
+      envVarCount: Object.keys(this.repositoryConfig.codeExecution.envVars || {}).length,
+    })
 
     try {
-      const { stdout } = await execAsync(command, {
+      const execOptions = {
         cwd: this.workspacePath,
         timeout,
         maxBuffer: 1024 * 1024, // 1MB buffer
+        env: { ...process.env, ...this.repositoryConfig.codeExecution.envVars },
+      }
+
+      this.logger.debug('Exec options', {
+        cwd: execOptions.cwd,
+        timeout: execOptions.timeout,
+        envKeys: Object.keys(execOptions.env).slice(0, 10), // First 10 env vars
+        hasNpmPath: execOptions.env.PATH?.includes('npm') || false,
+      })
+
+      const { stdout, stderr } = await execAsync(command, execOptions)
+
+      // Log stderr for debugging if present
+      if (stderr) {
+        this.logger.warn(`Command stderr: ${stderr}`)
+      }
+
+      this.logger.info('Command execution successful', {
+        command,
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length,
       })
 
       return {
         exitCode: 0,
-        output: stdout.trim(),
+        output: stdout.trim() + (stderr ? `\n${stderr.trim()}` : ''),
         durationMs: 0,
         command,
       }
@@ -187,11 +202,14 @@ export class LocalEnvironment extends BaseEnvironment {
       this.logger.error('Command execution failed', execError, {
         command,
         workspacePath: this.workspacePath,
+        errorCode: execError.code,
+        stdout: execError.stdout,
+        stderr: execError.stderr,
       })
 
       return {
         exitCode: execError.code || 1,
-        output: execError.stdout?.trim() || execError.message || '',
+        output: execError.stdout?.trim() || execError.stderr?.trim() || execError.message || '',
         durationMs: 0,
         command,
       }

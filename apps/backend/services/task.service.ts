@@ -826,7 +826,7 @@ export class TaskService {
         'hello-world-ui',
         'Basic Hello Website',
         'https://github.com/aorwall/hello-world-ui.git',
-        'npm install',
+        'bun install',
         {
           serverStartCommand: 'bun run dev',
           injectionStrategy: {
