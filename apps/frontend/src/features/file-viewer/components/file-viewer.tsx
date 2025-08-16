@@ -87,7 +87,6 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
           {supportsPreview && viewMode === 'code' && (
             <PreviewModeToggle mode={previewMode} onModeChange={setPreviewMode} />
           )}
-          <span className="text-xs text-muted-foreground">{language}</span>
         </div>
       </div>
       <div className="file-content flex-1 overflow-auto min-w-0 max-w-full">
