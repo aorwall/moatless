@@ -1,5 +1,5 @@
 import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -17,8 +17,13 @@ interface CreateCodeTaskProps {
   maxHeight?: string
   showTitle?: boolean
   title?: string
-  defaultRepositoryId?: string
   defaultMessage?: string
+  model: ClaudeModel
+  onModelChange: (model: ClaudeModel) => void
+  agentMode: 'edit' | 'plan'
+  onAgentModeChange: (mode: 'edit' | 'plan') => void
+  repositoryId: string
+  onRepositoryChange: (repoId: string) => void
   onSuccess?: () => void
 }
 
@@ -27,46 +32,24 @@ export function CreateCodeTask({
   maxHeight = '300px',
   showTitle = false,
   title = 'What should we build today?',
-  defaultRepositoryId,
   defaultMessage,
+  model,
+  onModelChange,
+  agentMode,
+  onAgentModeChange,
+  repositoryId,
+  onRepositoryChange,
   onSuccess,
 }: CreateCodeTaskProps) {
   const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
+  const [branch, setBranch] = useState('')
 
-  // Initialize model selector with saved value
-  const initialModel = (() => {
-    if (typeof window !== 'undefined') {
-      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
-      return savedModel || undefined
-    }
-    return undefined
-  })()
-
-  const modelSelector = useModelSelector(initialModel)
-
-  // Initialize agent mode selector with saved value
-  const initialAgentMode = (() => {
-    if (typeof window !== 'undefined') {
-      const savedAgentMode = localStorage.getItem('lastSelectedAgentMode') as 'edit' | 'plan'
-      return savedAgentMode || 'edit'
-    }
-    return 'edit'
-  })()
-
-  const agentModeSelector = useAgentModeSelector(initialAgentMode)
-
-  // Determine initial repository value
-  const initialRepositoryId = (() => {
-    if (defaultRepositoryId) return defaultRepositoryId
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('lastSelectedRepositoryId') || ''
-    }
-    return ''
-  })()
-
-  const repoSelector = useRepositorySelector(true, initialRepositoryId)
-  const branchSelector = useBranchSelector(repoSelector.value, true)
+  // Use controlled selectors
+  const modelSelector = useModelSelector(model, onModelChange)
+  const agentModeSelector = useAgentModeSelector(agentMode, onAgentModeChange)
+  const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
+  const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true)
 
   const createTask = useCreateTask({
     onError: (error) => {
@@ -76,36 +59,8 @@ export function CreateCodeTask({
     },
   })
 
-  // Save selected repository to localStorage
-  useEffect(() => {
-    if (repoSelector.value) {
-      localStorage.setItem('lastSelectedRepositoryId', repoSelector.value)
-    }
-  }, [repoSelector.value])
-
-  // Save selected model to localStorage
-  useEffect(() => {
-    if (modelSelector.value) {
-      localStorage.setItem('lastSelectedModel', modelSelector.value)
-    }
-  }, [modelSelector.value])
-
-  // Save selected agent mode to localStorage
-  useEffect(() => {
-    if (agentModeSelector.value) {
-      localStorage.setItem('lastSelectedAgentMode', agentModeSelector.value)
-    }
-  }, [agentModeSelector.value])
-
-  // Auto-select first branch when branches are loaded
-  useEffect(() => {
-    if (repoSelector.value && branchSelector.items.length > 0 && !branchSelector.value) {
-      branchSelector.onChange(branchSelector.items[0].id)
-    }
-  }, [repoSelector.value, branchSelector.items, branchSelector.value, branchSelector.onChange])
-
   const handleSubmit = () => {
-    if (!message.trim() || !repoSelector.value) {
+    if (!message.trim() || !repositoryId) {
       return
     }
 
@@ -116,23 +71,24 @@ export function CreateCodeTask({
       {
         agentType: 'claude-code',
         message: message.trim(),
-        repositoryId: repoSelector.value,
-        model: modelSelector.value,
+        repositoryId,
+        model,
         filePaths,
         originalBranch: branchSelector.value,
-        agentMode: agentModeSelector.value,
+        agentMode,
       },
       {
         onSuccess: () => {
           setMessage('')
           setUploadedFiles([])
+          setBranch('')
           onSuccess?.()
         },
       },
     )
   }
 
-  const isSendDisabled = createTask.isPending || !message.trim() || !repoSelector.value
+  const isSendDisabled = createTask.isPending || !message.trim() || !repositoryId
 
   return (
     <div className={className}>

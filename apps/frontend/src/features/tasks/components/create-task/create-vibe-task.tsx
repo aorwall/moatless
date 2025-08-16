@@ -1,5 +1,5 @@
 import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -12,6 +12,10 @@ interface CreateVibeTaskProps {
   showTitle?: boolean
   title?: string
   defaultMessage?: string
+  model: ClaudeModel
+  onModelChange: (model: ClaudeModel) => void
+  templateId: string
+  onTemplateChange: (templateId: string) => void
   onSuccess?: () => void
 }
 
@@ -21,22 +25,18 @@ export function CreateVibeTask({
   showTitle = false,
   title = 'What should we vibe today?',
   defaultMessage,
+  model,
+  onModelChange,
+  templateId,
+  onTemplateChange,
   onSuccess,
 }: CreateVibeTaskProps) {
   const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
 
-  // Initialize model selector with saved value
-  const initialModel = (() => {
-    if (typeof window !== 'undefined') {
-      const savedModel = localStorage.getItem('lastSelectedModel') as ClaudeModel
-      return savedModel || undefined
-    }
-    return undefined
-  })()
-
-  const modelSelector = useModelSelector(initialModel)
-  const templateSelector = useTemplateSelector(true)
+  // Use controlled selectors
+  const modelSelector = useModelSelector(model, onModelChange)
+  const templateSelector = useTemplateSelector(templateId, onTemplateChange, true)
 
   const createVibeTask = useCreateVibeTask({
     onError: (error) => {
@@ -46,44 +46,16 @@ export function CreateVibeTask({
     },
   })
 
-  // Initialize template from localStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedTemplateId = localStorage.getItem('lastSelectedTemplateId')
-      if (savedTemplateId && !templateSelector.value) {
-        templateSelector.onChange(savedTemplateId)
-      }
-    }
-  }, [templateSelector])
-
-  // Save selected template to localStorage
-  useEffect(() => {
-    if (templateSelector.value) {
-      localStorage.setItem('lastSelectedTemplateId', templateSelector.value)
-    }
-  }, [templateSelector.value])
-
-  // Save selected model to localStorage
-  useEffect(() => {
-    if (modelSelector.value) {
-      localStorage.setItem('lastSelectedModel', modelSelector.value)
-    }
-  }, [modelSelector.value])
-
-  // Auto-select first template when templates are loaded
-  useEffect(() => {
-    if (templateSelector.items.length > 0 && !templateSelector.value) {
-      templateSelector.onChange(templateSelector.items[0].id)
-    }
-  }, [templateSelector.items, templateSelector.value, templateSelector.onChange])
-
   const handleSubmit = () => {
-    if (!message.trim() || !templateSelector.value) {
+    // Use the derived value from templateSelector which auto-selects first template
+    const effectiveTemplateId = templateSelector.value
+
+    if (!message.trim() || !effectiveTemplateId) {
       return
     }
 
     // Generate a repository name based on template and timestamp
-    const repositoryName = `${templateSelector.value}-${Date.now()}`
+    const repositoryName = `${effectiveTemplateId}-${Date.now()}`
 
     // Extract file paths from uploaded files
     const filePaths = uploadedFiles.map((f) => f.absolutePath)
@@ -91,7 +63,7 @@ export function CreateVibeTask({
     createVibeTask.mutate(
       {
         agentType: 'claude-code',
-        templateId: templateSelector.value,
+        templateId: effectiveTemplateId,
         repositoryName,
         message: message.trim(),
         model: modelSelector.value,

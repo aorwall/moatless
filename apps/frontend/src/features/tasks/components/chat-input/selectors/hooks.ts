@@ -4,13 +4,16 @@ import {
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
 } from '@moatless/types'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useTemplatesList } from '@/features/templates'
 
-// Repository selector hook
-export function useRepositorySelector(enabled = true, initialValue = '') {
-  const [selected, setSelected] = useState(initialValue)
+// Repository selector hook - now controlled
+export function useRepositorySelector(
+  value?: string,
+  onChange?: (value: string) => void,
+  enabled = true,
+) {
   const { data, isLoading, error, isError } = useRepositoriesList({ enabled })
 
   const items = useMemo(
@@ -22,14 +25,25 @@ export function useRepositorySelector(enabled = true, initialValue = '') {
     [data],
   )
 
-  const onChange = useCallback((value: string) => {
-    setSelected(value)
-  }, [])
+  // Internal state for uncontrolled mode
+  const [internalValue, setInternalValue] = useState('')
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      if (!isControlled) {
+        setInternalValue(newValue)
+      }
+      onChange?.(newValue)
+    },
+    [isControlled, onChange],
+  )
 
   return useMemo(
     () => ({
-      value: selected,
-      onChange,
+      value: currentValue,
+      onChange: handleChange,
       loading: isLoading,
       error,
       isError,
@@ -37,13 +51,17 @@ export function useRepositorySelector(enabled = true, initialValue = '') {
       items,
       width: 'w-[180px]',
     }),
-    [selected, onChange, isLoading, error, isError, items],
+    [currentValue, handleChange, isLoading, error, isError, items],
   )
 }
 
-// Branch selector hook
-export function useBranchSelector(repositoryId?: string, enabled = true) {
-  const [selected, setSelected] = useState('')
+// Branch selector hook - now controlled
+export function useBranchSelector(
+  repositoryId?: string,
+  value?: string,
+  onChange?: (value: string) => void,
+  enabled = true,
+) {
   const { data, isLoading, error, isError } = useBranches(repositoryId || '', {
     enabled: enabled && !!repositoryId,
   })
@@ -57,14 +75,33 @@ export function useBranchSelector(repositoryId?: string, enabled = true) {
     [data?.branches],
   )
 
-  const onChange = useCallback((value: string) => {
-    setSelected(value)
-  }, [])
+  // Internal state for uncontrolled mode
+  const [internalValue, setInternalValue] = useState('')
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  // Auto-select first branch if no value is set
+  const derivedValue = useMemo(() => {
+    if (!currentValue && items.length > 0) {
+      return items[0].id
+    }
+    return currentValue
+  }, [currentValue, items])
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      if (!isControlled) {
+        setInternalValue(newValue)
+      }
+      onChange?.(newValue)
+    },
+    [isControlled, onChange],
+  )
 
   return useMemo(
     () => ({
-      value: selected,
-      onChange,
+      value: derivedValue,
+      onChange: handleChange,
       loading: isLoading,
       error,
       isError,
@@ -73,13 +110,16 @@ export function useBranchSelector(repositoryId?: string, enabled = true) {
       width: 'w-[140px]',
       disabled: !repositoryId,
     }),
-    [selected, onChange, isLoading, error, isError, items, repositoryId],
+    [derivedValue, handleChange, isLoading, error, isError, items, repositoryId],
   )
 }
 
-// Template selector hook
-export function useTemplateSelector(enabled = true) {
-  const [selected, setSelected] = useState('')
+// Template selector hook - now controlled
+export function useTemplateSelector(
+  value?: string,
+  onChange?: (value: string) => void,
+  enabled = true,
+) {
   const { data, isLoading } = useTemplatesList({ enabled })
 
   const items = useMemo(
@@ -91,32 +131,44 @@ export function useTemplateSelector(enabled = true) {
     [data?.templates],
   )
 
-  const onChange = useCallback((value: string) => {
-    setSelected(value)
-  }, [])
+  // Internal state for uncontrolled mode
+  const [internalValue, setInternalValue] = useState('')
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  // Auto-select first template if no value is set
+  const derivedValue = useMemo(() => {
+    if (!currentValue && items.length > 0) {
+      return items[0].id
+    }
+    return currentValue
+  }, [currentValue, items])
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      if (!isControlled) {
+        setInternalValue(newValue)
+      }
+      onChange?.(newValue)
+    },
+    [isControlled, onChange],
+  )
 
   return useMemo(
     () => ({
-      value: selected,
-      onChange,
+      value: derivedValue,
+      onChange: handleChange,
       loading: isLoading,
       placeholder: 'Select template',
       items,
       width: 'w-[180px]',
     }),
-    [selected, onChange, isLoading, items],
+    [derivedValue, handleChange, isLoading, items],
   )
 }
 
-// Model selector hook
-export function useModelSelector(initial: ClaudeModel = DEFAULT_CLAUDE_MODEL) {
-  const [selected, setSelected] = useState<ClaudeModel>(initial)
-
-  // Sync internal state when initial value changes (e.g., when switching tasks)
-  useEffect(() => {
-    setSelected(initial)
-  }, [initial])
-
+// Model selector hook - now controlled
+export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeModel) => void) {
   const items = useMemo(
     () => [
       { id: CLAUDE_MODELS.OPUS_4, label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4] },
@@ -125,31 +177,39 @@ export function useModelSelector(initial: ClaudeModel = DEFAULT_CLAUDE_MODEL) {
     [],
   )
 
-  const onChange = useCallback((value: string) => {
-    setSelected(value as ClaudeModel)
-  }, [])
+  // Internal state for uncontrolled mode
+  const [internalValue, setInternalValue] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      const modelValue = newValue as ClaudeModel
+      if (!isControlled) {
+        setInternalValue(modelValue)
+      }
+      onChange?.(modelValue)
+    },
+    [isControlled, onChange],
+  )
 
   return useMemo(
     () => ({
-      value: selected,
-      onChange,
+      value: currentValue,
+      onChange: handleChange,
       placeholder: 'Select model',
       items,
       width: 'w-[130px]',
     }),
-    [selected, onChange, items],
+    [currentValue, handleChange, items],
   )
 }
 
-// Agent mode selector hook
-export function useAgentModeSelector(initial: 'edit' | 'plan' = 'edit') {
-  const [selected, setSelected] = useState<'edit' | 'plan'>(initial)
-
-  // Sync internal state when initial value changes (e.g., when switching tasks)
-  useEffect(() => {
-    setSelected(initial)
-  }, [initial])
-
+// Agent mode selector hook - now controlled
+export function useAgentModeSelector(
+  value?: 'edit' | 'plan',
+  onChange?: (value: 'edit' | 'plan') => void,
+) {
   const items = useMemo(
     () => [
       { id: 'edit', label: 'Edit Mode' },
@@ -158,18 +218,30 @@ export function useAgentModeSelector(initial: 'edit' | 'plan' = 'edit') {
     [],
   )
 
-  const onChange = useCallback((value: string) => {
-    setSelected(value as 'edit' | 'plan')
-  }, [])
+  // Internal state for uncontrolled mode
+  const [internalValue, setInternalValue] = useState<'edit' | 'plan'>('edit')
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      const modeValue = newValue as 'edit' | 'plan'
+      if (!isControlled) {
+        setInternalValue(modeValue)
+      }
+      onChange?.(modeValue)
+    },
+    [isControlled, onChange],
+  )
 
   return useMemo(
     () => ({
-      value: selected,
-      onChange,
+      value: currentValue,
+      onChange: handleChange,
       placeholder: 'Mode',
       items,
       width: 'w-[100px]',
     }),
-    [selected, onChange, items],
+    [currentValue, handleChange, items],
   )
 }
