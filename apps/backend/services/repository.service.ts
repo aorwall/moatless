@@ -89,6 +89,7 @@ export class RepositoryService {
       sourceType: request.sourceType || 'local',
       useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
       originalBranch: request.originalBranch,
+      templateId: request.templateId,
       codeExecution: request.codeExecution,
       previewConfig,
       createdAt: new Date(),

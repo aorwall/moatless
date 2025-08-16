@@ -123,6 +123,7 @@ export const TaskResponseSchema = z.object({
   totalCostUsd: z.number(),
   iterations: z.array(TaskIterationSchema),
   workspacePath: z.string().optional(),
+  templateId: z.string().optional(),
 })
 
 export const TaskListResponseSchema = z.object({
@@ -229,6 +230,7 @@ export const CreateTaskRequestSchema = z.object({
   model: z.string().optional(),
   filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
   agentMode: z.enum(['edit', 'plan']).optional(), // Agent mode for task creation
+  templateId: z.string().optional(), // Template ID when created from template
 })
 
 // Create Vibe Task (simplified - vibe tasks always start immediately and don't support branches)

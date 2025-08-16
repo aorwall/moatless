@@ -513,6 +513,7 @@ export class TaskService {
       numTurns: 0,
       totalCostUsd: 0.0,
       iterations: [],
+      templateId: params.templateId,
     }
 
     // Create task iteration with 'created' status if message is provided
@@ -883,6 +884,7 @@ export class TaskService {
       name: repositoryName,
       description: `Created from template: ${template.name}`,
       templatePath: templateRepoDir,
+      templateId: template.id,
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
@@ -900,6 +902,7 @@ export class TaskService {
       start: true, // Always start vibe tasks immediately
       model: params.model,
       filePaths: params.filePaths, // Support file uploads for context
+      templateId: params.templateId,
     }
 
     const task = await this.createTask(createTaskParams)

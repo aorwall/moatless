@@ -9,23 +9,21 @@ describe('RepositoryService', () => {
 
   beforeEach(() => {
     mockStorage = {
-      getRepository: vi.fn(),
-      saveRepository: vi.fn(),
+      // Generic storage methods
+      save: vi.fn(),
+      get: vi.fn(),
       list: vi.fn(),
-      getTask: vi.fn(),
-      saveTask: vi.fn(),
-      deleteTask: vi.fn(),
-      getEvent: vi.fn(),
-      saveEvent: vi.fn(),
-      listEvents: vi.fn(),
-      deleteEvents: vi.fn(),
-      getMessage: vi.fn(),
-      saveMessage: vi.fn(),
-      listMessages: vi.fn(),
-      deleteMessages: vi.fn(),
-      exists: vi.fn(),
       delete: vi.fn(),
-      cleanup: vi.fn(),
+      exists: vi.fn(),
+      // Type-safe convenience methods
+      saveTask: vi.fn(),
+      getTask: vi.fn(),
+      saveRepository: vi.fn(),
+      getRepository: vi.fn(),
+      saveWorkspace: vi.fn(),
+      getWorkspace: vi.fn(),
+      saveEvents: vi.fn(),
+      getEvents: vi.fn(),
     }
 
     repositoryService = new RepositoryService(mockStorage)

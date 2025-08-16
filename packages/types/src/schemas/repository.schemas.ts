@@ -61,6 +61,7 @@ export const RepositoryConfigSchema = z.object({
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
   deleted: z.boolean().optional(), // Soft deletion flag
+  templateId: z.string().optional(), // Template ID when created from template
 
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
@@ -78,6 +79,7 @@ export const CreateRepositorySchema = z.object({
   sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
+  templateId: z.string().optional(), // Template ID when created from template
   // Original fields
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
