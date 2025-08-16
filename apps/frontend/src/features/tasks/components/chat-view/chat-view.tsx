@@ -8,7 +8,12 @@ import { useSendMessage, useStopAgent, useTaskCommands } from '@/features/tasks/
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
-import { GenericSelector, useAgentModeSelector, useModelSelector } from '../chat-input/selectors'
+import {
+  PopoverSelector,
+  SimpleListPopoverContent,
+  useAgentModeSelector,
+  useModelSelector,
+} from '../chat-input/selectors'
 import { MessageHistory } from '../message-history'
 import { CommandButtons } from './command-buttons'
 
@@ -248,8 +253,35 @@ function ChatViewComponent({ className }: ChatViewProps) {
                 onFilesChange={setUploadedFiles}
                 selectors={
                   <>
-                    <GenericSelector {...modelSelector} />
-                    <GenericSelector {...agentModeSelector} />
+                    <PopoverSelector
+                      icon={modelSelector.icon}
+                      value={modelSelector.value}
+                      displayValue={modelSelector.displayValue}
+                      tooltip={modelSelector.tooltip}
+                      loading={modelSelector.loading}
+                      disabled={modelSelector.disabled}
+                    >
+                      <SimpleListPopoverContent
+                        items={modelSelector.items}
+                        value={modelSelector.value}
+                        onChange={modelSelector.onChange}
+                      />
+                    </PopoverSelector>
+
+                    <PopoverSelector
+                      icon={agentModeSelector.icon}
+                      value={agentModeSelector.value}
+                      displayValue={agentModeSelector.displayValue}
+                      tooltip={agentModeSelector.tooltip}
+                      loading={agentModeSelector.loading}
+                      disabled={agentModeSelector.disabled}
+                    >
+                      <SimpleListPopoverContent
+                        items={agentModeSelector.items}
+                        value={agentModeSelector.value}
+                        onChange={agentModeSelector.onChange}
+                      />
+                    </PopoverSelector>
                   </>
                 }
               />

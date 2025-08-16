@@ -1,6 +1,5 @@
 import type { Task } from '@moatless/types'
 import { useMemo } from 'react'
-import { ViewToggle } from '@/components/view-toggle'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import { CreateVibeTask } from '@/features/tasks/components/create-task/create-vibe-task'
@@ -29,11 +28,6 @@ function EmptyTaskState() {
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
-        {/* View Toggle */}
-        <div className="flex justify-center mb-8">
-          <ViewToggle mode={preferences.viewMode} onModeChange={preferences.setViewMode} />
-        </div>
-
         {/* Task Creation Components */}
         {preferences.viewMode === 'code' ? (
           <CreateCodeTask
@@ -74,13 +68,8 @@ function EmptyTaskState() {
 
 function TaskDashboardHeader({ taskCount }: { taskCount: number }) {
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div>
-        <h1 className="text-2xl font-bold">Task Dashboard</h1>
-        <p className="text-muted-foreground">
-          {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
-        </p>
-      </div>
+    <div className="flex items-center justify-between mb-4">
+      <h1 className="text-2xl font-bold">Tasks</h1>
     </div>
   )
 }
@@ -145,11 +134,6 @@ export function TaskDashboard() {
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
-        {/* View Toggle */}
-        <div className="flex justify-center mb-8">
-          <ViewToggle mode={preferences.viewMode} onModeChange={preferences.setViewMode} />
-        </div>
-
         {/* Task Creation Components */}
         {preferences.viewMode === 'code' ? (
           <CreateCodeTask

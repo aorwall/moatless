@@ -5,7 +5,12 @@ import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
-import { GenericSelector, useModelSelector, useTemplateSelector } from '../chat-input/selectors'
+import {
+  PopoverSelector,
+  SimpleListPopoverContent,
+  useModelSelector,
+  useTemplateSelector,
+} from '../chat-input/selectors'
 
 interface CreateVibeTaskProps {
   className?: string
@@ -105,8 +110,35 @@ export function CreateVibeTask({
           onFilesChange={setUploadedFiles}
           selectors={
             <>
-              <GenericSelector {...templateSelector} />
-              <GenericSelector {...modelSelector} />
+              <PopoverSelector
+                icon={templateSelector.icon}
+                value={templateSelector.value}
+                displayValue={templateSelector.displayValue}
+                tooltip={templateSelector.tooltip}
+                loading={templateSelector.loading}
+                disabled={templateSelector.disabled}
+              >
+                <SimpleListPopoverContent
+                  items={templateSelector.items}
+                  value={templateSelector.value}
+                  onChange={templateSelector.onChange}
+                />
+              </PopoverSelector>
+
+              <PopoverSelector
+                icon={modelSelector.icon}
+                value={modelSelector.value}
+                displayValue={modelSelector.displayValue}
+                tooltip={modelSelector.tooltip}
+                loading={modelSelector.loading}
+                disabled={modelSelector.disabled}
+              >
+                <SimpleListPopoverContent
+                  items={modelSelector.items}
+                  value={modelSelector.value}
+                  onChange={modelSelector.onChange}
+                />
+              </PopoverSelector>
             </>
           }
         />

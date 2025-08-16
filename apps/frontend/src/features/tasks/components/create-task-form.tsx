@@ -2,23 +2,19 @@ import { CreateTaskRequestSchema, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { RepositorySelector } from '@/features/tasks/components/chat-input/repository-selector'
 import {
-  GenericSelector,
+  BranchPopoverContent,
+  PopoverSelector,
+  SearchablePopoverContent,
+  SimpleListPopoverContent,
   useAgentModeSelector,
+  useBranchSelector,
+  useRepositorySelector,
 } from '@/features/tasks/components/chat-input/selectors'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Label } from '@/lib/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/components/ui/select'
 import { useZodForm } from '@/lib/hooks/use-zod-form'
 import { getErrorMessage } from '@/lib/utils/error'
 
@@ -27,12 +23,15 @@ export function CreateTaskForm() {
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>('')
   const [selectedBranch, setSelectedBranch] = useState<string>('__none__')
 
-  // Agent mode selector with default 'edit'
+  // Use selector hooks
   const agentModeSelector = useAgentModeSelector('edit')
-
-  const { data: repositories, isLoading: repositoriesLoading } = useRepositoriesList()
-
-  const { data: branches, isLoading: branchesLoading } = useBranches(selectedRepositoryId)
+  const repoSelector = useRepositorySelector(selectedRepositoryId, setSelectedRepositoryId, true)
+  const branchSelector = useBranchSelector(
+    selectedRepositoryId,
+    selectedBranch,
+    setSelectedBranch,
+    true,
+  )
 
   // Use schema validation
   const { errors, validate } = useZodForm({ schema: CreateTaskRequestSchema })
@@ -86,12 +85,23 @@ export function CreateTaskForm() {
           <Label htmlFor="repository" className="text-sm font-medium text-foreground">
             Select Repository
           </Label>
-          <RepositorySelector
-            repositories={repositories || []}
-            loading={repositoriesLoading}
-            selectedRepositoryId={selectedRepositoryId}
-            onRepositoryChange={handleRepositoryChange}
-          />
+          <PopoverSelector
+            icon={repoSelector.icon}
+            value={repoSelector.value}
+            displayValue={repoSelector.displayValue}
+            tooltip={repoSelector.tooltip}
+            loading={repoSelector.loading}
+            disabled={repoSelector.disabled}
+            className="w-full justify-start"
+          >
+            <SearchablePopoverContent
+              items={repoSelector.items}
+              value={repoSelector.value}
+              onChange={handleRepositoryChange}
+              placeholder="Search repositories..."
+              emptyText="No repositories found"
+            />
+          </PopoverSelector>
           {errors.repositoryId && <p className="text-sm text-destructive">{errors.repositoryId}</p>}
         </div>
 
@@ -100,32 +110,26 @@ export function CreateTaskForm() {
             <Label htmlFor="branch" className="text-sm font-medium text-foreground">
               Select Branch (optional)
             </Label>
-            <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={
-                    branchesLoading
-                      ? 'Loading branches...'
-                      : 'Select branch or leave empty to branch from main'
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">
-                  <span className="text-muted-foreground">None (branch from main)</span>
-                </SelectItem>
-                {branches?.branches.map((branch) => (
-                  <SelectItem key={branch} value={branch}>
-                    <div className="flex items-center gap-2">
-                      <span>{branch}</span>
-                      {branch === branches.currentBranch && (
-                        <span className="text-xs text-status-success">(current)</span>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PopoverSelector
+              icon={branchSelector.icon}
+              value={branchSelector.value}
+              displayValue={branchSelector.displayValue}
+              tooltip={branchSelector.tooltip}
+              loading={branchSelector.loading}
+              disabled={branchSelector.disabled}
+              className="w-full justify-start"
+            >
+              <BranchPopoverContent
+                items={[
+                  { id: '__none__', label: 'None (branch from main)' },
+                  ...branchSelector.items,
+                ]}
+                value={branchSelector.value}
+                onChange={setSelectedBranch}
+                currentBranch={branchSelector.currentBranch}
+                enableSearch={branchSelector.items.length > 10}
+              />
+            </PopoverSelector>
             <p className="text-xs text-muted-foreground">
               If no branch is selected, the task will branch out from main
             </p>
@@ -136,7 +140,21 @@ export function CreateTaskForm() {
           <Label htmlFor="agentMode" className="text-sm font-medium text-foreground">
             Agent Mode
           </Label>
-          <GenericSelector {...agentModeSelector} />
+          <PopoverSelector
+            icon={agentModeSelector.icon}
+            value={agentModeSelector.value}
+            displayValue={agentModeSelector.displayValue}
+            tooltip={agentModeSelector.tooltip}
+            loading={agentModeSelector.loading}
+            disabled={agentModeSelector.disabled}
+            className="w-full justify-start"
+          >
+            <SimpleListPopoverContent
+              items={agentModeSelector.items}
+              value={agentModeSelector.value}
+              onChange={agentModeSelector.onChange}
+            />
+          </PopoverSelector>
           <p className="text-xs text-muted-foreground">
             Choose between Edit mode (makes changes) or Plan mode (creates plans)
           </p>

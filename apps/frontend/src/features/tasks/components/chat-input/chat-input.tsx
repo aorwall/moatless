@@ -258,7 +258,7 @@ export function ChatInput({
 
   // Determine which container style to use based on file upload capability
   const containerStyle = enableFileUpload
-    ? 'group flex flex-col gap-2 rounded-3xl border border-border bg-card p-3 relative'
+    ? 'group flex flex-col gap-2 rounded-3xl border border-border bg-card p-2.5 relative'
     : 'group flex flex-col gap-2 rounded-3xl border border-border bg-muted p-3'
 
   return (

@@ -6,7 +6,10 @@ import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInput } from '../chat-input/chat-input'
 import {
-  GenericSelector,
+  BranchPopoverContent,
+  PopoverSelector,
+  SearchablePopoverContent,
+  SimpleListPopoverContent,
   useAgentModeSelector,
   useBranchSelector,
   useModelSelector,
@@ -119,10 +122,69 @@ export function CreateCodeTask({
           onFilesChange={setUploadedFiles}
           selectors={
             <>
-              <GenericSelector {...repoSelector} />
-              <GenericSelector {...branchSelector} />
-              <GenericSelector {...modelSelector} />
-              <GenericSelector {...agentModeSelector} />
+              <PopoverSelector
+                icon={repoSelector.icon}
+                value={repoSelector.value}
+                displayValue={repoSelector.displayValue}
+                tooltip={repoSelector.tooltip}
+                loading={repoSelector.loading}
+                disabled={repoSelector.disabled}
+              >
+                <SearchablePopoverContent
+                  items={repoSelector.items}
+                  value={repoSelector.value}
+                  onChange={repoSelector.onChange}
+                  placeholder="Search repositories..."
+                  emptyText="No repositories found"
+                />
+              </PopoverSelector>
+
+              <PopoverSelector
+                icon={branchSelector.icon}
+                value={branchSelector.value}
+                displayValue={branchSelector.displayValue}
+                tooltip={branchSelector.tooltip}
+                loading={branchSelector.loading}
+                disabled={branchSelector.disabled}
+              >
+                <BranchPopoverContent
+                  items={branchSelector.items}
+                  value={branchSelector.value}
+                  onChange={branchSelector.onChange}
+                  currentBranch={branchSelector.currentBranch}
+                  enableSearch={branchSelector.items.length > 10}
+                />
+              </PopoverSelector>
+
+              <PopoverSelector
+                icon={modelSelector.icon}
+                value={modelSelector.value}
+                displayValue={modelSelector.displayValue}
+                tooltip={modelSelector.tooltip}
+                loading={modelSelector.loading}
+                disabled={modelSelector.disabled}
+              >
+                <SimpleListPopoverContent
+                  items={modelSelector.items}
+                  value={modelSelector.value}
+                  onChange={modelSelector.onChange}
+                />
+              </PopoverSelector>
+
+              <PopoverSelector
+                icon={agentModeSelector.icon}
+                value={agentModeSelector.value}
+                displayValue={agentModeSelector.displayValue}
+                tooltip={agentModeSelector.tooltip}
+                loading={agentModeSelector.loading}
+                disabled={agentModeSelector.disabled}
+              >
+                <SimpleListPopoverContent
+                  items={agentModeSelector.items}
+                  value={agentModeSelector.value}
+                  onChange={agentModeSelector.onChange}
+                />
+              </PopoverSelector>
             </>
           }
         />

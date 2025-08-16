@@ -4,6 +4,7 @@ import {
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
 } from '@moatless/types'
+import { Bot, Database, FileText, GitBranch, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useTemplatesList } from '@/features/templates'
@@ -40,6 +41,11 @@ export function useRepositorySelector(
     [isControlled, onChange],
   )
 
+  const selectedRepo = useMemo(
+    () => data?.find((repo) => repo.id === currentValue),
+    [data, currentValue],
+  )
+
   return useMemo(
     () => ({
       value: currentValue,
@@ -50,8 +56,13 @@ export function useRepositorySelector(
       placeholder: 'Select repository',
       items,
       width: 'w-[180px]',
+      disabled: false,
+      // New popover selector props
+      icon: Database,
+      tooltip: 'Choose a repository',
+      displayValue: selectedRepo?.name || 'Select repository',
     }),
-    [currentValue, handleChange, isLoading, error, isError, items],
+    [currentValue, handleChange, isLoading, error, isError, items, selectedRepo],
   )
 }
 
@@ -98,6 +109,11 @@ export function useBranchSelector(
     [isControlled, onChange],
   )
 
+  const selectedBranch = useMemo(
+    () => items.find((item) => item.id === derivedValue),
+    [items, derivedValue],
+  )
+
   return useMemo(
     () => ({
       value: derivedValue,
@@ -109,8 +125,23 @@ export function useBranchSelector(
       items,
       width: 'w-[140px]',
       disabled: !repositoryId,
+      // New popover selector props
+      icon: GitBranch,
+      tooltip: 'Choose a branch',
+      displayValue: selectedBranch?.label || 'Select branch',
+      currentBranch: data?.currentBranch,
     }),
-    [derivedValue, handleChange, isLoading, error, isError, items, repositoryId],
+    [
+      derivedValue,
+      handleChange,
+      isLoading,
+      error,
+      isError,
+      items,
+      repositoryId,
+      selectedBranch,
+      data?.currentBranch,
+    ],
   )
 }
 
@@ -154,6 +185,11 @@ export function useTemplateSelector(
     [isControlled, onChange],
   )
 
+  const selectedTemplate = useMemo(
+    () => items.find((item) => item.id === derivedValue),
+    [items, derivedValue],
+  )
+
   return useMemo(
     () => ({
       value: derivedValue,
@@ -162,8 +198,12 @@ export function useTemplateSelector(
       placeholder: 'Select template',
       items,
       width: 'w-[180px]',
+      // New popover selector props
+      icon: FileText,
+      tooltip: 'Choose a template',
+      displayValue: selectedTemplate?.label || 'Select template',
     }),
-    [derivedValue, handleChange, isLoading, items],
+    [derivedValue, handleChange, isLoading, items, selectedTemplate],
   )
 }
 
@@ -193,6 +233,11 @@ export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeM
     [isControlled, onChange],
   )
 
+  const selectedModel = useMemo(
+    () => items.find((item) => item.id === currentValue),
+    [items, currentValue],
+  )
+
   return useMemo(
     () => ({
       value: currentValue,
@@ -200,8 +245,14 @@ export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeM
       placeholder: 'Select model',
       items,
       width: 'w-[130px]',
+      loading: false,
+      disabled: false,
+      // New popover selector props
+      icon: Bot,
+      tooltip: 'Choose AI model',
+      displayValue: selectedModel?.label || 'Select model',
     }),
-    [currentValue, handleChange, items],
+    [currentValue, handleChange, items, selectedModel],
   )
 }
 
@@ -234,6 +285,11 @@ export function useAgentModeSelector(
     [isControlled, onChange],
   )
 
+  const selectedMode = useMemo(
+    () => items.find((item) => item.id === currentValue),
+    [items, currentValue],
+  )
+
   return useMemo(
     () => ({
       value: currentValue,
@@ -241,7 +297,13 @@ export function useAgentModeSelector(
       placeholder: 'Mode',
       items,
       width: 'w-[100px]',
+      loading: false,
+      disabled: false,
+      // New popover selector props
+      icon: Wand2,
+      tooltip: 'Choose agent mode',
+      displayValue: selectedMode?.label || 'Select mode',
     }),
-    [currentValue, handleChange, items],
+    [currentValue, handleChange, items, selectedMode],
   )
 }
