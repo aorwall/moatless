@@ -1,7 +1,5 @@
 import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import {
   useIsAgentRunning,
   useTaskData,
@@ -10,9 +8,7 @@ import {
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
-import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
-import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import {
   Tooltip,
   TooltipContent,
@@ -22,9 +18,8 @@ import {
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 
-export function TaskHeader() {
-  const { taskId, status, agentType, repositoryId, iterations } = useTaskData()
-  const { data: repositories } = useRepositoriesList()
+export function TaskRightHeader() {
+  const { taskId, status } = useTaskData()
   const { rightPanelView, setRightPanelView } = usePanelView()
 
   // Get workspace status and agent running state
@@ -76,20 +71,6 @@ export function TaskHeader() {
     },
   })
 
-  // const setupWorkspace = useWorkspaceSetup({
-  //   onSuccess: (data) => {
-  //     toast.success('Workspace setup completed', {
-  //       description: data.message,
-  //     })
-  //   },
-  //   onError: (error) => {
-  //     console.error('Failed to setup workspace:', error)
-  //     toast.error('Failed to setup workspace', {
-  //       description: getErrorMessage(error),
-  //     })
-  //   },
-  // })
-
   const handleMerge = () => {
     if (taskId && status) {
       if (!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0) {
@@ -120,118 +101,43 @@ export function TaskHeader() {
     }
   }
 
-  // const _handleSetup = () => {
-  //   if (taskId) {
-  //     setupWorkspace.mutate({ taskId })
-  //   }
-  // }
-
   if (!status) {
     return null
   }
 
-  // Get repository name
-  const repository = repositories?.find((repo) => repo.id === repositoryId)
-  const repositoryName = repository?.name || repositoryId
-
-  // Get task title (first line of initial message or agent type)
-  const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
-
-  // Format git status info in compact format
-  const gitStatusInfo = gitStatus
-    ? [
-        gitStatus.commitsAhead > 0 && `${gitStatus.commitsAhead} ahead`,
-        gitStatus.commitsBehind > 0 && `${gitStatus.commitsBehind} behind`,
-        (gitStatus.status === 'diverged' || gitStatus.hasConflicts) && 'has conflicts',
-        gitStatus.hasUncommittedChanges && 'uncommitted changes',
-      ]
-        .filter(Boolean)
-        .join(', ')
-    : ''
-
-  // Calculate metrics from iterations
-  const totalTurns = iterations?.reduce((sum, iteration) => sum + iteration.messageCount, 0) || 0
-  const totalCostUsd = iterations?.reduce((sum, iteration) => sum + iteration.costUsd, 0) || 0
-
-  // Get context tokens from the last iteration that has any context tokens
-  const lastIterationWithContext = iterations
-    ? [...iterations]
-        .reverse()
-        .find((iteration) => iteration.contextTokens && iteration.contextTokens > 0)
-    : undefined
-  const contextTokens = lastIterationWithContext?.contextTokens
   return (
-    <div className="h-[58px] px-4 py-2 border-b flex items-center">
+    <div className="h-[58px] px-4 py-2 border-b flex items-center flex-shrink-0">
       <div className="flex items-center justify-between gap-3 w-full">
-        {/* Left side */}
-        <div className="flex items-center gap-3 min-w-0">
-          <SidebarTrigger />
-          <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium truncate max-w-[300px]" title={taskTitle}>
-              {taskTitle}
-            </span>
-            <span className="text-muted-foreground">•</span>
-            <span className="text-muted-foreground truncate max-w-[150px]" title={repositoryName}>
-              {repositoryName}
-            </span>
-            <span className="text-muted-foreground">•</span>
-            <TaskStatusIcon
-              task={{ status: status as any, iterations }}
-              workspace={workspace}
-              showText={false}
-            />
-            {gitStatusInfo && (
-              <>
-                <span className="text-muted-foreground">•</span>
-                <span className="text-xs text-muted-foreground">{gitStatusInfo}</span>
-              </>
+        {/* View toggle */}
+        <div className="flex items-center border rounded-md bg-muted/30">
+          <button
+            type="button"
+            className={cn(
+              'px-3 py-1 text-sm font-medium transition-colors rounded-l-md',
+              rightPanelView === 'files'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
             )}
-            <span className="text-muted-foreground">•</span>
-            <Badge variant="outline" className="text-xs">
-              {totalTurns} turns
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              ${totalCostUsd.toFixed(4)}
-            </Badge>
-            {contextTokens && (
-              <Badge variant="outline" className="text-xs">
-                {contextTokens.toLocaleString()} tokens
-              </Badge>
+            onClick={() => setRightPanelView('files')}
+          >
+            Files
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
+              rightPanelView === 'preview'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
             )}
-          </div>
+            onClick={() => setRightPanelView('preview')}
+          >
+            Preview
+          </button>
         </div>
 
-        {/* Right side */}
+        {/* Action buttons */}
         <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex items-center border rounded-md bg-muted/30">
-            <button
-              type="button"
-              className={cn(
-                'px-3 py-1 text-sm font-medium transition-colors rounded-l-md',
-                rightPanelView === 'files'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-              onClick={() => setRightPanelView('files')}
-            >
-              Files
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
-                rightPanelView === 'preview'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-              onClick={() => setRightPanelView('preview')}
-            >
-              Preview
-            </button>
-          </div>
-
-          {/* Action buttons */}
           {!isAgentRunning && status !== 'closed' && status !== 'merged' && (
             <TooltipProvider>
               <Tooltip>

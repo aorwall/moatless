@@ -7,7 +7,8 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { usePanelView, useTaskData } from '../contexts/task-providers'
 import { ChatView } from './chat-view/chat-view'
-import { TaskHeader } from './task-header/task-header'
+import { TaskLeftHeader } from './task-header/task-left-header'
+import { TaskRightHeader } from './task-header/task-right-header'
 import { TaskDetailSkeleton } from './task-skeletons'
 
 function TaskPageComponent() {
@@ -31,29 +32,21 @@ function TaskPageComponent() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      <TaskHeader />
-      <ResizablePanelGroup direction="horizontal" className="flex-1 w-full">
-        {/* Left Panel - Chat */}
-        <ResizablePanel
-          defaultSize={40}
-          minSize={25}
-          maxSize={60}
-          className="h-full"
-          style={{
-            minWidth: 'max(25%, 300px)',
-            maxWidth: 'min(60%, 800px)',
-          }}
-        >
+    <div className="h-full w-full">
+      <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+        {/* Left Panel - Chat with Header */}
+        <ResizablePanel defaultSize={40} minSize={25} maxSize={60} className="flex flex-col">
+          <TaskLeftHeader />
           <ErrorBoundary componentName="Chat View">
-            <ChatView className="h-full" />
+            <ChatView className="flex-1 min-h-0" />
           </ErrorBoundary>
         </ResizablePanel>
 
         <ResizableHandle withHandle />
 
-        {/* Right Panel - Files/Preview */}
+        {/* Right Panel - Files/Preview with Header */}
         <ResizablePanel className="flex flex-col">
+          <TaskRightHeader />
           <div className="flex-1 overflow-hidden">
             <ErrorBoundary componentName={rightPanelView === 'files' ? 'File Explorer' : 'Preview'}>
               {rightPanelView === 'files' ? (

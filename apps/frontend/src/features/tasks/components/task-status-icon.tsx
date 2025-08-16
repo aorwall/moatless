@@ -84,43 +84,82 @@ export function TaskStatusIcon({
     color = 'text-blue-500'
   }
 
-  const WorkspaceStatusPopup = () => {
-    if (!workspace) return null
+  // Calculate metrics from iterations
+  const totalTurns =
+    task.iterations?.reduce((sum, iteration) => sum + iteration.messageCount, 0) || 0
+  const totalCostUsd = task.iterations?.reduce((sum, iteration) => sum + iteration.costUsd, 0) || 0
 
+  // Get context tokens from the last iteration that has any context tokens
+  const lastIterationWithContext = task.iterations
+    ? [...task.iterations]
+        .reverse()
+        .find((iteration) => iteration.contextTokens && iteration.contextTokens > 0)
+    : undefined
+  const contextTokens = lastIterationWithContext?.contextTokens
+
+  const WorkspaceStatusPopup = () => {
     return (
       <div className="space-y-3 w-64">
         <div>
-          <h4 className="font-medium text-sm mb-2">Workspace Status</h4>
+          <h4 className="font-medium text-sm mb-2">Task Statistics</h4>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Environment:</span>
-              <Badge
-                variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
-                className="h-5 text-xs"
-              >
-                {workspace.environmentStatus}
+              <span className="text-muted-foreground">Total Turns:</span>
+              <Badge variant="outline" className="h-5 text-xs">
+                {totalTurns}
               </Badge>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Agent:</span>
-              <Badge
-                variant={workspace.agentState === 'running' ? 'default' : 'outline'}
-                className="h-5 text-xs"
-              >
-                {workspace.agentState}
+              <span className="text-muted-foreground">Total Cost:</span>
+              <Badge variant="outline" className="h-5 text-xs">
+                ${totalCostUsd.toFixed(4)}
               </Badge>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Workspace:</span>
-              <Badge
-                variant={workspace.workspaceState === 'exists' ? 'default' : 'destructive'}
-                className="h-5 text-xs"
-              >
-                {workspace.workspaceState}
-              </Badge>
-            </div>
+            {contextTokens && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Context Tokens:</span>
+                <Badge variant="outline" className="h-5 text-xs">
+                  {contextTokens.toLocaleString()}
+                </Badge>
+              </div>
+            )}
           </div>
         </div>
+
+        {workspace && (
+          <div>
+            <h4 className="font-medium text-sm mb-2">Workspace Status</h4>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Environment:</span>
+                <Badge
+                  variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
+                  className="h-5 text-xs"
+                >
+                  {workspace.environmentStatus}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Agent:</span>
+                <Badge
+                  variant={workspace.agentState === 'running' ? 'default' : 'outline'}
+                  className="h-5 text-xs"
+                >
+                  {workspace.agentState}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Workspace:</span>
+                <Badge
+                  variant={workspace.workspaceState === 'exists' ? 'default' : 'destructive'}
+                  className="h-5 text-xs"
+                >
+                  {workspace.workspaceState}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        )}
 
         {gitStatus && (
           <div>
@@ -146,7 +185,7 @@ export function TaskStatusIcon({
           </div>
         )}
 
-        {workspace.environmentError && (
+        {workspace?.environmentError && (
           <div>
             <h4 className="font-medium text-sm mb-2 text-red-600">Error</h4>
             <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
