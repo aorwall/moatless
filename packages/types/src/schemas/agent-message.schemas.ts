@@ -10,12 +10,12 @@ const ToolUseResultSchema = z.object({
 
 // Base schema for all agent messages
 const BaseAgentMessageSchema = z.object({
-  parentUuid: z.string().nullable(),
-  isSidechain: z.boolean(),
+  parentUuid: z.string().optional(),
+  isSidechain: z.boolean().optional(),
   userType: z.string(),
-  cwd: z.string(),
-  sessionId: z.string(),
-  version: z.string(),
+  cwd: z.string().optional(),
+  sessionId: z.string().optional(),
+  version: z.string().optional(),
   gitBranch: z.string().optional(),
   uuid: z.string(),
   timestamp: z.string(), // ISO date string

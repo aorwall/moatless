@@ -52,13 +52,23 @@ export function isAgentMessage(obj: unknown): obj is AgentMessage {
 
   // Check required fields
   if (
-    typeof candidate.sessionId !== 'string' ||
     typeof candidate.uuid !== 'string' ||
     typeof candidate.timestamp !== 'string' ||
     typeof candidate.type !== 'string' ||
     !candidate.message ||
     typeof candidate.message !== 'object'
   ) {
+    return false
+  }
+
+  // Check optional fields if they exist
+  if (candidate.sessionId !== undefined && typeof candidate.sessionId !== 'string') {
+    return false
+  }
+  if (candidate.cwd !== undefined && typeof candidate.cwd !== 'string') {
+    return false
+  }
+  if (candidate.version !== undefined && typeof candidate.version !== 'string') {
     return false
   }
 

@@ -47,8 +47,6 @@ describe('MessageService Unit Tests', () => {
   describe('Message Transformation', () => {
     it('should transform simple user and assistant messages', async () => {
       const agentUserMessage: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/test/workspace',
         sessionId: 'session-123',
@@ -171,8 +169,6 @@ describe('MessageService Unit Tests', () => {
 
     it('should handle malformed JSON gracefully', async () => {
       const validMessage: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/test/workspace',
         sessionId: 'session-123',
@@ -197,8 +193,6 @@ describe('MessageService Unit Tests', () => {
 
     it('should skip empty user messages', async () => {
       const emptyUserMessage: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/test/workspace',
         sessionId: 'session-123',
@@ -213,8 +207,6 @@ describe('MessageService Unit Tests', () => {
       }
 
       const validUserMessage: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/test/workspace',
         sessionId: 'session-123',
@@ -261,8 +253,6 @@ describe('MessageService Unit Tests', () => {
 
     it('should handle messages without timestamps', async () => {
       const messageWithTimestamp: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/test/workspace',
         sessionId: 'session-123',
@@ -541,8 +531,6 @@ describe('MessageService Unit Tests', () => {
   describe('Real-world AgentMessage Examples', () => {
     it('should parse user message with commit request', async () => {
       const userMessage: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
         sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
@@ -767,8 +755,6 @@ describe('MessageService Unit Tests', () => {
 
       // Mock Claude service to return messages
       const agentUserMessage: AgentMessage = {
-        parentUuid: null,
-        isSidechain: false,
         userType: 'external',
         cwd: '/test/workspace',
         sessionId: 'session-1',

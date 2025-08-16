@@ -57,7 +57,51 @@ export class MessageService {
 
         // Read messages for this specific session
         const agentMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
-        allAgentMessages.push(...agentMessages)
+
+        // If no messages found but iteration has data, create messages from iteration
+        if (agentMessages.length === 0) {
+          // Add initial message if exists
+          if (iteration.initialMessage) {
+            const userMessage: AgentMessage = {
+              userType: 'user',
+              uuid: crypto.randomUUID(),
+              timestamp: iteration.startTime.toISOString(),
+              type: 'user',
+              message: {
+                role: 'user',
+                content: iteration.initialMessage,
+              },
+            }
+            allAgentMessages.push(userMessage)
+          }
+
+          // Add result as assistant message if exists
+          if (iteration.result) {
+            const resultContent = this.parseMessageFromIteration(iteration)
+            if (resultContent) {
+              const assistantMessage: AgentMessage = {
+                userType: 'user',
+                uuid: crypto.randomUUID(),
+                timestamp: (iteration.endTime || iteration.startTime).toISOString(),
+                type: 'assistant',
+                message: {
+                  type: 'message',
+                  role: 'assistant',
+                  content: [
+                    {
+                      type: 'text',
+                      text: resultContent,
+                    },
+                  ],
+                },
+              }
+              allAgentMessages.push(assistantMessage)
+            }
+          }
+        } else {
+          // Add the found messages as usual
+          allAgentMessages.push(...agentMessages)
+        }
       }
 
       // If we got messages from Claude files, transform and return them
