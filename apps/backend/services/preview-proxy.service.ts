@@ -141,12 +141,14 @@ export class PreviewProxyService {
       const headers: Record<string, string | string[]> = {}
       for (const [key, value] of Object.entries(proxyRes.headers)) {
         // Skip headers that would cause caching issues for modified content
-        if (value !== undefined && 
-            key !== 'content-length' && 
-            key !== 'content-encoding' &&
-            key !== 'etag' &&
-            key !== 'last-modified' &&
-            key !== 'cache-control') {
+        if (
+          value !== undefined &&
+          key !== 'content-length' &&
+          key !== 'content-encoding' &&
+          key !== 'etag' &&
+          key !== 'last-modified' &&
+          key !== 'cache-control'
+        ) {
           headers[key] = value
         }
       }

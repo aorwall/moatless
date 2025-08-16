@@ -63,15 +63,60 @@ export function useCreateTask(
 
   return useMutation<SimpleTaskResponse, Error, CreateTaskRequest>({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
+    onMutate: async (variables) => {
+      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.lists() })
+
+      // Create optimistic task
+      const optimisticTaskId = `temp-${Date.now()}`
+      const now = new Date()
+      const optimisticTask: Task = {
+        taskId: optimisticTaskId,
+        createdAt: now,
+        lastMessageAt: now,
+        agentType: variables.agentType,
+        repositoryId: variables.repositoryId,
+        status: 'open',
+        numTurns: 0,
+        totalCostUsd: 0,
+        iterations: [],
+        templateId: variables.templateId,
+      }
+
+      // Optimistically add task to all cached lists
+      updateTaskInLists(queryClient, optimisticTaskId, optimisticTask, true)
+
+      // Return context for potential rollback
+      return { optimisticTaskId }
+    },
     onSuccess: async (data, variables, context) => {
+      // Remove optimistic task if we created one
+      if (context?.optimisticTaskId) {
+        updateTaskInLists(queryClient, context.optimisticTaskId, null)
+      }
+
       // Add the real task data to cache and lists
       const response = data as SimpleTaskResponse
       if (response.task) {
         // Set task detail cache
         queryClient.setQueryData(queryKeys.tasks.detail(response.taskId), response.task)
 
-        // Add to task lists optimistically
+        // Add to task lists with real data
         updateTaskInLists(queryClient, response.taskId, response.task, true)
+
+        // Add initial message to messages cache if message was provided
+        if (variables.message && response.taskId) {
+          const initialMessage: Message = {
+            id: `initial-${response.taskId}`,
+            role: 'user',
+            content: variables.message,
+            timestamp: new Date(),
+          }
+
+          queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(response.taskId), [
+            initialMessage,
+          ])
+        }
       } else {
         // Fallback: if no task data returned, invalidate to refetch
         await queryClient.invalidateQueries({
@@ -82,6 +127,11 @@ export function useCreateTask(
       options?.onSuccess?.(data, variables, context)
     },
     onError: (error, variables, context) => {
+      // Remove optimistic task on error
+      if (context?.optimisticTaskId) {
+        updateTaskInLists(queryClient, context.optimisticTaskId, null)
+      }
+
       options?.onError?.(error, variables, context)
     },
     ...options,
@@ -131,6 +181,31 @@ export function useSendMessage(
         commandName,
         agentMode,
       ),
+    onMutate: async (variables) => {
+      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.messages(taskId) })
+
+      // Get current messages
+      const previousMessages =
+        queryClient.getQueryData<Message[]>(queryKeys.tasks.messages(taskId)) || []
+
+      // Create optimistic message
+      const optimisticMessage: Message = {
+        id: `temp-message-${Date.now()}`,
+        role: 'user',
+        content: variables.message,
+        timestamp: new Date(),
+      }
+
+      // Update cache with new message
+      queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(taskId), [
+        ...previousMessages,
+        optimisticMessage,
+      ])
+
+      // Return context for rollback
+      return { previousMessages }
+    },
     onSuccess: async (data, variables, context) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.lists(),
@@ -138,10 +213,15 @@ export function useSendMessage(
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.messages(taskId),
-      })
+      // Don't invalidate messages - they will be updated via SSE events when AI responds
       options?.onSuccess?.(data, variables, context)
+    },
+    onError: (error, variables, context) => {
+      // Rollback optimistic update on error
+      if (context?.previousMessages) {
+        queryClient.setQueryData(queryKeys.tasks.messages(taskId), context.previousMessages)
+      }
+      options?.onError?.(error, variables, context)
     },
     ...options,
   })

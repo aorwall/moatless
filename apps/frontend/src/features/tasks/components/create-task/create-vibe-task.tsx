@@ -1,4 +1,5 @@
 import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
+import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
@@ -31,6 +32,7 @@ export function CreateVibeTask({
   onTemplateChange,
   onSuccess,
 }: CreateVibeTaskProps) {
+  const navigate = useNavigate()
   const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
 
@@ -39,6 +41,9 @@ export function CreateVibeTask({
   const templateSelector = useTemplateSelector(templateId, onTemplateChange, true)
 
   const createVibeTask = useCreateVibeTask({
+    onSuccess: (data) => {
+      navigate({ to: `/tasks/${data.taskId}` })
+    },
     onError: (error) => {
       toast.error('Failed to create vibe task', {
         description: getErrorMessage(error),

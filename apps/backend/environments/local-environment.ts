@@ -689,7 +689,7 @@ export class LocalEnvironment extends BaseEnvironment {
                 try {
                   const targetUrl = `http://localhost:${metadata.port}`
                   const scriptContent = getPreviewInspectorScript(taskId)
-                  
+
                   this.previewProxy = createPreviewProxy(
                     targetUrl,
                     scriptContent,
@@ -697,7 +697,7 @@ export class LocalEnvironment extends BaseEnvironment {
                     metadata.proxyPort,
                   )
                   await this.previewProxy.start()
-                  
+
                   this.logger.info('Preview proxy restarted during recovery', {
                     proxyPort: metadata.proxyPort,
                     proxyUrl: metadata.proxyUrl,

@@ -1,4 +1,5 @@
 import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
+import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
@@ -41,6 +42,7 @@ export function CreateCodeTask({
   onRepositoryChange,
   onSuccess,
 }: CreateCodeTaskProps) {
+  const navigate = useNavigate()
   const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [branch, setBranch] = useState('')
@@ -52,6 +54,9 @@ export function CreateCodeTask({
   const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true)
 
   const createTask = useCreateTask({
+    onSuccess: (data) => {
+      navigate({ to: `/tasks/${data.taskId}` })
+    },
     onError: (error) => {
       toast.error('Failed to create task', {
         description: getErrorMessage(error),

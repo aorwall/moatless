@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types'
+import type { Task, TaskListResponse } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -24,25 +24,34 @@ export function updateTaskInLists(
   taskListQueries.forEach((query) => {
     // Only process queries that contain 'list' in their key (task list queries)
     if (query.queryKey.includes('list')) {
-      const data = query.state.data as Task[] | undefined
-      if (data && Array.isArray(data)) {
+      const data = query.state.data as TaskListResponse | undefined
+      if (data && data.items && Array.isArray(data.items)) {
         if (updates === null) {
           // Remove task
-          const updatedTasks = data.filter((task) => task.taskId !== taskId)
-          queryClient.setQueryData(query.queryKey, updatedTasks)
+          const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
+          queryClient.setQueryData(query.queryKey, {
+            ...data,
+            items: updatedTasks,
+          })
         } else if (isAdd && 'taskId' in updates) {
           // Add new task to the beginning of the list
-          const existingTask = data.find((task) => task.taskId === taskId)
+          const existingTask = data.items.find((task) => task.taskId === taskId)
           if (!existingTask) {
-            const updatedTasks = [updates as Task, ...data]
-            queryClient.setQueryData(query.queryKey, updatedTasks)
+            const updatedTasks = [updates as Task, ...data.items]
+            queryClient.setQueryData(query.queryKey, {
+              ...data,
+              items: updatedTasks,
+            })
           }
         } else {
           // Update existing task
-          const updatedTasks = data.map((task) =>
+          const updatedTasks = data.items.map((task) =>
             task.taskId === taskId ? { ...task, ...updates } : task,
           )
-          queryClient.setQueryData(query.queryKey, updatedTasks)
+          queryClient.setQueryData(query.queryKey, {
+            ...data,
+            items: updatedTasks,
+          })
         }
       }
     }
@@ -64,10 +73,13 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
   taskListQueries.forEach((query) => {
     // Only process queries that contain 'list' in their key (task list queries)
     if (query.queryKey.includes('list')) {
-      const data = query.state.data as Task[] | undefined
-      if (data && Array.isArray(data)) {
-        const updatedTasks = data.filter((task) => task.taskId !== taskId)
-        queryClient.setQueryData(query.queryKey, updatedTasks)
+      const data = query.state.data as TaskListResponse | undefined
+      if (data && data.items && Array.isArray(data.items)) {
+        const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
+        queryClient.setQueryData(query.queryKey, {
+          ...data,
+          items: updatedTasks,
+        })
       }
     }
   })
