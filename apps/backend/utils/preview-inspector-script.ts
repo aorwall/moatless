@@ -499,13 +499,6 @@ export function getPreviewInspectorScript(taskId: string): string {
         }, 5000);
         
         internalLog.log('[Preview Inspector] Bootstrap complete!');
-        
-        // Test console hooking - this should appear in the parent console
-        setTimeout(() => {
-          console.log('[Preview Inspector] Test message - console hooking is working!');
-          console.warn('[Preview Inspector] Test warning - this should also appear in parent');
-          console.error('[Preview Inspector] Test error - and this too');
-        }, 1000);
       })().catch(err => {
         internalLog.error('[Preview Inspector] Bootstrap failed:', err);
       });
