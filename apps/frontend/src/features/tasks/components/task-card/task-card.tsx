@@ -1,13 +1,15 @@
 import type { AgentEvent, Event, Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
+import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useTaskEvents } from '@/features/tasks/hooks/use-tasks'
+import { useCloseTask, useTaskEvents } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
+import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 
 function getRelativeTime(date: Date | string): string {
@@ -63,6 +65,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     refetchInterval: false, // Real-time updates handled by global event stream
   })
 
+  // Close task mutation
+  const closeTaskMutation = useCloseTask(task.taskId)
+
   // State for live duration updates
   const [runningDuration, setRunningDuration] = useState<string>('')
 
@@ -80,6 +85,16 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   )
 
   useTaskEventSubscription(task.taskId, handleNewEvent)
+
+  // Handle close button click
+  const handleClose = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      closeTaskMutation.mutate()
+    },
+    [closeTaskMutation],
+  )
 
   // Combine initial events with real-time events
   const allEvents = useMemo(() => {
@@ -121,7 +136,19 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   }, [task, lastIteration?.startTime])
 
   return (
-    <Card className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <Card className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
+      {/* Close button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute right-2 top-2 z-10 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+        onClick={handleClose}
+        disabled={closeTaskMutation.isPending}
+      >
+        <X className="h-4 w-4" />
+        <span className="sr-only">Close task</span>
+      </Button>
+
       <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
         <CardHeader className="pb-3">
           <div className="flex items-start gap-2 min-w-0">
@@ -129,7 +156,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               <TaskStatusIcon task={task} showText={false} />
             </div>
             <div className="flex flex-col min-w-0 flex-1 gap-1">
-              <h3 className="font-medium text-sm leading-tight line-clamp-2">{taskTitle}</h3>
+              <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="truncate">{repositoryName}</span>
                 <span className="shrink-0">
