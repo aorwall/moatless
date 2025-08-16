@@ -213,8 +213,20 @@ export class LocalEnvironment extends BaseEnvironment {
         uptimeSeconds: result.uptime_seconds,
       }
     } catch (error) {
-      this.previewServer = undefined
-      throw error
+      // Keep the previewServer instance for log access, but return error state
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Return clean error message without implementation details
+      const cleanMessage = errorMessage.includes('Failed to start server')
+        ? 'Server failed to start. Check logs for details.'
+        : 'Server startup error'
+
+      return {
+        running: false,
+        configured: true,
+        uptimeSeconds: 0,
+        error: cleanMessage,
+      }
     }
   }
 
@@ -247,18 +259,17 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     const status = this.previewServer.getStatus(true)
-    // For proxy approach, we don't expose the direct URL
-    if (status.running) {
-      status.url = undefined // Frontend will use proxy endpoint
-    }
+    // Keep the URL for display purposes in the frontend toolbar
+    // The frontend uses proxy for actual requests but shows the direct URL for user reference
     return status
   }
 
   async getServerLogs(lines = 100): Promise<string> {
     if (!this.previewServer) {
-      return 'No server running'
+      return 'No server logs available'
     }
 
+    // This will now work even for failed servers since we don't cleanup immediately
     return this.previewServer.getLogs(lines)
   }
 

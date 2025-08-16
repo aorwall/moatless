@@ -25,6 +25,7 @@ export class PreviewServer {
   private pid?: number
   private logFile?: string
   private startTime?: number
+  private failureReason?: string
   private logger = createTaskLogger('preview-server')
   private readonly portPlaceholder = '{PORT}'
 
@@ -47,6 +48,9 @@ export class PreviewServer {
     if (this.process && this.process.exitCode === null) {
       throw new Error('Server is already running')
     }
+
+    // Clean up any previous state
+    this.cleanup()
 
     const originalCommand = this.serverCommand
     let command = this.serverCommand
@@ -77,10 +81,10 @@ export class PreviewServer {
     } else {
       const tempDir = path.join(tmpdir(), 'swarm_server_logs')
       await fs.mkdir(tempDir, { recursive: true })
-      this.logFile = path.join(tempDir, `server_${Date.now()}_${this.port}.log`)
+      this.logFile = path.join(tempDir, `server_${Date.now()}.log`)
     }
 
-    this.logger.info(`Starting server on port ${this.port} with command: ${command}`)
+    this.logger.info(`Starting server with command: ${command}`)
     this.logger.info(`Server logs will be saved to: ${this.logFile}`)
 
     // Create write stream for logs
@@ -172,6 +176,8 @@ export class PreviewServer {
           } catch {
             // Ignore read errors
           }
+          // Extract useful error info but keep it clean
+          this.failureReason = `Server process exited with code ${this.process.exitCode}${this.port ? '' : ' (no port detected)'}`
           throw new Error(
             `Server failed to start. Exit code: ${this.process.exitCode}. Port detected: ${this.port || 'none'}. Check logs at ${this.logFile}. Recent logs: ${errorLogs}`,
           )
@@ -182,6 +188,7 @@ export class PreviewServer {
       // Ensure we have a valid port before proceeding
       if (!this.port) {
         await logStream.close()
+        this.failureReason = 'Could not detect server port'
         throw new Error('Could not detect server port from logs or allocated port')
       }
 
@@ -200,6 +207,11 @@ export class PreviewServer {
       }
     } catch (error) {
       await logStream.close()
+      // Extract clean error message
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.failureReason = errorMessage.includes('Failed to start server')
+        ? errorMessage.replace(/Check logs at.*$/, '').trim()
+        : `Startup error: ${errorMessage}`
       this.cleanup()
       throw new Error(`Failed to start server: ${error}`)
     }
@@ -293,11 +305,12 @@ export class PreviewServer {
           uptimeSeconds: uptime,
         }
       }
-      this.cleanup()
+      // Don't cleanup here - preserve log access after failure
       return {
         running: false,
         configured,
         uptimeSeconds: 0,
+        error: this.failureReason,
       }
     }
 
@@ -443,6 +456,7 @@ export class PreviewServer {
     this.port = undefined
     this.actualPort = undefined
     this.startTime = undefined
+    this.failureReason = undefined
   }
 
   private async pathExists(filePath: string): Promise<boolean> {
