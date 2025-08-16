@@ -6,6 +6,7 @@ import { useTaskEventSubscription } from '@/features/events/contexts/global-even
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTaskEvents } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import type { MergedEvent } from '@/features/tasks/utils/merge-tool-events'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
@@ -58,6 +59,11 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]
+
+  // Get workspace status for open tasks to show running state
+  const { data: workspaceData } = useWorkspaceStatus(task.taskId, task, {
+    enabled: task.status === 'open',
+  })
 
   // Get initial events for running tasks
   const { data: eventsData } = useTaskEvents(task.taskId, undefined, {
@@ -153,7 +159,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <CardHeader className="pb-3">
           <div className="flex items-start gap-2 min-w-0">
             <div className="flex-shrink-0">
-              <TaskStatusIcon task={task} showText={false} />
+              <TaskStatusIcon task={task} workspace={workspaceData} showText={false} />
             </div>
             <div className="flex flex-col min-w-0 flex-1 gap-1">
               <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>
