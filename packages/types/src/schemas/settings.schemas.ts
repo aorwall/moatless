@@ -4,6 +4,7 @@ import { GitHubSettingsSchema } from './settings/github.schemas.js'
 
 export const ApplicationSettingsSchema = z.object({
   dataDir: z.string().optional(),
+  repositoriesDir: z.string().optional(),
   defaultWorkspaceType: z.enum(['docker', 'local']).optional(),
   // Claude settings at root level
   binDir: z.string().optional(),
@@ -31,6 +32,7 @@ export const SystemStatusCheckSchema = z.object({
 export const updateSettingsSchema = z
   .object({
     dataDir: z.string().nullable().optional(),
+    repositoriesDir: z.string().nullable().optional(),
     defaultWorkspaceType: z.enum(['docker', 'local']).nullable().optional(),
     binDir: z.string().nullable().optional(),
     configDir: z.string().nullable().optional(),

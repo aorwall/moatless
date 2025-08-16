@@ -882,7 +882,7 @@ export class TaskService {
     const repository = await this.repositoryService.createRepository({
       name: repositoryName,
       description: `Created from template: ${template.name}`,
-      path: templateRepoDir,
+      templatePath: templateRepoDir,
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',

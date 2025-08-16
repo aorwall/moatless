@@ -73,6 +73,7 @@ export const CreateRepositorySchema = z.object({
   description: z.string().optional(),
   // Repository fields
   path: z.string().optional(), // Made optional - will be auto-generated for GitHub repos
+  templatePath: z.string().optional(), // Path to template directory to copy from
   remoteUrl: z.string().optional(), // GitHub URL for cloning
   sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),

@@ -3,6 +3,7 @@ import { z } from 'zod'
 // General settings schema
 export const GeneralSettingsSchema = z.object({
   dataDir: z.string().optional(),
+  repositoriesDir: z.string().optional(),
   defaultWorkspaceType: z.enum(['docker', 'local']).optional(),
 })
 
@@ -10,6 +11,7 @@ export const GeneralSettingsSchema = z.object({
 export const updateGeneralSettingsSchema = z
   .object({
     dataDir: z.string().nullable().optional(),
+    repositoriesDir: z.string().nullable().optional(),
     defaultWorkspaceType: z.enum(['docker', 'local']).nullable().optional(),
   })
   .strict()
@@ -19,6 +21,7 @@ export const GeneralSettingsResponseSchema = z.object({
   settings: GeneralSettingsSchema,
   defaults: z.object({
     dataDir: z.string(),
+    repositoriesDir: z.string(),
     defaultWorkspaceType: z.enum(['docker', 'local']),
   }),
 })

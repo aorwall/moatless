@@ -24,6 +24,7 @@ export class SettingsService {
   private settings: ApplicationSettings | null = null
   private defaults: {
     dataDir: string
+    repositoriesDir: string
     defaultWorkspaceType: 'docker' | 'local'
     claude: {
       binDir: string
@@ -44,6 +45,9 @@ export class SettingsService {
     // Initialize defaults with placeholder values - will be updated in initialize()
     this.defaults = {
       dataDir: process.env.DATA_DIR || path.join(os.homedir(), '.moatless'),
+      repositoriesDir:
+        process.env.REPO_DIR ||
+        path.join(process.env.DATA_DIR || path.join(os.homedir(), '.moatless'), 'repos'),
       defaultWorkspaceType: (process.env.DEFAULT_WORKSPACE_TYPE === 'docker'
         ? 'docker'
         : 'local') as 'docker' | 'local',
@@ -170,6 +174,16 @@ export class SettingsService {
     return this.defaults.dataDir
   }
 
+  getRepositoriesDir(): string {
+    // First check if settings have a custom repositories dir
+    if (this.settings?.repositoriesDir) {
+      return this.settings.repositoriesDir
+    }
+
+    // Use defaults (which include env var if set, otherwise fallback)
+    return this.defaults.repositoriesDir
+  }
+
   getDefaultWorkspaceType(): 'docker' | 'local' {
     // First check settings
     if (this.settings?.defaultWorkspaceType) {
@@ -207,10 +221,12 @@ export class SettingsService {
     return {
       settings: {
         dataDir: this.settings?.dataDir,
+        repositoriesDir: this.settings?.repositoriesDir,
         defaultWorkspaceType: this.settings?.defaultWorkspaceType,
       },
       defaults: {
         dataDir: this.defaults.dataDir,
+        repositoriesDir: this.defaults.repositoriesDir,
         defaultWorkspaceType: this.defaults.defaultWorkspaceType,
       },
     }
@@ -299,6 +315,15 @@ export class SettingsService {
         delete this.settings.dataDir
       } else {
         this.settings.dataDir = update.dataDir
+      }
+    }
+
+    // Update repositories dir
+    if (update.repositoriesDir !== undefined) {
+      if (update.repositoriesDir === null) {
+        delete this.settings.repositoriesDir
+      } else {
+        this.settings.repositoriesDir = update.repositoriesDir
       }
     }
 
@@ -474,6 +499,7 @@ export class SettingsService {
     // Build full settings and defaults objects for the response
     const fullSettings: ApplicationSettings = {
       dataDir: this.settings?.dataDir,
+      repositoriesDir: this.settings?.repositoriesDir,
       defaultWorkspaceType: this.settings?.defaultWorkspaceType,
       binDir: this.settings?.binDir,
       configDir: this.settings?.configDir,
@@ -496,6 +522,7 @@ export class SettingsService {
 
     const fullDefaults: ApplicationSettings = {
       dataDir: this.defaults.dataDir,
+      repositoriesDir: this.defaults.repositoriesDir,
       defaultWorkspaceType: this.defaults.defaultWorkspaceType,
       binDir: this.defaults.claude.binDir,
       configDir: this.defaults.claude.configDir,
@@ -530,6 +557,14 @@ export class SettingsService {
         delete this.settings.dataDir
       } else {
         this.settings.dataDir = update.dataDir
+      }
+    }
+
+    if (update.repositoriesDir !== undefined) {
+      if (update.repositoriesDir === null) {
+        delete this.settings.repositoriesDir
+      } else {
+        this.settings.repositoriesDir = update.repositoriesDir
       }
     }
 

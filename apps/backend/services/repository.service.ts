@@ -55,6 +55,21 @@ export class RepositoryService {
       const cloneResult = await this.cloneGitHubRepository(request.remoteUrl, request.name)
       finalPath = cloneResult.path
       finalName = cloneResult.name
+    } else if (!request.path && request.templatePath) {
+      // Handle template-based repository creation
+      const repoDir =
+        this.settingsService?.getRepositoriesDir() ||
+        process.env.REPO_DIR ||
+        path.join(getDataDir(), 'repos')
+
+      // Create target directory path
+      finalPath = path.join(repoDir, finalName)
+
+      // Ensure repos directory exists
+      await fs.mkdir(repoDir, { recursive: true })
+
+      // Copy template to new repository directory
+      await this.copyDirectory(request.templatePath, finalPath)
     } else if (!request.path) {
       throw new ValidationError('Path is required for local repositories', { path: request.path })
     }
@@ -355,12 +370,14 @@ export class RepositoryService {
     let finalName = suggestedName || repoName
 
     // Get GitHub PAT from settings
-    const githubSettings = this.settingsService.getGitHubSettings()
-    const pat = githubSettings.personalAccessToken
+    const githubSettings = this.settingsService?.getGitHubSettings()
+    const pat = githubSettings?.personalAccessToken
 
     // Determine clone directory
-    const dataDir = getDataDir()
-    const repoDir = process.env.REPO_DIR || path.join(dataDir, 'repos')
+    const repoDir =
+      this.settingsService?.getRepositoriesDir() ||
+      process.env.REPO_DIR ||
+      path.join(getDataDir(), 'repos')
 
     // Ensure repos directory exists
     await fs.mkdir(repoDir, { recursive: true })
@@ -568,6 +585,42 @@ export class RepositoryService {
       }
     }
     return 'npm' // Default fallback
+  }
+
+  /**
+   * Copy directory contents from source to destination, excluding .git and node_modules
+   */
+  private async copyDirectory(src: string, dest: string): Promise<void> {
+    await fs.mkdir(dest, { recursive: true })
+    const entries = await fs.readdir(src, { withFileTypes: true })
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name)
+      const destPath = path.join(dest, entry.name)
+
+      if (entry.isDirectory()) {
+        // Skip directories that shouldn't be copied
+        if (entry.name === '.git' || entry.name === 'node_modules') continue
+        await this.copyDirectory(srcPath, destPath)
+      } else if (entry.isFile()) {
+        try {
+          await fs.copyFile(srcPath, destPath)
+        } catch (error) {
+          // Log warning for files that can't be copied (symlinks, special files, etc.)
+          logger.warn('Failed to copy file, skipping', {
+            srcPath,
+            destPath,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      // Skip symlinks and other special file types
+    }
+
+    // Initialize git in the new repository
+    await this.executeCommand('git init', dest)
+    await this.executeCommand('git add .', dest)
+    await this.executeCommand('git commit -m "Initial commit from template"', dest)
   }
 
   /**

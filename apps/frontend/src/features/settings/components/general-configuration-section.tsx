@@ -24,6 +24,7 @@ export function GeneralConfigurationSection() {
   const baseGeneralFormData = useMemo<UpdateGeneralSettingsRequest>(
     () => ({
       dataDir: generalSettings?.settings.dataDir || null,
+      repositoriesDir: generalSettings?.settings.repositoriesDir || null,
       defaultWorkspaceType: generalSettings?.settings.defaultWorkspaceType || null,
     }),
     [generalSettings],
@@ -81,6 +82,36 @@ export function GeneralConfigurationSection() {
                   ...prev,
                   dataDir:
                     value === '' || value === generalSettings?.defaults.dataDir ? null : value,
+                }))
+              }}
+            />
+            <Button type="button" variant="outline" size="icon" title="Browse folders" disabled>
+              <FolderOpen className="h-4 w-4" />
+            </Button>
+          </div>
+        </ConfigurationItem>
+
+        <ConfigurationItem
+          label="Repositories Directory"
+          description="Directory where repositories are cloned and stored"
+        >
+          <div className="flex gap-2">
+            <ConfigurationInput
+              type="text"
+              placeholder={
+                generalSettings?.defaults.repositoriesDir ||
+                `${generalSettings?.defaults.dataDir || '~/.moatless'}/repos`
+              }
+              value={generalFormData.repositoriesDir || ''}
+              className="flex-1"
+              onChange={(e) => {
+                const value = e.target.value.trim()
+                setGeneralUserModifications((prev) => ({
+                  ...prev,
+                  repositoriesDir:
+                    value === '' || value === generalSettings?.defaults.repositoriesDir
+                      ? null
+                      : value,
                 }))
               }}
             />
