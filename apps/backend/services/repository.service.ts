@@ -63,6 +63,61 @@ export class RepositoryService {
     this.settingsService = settingsService
   }
 
+  /**
+   * Get a template by ID
+   */
+  private async getTemplate(templateId: string): Promise<RepositoryTemplate> {
+    const template = RepositoryService.TEMPLATES.find((t) => t.id === templateId)
+    if (!template) {
+      throw new ValidationError(`Template with id ${templateId} not found`, { templateId })
+    }
+    return template
+  }
+
+  /**
+   * Ensure template repository exists locally, clone if needed
+   */
+  private async ensureTemplateExists(template: RepositoryTemplate): Promise<string> {
+    const dataDir = getDataDir()
+    const templatesDir = path.join(dataDir, 'templates')
+    const templateRepoDir = path.join(templatesDir, template.id)
+
+    // Ensure templates directory exists
+    await fs.mkdir(templatesDir, { recursive: true })
+
+    // Clone or update the template repository if it doesn't exist
+    if (!(await this.pathExists(templateRepoDir))) {
+      logger.info('Cloning template repository', {
+        templateId: template.id,
+        gitUrl: template.gitUrl,
+        targetDir: templateRepoDir,
+      })
+
+      const { exec } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execAsync = promisify(exec)
+
+      await execAsync(`git clone ${template.gitUrl} ${template.id}`, {
+        cwd: templatesDir,
+        timeout: 30000, // 30 seconds for clone
+      })
+    }
+
+    return templateRepoDir
+  }
+
+  /**
+   * Check if a path exists
+   */
+  private async pathExists(path: string): Promise<boolean> {
+    try {
+      await fs.access(path)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
     let finalPath = request.path
     let finalName = request.name
@@ -72,8 +127,29 @@ export class RepositoryService {
       const cloneResult = await this.cloneGitHubRepository(request.remoteUrl, request.name)
       finalPath = cloneResult.path
       finalName = cloneResult.name
-    } else if (!request.path && request.templatePath) {
+    } else if (request.sourceType === 'template' || request.templateId) {
       // Handle template-based repository creation
+      const template = await this.getTemplate(request.templateId!)
+      const templatePath = await this.ensureTemplateExists(template)
+
+      const repoDir =
+        this.settingsService?.getRepositoriesDir() ||
+        process.env.REPO_DIR ||
+        path.join(getDataDir(), 'repos')
+
+      // Create target directory path
+      finalPath = path.join(repoDir, finalName)
+
+      // Ensure repos directory exists
+      await fs.mkdir(repoDir, { recursive: true })
+
+      // Fork from template preserving git history
+      await this.forkFromTemplate(templatePath, finalPath, template.name)
+
+      // Set template as the source type
+      request.sourceType = 'template'
+    } else if (!request.path && request.templatePath) {
+      // Legacy: Handle direct template path (keep for backwards compatibility)
       const repoDir =
         this.settingsService?.getRepositoriesDir() ||
         process.env.REPO_DIR ||
@@ -95,8 +171,25 @@ export class RepositoryService {
     // Validate repository configuration
     await this.validateRepository({ ...request, path: finalPath })
 
-    // Auto-detect framework for local repositories if not provided
-    const previewConfig = request.previewConfig
+    // For template-based repositories, merge template configuration with request
+    let codeExecution = request.codeExecution
+    let previewConfig = request.previewConfig
+
+    if (request.sourceType === 'template' && request.templateId) {
+      const template = await this.getTemplate(request.templateId)
+
+      // Merge template code execution config
+      codeExecution = {
+        ...request.codeExecution,
+        type: request.codeExecution.type || 'local',
+        setupCommands:
+          request.codeExecution.setupCommands ||
+          (template.setupCommand ? [template.setupCommand] : undefined),
+      }
+
+      // Use template preview config if not provided
+      previewConfig = request.previewConfig || template.previewConfig
+    }
 
     const repository: RepositoryConfig = {
       id: randomUUID(),
@@ -108,7 +201,7 @@ export class RepositoryService {
       useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
       originalBranch: request.originalBranch,
       templateId: request.templateId,
-      codeExecution: request.codeExecution,
+      codeExecution,
       previewConfig,
       createdAt: new Date(),
       updatedAt: new Date(),

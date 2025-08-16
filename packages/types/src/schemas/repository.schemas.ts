@@ -57,7 +57,7 @@ export const RepositoryConfigSchema = z.object({
   // Repository fields moved here
   path: z.string(),
   remoteUrl: z.string().optional(), // GitHub or other remote URL
-  sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
+  sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
   deleted: z.boolean().optional(), // Soft deletion flag
@@ -76,7 +76,7 @@ export const CreateRepositorySchema = z.object({
   path: z.string().optional(), // Made optional - will be auto-generated for GitHub repos
   templatePath: z.string().optional(), // Path to template directory to copy from
   remoteUrl: z.string().optional(), // GitHub URL for cloning
-  sourceType: z.enum(['local', 'github']).optional(), // Source of the repository
+  sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
   templateId: z.string().optional(), // Template ID when created from template

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   Command,
@@ -10,10 +9,9 @@ import type {
   Task,
   TaskIteration,
 } from '@moatless/types'
-import { RepositoryTemplate, TaskNotFoundError, ValidationError } from '@moatless/types'
+import { TaskNotFoundError, ValidationError } from '@moatless/types'
 
 import { filterAvailableCommands } from '../utils/command-conditions.js'
-import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
@@ -820,77 +818,29 @@ export class TaskService {
       hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
     })
 
-    // Define available templates - in future this could be stored in database
-    const templates = [
-      new RepositoryTemplate(
-        'hello-world-ui',
-        'Basic Hello Website',
-        'https://github.com/aorwall/hello-world-ui.git',
-        'bun install',
-        {
-          serverStartCommand: 'bun run dev',
-          injectionStrategy: {
-            method: 'html-injection',
-          },
-        },
-      ),
-    ]
-
-    // Find the template
-    const template = templates.find((t) => t.id === params.templateId)
-    if (!template) {
-      throw new ValidationError(`Template with id ${params.templateId} not found`, 'templateId')
-    }
-
     // Generate task ID first (we'll need it for the repository name if not provided)
     const taskId = randomUUID()
 
-    // Auto-generate repository name using template name + first 8 chars of task ID
-    const repositoryName = `${template.name.toLowerCase().replace(/\s+/g, '-')}-task-${taskId.slice(0, 8)}`
+    // Auto-generate repository name using template ID + first 8 chars of task ID
+    const repositoryName = `${params.templateId}-task-${taskId.slice(0, 8)}`
 
     logger.info('Generated repository name', {
       repositoryName,
       taskId: taskId.slice(0, 8),
     })
 
-    // Create a directory for cloning the template
-    const dataDir = getDataDir()
-    const templatesDir = path.join(dataDir, 'templates')
-    const templateRepoDir = path.join(templatesDir, template.id)
-
-    // Ensure templates directory exists
-    await fs.mkdir(templatesDir, { recursive: true })
-
-    // Clone or update the template repository if it doesn't exist
-    if (!(await this.pathExists(templateRepoDir))) {
-      logger.info('Cloning template repository', {
-        templateId: template.id,
-        gitUrl: template.gitUrl,
-        targetDir: templateRepoDir,
-      })
-
-      const { exec } = await import('node:child_process')
-      const { promisify } = await import('node:util')
-      const execAsync = promisify(exec)
-
-      await execAsync(`git clone ${template.gitUrl} ${template.id}`, {
-        cwd: templatesDir,
-        timeout: 30000, // 30 seconds for clone
-      })
-    }
-
-    // Create a new repository from the template
+    // Create a new repository from the template - let RepositoryService handle all template logic
     const repository = await this.repositoryService.createRepository({
       name: repositoryName,
-      description: `Created from template: ${template.name}`,
-      templatePath: templateRepoDir,
-      templateId: template.id,
+      description: `Created from template: ${params.templateId}`,
+      sourceType: 'template',
+      templateId: params.templateId,
       useGitWorktrees: false,
       codeExecution: {
         type: 'local',
-        setupCommands: template.setupCommand ? [template.setupCommand] : undefined,
+        // setupCommands will be handled by RepositoryService from template definition
       },
-      previewConfig: template.previewConfig,
+      // previewConfig will be handled by RepositoryService from template definition
     })
 
     // Create a task with the new repository
@@ -1342,15 +1292,6 @@ export class TaskService {
         `Iteration ${iterationNumber} not found for task ${taskId}`,
         'iterationNumber',
       )
-    }
-  }
-
-  private async pathExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath)
-      return true
-    } catch {
-      return false
     }
   }
 }
