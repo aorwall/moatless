@@ -1,5 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { AppSidebar } from '@/features/navigation/components/app-sidebar'
 import { TaskPage, TaskProviders } from '@/features/tasks'
+import { SidebarProvider } from '@/lib/components/ui/sidebar'
 
 export const Route = createFileRoute('/tasks/$taskId')({
   component: TaskDetail,
@@ -9,8 +11,15 @@ function TaskDetail() {
   const { taskId } = Route.useParams()
 
   return (
-    <TaskProviders taskId={taskId}>
-      <TaskPage />
-    </TaskProviders>
+    <SidebarProvider>
+      <div className="flex h-screen w-full">
+        <AppSidebar />
+        <div className="flex-1 overflow-auto h-full">
+          <TaskProviders taskId={taskId}>
+            <TaskPage />
+          </TaskProviders>
+        </div>
+      </div>
+    </SidebarProvider>
   )
 }
