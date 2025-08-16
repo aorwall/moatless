@@ -154,10 +154,8 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     toggleSelector(isInspectorActive)
   }, [isInspectorActive, toggleSelector])
 
-  // Use dedicated proxy URL if available, otherwise fall back to path-based proxy
-  const proxyUrl = serverStatus?.proxyUrl
-    ? `${serverStatus.proxyUrl}${currentPath}`
-    : `/api/v1/tasks/${params.taskId}/proxy${currentPath}`
+  // Use dedicated proxy URL - required for preview functionality
+  const proxyUrl = serverStatus?.proxyUrl ? `${serverStatus.proxyUrl}${currentPath}` : null
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) {
@@ -227,6 +225,32 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
               </div>
             )}
 
+            {serverStatus?.running && isConnected && !proxyUrl && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                <div className="text-center space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-muted-foreground">Preview proxy is not available</p>
+                    <p className="text-sm text-muted-foreground">
+                      Restart the server to initialize the preview proxy
+                    </p>
+                  </div>
+                  <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
+                    {startServer.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Starting Server...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-2 h-4 w-4" />
+                        Restart Server
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {error && isConnected && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                 <div className="text-center space-y-2">
@@ -235,7 +259,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
               </div>
             )}
 
-            {serverStatus?.running && isConnected && (
+            {serverStatus?.running && isConnected && proxyUrl && (
               <>
                 <iframe
                   ref={iframeRef}

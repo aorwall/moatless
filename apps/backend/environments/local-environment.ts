@@ -19,6 +19,7 @@ import { PreviewServer } from '../services/preview-server.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
+import { getPreviewInspectorScript } from '../utils/preview-inspector-script.js'
 import { BaseEnvironment } from './base-environment.js'
 
 const execAsync = promisify(exec)
@@ -261,20 +262,7 @@ export class LocalEnvironment extends BaseEnvironment {
       try {
         proxyPort = await findAvailablePort('general')
         const targetUrl = `http://localhost:${result.port}`
-        const scriptContent = `
-          console.log('🚀 Moatless Preview Script Injected for task: ${this.taskId}');
-          
-          // Send a message to parent to confirm script is loaded
-          window.addEventListener('load', () => {
-            if (window.parent && window.parent !== window) {
-              window.parent.postMessage({
-                type: 'INSPECTOR_SCRIPT_LOADED',
-                payload: { version: '1.0.0', taskId: '${this.taskId}' },
-                source: 'preview-iframe'
-              }, '*');
-            }
-          });
-        `
+        const scriptContent = getPreviewInspectorScript(this.taskId)
 
         this.previewProxy = createPreviewProxy(
           targetUrl,
@@ -695,6 +683,35 @@ export class LocalEnvironment extends BaseEnvironment {
 
               // Restore the handler's state
               this.restoreServerHandler(this.previewServer, metadata)
+
+              // Restart the proxy server if it was previously running
+              if (metadata.proxyPort && metadata.proxyUrl) {
+                try {
+                  const targetUrl = `http://localhost:${metadata.port}`
+                  const scriptContent = getPreviewInspectorScript(taskId)
+                  
+                  this.previewProxy = createPreviewProxy(
+                    targetUrl,
+                    scriptContent,
+                    this.logger as Logger,
+                    metadata.proxyPort,
+                  )
+                  await this.previewProxy.start()
+                  
+                  this.logger.info('Preview proxy restarted during recovery', {
+                    proxyPort: metadata.proxyPort,
+                    proxyUrl: metadata.proxyUrl,
+                  })
+                } catch (error) {
+                  this.logger.warn('Failed to restart preview proxy during recovery', {
+                    error: error instanceof Error ? error.message : String(error),
+                    proxyPort: metadata.proxyPort,
+                  })
+                  // Update metadata to remove proxy info since it failed
+                  const updatedMetadata = { ...metadata, proxyPort: undefined, proxyUrl: undefined }
+                  await this.savePreviewEnvironmentMetadata(taskId, updatedMetadata)
+                }
+              }
             } else {
               this.logger.info('Cleaning up orphaned preview environment metadata', {
                 taskId,

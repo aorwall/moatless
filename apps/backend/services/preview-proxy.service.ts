@@ -137,13 +137,24 @@ export class PreviewProxyService {
         html += scriptTag
       }
 
-      // Update content-length header if present
+      // Update headers for modified HTML content
       const headers: Record<string, string | string[]> = {}
       for (const [key, value] of Object.entries(proxyRes.headers)) {
-        if (value !== undefined && key !== 'content-length' && key !== 'content-encoding') {
+        // Skip headers that would cause caching issues for modified content
+        if (value !== undefined && 
+            key !== 'content-length' && 
+            key !== 'content-encoding' &&
+            key !== 'etag' &&
+            key !== 'last-modified' &&
+            key !== 'cache-control') {
           headers[key] = value
         }
       }
+
+      // Add cache-busting headers for modified HTML content
+      headers['cache-control'] = 'no-cache, no-store, must-revalidate'
+      headers['pragma'] = 'no-cache'
+      headers['expires'] = '0'
 
       res.writeHead(proxyRes.statusCode || 200, headers)
       res.end(html)
