@@ -133,7 +133,7 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
-      <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
+      <div className="w-full max-w-3xl mx-auto mt-26 mb-26">
         {/* Task Creation Components */}
         {viewMode === 'code' ? (
           <CreateCodeTask

@@ -45,11 +45,21 @@ export function useTemplatesList(options?: { enabled?: boolean }) {
 type CreateVibeTaskResponse = { taskId: string; status: string }
 
 export function useCreateVibeTask(
-  options?: UseMutationOptions<CreateVibeTaskResponse, ApiError, CreateVibeTaskRequest>,
+  options?: UseMutationOptions<
+    CreateVibeTaskResponse,
+    ApiError,
+    CreateVibeTaskRequest,
+    { optimisticTaskId: string }
+  >,
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<CreateVibeTaskResponse, ApiError, CreateVibeTaskRequest>({
+  return useMutation<
+    CreateVibeTaskResponse,
+    ApiError,
+    CreateVibeTaskRequest,
+    { optimisticTaskId: string }
+  >({
     mutationFn: async (request: CreateVibeTaskRequest) => {
       return await apiClient.post<CreateVibeTaskResponse>('/api/v1/tasks/vibe', request)
     },

@@ -1,3 +1,4 @@
+import type { ClaudeModel } from '@moatless/types'
 import { useState } from 'react'
 
 import { ViewToggle } from '@/components/view-toggle'
@@ -24,6 +25,14 @@ export function CreateTaskDialog({
 }: CreateTaskDialogProps) {
   const [mode, setMode] = useState<ViewMode>(defaultMode)
 
+  // State for CreateCodeTask
+  const [model, setModel] = useState<ClaudeModel>('claude-opus-4-20250514')
+  const [agentMode, setAgentMode] = useState<'edit' | 'plan'>('edit')
+  const [repositoryId, setRepositoryId] = useState<string>(defaultRepositoryId || '')
+
+  // State for CreateVibeTask
+  const [templateId, setTemplateId] = useState<string>('')
+
   const handleModeChange = (newMode: ViewMode) => {
     setMode(newMode)
   }
@@ -42,8 +51,13 @@ export function CreateTaskDialog({
             <CreateCodeTask
               className="w-full"
               maxHeight="500px"
-              defaultRepositoryId={defaultRepositoryId}
               defaultMessage={defaultMessage}
+              model={model}
+              onModelChange={setModel}
+              agentMode={agentMode}
+              onAgentModeChange={setAgentMode}
+              repositoryId={repositoryId}
+              onRepositoryChange={setRepositoryId}
               onSuccess={() => onOpenChange(false)}
             />
           ) : (
@@ -51,6 +65,10 @@ export function CreateTaskDialog({
               className="w-full"
               maxHeight="500px"
               defaultMessage={defaultMessage}
+              model={model}
+              onModelChange={setModel}
+              templateId={templateId}
+              onTemplateChange={setTemplateId}
               onSuccess={() => onOpenChange(false)}
             />
           )}

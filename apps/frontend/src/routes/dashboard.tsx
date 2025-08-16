@@ -6,5 +6,5 @@ export const Route = createFileRoute('/dashboard')({
 })
 
 function Dashboard() {
-  return <TaskDashboard />
+  return <TaskDashboard viewMode="code" />
 }

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FileText, Zap } from 'lucide-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCreateVibeTask } from '@/features/templates'
 import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
@@ -69,6 +70,9 @@ const mockTemplateSelector = {
     { id: 'react-app', label: 'React Application' },
   ],
   width: 'w-[180px]',
+  icon: FileText,
+  tooltip: 'Select template',
+  displayValue: 'Basic Hello Website',
 }
 
 const mockModelSelector = {
@@ -78,6 +82,9 @@ const mockModelSelector = {
   placeholder: 'Select model',
   items: [{ id: 'claude-opus-4-20250514' as const, label: 'Claude 3 Opus' }],
   width: 'w-[180px]',
+  icon: Zap,
+  tooltip: 'Select model',
+  displayValue: 'Claude 3 Opus',
 }
 
 function renderComponent(props = {}) {
@@ -88,9 +95,16 @@ function renderComponent(props = {}) {
     },
   })
 
+  const defaultProps = {
+    model: 'claude-opus-4-20250514' as const,
+    onModelChange: vi.fn(),
+    templateId: 'hello-world-ui',
+    onTemplateChange: vi.fn(),
+  }
+
   return render(
     <QueryClientProvider client={queryClient}>
-      <CreateVibeTask {...props} />
+      <CreateVibeTask {...defaultProps} {...props} />
     </QueryClientProvider>,
   )
 }

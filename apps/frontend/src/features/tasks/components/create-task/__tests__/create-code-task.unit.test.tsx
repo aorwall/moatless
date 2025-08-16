@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Folder, GitBranch, Settings, Zap } from 'lucide-react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
 import {
+  useAgentModeSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
@@ -16,6 +18,7 @@ vi.mock('../../chat-input/selectors', () => ({
     const item = items?.find((i: any) => i.id === value)
     return item ? <span>{item.label}</span> : null
   },
+  useAgentModeSelector: vi.fn(),
   useBranchSelector: vi.fn(),
   useModelSelector: vi.fn(),
   useRepositorySelector: vi.fn(),
@@ -83,6 +86,10 @@ const mockRepoSelector = {
     { id: 'repo-456', label: 'Test Repo 2' },
   ],
   width: 'w-[180px]',
+  disabled: false,
+  icon: Folder,
+  tooltip: 'Select repository',
+  displayValue: 'Test Repo 1',
 }
 
 const mockBranchSelector = {
@@ -98,15 +105,43 @@ const mockBranchSelector = {
   ],
   width: 'w-[140px]',
   disabled: false,
+  icon: GitBranch,
+  tooltip: 'Select branch',
+  displayValue: 'main',
+  currentBranch: 'main',
 }
 
 const mockModelSelector = {
   value: 'claude-opus-4-20250514' as const,
   onChange: vi.fn(),
   loading: false,
+  error: null,
+  isError: false,
   placeholder: 'Select model',
   items: [{ id: 'claude-opus-4-20250514' as const, label: 'Claude 3 Opus' }],
   width: 'w-[180px]',
+  disabled: false,
+  icon: Zap,
+  tooltip: 'Select model',
+  displayValue: 'Claude 3 Opus',
+}
+
+const mockAgentModeSelector = {
+  value: 'edit' as const,
+  onChange: vi.fn(),
+  loading: false,
+  error: null,
+  isError: false,
+  placeholder: 'Select mode',
+  items: [
+    { id: 'edit' as const, label: 'Edit' },
+    { id: 'plan' as const, label: 'Plan' },
+  ],
+  width: 'w-[120px]',
+  disabled: false,
+  icon: Settings,
+  tooltip: 'Select agent mode',
+  displayValue: 'Edit',
 }
 
 function renderComponent(props = {}) {
@@ -117,9 +152,18 @@ function renderComponent(props = {}) {
     },
   })
 
+  const defaultProps = {
+    model: 'claude-opus-4-20250514' as const,
+    onModelChange: vi.fn(),
+    agentMode: 'edit' as const,
+    onAgentModeChange: vi.fn(),
+    repositoryId: 'repo-123',
+    onRepositoryChange: vi.fn(),
+  }
+
   return render(
     <QueryClientProvider client={queryClient}>
-      <CreateCodeTask {...props} />
+      <CreateCodeTask {...defaultProps} {...props} />
     </QueryClientProvider>,
   )
 }
@@ -131,6 +175,7 @@ describe('CreateCodeTask', () => {
     vi.mocked(useRepositorySelector).mockReturnValue(mockRepoSelector)
     vi.mocked(useBranchSelector).mockReturnValue(mockBranchSelector)
     vi.mocked(useModelSelector).mockReturnValue(mockModelSelector as any)
+    vi.mocked(useAgentModeSelector).mockReturnValue(mockAgentModeSelector as any)
   })
 
   it('renders with title when showTitle is true', () => {

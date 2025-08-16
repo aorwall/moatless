@@ -6,5 +6,5 @@ export const Route = createFileRoute('/tasks/')({
 })
 
 function TasksIndex() {
-  return <TaskDashboard />
+  return <TaskDashboard viewMode="code" />
 }

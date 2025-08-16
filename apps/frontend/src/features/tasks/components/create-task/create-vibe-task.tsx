@@ -119,7 +119,6 @@ export function CreateVibeTask({
                 displayValue={templateSelector.displayValue}
                 tooltip={templateSelector.tooltip}
                 loading={templateSelector.loading}
-                disabled={templateSelector.disabled}
               >
                 <SimpleListPopoverContent
                   items={templateSelector.items}

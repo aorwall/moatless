@@ -42,6 +42,7 @@ export interface PreviewProps {
     running: boolean
     configured: boolean
     url?: string
+    proxyUrl?: string
   }
   onElementSelected?: (element: ElementInfo | null) => void
   className?: string

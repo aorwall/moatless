@@ -57,11 +57,18 @@ export function useTask(
 
 // Mutation hooks
 export function useCreateTask(
-  options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
-): ReturnType<typeof useMutation<SimpleTaskResponse, Error, CreateTaskRequest>> {
+  options?: UseMutationOptions<
+    SimpleTaskResponse,
+    Error,
+    CreateTaskRequest,
+    { optimisticTaskId: string }
+  >,
+): ReturnType<
+  typeof useMutation<SimpleTaskResponse, Error, CreateTaskRequest, { optimisticTaskId: string }>
+> {
   const queryClient = useQueryClient()
 
-  return useMutation<SimpleTaskResponse, Error, CreateTaskRequest>({
+  return useMutation<SimpleTaskResponse, Error, CreateTaskRequest, { optimisticTaskId: string }>({
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onMutate: async (variables) => {
       // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
@@ -151,7 +158,8 @@ export function useSendMessage(
       filePaths?: string[]
       commandName?: string
       agentMode?: string
-    }
+    },
+    { previousMessages: Message[] }
   >,
 ) {
   const queryClient = useQueryClient()
@@ -167,7 +175,8 @@ export function useSendMessage(
       filePaths?: string[]
       commandName?: string
       agentMode?: string
-    }
+    },
+    { previousMessages: Message[] }
   >({
     mutationKey: ['tasks', taskId, 'sendMessage'],
     mutationFn: ({ message, resume, model, fileIds, filePaths, commandName, agentMode }) =>
