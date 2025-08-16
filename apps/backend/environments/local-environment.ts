@@ -169,21 +169,30 @@ export class LocalEnvironment extends BaseEnvironment {
     })
 
     try {
+      // Create a shell command that sources the profile and then executes the command
+      // This ensures nvm and other shell functions are available
+      const shellCommand =
+        process.platform === 'win32'
+          ? command // Windows doesn't need special handling for nvm
+          : `source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; ${command}`
+
       const execOptions = {
         cwd: this.workspacePath,
         timeout,
         maxBuffer: 1024 * 1024, // 1MB buffer
         env: { ...process.env, ...this.repositoryConfig.codeExecution.envVars },
+        shell: process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh',
       }
 
       this.logger.debug('Exec options', {
         cwd: execOptions.cwd,
         timeout: execOptions.timeout,
+        shell: execOptions.shell,
         envKeys: Object.keys(execOptions.env).slice(0, 10), // First 10 env vars
         hasNpmPath: execOptions.env.PATH?.includes('npm') || false,
       })
 
-      const { stdout, stderr } = await execAsync(command, execOptions)
+      const { stdout, stderr } = await execAsync(shellCommand, execOptions)
 
       // Log stderr for debugging if present
       if (stderr) {
