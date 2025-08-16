@@ -14,7 +14,7 @@ export const Layout = ({ children }: LayoutProps) => {
       <SidebarProvider>
         <div className="flex h-screen w-full bg-background text-foreground">
           <AppSidebar />
-          <main className="flex-1 overflow-hidden h-full">{children}</main>
+          <main className="flex-1 overflow-auto h-full">{children}</main>
         </div>
       </SidebarProvider>
     </ThemeProvider>

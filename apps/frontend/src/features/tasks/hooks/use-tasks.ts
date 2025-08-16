@@ -373,13 +373,14 @@ export function useCloseTask(
       // Snapshot the previous task data
       const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 
-      // Optimistically update the task status to 'closed'
+      // Optimistically remove the task from all cached lists
       if (previousTask) {
+        // Update task status to 'closed' in detail cache
         const updatedTask = { ...previousTask, status: 'closed' as const }
         queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), updatedTask)
 
-        // Update the task in all cached lists
-        updateTaskInLists(queryClient, taskId, { status: 'closed' })
+        // Remove the task from all cached lists for immediate UI feedback
+        updateTaskInLists(queryClient, taskId, null)
       }
 
       // Return context with snapshot for potential rollback
