@@ -10,14 +10,12 @@ import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
-import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, Workspace> = new Map()
   private backgroundTasks: Map<string, Set<Promise<unknown>>> = new Map()
-  private previewEnvironmentService?: PreviewEnvironmentService
 
   constructor(
     private repositoryService: RepositoryService,
@@ -496,15 +494,9 @@ export class WorkspaceService {
   }
 
   async canManageServer(taskId: string): Promise<boolean> {
-    const task = await this.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
     try {
       const workspace = await this.getOrCreateWorkspace(taskId)
       const status = workspace.getEnvironment().getStatus()
-      // Server can be managed when workspace environment is not yet ready
       return status === 'ready'
     } catch {
       return false
@@ -615,62 +607,52 @@ export class WorkspaceService {
   }
 
   async startServer(taskId: string): Promise<ServerStatus> {
-    if (!(await this.canManageServer(taskId))) {
-      throw new WorkspaceError('Cannot start server: workspace not ready', taskId)
-    }
-
-    // Get workspace to check if environment supports server operations
+    // Get workspace and ensure environment is ready
     const workspace = await this.getOrCreateWorkspace(taskId)
     const environment = workspace.getEnvironment()
 
-    // Check if environment has server methods and delegate to it
-    if (environment.startServer) {
-      logger.info('Delegating server start to environment', {
+    // Ensure environment is ready (will setup if needed)
+    await environment.ensureReady()
+
+    // All environments must support server operations
+    if (!environment.startServer) {
+      throw new WorkspaceError(
+        `Environment type '${environment.getType()}' does not support server operations`,
         taskId,
-        environmentType: environment.getType(),
-      })
-      return environment.startServer()
+      )
     }
 
-    // Fallback to preview environment service for backwards compatibility
-    if (!this.previewEnvironmentService) {
-      throw new WorkspaceError('Preview environment service not initialized', taskId)
-    }
-
-    return this.previewEnvironmentService.startServer(taskId)
+    logger.info('Starting server via environment', {
+      taskId,
+      environmentType: environment.getType(),
+    })
+    return environment.startServer()
   }
 
   async stopServer(taskId: string): Promise<boolean> {
-    if (!(await this.canManageServer(taskId))) {
-      throw new WorkspaceError('Cannot stop server: workspace not ready', taskId)
-    }
-
-    // Get workspace to check if environment supports server operations
+    // Get workspace and ensure environment is ready
     const workspace = await this.getOrCreateWorkspace(taskId)
     const environment = workspace.getEnvironment()
 
-    // Check if environment has server methods and delegate to it
-    if (environment.stopServer) {
-      logger.info('Delegating server stop to environment', {
+    // Ensure environment is ready (will setup if needed)
+    await environment.ensureReady()
+
+    // All environments must support server operations
+    if (!environment.stopServer) {
+      throw new WorkspaceError(
+        `Environment type '${environment.getType()}' does not support server operations`,
         taskId,
-        environmentType: environment.getType(),
-      })
-      return environment.stopServer()
+      )
     }
 
-    // Fallback to preview environment service for backwards compatibility
-    if (!this.previewEnvironmentService) {
-      throw new WorkspaceError('Preview environment service not initialized', taskId)
-    }
-
-    return this.previewEnvironmentService.stopServer(taskId)
+    logger.info('Stopping server via environment', {
+      taskId,
+      environmentType: environment.getType(),
+    })
+    return environment.stopServer()
   }
 
   async restartServer(taskId: string): Promise<ServerStatus> {
-    if (!(await this.canManageServer(taskId))) {
-      throw new WorkspaceError('Cannot restart server: workspace not ready', taskId)
-    }
-
     // For restart, we can simply call stop then start
     await this.stopServer(taskId)
     // Wait a moment for the server to fully stop
@@ -680,21 +662,12 @@ export class WorkspaceService {
 
   async getServerStatus(taskId: string): Promise<ServerStatus> {
     try {
-      // Get workspace to check if environment supports server operations
+      // Get workspace and delegate to environment
       const workspace = await this.getOrCreateWorkspace(taskId)
       const environment = workspace.getEnvironment()
 
-      // Check if environment has server methods and delegate to it
-      if (environment.getServerStatus) {
-        logger.debug('Delegating server status to environment', {
-          taskId,
-          environmentType: environment.getType(),
-        })
-        return environment.getServerStatus()
-      }
-
-      // Fallback to preview environment service for backwards compatibility
-      if (!this.previewEnvironmentService) {
+      // All environments must support server operations
+      if (!environment.getServerStatus) {
         return {
           running: false,
           configured: false,
@@ -702,7 +675,11 @@ export class WorkspaceService {
         }
       }
 
-      return this.previewEnvironmentService.getServerStatus(taskId)
+      logger.debug('Getting server status via environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+      return environment.getServerStatus()
     } catch (error) {
       logger.error('Error getting server status', error as Error, { taskId })
       return {
@@ -731,38 +708,25 @@ export class WorkspaceService {
   }
 
   async getServerLogs(taskId: string, lines?: number): Promise<string> {
-    if (!(await this.canManageServer(taskId))) {
-      return 'Server logs not available: workspace not ready'
-    }
-
     try {
-      // Get workspace to check if environment supports server operations
+      // Get workspace - no need to ensure ready, just get logs if available
       const workspace = await this.getOrCreateWorkspace(taskId)
       const environment = workspace.getEnvironment()
 
-      // Check if environment has server methods and delegate to it
-      if (environment.getServerLogs) {
-        logger.debug('Delegating server logs to environment', {
-          taskId,
-          environmentType: environment.getType(),
-        })
-        return environment.getServerLogs(lines)
+      // Check if environment supports server logs
+      if (!environment.getServerLogs) {
+        return 'Server logs not supported by this environment'
       }
 
-      // Fallback to preview environment service for backwards compatibility
-      if (!this.previewEnvironmentService) {
-        return 'Preview environment service not initialized'
-      }
-
-      return this.previewEnvironmentService.getServerLogs(taskId, lines)
+      logger.debug('Getting server logs via environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+      return environment.getServerLogs(lines)
     } catch (error) {
       logger.error('Error getting server logs', error as Error, { taskId })
       return `Error getting server logs: ${error instanceof Error ? error.message : String(error)}`
     }
-  }
-
-  setPreviewEnvironmentService(previewEnvironmentService: PreviewEnvironmentService): void {
-    this.previewEnvironmentService = previewEnvironmentService
   }
 
   async gracefulShutdown(): Promise<void> {

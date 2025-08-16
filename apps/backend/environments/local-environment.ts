@@ -1,10 +1,20 @@
-import { exec } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import * as net from 'node:net'
+import path from 'node:path'
 import { promisify } from 'node:util'
-import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type {
+  CommandResult,
+  PreviewEnvironmentMetadata,
+  ProcessValidation,
+  RepositoryConfig,
+  ServerStatus,
+} from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { PreviewServer } from '../services/preview-server.js'
+import { getDataDir } from '../utils/data-dir.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
 
@@ -18,6 +28,7 @@ export class LocalEnvironment extends BaseEnvironment {
   private _error?: string
   private logger = createTaskLogger(this.taskId)
   private previewServer?: PreviewServer
+  private readonly previewEnvironmentsPath: string
 
   constructor(
     taskId: string,
@@ -28,6 +39,10 @@ export class LocalEnvironment extends BaseEnvironment {
     super(taskId, repositoryConfig, eventService)
     this.workspacePath = workspacePath || ''
     this.logger = createTaskLogger(taskId)
+
+    // Initialize preview environments storage path
+    this.previewEnvironmentsPath = path.join(getDataDir(), 'preview-environments')
+    this.initializeStorage()
 
     this.logger.debug('LocalEnvironment constructor', {
       repositoryId: repositoryConfig.id,
@@ -189,13 +204,24 @@ export class LocalEnvironment extends BaseEnvironment {
       throw new Error('No server command configured')
     }
 
-    if (this.previewServer) {
-      throw new Error('Server is already running')
+    // Check if server is already running
+    const existingServer = this.previewServer
+    if (existingServer) {
+      const status = existingServer.getStatus()
+      if (status.running) {
+        this.logger.info('Server already running', { port: status.url })
+        return status
+      }
     }
 
-    this.logger.info('Starting preview server', { serverCommand })
+    this.logger.info('Starting preview server', {
+      command: serverCommand,
+      framework: this.repositoryConfig.previewConfig?.framework,
+      workspacePath: this.workspacePath,
+    })
 
     try {
+      // Create server handler
       this.previewServer = new PreviewServer(
         this.taskId,
         this.workspacePath,
@@ -203,74 +229,215 @@ export class LocalEnvironment extends BaseEnvironment {
         this.repositoryConfig.codeExecution.envVars || {},
       )
 
+      // Start the server first
       const result = await this.previewServer.start()
 
+      // Save metadata to disk (successful startup, clear any previous error state)
+      const metadata: PreviewEnvironmentMetadata = {
+        taskId: this.taskId,
+        pid: result.pid,
+        port: result.port,
+        startTime: new Date(),
+        command: serverCommand,
+        workspacePath: this.workspacePath,
+        logFile: result.log_file,
+        processStartTime: Date.now(),
+        envVars: this.repositoryConfig.codeExecution.envVars,
+        failed: false, // Explicitly mark as not failed
+        error: undefined, // Clear any previous error
+        logs: undefined, // Clear any previous error logs
+      }
+
+      await this.savePreviewEnvironmentMetadata(this.taskId, metadata)
+
+      this.logger.info('Preview server started successfully', {
+        port: result.port,
+        pid: result.pid,
+      })
+
       return {
-        running: result.running,
+        running: true,
         configured: true,
         url: `http://localhost:${result.port}`,
         pid: result.pid,
-        uptimeSeconds: result.uptime_seconds,
+        uptimeSeconds: 0,
       }
     } catch (error) {
-      // Keep the previewServer instance for log access, but return error state
       const errorMessage = error instanceof Error ? error.message : String(error)
+      this.logger.error('Failed to start preview server', {
+        error: errorMessage,
+        command: serverCommand,
+        workspacePath: this.workspacePath,
+      })
 
-      // Return clean error message without implementation details
-      const cleanMessage = errorMessage.includes('Failed to start server')
-        ? 'Server failed to start. Check logs for details.'
-        : 'Server startup error'
+      // Try to get server logs for better error context
+      let logs = ''
+      try {
+        if (this.previewServer) {
+          logs = await this.previewServer.getLogs(50)
+        }
+      } catch (logError) {
+        this.logger.debug('Could not retrieve server logs', {
+          error: logError instanceof Error ? logError.message : String(logError),
+        })
+      }
 
+      // Save error metadata to disk for later retrieval
+      const errorMetadata: PreviewEnvironmentMetadata = {
+        taskId: this.taskId,
+        pid: -1, // No valid PID for failed startup
+        port: -1, // No valid port for failed startup
+        startTime: new Date(),
+        command: serverCommand,
+        workspacePath: this.workspacePath,
+        logFile: '',
+        processStartTime: Date.now(),
+        envVars: this.repositoryConfig.codeExecution.envVars,
+        failed: true,
+        error: errorMessage,
+        logs: logs || 'No logs available',
+      }
+
+      await this.savePreviewEnvironmentMetadata(this.taskId, errorMetadata)
+
+      // Return failed state instead of throwing
       return {
         running: false,
         configured: true,
         uptimeSeconds: 0,
-        error: cleanMessage,
+        error: errorMessage,
+        logs: logs || 'No logs available',
       }
     }
   }
 
   async stopServer(): Promise<boolean> {
     if (!this.previewServer) {
+      this.logger.debug('No server handler found')
+      // Check if we have metadata for a potentially orphaned process
+      const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
+      if (metadata) {
+        this.logger.info('Found orphaned server metadata, attempting cleanup', {
+          pid: metadata.pid,
+        })
+        await this.killOrphanedProcess(metadata.pid, false)
+        await this.deletePreviewEnvironmentMetadata(this.taskId)
+        return true
+      }
       return false
     }
 
-    this.logger.info('Stopping preview server')
-
     try {
-      const result = await this.previewServer.stop()
-      this.previewServer = undefined
-      return result
+      const stopped = await this.previewServer.stop()
+      if (stopped) {
+        this.previewServer = undefined
+        await this.deletePreviewEnvironmentMetadata(this.taskId)
+        this.logger.info('Preview server stopped successfully')
+      }
+      return stopped
     } catch (error) {
-      this.logger.error('Error stopping server', error as Error)
+      this.logger.error('Error stopping preview server', error as Error)
+      // Force cleanup
       this.previewServer = undefined
+      await this.deletePreviewEnvironmentMetadata(this.taskId)
       return false
     }
   }
 
   async getServerStatus(): Promise<ServerStatus> {
-    if (!this.previewServer) {
-      const hasServerCommand = !!this.repositoryConfig.previewConfig?.serverStartCommand
-      return {
-        running: false,
-        configured: hasServerCommand,
-        uptimeSeconds: 0,
+    const configured = Boolean(this.repositoryConfig.previewConfig?.serverStartCommand)
+
+    // Check running servers
+    if (this.previewServer) {
+      const status = this.previewServer.getStatus(configured)
+
+      // Perform ping check if server is running
+      if (status.running && status.url) {
+        const port = this.extractPortFromUrl(status.url)
+        const responsive = port ? await this.pingServer(port) : false
+
+        return {
+          ...status,
+          responsive,
+        } as ServerStatus
       }
+
+      return status
     }
 
-    const status = this.previewServer.getStatus(true)
-    // Keep the URL for display purposes in the frontend toolbar
-    // The frontend uses proxy for actual requests but shows the direct URL for user reference
-    return status
+    // Check for orphaned server via metadata
+    const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
+    if (metadata) {
+      // Check if this is error metadata from a failed startup
+      if (metadata.failed) {
+        return {
+          running: false,
+          configured,
+          uptimeSeconds: 0,
+          error: metadata.error,
+          logs: metadata.logs,
+        } as ServerStatus
+      }
+
+      const validation = await this.validateProcess(metadata.pid, metadata.command)
+      if (validation.exists && validation.isCorrectProcess) {
+        // Process is still running, recover it
+        this.previewServer = new PreviewServer(
+          this.taskId,
+          metadata.workspacePath,
+          metadata.command,
+          metadata.envVars || {},
+        )
+
+        this.restoreServerHandler(this.previewServer, metadata)
+
+        const responsive = await this.pingServer(metadata.port)
+        const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
+
+        return {
+          running: true,
+          configured,
+          url: `http://localhost:${metadata.port}`,
+          pid: metadata.pid,
+          uptimeSeconds: uptime,
+          responsive,
+        } as ServerStatus
+      }
+      // Clean up invalid metadata
+      await this.deletePreviewEnvironmentMetadata(this.taskId)
+    }
+
+    return {
+      running: false,
+      configured,
+      uptimeSeconds: 0,
+    }
   }
 
   async getServerLogs(lines = 100): Promise<string> {
-    if (!this.previewServer) {
-      return 'No server logs available'
+    if (this.previewServer) {
+      return await this.previewServer.getLogs(lines)
     }
 
-    // This will now work even for failed servers since we don't cleanup immediately
-    return this.previewServer.getLogs(lines)
+    // Try to get logs from metadata
+    const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
+
+    // Check for logs in failed metadata
+    if (metadata?.logs) {
+      return metadata.logs
+    }
+
+    // Check for log file
+    if (metadata?.logFile) {
+      try {
+        const content = await fs.readFile(metadata.logFile, 'utf-8')
+        const allLines = content.split('\n')
+        return allLines.slice(-lines).join('\n')
+      } catch (_error) {
+        return 'Failed to read log file'
+      }
+    }
+    return 'No server logs available'
   }
 
   getPreviewPort(): number | undefined {
@@ -379,6 +546,261 @@ export class LocalEnvironment extends BaseEnvironment {
       if (!force) {
         throw error
       }
+    }
+  }
+
+  // ===============================
+  // Preview Server Management
+  // ===============================
+
+  private async initializeStorage(): Promise<void> {
+    try {
+      await fs.mkdir(this.previewEnvironmentsPath, { recursive: true })
+      // Load and validate existing preview environment metadata on startup
+      await this.loadAndValidateExistingPreviewEnvironments()
+    } catch (error) {
+      this.logger.error('Failed to initialize preview environment storage', error as Error)
+    }
+  }
+
+  /**
+   * Load existing preview environment metadata and validate processes on service startup
+   */
+  private async loadAndValidateExistingPreviewEnvironments(): Promise<void> {
+    try {
+      const files = await fs.readdir(this.previewEnvironmentsPath)
+      const jsonFiles = files.filter((f) => f.endsWith('.json'))
+
+      for (const file of jsonFiles) {
+        const taskId = file.replace('.json', '')
+        // Only load metadata for this specific task
+        if (taskId !== this.taskId) {
+          continue
+        }
+
+        try {
+          const metadata = await this.loadPreviewEnvironmentMetadata(taskId)
+          if (metadata) {
+            // Validate if the process is still running
+            const validation = await this.validateProcess(metadata.pid, metadata.command)
+
+            if (validation.exists && validation.isCorrectProcess) {
+              this.logger.info('Recovered running preview environment server', {
+                taskId,
+                pid: metadata.pid,
+                port: metadata.port,
+              })
+
+              // Create a PreviewServer instance for the recovered server
+              this.previewServer = new PreviewServer(
+                taskId,
+                metadata.workspacePath,
+                metadata.command,
+                metadata.envVars || {},
+              )
+
+              // Restore the handler's state
+              this.restoreServerHandler(this.previewServer, metadata)
+            } else {
+              this.logger.info('Cleaning up orphaned preview environment metadata', {
+                taskId,
+                pid: metadata.pid,
+                validation,
+              })
+              await this.deletePreviewEnvironmentMetadata(taskId)
+            }
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to validate preview environment for task ${taskId}`,
+            error as Error,
+          )
+        }
+      }
+    } catch (error) {
+      this.logger.error('Failed to load existing preview environments', error as Error)
+    }
+  }
+
+  /**
+   * Validate if a process is still running and is the correct one
+   */
+  private async validateProcess(pid: number, expectedCommand: string): Promise<ProcessValidation> {
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Use wmic to get process info
+        try {
+          const result = execSync(
+            `wmic process where ProcessId=${pid} get CommandLine,CreationDate /format:list`,
+            { encoding: 'utf-8' },
+          )
+
+          const lines = result.split('\n').filter((line) => line.trim())
+          const commandLine = lines.find((line) => line.startsWith('CommandLine='))
+
+          if (commandLine) {
+            const command = commandLine.split('=')[1]
+            return {
+              exists: true,
+              isCorrectProcess: command.includes(expectedCommand.split(' ')[0]),
+              command,
+            }
+          }
+        } catch {
+          return { exists: false, isCorrectProcess: false }
+        }
+      } else {
+        // Unix/Linux/Mac: Use ps to get process info
+        try {
+          const result = execSync(`ps -p ${pid} -o command=`, { encoding: 'utf-8' })
+          const command = result.trim()
+
+          return {
+            exists: true,
+            isCorrectProcess: command.includes(expectedCommand.split(' ')[0]),
+            command,
+          }
+        } catch {
+          return { exists: false, isCorrectProcess: false }
+        }
+      }
+    } catch (error) {
+      this.logger.debug('Error validating process', { pid, error })
+      return { exists: false, isCorrectProcess: false }
+    }
+
+    return { exists: false, isCorrectProcess: false }
+  }
+
+  /**
+   * Extract port number from URL string
+   */
+  private extractPortFromUrl(url?: string): number | null {
+    if (!url) return null
+
+    try {
+      // Handle both formats: "http://localhost:port" and "localhost:port"
+      const parts = url.split(':')
+
+      if (parts.length >= 2) {
+        // If URL starts with http://, port is at index 2
+        // If URL is just localhost:port, port is at index 1
+        const portString = url.startsWith('http://') ? parts[2] : parts[parts.length - 1]
+        const port = Number.parseInt(portString, 10)
+
+        // Validate port range
+        if (Number.isNaN(port) || port < 0 || port > 65535) {
+          return null
+        }
+
+        return port
+      }
+    } catch (error) {
+      this.logger.debug('Error extracting port from URL', { url, error })
+    }
+
+    return null
+  }
+
+  /**
+   * Ping a server to check if it's responsive
+   */
+  private async pingServer(port: number, timeout = 1000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const client = new net.Socket()
+      client.setTimeout(timeout)
+
+      client.on('connect', () => {
+        client.destroy()
+        resolve(true)
+      })
+
+      client.on('timeout', () => {
+        client.destroy()
+        resolve(false)
+      })
+
+      client.on('error', () => {
+        resolve(false)
+      })
+
+      client.connect(port, '127.0.0.1')
+    })
+  }
+
+  /**
+   * Kill an orphaned process
+   */
+  private async killOrphanedProcess(pid: number, force = false): Promise<void> {
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill ${force ? '/F' : ''} /PID ${pid}`)
+      } else {
+        process.kill(pid, force ? 'SIGKILL' : 'SIGTERM')
+      }
+    } catch (error) {
+      this.logger.debug('Failed to kill orphaned process', { pid, error })
+    }
+  }
+
+  /**
+   * Restore PreviewServer state from metadata
+   */
+  private restoreServerHandler(handler: PreviewServer, metadata: PreviewEnvironmentMetadata): void {
+    // Use private property access to restore state
+    // This is a bit hacky but necessary for recovery
+    ;(handler as unknown as { port: number }).port = metadata.port
+    ;(handler as unknown as { pid: number }).pid = metadata.pid
+    ;(handler as unknown as { logFile: string }).logFile = metadata.logFile
+    ;(handler as unknown as { startTime: number }).startTime = metadata.startTime.getTime()
+
+    // Create a mock process object with event emitter functionality
+    const mockProcess = {
+      exitCode: null,
+      on: (_event: string, _callback: (...args: unknown[]) => void) => {},
+      kill: (_signal?: string) => {},
+    }
+    ;(handler as unknown as { process: typeof mockProcess }).process = mockProcess
+  }
+
+  /**
+   * Save preview environment metadata to disk
+   */
+  private async savePreviewEnvironmentMetadata(
+    taskId: string,
+    metadata: PreviewEnvironmentMetadata,
+  ): Promise<void> {
+    const filePath = path.join(this.previewEnvironmentsPath, `${taskId}.json`)
+    await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), 'utf-8')
+  }
+
+  /**
+   * Load preview environment metadata from disk
+   */
+  private async loadPreviewEnvironmentMetadata(
+    taskId: string,
+  ): Promise<PreviewEnvironmentMetadata | null> {
+    const filePath = path.join(this.previewEnvironmentsPath, `${taskId}.json`)
+    try {
+      const content = await fs.readFile(filePath, 'utf-8')
+      const data = JSON.parse(content)
+      // Convert date strings back to Date objects
+      data.startTime = new Date(data.startTime)
+      return data
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Delete preview environment metadata from disk
+   */
+  private async deletePreviewEnvironmentMetadata(taskId: string): Promise<void> {
+    const filePath = path.join(this.previewEnvironmentsPath, `${taskId}.json`)
+    try {
+      await fs.unlink(filePath)
+    } catch {
+      // Ignore errors if file doesn't exist
     }
   }
 }

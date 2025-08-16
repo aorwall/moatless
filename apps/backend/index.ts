@@ -83,13 +83,7 @@ const start = async () => {
           await appServices.services.workspace.gracefulShutdown()
         }
 
-        // 4. Shutdown preview environments
-        if (appServices?.services.previewEnvironment) {
-          logger.info('Shutting down preview environments...')
-          await appServices.services.previewEnvironment.gracefulShutdown()
-        }
-
-        // 5. Wait a bit for any pending operations
+        // 4. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 

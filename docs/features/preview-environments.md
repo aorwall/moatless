@@ -6,27 +6,26 @@
 
 ### Key Files and Methods
 - **Workspace Service**: `apps/backend/services/workspace.service.ts`
-  - `startServer()` (lines 579-603) - Delegates to environment
-  - `stopServer()` (lines 605-629) - Delegates to environment
-  - `getServerStatus()` (lines 643-676) - Delegates to environment
-  - `getServerLogs()` (lines 695-724) - Delegates to environment
-- **Docker Environment**: `apps/backend/environments/docker-environment.ts`
-  - `startServer()` (lines 617-661) - HTTP request to worker
-  - `stopServer()` (lines 663-704) - HTTP request to worker
-  - `proxyPreviewRequest()` (lines 773-825) - Proxy through worker
+  - `startServer()` - Always delegates to environment
+  - `stopServer()` - Always delegates to environment
+  - `getServerStatus()` - Always delegates to environment
+  - `getServerLogs()` - Always delegates to environment
 - **Local Environment**: `apps/backend/environments/local-environment.ts`
-  - `startServer()` - Delegates to PreviewEnvironmentService
-  - `stopServer()` - Delegates to PreviewEnvironmentService
+  - `startServer()` - Direct server process management with metadata persistence
+  - `stopServer()` - Direct server cleanup with orphaned process detection
+  - `getServerStatus()` - Process validation and recovery
+  - `getServerLogs()` - Log retrieval from files or running processes
   - `getPreviewPort()` - Returns direct port for local access
-- **Preview Service**: `apps/backend/services/preview-environment.service.ts`
-  - `startServer()` - Local server process management
-  - `stopServer()` - Local server process cleanup
+- **Docker Environment**: `apps/backend/environments/docker-environment.ts`
+  - `startServer()` - HTTP request to worker
+  - `stopServer()` - HTTP request to worker
+  - `proxyPreviewRequest()` - Proxy through worker
 - **Worker App**: `apps/backend/worker-app.ts`
-  - `/server/start` (lines 355-421) - Start server in container
-  - `/server/stop` (lines 423-447) - Stop server in container
-  - `/server/proxy/*` (lines 502-549) - Proxy preview requests
+  - `/server/start` - Start server in container
+  - `/server/stop` - Stop server in container
+  - `/server/proxy/*` - Proxy preview requests
 - **Preview Routes**: `apps/backend/routes/preview-environment.ts`
-  - Proxy endpoint with HTML injection (lines 280-461)
+  - Proxy endpoint with HTML injection
 
 ### Architecture Overview
 
@@ -44,27 +43,28 @@ graph TB
             LE[LocalEnvironment]
             DE[DockerEnvironment]
         end
-        
-        PES[PreviewEnvironmentService]
     end
     
     subgraph "Docker Container"
         W[Worker App]
-        PS[Preview Server]
+        PS2[Preview Server]
+    end
+    
+    subgraph "Local System"
+        PS1[Preview Server]
     end
     
     UI -->|HTTP| PR
     PR -->|delegate| WS
-    WS -->|check env type| LE
-    WS -->|check env type| DE
+    WS -->|delegate| LE
+    WS -->|delegate| DE
     
-    LE -->|direct| PES
-    PES -->|spawn| PS
+    LE -->|spawn directly| PS1
     
     DE -->|HTTP| W
-    W -->|exec| PS
+    W -->|exec| PS2
     
-    PR -->|proxy local| PS
+    PR -->|proxy local| PS1
     PR -->|proxy docker| W
 ```
 
@@ -397,15 +397,19 @@ Both environments handle server cleanup:
 ```typescript
 // LocalEnvironment cleanup
 async teardown(force = false) {
-  if (this.previewEnvironmentService) {
-    await this.previewEnvironmentService.stopServer(this.taskId)
-  }
-  await super.teardown(force)
+  // Stop agent
+  await this.stopAgent()
+  
+  // Stop server directly
+  await this.stopServer()
+  
+  this.logger.info('LocalEnvironment teardown completed')
 }
 
 // DockerEnvironment cleanup
 async teardown(force = false) {
   try {
+    await this.stopAgent()
     await this.stopServer()
   } catch (error) {
     // Log but don't fail teardown
@@ -416,19 +420,30 @@ async teardown(force = false) {
 ```
 
 ### Process Recovery
-Local environments can recover orphaned server processes:
+LocalEnvironment can recover orphaned server processes:
 
 ```typescript
-// PreviewEnvironmentService recovery
-async recoverServers() {
-  const metadataFiles = await fs.readdir('data/preview-servers')
+// LocalEnvironment recovery (happens automatically on startup)
+private async loadAndValidateExistingPreviewEnvironments() {
+  const files = await fs.readdir(this.previewEnvironmentsPath)
+  const jsonFiles = files.filter((f) => f.endsWith('.json'))
   
-  for (const file of metadataFiles) {
-    const metadata = await fs.readJson(file)
-    if (isProcessRunning(metadata.pid)) {
-      // Reattach to existing process
-      const handler = ServerHandler.fromMetadata(metadata)
-      this.servers.set(metadata.taskId, handler)
+  for (const file of jsonFiles) {
+    const taskId = file.replace('.json', '')
+    if (taskId !== this.taskId) continue // Only recover for this environment
+    
+    const metadata = await this.loadPreviewEnvironmentMetadata(taskId)
+    if (metadata) {
+      const validation = await this.validateProcess(metadata.pid, metadata.command)
+      
+      if (validation.exists && validation.isCorrectProcess) {
+        // Reattach to existing process
+        this.previewServer = new PreviewServer(taskId, metadata.workspacePath, metadata.command, metadata.envVars || {})
+        this.restoreServerHandler(this.previewServer, metadata)
+      } else {
+        // Clean up orphaned metadata
+        await this.deletePreviewEnvironmentMetadata(taskId)
+      }
     }
   }
 }
@@ -486,15 +501,15 @@ curl http://localhost:<worker-port>/server/logs
 
 ## Migration Notes
 
-### From Direct Preview Service to Environment Delegation
-The system now uses a delegation pattern where:
-1. WorkspaceService checks if environment supports server operations
-2. Environments implement server methods based on their capabilities
-3. Docker environments proxy through worker HTTP endpoints
-4. Local environments use PreviewEnvironmentService directly
+### From PreviewEnvironmentService to Environment Ownership
+The system has been simplified where:
+1. WorkspaceService always delegates to environment implementations
+2. LocalEnvironment directly manages preview servers with metadata persistence
+3. DockerEnvironment continues to proxy through worker HTTP endpoints
+4. PreviewEnvironmentService has been removed entirely
 
 This architecture provides:
-- Clean separation of concerns
-- Environment-specific optimizations
-- Backward compatibility
-- Unified API for consumers
+- Simplified delegation with no fallback logic
+- Clear ownership boundaries - environments own their servers
+- Better process recovery through metadata persistence
+- Consistent error handling and logging

@@ -115,7 +115,6 @@ export async function build(): Promise<TestApp> {
     }
 
     // Cleanup services if they have cleanup methods
-    // Note: PreviewEnvironmentService doesn't have a cleanup method
     // Services should clean up automatically on process exit
 
     // Note: This is mainly for test compatibility

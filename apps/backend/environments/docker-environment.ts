@@ -253,59 +253,43 @@ export class DockerEnvironment extends BaseEnvironment {
   }
 
   /**
-   * Ensures that the container is ready for command execution or agent creation.
-   * If the container is not setup or in error state, it will attempt to set it up.
-   * If setup is already in progress, it will wait for completion.
+   * Override to implement custom error recovery for Docker containers
    */
-  private async ensureContainerReady(): Promise<void> {
+  protected async recoverFromError(): Promise<void> {
+    this.logger.info('Container in error state, attempting recovery', {
+      previousError: this._error,
+      containerName: this.getContainerName(),
+    })
+
+    // Clean up the failed container
+    await this.cleanup()
+
+    // Reset error state
+    this._error = undefined
+
+    // Setup container
+    await this.setup()
+  }
+
+  /**
+   * Override to implement Docker-specific waiting logic
+   */
+  protected async waitForReady(): Promise<void> {
     const status = this.getStatus()
 
-    // Already ready - fast path
-    if (status === 'ready') {
-      return
+    if (status === 'cleaning') {
+      // Container is being removed, wait for it to finish then check again
+      this.logger.info('Container is being cleaned up, waiting for completion')
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      // Recursively check status again after cleanup
+      return this.ensureReady()
     }
 
-    // Handle states that need action
-    switch (status) {
-      case 'not_created':
-        this.logger.info('Container not setup, starting setup process')
-        await this.setup()
-        break
-
-      case 'error':
-        this.logger.info('Container in error state, attempting recovery', {
-          previousError: this._error,
-          containerName: this.getContainerName(),
-        })
-
-        // Clean up the failed container
-        await this.cleanup()
-
-        // Reset error state
-        this._error = undefined
-
-        // Setup container
-        await this.setup()
-        break
-
-      case 'initializing':
-        // Already in progress, just need to wait
-        this.logger.info('Container setup in progress, waiting for completion', { status })
-        break
-
-      case 'cleaning':
-        // Container is being removed, wait for it to finish then check again
-        this.logger.info('Container is being cleaned up, waiting for completion')
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-        // Recursively check status again after cleanup
-        return this.ensureContainerReady()
-
-      default:
-        throw new Error(`Unexpected container status: ${status}`)
+    if (status === 'initializing') {
+      // Already in progress, just need to wait
+      this.logger.info('Container setup in progress, waiting for completion', { status })
+      await this.waitForContainerReady()
     }
-
-    // Wait for container to be ready (for all non-ready states except cleaning)
-    await this.waitForContainerReady()
   }
 
   /**
@@ -396,7 +380,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
   async runCommand(command: string, timeout = 30000): Promise<CommandResult> {
     // Ensure container is ready before executing command
-    await this.ensureContainerReady()
+    await this.ensureReady()
 
     // Double-check we have worker port mapping
     if (!this.workerPortMapping) {
@@ -457,7 +441,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
   async startServer(): Promise<ServerStatus> {
     // Ensure container is ready before starting server
-    await this.ensureContainerReady()
+    await this.ensureReady()
 
     this.logger.info('Starting server via worker')
 
@@ -622,7 +606,7 @@ export class DockerEnvironment extends BaseEnvironment {
     body: string | Buffer
   }> {
     // Ensure container is ready before proxying request
-    await this.ensureContainerReady()
+    await this.ensureReady()
 
     try {
       // Proxy the request through the worker which will forward to the preview server
@@ -667,7 +651,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
   async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
     // Ensure container is ready before creating agent
-    await this.ensureContainerReady()
+    await this.ensureReady()
 
     // Double-check we have worker port mapping
     if (!this.workerPortMapping) {

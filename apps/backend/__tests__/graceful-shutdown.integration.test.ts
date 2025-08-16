@@ -90,13 +90,6 @@ describe('Graceful Shutdown', () => {
     })
   })
 
-  describe('Preview Environment Service', () => {
-    it('should have gracefulShutdown method available', () => {
-      expect(appWithServices.services.previewEnvironment.gracefulShutdown).toBeDefined()
-      expect(typeof appWithServices.services.previewEnvironment.gracefulShutdown).toBe('function')
-    })
-  })
-
   describe('Workspace Service', () => {
     it('should have gracefulShutdown method available', () => {
       expect(appWithServices.services.workspace.gracefulShutdown).toBeDefined()

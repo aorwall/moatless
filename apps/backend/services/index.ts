@@ -1,6 +1,5 @@
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
-import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
@@ -14,7 +13,6 @@ export interface Services {
   repository: RepositoryService
   command: CommandService
   workspace: WorkspaceService
-  previewEnvironment: PreviewEnvironmentService
   task: TaskService
 }
 
@@ -31,7 +29,6 @@ export { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 // Export all services and types
 export * from './command.service.js'
 export * from './event.service.js'
-export * from './preview-environment.service.js'
 export * from './repository.service.js'
 export * from './settings.service.js'
 export * from './storage.js'

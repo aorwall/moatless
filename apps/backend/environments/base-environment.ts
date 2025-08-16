@@ -143,6 +143,69 @@ export abstract class BaseEnvironment {
   abstract setup(iterationNumber?: number): Promise<void>
 
   /**
+   * Ensures the environment is ready for operations.
+   * If not ready, attempts to set it up.
+   * @returns Promise that resolves when environment is ready
+   */
+  async ensureReady(): Promise<void> {
+    const status = this.getStatus()
+
+    // Fast path - already ready
+    if (status === 'ready') {
+      return
+    }
+
+    // Handle different states
+    switch (status) {
+      case 'not_created':
+        await this.setup()
+        break
+
+      case 'error':
+        // Allow environments to override for custom recovery
+        await this.recoverFromError()
+        break
+
+      case 'initializing':
+        // Wait for initialization to complete
+        await this.waitForReady()
+        break
+
+      case 'cleaning':
+        throw new Error('Environment is being cleaned up')
+
+      default:
+        throw new Error(`Unexpected environment status: ${status}`)
+    }
+  }
+
+  /**
+   * Override to implement custom error recovery
+   */
+  protected async recoverFromError(): Promise<void> {
+    throw new Error('Environment is in error state and cannot recover')
+  }
+
+  /**
+   * Override to implement waiting logic
+   */
+  protected async waitForReady(): Promise<void> {
+    // Default: poll status until ready or timeout
+    const maxWait = 60000 // 60 seconds
+    const interval = 1000 // 1 second
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < maxWait) {
+      if (this.getStatus() === 'ready') {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, interval))
+    }
+
+    throw new Error('Environment did not become ready within timeout')
+  }
+
+  /**
    * Stop and cleanup
    */
   abstract teardown(force?: boolean): Promise<void>

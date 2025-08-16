@@ -4,7 +4,6 @@ import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { GitHubService } from './github.service.js'
 import type { MessageService } from './message.service.js'
-import type { PreviewEnvironmentService } from './preview-environment.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
@@ -21,7 +20,6 @@ export interface ServiceContainer {
   event: EventService
   github: GitHubService
   message: MessageService
-  previewEnvironment: PreviewEnvironmentService
   repository: RepositoryService
   settings: SettingsService
   storage: StorageBackend
@@ -49,7 +47,6 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createDockerService } = await import('./docker.service.js')
   const { createEventService } = await import('./event.service.js')
   const { createMessageService } = await import('./message.service.js')
-  const { createPreviewEnvironmentService } = await import('./preview-environment.service.js')
   const { createTaskService } = await import('./task.service.js')
   const { createWorkspaceService } = await import('./workspace.service.js')
 
@@ -78,13 +75,6 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.docker,
     container.claude,
   )
-  container.previewEnvironment = createPreviewEnvironmentService(
-    container.storage,
-    container.workspace,
-  )
-
-  // Set preview environment service on workspace service
-  container.workspace.setPreviewEnvironmentService(container.previewEnvironment)
 
   // Set workspace service on repository service for verification
   container.repository.setWorkspaceService(container.workspace)
