@@ -17,6 +17,9 @@ export interface PreviewEnvironmentMetadata {
   error?: string
   logs?: string
   failed?: boolean
+  // Proxy server information for SPA support
+  proxyPort?: number
+  proxyUrl?: string
 }
 
 /**

@@ -198,6 +198,7 @@ export const ServerStatusSchema = z.object({
   running: z.boolean(),
   configured: z.boolean(),
   url: z.string().optional(),
+  proxyUrl: z.string().optional(),
   pid: z.number().optional(),
   uptimeSeconds: z.number(),
   error: z.string().optional(),

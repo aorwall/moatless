@@ -13,6 +13,7 @@ import {
   type PreviewConfig,
   type RepositoryConfig,
   RepositoryNotFoundError,
+  RepositoryTemplate,
   ValidationError,
 } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
@@ -28,6 +29,22 @@ export class RepositoryService {
   private workspaceService?: WorkspaceService
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
+
+  // Available templates - in future this could be stored in database
+  private static readonly TEMPLATES = [
+    new RepositoryTemplate(
+      'hello-world-ui',
+      'Basic Hello Website',
+      'https://github.com/aorwall/hello-world-ui.git',
+      'bun install',
+      {
+        serverStartCommand: 'bun run dev',
+        injectionStrategy: {
+          method: 'html-injection',
+        },
+      },
+    ),
+  ]
 
   constructor(private storage: StorageBackend) {}
 
@@ -68,8 +85,9 @@ export class RepositoryService {
       // Ensure repos directory exists
       await fs.mkdir(repoDir, { recursive: true })
 
-      // Copy template to new repository directory
-      await this.copyDirectory(request.templatePath, finalPath)
+      // Fork from template preserving git history
+      const templateName = request.templateId || path.basename(request.templatePath)
+      await this.forkFromTemplate(request.templatePath, finalPath, templateName)
     } else if (!request.path) {
       throw new ValidationError('Path is required for local repositories', { path: request.path })
     }
@@ -589,9 +607,9 @@ export class RepositoryService {
   }
 
   /**
-   * Copy directory contents from source to destination, excluding .git and node_modules
+   * Fork from template preserving git history and removing remote origin
    */
-  private async copyDirectory(src: string, dest: string): Promise<void> {
+  private async forkFromTemplate(src: string, dest: string, templateName: string): Promise<void> {
     await fs.mkdir(dest, { recursive: true })
     const entries = await fs.readdir(src, { withFileTypes: true })
 
@@ -600,9 +618,9 @@ export class RepositoryService {
       const destPath = path.join(dest, entry.name)
 
       if (entry.isDirectory()) {
-        // Skip directories that shouldn't be copied
-        if (entry.name === '.git' || entry.name === 'node_modules') continue
-        await this.copyDirectory(srcPath, destPath)
+        // Skip only node_modules, preserve .git for forking
+        if (entry.name === 'node_modules') continue
+        await this.forkFromTemplate(srcPath, destPath, templateName)
       } else if (entry.isFile()) {
         try {
           await fs.copyFile(srcPath, destPath)
@@ -618,10 +636,25 @@ export class RepositoryService {
       // Skip symlinks and other special file types
     }
 
-    // Initialize git in the new repository
-    await this.executeCommand('git init', dest)
-    await this.executeCommand('git add .', dest)
-    await this.executeCommand('git commit -m "Initial commit from template"', dest)
+    // Only perform git operations on the root level (when dest contains .git)
+    const gitPath = path.join(dest, '.git')
+    try {
+      await fs.access(gitPath)
+      // Git repository exists, remove remote origin and add fork commit
+      await this.executeCommand('git remote remove origin', dest).catch(() => {
+        // Ignore error if no remote origin exists
+      })
+      await this.executeCommand(
+        `git commit --allow-empty -m "Forked from template: ${templateName}"`,
+        dest,
+      )
+      logger.info('Successfully forked from template with preserved git history', {
+        templateName,
+        dest,
+      })
+    } catch {
+      // No .git directory found at this level, continue
+    }
   }
 
   /**

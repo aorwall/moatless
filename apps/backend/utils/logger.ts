@@ -161,7 +161,7 @@ export function createRequestLogger(requestId: string, taskId?: string) {
 
 // Helper function to create task-scoped loggers
 export function createTaskLogger(taskId: string) {
-  return logger.child({ taskId })
+  return pinoLogger.child({ taskId })
 }
 
 // Helper function to create logger instance (for compatibility with Hono)

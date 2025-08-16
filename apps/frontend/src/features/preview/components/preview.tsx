@@ -154,8 +154,10 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     toggleSelector(isInspectorActive)
   }, [isInspectorActive, toggleSelector])
 
-  // Construct proxy URL using the task ID and proxy endpoint
-  const proxyUrl = `/api/v1/tasks/${params.taskId}/proxy${currentPath}`
+  // Use dedicated proxy URL if available, otherwise fall back to path-based proxy
+  const proxyUrl = serverStatus?.proxyUrl
+    ? `${serverStatus.proxyUrl}${currentPath}`
+    : `/api/v1/tasks/${params.taskId}/proxy${currentPath}`
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) {

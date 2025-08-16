@@ -308,8 +308,12 @@ interface ServerStatus {
   configured: boolean  // Has server command
   port?: number       // Only when running
   pid?: number        // Process ID
-  url?: string        // Full URL (local only)
+  url?: string        // Direct server URL (local only)
+  proxyUrl?: string   // Dedicated proxy URL for SPA support
   uptimeSeconds: number
+  responsive?: boolean // Server ping check result
+  error?: string      // Error message if startup failed
+  logs?: string       // Error logs if startup failed
 }
 ```
 

@@ -10,12 +10,15 @@ import type {
   RepositoryConfig,
   ServerStatus,
 } from '@moatless/types'
+import type { Logger } from 'pino'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
+import { createPreviewProxy, type PreviewProxyService } from '../services/preview-proxy.service.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { createTaskLogger } from '../utils/logger.js'
+import { findAvailablePort } from '../utils/port-allocation.js'
 import { BaseEnvironment } from './base-environment.js'
 
 const execAsync = promisify(exec)
@@ -28,6 +31,7 @@ export class LocalEnvironment extends BaseEnvironment {
   private _error?: string
   private logger = createTaskLogger(this.taskId)
   private previewServer?: PreviewServer
+  private previewProxy?: PreviewProxyService
   private readonly previewEnvironmentsPath: string
 
   constructor(
@@ -250,6 +254,49 @@ export class LocalEnvironment extends BaseEnvironment {
       // Start the server first
       const result = await this.previewServer.start()
 
+      // Try to create and start proxy server for SPA support
+      let proxyUrl: string | undefined
+      let proxyPort: number | undefined
+
+      try {
+        proxyPort = await findAvailablePort('general')
+        const targetUrl = `http://localhost:${result.port}`
+        const scriptContent = `
+          console.log('🚀 Moatless Preview Script Injected for task: ${this.taskId}');
+          
+          // Send a message to parent to confirm script is loaded
+          window.addEventListener('load', () => {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({
+                type: 'INSPECTOR_SCRIPT_LOADED',
+                payload: { version: '1.0.0', taskId: '${this.taskId}' },
+                source: 'preview-iframe'
+              }, '*');
+            }
+          });
+        `
+
+        this.previewProxy = createPreviewProxy(
+          targetUrl,
+          scriptContent,
+          this.logger as Logger,
+          proxyPort,
+        )
+        await this.previewProxy.start()
+
+        proxyUrl = `http://localhost:${proxyPort}`
+        this.logger.info('Preview proxy started successfully', { proxyPort, proxyUrl })
+      } catch (error) {
+        this.logger.warn('Failed to start preview proxy, falling back to path-based proxy', {
+          error: error instanceof Error ? error.message : String(error),
+          proxyPort,
+        })
+        // Reset proxy-related variables since proxy failed
+        this.previewProxy = undefined
+        proxyPort = undefined
+        proxyUrl = undefined
+      }
+
       // Save metadata to disk (successful startup, clear any previous error state)
       const metadata: PreviewEnvironmentMetadata = {
         taskId: this.taskId,
@@ -264,12 +311,16 @@ export class LocalEnvironment extends BaseEnvironment {
         failed: false, // Explicitly mark as not failed
         error: undefined, // Clear any previous error
         logs: undefined, // Clear any previous error logs
+        proxyPort,
+        proxyUrl,
       }
 
       await this.savePreviewEnvironmentMetadata(this.taskId, metadata)
 
       this.logger.info('Preview server started successfully', {
         port: result.port,
+        proxyPort: proxyPort || 'not started',
+        proxyUrl: proxyUrl || 'not available',
         pid: result.pid,
       })
 
@@ -277,6 +328,7 @@ export class LocalEnvironment extends BaseEnvironment {
         running: true,
         configured: true,
         url: `http://localhost:${result.port}`,
+        proxyUrl,
         pid: result.pid,
         uptimeSeconds: 0,
       }
@@ -346,6 +398,18 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     try {
+      // Stop proxy server first
+      if (this.previewProxy) {
+        try {
+          await this.previewProxy.stop()
+          this.previewProxy = undefined
+          this.logger.info('Preview proxy stopped successfully')
+        } catch (error) {
+          this.logger.error('Error stopping preview proxy', error as Error)
+        }
+      }
+
+      // Stop the main server
       const stopped = await this.previewServer.stop()
       if (stopped) {
         this.previewServer = undefined
@@ -357,6 +421,7 @@ export class LocalEnvironment extends BaseEnvironment {
       this.logger.error('Error stopping preview server', error as Error)
       // Force cleanup
       this.previewServer = undefined
+      this.previewProxy = undefined
       await this.deletePreviewEnvironmentMetadata(this.taskId)
       return false
     }
@@ -374,13 +439,23 @@ export class LocalEnvironment extends BaseEnvironment {
         const port = this.extractPortFromUrl(status.url)
         const responsive = port ? await this.pingServer(port) : false
 
+        // Get proxy URL from metadata if available
+        const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
+        const proxyUrl = metadata?.proxyUrl
+
         return {
           ...status,
           responsive,
+          proxyUrl,
         } as ServerStatus
       }
 
-      return status
+      // Get proxy URL from metadata if available for non-responsive servers
+      const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
+      return {
+        ...status,
+        proxyUrl: metadata?.proxyUrl,
+      } as ServerStatus
     }
 
     // Check for orphaned server via metadata
@@ -416,6 +491,7 @@ export class LocalEnvironment extends BaseEnvironment {
           running: true,
           configured,
           url: `http://localhost:${metadata.port}`,
+          proxyUrl: metadata.proxyUrl,
           pid: metadata.pid,
           uptimeSeconds: uptime,
           responsive,
