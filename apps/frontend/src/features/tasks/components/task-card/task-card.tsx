@@ -205,8 +205,18 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
             )
           ) : (
             // Show result for completed tasks
-            <div className="min-h-[80px]">
-              {task.status === 'merged' && lastIteration?.gitChanges ? (
+            <div className={lastIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
+              {lastIteration?.thumbnailPath ? (
+                // Show thumbnail instead of text result
+                <div className="overflow-hidden rounded-md">
+                  <img
+                    src={`/api/v1/tasks/${task.taskId}/iterations/${lastIteration.iterationNumber}/thumbnail`}
+                    alt="Task preview"
+                    className="w-full h-auto object-contain"
+                    loading="lazy"
+                  />
+                </div>
+              ) : task.status === 'merged' && lastIteration?.gitChanges ? (
                 // Special display for merged tasks with git changes
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground line-clamp-2">

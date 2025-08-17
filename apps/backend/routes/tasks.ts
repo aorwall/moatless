@@ -1232,4 +1232,157 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       })
     },
   )
+
+  // MCP (Model Context Protocol) endpoint for task-scoped tools
+  app.all(
+    `${prefix}/:taskId/mcp`,
+    describeRoute({
+      description: 'Model Context Protocol endpoint for task-scoped tools and operations',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'MCP streaming response',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'MCP protocol messages',
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Invalid task ID or MCP request',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { mcp: mcpService } = services
+
+      const taskId = getTaskId(c)
+
+      try {
+        // Verify task exists
+        await services.task.getTask(taskId)
+
+        // Create task-scoped MCP server
+        const mcpServer = mcpService.createTaskScopedServer(taskId)
+
+        // Import StreamableHTTPTransport from @hono/mcp
+        const { StreamableHTTPTransport } = await import('@hono/mcp')
+
+        // Create transport and connect MCP server
+        const transport = new StreamableHTTPTransport()
+        await mcpServer.connect(transport)
+
+        // Handle the HTTP request through the transport
+        return transport.handleRequest(c)
+      } catch (error) {
+        handleServiceError(error, 'MCP request')
+      }
+    },
+  )
+
+  // Get task iteration thumbnail
+  app.get(
+    `${prefix}/:taskId/iterations/:iterationNumber/thumbnail`,
+    describeRoute({
+      description: 'Get thumbnail image for a specific task iteration',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'iterationNumber',
+          in: 'path',
+          required: true,
+          description: 'Iteration number',
+          schema: {
+            type: 'integer',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Thumbnail image',
+          content: {
+            'image/png': {
+              schema: {
+                type: 'string',
+                format: 'binary',
+              },
+            },
+          },
+        },
+        404: {
+          description: 'Task, iteration, or thumbnail not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { task: taskService } = services
+
+      const taskId = getTaskId(c)
+      const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
+
+      if (isNaN(iterationNumber)) {
+        throw new HTTPException(404, { message: 'Invalid iteration number' })
+      }
+
+      try {
+        // Get the task
+        const task = await taskService.getTask(taskId)
+
+        // Find the specific iteration
+        const iteration = task.iterations.find((it) => it.iterationNumber === iterationNumber)
+        if (!iteration) {
+          throw new HTTPException(404, { message: `Iteration ${iterationNumber} not found` })
+        }
+
+        if (!iteration.thumbnailPath) {
+          throw new HTTPException(404, { message: 'No thumbnail available for this iteration' })
+        }
+
+        // Read the thumbnail file
+        const fs = await import('node:fs/promises')
+        try {
+          const imageBuffer = await fs.readFile(iteration.thumbnailPath)
+
+          // Set headers for immutable image response with aggressive caching
+          c.header('Content-Type', 'image/png')
+          c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
+
+          return c.body(imageBuffer)
+        } catch (fileError) {
+          throw new HTTPException(404, { message: 'Thumbnail file not found on disk' })
+        }
+      } catch (error) {
+        if (error instanceof HTTPException) {
+          throw error
+        }
+        handleServiceError(error, 'Get task iteration thumbnail')
+      }
+    },
+  )
 }
