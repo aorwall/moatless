@@ -106,6 +106,12 @@ export class TaskService {
       throw new Error('Workspace is still setting up')
     }
 
+    if (status === 'error') {
+      const environment = workspace.getEnvironment()
+      const errorMessage = environment.getError() || 'Environment setup failed'
+      throw new Error(`Cannot start agent - environment setup failed: ${errorMessage}`)
+    }
+
     // Check if workspace path actually exists
     const isWorkspaceValid = await workspace.isWorkspacePathValid()
     if (!isWorkspaceValid) {
@@ -721,6 +727,44 @@ export class TaskService {
       // Setup workspace
       await this.workspaceService.setupWorkspace(taskId)
 
+      // Check if workspace setup failed
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (workspace && workspace.getStatus() === 'error') {
+        // Workspace setup failed, record failure in iteration
+        const task = await this.storage.getTask(taskId)
+        if (task && task.iterations.length > 0) {
+          const lastIteration = task.iterations[task.iterations.length - 1]
+          if (lastIteration.status === 'created') {
+            lastIteration.status = 'failed'
+            const environment = workspace.getEnvironment()
+            const errorMessage = environment.getError() || 'Environment setup failed'
+            lastIteration.result = `Environment setup failed: ${errorMessage}`
+            lastIteration.endTime = new Date()
+
+            await this.storage.saveTask(task)
+
+            // Emit error event for failed setup
+            await this.eventService.emitEvent({
+              eventId: randomUUID(),
+              taskId,
+              type: 'taskIteration',
+              subType: 'error',
+              isError: true,
+              agentType: task.agentType,
+              timestamp: new Date(),
+              payload: {
+                status: 'error',
+                previousStatus: 'created',
+                iterationNumber: lastIteration.iterationNumber,
+              },
+            })
+          }
+        }
+
+        logger.error('Workspace setup failed, skipping task start', { taskId })
+        return // Don't try to start the task
+      }
+
       // Determine if we should start immediately
       const shouldStart = (start ?? true) && !!message
 
@@ -840,8 +884,16 @@ export class TaskService {
 
     while (Date.now() - startWait < maxWaitTime) {
       const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace && workspace.getStatus() === 'ready') {
-        break
+      if (workspace) {
+        const status = workspace.getStatus()
+        if (status === 'ready') {
+          break
+        }
+        if (status === 'error') {
+          const environment = workspace.getEnvironment()
+          const errorMessage = environment.getError() || 'Environment setup failed'
+          throw new Error(`Cannot start task - workspace setup failed: ${errorMessage}`)
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
     }
