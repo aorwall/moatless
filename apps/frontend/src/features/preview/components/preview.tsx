@@ -10,7 +10,7 @@ import type { PreviewProps } from '../types'
 import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
-import { PreviewToolbar } from './preview-toolbar'
+import { PreviewHeader } from './preview-header'
 
 function PreviewContent({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -188,106 +188,103 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
   }, [params.taskId, startServer])
 
   return (
-    <div
-      className={cn(
-        'flex flex-col h-full bg-background border rounded-lg overflow-hidden',
-        className,
-      )}
-    >
-      <PreviewToolbar onReload={reloadPreview} />
+    <div className={cn('flex flex-col h-full', className)}>
+      <PreviewHeader onReload={reloadPreview} />
 
-      <ResizablePanelGroup direction="vertical" className="flex-1">
-        <ResizablePanel defaultSize={75} minSize={30}>
-          <div className="relative h-full overflow-hidden">
-            {serverStatus && !serverStatus.running && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground">The preview server is not running</p>
-                    <p className="text-sm text-muted-foreground">
-                      Start the server to see the preview
-                    </p>
+      <div className="flex-1 overflow-hidden bg-background border rounded-lg">
+        <ResizablePanelGroup direction="vertical" className="h-full">
+          <ResizablePanel defaultSize={75} minSize={30}>
+            <div className="relative h-full overflow-hidden">
+              {serverStatus && !serverStatus.running && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                  <div className="text-center space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-muted-foreground">The preview server is not running</p>
+                      <p className="text-sm text-muted-foreground">
+                        Start the server to see the preview
+                      </p>
+                    </div>
+                    <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
+                      {startServer.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Starting Server...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Start Server
+                        </>
+                      )}
+                    </Button>
                   </div>
-                  <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
-                    {startServer.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting Server...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Start Server
-                      </>
-                    )}
-                  </Button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {serverStatus?.running && isConnected && !proxyUrl && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground">Preview proxy is not available</p>
-                    <p className="text-sm text-muted-foreground">
-                      Restart the server to initialize the preview proxy
-                    </p>
+              {serverStatus?.running && isConnected && !proxyUrl && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                  <div className="text-center space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-muted-foreground">Preview proxy is not available</p>
+                      <p className="text-sm text-muted-foreground">
+                        Restart the server to initialize the preview proxy
+                      </p>
+                    </div>
+                    <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
+                      {startServer.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Starting Server...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Restart Server
+                        </>
+                      )}
+                    </Button>
                   </div>
-                  <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
-                    {startServer.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting Server...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Restart Server
-                      </>
-                    )}
-                  </Button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {error && isConnected && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-2">
-                  <p className="text-destructive">{error}</p>
+              {error && isConnected && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                  <div className="text-center space-y-2">
+                    <p className="text-destructive">{error}</p>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {serverStatus?.running && isConnected && proxyUrl && (
-              <>
-                <iframe
-                  ref={iframeRef}
-                  src={proxyUrl}
-                  title="Application Preview"
-                  sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
-                  onLoad={handleIframeLoad}
-                  onError={handleIframeError}
-                  className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
-                />
+              {serverStatus?.running && isConnected && proxyUrl && (
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    src={proxyUrl}
+                    title="Application Preview"
+                    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
+                    onLoad={handleIframeLoad}
+                    onError={handleIframeError}
+                    className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
+                  />
 
-                {isInspectorActive && (
-                  <InspectorOverlay iframeRef={iframeRef} onElementSelected={onElementSelected} />
-                )}
-              </>
-            )}
+                  {isInspectorActive && (
+                    <InspectorOverlay iframeRef={iframeRef} onElementSelected={onElementSelected} />
+                  )}
+                </>
+              )}
 
-            {/* Inspector Panel - Shows element details */}
-            {isInspectorActive && selectedElement && <InspectorPanel className="z-20" />}
-          </div>
-        </ResizablePanel>
+              {/* Inspector Panel - Shows element details */}
+              {isInspectorActive && selectedElement && <InspectorPanel className="z-20" />}
+            </div>
+          </ResizablePanel>
 
-        <ResizableHandle withHandle />
+          <ResizableHandle withHandle />
 
-        <ResizablePanel defaultSize={25} minSize={15} maxSize={70}>
-          <LogsPanel className="h-full" />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+          <ResizablePanel defaultSize={25} minSize={15} maxSize={70}>
+            <LogsPanel className="h-full" />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
     </div>
   )
 }

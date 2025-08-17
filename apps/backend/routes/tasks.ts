@@ -1234,7 +1234,7 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
   )
 
   // MCP (Model Context Protocol) endpoint for task-scoped tools
-  app.all(
+  app.post(
     `${prefix}/:taskId/mcp`,
     describeRoute({
       description: 'Model Context Protocol endpoint for task-scoped tools and operations',
@@ -1249,14 +1249,31 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
           },
         },
       ],
+      requestBody: {
+        description: 'JSON-RPC request',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                jsonrpc: { type: 'string' },
+                method: { type: 'string' },
+                params: { type: 'object' },
+                id: {},
+              },
+              required: ['jsonrpc', 'method'],
+            },
+          },
+        },
+      },
       responses: {
         200: {
-          description: 'MCP streaming response',
+          description: 'MCP JSON-RPC response',
           content: {
             'application/json': {
               schema: {
                 type: 'object',
-                description: 'MCP protocol messages',
+                description: 'MCP protocol response',
               },
             },
           },
@@ -1271,28 +1288,25 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
     }),
     async (c) => {
       const services = c.get('services')
-      const { mcp: mcpService } = services
-
       const taskId = getTaskId(c)
 
       try {
         // Verify task exists
         await services.task.getTask(taskId)
 
-        // Create task-scoped MCP server
-        const mcpServer = mcpService.createTaskScopedServer(taskId)
+        // Parse JSON-RPC request body
+        const requestBody = await c.req.json()
 
-        // Import StreamableHTTPTransport from @hono/mcp
-        const { StreamableHTTPTransport } = await import('@hono/mcp')
+        // Handle the request through MCP service
+        const response = await services.mcp.handleRequest(taskId, requestBody)
 
-        // Create transport and connect MCP server
-        const transport = new StreamableHTTPTransport()
-        await mcpServer.connect(transport)
-
-        // Handle the HTTP request through the transport
-        return transport.handleRequest(c)
+        return c.json(response)
       } catch (error) {
-        handleServiceError(error, 'MCP request')
+        console.error('MCP request error:', {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return handleServiceError(error, 'MCP request')
       }
     },
   )

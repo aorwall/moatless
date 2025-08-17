@@ -127,6 +127,8 @@ export const TaskResponseSchema = z.object({
   workspacePath: z.string().optional(),
   templateId: z.string().optional(),
   vibe: z.boolean().optional(), // Flag to identify tasks created from templates
+  name: z.string().optional(), // URL-friendly task name (alphanumeric and dashes only)
+  description: z.string().optional(), // One-sentence summary of the task
 })
 
 export const TaskListResponseSchema = z.object({

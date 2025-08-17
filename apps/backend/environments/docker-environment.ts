@@ -819,6 +819,16 @@ export class DockerEnvironment extends BaseEnvironment {
     })
   }
 
+  /**
+   * Construct the MCP server URL for docker environment
+   */
+  private getMcpServerUrl(taskId: string): string {
+    // Docker environment needs to use the external API URL
+    const apiUrl =
+      process.env.API_URL || process.env.WORKER_API_URL || 'http://host.docker.internal:8000'
+    return `${apiUrl}/api/v1/tasks/${taskId}/mcp`
+  }
+
   async *runAgent(
     agentType: string,
     message: string,
@@ -839,12 +849,16 @@ export class DockerEnvironment extends BaseEnvironment {
     this.currentAgent = agent
 
     try {
+      // Construct MCP server URL using API URL
+      const mcpServerUrl = this.getMcpServerUrl(this.taskId)
+
       // Prepare run options
       const runOptions = {
         workspaceDir: options?.workspaceDir || this.repositoryConfig.path,
         iterationNumber: options?.iterationNumber,
         resume: options?.resume,
         model: options?.model,
+        mcpServerUrl,
       }
 
       // Run the agent and yield all events

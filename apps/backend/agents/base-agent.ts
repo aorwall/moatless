@@ -18,6 +18,7 @@ export interface AgentRunOptions {
   resume?: string
   model?: string
   agentMode?: 'edit' | 'plan'
+  mcpServerUrl?: string
 }
 
 export abstract class BaseAgent {

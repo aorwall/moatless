@@ -53,6 +53,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         agentMode: runOptions.agentMode,
         cwd: sdkOptions.cwd,
         resume: sdkOptions.resume,
+        mcpServers: sdkOptions.mcpServers,
       })
 
       let eventCount = 0
@@ -338,7 +339,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'acceptEdits'
 
     const sdkOptions: ClaudeCodeOptions = {
-      allowedTools: ['WebFetch', 'WebSearch', 'Bash'],
+      allowedTools: ['WebFetch', 'WebSearch', 'Bash', 'mcp__moatless-tools__updateTaskMetadata'],
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
@@ -355,14 +356,19 @@ export class ClaudeCodeAgent extends BaseAgent {
       sdkOptions.resume = runOptions.resume
     }
 
-    agentLogger.info('Built SDK options successfully', {
-      model: sdkOptions.model,
-      permissionMode: sdkOptions.permissionMode,
-      agentMode: runOptions.agentMode,
-      cwd: sdkOptions.cwd,
-      hasResumeSession: !!sdkOptions.resume,
-      allowedToolsCount: sdkOptions.allowedTools?.length,
-    })
+    // Configure MCP server if URL is provided
+    if (runOptions.mcpServerUrl) {
+      sdkOptions.mcpServers = {
+        'moatless-tools': {
+          type: 'http',
+          url: runOptions.mcpServerUrl,
+          headers: {}, // Add auth headers if needed
+        },
+      }
+      agentLogger.info('MCP server configured', {
+        mcpServerUrl: runOptions.mcpServerUrl,
+      })
+    }
 
     return sdkOptions
   }

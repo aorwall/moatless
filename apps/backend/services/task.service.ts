@@ -151,6 +151,16 @@ export class TaskService {
       })
     }
 
+    // Add instruction to update task metadata as first action (only for first iteration)
+    if (iteration.iterationNumber === 1) {
+      const mcpInstruction =
+        "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish.\n\n"
+      finalMessage = mcpInstruction + finalMessage
+      agentLogger.info('Added MCP instruction for first iteration', {
+        iterationNumber: iteration.iterationNumber,
+      })
+    }
+
     try {
       // Run agent using environment's runAgent method
       const runOptions = {

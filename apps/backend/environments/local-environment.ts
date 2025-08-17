@@ -765,6 +765,15 @@ export class LocalEnvironment extends BaseEnvironment {
     return this.previewServer.proxyRequest(request)
   }
 
+  /**
+   * Construct the MCP server URL for local environment
+   */
+  private getMcpServerUrl(taskId: string): string {
+    // For local environment, use TEST_SERVER_URL if in test, or localhost with current port
+    const serverUrl = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 8000}`
+    return `${serverUrl}/api/v1/tasks/${taskId}/mcp`
+  }
+
   async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
     this.logger.info('Creating agent', { agentType, taskId: this.taskId })
 
@@ -795,6 +804,9 @@ export class LocalEnvironment extends BaseEnvironment {
     this.currentAgent = agent
 
     try {
+      // Construct MCP server URL
+      const mcpServerUrl = this.getMcpServerUrl(this.taskId)
+
       // Prepare run options
       const runOptions = {
         workspaceDir: options?.workspaceDir || this.workspacePath,
@@ -802,6 +814,7 @@ export class LocalEnvironment extends BaseEnvironment {
         resume: options?.resume,
         model: options?.model,
         agentMode: options?.agentMode,
+        mcpServerUrl,
       }
 
       // Run the agent and yield all events
@@ -809,8 +822,8 @@ export class LocalEnvironment extends BaseEnvironment {
         yield event
       }
     } finally {
-      // Clear the current agent when done
-      this.currentAgent = undefined
+      // Clean up agent
+      await this.cleanupAgent()
     }
   }
 
@@ -823,13 +836,21 @@ export class LocalEnvironment extends BaseEnvironment {
 
     try {
       await this.currentAgent.stop()
-      this.currentAgent = undefined
+      await this.cleanupAgent()
       return true
     } catch (error) {
       this.logger.error('Error stopping agent', error as Error)
-      this.currentAgent = undefined
+      await this.cleanupAgent()
       return false
     }
+  }
+
+  /**
+   * Clean up agent (simplified)
+   */
+  private async cleanupAgent(): Promise<void> {
+    // Clear the current agent
+    this.currentAgent = undefined
   }
 
   async teardown(force = false): Promise<void> {

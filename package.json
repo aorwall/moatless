@@ -97,6 +97,7 @@
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.60",
     "dockerode": "^4.0.7",
+    "fetch-to-node": "^2.1.0",
     "pino-pretty": "^13.0.0"
   },
   "workspaces": [

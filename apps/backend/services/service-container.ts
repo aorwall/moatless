@@ -3,6 +3,7 @@ import type { CommandService } from './command.service.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { GitHubService } from './github.service.js'
+import type { McpService } from './mcp.service.js'
 import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { SettingsService } from './settings.service.js'
@@ -19,6 +20,7 @@ export interface ServiceContainer {
   docker: DockerService
   event: EventService
   github: GitHubService
+  mcp: McpService
   message: MessageService
   repository: RepositoryService
   settings: SettingsService
@@ -46,6 +48,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createCommandService } = await import('./command.service.js')
   const { createDockerService } = await import('./docker.service.js')
   const { createEventService } = await import('./event.service.js')
+  const { createMcpService } = await import('./mcp.service.js')
   const { createMessageService } = await import('./message.service.js')
   const { createTaskService } = await import('./task.service.js')
   const { createWorkspaceService } = await import('./workspace.service.js')
@@ -94,7 +97,10 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.repository,
   )
 
-  // 7. Message service needs claude and task services
+  // MCP service needs task service
+  container.mcp = createMcpService(container.task)
+
+  // 8. Message service needs claude and task services
   container.message = createMessageService(container.claude, container.task)
 
   // Return fully initialized container
