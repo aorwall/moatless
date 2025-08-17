@@ -1,8 +1,9 @@
-import { exec, execSync } from 'node:child_process'
+import { exec, execSync, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type {
+  CommandExecutionEvent,
   CommandResult,
   PreviewEnvironmentMetadata,
   ProcessValidation,
@@ -229,6 +230,144 @@ export class LocalEnvironment extends BaseEnvironment {
         command,
       }
     }
+  }
+
+  async *runCommandWithStream(
+    command: string,
+    timeout = 30000,
+  ): AsyncGenerator<CommandExecutionEvent> {
+    this.logger.info('Starting streaming command execution', {
+      command,
+      workspacePath: this.workspacePath,
+      timeout,
+    })
+
+    const startTime = Date.now()
+
+    // Emit start event
+    yield {
+      type: 'start',
+      data: {
+        timestamp: new Date().toISOString(),
+        command,
+      },
+    }
+
+    // Create the shell command
+    const shellCommand =
+      process.platform === 'win32'
+        ? command
+        : `source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; ${command}`
+
+    const shell = process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh'
+
+    // Use spawn for streaming output
+    const child = spawn(shell, ['-c', shellCommand], {
+      cwd: this.workspacePath,
+      env: { ...process.env, ...this.repositoryConfig.codeExecution.envVars },
+      timeout,
+    })
+
+    let outputBuffer = ''
+    let errorBuffer = ''
+    let timedOut = false
+
+    // Set up timeout
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGTERM')
+    }, timeout)
+
+    // Set up arrays to collect stderr chunks
+    const stderrChunks: Array<{ text: string; timestamp: string }> = []
+
+    // Collect stderr
+    if (child.stderr) {
+      child.stderr.on('data', (chunk) => {
+        const text = chunk.toString()
+        errorBuffer += text
+        stderrChunks.push({
+          text,
+          timestamp: new Date().toISOString(),
+        })
+      })
+    }
+
+    // Stream stdout and periodically check for stderr
+    if (child.stdout) {
+      for await (const chunk of child.stdout) {
+        const text = chunk.toString()
+        outputBuffer += text
+
+        // Yield stdout
+        yield {
+          type: 'output',
+          data: {
+            timestamp: new Date().toISOString(),
+            text,
+            outputType: 'stdout',
+          },
+        }
+
+        // Yield any accumulated stderr
+        while (stderrChunks.length > 0) {
+          const stderrChunk = stderrChunks.shift()!
+          yield {
+            type: 'output',
+            data: {
+              timestamp: stderrChunk.timestamp,
+              text: stderrChunk.text,
+              outputType: 'stderr',
+            },
+          }
+        }
+      }
+    }
+
+    // Wait for process to exit
+    const exitCode = await new Promise<number>((resolve) => {
+      child.on('exit', (code) => {
+        clearTimeout(timeoutHandle)
+        resolve(code || 0)
+      })
+      child.on('error', (error) => {
+        clearTimeout(timeoutHandle)
+        this.logger.error('Command execution error', error)
+        resolve(1)
+      })
+    })
+
+    // Yield any remaining stderr
+    while (stderrChunks.length > 0) {
+      const stderrChunk = stderrChunks.shift()!
+      yield {
+        type: 'output',
+        data: {
+          timestamp: stderrChunk.timestamp,
+          text: stderrChunk.text,
+          outputType: 'stderr',
+        },
+      }
+    }
+
+    const duration = Date.now() - startTime
+
+    // Emit complete event
+    yield {
+      type: 'complete',
+      data: {
+        timestamp: new Date().toISOString(),
+        exitCode: timedOut ? 124 : exitCode, // 124 is standard timeout exit code
+        duration,
+      },
+    }
+
+    this.logger.info('Streaming command execution completed', {
+      command,
+      exitCode,
+      duration,
+      timedOut,
+    })
   }
 
   async startServer(): Promise<ServerStatus> {

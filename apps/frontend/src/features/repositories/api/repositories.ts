@@ -1,5 +1,6 @@
 import type {
   BranchListResponse,
+  CommandExecutionOptions,
   CreateRepositoryRequest,
   FileSearchRequest,
   FileSearchResponse,
@@ -53,5 +54,17 @@ export const repositoriesApi = {
 
   async verifyRepository(repoId: string): Promise<VerificationResponse> {
     return await apiClient.post<VerificationResponse>(`/api/v1/repositories/${repoId}/verify`)
+  },
+
+  async executeCommands(repoId: string, options: CommandExecutionOptions): Promise<Response> {
+    // For SSE, we need to handle the request differently - return the raw response
+    // The hook will handle creating the EventSource connection
+    return await fetch(`/api/v1/repositories/${repoId}/execute-commands`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options),
+    })
   },
 }

@@ -1,5 +1,6 @@
 import {
   CloseTaskResponseSchema,
+  CommandExecutionOptionsSchema,
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
@@ -759,6 +760,74 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       return c.json({
         status: 'closed',
         taskId,
+      })
+    },
+  )
+
+  // Execute commands in task workspace with streaming output
+  app.post(
+    `${prefix}/:taskId/execute-commands`,
+    describeRoute({
+      description: 'Execute commands in a task workspace with streaming output',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Command execution options',
+        content: {
+          'application/json': {
+            schema: resolver(CommandExecutionOptionsSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'SSE stream of command execution events',
+          content: {
+            'text/event-stream': {
+              schema: {
+                type: 'string',
+                description: 'Server-sent events stream',
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { workspace: workspaceService } = services
+
+      const taskId = getTaskId(c)
+
+      const body = await c.req.json()
+      const options = CommandExecutionOptionsSchema.parse(body)
+
+      // Import SSE utility
+      const { createSSEStream } = await import('../utils/sse-stream.js')
+
+      // Create SSE stream from command execution generator
+      const generator = workspaceService.executeCommandsInTaskWorkspace(taskId, options)
+
+      return createSSEStream(generator, {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'X-Task-Id': taskId,
+        },
       })
     },
   )

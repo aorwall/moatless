@@ -98,6 +98,35 @@ class TestEnvironment extends BaseEnvironment {
     }
   }
 
+  async *runCommandWithStream(
+    _command: string,
+    _timeout?: number,
+  ): AsyncGenerator<import('@moatless/types').CommandExecutionEvent> {
+    yield {
+      type: 'start',
+      data: {
+        timestamp: new Date().toISOString(),
+        command: _command,
+      },
+    }
+    yield {
+      type: 'output',
+      data: {
+        timestamp: new Date().toISOString(),
+        text: 'Test output',
+        outputType: 'stdout',
+      },
+    }
+    yield {
+      type: 'complete',
+      data: {
+        timestamp: new Date().toISOString(),
+        exitCode: 0,
+        duration: 100,
+      },
+    }
+  }
+
   async setup(_iterationNumber?: number): Promise<void> {
     this._status = 'ready'
   }

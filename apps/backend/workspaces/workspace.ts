@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
+  CommandExecutionEvent,
+  CommandExecutionOptions,
   CommandResult,
   EnvironmentStatus,
   FileTreeNode,
@@ -237,6 +239,116 @@ export class Workspace {
 
   async runCommand(command: string, timeout?: number): Promise<CommandResult> {
     return this.environment.runCommand(command, timeout)
+  }
+
+  async *executeCommandsWithStream(
+    options: CommandExecutionOptions,
+  ): AsyncGenerator<CommandExecutionEvent> {
+    const startTime = Date.now()
+    let successCount = 0
+    let failedCount = 0
+
+    // Emit execution start event
+    yield {
+      type: 'start',
+      data: {
+        timestamp: new Date().toISOString(),
+        total: options.commands.length,
+        purpose: options.purpose,
+      },
+    }
+
+    for (let i = 0; i < options.commands.length; i++) {
+      const command = options.commands[i]
+      const commandStartTime = Date.now()
+
+      // Emit command start event
+      yield {
+        type: 'start',
+        data: {
+          timestamp: new Date().toISOString(),
+          commandIndex: i,
+          command,
+        },
+      }
+
+      try {
+        // Execute command with streaming
+        for await (const event of this.environment.runCommandWithStream(command, options.timeout)) {
+          // Forward output events with command index
+          if (event.type === 'output') {
+            yield {
+              type: 'output',
+              data: {
+                ...event.data,
+                commandIndex: i,
+              },
+            }
+          }
+          // Handle command complete event
+          else if (event.type === 'complete') {
+            const exitCode = event.data.exitCode || 0
+            const duration = Date.now() - commandStartTime
+
+            if (exitCode === 0) {
+              successCount++
+            } else {
+              failedCount++
+            }
+
+            // Emit command complete event
+            yield {
+              type: 'complete',
+              data: {
+                timestamp: new Date().toISOString(),
+                commandIndex: i,
+                exitCode,
+                duration,
+              },
+            }
+
+            // If command failed and continueOnError is false, stop execution
+            if (exitCode !== 0 && !options.continueOnError) {
+              break
+            }
+          }
+        }
+      } catch (error) {
+        failedCount++
+        const errorMessage = error instanceof Error ? error.message : String(error)
+
+        // Emit error event
+        yield {
+          type: 'error',
+          data: {
+            timestamp: new Date().toISOString(),
+            commandIndex: i,
+            error: errorMessage,
+          },
+        }
+
+        // If continueOnError is false, stop execution
+        if (!options.continueOnError) {
+          break
+        }
+      }
+    }
+
+    const totalDuration = Date.now() - startTime
+
+    // Emit done event with summary
+    yield {
+      type: 'done',
+      data: {
+        timestamp: new Date().toISOString(),
+        summary: {
+          total: options.commands.length,
+          succeeded: successCount,
+          failed: failedCount,
+          totalDuration,
+        },
+      },
+    }
   }
 
   isRunning(): boolean {

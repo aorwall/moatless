@@ -1,6 +1,7 @@
 import type { RepositoryList } from '@moatless/types'
 import {
   BranchListResponseSchema,
+  CommandExecutionOptionsSchema,
   CreateRepositorySchema,
   FileSearchSchema,
   PreviewConfigResponseSchema,
@@ -438,6 +439,77 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
 
       const previewConfig = await repositoryService.detectFramework(repository.path)
       return c.json({ previewConfig })
+    },
+  )
+
+  // Execute commands in repository with streaming output
+  app.post(
+    `${prefix}/:repositoryId/execute-commands`,
+    describeRoute({
+      description: 'Execute commands in a repository workspace with streaming output',
+      parameters: [
+        {
+          name: 'repositoryId',
+          in: 'path',
+          required: true,
+          description: 'Repository ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      requestBody: {
+        description: 'Command execution options',
+        content: {
+          'application/json': {
+            schema: resolver(CommandExecutionOptionsSchema) as any,
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'SSE stream of command execution events',
+          content: {
+            'text/event-stream': {
+              schema: {
+                type: 'string',
+                description: 'Server-sent events stream',
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Repository not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const { repository: repositoryService } = services
+
+      const repositoryId = c.req.param('repositoryId')
+      if (!repositoryId) {
+        throw new HTTPException(400, { message: 'Repository ID is required' })
+      }
+
+      const body = await c.req.json()
+      const options = CommandExecutionOptionsSchema.parse(body)
+
+      // Import SSE utility
+      const { createSSEStream } = await import('../utils/sse-stream.js')
+
+      // Create SSE stream from command execution generator
+      const generator = repositoryService.executeCommands(repositoryId, options)
+
+      return createSSEStream(generator, {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'X-Repository-Id': repositoryId,
+        },
+      })
     },
   )
 

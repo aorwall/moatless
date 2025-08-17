@@ -1,8 +1,13 @@
-import { exec } from 'node:child_process'
+import { exec, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type {
+  CommandExecutionEvent,
+  CommandResult,
+  RepositoryConfig,
+  ServerStatus,
+} from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
@@ -437,6 +442,152 @@ export class DockerEnvironment extends BaseEnvironment {
         command,
       }
     }
+  }
+
+  async *runCommandWithStream(
+    command: string,
+    timeout = 30000,
+  ): AsyncGenerator<CommandExecutionEvent> {
+    // Ensure container is ready before executing command
+    await this.ensureReady()
+
+    const containerName = this.getContainerName()
+    const startTime = Date.now()
+
+    this.logger.info('Starting streaming command execution in Docker', {
+      command,
+      containerName,
+      timeout,
+    })
+
+    // Emit start event
+    yield {
+      type: 'start',
+      data: {
+        timestamp: new Date().toISOString(),
+        command,
+      },
+    }
+
+    // Build docker exec command with proper escaping
+    const escapedCommand = command.replace(/"/g, '\\"')
+    const dockerCommand = [
+      'docker',
+      'exec',
+      '-i', // Interactive mode for streaming
+      containerName,
+      'bash',
+      '-c',
+      `cd "${this.workspacePath}" && ${escapedCommand}`,
+    ]
+
+    // Use spawn for streaming output
+    const child = spawn(dockerCommand[0], dockerCommand.slice(1), {
+      timeout,
+      env: process.env,
+    })
+
+    let outputBuffer = ''
+    let errorBuffer = ''
+    let timedOut = false
+
+    // Set up timeout
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGTERM')
+    }, timeout)
+
+    // Set up arrays to collect stderr chunks
+    const stderrChunks: Array<{ text: string; timestamp: string }> = []
+
+    // Collect stderr
+    if (child.stderr) {
+      child.stderr.on('data', (chunk) => {
+        const text = chunk.toString()
+        errorBuffer += text
+        stderrChunks.push({
+          text,
+          timestamp: new Date().toISOString(),
+        })
+      })
+    }
+
+    // Stream stdout and periodically check for stderr
+    if (child.stdout) {
+      for await (const chunk of child.stdout) {
+        const text = chunk.toString()
+        outputBuffer += text
+
+        // Yield stdout
+        yield {
+          type: 'output',
+          data: {
+            timestamp: new Date().toISOString(),
+            text,
+            outputType: 'stdout',
+          },
+        }
+
+        // Yield any accumulated stderr
+        while (stderrChunks.length > 0) {
+          const stderrChunk = stderrChunks.shift()!
+          yield {
+            type: 'output',
+            data: {
+              timestamp: stderrChunk.timestamp,
+              text: stderrChunk.text,
+              outputType: 'stderr',
+            },
+          }
+        }
+      }
+    }
+
+    // Wait for process to exit
+    const exitCode = await new Promise<number>((resolve) => {
+      child.on('exit', (code) => {
+        clearTimeout(timeoutHandle)
+        resolve(code || 0)
+      })
+      child.on('error', (error) => {
+        clearTimeout(timeoutHandle)
+        this.logger.error('Docker exec error', error)
+        resolve(1)
+      })
+    })
+
+    // Yield any remaining stderr
+    while (stderrChunks.length > 0) {
+      const stderrChunk = stderrChunks.shift()!
+      yield {
+        type: 'output',
+        data: {
+          timestamp: stderrChunk.timestamp,
+          text: stderrChunk.text,
+          outputType: 'stderr',
+        },
+      }
+    }
+
+    const duration = Date.now() - startTime
+
+    // Emit complete event
+    yield {
+      type: 'complete',
+      data: {
+        timestamp: new Date().toISOString(),
+        exitCode: timedOut ? 124 : exitCode, // 124 is standard timeout exit code
+        duration,
+      },
+    }
+
+    this.logger.info('Docker streaming command execution completed', {
+      command,
+      containerName,
+      exitCode,
+      duration,
+      timedOut,
+    })
   }
 
   async startServer(): Promise<ServerStatus> {

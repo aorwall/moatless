@@ -2,11 +2,11 @@ import type { UpdateRepositoryRequest } from '@moatless/types'
 import { ChevronDown, Loader2, Play, Save, Trash2, Wand2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { CommandExecutionDialog } from '@/features/repositories/components/command-execution-dialog'
 import { useDetectFramework } from '@/features/repositories/hooks/use-detect-framework'
 import {
   useDeleteRepository,
   useRepository,
-  useRunSetupScript,
   useUpdateRepository,
 } from '@/features/repositories/hooks/use-repositories'
 import {
@@ -156,10 +156,10 @@ export function RepositoryConfigEditSection({
 }: RepositoryConfigEditSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
   const detectFramework = useDetectFramework(repositoryId)
-  const runSetupScript = useRunSetupScript()
   const updateRepository = useUpdateRepository()
   const deleteRepository = useDeleteRepository()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showCommandDialog, setShowCommandDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern
   const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(
@@ -198,10 +198,24 @@ export function RepositoryConfigEditSection({
   }
 
   const handleValidateExecution = () => {
-    runSetupScript.mutate(repositoryId, {
-      onSuccess: () => toast.success('Setup script validation completed'),
-      onError: (error) => toast.error(getErrorMessage(error)),
-    })
+    if (!repository || !formData.codeExecution?.setupCommands) return
+
+    const commands = formData.codeExecution.setupCommands
+
+    if (commands.length === 0) {
+      toast.error('No setup commands to validate')
+      return
+    }
+
+    setShowCommandDialog(true)
+  }
+
+  const handleCommandExecutionComplete = (success: boolean) => {
+    if (success) {
+      toast.success('Setup validation completed successfully')
+    } else {
+      toast.error('Setup validation failed - check the output for errors')
+    }
   }
 
   const handleSave = () => {
@@ -375,10 +389,10 @@ export function RepositoryConfigEditSection({
               size="sm"
               variant="outline"
               onClick={handleValidateExecution}
-              disabled={runSetupScript.isPending}
+              disabled={!formData.codeExecution?.setupCommands?.length}
             >
               <Play className="mr-2 h-4 w-4" />
-              {runSetupScript.isPending ? 'Validating...' : 'Validate'}
+              Validate
             </Button>
           </div>
         </ConfigurationItem>
@@ -583,6 +597,19 @@ export function RepositoryConfigEditSection({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Command Execution Dialog */}
+      {formData.codeExecution?.setupCommands && (
+        <CommandExecutionDialog
+          repositoryId={repositoryId}
+          commands={formData.codeExecution.setupCommands}
+          title="Validating Setup Commands"
+          description="Running your setup commands in the repository workspace to verify they work correctly."
+          open={showCommandDialog}
+          onOpenChange={setShowCommandDialog}
+          onComplete={handleCommandExecutionComplete}
+        />
+      )}
     </ConfigurationSection>
   )
 }

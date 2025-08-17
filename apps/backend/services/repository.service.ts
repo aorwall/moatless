@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
+  CommandExecutionEvent,
+  CommandExecutionOptions,
   FileSearchResponse,
   SetupScriptResponse,
   WorkspaceStatusResponse,
@@ -936,6 +938,37 @@ export class RepositoryService {
   /**
    * Verify repository setup by creating a temporary workspace and running setup commands
    */
+  /**
+   * Execute commands in a repository workspace with streaming output
+   */
+  async *executeCommands(
+    repoId: string,
+    options: CommandExecutionOptions,
+  ): AsyncGenerator<CommandExecutionEvent> {
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
+    }
+
+    if (!this.workspaceService) {
+      throw new Error('WorkspaceService not available for command execution')
+    }
+
+    logger.info('Executing commands in repository', {
+      repositoryId: repoId,
+      purpose: options.purpose,
+      commandCount: options.commands.length,
+    })
+
+    // Use workspace service to execute commands in a temporary workspace
+    for await (const event of this.workspaceService.executeCommandsInTemporaryWorkspace(
+      repoId,
+      options,
+    )) {
+      yield event
+    }
+  }
+
   async verifyRepositorySetup(repoId: string): Promise<WorkspaceStatusResponse> {
     const VERIFICATION_TIMEOUT_MS = 180000 // 3 minutes
     const POLL_INTERVAL_MS = 2000 // 2 seconds

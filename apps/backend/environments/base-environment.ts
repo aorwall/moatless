@@ -131,6 +131,14 @@ export abstract class BaseEnvironment {
   abstract runCommand(command: string, timeout?: number): Promise<CommandResult>
 
   /**
+   * Run a command with streaming output
+   */
+  abstract runCommandWithStream(
+    command: string,
+    timeout?: number,
+  ): AsyncGenerator<import('@moatless/types').CommandExecutionEvent>
+
+  /**
    * Check if an agent is currently running in this workspace
    */
   isRunning(): boolean {

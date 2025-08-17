@@ -1,6 +1,12 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { RepositoryConfig, ServerStatus, WorkspaceStatusResponse } from '@moatless/types'
+import type {
+  CommandExecutionEvent,
+  CommandExecutionOptions,
+  RepositoryConfig,
+  ServerStatus,
+  WorkspaceStatusResponse,
+} from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
@@ -816,6 +822,109 @@ export class WorkspaceService {
     }
 
     throw new Error(`Server did not become ready within ${timeout}ms`)
+  }
+
+  /**
+   * Execute commands in a temporary workspace for repository verification
+   */
+  async *executeCommandsInTemporaryWorkspace(
+    repositoryId: string,
+    options: CommandExecutionOptions,
+  ): AsyncGenerator<CommandExecutionEvent> {
+    const workspaceLogger = logger.child({ repositoryId, purpose: options.purpose })
+
+    // Generate temporary task ID
+    const timestamp = Date.now()
+    const tempTaskId = `${options.purpose || 'execute'}-${repositoryId}-${timestamp}`
+
+    workspaceLogger.info('Creating temporary workspace for command execution', {
+      tempTaskId,
+      commandCount: options.commands.length,
+    })
+
+    let workspace: Workspace | undefined
+
+    try {
+      // Create temporary workspace
+      workspace = await this.createWorkspace(tempTaskId, repositoryId)
+
+      // Setup the workspace
+      await workspace.setup()
+
+      workspaceLogger.info('Temporary workspace ready, executing commands', {
+        workspacePath: workspace.getWorkspacePath(),
+      })
+
+      // Execute commands with streaming
+      for await (const event of workspace.executeCommandsWithStream(options)) {
+        yield event
+      }
+    } catch (error) {
+      workspaceLogger.error('Failed to execute commands in temporary workspace', error as Error)
+
+      // Emit error event
+      yield {
+        type: 'error',
+        data: {
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }
+    } finally {
+      // Always cleanup temporary workspace
+      if (workspace) {
+        try {
+          await workspace.teardown(true) // Force cleanup
+          this.activeWorkspaces.delete(tempTaskId)
+          workspaceLogger.info('Temporary workspace cleaned up', { tempTaskId })
+        } catch (cleanupError) {
+          workspaceLogger.error('Failed to cleanup temporary workspace', cleanupError as Error)
+        }
+      }
+    }
+  }
+
+  /**
+   * Execute commands in an existing task workspace
+   */
+  async *executeCommandsInTaskWorkspace(
+    taskId: string,
+    options: CommandExecutionOptions,
+  ): AsyncGenerator<CommandExecutionEvent> {
+    const workspaceLogger = logger.child({ taskId, purpose: options.purpose })
+
+    workspaceLogger.info('Executing commands in task workspace', {
+      commandCount: options.commands.length,
+    })
+
+    try {
+      // Get or create the workspace
+      const workspace = await this.getOrCreateWorkspace(taskId)
+
+      // Ensure workspace is ready
+      const environment = workspace.getEnvironment()
+      await environment.ensureReady()
+
+      workspaceLogger.info('Task workspace ready, executing commands', {
+        workspacePath: workspace.getWorkspacePath(),
+      })
+
+      // Execute commands with streaming
+      for await (const event of workspace.executeCommandsWithStream(options)) {
+        yield event
+      }
+    } catch (error) {
+      workspaceLogger.error('Failed to execute commands in task workspace', error as Error)
+
+      // Emit error event
+      yield {
+        type: 'error',
+        data: {
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }
+    }
   }
 
   async gracefulShutdown(): Promise<void> {
