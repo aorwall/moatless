@@ -39,12 +39,13 @@ const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
 
 interface TaskUIProviderProps {
   taskId: string
+  vibe?: boolean
   children: ReactNode
 }
 
-function getDefaultTaskUIState(): TaskUIState {
+function getDefaultTaskUIState(vibe?: boolean): TaskUIState {
   return {
-    rightPanelView: 'files',
+    rightPanelView: vibe ? 'preview' : 'files',
     selectedIteration: undefined,
     panelSizes: {
       left: 60,
@@ -62,14 +63,14 @@ function getDefaultTaskUIState(): TaskUIState {
  * TaskUIProvider manages pure UI state with complete task isolation.
  * Each task has its own UI state that persists when switching between tasks.
  */
-export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
+export function TaskUIProvider({ taskId, vibe, children }: TaskUIProviderProps) {
   // Map of taskId -> TaskUIState for complete isolation
   const [taskStates, setTaskStates] = useState<Map<string, TaskUIState>>(new Map())
 
   // Get current task's state or default - memoize to prevent changes on every render
   const currentState = useMemo(
-    () => taskStates.get(taskId) || getDefaultTaskUIState(),
-    [taskStates, taskId],
+    () => taskStates.get(taskId) || getDefaultTaskUIState(vibe),
+    [taskStates, taskId, vibe],
   )
 
   // All actions are automatically scoped to current task using useCallback
@@ -77,60 +78,60 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     (view: PanelView) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
         newMap.set(taskId, { ...state, rightPanelView: view })
         return newMap
       })
     },
-    [taskId],
+    [taskId, vibe],
   )
 
   const setSelectedIteration = useCallback(
     (iteration?: TaskIteration) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
         newMap.set(taskId, { ...state, selectedIteration: iteration })
         return newMap
       })
     },
-    [taskId],
+    [taskId, vibe],
   )
 
   const setPanelSizes = useCallback(
     (sizes: { left: number; right: number }) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
         newMap.set(taskId, { ...state, panelSizes: sizes })
         return newMap
       })
     },
-    [taskId],
+    [taskId, vibe],
   )
 
   const setSelectedFile = useCallback(
     (file: string) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
         newMap.set(taskId, { ...state, selectedFile: file })
         return newMap
       })
     },
-    [taskId],
+    [taskId, vibe],
   )
 
   const updateGitDiffState = useCallback(
     (updates: Partial<GitDiffState>) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
         newMap.set(taskId, { ...state, gitDiffState: { ...state.gitDiffState, ...updates } })
         return newMap
       })
     },
-    [taskId],
+    [taskId, vibe],
   )
 
   // Context value is stable with memoized callbacks

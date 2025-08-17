@@ -8,7 +8,6 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/comp
 import { usePanelView, useTaskData } from '../contexts/task-providers'
 import { ChatView } from './chat-view/chat-view'
 import { TaskLeftHeader } from './task-header/task-left-header'
-import { TaskRightHeader } from './task-header/task-right-header'
 import { TaskDetailSkeleton } from './task-skeletons'
 
 function TaskPageComponent() {
@@ -44,18 +43,15 @@ function TaskPageComponent() {
 
         <ResizableHandle withHandle />
 
-        {/* Right Panel - Files/Preview with Header */}
+        {/* Right Panel - Files/Preview */}
         <ResizablePanel className="flex flex-col">
-          <TaskRightHeader />
-          <div className="flex-1 overflow-hidden">
-            <ErrorBoundary componentName={rightPanelView === 'files' ? 'File Explorer' : 'Preview'}>
-              {rightPanelView === 'files' ? (
-                <FileExplorer taskId={taskId} />
-              ) : (
-                <Preview config={{ url: serverStatus?.url || '' }} serverStatus={serverStatus} />
-              )}
-            </ErrorBoundary>
-          </div>
+          <ErrorBoundary componentName={rightPanelView === 'files' ? 'File Explorer' : 'Preview'}>
+            {rightPanelView === 'files' ? (
+              <FileExplorer taskId={taskId} />
+            ) : (
+              <Preview config={{ url: serverStatus?.url || '' }} serverStatus={serverStatus} />
+            )}
+          </ErrorBoundary>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

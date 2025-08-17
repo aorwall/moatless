@@ -1,10 +1,22 @@
 import type { ReactNode } from 'react'
-import { TaskDataProvider } from './task-data-provider'
+import { TaskDataProvider, useTaskData } from './task-data-provider'
 import { TaskUIProvider } from './task-ui-provider'
 
 interface TaskProvidersProps {
   taskId: string
   children: ReactNode
+}
+
+/**
+ * Internal component that has access to task data and can pass vibe to TaskUIProvider
+ */
+function TaskProvidersInternal({ taskId, children }: { taskId: string; children: ReactNode }) {
+  const { vibe } = useTaskData()
+  return (
+    <TaskUIProvider taskId={taskId} vibe={vibe}>
+      {children}
+    </TaskUIProvider>
+  )
 }
 
 /**
@@ -14,9 +26,9 @@ interface TaskProvidersProps {
  */
 export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
-    <TaskUIProvider taskId={taskId}>
-      <TaskDataProvider taskId={taskId}>{children}</TaskDataProvider>
-    </TaskUIProvider>
+    <TaskDataProvider taskId={taskId}>
+      <TaskProvidersInternal taskId={taskId}>{children}</TaskProvidersInternal>
+    </TaskDataProvider>
   )
 }
 
