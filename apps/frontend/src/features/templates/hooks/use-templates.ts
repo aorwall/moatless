@@ -22,9 +22,6 @@ const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
     previewConfig: {
       serverStartCommand: 'bun run dev',
       serverPort: 3000,
-      injectionStrategy: {
-        method: 'html-injection',
-      },
     },
   },
 ]

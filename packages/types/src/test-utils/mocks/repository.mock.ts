@@ -52,13 +52,8 @@ export function createMockDockerCodeExecution(overrides?: Partial<CodeExecution>
 
 export function createMockPreviewConfig(overrides?: Partial<PreviewConfig>): PreviewConfig {
   return {
-    framework: 'vite',
-    frameworkVersion: '^5.0.0',
     serverStartCommand: 'npm run dev',
-    injectionStrategy: {
-      method: 'html-injection',
-      config: {},
-    },
+    takeScreenshots: false,
     ...overrides,
   }
 }

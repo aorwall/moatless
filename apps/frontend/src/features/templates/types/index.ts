@@ -7,9 +7,6 @@ export interface RepositoryTemplate {
   previewConfig?: {
     serverStartCommand?: string
     serverPort?: number
-    injectionStrategy?: {
-      method: string
-    }
   }
 }
 

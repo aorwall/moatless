@@ -348,8 +348,8 @@ export class TaskService {
     // Capture git data when iteration completes
     await this.captureGitDataForIteration(task.taskId, iteration)
 
-    // Capture preview screenshot if server is configured (non-blocking)
-    this.capturePreviewScreenshotAsync(task.taskId, iteration).catch((error) => {
+    // Capture preview screenshot if server is configured and takeScreenshots is enabled (non-blocking)
+    this.capturePreviewScreenshotIfEnabled(task.taskId, iteration).catch((error) => {
       taskLogger.warn('Failed to capture preview screenshot', {
         error: error instanceof Error ? error.message : String(error),
         iterationNumber: iteration.iterationNumber,
@@ -534,6 +534,47 @@ export class TaskService {
       }
     } catch (error) {
       taskLogger.error('Failed to capture preview screenshot', error as Error)
+      // Don't rethrow - this is non-blocking
+    }
+  }
+
+  /**
+   * Capture preview screenshot if enabled in repository configuration (non-blocking)
+   */
+  private async capturePreviewScreenshotIfEnabled(
+    taskId: string,
+    iteration: TaskIteration,
+  ): Promise<void> {
+    const taskLogger = logger.child({
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
+    try {
+      // Get the task to access repository ID
+      const task = await this.storage.getTask(taskId)
+      if (!task) {
+        taskLogger.warn('Task not found when checking screenshot setting')
+        return
+      }
+
+      // Get the repository configuration
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        taskLogger.warn('Repository not found when checking screenshot setting')
+        return
+      }
+
+      // Check if screenshots are enabled in the repository configuration
+      if (!repository.previewConfig?.takeScreenshots) {
+        taskLogger.debug('Screenshots disabled for repository, skipping capture')
+        return
+      }
+
+      // Screenshots are enabled, proceed with capture
+      await this.capturePreviewScreenshotAsync(taskId, iteration)
+    } catch (error) {
+      taskLogger.error('Failed to check screenshot setting or capture screenshot', error as Error)
       // Don't rethrow - this is non-blocking
     }
   }

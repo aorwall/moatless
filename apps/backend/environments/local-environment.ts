@@ -388,7 +388,6 @@ export class LocalEnvironment extends BaseEnvironment {
 
     this.logger.info('Starting preview server', {
       command: serverCommand,
-      framework: this.repositoryConfig.previewConfig?.framework,
       workspacePath: this.workspacePath,
     })
 

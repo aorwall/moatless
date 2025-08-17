@@ -10,9 +10,6 @@ import type {
 } from '@moatless/types'
 import {
   type CreateRepositoryRequest,
-  FRAMEWORK_DEFAULT_COMMANDS,
-  PACKAGE_MANAGER_FILES,
-  type PreviewConfig,
   type RepositoryConfig,
   RepositoryNotFoundError,
   RepositoryTemplate,
@@ -41,9 +38,7 @@ export class RepositoryService {
       'bun install',
       {
         serverStartCommand: 'bun run dev',
-        injectionStrategy: {
-          method: 'html-injection',
-        },
+        takeScreenshots: true,
       },
     ),
   ]
@@ -189,8 +184,12 @@ export class RepositoryService {
           (template.setupCommand ? [template.setupCommand] : undefined),
       }
 
-      // Use template preview config if not provided
-      previewConfig = request.previewConfig || template.previewConfig
+      // Use template preview config if not provided, with takeScreenshots enabled by default
+      previewConfig = {
+        ...template.previewConfig,
+        takeScreenshots: true, // Enable screenshots by default for template-based repositories
+        ...request.previewConfig, // Allow user override if explicitly provided
+      }
     }
 
     const repository: RepositoryConfig = {
@@ -687,21 +686,6 @@ export class RepositoryService {
   }
 
   /**
-   * Detect the package manager from lock files
-   */
-  private async detectPackageManager(repoPath: string): Promise<string> {
-    for (const { file, manager } of PACKAGE_MANAGER_FILES) {
-      try {
-        await fs.access(path.join(repoPath, file))
-        return manager
-      } catch {
-        // File doesn't exist, continue
-      }
-    }
-    return 'npm' // Default fallback
-  }
-
-  /**
    * Fork from template preserving git history and removing remote origin
    */
   private async forkFromTemplate(src: string, dest: string, templateName: string): Promise<void> {
@@ -750,140 +734,6 @@ export class RepositoryService {
     } catch {
       // No .git directory found at this level, continue
     }
-  }
-
-  /**
-   * Detect the framework type and version from a local repository path
-   */
-  async detectFramework(repoPath: string): Promise<Partial<PreviewConfig>> {
-    const packageJsonPath = path.join(repoPath, 'package.json')
-
-    try {
-      // Detect package manager and read package.json
-      const packageManager = await this.detectPackageManager(repoPath)
-      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'))
-      const deps = { ...packageJson.dependencies, ...packageJson.devDependencies }
-      const scripts = packageJson.scripts || {}
-
-      // Helper to get default command with detected package manager
-      const getDefaultCommand = (framework: keyof typeof FRAMEWORK_DEFAULT_COMMANDS): string => {
-        return FRAMEWORK_DEFAULT_COMMANDS[framework].replace('npm', packageManager)
-      }
-
-      // Detect framework based on dependencies
-      if (deps.vite) {
-        const serverCommand =
-          this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('vite')
-        return {
-          framework: 'vite',
-          frameworkVersion: deps.vite,
-          serverStartCommand: serverCommand,
-          injectionStrategy: {
-            method: 'html-injection',
-            config: {
-              indexPath: 'index.html',
-              insertLocation: 'head',
-            },
-          },
-        }
-      }
-
-      if (deps.next) {
-        const serverCommand =
-          this.detectServerCommand(scripts, ['dev', 'start']) || getDefaultCommand('nextjs')
-        return {
-          framework: 'nextjs',
-          frameworkVersion: deps.next,
-          serverStartCommand: serverCommand,
-          injectionStrategy: {
-            method: 'middleware',
-            config: {
-              middleware: 'api',
-            },
-          },
-        }
-      }
-
-      if (deps['react-scripts']) {
-        const serverCommand =
-          this.detectServerCommand(scripts, ['start', 'dev']) || getDefaultCommand('cra')
-        return {
-          framework: 'cra',
-          frameworkVersion: deps['react-scripts'],
-          serverStartCommand: serverCommand,
-          injectionStrategy: {
-            method: 'html-injection',
-            config: {
-              indexPath: 'public/index.html',
-              insertLocation: 'head',
-            },
-          },
-        }
-      }
-
-      if (deps.webpack) {
-        const serverCommand =
-          this.detectServerCommand(scripts, ['dev', 'start', 'serve']) ||
-          getDefaultCommand('webpack')
-        return {
-          framework: 'webpack',
-          frameworkVersion: deps.webpack,
-          serverStartCommand: serverCommand,
-          injectionStrategy: {
-            method: 'html-injection',
-            config: {},
-          },
-        }
-      }
-
-      // Unknown framework, try to detect start command
-      const serverCommand =
-        this.detectServerCommand(scripts, ['dev', 'start', 'serve']) || getDefaultCommand('unknown')
-      return {
-        framework: 'unknown',
-        serverStartCommand: serverCommand,
-        injectionStrategy: {
-          method: 'html-injection',
-          config: {},
-        },
-      }
-    } catch (error) {
-      logger.debug('Failed to detect framework', { repoPath, error })
-      // Try to detect package manager even if package.json parsing failed
-      const packageManager = await this.detectPackageManager(repoPath).catch(() => 'npm')
-      return {
-        framework: 'unknown',
-        serverStartCommand: FRAMEWORK_DEFAULT_COMMANDS.unknown.replace('npm', packageManager),
-        injectionStrategy: {
-          method: 'html-injection',
-          config: {},
-        },
-      }
-    }
-  }
-
-  /**
-   * Detect the server start command from package.json scripts
-   */
-  private detectServerCommand(
-    scripts: Record<string, string>,
-    preferredCommands: string[],
-  ): string | undefined {
-    // Check preferred commands in order
-    for (const cmd of preferredCommands) {
-      if (scripts[cmd]) {
-        return `npm run ${cmd}`
-      }
-    }
-
-    // Look for any script containing 'dev' or 'start'
-    for (const [scriptName, _scriptValue] of Object.entries(scripts)) {
-      if (scriptName.includes('dev') || scriptName.includes('start')) {
-        return `npm run ${scriptName}`
-      }
-    }
-
-    return undefined
   }
 
   /**

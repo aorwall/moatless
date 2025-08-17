@@ -46,8 +46,8 @@ describe('useRepositories hooks', () => {
       type: 'local' as const,
     },
     previewConfig: {
-      framework: 'vite',
       serverStartCommand: 'npm run dev',
+      takeScreenshots: false,
     },
     createdAt: new Date(),
     updatedAt: new Date(),

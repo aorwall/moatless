@@ -46,7 +46,6 @@ export {
   RepositoryResponse,
   RepositoryTemplate,
   RepositoryVariable,
-  type ScriptInjectionStrategy,
   SetupScriptCommand,
   SetupScriptResponse,
   type UpdateRepositoryRequest,

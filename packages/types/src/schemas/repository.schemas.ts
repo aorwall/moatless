@@ -12,18 +12,10 @@ const repositoryNameSchema = z
     'Repository name must be URL-safe (letters, numbers, dots, hyphens, underscores) or in GitHub format (owner/repo). Cannot start or end with special characters.',
   )
 
-// Script injection strategy schema
-export const ScriptInjectionStrategySchema = z.object({
-  method: z.enum(['html-injection', 'middleware', 'build-plugin', 'proxy', 'none']),
-  config: z.record(z.string(), z.any()).optional(),
-})
-
 // Preview repository configuration
 export const PreviewConfigSchema = z.object({
-  framework: z.enum(['vite', 'nextjs', 'cra', 'webpack', 'unknown']).optional(),
-  frameworkVersion: z.string().optional(),
   serverStartCommand: z.string().optional(),
-  injectionStrategy: ScriptInjectionStrategySchema.optional(),
+  takeScreenshots: z.boolean().optional(),
 })
 
 // Code execution schema
@@ -159,7 +151,6 @@ export const PreviewConfigResponseSchema = z.object({
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
-export type ScriptInjectionStrategy = z.infer<typeof ScriptInjectionStrategySchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type VerificationResponse = z.infer<typeof VerificationResponseSchema>

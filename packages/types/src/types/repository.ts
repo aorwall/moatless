@@ -4,7 +4,6 @@ export type {
   CreateRepositoryRequest,
   PreviewConfig,
   RepositoryConfig,
-  ScriptInjectionStrategy,
   UpdateRepositoryRequest,
 } from '../schemas/repository.schemas.js'
 

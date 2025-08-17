@@ -1,9 +1,8 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
-import { ChevronDown, Loader2, Play, Save, Trash2, Wand2 } from 'lucide-react'
+import { ChevronDown, Loader2, Play, Save, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { CommandExecutionDialog } from '@/features/repositories/components/command-execution-dialog'
-import { useDetectFramework } from '@/features/repositories/hooks/use-detect-framework'
 import {
   useDeleteRepository,
   useRepository,
@@ -155,7 +154,6 @@ export function RepositoryConfigEditSection({
   onDeleted,
 }: RepositoryConfigEditSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
-  const detectFramework = useDetectFramework(repositoryId)
   const updateRepository = useUpdateRepository()
   const deleteRepository = useDeleteRepository()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -258,18 +256,6 @@ export function RepositoryConfigEditSection({
         setShowDeleteDialog(false)
       },
     })
-  }
-
-  const handleDetectFramework = async () => {
-    try {
-      const detected = await detectFramework.mutateAsync()
-      if (detected) {
-        updateField('previewConfig', detected)
-        toast.success('Framework detected and will be saved')
-      }
-    } catch (error) {
-      toast.error(getErrorMessage(error))
-    }
   }
 
   if (isLoading) {
@@ -416,52 +402,6 @@ export function RepositoryConfigEditSection({
 
       {/* Preview Environment Settings */}
       <ConfigurationGroup title="Preview Environment" showSeparator>
-        <ConfigurationItem label="Framework" description="Web framework used in this repository">
-          <div className="flex gap-2">
-            <ConfigurationSelect
-              value={formData.previewConfig?.framework || 'unknown'}
-              onValueChange={(value) =>
-                updateField('previewConfig', {
-                  ...formData.previewConfig,
-                  framework: value as 'vite' | 'nextjs' | 'cra' | 'webpack' | 'unknown',
-                })
-              }
-              options={[
-                { value: 'nextjs', label: 'Next.js' },
-                { value: 'vite', label: 'Vite' },
-                { value: 'cra', label: 'Create React App' },
-                { value: 'webpack', label: 'Webpack' },
-                { value: 'unknown', label: 'Unknown' },
-              ]}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleDetectFramework}
-              disabled={detectFramework.isPending}
-            >
-              <Wand2 className="mr-2 h-4 w-4" />
-              {detectFramework.isPending ? 'Detecting...' : 'Auto-detect'}
-            </Button>
-          </div>
-        </ConfigurationItem>
-
-        <ConfigurationItem
-          label="Framework Version"
-          description="Version of the framework (optional)"
-        >
-          <ConfigurationInput
-            value={formData.previewConfig?.frameworkVersion || ''}
-            onChange={(e) =>
-              updateField('previewConfig', {
-                ...formData.previewConfig,
-                frameworkVersion: e.target.value,
-              })
-            }
-            placeholder="e.g., 14.0.0"
-          />
-        </ConfigurationItem>
-
         <ConfigurationItem label="Start Command" description="Command to start the preview server">
           <ConfigurationInput
             value={formData.previewConfig?.serverStartCommand || ''}
@@ -475,45 +415,20 @@ export function RepositoryConfigEditSection({
           />
         </ConfigurationItem>
 
-        <ConfigurationItem label="Script Injection" description="How to inject the preview script">
-          <ConfigurationSelect
-            value={formData.previewConfig?.injectionStrategy?.method || 'html-injection'}
-            onValueChange={(value) =>
+        <ConfigurationItem
+          label="Take Screenshots"
+          description="Automatically take screenshots after each task iteration"
+        >
+          <ConfigurationSwitch
+            checked={formData.previewConfig?.takeScreenshots || false}
+            onCheckedChange={(checked) =>
               updateField('previewConfig', {
                 ...formData.previewConfig,
-                injectionStrategy: {
-                  method: value as 'html-injection' | 'middleware',
-                  config: {},
-                },
+                takeScreenshots: checked,
               })
             }
-            options={[
-              { value: 'html-injection', label: 'HTML Injection' },
-              { value: 'middleware', label: 'Middleware' },
-            ]}
           />
         </ConfigurationItem>
-
-        {formData.previewConfig?.injectionStrategy?.method === 'html-injection' && (
-          <ConfigurationItem label="HTML File Path" description="Path to the main HTML file">
-            <ConfigurationInput
-              value={formData.previewConfig?.injectionStrategy?.config?.htmlFilePath || ''}
-              onChange={(e) =>
-                updateField('previewConfig', {
-                  ...formData.previewConfig,
-                  injectionStrategy: {
-                    method: formData.previewConfig?.injectionStrategy?.method || 'html-injection',
-                    config: {
-                      ...formData.previewConfig?.injectionStrategy?.config,
-                      htmlFilePath: e.target.value,
-                    },
-                  },
-                })
-              }
-              placeholder="e.g., public/index.html"
-            />
-          </ConfigurationItem>
-        )}
 
         <CollapsibleHelpSection title="Learn More">
           <div className="space-y-2 text-sm text-muted-foreground">
