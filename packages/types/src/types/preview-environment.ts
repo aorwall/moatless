@@ -17,6 +17,8 @@ export interface PreviewEnvironmentMetadata {
   error?: string
   logs?: string
   failed?: boolean
+  // Indicates if process is running but hasn't bound to port yet
+  starting?: boolean
   // Proxy server information for SPA support
   proxyPort?: number
   proxyUrl?: string

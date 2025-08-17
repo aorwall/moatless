@@ -1,0 +1,398 @@
+import { execSync } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import * as net from 'node:net'
+import { promisify } from 'node:util'
+import type { Logger } from 'pino'
+import { createTaskLogger } from '../utils/logger.js'
+
+const execAsync = promisify(require('node:child_process').exec)
+
+// Port range constants
+export const PORT_RANGES = {
+  PREVIEW: { min: 3000, max: 3999 },
+  WORKER: { min: 4000, max: 4999 },
+  GENERAL: { min: 8000, max: 8999 },
+} as const
+
+export type PortType = 'preview' | 'worker' | 'general'
+
+/**
+ * Comprehensive port management service that handles all port-related operations
+ * including detection, validation, PID checking, and cross-platform support
+ */
+export class PortService {
+  private logger: Logger
+
+  constructor(logger?: Logger) {
+    this.logger = logger || createTaskLogger('port-service')
+  }
+
+  // ===============================
+  // Core Port Operations
+  // ===============================
+
+  /**
+   * Finds the first available port in the specified range
+   */
+  async findAvailablePort(type: PortType = 'general'): Promise<number> {
+    const range = PORT_RANGES[type.toUpperCase() as keyof typeof PORT_RANGES]
+
+    if (!range) {
+      throw new Error(`Invalid port type: ${type}`)
+    }
+
+    for (let port = range.min; port <= range.max; port++) {
+      if (await this.isPortAvailable(port)) {
+        this.logger.debug(`Found available port ${port} for type: ${type}`)
+        return port
+      }
+    }
+
+    throw new Error(`No available ports in range ${range.min}-${range.max} for type: ${type}`)
+  }
+
+  /**
+   * Finds any available port using the OS
+   */
+  async findAnyAvailablePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const server = net.createServer()
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address() as net.AddressInfo
+        const port = address.port
+        server.close(() => {
+          this.logger.debug(`Found any available port: ${port}`)
+          resolve(port)
+        })
+      })
+      server.on('error', reject)
+    })
+  }
+
+  /**
+   * Checks if a port is available (not in use)
+   */
+  async isPortAvailable(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const client = new net.Socket()
+      client.setTimeout(100)
+
+      client.on('connect', () => {
+        client.destroy()
+        resolve(false) // Port is in use
+      })
+
+      client.on('timeout', () => {
+        client.destroy()
+        resolve(true) // Port is available
+      })
+
+      client.on('error', () => {
+        resolve(true) // Port is available
+      })
+
+      client.connect(port, '127.0.0.1')
+    })
+  }
+
+  /**
+   * Checks if a port is in use (opposite of isPortAvailable)
+   */
+  async isPortInUse(port: number): Promise<boolean> {
+    return !(await this.isPortAvailable(port))
+  }
+
+  /**
+   * Synchronous check if a port is in use using system commands
+   */
+  isPortInUseSync(port: number): boolean {
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Use netstat to check if port is in use
+        execSync(`netstat -an | findstr :${port}`, { stdio: 'ignore' })
+        return true
+      }
+      // Unix/Linux/Mac: Use lsof to check if port is in use
+      execSync(`lsof -i :${port}`, { stdio: 'ignore' })
+      return true
+    } catch {
+      // Commands return error if no process found on port
+      return false
+    }
+  }
+
+  // ===============================
+  // PID Validation Methods
+  // ===============================
+
+  /**
+   * Gets all process IDs that are using a specific port
+   */
+  async getProcessesUsingPort(port: number): Promise<number[]> {
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Parse netstat -ano output
+        const { stdout } = await execAsync(`netstat -ano | findstr :${port}`)
+        return this.parseWindowsPids(stdout)
+      }
+      // Unix: Use lsof -t for clean PID list
+      const { stdout } = await execAsync(`lsof -i :${port} -t`)
+      const pids = stdout
+        .trim()
+        .split('\n')
+        .map((p: string) => Number.parseInt(p, 10))
+        .filter((p: number) => !isNaN(p))
+
+      this.logger.debug(`Processes using port ${port}:`, { pids })
+      return pids
+    } catch (error) {
+      this.logger.debug(`No processes found using port ${port}:`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    }
+  }
+
+  /**
+   * Parses Windows netstat output to extract PIDs
+   */
+  private parseWindowsPids(netstatOutput: string): number[] {
+    const pids: number[] = []
+    const lines = netstatOutput.split('\n')
+
+    for (const line of lines) {
+      // Windows netstat format: TCP    0.0.0.0:PORT    0.0.0.0:0    LISTENING    PID
+      const match = line.trim().match(/\s+(\d+)\s*$/)
+      if (match) {
+        const pid = Number.parseInt(match[1], 10)
+        if (!isNaN(pid) && !pids.includes(pid)) {
+          pids.push(pid)
+        }
+      }
+    }
+
+    return pids
+  }
+
+  /**
+   * Checks if a specific process (PID) is using a port
+   */
+  async isPortUsedByProcess(port: number, pid: number): Promise<boolean> {
+    const pids = await this.getProcessesUsingPort(port)
+    return pids.includes(pid)
+  }
+
+  /**
+   * Validates that a port belongs to a specific process or its children
+   */
+  async validatePortBelongsToPid(port: number, pid: number): Promise<boolean> {
+    const pids = await this.getProcessesUsingPort(port)
+
+    // Check if the exact PID is using the port
+    if (pids.includes(pid)) {
+      this.logger.debug(`Port ${port} confirmed to belong to PID ${pid}`)
+      return true
+    }
+
+    // Check if any child processes are using the port
+    const hasChildProcess = await this.checkChildProcesses(pid, pids)
+    if (hasChildProcess) {
+      this.logger.debug(`Port ${port} belongs to child process of PID ${pid}`)
+      return true
+    }
+
+    this.logger.debug(`Port ${port} does not belong to PID ${pid} or its children`, {
+      port,
+      expectedPid: pid,
+      actualPids: pids,
+    })
+    return false
+  }
+
+  /**
+   * Checks if any of the PIDs using a port are children of our main process
+   */
+  private async checkChildProcesses(parentPid: number, portPids: number[]): Promise<boolean> {
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Use wmic to get parent-child relationships
+        for (const portPid of portPids) {
+          const { stdout } = await execAsync(
+            `wmic process where ProcessId=${portPid} get ParentProcessId /value`,
+          )
+          const match = stdout.match(/ParentProcessId=(\d+)/)
+          if (match && Number.parseInt(match[1], 10) === parentPid) {
+            return true
+          }
+        }
+      } else {
+        // Unix: Use ps to check parent-child relationships
+        for (const portPid of portPids) {
+          const { stdout } = await execAsync(`ps -o ppid= -p ${portPid}`)
+          const ppid = Number.parseInt(stdout.trim(), 10)
+          if (ppid === parentPid) {
+            return true
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.debug('Error checking child processes:', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    return false
+  }
+
+  // ===============================
+  // Port Detection from Logs
+  // ===============================
+
+  /**
+   * Detects port from log file content
+   */
+  async detectPortFromLogs(logFile: string): Promise<number | undefined> {
+    if (!(await this.pathExists(logFile))) {
+      this.logger.debug(`Log file does not exist: ${logFile}`)
+      return undefined
+    }
+
+    try {
+      const content = await fs.readFile(logFile, 'utf-8')
+      return this.detectPortFromLogContent(content)
+    } catch (error) {
+      this.logger.debug('Error reading log file:', {
+        logFile,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    }
+  }
+
+  /**
+   * Detects port from log content using common patterns
+   */
+  async detectPortFromLogContent(content: string): Promise<number | undefined> {
+    // Common patterns for port detection - order matters, more specific first
+    const patterns = [
+      /➜\s+Local:\s+http:\/\/localhost:(\d+)/gi, // Vite specific
+      /Local:\s+http:\/\/localhost:(\d+)/gi,
+      /http:\/\/localhost:(\d+)/gi,
+      /listening on port (\d+)/gi,
+      /Server running on port (\d+)/gi,
+      /Started server on .*:(\d+)/gi,
+      /Listening on .*:(\d+)/gi,
+      /server started.*:(\d+)/gi,
+      /running on.*:(\d+)/gi,
+      /available on.*:(\d+)/gi,
+    ]
+
+    this.logger.debug('Scanning logs for port patterns...', {
+      logLength: content.length,
+    })
+
+    for (const pattern of patterns) {
+      const matches = [...content.matchAll(pattern)]
+      if (matches.length > 0) {
+        // Return the last match (most recent)
+        const port = Number.parseInt(matches[matches.length - 1][1], 10)
+        this.logger.info(`Detected port ${port} from logs using pattern: ${pattern}`)
+        return port
+      }
+    }
+
+    this.logger.debug('No port patterns matched in logs')
+    return undefined
+  }
+
+  /**
+   * Detects port from logs and validates it belongs to the specified PID
+   */
+  async detectAndValidatePort(logFile: string, pid: number): Promise<number | undefined> {
+    const detectedPort = await this.detectPortFromLogs(logFile)
+
+    if (detectedPort) {
+      // Validate the port belongs to our process
+      if (await this.validatePortBelongsToPid(detectedPort, pid)) {
+        this.logger.info(`Validated port ${detectedPort} belongs to PID ${pid}`)
+        return detectedPort
+      }
+
+      this.logger.warn(`Detected port ${detectedPort} but it doesn't belong to PID ${pid}`)
+    }
+
+    return undefined
+  }
+
+  // ===============================
+  // Server Connectivity
+  // ===============================
+
+  /**
+   * Pings a port to check if it's responsive
+   */
+  async pingPort(port: number, timeout = 1000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const client = new net.Socket()
+      client.setTimeout(timeout)
+
+      client.on('connect', () => {
+        client.destroy()
+        resolve(true)
+      })
+
+      client.on('timeout', () => {
+        client.destroy()
+        resolve(false)
+      })
+
+      client.on('error', () => {
+        resolve(false)
+      })
+
+      client.connect(port, '127.0.0.1')
+    })
+  }
+
+  /**
+   * Waits for a port to become available/responsive
+   */
+  async waitForPort(port: number, maxWait = 10000): Promise<boolean> {
+    const checkInterval = 500
+    let elapsed = 0
+
+    this.logger.debug(`Waiting for port ${port} to become responsive...`)
+
+    while (elapsed < maxWait) {
+      if (await this.pingPort(port, 100)) {
+        this.logger.debug(`Port ${port} is now responsive after ${elapsed}ms`)
+        return true
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, checkInterval))
+      elapsed += checkInterval
+    }
+
+    this.logger.debug(`Port ${port} did not become responsive within ${maxWait}ms`)
+    return false
+  }
+
+  // ===============================
+  // Utility Methods
+  // ===============================
+
+  /**
+   * Checks if a file path exists
+   */
+  private async pathExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+// Export a singleton instance for convenience
+export const portService = new PortService()

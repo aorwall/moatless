@@ -11,6 +11,7 @@ import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
+import { cleanupScreenshotService, getScreenshotService } from './screenshot.service.js'
 import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
@@ -496,8 +497,19 @@ export class WorkspaceService {
   async canManageServer(taskId: string): Promise<boolean> {
     try {
       const workspace = await this.getOrCreateWorkspace(taskId)
-      const status = workspace.getEnvironment().getStatus()
-      return status === 'ready'
+      const environment = workspace.getEnvironment()
+
+      // Check if environment is ready
+      if (environment.getStatus() !== 'ready') {
+        return false
+      }
+
+      // Check if preview server is configured
+      if (!environment.getServerStatus) {
+        return false
+      }
+      const serverStatus = await environment.getServerStatus()
+      return serverStatus.configured
     } catch {
       return false
     }
@@ -729,6 +741,80 @@ export class WorkspaceService {
     }
   }
 
+  async capturePreviewScreenshot(
+    taskId: string,
+    iterationNumber: number,
+  ): Promise<string | undefined> {
+    const workspaceLogger = logger.child({ taskId, iterationNumber })
+
+    try {
+      // Check if server can be managed
+      if (!(await this.canManageServer(taskId))) {
+        workspaceLogger.debug('Preview server not configured for task')
+        return undefined
+      }
+
+      // Restart server to ensure fresh state
+      workspaceLogger.info('Restarting preview server for screenshot capture')
+      const serverStatus = await this.restartServer(taskId)
+
+      if (!serverStatus.running || !serverStatus.url) {
+        workspaceLogger.warn('Server failed to start for screenshot')
+        return undefined
+      }
+
+      // Wait for server to be responsive
+      workspaceLogger.debug('Waiting for server to be ready', { url: serverStatus.url })
+      await this.waitForServerReady(serverStatus.url, 30000) // 30 second timeout
+
+      // Capture screenshot
+      workspaceLogger.info('Capturing preview screenshot', { url: serverStatus.url })
+      const screenshotService = getScreenshotService()
+      const screenshotPath = await screenshotService.captureScreenshot(
+        serverStatus.url,
+        taskId,
+        iterationNumber,
+      )
+
+      workspaceLogger.info('Preview screenshot captured successfully', { screenshotPath })
+      return screenshotPath
+    } catch (error) {
+      workspaceLogger.error('Failed to capture preview screenshot', error as Error)
+      return undefined
+    }
+  }
+
+  private async waitForServerReady(url: string, timeout = 30000): Promise<void> {
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < timeout) {
+      try {
+        const response = await fetch(url, {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(5000),
+        })
+
+        if (response.ok || response.status < 500) {
+          // Server is responding
+          logger.debug('Server is ready', { url, status: response.status })
+          return
+        }
+
+        logger.debug('Server responded with error status', { url, status: response.status })
+      } catch (error) {
+        // Server not ready yet
+        logger.debug('Server not ready yet', {
+          url,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+
+    throw new Error(`Server did not become ready within ${timeout}ms`)
+  }
+
   async gracefulShutdown(): Promise<void> {
     const workspaceLogger = logger.child({ context: 'graceful-shutdown' })
     workspaceLogger.info('Starting workspace service graceful shutdown')
@@ -750,6 +836,14 @@ export class WorkspaceService {
 
     // Clear background tasks
     this.backgroundTasks.clear()
+
+    // Cleanup screenshot service
+    try {
+      await cleanupScreenshotService()
+      workspaceLogger.debug('Screenshot service cleaned up')
+    } catch (error) {
+      workspaceLogger.error('Failed to cleanup screenshot service', error as Error)
+    }
 
     workspaceLogger.info('Workspace service graceful shutdown completed')
   }

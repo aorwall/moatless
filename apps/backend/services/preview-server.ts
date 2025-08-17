@@ -1,14 +1,12 @@
-import { type ChildProcess, exec, execSync, spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import * as net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import type { ServerStatus } from '@moatless/types'
+import { execAsync } from '../utils/git-utils.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
-
-const execAsync = promisify(exec)
+import { PortService } from './port.service.js'
 
 interface ServerStartResult {
   running: boolean
@@ -16,6 +14,7 @@ interface ServerStartResult {
   pid: number
   log_file: string
   uptime_seconds: number
+  starting?: boolean
 }
 
 export class PreviewServer {
@@ -27,6 +26,7 @@ export class PreviewServer {
   private startTime?: number
   private failureReason?: string
   private logger = createTaskLogger('preview-server')
+  private portService = new PortService(this.logger)
   private readonly portPlaceholder = '{PORT}'
 
   constructor(
@@ -129,19 +129,23 @@ export class PreviewServer {
 
         if (this.port) {
           // We have an allocated port, check if it's in use
-          if (await this.checkPortInUse(this.port)) {
+          if (await this.portService.isPortInUse(this.port)) {
             this.logger.info(`Server is now listening on allocated port ${this.port}`)
             break
           }
         }
 
-        // Always try to detect actual port from logs (handles both cases)
-        const actualPort = await this.detectPortFromLogs()
-        if (actualPort) {
-          this.logger.info(`Detected server running on port ${actualPort} from logs`)
-          this.actualPort = actualPort
-          this.port = actualPort
-          break
+        // Always try to detect actual port from logs with PID validation
+        if (this.logFile && this.pid) {
+          const actualPort = await this.portService.detectAndValidatePort(this.logFile, this.pid)
+          if (actualPort) {
+            this.logger.info(
+              `Detected and validated server running on port ${actualPort} from logs`,
+            )
+            this.actualPort = actualPort
+            this.port = actualPort
+            break
+          }
         }
 
         // Give server minimum time to start
@@ -150,18 +154,18 @@ export class PreviewServer {
       }
 
       // Final port detection
-      if (!this.port) {
-        // Last attempt to detect from logs
-        const actualPort = await this.detectPortFromLogs()
+      if (!this.port && this.logFile && this.pid) {
+        // Last attempt to detect from logs with PID validation
+        const actualPort = await this.portService.detectAndValidatePort(this.logFile, this.pid)
         if (actualPort) {
-          this.logger.info(`Final detection: server running on port ${actualPort}`)
+          this.logger.info(`Final detection: validated server running on port ${actualPort}`)
           this.actualPort = actualPort
           this.port = actualPort
         }
       }
 
       // Verify the final port is actually in use
-      const portInUse = this.port ? await this.checkPortInUse(this.port) : false
+      const portInUse = this.port ? await this.portService.isPortInUse(this.port) : false
       this.logger.info(`Final port check - Port ${this.port || 'unknown'} in use: ${portInUse}`)
 
       if (this.process.exitCode !== null) {
@@ -185,26 +189,38 @@ export class PreviewServer {
         this.logger.info(`Parent process exited but server is running on port ${this.port}`)
       }
 
-      // Ensure we have a valid port before proceeding
-      if (!this.port) {
-        await logStream.close()
-        this.failureReason = 'Could not detect server port'
-        throw new Error('Could not detect server port from logs or allocated port')
-      }
-
       await logStream.close()
 
-      this.logger.info(`Server started successfully on port ${this.port} with PID ${this.pid}`)
-
-      // PID tracking removed - using simplified port allocation
-
-      return {
-        running: true,
-        port: this.port,
-        pid: this.pid!,
-        log_file: this.logFile,
-        uptime_seconds: 0,
+      // If we have a port, server is fully started
+      if (this.port) {
+        this.logger.info(`Server started successfully on port ${this.port} with PID ${this.pid}`)
+        return {
+          running: true,
+          port: this.port,
+          pid: this.pid!,
+          log_file: this.logFile,
+          uptime_seconds: 0,
+        }
       }
+
+      // No port detected but process is still running - server is starting
+      if (this.process.exitCode === null) {
+        this.logger.info(
+          `Server process started with PID ${this.pid} but port not yet detected - server is starting`,
+        )
+        return {
+          running: false, // Not fully running yet
+          port: -1, // No port detected yet
+          pid: this.pid!,
+          log_file: this.logFile,
+          uptime_seconds: 0,
+          starting: true, // Indicate server is starting
+        }
+      }
+
+      // Process exited and no port - complete failure
+      this.failureReason = 'Server process exited and no port detected'
+      throw new Error('Server process exited and no port detected')
     } catch (error) {
       await logStream.close()
       // Extract clean error message
@@ -273,7 +289,7 @@ export class PreviewServer {
     if (!this.process) {
       this.logger.debug('No process object')
       // Even without process, check if port is in use
-      if (this.port && this.checkPortInUseSync(this.port)) {
+      if (this.port && this.portService.isPortInUseSync(this.port)) {
         this.logger.debug(`No process object but port ${this.port} is in use`)
         const uptime = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0
         return {
@@ -294,7 +310,7 @@ export class PreviewServer {
     if (this.process.exitCode !== null) {
       this.logger.debug(`Process exited with code: ${this.process.exitCode}`)
       // Check if port is still in use
-      if (this.port && this.checkPortInUseSync(this.port)) {
+      if (this.port && this.portService.isPortInUseSync(this.port)) {
         this.logger.debug(`Process exited but port ${this.port} is still in use`)
         const uptime = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0
         return {
@@ -347,103 +363,7 @@ export class PreviewServer {
     }
   }
 
-  // Removed findFreePort - now handled by PortAllocationService
-
-  private async checkPortInUse(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      const client = new net.Socket()
-      client.setTimeout(100)
-
-      client.on('connect', () => {
-        client.destroy()
-        resolve(true)
-      })
-
-      client.on('timeout', () => {
-        client.destroy()
-        resolve(false)
-      })
-
-      client.on('error', () => {
-        resolve(false)
-      })
-
-      client.connect(port, 'localhost')
-    })
-  }
-
-  private checkPortInUseSync(port: number): boolean {
-    // Since we need a synchronous check, we'll use the child_process execSync
-    try {
-      if (process.platform === 'win32') {
-        // Windows: Use netstat to check if port is in use
-        try {
-          execSync(`netstat -an | findstr :${port}`, { stdio: 'ignore' })
-          return true
-        } catch {
-          return false
-        }
-      } else {
-        // Unix/Linux/Mac: Use lsof to check if port is in use
-        try {
-          execSync(`lsof -i :${port}`, { stdio: 'ignore' })
-          return true
-        } catch {
-          return false
-        }
-      }
-    } catch {
-      // If commands fail, fall back to assuming port is not in use
-      return false
-    }
-  }
-
-  private async detectPortFromLogs(): Promise<number | undefined> {
-    if (!this.logFile || !(await this.pathExists(this.logFile))) {
-      return undefined
-    }
-
-    try {
-      const content = await fs.readFile(this.logFile, 'utf-8')
-
-      // Common patterns for port detection - order matters, more specific first
-      const patterns = [
-        /➜\s+Local:\s+http:\/\/localhost:(\d+)/gi, // Vite specific
-        /Local:\s+http:\/\/localhost:(\d+)/gi,
-        /http:\/\/localhost:(\d+)/gi,
-        /listening on port (\d+)/gi,
-        /Server running on port (\d+)/gi,
-        /Started server on .*:(\d+)/gi,
-        /Listening on .*:(\d+)/gi,
-        /server started.*:(\d+)/gi,
-        /running on.*:(\d+)/gi,
-        /available on.*:(\d+)/gi,
-      ]
-
-      this.logger.debug('Scanning logs for port patterns...', {
-        logLength: content.length,
-        logPreview: content.slice(-500),
-      })
-
-      for (const pattern of patterns) {
-        const matches = [...content.matchAll(pattern)]
-        if (matches.length > 0) {
-          // Return the last match (most recent)
-          const port = Number.parseInt(matches[matches.length - 1][1], 10)
-          this.logger.info(`Detected port ${port} from logs using pattern: ${pattern}`)
-          return port
-        }
-      }
-
-      this.logger.debug('No port patterns matched in logs')
-    } catch (error) {
-      this.logger.debug('Error detecting port from logs:', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-
-    return undefined
-  }
+  // Port detection methods now handled by PortService
 
   private cleanup(): void {
     // Release port allocation
@@ -494,7 +414,7 @@ export class PreviewServer {
     }
 
     // Check if we have a process or if the port is in use (server might be running independently)
-    if (!this.checkPortInUseSync(targetPort)) {
+    if (!this.portService.isPortInUseSync(targetPort)) {
       throw new Error(`Server is not running on port ${targetPort}`)
     }
 

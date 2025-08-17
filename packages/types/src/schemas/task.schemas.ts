@@ -106,6 +106,7 @@ export const TaskIterationSchema = z.object({
     )
     .optional(),
   willNotResume: z.boolean().optional(),
+  screenshotPath: z.string().optional(), // Path to preview screenshot
 })
 
 // ============================================
@@ -197,6 +198,7 @@ export const CommandResultSchema = z.object({
 export const ServerStatusSchema = z.object({
   running: z.boolean(),
   configured: z.boolean(),
+  starting: z.boolean().optional(), // Process is running but hasn't bound to port yet
   url: z.string().optional(),
   proxyUrl: z.string().optional(),
   pid: z.number().optional(),

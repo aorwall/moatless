@@ -348,6 +348,14 @@ export class TaskService {
     // Capture git data when iteration completes
     await this.captureGitDataForIteration(task.taskId, iteration)
 
+    // Capture preview screenshot if server is configured (non-blocking)
+    this.capturePreviewScreenshotAsync(task.taskId, iteration).catch((error) => {
+      taskLogger.warn('Failed to capture preview screenshot', {
+        error: error instanceof Error ? error.message : String(error),
+        iterationNumber: iteration.iterationNumber,
+      })
+    })
+
     // Update task status based on iteration result
     const previousStatus = task.status
     const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
@@ -486,6 +494,43 @@ export class TaskService {
       taskLogger.warn('Failed to capture git status/changes for iteration', {
         error: error instanceof Error ? error.message : String(error),
       })
+    }
+  }
+
+  /**
+   * Capture preview screenshot asynchronously (non-blocking)
+   */
+  private async capturePreviewScreenshotAsync(
+    taskId: string,
+    iteration: TaskIteration,
+  ): Promise<void> {
+    const taskLogger = logger.child({
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
+    try {
+      const screenshotPath = await this.workspaceService.capturePreviewScreenshot(
+        taskId,
+        iteration.iterationNumber,
+      )
+
+      if (screenshotPath) {
+        iteration.screenshotPath = screenshotPath
+        taskLogger.info('Screenshot path added to iteration', { screenshotPath })
+
+        // Save the updated iteration with screenshot path
+        const task = await this.storage.getTask(taskId)
+        if (task) {
+          await this.storage.saveTask(task)
+          taskLogger.debug('Task saved with screenshot path')
+        }
+      } else {
+        taskLogger.debug('No screenshot captured (server not configured or failed)')
+      }
+    } catch (error) {
+      taskLogger.error('Failed to capture preview screenshot', error as Error)
+      // Don't rethrow - this is non-blocking
     }
   }
 

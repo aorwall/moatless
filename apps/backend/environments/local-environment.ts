@@ -1,6 +1,5 @@
 import { exec, execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import * as net from 'node:net'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type {
@@ -14,6 +13,7 @@ import type { Logger } from 'pino'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
+import { PortService } from '../services/port.service.js'
 import { createPreviewProxy, type PreviewProxyService } from '../services/preview-proxy.service.js'
 import { PreviewServer } from '../services/preview-server.js'
 import { getDataDir } from '../utils/data-dir.js'
@@ -31,6 +31,7 @@ export class LocalEnvironment extends BaseEnvironment {
   private _createdAt = new Date()
   private _error?: string
   private logger = createTaskLogger(this.taskId)
+  private portService = new PortService(this.logger)
   private previewServer?: PreviewServer
   private previewProxy?: PreviewProxyService
   private readonly previewEnvironmentsPath: string
@@ -294,7 +295,7 @@ export class LocalEnvironment extends BaseEnvironment {
         proxyUrl = undefined
       }
 
-      // Save metadata to disk (successful startup, clear any previous error state)
+      // Save metadata to disk based on server status
       const metadata: PreviewEnvironmentMetadata = {
         taskId: this.taskId,
         pid: result.pid,
@@ -305,30 +306,50 @@ export class LocalEnvironment extends BaseEnvironment {
         logFile: result.log_file,
         processStartTime: Date.now(),
         envVars: this.repositoryConfig.codeExecution.envVars,
-        failed: false, // Explicitly mark as not failed
-        error: undefined, // Clear any previous error
-        logs: undefined, // Clear any previous error logs
+        failed: false,
+        error: undefined,
+        logs: undefined,
+        starting: result.starting, // Track starting state
         proxyPort,
         proxyUrl,
       }
 
       await this.savePreviewEnvironmentMetadata(this.taskId, metadata)
 
-      this.logger.info('Preview server started successfully', {
-        port: result.port,
-        proxyPort: proxyPort || 'not started',
-        proxyUrl: proxyUrl || 'not available',
-        pid: result.pid,
-      })
+      if (result.running) {
+        this.logger.info('Preview server started successfully', {
+          port: result.port,
+          proxyPort: proxyPort || 'not started',
+          proxyUrl: proxyUrl || 'not available',
+          pid: result.pid,
+        })
 
-      return {
-        running: true,
-        configured: true,
-        url: `http://localhost:${result.port}`,
-        proxyUrl,
-        pid: result.pid,
-        uptimeSeconds: 0,
+        return {
+          running: true,
+          configured: true,
+          url: `http://localhost:${result.port}`,
+          proxyUrl,
+          pid: result.pid,
+          uptimeSeconds: 0,
+        }
       }
+      if (result.starting) {
+        this.logger.info('Preview server is starting', {
+          pid: result.pid,
+          logFile: result.log_file,
+        })
+
+        return {
+          running: false,
+          configured: true,
+          starting: true,
+          pid: result.pid,
+          uptimeSeconds: 0,
+        }
+      }
+
+      // This shouldn't happen with the new logic, but handle it
+      throw new Error('Unexpected server start result')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       this.logger.error('Failed to start preview server', {
@@ -434,7 +455,7 @@ export class LocalEnvironment extends BaseEnvironment {
       // Perform ping check if server is running
       if (status.running && status.url) {
         const port = this.extractPortFromUrl(status.url)
-        const responsive = port ? await this.pingServer(port) : false
+        const responsive = port ? await this.portService.pingPort(port) : false
 
         // Get proxy URL from metadata if available
         const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
@@ -471,7 +492,61 @@ export class LocalEnvironment extends BaseEnvironment {
 
       const validation = await this.validateProcess(metadata.pid, metadata.command)
       if (validation.exists && validation.isCorrectProcess) {
-        // Process is still running, recover it
+        // Process is still running, check if it's starting or fully running
+        if (metadata.starting && metadata.port === -1) {
+          // Server is still starting, check if port is now available
+          const detectedPort = await this.portService.detectAndValidatePort(
+            metadata.logFile,
+            metadata.pid,
+          )
+          if (detectedPort) {
+            // Port detected! Update metadata and status
+            const updatedMetadata = {
+              ...metadata,
+              port: detectedPort,
+              starting: false,
+            }
+            await this.savePreviewEnvironmentMetadata(this.taskId, updatedMetadata)
+
+            // Create server handler
+            this.previewServer = new PreviewServer(
+              this.taskId,
+              metadata.workspacePath,
+              metadata.command,
+              metadata.envVars || {},
+            )
+            this.restoreServerHandler(this.previewServer, updatedMetadata)
+
+            const responsive = await this.portService.pingPort(detectedPort)
+            const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
+
+            this.logger.info('Server finished starting, now running', {
+              pid: metadata.pid,
+              port: detectedPort,
+              uptime,
+            })
+
+            return {
+              running: true,
+              configured,
+              url: `http://localhost:${detectedPort}`,
+              proxyUrl: metadata.proxyUrl,
+              pid: metadata.pid,
+              uptimeSeconds: uptime,
+              responsive,
+            } as ServerStatus
+          }
+          // Still starting
+          const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
+          return {
+            running: false,
+            configured,
+            starting: true,
+            pid: metadata.pid,
+            uptimeSeconds: uptime,
+          } as ServerStatus
+        }
+        // Process is running and has a port, recover it
         this.previewServer = new PreviewServer(
           this.taskId,
           metadata.workspacePath,
@@ -481,7 +556,7 @@ export class LocalEnvironment extends BaseEnvironment {
 
         this.restoreServerHandler(this.previewServer, metadata)
 
-        const responsive = await this.pingServer(metadata.port)
+        const responsive = await this.portService.pingPort(metadata.port)
         const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
 
         return {
@@ -820,32 +895,6 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     return null
-  }
-
-  /**
-   * Ping a server to check if it's responsive
-   */
-  private async pingServer(port: number, timeout = 1000): Promise<boolean> {
-    return new Promise((resolve) => {
-      const client = new net.Socket()
-      client.setTimeout(timeout)
-
-      client.on('connect', () => {
-        client.destroy()
-        resolve(true)
-      })
-
-      client.on('timeout', () => {
-        client.destroy()
-        resolve(false)
-      })
-
-      client.on('error', () => {
-        resolve(false)
-      })
-
-      client.connect(port, '127.0.0.1')
-    })
   }
 
   /**
