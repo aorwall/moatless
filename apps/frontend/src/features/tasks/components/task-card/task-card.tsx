@@ -163,7 +163,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
             <div className="flex flex-col min-w-0 flex-1 gap-1">
               <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="truncate">{repositoryName}</span>
+                <span className="truncate">
+                  {task.vibe && task.templateId ? task.templateId : repositoryName}
+                </span>
                 <span className="shrink-0">
                   {isTaskRunning(task) && runningDuration
                     ? runningDuration

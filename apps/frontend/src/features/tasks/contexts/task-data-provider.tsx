@@ -27,6 +27,8 @@ interface TaskDataContextValue {
   repositoryId: string | undefined
   iterations: TaskIteration[]
   createdAt: Date | undefined
+  vibe: boolean | undefined
+  templateId: string | undefined
 
   // Git diff data
   gitDiff: GitDiffResponse | undefined
@@ -158,6 +160,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       repositoryId: task.repositoryId,
       iterations,
       createdAt: task.createdAt,
+      vibe: task.vibe,
+      templateId: task.templateId,
       canExecute: task.status === 'open', // Can execute if task is open
       isComplete: task.status === 'closed', // Complete if task is closed
     }
@@ -195,6 +199,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       repositoryId: taskPrimitives?.repositoryId,
       iterations: taskPrimitives?.iterations || [],
       createdAt: taskPrimitives?.createdAt,
+      vibe: taskPrimitives?.vibe,
+      templateId: taskPrimitives?.templateId,
 
       // Git diff data
       gitDiff: gitDiffQuery.data,

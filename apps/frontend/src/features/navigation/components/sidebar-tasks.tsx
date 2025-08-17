@@ -85,7 +85,9 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
                 <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                   <span className="font-medium text-sm truncate leading-tight">{taskTitle}</span>
                   <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-                    <span className="truncate">{repositoryName}</span>
+                    <span className="truncate">
+                      {task.vibe && task.templateId ? task.templateId : repositoryName}
+                    </span>
                     <span className="shrink-0">
                       {getRelativeTime(task.lastMessageAt || task.createdAt)}
                     </span>
@@ -101,7 +103,8 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
               {taskTitle.length > 150 ? `${taskTitle.substring(0, 150)}...` : taskTitle}
             </p>
             <p className="text-xs text-muted-foreground">
-              {repositoryName} • {getRelativeTime(task.lastMessageAt || task.createdAt)}
+              {task.vibe && task.templateId ? task.templateId : repositoryName} •{' '}
+              {getRelativeTime(task.lastMessageAt || task.createdAt)}
             </p>
           </div>
         </TooltipContent>
