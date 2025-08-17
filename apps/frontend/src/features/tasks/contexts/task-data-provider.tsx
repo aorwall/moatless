@@ -29,6 +29,8 @@ interface TaskDataContextValue {
   createdAt: Date | undefined
   vibe: boolean | undefined
   templateId: string | undefined
+  name: string | undefined
+  description: string | undefined
 
   // Git diff data
   gitDiff: GitDiffResponse | undefined
@@ -162,6 +164,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       createdAt: task.createdAt,
       vibe: task.vibe,
       templateId: task.templateId,
+      name: task.name,
+      description: task.description,
       canExecute: task.status === 'open', // Can execute if task is open
       isComplete: task.status === 'closed', // Complete if task is closed
     }
@@ -201,6 +205,8 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       createdAt: taskPrimitives?.createdAt,
       vibe: taskPrimitives?.vibe,
       templateId: taskPrimitives?.templateId,
+      name: taskPrimitives?.name,
+      description: taskPrimitives?.description,
 
       // Git diff data
       gitDiff: gitDiffQuery.data,

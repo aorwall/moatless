@@ -84,8 +84,9 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, repositoryName }: TaskCardProps) {
-  // Get task title from first iteration's initial message
-  const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
+  // Get task title (use name if available, otherwise first iteration's initial message)
+  const taskTitle =
+    task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
 
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]
@@ -267,7 +268,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
                 // Special display for merged tasks with git changes
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground line-clamp-2">
-                    {lastIteration.result || 'Task completed successfully'}
+                    {task.description || lastIteration.result || 'Task completed successfully'}
                   </p>
                   <div className="flex items-center gap-3 text-xs">
                     <span className="text-green-600">+{lastIteration.gitChanges.additions}</span>
@@ -278,9 +279,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
                   </div>
                 </div>
               ) : (
-                // Default: show last result
+                // Default: show description if available, otherwise last result
                 <p className="text-sm text-muted-foreground line-clamp-4">
-                  {lastIteration?.result || 'No results yet'}
+                  {task.description || lastIteration?.result || 'No results yet'}
                 </p>
               )}
             </div>

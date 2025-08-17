@@ -47,7 +47,8 @@ function getRelativeTime(date: Date | string): string {
 
 // Component for rendering individual task item with git sync status
 function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
-  const taskTitle = task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
+  const taskTitle =
+    task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
 
   // Get workspace status for open tasks to show running state
   const { data: workspaceData } = useWorkspaceStatus(task.taskId, task, {

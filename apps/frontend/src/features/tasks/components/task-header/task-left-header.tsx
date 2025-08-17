@@ -4,7 +4,7 @@ import { useTaskData, useWorkspaceStatus } from '@/features/tasks/contexts/task-
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 
 export function TaskLeftHeader() {
-  const { status, agentType, repositoryId, iterations, vibe, templateId } = useTaskData()
+  const { status, agentType, repositoryId, iterations, vibe, templateId, name } = useTaskData()
   const { data: repositories } = useRepositoriesList()
   const workspace = useWorkspaceStatus()
 
@@ -17,8 +17,8 @@ export function TaskLeftHeader() {
   const repositoryName = repository?.name || repositoryId
   const displayName = vibe && templateId ? templateId : repositoryName
 
-  // Get task title (first line of initial message or agent type)
-  const taskTitle = iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
+  // Get task title (use name if available, otherwise first line of initial message or agent type)
+  const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
 
   return (
     <div className="h-[58px] px-4 py-2 border-b flex items-center flex-shrink-0">
