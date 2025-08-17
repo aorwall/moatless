@@ -37,7 +37,7 @@ import {
 import { Input } from '@/lib/components/ui/input'
 import { getErrorMessage } from '@/lib/utils/error'
 
-interface RepositoryAllConfigSectionProps {
+interface RepositoryConfigEditSectionProps {
   repositoryId: string
   onDeleted?: () => void
 }
@@ -150,10 +150,10 @@ function ConfigurationSkeleton() {
   )
 }
 
-export function RepositoryAllConfigSection({
+export function RepositoryConfigEditSection({
   repositoryId,
   onDeleted,
-}: RepositoryAllConfigSectionProps) {
+}: RepositoryConfigEditSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
   const detectFramework = useDetectFramework(repositoryId)
   const runSetupScript = useRunSetupScript()

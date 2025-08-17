@@ -17,12 +17,15 @@ import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
 import { useZodForm } from '@/lib/hooks/use-zod-form'
 import { getErrorMessage } from '@/lib/utils/error'
 
-interface RepositoryNewSectionProps {
+interface RepositoryConfigCreateSectionProps {
   onCancel: () => void
   onSuccess: (repositoryId: string) => void
 }
 
-export function RepositoryNewSection({ onCancel, onSuccess }: RepositoryNewSectionProps) {
+export function RepositoryConfigCreateSection({
+  onCancel,
+  onSuccess,
+}: RepositoryConfigCreateSectionProps) {
   const createRepository = useCreateRepository()
   const { errors, validate, clearErrors } = useZodForm({ schema: CreateRepositorySchema })
 

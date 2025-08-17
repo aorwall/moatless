@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
 import { Button } from '@/lib/components/ui/button'
 import { useRepositoriesList } from '../hooks/use-repositories'
-import { RepositoryAllConfigSection } from './sections/repository-all-config-section'
-import { RepositoryNewSection } from './sections/repository-new-section'
+import { RepositoryConfigCreateSection } from './sections/repository-config-create-section'
+import { RepositoryConfigEditSection } from './sections/repository-config-edit-section'
 
 interface RepositoriesConfigurationDialogProps {
   open: boolean
@@ -71,7 +71,7 @@ export function RepositoriesConfigurationDialog({
 
     if (currentSection.componentType === 'new') {
       return (
-        <RepositoryNewSection
+        <RepositoryConfigCreateSection
           key="new-repository" // Stable key
           onCancel={() => {
             setShowNewRepository(false)
@@ -93,7 +93,7 @@ export function RepositoriesConfigurationDialog({
 
     if (currentSection.componentType === 'repository' && currentSection.repositoryId) {
       return (
-        <RepositoryAllConfigSection
+        <RepositoryConfigEditSection
           key={currentSection.repositoryId} // Stable key based on repository ID
           repositoryId={currentSection.repositoryId}
           onDeleted={async () => {
