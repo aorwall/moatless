@@ -107,6 +107,7 @@ export const TaskIterationSchema = z.object({
     .optional(),
   willNotResume: z.boolean().optional(),
   screenshotPath: z.string().optional(), // Path to preview screenshot
+  thumbnailPath: z.string().optional(), // Path to preview screenshot thumbnail (340px width)
 })
 
 // ============================================

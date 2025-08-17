@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { type Browser, chromium } from '@playwright/test'
+import sharp from 'sharp'
 import { getDataDir } from '../utils/data-dir.js'
 import { createTaskLogger } from '../utils/logger.js'
 
@@ -19,7 +20,11 @@ export class ScreenshotService {
     return this.browser
   }
 
-  async captureScreenshot(url: string, taskId: string, iterationNumber: number): Promise<string> {
+  async captureScreenshot(
+    url: string,
+    taskId: string,
+    iterationNumber: number,
+  ): Promise<{ screenshotPath: string; thumbnailPath: string }> {
     const logger = this.logger.child({ taskId, iterationNumber, url })
     logger.info('Starting screenshot capture')
 
@@ -57,11 +62,24 @@ export class ScreenshotService {
         type: 'png',
       })
 
-      logger.info('Screenshot captured successfully', {
+      // Generate thumbnail with 340px width
+      const thumbnailPath = path.join(screenshotDir, `iteration-${iterationNumber}-thumb.png`)
+      logger.debug('Generating thumbnail')
+
+      await sharp(screenshotPath)
+        .resize(340, null, {
+          withoutEnlargement: true,
+          fit: 'inside',
+        })
+        .png()
+        .toFile(thumbnailPath)
+
+      logger.info('Screenshot and thumbnail captured successfully', {
         path: screenshotPath,
+        thumbnailPath,
       })
 
-      return screenshotPath
+      return { screenshotPath, thumbnailPath }
     } catch (error) {
       logger.error('Failed to capture screenshot', error as Error)
       throw error

@@ -744,7 +744,7 @@ export class WorkspaceService {
   async capturePreviewScreenshot(
     taskId: string,
     iterationNumber: number,
-  ): Promise<string | undefined> {
+  ): Promise<{ screenshotPath: string; thumbnailPath: string } | undefined> {
     const workspaceLogger = logger.child({ taskId, iterationNumber })
 
     try {
@@ -770,14 +770,17 @@ export class WorkspaceService {
       // Capture screenshot
       workspaceLogger.info('Capturing preview screenshot', { url: serverStatus.url })
       const screenshotService = getScreenshotService()
-      const screenshotPath = await screenshotService.captureScreenshot(
+      const screenshotResult = await screenshotService.captureScreenshot(
         serverStatus.url,
         taskId,
         iterationNumber,
       )
 
-      workspaceLogger.info('Preview screenshot captured successfully', { screenshotPath })
-      return screenshotPath
+      workspaceLogger.info('Preview screenshot captured successfully', {
+        screenshotPath: screenshotResult.screenshotPath,
+        thumbnailPath: screenshotResult.thumbnailPath,
+      })
+      return screenshotResult
     } catch (error) {
       workspaceLogger.error('Failed to capture preview screenshot', error as Error)
       return undefined

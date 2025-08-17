@@ -510,20 +510,24 @@ export class TaskService {
     })
 
     try {
-      const screenshotPath = await this.workspaceService.capturePreviewScreenshot(
+      const screenshotResult = await this.workspaceService.capturePreviewScreenshot(
         taskId,
         iteration.iterationNumber,
       )
 
-      if (screenshotPath) {
-        iteration.screenshotPath = screenshotPath
-        taskLogger.info('Screenshot path added to iteration', { screenshotPath })
+      if (screenshotResult) {
+        iteration.screenshotPath = screenshotResult.screenshotPath
+        iteration.thumbnailPath = screenshotResult.thumbnailPath
+        taskLogger.info('Screenshot and thumbnail paths added to iteration', {
+          screenshotPath: screenshotResult.screenshotPath,
+          thumbnailPath: screenshotResult.thumbnailPath,
+        })
 
-        // Save the updated iteration with screenshot path
+        // Save the updated iteration with screenshot and thumbnail paths
         const task = await this.storage.getTask(taskId)
         if (task) {
           await this.storage.saveTask(task)
-          taskLogger.debug('Task saved with screenshot path')
+          taskLogger.debug('Task saved with screenshot and thumbnail paths')
         }
       } else {
         taskLogger.debug('No screenshot captured (server not configured or failed)')
