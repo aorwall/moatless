@@ -54,6 +54,7 @@ export const RepositoryConfigSchema = z.object({
   originalBranch: z.string().optional(),
   deleted: z.boolean().optional(), // Soft deletion flag
   templateId: z.string().optional(), // Template ID when created from template
+  vibe: z.boolean().optional(), // Flag to identify repositories created from templates
 
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
@@ -72,6 +73,7 @@ export const CreateRepositorySchema = z.object({
   useGitWorktrees: z.boolean().optional(),
   originalBranch: z.string().optional(),
   templateId: z.string().optional(), // Template ID when created from template
+  vibe: z.boolean().optional(), // Flag to identify repositories created from templates
   // Original fields
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),

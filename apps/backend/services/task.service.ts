@@ -602,6 +602,7 @@ export class TaskService {
       totalCostUsd: 0.0,
       iterations: [],
       templateId: params.templateId,
+      vibe: params.templateId ? true : undefined,
     }
 
     // Create task iteration with 'created' status if message is provided

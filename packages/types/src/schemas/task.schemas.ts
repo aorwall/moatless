@@ -126,6 +126,7 @@ export const TaskResponseSchema = z.object({
   iterations: z.array(TaskIterationSchema),
   workspacePath: z.string().optional(),
   templateId: z.string().optional(),
+  vibe: z.boolean().optional(), // Flag to identify tasks created from templates
 })
 
 export const TaskListResponseSchema = z.object({

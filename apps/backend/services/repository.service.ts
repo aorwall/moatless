@@ -202,6 +202,7 @@ export class RepositoryService {
       useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
       originalBranch: request.originalBranch,
       templateId: request.templateId,
+      vibe: request.sourceType === 'template' ? true : undefined,
       codeExecution,
       previewConfig,
       createdAt: new Date(),
@@ -226,7 +227,7 @@ export class RepositoryService {
     return repository
   }
 
-  async listRepositories(): Promise<RepositoryConfig[]> {
+  async listRepositories(includeVibeRepos = false): Promise<RepositoryConfig[]> {
     const keys = await this.storage.list('repositories/')
     const repositories: RepositoryConfig[] = []
 
@@ -234,7 +235,12 @@ export class RepositoryService {
       const repoId = key.replace('repositories/', '')
       const repo = await this.storage.getRepository(repoId)
       // Filter out soft-deleted repositories
-      if (repo && !repo.deleted) repositories.push(repo)
+      if (repo && !repo.deleted) {
+        // Filter out vibe repositories unless explicitly requested
+        if (!repo.vibe || includeVibeRepos) {
+          repositories.push(repo)
+        }
+      }
     }
 
     // Sort by creation date (newest first)

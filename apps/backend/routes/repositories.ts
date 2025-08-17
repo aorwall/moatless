@@ -63,6 +63,18 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
     prefix,
     describeRoute({
       description: 'Get list of all repositories',
+      parameters: [
+        {
+          name: 'includeVibeRepos',
+          in: 'query',
+          required: false,
+          description: 'Include repositories created from templates (vibe repos)',
+          schema: {
+            type: 'boolean',
+            default: false,
+          },
+        },
+      ],
       responses: {
         200: {
           description: 'List of repositories',
@@ -78,7 +90,8 @@ export async function registerRepositoryRoutes(app: Hono<AppBindings>, prefix: s
       const services = c.get('services')
       const { repository: repositoryService } = services
 
-      const repositories = await repositoryService.listRepositories()
+      const includeVibeRepos = c.req.query('includeVibeRepos') === 'true'
+      const repositories = await repositoryService.listRepositories(includeVibeRepos)
       return c.json({ repositories } as RepositoryList)
     },
   )
