@@ -2,6 +2,7 @@ import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/lib/components/ui/button'
+import { type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
   message: AssistantMessage
@@ -16,6 +17,27 @@ interface ToolCallProps {
 }
 
 function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
+  // Special handling for TodoWrite tool
+  if (content.tool_name === 'TodoWrite' && content.tool_input) {
+    const toolInput = content.tool_input as { todos?: Todo[] }
+    if (toolInput.todos && Array.isArray(toolInput.todos)) {
+      return (
+        <div className="text-xs font-mono w-full max-w-full">
+          <div className="flex items-start gap-2">
+            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1 mb-2">
+                <span className="font-medium">{content.tool_name}</span>
+                <span className="text-muted-foreground">({toolInput.todos.length} items)</span>
+              </div>
+              <TodoList todos={toolInput.todos} />
+            </div>
+          </div>
+        </div>
+      )
+    }
+  }
+
   const hasResult = !!content.tool_result
   const resultLines = content.tool_result?.content?.split('\n') || []
   const shouldTruncate = resultLines.length > 3

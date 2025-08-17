@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
+import { type Todo, TodoList } from '@/features/tasks/components/message-history/tool-calls'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTaskEvents } from '@/features/tasks/hooks/use-tasks'
@@ -45,6 +46,36 @@ function isMessageOrToolEvent(event: Event): boolean {
   if (payload?.type === 'assistant') return true
 
   return false
+}
+
+function extractLatestTodos(events: Event[]): Todo[] | null {
+  // Search through all events for TodoWrite tool calls
+  let latestTodos: Todo[] | null = null
+
+  for (const event of events) {
+    if (event.type !== 'agent' || event.subType !== 'message') continue
+
+    const agentEvent = event as AgentEvent
+    const payload = agentEvent.payload
+
+    if (payload?.type !== 'assistant' || !payload.message?.content) continue
+
+    // Handle both string and array content
+    const content = payload.message.content
+    const contentArray = Array.isArray(content) ? content : []
+
+    // Look for TodoWrite tool calls
+    for (const item of contentArray) {
+      if (item.type === 'tool_use' && item.tool_name === 'TodoWrite' && item.tool_input) {
+        const toolInput = item.tool_input as { todos?: Todo[] }
+        if (toolInput.todos && Array.isArray(toolInput.todos)) {
+          latestTodos = toolInput.todos
+        }
+      }
+    }
+  }
+
+  return latestTodos
 }
 
 interface TaskCardProps {
@@ -116,6 +147,13 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     return allEvents.filter(isMessageOrToolEvent).slice(-3)
   }, [allEvents])
 
+  // Extract latest todos from all events
+  const latestTodos = useMemo(() => {
+    const todos = extractLatestTodos(allEvents)
+    console.log('TaskCard: latestTodos result', todos)
+    return todos
+  }, [allEvents])
+
   // Reset realtime events when task status changes
   useEffect(() => {
     if (!isTaskRunning(task)) {
@@ -178,8 +216,12 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
         <CardContent className="pt-0">
           {isTaskRunning(task) ? (
-            // Show events for running tasks
-            displayedEvents.length > 0 ? (
+            // Show TodoList for running tasks with todos, otherwise show events
+            latestTodos ? (
+              <div className="min-h-[80px] flex items-start">
+                <TodoList todos={latestTodos} showSpinner={true} />
+              </div>
+            ) : displayedEvents.length > 0 ? (
               <div className="min-h-[80px] space-y-px">
                 {displayedEvents.map((event, index) => {
                   const isLast = index === displayedEvents.length - 1
@@ -208,7 +250,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
           ) : (
             // Show result for completed tasks
             <div className={lastIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
-              {lastIteration?.thumbnailPath ? (
+              {latestTodos ? (
+                // Show TodoList for completed tasks with todos
+                <TodoList todos={latestTodos} showSpinner={false} />
+              ) : lastIteration?.thumbnailPath ? (
                 // Show thumbnail instead of text result
                 <div className="overflow-hidden rounded-md">
                   <img
