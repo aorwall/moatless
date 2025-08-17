@@ -365,7 +365,7 @@ export function RepositoryAllConfigSection({
                 updateField('codeExecution', {
                   type: formData.codeExecution?.type || 'local',
                   ...formData.codeExecution,
-                  setupCommands: e.target.value.split('\n').filter(Boolean),
+                  setupCommands: e.target.value.split('\n'),
                 })
               }
               placeholder="npm install&#10;npm run build"

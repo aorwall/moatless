@@ -1,11 +1,11 @@
-import { execSync } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import { promisify } from 'node:util'
 import type { Logger } from 'pino'
 import { createTaskLogger } from '../utils/logger.js'
 
-const execAsync = promisify(require('node:child_process').exec)
+const execAsync = promisify(exec)
 
 // Port range constants
 export const PORT_RANGES = {

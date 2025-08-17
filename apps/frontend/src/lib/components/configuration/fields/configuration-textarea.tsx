@@ -11,12 +11,6 @@ export function ConfigurationTextarea({
   ...props
 }: ConfigurationTextareaProps) {
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Prevent form submission on Enter unless explicitly allowed
-    // Note: For textareas, we typically allow Enter for new lines, but prevent Ctrl+Enter or similar
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !allowFormSubmit) {
-      e.preventDefault()
-    }
-
     // Call original onKeyDown if provided
     onKeyDown?.(e)
   }
