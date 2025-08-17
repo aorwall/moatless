@@ -1,4 +1,4 @@
-import type { AgentEvent, Event, Task } from '@moatless/types'
+import type { AgentEvent, Event, Task, TaskIteration } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -48,6 +48,17 @@ function isMessageOrToolEvent(event: Event): boolean {
   return false
 }
 
+function findIterationWithThumbnail(iterations?: TaskIteration[]): TaskIteration | undefined {
+  if (!iterations || iterations.length === 0) return undefined
+  // Search from last to first to get the most recent thumbnail
+  for (let i = iterations.length - 1; i >= 0; i--) {
+    if (iterations[i].thumbnailPath) {
+      return iterations[i]
+    }
+  }
+  return undefined
+}
+
 function extractLatestTodos(events: Event[]): Todo[] | null {
   // Search through all events for TodoWrite tool calls
   let latestTodos: Todo[] | null = null
@@ -90,6 +101,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]
+
+  // Get iteration with thumbnail (may be different from last iteration)
+  const thumbnailIteration = findIterationWithThumbnail(task.iterations)
 
   // Get workspace status for open tasks to show running state
   const { data: workspaceData } = useWorkspaceStatus(task.taskId, task, {
@@ -250,15 +264,15 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
             )
           ) : (
             // Show result for completed tasks
-            <div className={lastIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
+            <div className={thumbnailIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
               {latestTodos ? (
                 // Show TodoList for completed tasks with todos
                 <TodoList todos={latestTodos} showSpinner={false} />
-              ) : lastIteration?.thumbnailPath ? (
+              ) : thumbnailIteration?.thumbnailPath ? (
                 // Show thumbnail instead of text result
                 <div className="overflow-hidden rounded-md">
                   <img
-                    src={`/api/v1/tasks/${task.taskId}/iterations/${lastIteration.iterationNumber}/thumbnail`}
+                    src={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/thumbnail`}
                     alt="Task preview"
                     className="w-full h-auto object-contain"
                     loading="lazy"
