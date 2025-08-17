@@ -526,8 +526,38 @@ export class TaskService {
         // Save the updated iteration with screenshot and thumbnail paths
         const task = await this.storage.getTask(taskId)
         if (task) {
+          // Find and update the iteration with screenshot paths
+          const taskIteration = task.iterations.find(
+            (it) => it.iterationNumber === iteration.iterationNumber,
+          )
+          if (taskIteration) {
+            taskIteration.screenshotPath = screenshotResult.screenshotPath
+            taskIteration.thumbnailPath = screenshotResult.thumbnailPath
+          }
           await this.storage.saveTask(task)
           taskLogger.debug('Task saved with screenshot and thumbnail paths')
+
+          // Emit event for screenshot capture
+          await this.eventService.emitEvent({
+            taskId: task.taskId,
+            type: 'taskIteration',
+            subType: 'updated',
+            payload: {
+              status: taskIteration?.status || iteration.status,
+              previousStatus: taskIteration?.status || iteration.status,
+              iterationNumber: iteration.iterationNumber,
+              screenshotPath: screenshotResult.screenshotPath,
+              thumbnailPath: screenshotResult.thumbnailPath,
+            },
+            eventId: randomUUID(),
+            timestamp: new Date(),
+            agentType: task.agentType,
+            isError: false,
+          })
+          taskLogger.info('Emitted screenshot update event', {
+            screenshotPath: screenshotResult.screenshotPath,
+            thumbnailPath: screenshotResult.thumbnailPath,
+          })
         }
       } else {
         taskLogger.debug('No screenshot captured (server not configured or failed)')
@@ -1263,6 +1293,39 @@ export class TaskService {
 
     const updatedMetadata = { ...metadata, ...updates }
     await this.storage.saveTask(updatedMetadata)
+  }
+
+  async updateTaskMetadata(
+    taskId: string,
+    updates: { name?: string; description?: string },
+  ): Promise<void> {
+    const task = await this.getTask(taskId)
+
+    // Validate name format if provided
+    if (updates.name !== undefined) {
+      if (updates.name && !/^[a-zA-Z0-9-]+$/.test(updates.name)) {
+        throw new ValidationError(
+          'Task name must be URL-friendly (alphanumeric characters and dashes only)',
+          { name: 'Invalid format' },
+        )
+      }
+    }
+
+    // Update only the provided fields
+    if (updates.name !== undefined) {
+      task.name = updates.name || undefined
+    }
+    if (updates.description !== undefined) {
+      task.description = updates.description || undefined
+    }
+
+    await this.storage.saveTask(task)
+
+    logger.info('Updated task metadata', {
+      taskId,
+      name: updates.name,
+      description: updates.description ? `${updates.description.slice(0, 50)}...` : undefined,
+    })
   }
 
   async deleteTask(taskId: string): Promise<void> {

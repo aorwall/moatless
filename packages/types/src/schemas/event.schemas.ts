@@ -68,6 +68,8 @@ export const TaskIterationPayloadSchema = z.object({
   status: z.string(),
   previousStatus: z.string(),
   iterationNumber: z.number(),
+  screenshotPath: z.string().optional(),
+  thumbnailPath: z.string().optional(),
 })
 
 // ============================================
@@ -89,7 +91,7 @@ export const TaskEventSchema = BaseEventSchema.extend({
 // Task iteration event
 export const TaskIterationEventSchema = BaseEventSchema.extend({
   type: z.literal('taskIteration'),
-  subType: z.enum(['created', 'active', 'completed', 'error']),
+  subType: z.enum(['created', 'active', 'completed', 'error', 'updated']),
   payload: TaskIterationPayloadSchema,
 })
 
