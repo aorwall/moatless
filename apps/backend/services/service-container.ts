@@ -5,6 +5,7 @@ import type { EventService } from './event.service.js'
 import type { GitHubService } from './github.service.js'
 import type { McpService } from './mcp.service.js'
 import type { MessageService } from './message.service.js'
+import type { NetlifyService } from './netlify.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
@@ -22,6 +23,7 @@ export interface ServiceContainer {
   github: GitHubService
   mcp: McpService
   message: MessageService
+  netlify: NetlifyService
   repository: RepositoryService
   settings: SettingsService
   storage: StorageBackend
@@ -50,6 +52,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createEventService } = await import('./event.service.js')
   const { createMcpService } = await import('./mcp.service.js')
   const { createMessageService } = await import('./message.service.js')
+  const { createNetlifyService } = await import('./netlify.service.js')
   const { createTaskService } = await import('./task.service.js')
   const { createWorkspaceService } = await import('./workspace.service.js')
 
@@ -67,6 +70,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)
   container.docker = createDockerService(container.settings)
+  container.netlify = createNetlifyService()
 
   // 3. Services with multiple dependencies
   container.event = createEventService(container.storage)
@@ -97,8 +101,8 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.repository,
   )
 
-  // MCP service needs task service
-  container.mcp = createMcpService(container.task)
+  // MCP service needs task and workspace services
+  container.mcp = createMcpService(container.task, container.workspace)
 
   // 8. Message service needs claude and task services
   container.message = createMessageService(container.claude, container.task)

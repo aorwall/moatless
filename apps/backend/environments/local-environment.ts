@@ -800,6 +800,7 @@ export class LocalEnvironment extends BaseEnvironment {
       resume?: string
       model?: string
       agentMode?: 'edit' | 'plan'
+      hasPreviewServer?: boolean
     },
   ): AsyncGenerator<any> {
     this.logger.info('Running agent', { agentType, taskId: this.taskId })
@@ -823,6 +824,7 @@ export class LocalEnvironment extends BaseEnvironment {
         model: options?.model,
         agentMode: options?.agentMode,
         mcpServerUrl,
+        hasPreviewServer: options?.hasPreviewServer,
       }
 
       // Run the agent and yield all events

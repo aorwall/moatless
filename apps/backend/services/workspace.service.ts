@@ -3,6 +3,7 @@ import path from 'node:path'
 import type {
   CommandExecutionEvent,
   CommandExecutionOptions,
+  DeployResponse,
   RepositoryConfig,
   ServerStatus,
   WorkspaceStatusResponse,
@@ -923,6 +924,78 @@ export class WorkspaceService {
           timestamp: new Date().toISOString(),
           error: error instanceof Error ? error.message : String(error),
         },
+      }
+    }
+  }
+
+  async deployToNetlify(
+    taskId: string,
+    taskName: string | undefined,
+    authToken: string,
+    existingSiteId?: string,
+  ): Promise<DeployResponse> {
+    const workspaceLogger = logger.child({ taskId })
+
+    workspaceLogger.info('Starting build and deploy to Netlify', {
+      taskName,
+      hasAuthToken: !!authToken,
+    })
+
+    try {
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      if (!workspace) {
+        throw new WorkspaceError(`No workspace found for task ${taskId}`, taskId)
+      }
+
+      const environment = workspace.getEnvironment()
+
+      // Ensure environment is ready
+      await environment.ensureReady()
+
+      // Build the project
+      workspaceLogger.info('Building project for deployment')
+      const buildResult = await environment.buildProject()
+
+      if (!buildResult.success) {
+        return {
+          success: false,
+          error: 'Build failed',
+          logs: buildResult.logs,
+          buildDuration: buildResult.duration,
+        }
+      }
+
+      // Deploy to Netlify
+      const siteName = taskName || `moatless-${taskId.substring(0, 8)}`
+      workspaceLogger.info('Deploying to Netlify', { siteName, existingSiteId })
+      const deployResult = await environment.deployToNetlify(taskName, authToken, existingSiteId)
+
+      workspaceLogger.info('Deployment completed', {
+        success: deployResult.success,
+        deployUrl: deployResult.deployUrl,
+        siteUrl: deployResult.siteUrl,
+      })
+
+      return {
+        success: deployResult.success,
+        siteId: deployResult.siteId,
+        deployUrl: deployResult.deployUrl,
+        siteUrl: deployResult.siteUrl,
+        siteName,
+        deployId: deployResult.deployId,
+        buildDuration: buildResult.duration,
+        deployDuration: deployResult.duration,
+        error: deployResult.success ? undefined : 'Deployment failed',
+        logs: `=== Build Output ===\n${buildResult.logs}\n\n=== Deploy Output ===\n${deployResult.logs}`,
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      workspaceLogger.error('Deploy failed', error as Error)
+
+      return {
+        success: false,
+        error: errorMessage,
+        logs: `Deploy failed: ${errorMessage}`,
       }
     }
   }

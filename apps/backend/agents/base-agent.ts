@@ -19,6 +19,7 @@ export interface AgentRunOptions {
   model?: string
   agentMode?: 'edit' | 'plan'
   mcpServerUrl?: string
+  hasPreviewServer?: boolean
 }
 
 export abstract class BaseAgent {

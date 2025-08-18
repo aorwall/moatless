@@ -837,6 +837,7 @@ export class DockerEnvironment extends BaseEnvironment {
       iterationNumber?: number
       resume?: string
       model?: string
+      hasPreviewServer?: boolean
     },
   ): AsyncGenerator<any> {
     this.logger.info('Running agent', { agentType, taskId: this.taskId })
@@ -859,6 +860,7 @@ export class DockerEnvironment extends BaseEnvironment {
         resume: options?.resume,
         model: options?.model,
         mcpServerUrl,
+        hasPreviewServer: options?.hasPreviewServer,
       }
 
       // Run the agent and yield all events
@@ -949,5 +951,34 @@ export class DockerEnvironment extends BaseEnvironment {
     // Use DockerService to stop and remove container
     await this.dockerService.stopContainer(containerName)
     await this.dockerService.removeContainer(containerName)
+  }
+
+  async buildProject(): Promise<{
+    success: boolean
+    outputDirectory: string
+    logs: string
+    duration: number
+  }> {
+    throw new Error('Build functionality not implemented for Docker environment yet')
+  }
+
+  async deployToNetlify(
+    _siteName: string | undefined,
+    _authToken: string,
+    _existingSiteId?: string,
+  ): Promise<{
+    success: boolean
+    siteId?: string
+    deployUrl?: string
+    siteUrl?: string
+    deployId?: string
+    logs: string
+    duration: number
+  }> {
+    return {
+      success: false,
+      logs: 'Netlify deployment not implemented for Docker environment yet',
+      duration: 0,
+    }
   }
 }

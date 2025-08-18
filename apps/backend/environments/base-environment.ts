@@ -324,4 +324,35 @@ export abstract class BaseEnvironment {
     if (!timeout) return defaultTimeout
     return Math.min(Math.max(timeout, 1000), maxTimeout) // Min 1s, max 10min
   }
+
+  // ===============================
+  // Build and Deploy Methods
+  // ===============================
+
+  /**
+   * Build the project using the configured build command
+   */
+  abstract buildProject(): Promise<{
+    success: boolean
+    outputDirectory: string
+    logs: string
+    duration: number
+  }>
+
+  /**
+   * Deploy the built project to Netlify
+   */
+  abstract deployToNetlify(
+    siteName: string | undefined,
+    authToken: string,
+    existingSiteId?: string,
+  ): Promise<{
+    success: boolean
+    siteId?: string
+    deployUrl?: string
+    siteUrl?: string
+    deployId?: string
+    logs: string
+    duration: number
+  }>
 }
