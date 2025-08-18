@@ -16,10 +16,10 @@ export function LogsPanel({ className }: LogsPanelProps) {
     <Tabs
       value={activeTab}
       onValueChange={setActiveTab}
-      className={cn('flex flex-col h-full border-t bg-background', className)}
+      className={cn('flex flex-col h-full bg-background border-t', className)}
     >
       {/* Header bar with title on left, tabs on right */}
-      <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0 h-10">
+      <div className="flex items-center justify-between px-4 border-b flex-shrink-0 h-10">
         <div className="flex items-center gap-2">
           <Terminal className="h-4 w-4" />
           <span className="text-sm font-medium">Console</span>

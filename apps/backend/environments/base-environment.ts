@@ -107,6 +107,11 @@ export abstract class BaseEnvironment {
   abstract getServerLogs?(lines?: number): Promise<string>
 
   /**
+   * Stream server logs via SSE
+   */
+  abstract streamServerLogs?(): AsyncGenerator<{ type: string; data: any }>
+
+  /**
    * Get the preview server port
    */
   abstract getPreviewPort?(): number | undefined

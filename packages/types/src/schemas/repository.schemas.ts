@@ -14,7 +14,8 @@ const repositoryNameSchema = z
 
 // Preview repository configuration
 export const PreviewConfigSchema = z.object({
-  serverStartCommand: z.string().optional(),
+  serverStartCommand: z.string().optional(), // Legacy field for backward compatibility
+  serverStartCommands: z.array(z.string()).optional(), // New array field for multiple commands
   takeScreenshots: z.boolean().optional(),
   buildCommand: z.string().optional(),
   buildOutputDirectory: z.string().default('dist').optional(),

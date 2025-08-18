@@ -46,7 +46,7 @@ describe('useRepositories hooks', () => {
       type: 'local' as const,
     },
     previewConfig: {
-      serverStartCommand: 'npm run dev',
+      serverStartCommands: ['npm run dev'],
       takeScreenshots: false,
       enableInspector: true,
     },

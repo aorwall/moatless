@@ -686,6 +686,7 @@ export class DockerEnvironment extends BaseEnvironment {
       return {
         running: false,
         configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
+        status: 'stopped',
         uptimeSeconds: 0,
       }
     }
@@ -713,6 +714,7 @@ export class DockerEnvironment extends BaseEnvironment {
       return {
         running: false,
         configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
+        status: 'stopped',
         uptimeSeconds: 0,
       }
     }
@@ -739,6 +741,52 @@ export class DockerEnvironment extends BaseEnvironment {
     } catch (error) {
       this.logger.error('Failed to get server logs', error as Error)
       return `Error getting logs: ${error}`
+    }
+  }
+
+  async *streamServerLogs(): AsyncGenerator<{ type: string; data: any }> {
+    // Check if container is ready
+    const status = this.getStatus()
+    if (status !== 'ready') {
+      yield {
+        type: 'error',
+        data: {
+          error: 'Container not ready - no logs available',
+          timestamp: new Date().toISOString(),
+        },
+      }
+      return
+    }
+
+    // For Docker environments, we don't yet support streaming
+    // Fall back to providing current logs and completing
+    try {
+      const logs = await this.getServerLogs()
+
+      if (logs && logs.trim()) {
+        yield {
+          type: 'chunk',
+          data: {
+            text: logs,
+            timestamp: new Date().toISOString(),
+          },
+        }
+      }
+
+      yield {
+        type: 'complete',
+        data: {
+          timestamp: new Date().toISOString(),
+        },
+      }
+    } catch (error) {
+      yield {
+        type: 'error',
+        data: {
+          error: `Failed to get server logs: ${error}`,
+          timestamp: new Date().toISOString(),
+        },
+      }
     }
   }
 

@@ -15,9 +15,9 @@ export function useServerStatus(
     queryFn: () => serverApi.getServerStatus(taskId),
     enabled: !!taskId,
     refetchInterval: (query) => {
-      // Poll more frequently when server is running
+      // Poll more frequently when server is running or initializing
       const data = query.state.data
-      if (data?.running) {
+      if (data?.running || data?.status === 'initializing') {
         return 5000 // 5 seconds
       }
       return false

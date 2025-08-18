@@ -52,7 +52,7 @@ export function createMockDockerCodeExecution(overrides?: Partial<CodeExecution>
 
 export function createMockPreviewConfig(overrides?: Partial<PreviewConfig>): PreviewConfig {
   return {
-    serverStartCommand: 'npm run dev',
+    serverStartCommands: ['npm run dev'],
     takeScreenshots: false,
     enableInspector: true,
     ...overrides,

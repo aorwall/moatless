@@ -106,7 +106,7 @@ export class MessageService {
             // Check if the first message is a user message that should be replaced
             if (messagesToAdd.length > 0 && messagesToAdd[0].type === 'user') {
               // Replace the first user message content with the iteration's initial message
-              logger.info('Replacing first user message with iteration initial message', {
+              logger.debug('Replacing first user message with iteration initial message', {
                 taskId: task.taskId,
                 iterationNumber: iteration.iterationNumber,
                 agentSessionId: iteration.agentSessionId,

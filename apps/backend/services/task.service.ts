@@ -1053,6 +1053,7 @@ export class TaskService {
       hasMessage: !!params.message,
       model: params.model,
       hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
+      start: params.start,
     })
 
     // Generate task ID first (we'll need it for the repository name if not provided)
@@ -1086,7 +1087,7 @@ export class TaskService {
       agentType: params.agentType,
       repositoryId: repository.id,
       message: params.message,
-      start: true, // Always start vibe tasks immediately
+      start: params.start,
       model: params.model,
       filePaths: params.filePaths, // Support file uploads for context
       templateId: params.templateId,

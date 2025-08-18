@@ -405,17 +405,26 @@ export function RepositoryConfigEditSection({
 
       {/* Preview Environment Settings */}
       <ConfigurationGroup title="Preview Environment" showSeparator>
-        <ConfigurationItem label="Start Command" description="Command to start the preview server">
-          <ConfigurationInput
-            value={formData.previewConfig?.serverStartCommand || ''}
-            onChange={(e) =>
+        <ConfigurationItem
+          label="Start Commands"
+          description="Commands to start the preview server (one per line)"
+        >
+          <ConfigurationTextarea
+            value={
+              formData.previewConfig?.serverStartCommands?.join('\n') ||
+              formData.previewConfig?.serverStartCommand ||
+              ''
+            }
+            onChange={(e) => {
+              const commands = e.target.value.split('\n')
               updateField('previewConfig', {
                 ...formData.previewConfig,
-                serverStartCommand: e.target.value,
+                serverStartCommands: commands,
                 enableInspector: formData.previewConfig?.enableInspector ?? true,
               })
-            }
-            placeholder="e.g., npm run dev"
+            }}
+            placeholder="npm install&#10;npm run dev"
+            rows={3}
           />
         </ConfigurationItem>
 

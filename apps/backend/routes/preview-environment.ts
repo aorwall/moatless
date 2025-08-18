@@ -276,4 +276,81 @@ export async function registerPreviewEnvironmentRoutes(app: Hono<AppBindings>, p
       })
     },
   )
+
+  // Stream server logs via SSE
+  app.get(
+    `${prefix}/:taskId/server/logs/stream`,
+    describeRoute({
+      description: 'Stream development server logs for task via Server-Sent Events',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'SSE stream of server logs',
+          content: {
+            'text/event-stream': {
+              schema: {
+                type: 'string',
+                description: 'Server-sent events stream of log chunks',
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Operation not allowed',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = c.req.param('taskId')
+      if (!taskId) {
+        throw new HTTPException(400, { message: 'Task ID is required' })
+      }
+
+      // Import SSE utility
+      const { streamSSE } = await import('../utils/sse-stream.js')
+
+      try {
+        // Get log stream generator from workspace service
+        const logStreamGenerator = await services.workspace.streamServerLogs(taskId)
+
+        // Convert to SSE format
+        const sseGenerator = async function* () {
+          for await (const logEvent of logStreamGenerator) {
+            yield {
+              type: logEvent.type,
+              data: logEvent.data,
+            }
+          }
+        }
+
+        return streamSSE(c, sseGenerator(), {
+          headers: {
+            'Cache-Control': 'no-cache',
+            'X-Task-Id': taskId,
+          },
+        })
+      } catch (error) {
+        throw new HTTPException(500, {
+          message: `Failed to stream logs: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      }
+    },
+  )
 }

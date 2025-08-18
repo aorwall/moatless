@@ -77,6 +77,22 @@ class TestEnvironment extends BaseEnvironment {
     return 'Test logs'
   }
 
+  async *streamServerLogs(): AsyncGenerator<{ type: string; data: any }> {
+    yield {
+      type: 'chunk',
+      data: {
+        text: 'Test logs',
+        timestamp: new Date().toISOString(),
+      },
+    }
+    yield {
+      type: 'complete',
+      data: {
+        timestamp: new Date().toISOString(),
+      },
+    }
+  }
+
   getPreviewPort(): number | undefined {
     return 3000
   }

@@ -101,8 +101,10 @@ export function GlobalEventStreamProvider({
             const nonTaskKeys = invalidationKeys.filter((keyFunction) => {
               const sampleKey = keyFunction(event.taskId)
               // Skip task detail and task list invalidations - handled optimistically
-              // But allow messages, events, and other queries to be invalidated
-              return !sampleKey.includes('detail') && !sampleKey.includes('list')
+              // But allow messages, events, and other sub-resource queries to be invalidated
+              const isTaskDetail = sampleKey.length === 3 && sampleKey[1] === 'detail'
+              const isTaskList = sampleKey[1] === 'list' || sampleKey[2] === 'list'
+              return !isTaskDetail && !isTaskList
             })
 
             nonTaskKeys.forEach((keyFunction) => {

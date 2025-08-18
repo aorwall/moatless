@@ -37,7 +37,7 @@ export class RepositoryService {
       'https://github.com/aorwall/hello-world-ui.git',
       'bun install',
       {
-        serverStartCommand: 'bun run dev',
+        serverStartCommands: ['bun run dev'],
         buildCommand: 'bun run build',
         takeScreenshots: true,
         enableInspector: true,

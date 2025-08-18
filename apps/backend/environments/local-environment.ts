@@ -379,9 +379,24 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async startServer(): Promise<ServerStatus> {
-    const serverCommand = this.repositoryConfig.previewConfig?.serverStartCommand
-    if (!serverCommand) {
-      throw new Error('No server command configured')
+    // Get server commands with backward compatibility
+    const serverStartCommands = this.repositoryConfig.previewConfig?.serverStartCommands
+    const serverStartCommand = this.repositoryConfig.previewConfig?.serverStartCommand
+
+    let commands: string[]
+    if (serverStartCommands && serverStartCommands.length > 0) {
+      // Use new array format, filter out empty commands
+      commands = serverStartCommands.filter((cmd) => cmd.trim() !== '')
+    } else if (serverStartCommand) {
+      // Fall back to legacy single command
+      commands = [serverStartCommand]
+    } else {
+      throw new Error('No server commands configured')
+    }
+
+    // Ensure we have at least one valid command after filtering
+    if (commands.length === 0) {
+      throw new Error('No valid server commands configured (all commands are empty)')
     }
 
     // Check if server is already running
@@ -395,7 +410,7 @@ export class LocalEnvironment extends BaseEnvironment {
     }
 
     this.logger.info('Starting preview server', {
-      command: serverCommand,
+      commands: commands,
       workspacePath: this.workspacePath,
     })
 
@@ -404,8 +419,9 @@ export class LocalEnvironment extends BaseEnvironment {
       this.previewServer = new PreviewServer(
         this.taskId,
         this.workspacePath,
-        serverCommand,
+        commands,
         this.repositoryConfig.codeExecution.envVars || {},
+        this.eventService,
       )
 
       // Start the server first
@@ -453,7 +469,7 @@ export class LocalEnvironment extends BaseEnvironment {
         pid: result.pid,
         port: result.port,
         startTime: new Date(),
-        command: serverCommand,
+        command: commands.join(' && '),
         workspacePath: this.workspacePath,
         logFile: result.log_file,
         processStartTime: Date.now(),
@@ -506,7 +522,7 @@ export class LocalEnvironment extends BaseEnvironment {
       const errorMessage = error instanceof Error ? error.message : String(error)
       this.logger.error('Failed to start preview server', {
         error: errorMessage,
-        command: serverCommand,
+        command: commands.join(' && '),
         workspacePath: this.workspacePath,
       })
 
@@ -528,7 +544,7 @@ export class LocalEnvironment extends BaseEnvironment {
         pid: -1, // No valid PID for failed startup
         port: -1, // No valid port for failed startup
         startTime: new Date(),
-        command: serverCommand,
+        command: commands.join(' && '),
         workspacePath: this.workspacePath,
         logFile: '',
         processStartTime: Date.now(),
@@ -762,6 +778,67 @@ export class LocalEnvironment extends BaseEnvironment {
       }
     }
     return 'No server logs available'
+  }
+
+  async *streamServerLogs(): AsyncGenerator<{ type: string; data: any }> {
+    if (this.previewServer) {
+      // Stream logs from active preview server
+      for await (const logEvent of this.previewServer.streamLogs()) {
+        yield {
+          type: logEvent.type,
+          data: logEvent.data,
+        }
+      }
+    } else {
+      // No preview server running, try to get historical logs
+      const metadata = await this.loadPreviewEnvironmentMetadata(this.taskId)
+
+      if (metadata?.logs) {
+        // Send historical logs as a single chunk
+        yield {
+          type: 'chunk',
+          data: {
+            text: metadata.logs,
+            timestamp: new Date().toISOString(),
+          },
+        }
+      } else if (metadata?.logFile) {
+        try {
+          const content = await fs.readFile(metadata.logFile, 'utf-8')
+          yield {
+            type: 'chunk',
+            data: {
+              text: content,
+              timestamp: new Date().toISOString(),
+            },
+          }
+        } catch (error) {
+          yield {
+            type: 'error',
+            data: {
+              error: 'Failed to read log file',
+              timestamp: new Date().toISOString(),
+            },
+          }
+        }
+      } else {
+        yield {
+          type: 'error',
+          data: {
+            error: 'No server logs available',
+            timestamp: new Date().toISOString(),
+          },
+        }
+      }
+
+      // Complete the stream
+      yield {
+        type: 'complete',
+        data: {
+          timestamp: new Date().toISOString(),
+        },
+      }
+    }
   }
 
   getPreviewPort(): number | undefined {

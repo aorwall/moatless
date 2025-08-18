@@ -338,8 +338,27 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Translate agentMode to permissionMode
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'acceptEdits'
 
+    // Build dynamic allowed tools list based on available features
+    const allowedTools = ['WebFetch', 'WebSearch', 'Bash']
+
+    // Add task metadata tool only for first iteration
+    if (runOptions.iterationNumber === 1) {
+      allowedTools.push('mcp__moatless-tools__updateTaskMetadata')
+    }
+
+    // Add preview server tools if available
+    if (runOptions.hasPreviewServer) {
+      allowedTools.push(
+        'mcp__moatless-tools__startPreviewServer',
+        'mcp__moatless-tools__stopPreviewServer',
+        'mcp__moatless-tools__restartPreviewServer',
+        'mcp__moatless-tools__getPreviewServerStatus',
+        'mcp__moatless-tools__getPreviewServerLogs',
+      )
+    }
+
     const sdkOptions: ClaudeCodeOptions = {
-      allowedTools: ['WebFetch', 'WebSearch', 'Bash', 'mcp__moatless-tools__updateTaskMetadata'],
+      allowedTools,
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
@@ -384,7 +403,13 @@ export class ClaudeCodeAgent extends BaseAgent {
     if (runOptions.hasPreviewServer) {
       systemPromptParts.push(
         "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
-        '**Preview Server**: A preview server is running for this task. If you encounter any issues with the preview server, you can troubleshoot by using the available MCP tools to check server logs (getPreviewServerLogs) and restart the server (restartPreviewServer) if needed.',
+        '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
+        '- `mcp__moatless-tools__startPreviewServer` - Start the preview server',
+        '- `mcp__moatless-tools__stopPreviewServer` - Stop the preview server',
+        '- `mcp__moatless-tools__restartPreviewServer` - Restart the preview server',
+        '- `mcp__moatless-tools__getPreviewServerStatus` - Check server status',
+        '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
+        'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
       )
     }
 

@@ -72,6 +72,17 @@ export const TaskIterationPayloadSchema = z.object({
   thumbnailPath: z.string().optional(),
 })
 
+// Server event payload schema
+export const ServerEventPayloadSchema = z.object({
+  status: z.enum(['stopped', 'initializing', 'running', 'failed']),
+  previousStatus: z.enum(['stopped', 'initializing', 'running', 'failed']).optional(),
+  port: z.number().optional(),
+  pid: z.number().optional(),
+  url: z.string().optional(),
+  error: z.string().optional(),
+  uptimeSeconds: z.number().optional(),
+})
+
 // ============================================
 // Specific Event Schemas
 // ============================================
@@ -113,7 +124,7 @@ export const EnvironmentEventSchema = BaseEventSchema.extend({
 export const ServerEventSchema = BaseEventSchema.extend({
   type: z.literal('server'),
   subType: z.enum(['starting', 'started', 'stopped', 'error']),
-  payload: EventPayloadSchema,
+  payload: ServerEventPayloadSchema,
 })
 
 // Agent event (consolidated: messages, results, lifecycle)
@@ -212,6 +223,7 @@ export type Event = z.infer<typeof EventSchema>
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from '../types/claude.js'
 export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
+export type ServerEventPayload = z.infer<typeof ServerEventPayloadSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>

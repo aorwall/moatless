@@ -1,9 +1,10 @@
 import { useParams } from '@tanstack/react-router'
-import { Loader2, Play } from 'lucide-react'
+import { Loader2, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
-import { useStartServer } from '@/features/preview'
+import { useServerEvents, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { PreviewProvider, usePreview } from '../hooks/use-preview'
 import type { PreviewProps } from '../types'
@@ -17,6 +18,9 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const params = useParams({ from: '/tasks/$taskId' })
   const startServer = useStartServer()
+  const { serverStatus: eventServerStatus, serverError: eventServerError } = useServerEvents(
+    params.taskId,
+  )
 
   const {
     currentPath,
@@ -34,8 +38,11 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     updateHeartbeat,
   } = usePreview()
 
-  // Use proxy endpoint for connection check - we're always connected if server is running
-  const isConnected = serverStatus?.running || false
+  // Use event-driven server status when available, fall back to polling-based status
+  const effectiveServerStatus = eventServerStatus || (serverStatus?.running ? 'running' : 'stopped')
+  const isConnected = effectiveServerStatus === 'running'
+  const isInitializing = effectiveServerStatus === 'initializing'
+  const isFailed = effectiveServerStatus === 'failed'
 
   // Update config when props change
   useEffect(() => {
@@ -195,11 +202,11 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader onReload={reloadPreview} />
 
-      <div className="flex-1 overflow-hidden bg-background border rounded-lg">
+      <div className="flex-1 overflow-hidden bg-background">
         <ResizablePanelGroup direction="vertical" className="h-full">
-          <ResizablePanel defaultSize={95} minSize={30}>
+          <ResizablePanel defaultSize={88} minSize={30}>
             <div className="relative h-full overflow-hidden">
-              {serverStatus && !serverStatus.running && (
+              {effectiveServerStatus === 'stopped' && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                   <div className="text-center space-y-4">
                     <div className="space-y-2">
@@ -225,7 +232,61 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
                 </div>
               )}
 
-              {serverStatus?.running && isConnected && !previewUrl && (
+              {isInitializing && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                  <div className="text-center space-y-6">
+                    <div className="flex flex-col items-center space-y-4">
+                      <Server className="h-12 w-12 text-muted-foreground animate-pulse" />
+                      <div className="space-y-2">
+                        <p className="text-lg font-medium">Server is starting...</p>
+                        <p className="text-sm text-muted-foreground">
+                          Please wait while the preview server initializes
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Skeleton loader for the preview area */}
+                    <div className="w-full max-w-md mx-auto space-y-3">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isFailed && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                  <div className="text-center space-y-4 max-w-md">
+                    <div className="space-y-2">
+                      <p className="text-destructive font-medium">Server failed to start</p>
+                      <p className="text-sm text-muted-foreground">
+                        {eventServerError || 'An error occurred while starting the preview server'}
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleStartServer}
+                      disabled={startServer.isPending}
+                      size="sm"
+                      variant="destructive"
+                    >
+                      {startServer.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Retrying...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Retry
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {isConnected && !previewUrl && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                   <div className="text-center space-y-4">
                     <div className="space-y-2">
@@ -259,7 +320,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
                 </div>
               )}
 
-              {serverStatus?.running && isConnected && previewUrl && (
+              {isConnected && previewUrl && (
                 <>
                   <iframe
                     ref={iframeRef}
@@ -284,7 +345,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
           <ResizableHandle withHandle />
 
-          <ResizablePanel defaultSize={5} minSize={5} maxSize={70}>
+          <ResizablePanel defaultSize={12} minSize={12} maxSize={70}>
             <LogsPanel className="h-full" />
           </ResizablePanel>
         </ResizablePanelGroup>

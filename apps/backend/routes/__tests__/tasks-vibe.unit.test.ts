@@ -7,6 +7,7 @@ describe('CreateVibeTaskRequest validation', () => {
     const validRequest: CreateVibeTaskRequest = {
       agentType: 'test-agent',
       templateId: 'basic-hello-website',
+      start: true,
     }
 
     const result = CreateVibeTaskRequestSchema.safeParse(validRequest)
@@ -27,6 +28,7 @@ describe('CreateVibeTaskRequest validation', () => {
     const requestWithOptionals: CreateVibeTaskRequest = {
       agentType: 'custom-agent',
       templateId: 'basic-hello-website',
+      start: true,
       message: 'Custom message for the task',
       model: 'gpt-4',
       filePaths: ['/path/to/file1.txt', '/path/to/file2.txt'],

@@ -748,6 +748,48 @@ export class WorkspaceService {
     }
   }
 
+  async streamServerLogs(taskId: string): Promise<AsyncGenerator<{ type: string; data: any }>> {
+    try {
+      // Get workspace
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      const environment = workspace.getEnvironment()
+
+      // Check if environment supports server log streaming
+      if (!environment.streamServerLogs) {
+        // Fallback: create a generator that just returns error
+        return (async function* () {
+          yield {
+            type: 'error',
+            data: {
+              error: 'Server log streaming not supported by this environment',
+              timestamp: new Date().toISOString(),
+            },
+          }
+        })()
+      }
+
+      logger.debug('Streaming server logs via environment', {
+        taskId,
+        environmentType: environment.getType(),
+      })
+
+      return environment.streamServerLogs()
+    } catch (error) {
+      logger.error('Error streaming server logs', error as Error, { taskId })
+
+      // Return error as generator
+      return (async function* () {
+        yield {
+          type: 'error',
+          data: {
+            error: `Error streaming server logs: ${error instanceof Error ? error.message : String(error)}`,
+            timestamp: new Date().toISOString(),
+          },
+        }
+      })()
+    }
+  }
+
   async capturePreviewScreenshot(
     taskId: string,
     iterationNumber: number,
