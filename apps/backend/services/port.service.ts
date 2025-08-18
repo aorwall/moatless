@@ -188,20 +188,26 @@ export class PortService {
   async validatePortBelongsToPid(port: number, pid: number): Promise<boolean> {
     const pids = await this.getProcessesUsingPort(port)
 
+    this.logger.debug('Validating port ownership:', {
+      port,
+      expectedPid: pid,
+      actualPids: pids,
+    })
+
     // Check if the exact PID is using the port
     if (pids.includes(pid)) {
       this.logger.debug(`Port ${port} confirmed to belong to PID ${pid}`)
       return true
     }
 
-    // Check if any child processes are using the port
-    const hasChildProcess = await this.checkChildProcesses(pid, pids)
-    if (hasChildProcess) {
-      this.logger.debug(`Port ${port} belongs to child process of PID ${pid}`)
+    // Check if any descendant processes are using the port
+    const hasDescendantProcess = await this.checkChildProcesses(pid, pids)
+    if (hasDescendantProcess) {
+      this.logger.info(`Port ${port} belongs to descendant process of PID ${pid}`)
       return true
     }
 
-    this.logger.debug(`Port ${port} does not belong to PID ${pid} or its children`, {
+    this.logger.warn(`Port ${port} does not belong to PID ${pid} or its descendants`, {
       port,
       expectedPid: pid,
       actualPids: pids,
@@ -210,29 +216,18 @@ export class PortService {
   }
 
   /**
-   * Checks if any of the PIDs using a port are children of our main process
+   * Checks if any of the PIDs using a port are descendants of our main process
    */
   private async checkChildProcesses(parentPid: number, portPids: number[]): Promise<boolean> {
     try {
-      if (process.platform === 'win32') {
-        // Windows: Use wmic to get parent-child relationships
-        for (const portPid of portPids) {
-          const { stdout } = await execAsync(
-            `wmic process where ProcessId=${portPid} get ParentProcessId /value`,
-          )
-          const match = stdout.match(/ParentProcessId=(\d+)/)
-          if (match && Number.parseInt(match[1], 10) === parentPid) {
-            return true
-          }
-        }
-      } else {
-        // Unix: Use ps to check parent-child relationships
-        for (const portPid of portPids) {
-          const { stdout } = await execAsync(`ps -o ppid= -p ${portPid}`)
-          const ppid = Number.parseInt(stdout.trim(), 10)
-          if (ppid === parentPid) {
-            return true
-          }
+      // Get all descendant PIDs of our parent process
+      const descendants = await this.getAllDescendantPids(parentPid)
+
+      // Check if any PID using the port is a descendant
+      for (const portPid of portPids) {
+        if (descendants.has(portPid)) {
+          this.logger.debug(`Port PID ${portPid} is a descendant of ${parentPid}`)
+          return true
         }
       }
     } catch (error) {
@@ -242,6 +237,70 @@ export class PortService {
     }
 
     return false
+  }
+
+  /**
+   * Recursively gets all descendant PIDs of a parent process
+   */
+  private async getAllDescendantPids(parentPid: number): Promise<Set<number>> {
+    const descendants = new Set<number>()
+
+    try {
+      const directChildren = await this.getDirectChildPids(parentPid)
+
+      if (directChildren.length > 0) {
+        this.logger.debug(`PID ${parentPid} has direct children: ${directChildren.join(', ')}`)
+      }
+
+      for (const childPid of directChildren) {
+        descendants.add(childPid)
+        // Recursively get grandchildren
+        const grandChildren = await this.getAllDescendantPids(childPid)
+        grandChildren.forEach((pid) => descendants.add(pid))
+      }
+
+      if (descendants.size > 0) {
+        this.logger.debug(
+          `PID ${parentPid} total descendants: ${Array.from(descendants).join(', ')}`,
+        )
+      }
+    } catch (error) {
+      this.logger.debug(`Error getting descendants for PID ${parentPid}:`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    return descendants
+  }
+
+  /**
+   * Gets direct child PIDs of a parent process
+   */
+  private async getDirectChildPids(parentPid: number): Promise<number[]> {
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Use wmic to get child processes
+        const { stdout } = await execAsync(
+          `wmic process where ParentProcessId=${parentPid} get ProcessId /value`,
+        )
+        const matches = stdout.matchAll(/ProcessId=(\d+)/g)
+        return Array.from(matches)
+          .map((match) => Number.parseInt(match[1], 10))
+          .filter((pid) => !isNaN(pid))
+      }
+      // Unix: Use ps to get child processes
+      const { stdout } = await execAsync(`ps -o pid= --ppid ${parentPid}`)
+      return stdout
+        .trim()
+        .split('\n')
+        .map((line) => Number.parseInt(line.trim(), 10))
+        .filter((pid) => !isNaN(pid))
+    } catch (error) {
+      this.logger.debug(`Error getting direct children for PID ${parentPid}:`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    }
   }
 
   // ===============================

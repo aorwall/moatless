@@ -203,19 +203,28 @@ export class PreviewServer {
         }
       }
 
-      // No port detected but process is still running - server is starting
+      // No port detected but process is still running - this is a failure
       if (this.process.exitCode === null) {
-        this.logger.info(
-          `Server process started with PID ${this.pid} but port not yet detected - server is starting`,
+        this.logger.error(
+          `Server process started with PID ${this.pid} but no port could be detected - killing process`,
         )
-        return {
-          running: false, // Not fully running yet
-          port: -1, // No port detected yet
-          pid: this.pid!,
-          log_file: this.logFile,
-          uptime_seconds: 0,
-          starting: true, // Indicate server is starting
+
+        // Kill the process since we can't determine its port
+        try {
+          if (process.platform !== 'win32') {
+            process.kill(-this.pid!, 'SIGTERM')
+          } else {
+            this.process.kill('SIGTERM')
+          }
+        } catch (killError) {
+          this.logger.error(
+            'Error killing process after port detection failure',
+            killError as Error,
+          )
         }
+
+        this.cleanup()
+        throw new Error(`Failed to detect server port after startup. Check logs at ${this.logFile}`)
       }
 
       // Process exited and no port - complete failure
