@@ -3,8 +3,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
-import { getInvalidationKeys, shouldInvalidateTaskList } from '../utils/event-handlers'
+import { getInvalidationKeys } from '../utils/event-handlers'
 
 interface GlobalEventStreamContextType {
   isConnected: boolean
@@ -86,24 +87,31 @@ export function GlobalEventStreamProvider({
           })
         }
 
+        // Apply optimistic updates for task-related events instead of invalidations
+        if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
+          applyTaskEventUpdate(queryClient, event)
+        }
+
         const invalidationKeys = getInvalidationKeys(event)
 
         if (invalidationKeys.length > 0) {
           // Use queueMicrotask to ensure state updates complete before invalidation
           queueMicrotask(() => {
-            // Invalidate each affected query
-            invalidationKeys.forEach((keyFunction) => {
+            // Only invalidate non-task queries - task data is handled optimistically above
+            const nonTaskKeys = invalidationKeys.filter((keyFunction) => {
+              const sampleKey = keyFunction(event.taskId)
+              // Skip task detail and task list invalidations - handled optimistically
+              // But allow messages, events, and other queries to be invalidated
+              return !sampleKey.includes('detail') && !sampleKey.includes('list')
+            })
+
+            nonTaskKeys.forEach((keyFunction) => {
               queryClient.invalidateQueries({
                 queryKey: keyFunction(event.taskId),
               })
             })
 
-            // Invalidate task lists for status-affecting events to update sidebar
-            if (shouldInvalidateTaskList(event)) {
-              queryClient.invalidateQueries({
-                queryKey: queryKeys.tasks.lists(),
-              })
-            }
+            // Note: We no longer invalidate task lists here - optimistic updates handle this
           })
         }
       }

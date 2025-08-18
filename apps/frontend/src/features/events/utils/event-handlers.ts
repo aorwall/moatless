@@ -41,7 +41,7 @@ export const EVENT_INVALIDATION_MAP = {
 export const STATUS_AFFECTING_SUBTYPES = {
   task: ['created', 'open', 'closed'], // All task subtypes affect status
   taskIteration: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
-  agent: ['started', 'stopped', 'error'], // Only state changes, not messages
+  agent: ['started', 'stopped', 'completed', 'error'], // Only state changes, not messages
   environment: ['ready', 'error'], // Only final states affect status
   workspace: ['ready', 'destroyed', 'error'], // Only final states affect status
   server: ['started', 'stopped', 'error'], // Only state changes affect status
