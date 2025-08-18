@@ -1,9 +1,8 @@
 import { useParams } from '@tanstack/react-router'
 import { Loader2, Play, Server } from 'lucide-react'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServerEvents, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { PreviewProvider, usePreview } from '../hooks/use-preview'
@@ -16,6 +15,7 @@ import { PreviewHeader } from './preview-header'
 function PreviewContent({ config, serverStatus, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
   const params = useParams({ from: '/tasks/$taskId' })
   const startServer = useStartServer()
   const { serverStatus: eventServerStatus, serverError: eventServerError } = useServerEvents(
@@ -202,153 +202,153 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader onReload={reloadPreview} />
 
-      <div className="flex-1 overflow-hidden bg-background">
-        <ResizablePanelGroup direction="vertical" className="h-full">
-          <ResizablePanel defaultSize={88} minSize={30}>
-            <div className="relative h-full overflow-hidden">
-              {effectiveServerStatus === 'stopped' && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                  <div className="text-center space-y-4">
-                    <div className="space-y-2">
-                      <p className="text-muted-foreground">The preview server is not running</p>
-                      <p className="text-sm text-muted-foreground">
-                        Start the server to see the preview
-                      </p>
-                    </div>
-                    <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
-                      {startServer.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Starting Server...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="mr-2 h-4 w-4" />
-                          Start Server
-                        </>
-                      )}
-                    </Button>
-                  </div>
+      <div className="flex-1 flex flex-col overflow-hidden bg-background">
+        {/* Preview content takes available space */}
+        <div className="flex-1 overflow-hidden relative">
+          {effectiveServerStatus === 'stopped' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-4">
+                <div className="space-y-2">
+                  <p className="text-muted-foreground">The preview server is not running</p>
+                  <p className="text-sm text-muted-foreground">
+                    Start the server to see the preview
+                  </p>
                 </div>
-              )}
-
-              {isInitializing && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                  <div className="text-center space-y-6">
-                    <div className="flex flex-col items-center space-y-4">
-                      <Server className="h-12 w-12 text-muted-foreground animate-pulse" />
-                      <div className="space-y-2">
-                        <p className="text-lg font-medium">Server is starting...</p>
-                        <p className="text-sm text-muted-foreground">
-                          Please wait while the preview server initializes
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Skeleton loader for the preview area */}
-                    <div className="w-full max-w-md mx-auto space-y-3">
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="h-4 w-1/2" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isFailed && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                  <div className="text-center space-y-4 max-w-md">
-                    <div className="space-y-2">
-                      <p className="text-destructive font-medium">Server failed to start</p>
-                      <p className="text-sm text-muted-foreground">
-                        {eventServerError || 'An error occurred while starting the preview server'}
-                      </p>
-                    </div>
-                    <Button
-                      onClick={handleStartServer}
-                      disabled={startServer.isPending}
-                      size="sm"
-                      variant="destructive"
-                    >
-                      {startServer.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Retrying...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="mr-2 h-4 w-4" />
-                          Retry
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {isConnected && !previewUrl && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                  <div className="text-center space-y-4">
-                    <div className="space-y-2">
-                      <p className="text-muted-foreground">Preview URL is not available</p>
-                      <p className="text-sm text-muted-foreground">
-                        Restart the server to initialize the preview
-                      </p>
-                    </div>
-                    <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
-                      {startServer.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Starting Server...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="mr-2 h-4 w-4" />
-                          Restart Server
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {error && isConnected && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                  <div className="text-center space-y-2">
-                    <p className="text-destructive">{error}</p>
-                  </div>
-                </div>
-              )}
-
-              {isConnected && previewUrl && (
-                <>
-                  <iframe
-                    ref={iframeRef}
-                    src={previewUrl}
-                    title="Application Preview"
-                    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
-                    onLoad={handleIframeLoad}
-                    onError={handleIframeError}
-                    className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
-                  />
-
-                  {isInspectorActive && (
-                    <InspectorOverlay iframeRef={iframeRef} onElementSelected={onElementSelected} />
+                <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
+                  {startServer.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Starting Server...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="mr-2 h-4 w-4" />
+                      Start Server
+                    </>
                   )}
-                </>
-              )}
-
-              {/* Inspector Panel - Shows element details */}
-              {isInspectorActive && selectedElement && <InspectorPanel className="z-20" />}
+                </Button>
+              </div>
             </div>
-          </ResizablePanel>
+          )}
 
-          <ResizableHandle withHandle />
+          {isInitializing && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-6">
+                <div className="flex flex-col items-center space-y-4">
+                  <Server className="h-12 w-12 text-muted-foreground animate-pulse" />
+                  <div className="space-y-2">
+                    <p className="text-lg font-medium">Server is starting...</p>
+                    <p className="text-sm text-muted-foreground">
+                      Please wait while the preview server initializes
+                    </p>
+                  </div>
+                </div>
 
-          <ResizablePanel defaultSize={12} minSize={12} maxSize={70}>
-            <LogsPanel className="h-full" />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+                {/* Skeleton loader for the preview area */}
+                <div className="w-full max-w-md mx-auto space-y-3">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isFailed && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-4 max-w-md">
+                <div className="space-y-2">
+                  <p className="text-destructive font-medium">Server failed to start</p>
+                  <p className="text-sm text-muted-foreground">
+                    {eventServerError || 'An error occurred while starting the preview server'}
+                  </p>
+                </div>
+                <Button
+                  onClick={handleStartServer}
+                  disabled={startServer.isPending}
+                  size="sm"
+                  variant="destructive"
+                >
+                  {startServer.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Retrying...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="mr-2 h-4 w-4" />
+                      Retry
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {isConnected && !previewUrl && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-4">
+                <div className="space-y-2">
+                  <p className="text-muted-foreground">Preview URL is not available</p>
+                  <p className="text-sm text-muted-foreground">
+                    Restart the server to initialize the preview
+                  </p>
+                </div>
+                <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
+                  {startServer.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Starting Server...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="mr-2 h-4 w-4" />
+                      Restart Server
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {error && isConnected && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-2">
+                <p className="text-destructive">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {isConnected && previewUrl && (
+            <>
+              <iframe
+                ref={iframeRef}
+                src={previewUrl}
+                title="Application Preview"
+                sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
+                onLoad={handleIframeLoad}
+                onError={handleIframeError}
+                className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
+              />
+
+              {isInspectorActive && (
+                <InspectorOverlay iframeRef={iframeRef} onElementSelected={onElementSelected} />
+              )}
+            </>
+          )}
+
+          {/* Inspector Panel - Shows element details */}
+          {isInspectorActive && selectedElement && <InspectorPanel className="z-20" />}
+        </div>
+
+        {/* Console panel - always render container, conditionally show content */}
+        <div className={isConsoleExpanded ? 'h-64 border-t' : 'h-10 border-t'}>
+          <LogsPanel
+            className="h-full"
+            onToggleExpanded={() => setIsConsoleExpanded(!isConsoleExpanded)}
+            isExpanded={isConsoleExpanded}
+          />
+        </div>
       </div>
     </div>
   )

@@ -4,7 +4,6 @@ import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { ServerStatus, ServerStatusEnum } from '@moatless/types'
-import { executeCommandWithStream } from '../utils/command-executor.js'
 import { execAsync } from '../utils/git-utils.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
@@ -180,36 +179,29 @@ export class PreviewServer {
     try {
       this.logger.info('Starting background server startup process')
 
-      // Execute preparation commands (all but the last one)
+      // Combine all commands into a single execution context to preserve environment
       const preparationCommands = commandsArray.slice(0, -1)
       const serverCommand = commandsArray[commandsArray.length - 1]
 
+      // Build combined command string with proper shell environment loading
+      let combinedCommand: string
       if (preparationCommands.length > 0) {
         this.logger.info(
-          `Executing ${preparationCommands.length} preparation commands before starting server`,
+          `Combining ${preparationCommands.length} preparation commands with server command for environment persistence`,
         )
 
-        for (let i = 0; i < preparationCommands.length; i++) {
-          const prepCommand = preparationCommands[i]
-          this.logger.info(`Executing preparation command ${i + 1}: ${prepCommand}`)
+        // Join all commands with && to ensure they run in the same shell context
+        const allCommands = [...preparationCommands, serverCommand]
+        combinedCommand = allCommands.join(' && ')
 
-          try {
-            await this.executeCommand(prepCommand)
-            this.logger.info(`Preparation command ${i + 1} completed successfully`)
-          } catch (error) {
-            const errorMsg = `Preparation command ${i + 1} failed: ${error instanceof Error ? error.message : String(error)}`
-            this.logger.error(errorMsg)
-            this.failureReason = errorMsg
-            this.isStarting = false
-            await this.emitServerEvent('failed', errorMsg)
-            return
-          }
-        }
+        this.logger.info(`Combined command: ${combinedCommand}`)
+      } else {
+        combinedCommand = serverCommand
       }
 
-      // Now start the actual server with the last command
-      const originalCommand = serverCommand
-      let command = serverCommand
+      // Now start the server with the combined command (preserving existing logic)
+      const originalCommand = combinedCommand
+      let command = combinedCommand
 
       // Only allocate a port if the command contains the placeholder
       if (originalCommand.includes(this.portPlaceholder)) {
@@ -239,30 +231,76 @@ export class PreviewServer {
       // Create write stream for logs
       const logStream = await fs.open(this.logFile!, 'a')
 
-      try {
-        // Merge environment variables with current process environment
-        const processEnv = {
-          ...process.env,
-          ...this.envVars,
-        }
+      // Merge environment variables with current process environment
+      const processEnv = {
+        ...process.env,
+        ...this.envVars,
+      }
 
-        // Start the process
-        this.process = spawn(command, [], {
-          cwd: this.workspacePath,
-          shell: true,
-          detached: process.platform !== 'win32',
-          stdio: ['ignore', logStream.fd, logStream.fd],
-          env: processEnv,
+      // Improve nvm loading approach
+      const shellCommand =
+        process.platform === 'win32'
+          ? command
+          : `export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"; source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; ${command}`
+
+      // Start the process
+      this.process = spawn(shellCommand, [], {
+        cwd: this.workspacePath,
+        shell: true,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', logStream.fd, logStream.fd],
+        env: processEnv,
+      })
+
+      this.pid = this.process.pid
+      this.startTime = Date.now()
+
+      // Add error event handler to catch spawn failures
+      this.process.on('error', (error) => {
+        this.logger.error('Process spawn error', error, {
+          taskId: this.taskId,
+          command: shellCommand,
+        })
+        this.failureReason = `Failed to spawn process: ${error.message}`
+        this.isStarting = false
+        this.emitServerEvent('failed', this.failureReason).catch((eventError) => {
+          this.logger.error('Failed to emit server failed event', eventError)
+        })
+        this.cleanup()
+        logStream.close().catch(() => {}) // Close log file on error
+      })
+
+      // Add exit handler for early exits during initialization
+      this.process.on('exit', (code, signal) => {
+        this.logger.info('Process exited', {
+          taskId: this.taskId,
+          code,
+          signal,
+          isStarting: this.isStarting,
         })
 
-        this.pid = this.process.pid
-        this.startTime = Date.now()
+        // If process exits during startup, it's a failure
+        if (this.isStarting) {
+          this.failureReason = `Process exited during startup with code ${code}${signal ? ` (signal: ${signal})` : ''}`
+          this.logger.error('Process exited during startup', {
+            taskId: this.taskId,
+            code,
+            signal,
+            failureReason: this.failureReason,
+          })
+          this.isStarting = false
+          this.emitServerEvent('failed', this.failureReason).catch((eventError) => {
+            this.logger.error('Failed to emit server failed event', eventError)
+          })
+          this.cleanup()
+        }
 
-        // Start background port detection
-        this.startPortDetection()
-      } finally {
-        await logStream.close()
-      }
+        // Close log file when process exits
+        logStream.close().catch(() => {})
+      })
+
+      // Start background port detection
+      this.startPortDetection()
 
       this.isStarting = false
       this.logger.info('Background server startup initiated')
@@ -716,99 +754,6 @@ export class PreviewServer {
       }
     } catch (error) {
       this.logger.error('Error proxying request', error as Error)
-      throw error
-    }
-  }
-
-  /**
-   * Execute a single command and wait for it to complete
-   * Logs all output to the log file for complete visibility
-   */
-  private async executeCommand(command: string): Promise<void> {
-    const startTime = new Date().toISOString()
-
-    // Write command header to log file
-    if (this.logFile) {
-      const header = `\n========================================\n[${startTime}] Executing: ${command}\n========================================\n`
-      await fs.appendFile(this.logFile, header)
-    }
-
-    let commandSuccess = true
-    let commandError = ''
-
-    try {
-      // Use the shared utility to execute command with streaming
-      for await (const event of executeCommandWithStream(command, {
-        cwd: this.workspacePath,
-        env: this.envVars,
-        timeout: 300000, // 5 minutes timeout for preparation commands
-      })) {
-        // Log different event types
-        switch (event.type) {
-          case 'start':
-            this.logger.info(`Starting preparation command: ${command}`)
-            break
-
-          case 'output':
-            // Append output to log file in real-time
-            if (this.logFile && event.data.text) {
-              const prefix = event.data.outputType === 'stderr' ? '[stderr] ' : '[stdout] '
-              await fs.appendFile(this.logFile, prefix + event.data.text)
-            }
-
-            // Also log to internal logger for debugging
-            if (event.data.text) {
-              if (event.data.outputType === 'stderr') {
-                this.logger.debug(`Command stderr: ${event.data.text.trim()}`)
-              } else {
-                this.logger.debug(`Command stdout: ${event.data.text.trim()}`)
-              }
-            }
-            break
-
-          case 'complete': {
-            const endTime = new Date().toISOString()
-            const exitCode = event.data.exitCode ?? 1
-            const success = exitCode === 0
-
-            // Write completion footer to log file
-            if (this.logFile) {
-              const footer = `\n========================================\n[${endTime}] Command completed: ${command} (exit code: ${exitCode})\n========================================\n`
-              await fs.appendFile(this.logFile, footer)
-            }
-
-            if (success) {
-              this.logger.info(`Preparation command completed successfully: ${command}`)
-            } else {
-              commandSuccess = false
-              commandError = event.data.error || `Command failed with exit code ${exitCode}`
-              this.logger.error(`Preparation command failed: ${command}`, {
-                exitCode,
-                error: event.data.error,
-              })
-            }
-            break
-          }
-
-          case 'error':
-            commandSuccess = false
-            commandError = 'Command execution error'
-            this.logger.error(`Command execution error: ${command}`)
-            break
-        }
-      }
-
-      if (!commandSuccess) {
-        throw new Error(commandError)
-      }
-    } catch (error) {
-      // Write error to log file
-      if (this.logFile) {
-        const errorTime = new Date().toISOString()
-        const errorMsg = `\n[${errorTime}] ERROR: ${error instanceof Error ? error.message : String(error)}\n`
-        await fs.appendFile(this.logFile, errorMsg)
-      }
-
       throw error
     }
   }

@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router'
-import { ArrowDown, Wifi, WifiOff } from 'lucide-react'
+import { ArrowDown, WifiOff } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import { useServerEvents, useServerLogs, useServerLogsStream } from '@/features/preview'
@@ -77,29 +77,13 @@ export function ServerLogsViewer() {
             <p className="mt-2 text-sm">Server logs will appear here when the server is running</p>
           </div>
           <div className="flex items-center justify-center gap-2 text-sm">
-            {shouldStream && isConnected ? (
-              <>
-                <Wifi className="h-4 w-4 text-green-500" />
-                <span className="text-green-500">Live streaming</span>
-              </>
-            ) : shouldStream && !isConnected ? (
+            {shouldStream && !isConnected && (
               <>
                 <WifiOff className="h-4 w-4 text-muted-foreground" />
                 <span>Disconnected</span>
                 <Button onClick={reconnect} variant="outline" size="sm">
                   Reconnect
                 </Button>
-              </>
-            ) : (
-              <>
-                <Wifi className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">
-                  {serverStatus === 'stopped'
-                    ? 'Server stopped'
-                    : serverStatus === 'failed'
-                      ? 'Server failed'
-                      : 'Not streaming'}
-                </span>
               </>
             )}
           </div>
@@ -113,28 +97,10 @@ export function ServerLogsViewer() {
       {/* Connection status header */}
       <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50">
         <div className="flex items-center gap-2 text-sm">
-          {shouldStream && isConnected ? (
-            <>
-              <Wifi className="h-3 w-3 text-green-500" />
-              <span className="text-green-500">Live streaming</span>
-            </>
-          ) : shouldStream && !isConnected ? (
+          {shouldStream && !isConnected && (
             <>
               <WifiOff className="h-3 w-3 text-muted-foreground" />
               <span className="text-muted-foreground">Disconnected</span>
-            </>
-          ) : (
-            <>
-              <Wifi className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">
-                {serverStatus === 'stopped'
-                  ? 'Server stopped'
-                  : serverStatus === 'failed'
-                    ? 'Server failed'
-                    : serverStatus === 'initializing'
-                      ? 'Server starting...'
-                      : 'Static logs'}
-              </span>
             </>
           )}
         </div>
