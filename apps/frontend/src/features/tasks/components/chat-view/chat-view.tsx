@@ -195,7 +195,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
 
       {/* Command Buttons - shown when task is not running - fixed height */}
       {!isTaskRunning && availableCommands.length > 0 && (
-        <div className="border-t border-border p-4 flex-shrink-0">
+        <div className="p-4 flex-shrink-0">
           <CommandButtons
             commands={availableCommands as Command[]}
             onCommandClick={handleCommandClick}
@@ -205,7 +205,7 @@ function ChatViewComponent({ className }: ChatViewProps) {
       )}
 
       {/* Chat Input Component - always visible at bottom - fixed height */}
-      <div className="border-t border-border flex-shrink-0">
+      <div className="flex-shrink-0">
         <ErrorBoundary componentName="Chat Input">
           <div data-testid="task-chat-input" className="p-4">
             <div className="space-y-4">

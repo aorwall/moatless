@@ -127,7 +127,6 @@ export function useServerLogs(
     queryKey: queryKeys.tasks.serverLogs(taskId),
     queryFn: () => serverApi.getServerLogs(taskId),
     enabled: !!taskId,
-    refetchInterval: 2000, // Poll every 2 seconds
     ...options,
   })
 }

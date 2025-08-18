@@ -11,7 +11,7 @@ function TaskDetail() {
   const { taskId } = Route.useParams()
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex-1 overflow-auto h-full">

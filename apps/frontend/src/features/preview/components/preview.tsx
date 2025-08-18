@@ -80,22 +80,30 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     const handleMessage = (event: MessageEvent) => {
       const { type, payload, source } = event.data || {}
 
-      // Debug: Log all messages to see what we're receiving
-      console.log('[Preview] Received message:', { type, source, payload, origin: event.origin })
+      // Debug: Log all messages to see what we're receiving (only when console is expanded)
+      if (isConsoleExpanded) {
+        console.log('[Preview] Received message:', { type, source, payload, origin: event.origin })
+      }
 
       if (source !== 'preview-iframe') {
-        console.log('[Preview] Ignoring message - wrong source:', source)
+        if (isConsoleExpanded) {
+          console.log('[Preview] Ignoring message - wrong source:', source)
+        }
         return
       }
 
-      console.log('[Preview] Processing message:', type)
+      if (isConsoleExpanded) {
+        console.log('[Preview] Processing message:', type)
+      }
 
       switch (type) {
         case 'console': {
           // Enhanced console output - could be sent to logs panel
           // Note: Console messages now use flat structure (level, message at top level)
           const { level, message } = event.data
-          console.log(`[Preview ${level}]:`, message)
+          if (isConsoleExpanded) {
+            console.log(`[Preview ${level}]:`, message)
+          }
           break
         }
 
@@ -108,22 +116,30 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
         case 'NETWORK_REQUEST':
           // Network request captured - could be sent to network panel
-          console.log('[Preview Network]:', payload)
+          if (isConsoleExpanded) {
+            console.log('[Preview Network]:', payload)
+          }
           break
 
         case 'SCROLL_POSITION':
           // Scroll position changed
-          console.log('[Preview Scroll]:', payload)
+          if (isConsoleExpanded) {
+            console.log('[Preview Scroll]:', payload)
+          }
           break
 
         case 'ROUTE_CHANGE':
           // Route changed in the preview app - update the address bar display only
-          console.log('[Preview Route]:', `Route changed to ${payload.path}`)
+          if (isConsoleExpanded) {
+            console.log('[Preview Route]:', `Route changed to ${payload.path}`)
+          }
           setDisplayPath(payload.path)
           break
 
         case 'INSPECTOR_SCRIPT_LOADED':
-          console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
+          if (isConsoleExpanded) {
+            console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
+          }
           setScriptHealthStatus('injected-reachable')
           updateHeartbeat()
           break
@@ -141,7 +157,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onElementSelected, setDisplayPath, setScriptHealthStatus, updateHeartbeat])
+  }, [onElementSelected, setDisplayPath, setScriptHealthStatus, updateHeartbeat, isConsoleExpanded])
 
   // Function to toggle the element selector in the iframe
   const toggleSelector = useCallback((enabled: boolean) => {

@@ -319,6 +319,7 @@ export const CommandExecutionEventSchema = z.object({
     // For 'start' event
     total: z.number().optional(), // Total number of commands
     purpose: z.string().optional(), // setup/test/build/etc
+    pid: z.number().optional(), // Process ID
 
     // For 'output' event
     text: z.string().optional(), // The actual output text

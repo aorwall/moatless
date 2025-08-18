@@ -528,6 +528,7 @@ export class RepositoryService {
 
     logger.info('Cloning GitHub repository', {
       owner,
+      cloneUrl,
       repo: repoName,
       path: clonePath,
       isSSH,
@@ -599,6 +600,12 @@ export class RepositoryService {
         isSSH,
       })
     }
+    logger.info('Successfully cloned GitHub repository', {
+      owner,
+      cloneUrl,
+      repo: repoName,
+      path: clonePath,
+    })
 
     // For HTTPS URLs with PAT, remove the PAT from the remote URL for security
     // SSH URLs don't need this step

@@ -28,7 +28,21 @@ export function LogsPanel({ className, onToggleExpanded, isExpanded = false }: L
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Expand/collapse button */}
+          {/* Tabs - only show when expanded */}
+          {isExpanded && (
+            <TabsList className="h-7">
+              <TabsTrigger value="server" className="text-xs h-7">
+                <Server className="h-3 w-3" />
+                <span className="ml-1">Server</span>
+              </TabsTrigger>
+              <TabsTrigger value="console" className="text-xs h-7">
+                <Terminal className="h-3 w-3" />
+                <span className="ml-1">Console</span>
+              </TabsTrigger>
+            </TabsList>
+          )}
+
+          {/* Expand/collapse button - to the right of tabs */}
           {onToggleExpanded && (
             <button
               type="button"
@@ -39,18 +53,6 @@ export function LogsPanel({ className, onToggleExpanded, isExpanded = false }: L
               {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
             </button>
           )}
-
-          {/* Tabs on the right side of header */}
-          <TabsList className="h-7">
-            <TabsTrigger value="server" className="text-xs h-7">
-              <Server className="h-3 w-3" />
-              <span className="ml-1">Server</span>
-            </TabsTrigger>
-            <TabsTrigger value="console" className="text-xs h-7">
-              <Terminal className="h-3 w-3" />
-              <span className="ml-1">Console</span>
-            </TabsTrigger>
-          </TabsList>
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import type { CommandExecutionEvent } from '@moatless/types'
 
 export interface CommandExecutionOptions {
@@ -8,31 +8,26 @@ export interface CommandExecutionOptions {
   shell?: string
 }
 
+export interface SpawnResult {
+  child: ChildProcess
+  shellCommand: string
+  startTime: number
+  timeoutHandle: NodeJS.Timeout
+}
+
 /**
- * Execute a command and yield execution events for streaming and logging
- * This is a shared utility that can be consumed by different components
+ * Synchronously spawn a command and return the child process with setup info
+ * This allows immediate access to the process and PID while monitoring can happen separately
  */
-export async function* executeCommandWithStream(
-  command: string,
-  options: CommandExecutionOptions,
-): AsyncGenerator<CommandExecutionEvent> {
+export function spawnCommand(command: string, options: CommandExecutionOptions): SpawnResult {
   const { cwd, env = {}, timeout = 30000, shell } = options
   const startTime = Date.now()
 
-  // Emit start event
-  yield {
-    type: 'start',
-    data: {
-      timestamp: new Date().toISOString(),
-      command,
-    },
-  }
-
-  // Create the shell command with environment setup
+  // Create the shell command with improved environment setup
   const shellCommand =
     process.platform === 'win32'
       ? command
-      : `source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; ${command}`
+      : `export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; ${command}`
 
   const shellExecutable =
     shell || (process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh')
@@ -42,18 +37,57 @@ export async function* executeCommandWithStream(
   const child = spawn(shellExecutable, shellArgs, {
     cwd,
     env: { ...process.env, ...env },
-    timeout,
+    stdio: ['ignore', 'pipe', 'pipe'], // Explicitly set stdio
   })
-
-  let outputBuffer = ''
-  let errorBuffer = ''
-  let timedOut = false
 
   // Set up timeout
   const timeoutHandle = setTimeout(() => {
-    timedOut = true
     child.kill('SIGTERM')
   }, timeout)
+
+  return {
+    child,
+    shellCommand,
+    startTime,
+    timeoutHandle,
+  }
+}
+
+/**
+ * Monitor an already spawned command for output and completion events
+ * This allows monitoring to happen asynchronously after process is spawned
+ */
+export async function* monitorCommandOutput(
+  spawnResult: SpawnResult,
+  command: string,
+): AsyncGenerator<CommandExecutionEvent> {
+  const { child, startTime, timeoutHandle } = spawnResult
+
+  // Emit start event immediately
+  yield {
+    type: 'start',
+    data: {
+      timestamp: new Date().toISOString(),
+      command,
+      pid: child.pid,
+    },
+  }
+
+  let outputBuffer = ''
+  let errorBuffer = ''
+  const timedOut = false
+  let spawnFailed = false
+  let spawnErrorMessage = ''
+
+  // Handle spawn errors
+  child.on('error', (error: Error) => {
+    spawnFailed = true
+    spawnErrorMessage = error.message
+  })
+
+  // Handle timeout cleanup
+  const originalTimeout = timeoutHandle
+  timeoutHandle.unref() // Don't keep process alive
 
   // Set up arrays to collect stderr chunks
   const stderrChunks: Array<{ text: string; timestamp: string }> = []
@@ -69,6 +103,9 @@ export async function* executeCommandWithStream(
       })
     })
   }
+
+  // Monitor for timeout
+  originalTimeout.unref() // Don't keep process alive
 
   // Stream stdout and periodically check for stderr
   if (child.stdout) {
@@ -104,14 +141,29 @@ export async function* executeCommandWithStream(
   // Wait for process to exit
   const exitCode = await new Promise<number>((resolve) => {
     child.on('exit', (code) => {
-      clearTimeout(timeoutHandle)
+      clearTimeout(originalTimeout)
       resolve(code || 0)
     })
     child.on('error', (_error) => {
-      clearTimeout(timeoutHandle)
+      clearTimeout(originalTimeout)
       resolve(1)
     })
   })
+
+  // If spawn failed, yield error immediately
+  if (spawnFailed) {
+    yield {
+      type: 'complete',
+      data: {
+        timestamp: new Date().toISOString(),
+        command,
+        exitCode: 1,
+        duration: Date.now() - startTime,
+        error: `Failed to spawn process: ${spawnErrorMessage}`,
+      },
+    }
+    return
+  }
 
   // Yield any remaining stderr
   while (stderrChunks.length > 0) {
@@ -143,4 +195,21 @@ export async function* executeCommandWithStream(
           : undefined,
     },
   }
+}
+
+/**
+ * Execute a command and yield execution events for streaming and logging
+ * This is a shared utility that can be consumed by different components
+ *
+ * This function now uses the new split approach internally for backwards compatibility
+ */
+export async function* executeCommandWithStream(
+  command: string,
+  options: CommandExecutionOptions,
+): AsyncGenerator<CommandExecutionEvent> {
+  // Use the new split approach internally
+  const spawnResult = spawnCommand(command, options)
+
+  // Monitor the spawned process
+  yield* monitorCommandOutput(spawnResult, command)
 }
