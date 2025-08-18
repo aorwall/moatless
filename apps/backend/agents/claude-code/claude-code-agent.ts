@@ -370,6 +370,29 @@ export class ClaudeCodeAgent extends BaseAgent {
       })
     }
 
+    // Build dynamic system prompt based on available features
+    const systemPromptParts: string[] = []
+
+    // Add task metadata instruction for first iteration
+    if (runOptions.iterationNumber === 1) {
+      systemPromptParts.push(
+        "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish.",
+      )
+    }
+
+    // Add preview server information when available
+    if (runOptions.hasPreviewServer) {
+      systemPromptParts.push(
+        "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
+        '**Preview Server**: A preview server is running for this task. If you encounter any issues with the preview server, you can troubleshoot by using the available MCP tools to check server logs (getPreviewServerLogs) and restart the server (restartPreviewServer) if needed.',
+      )
+    }
+
+    // Set the combined system prompt if there are any parts
+    if (systemPromptParts.length > 0) {
+      sdkOptions.appendSystemPrompt = systemPromptParts.join('\n\n')
+    }
+
     return sdkOptions
   }
 
