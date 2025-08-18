@@ -52,6 +52,35 @@ export class TaskService {
   }
 
   /**
+   * Derive task status based on the last iteration's status
+   * If the last iteration is "active", the task is considered "running"
+   */
+  private deriveTaskStatus(task: Task): Task {
+    // Closed tasks should remain closed regardless of iteration status
+    if (task.status === 'closed') {
+      return task
+    }
+
+    if (!task.iterations || task.iterations.length === 0) {
+      return task
+    }
+
+    // Get the last iteration
+    const lastIteration = task.iterations[task.iterations.length - 1]
+
+    // If the last iteration is active, the task is running
+    if (lastIteration.status === 'active') {
+      return {
+        ...task,
+        status: 'running',
+      }
+    }
+
+    // For other statuses, keep the existing task status
+    return task
+  }
+
+  /**
    * Setup event subscription for reactive task updates
    */
   private setupEventSubscription(): void {
@@ -379,6 +408,26 @@ export class TaskService {
 
     // Save task with updated iteration and status
     await this.storage.saveTask(task)
+
+    // Emit taskIteration event for completed iteration
+    if (iteration.status === 'completed') {
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: 'taskIteration',
+        subType: 'completed',
+        payload: {
+          status: 'completed',
+          previousStatus: 'active',
+          iterationNumber: iteration.iterationNumber,
+          result: iteration.result,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        agentType: task.agentType,
+        isError: false,
+        iterationId: iteration.iterationNumber,
+      })
+    }
 
     // Emit task status change event if status actually changed
     if (previousStatus !== newStatus) {
@@ -1048,7 +1097,7 @@ export class TaskService {
       throw new TaskNotFoundError(taskId)
     }
 
-    return task
+    return this.deriveTaskStatus(task)
   }
 
   async listTasks(
@@ -1063,16 +1112,19 @@ export class TaskService {
       const taskId = key.replace('tasks/', '')
       const task = await this.storage.getTask(taskId)
       if (task) {
+        // Apply status derivation
+        const taskWithDerivedStatus = this.deriveTaskStatus(task)
+
         // Filter by status if provided, otherwise exclude closed tasks by default
         if (status) {
           // If status is explicitly provided, only include tasks with that status
-          if (task.status === status) {
-            tasks.push(task)
+          if (taskWithDerivedStatus.status === status) {
+            tasks.push(taskWithDerivedStatus)
           }
         } else {
           // If no status filter, exclude closed tasks by default
-          if (task.status !== 'closed') {
-            tasks.push(task)
+          if (taskWithDerivedStatus.status !== 'closed') {
+            tasks.push(taskWithDerivedStatus)
           }
         }
       }
