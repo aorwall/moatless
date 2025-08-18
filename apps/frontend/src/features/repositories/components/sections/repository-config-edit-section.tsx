@@ -416,6 +416,22 @@ export function RepositoryConfigEditSection({
         </ConfigurationItem>
 
         <ConfigurationItem
+          label="Build Command"
+          description="Command to build the project for production deployment"
+        >
+          <ConfigurationInput
+            value={formData.previewConfig?.buildCommand || ''}
+            onChange={(e) =>
+              updateField('previewConfig', {
+                ...formData.previewConfig,
+                buildCommand: e.target.value,
+              })
+            }
+            placeholder="e.g., npm run build"
+          />
+        </ConfigurationItem>
+
+        <ConfigurationItem
           label="Take Screenshots"
           description="Automatically take screenshots after each task iteration"
         >

@@ -38,6 +38,7 @@ export class RepositoryService {
       'bun install',
       {
         serverStartCommand: 'bun run dev',
+        buildCommand: 'bun run build',
         takeScreenshots: true,
       },
     ),

@@ -16,6 +16,8 @@ const repositoryNameSchema = z
 export const PreviewConfigSchema = z.object({
   serverStartCommand: z.string().optional(),
   takeScreenshots: z.boolean().optional(),
+  buildCommand: z.string().optional(),
+  buildOutputDirectory: z.string().default('dist').optional(),
 })
 
 // Code execution schema
