@@ -28,6 +28,11 @@ export function ServerLogsViewer() {
   const error = shouldStream ? streamResult.error : staticLogsResult.error?.message || null
   const reconnect = streamResult.reconnect
 
+  // Proper loading state detection
+  const isLoading = shouldStream
+    ? false // Streaming doesn't have a loading state
+    : staticLogsResult.isLoading
+
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -64,7 +69,8 @@ export function ServerLogsViewer() {
     )
   }
 
-  if (!logs && !error) {
+  // Show skeleton only when actually loading
+  if (isLoading) {
     return <ServerLogsViewerSkeleton />
   }
 
