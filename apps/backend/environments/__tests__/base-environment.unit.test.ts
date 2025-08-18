@@ -98,6 +98,41 @@ class TestEnvironment extends BaseEnvironment {
     }
   }
 
+  async buildProject(): Promise<{
+    success: boolean
+    outputDirectory: string
+    logs: string
+    duration: number
+  }> {
+    return {
+      success: true,
+      outputDirectory: '/test/output',
+      logs: 'Test build log',
+      duration: 1000,
+    }
+  }
+
+  async deployToNetlify(
+    _siteName: string | undefined,
+    _authToken: string,
+  ): Promise<{
+    success: boolean
+    deployUrl?: string
+    siteUrl?: string
+    deployId?: string
+    logs: string
+    duration: number
+  }> {
+    return {
+      success: true,
+      deployUrl: 'https://test-deploy.netlify.app',
+      siteUrl: 'https://test-site.netlify.app',
+      deployId: 'test-deploy-id',
+      logs: 'Test deploy log',
+      duration: 2000,
+    }
+  }
+
   async *runCommandWithStream(
     _command: string,
     _timeout?: number,

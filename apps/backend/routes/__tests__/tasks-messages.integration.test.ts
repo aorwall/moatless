@@ -51,7 +51,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
   })
 
   afterEach(() => {
-    vi.resetAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('GET /api/v1/tasks/:taskId/messages', () => {

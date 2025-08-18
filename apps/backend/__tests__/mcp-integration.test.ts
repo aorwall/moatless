@@ -27,7 +27,7 @@ describe('MCP Integration Test with Running Agent', () => {
   let createdTaskId: string
   let eventService: EventService
   let eventSubscription: (() => void) | null = null
-  let collectedEvents: Event[] = []
+  const _collectedEvents: Event[] = []
 
   beforeEach(async () => {
     // Create a temporary directory for our test git repository
@@ -64,7 +64,7 @@ describe('MCP Integration Test with Running Agent', () => {
     await setupTempGitRepo(tempDir)
 
     // Reset collected events
-    collectedEvents = []
+    _collectedEvents.length = 0
   })
 
   afterEach(async () => {
