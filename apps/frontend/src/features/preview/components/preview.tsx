@@ -197,7 +197,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
       <div className="flex-1 overflow-hidden bg-background border rounded-lg">
         <ResizablePanelGroup direction="vertical" className="h-full">
-          <ResizablePanel defaultSize={75} minSize={30}>
+          <ResizablePanel defaultSize={95} minSize={30}>
             <div className="relative h-full overflow-hidden">
               {serverStatus && !serverStatus.running && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
@@ -284,7 +284,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
           <ResizableHandle withHandle />
 
-          <ResizablePanel defaultSize={25} minSize={15} maxSize={70}>
+          <ResizablePanel defaultSize={5} minSize={5} maxSize={70}>
             <LogsPanel className="h-full" />
           </ResizablePanel>
         </ResizablePanelGroup>
