@@ -108,6 +108,7 @@ export const TaskIterationSchema = z.object({
   willNotResume: z.boolean().optional(),
   screenshotPath: z.string().optional(), // Path to preview screenshot
   thumbnailPath: z.string().optional(), // Path to preview screenshot thumbnail (340px width)
+  siteUrl: z.string().optional(), // URL of the deployed iteration (e.g., Netlify deployment URL)
 })
 
 // ============================================
@@ -129,6 +130,8 @@ export const TaskResponseSchema = z.object({
   vibe: z.boolean().optional(), // Flag to identify tasks created from templates
   name: z.string().optional(), // URL-friendly task name (alphanumeric and dashes only)
   description: z.string().optional(), // One-sentence summary of the task
+  siteId: z.string().optional(), // Deployment site ID (e.g., Netlify site ID)
+  siteProvider: z.string().optional(), // Deployment provider (e.g., "netlify")
 })
 
 export const TaskListResponseSchema = z.object({

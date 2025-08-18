@@ -2,11 +2,13 @@ import type {
   ClaudeSettingsResponse,
   GeneralSettingsResponse,
   GitHubSettingsResponse,
+  PublishSettingsResponse,
   SettingsResponse,
   SystemStatusCheck,
   UpdateClaudeSettingsRequest,
   UpdateGeneralSettingsRequest,
   UpdateGitHubSettingsRequest,
+  UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
@@ -54,6 +56,15 @@ export const settingsApi = {
     },
     update: async (request: UpdateGitHubSettingsRequest): Promise<GitHubSettingsResponse> => {
       return apiClient.put<GitHubSettingsResponse>('/api/v1/settings/github', request)
+    },
+  },
+
+  publish: {
+    get: async (): Promise<PublishSettingsResponse> => {
+      return apiClient.get<PublishSettingsResponse>('/api/v1/settings/publish')
+    },
+    update: async (request: UpdatePublishSettingsRequest): Promise<PublishSettingsResponse> => {
+      return apiClient.put<PublishSettingsResponse>('/api/v1/settings/publish', request)
     },
   },
 }

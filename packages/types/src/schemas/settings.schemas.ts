@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ClaudeSettingsSchema } from './settings/claude.schemas.js'
 import { GitHubSettingsSchema } from './settings/github.schemas.js'
+import { PublishSettingsSchema } from './settings/publish.schemas.js'
 
 export const ApplicationSettingsSchema = z.object({
   dataDir: z.string().optional(),
@@ -13,6 +14,7 @@ export const ApplicationSettingsSchema = z.object({
   // Nested settings
   claude: ClaudeSettingsSchema.optional(),
   github: GitHubSettingsSchema.optional(),
+  publish: PublishSettingsSchema.optional(),
 })
 
 export const SystemStatusCheckSchema = z.object({
@@ -49,6 +51,13 @@ export const updateSettingsSchema = z
     github: z
       .object({
         token: z.string().nullable().optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    publish: z
+      .object({
+        netlifyAccessToken: z.string().nullable().optional(),
       })
       .strict()
       .nullable()

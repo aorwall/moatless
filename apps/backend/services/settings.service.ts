@@ -8,11 +8,14 @@ import type {
   GeneralSettingsResponse,
   GitHubSettings,
   GitHubSettingsResponse,
+  PublishSettings,
+  PublishSettingsResponse,
   SettingsResponse,
   SystemStatusCheck,
   UpdateClaudeSettingsRequest,
   UpdateGeneralSettingsRequest,
   UpdateGitHubSettingsRequest,
+  UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
 } from '@moatless/types'
 import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
@@ -35,6 +38,9 @@ export class SettingsService {
       personalAccessToken: string
       userName: string
       userEmail: string
+    }
+    publish: {
+      netlifyAccessToken: string
     }
   }
 
@@ -60,6 +66,9 @@ export class SettingsService {
         personalAccessToken: process.env.GITHUB_TOKEN || '',
         userName: '',
         userEmail: '',
+      },
+      publish: {
+        netlifyAccessToken: process.env.NETLIFY_ACCESS_TOKEN || '',
       },
     }
   }
@@ -302,6 +311,22 @@ export class SettingsService {
     }
   }
 
+  getPublishSettings(): Required<PublishSettings> {
+    return {
+      netlifyAccessToken:
+        this.settings?.publish?.netlifyAccessToken || this.defaults.publish.netlifyAccessToken,
+    }
+  }
+
+  async getPublishSettingsResponse(): Promise<PublishSettingsResponse> {
+    return {
+      settings: {
+        netlifyAccessToken: this.settings?.publish?.netlifyAccessToken,
+      },
+      defaults: this.defaults.publish,
+    }
+  }
+
   async updateGeneralSettings(
     update: UpdateGeneralSettingsRequest,
   ): Promise<GeneralSettingsResponse> {
@@ -487,6 +512,37 @@ export class SettingsService {
     await this.saveSettings()
 
     return this.getGitHubSettingsResponse()
+  }
+
+  async updatePublishSettingsSection(
+    update: UpdatePublishSettingsRequest,
+  ): Promise<PublishSettingsResponse> {
+    if (!this.settings) {
+      this.settings = {}
+    }
+
+    // Update Publish settings
+    if (!this.settings.publish) {
+      this.settings.publish = {}
+    }
+
+    if (update.netlifyAccessToken !== undefined) {
+      if (update.netlifyAccessToken === null) {
+        delete this.settings.publish.netlifyAccessToken
+      } else {
+        this.settings.publish.netlifyAccessToken = update.netlifyAccessToken
+      }
+    }
+
+    // Remove publish object if empty
+    if (Object.keys(this.settings.publish).length === 0) {
+      delete this.settings.publish
+    }
+
+    // Save updated settings
+    await this.saveSettings()
+
+    return this.getPublishSettingsResponse()
   }
 
   async getSystemStatus(): Promise<SystemStatusCheck> {
@@ -691,6 +747,30 @@ export class SettingsService {
         // Remove github object if empty
         if (Object.keys(this.settings.github).length === 0) {
           delete this.settings.github
+        }
+      }
+    }
+
+    // Handle Publish settings
+    if (update.publish !== undefined) {
+      if (update.publish === null) {
+        delete this.settings.publish
+      } else {
+        if (!this.settings.publish) {
+          this.settings.publish = {}
+        }
+
+        if (update.publish.netlifyAccessToken !== undefined) {
+          if (update.publish.netlifyAccessToken === null) {
+            delete this.settings.publish.netlifyAccessToken
+          } else {
+            this.settings.publish.netlifyAccessToken = update.publish.netlifyAccessToken
+          }
+        }
+
+        // Remove publish object if empty
+        if (Object.keys(this.settings.publish).length === 0) {
+          delete this.settings.publish
         }
       }
     }

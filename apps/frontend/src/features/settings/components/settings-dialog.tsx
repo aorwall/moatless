@@ -1,9 +1,10 @@
-import { Bot, Github, Settings } from 'lucide-react'
+import { Bot, Github, Globe, Settings } from 'lucide-react'
 import { useState } from 'react'
 import {
   ClaudeConfigurationSection,
   GeneralConfigurationSection,
   GitHubConfigurationSection,
+  PublishConfigurationSection,
 } from '@/features/settings'
 import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
 
@@ -38,6 +39,12 @@ export function SettingsDialog({
       label: 'GitHub',
       icon: <Github className="h-4 w-4" />,
       component: <GitHubConfigurationSection />,
+    },
+    {
+      id: 'publish',
+      label: 'Publish',
+      icon: <Globe className="h-4 w-4" />,
+      component: <PublishConfigurationSection />,
     },
   ]
 

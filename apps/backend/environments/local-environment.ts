@@ -162,7 +162,11 @@ export class LocalEnvironment extends BaseEnvironment {
     }
   }
 
-  async runCommand(command: string, timeout = 30000): Promise<CommandResult> {
+  async runCommand(
+    command: string,
+    timeout = 30000,
+    additionalEnv?: Record<string, string>,
+  ): Promise<CommandResult> {
     this.logger.info('Starting command execution', {
       command,
       workspacePath: this.workspacePath,
@@ -182,7 +186,11 @@ export class LocalEnvironment extends BaseEnvironment {
         cwd: this.workspacePath,
         timeout,
         maxBuffer: 1024 * 1024, // 1MB buffer
-        env: { ...process.env, ...this.repositoryConfig.codeExecution.envVars },
+        env: {
+          ...process.env,
+          ...this.repositoryConfig.codeExecution.envVars,
+          ...additionalEnv,
+        },
         shell: process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh',
       }
 
@@ -1130,5 +1138,89 @@ export class LocalEnvironment extends BaseEnvironment {
     } catch {
       // Ignore errors if file doesn't exist
     }
+  }
+
+  // ===============================
+  // Build and Deploy Methods
+  // ===============================
+
+  async buildProject(): Promise<{
+    success: boolean
+    outputDirectory: string
+    logs: string
+    duration: number
+  }> {
+    const buildCommand = this.repositoryConfig.previewConfig?.buildCommand
+    if (!buildCommand) {
+      throw new Error('No build command configured in repository preview settings')
+    }
+
+    this.logger.info('Starting project build', {
+      buildCommand,
+      workspacePath: this.workspacePath,
+    })
+
+    const startTime = Date.now()
+    const result = await this.runCommand(buildCommand, 300000) // 5 minute timeout
+
+    const outputDir = this.repositoryConfig.previewConfig?.buildOutputDirectory || 'dist'
+    const outputPath = path.join(this.workspacePath, outputDir)
+
+    // Verify output directory exists
+    const outputExists = await this.pathExists(outputPath)
+    const duration = Date.now() - startTime
+
+    this.logger.info('Build completed', {
+      success: result.exitCode === 0 && outputExists,
+      exitCode: result.exitCode,
+      outputExists,
+      duration,
+      outputPath,
+    })
+
+    return {
+      success: result.exitCode === 0 && outputExists,
+      outputDirectory: outputPath,
+      logs: result.output,
+      duration,
+    }
+  }
+
+  async deployToNetlify(
+    siteName: string | undefined,
+    authToken: string,
+    existingSiteId?: string,
+  ): Promise<{
+    success: boolean
+    siteId?: string
+    deployUrl?: string
+    siteUrl?: string
+    deployId?: string
+    logs: string
+    duration: number
+  }> {
+    const outputDir = this.repositoryConfig.previewConfig?.buildOutputDirectory || 'dist'
+    const outputPath = path.join(this.workspacePath, outputDir)
+
+    // Generate site name if not provided
+    const finalSiteName = siteName || `moatless-${this.taskId.substring(0, 8)}`
+
+    this.logger.info('Deploying to Netlify via API', {
+      siteName: finalSiteName,
+      outputPath,
+      existingSiteId,
+    })
+
+    // Use the NetlifyService (will be injected via dependency injection)
+    // For now, create a temporary instance - this will be replaced when we wire DI
+    const { createNetlifyService } = await import('../services/netlify.service.js')
+    const netlifyService = createNetlifyService()
+
+    return await netlifyService.deployToNetlify(
+      outputPath,
+      finalSiteName,
+      authToken,
+      existingSiteId,
+    )
   }
 }

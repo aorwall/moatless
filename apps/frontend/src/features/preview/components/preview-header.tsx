@@ -18,6 +18,8 @@ import {
   useStopServer,
 } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
+import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
@@ -43,6 +45,13 @@ export function PreviewHeader({ onReload }: PreviewHeaderProps) {
     toggleInspector,
   } = usePreview()
 
+  // Get task data to check if it's a vibe task and get current iteration
+  const { vibe, iterations } = useTaskData()
+
+  // Get the latest iteration to check for site URL
+  const latestIteration = iterations?.[iterations.length - 1]
+  const siteUrl = latestIteration?.siteUrl
+
   const [pathInput, setPathInput] = useState(displayPath)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
 
@@ -57,6 +66,30 @@ export function PreviewHeader({ onReload }: PreviewHeaderProps) {
 
   // Server management hooks
   const { data: serverStatus } = useServerStatus(params.taskId)
+
+  // Deploy hook for publishing vibe tasks
+  const deployTask = useDeployTask(params.taskId, {
+    onSuccess: (data) => {
+      if (data.success && data.siteUrl) {
+        toast.success('Site published successfully!', {
+          description: `Your site is live at ${data.siteUrl}`,
+          action: {
+            label: 'Open Site',
+            onClick: () => window.open(data.siteUrl, '_blank', 'noopener,noreferrer'),
+          },
+        })
+      } else if (data.error) {
+        toast.error('Failed to publish site', {
+          description: data.error,
+        })
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to publish site', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
   const startServer = useStartServer({
     onSuccess: (data) => {
       if (data.running) {
@@ -132,6 +165,10 @@ export function PreviewHeader({ onReload }: PreviewHeaderProps) {
     restartServer.mutate(params.taskId)
     setIsServerPopoverOpen(false)
   }, [params.taskId, restartServer])
+
+  const handlePublish = useCallback(() => {
+    deployTask.mutate()
+  }, [deployTask])
 
   const getServerStatusColor = () => {
     if (!serverStatus) return 'text-muted-foreground'
@@ -346,6 +383,33 @@ export function PreviewHeader({ onReload }: PreviewHeaderProps) {
             </Tooltip>
           </div>
         </div>
+      }
+      rightContent={
+        vibe &&
+        (siteUrl ? (
+          <Button variant="outline" size="sm" asChild className="h-8 bg-white hover:bg-gray-50">
+            <a href={siteUrl} target="_blank" rel="noopener noreferrer">
+              Published
+            </a>
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePublish}
+            disabled={deployTask.isPending}
+            className="h-8 bg-white hover:bg-gray-50"
+          >
+            {deployTask.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Publishing...
+              </>
+            ) : (
+              'Publish'
+            )}
+          </Button>
+        ))
       }
     />
   )

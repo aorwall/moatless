@@ -4,6 +4,7 @@ import {
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
+  DeployResponseSchema,
   type EventListResponse,
   EventListResponseSchema,
   type EventType,
@@ -35,6 +36,7 @@ import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
+import { logger } from '../utils/logger.js'
 
 // All schemas are now imported from @moatless/types
 
@@ -1307,6 +1309,135 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
           error: error instanceof Error ? error.message : String(error),
         })
         return handleServiceError(error, 'MCP request')
+      }
+    },
+  )
+
+  // Deploy task to Netlify
+  app.post(
+    `${prefix}/:taskId/deploy`,
+    describeRoute({
+      description: 'Build and deploy task workspace to Netlify',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Deployment completed (check success field for actual result)',
+          content: {
+            'application/json': {
+              schema: resolver(DeployResponseSchema) as any,
+            },
+          },
+        },
+        400: {
+          description: 'Missing Netlify auth token or build configuration',
+        },
+        404: {
+          description: 'Task not found',
+        },
+        500: {
+          description: 'Internal server error',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = getTaskId(c)
+      let task: any = null
+
+      try {
+        // Get task to check for name
+        task = await services.task.getTask(taskId)
+        if (!task) {
+          throw new TaskNotFoundError(taskId)
+        }
+
+        // Get Publish settings
+        const publishSettings = services.settings.getPublishSettings()
+        if (!publishSettings.netlifyAccessToken) {
+          throw new HTTPException(400, {
+            message:
+              'Netlify access token not configured in settings. Please configure it in Settings > Publish.',
+          })
+        }
+
+        // Deploy using workspace service, passing existing siteId if available
+        const result = await services.workspace.deployToNetlify(
+          taskId,
+          task.name,
+          publishSettings.netlifyAccessToken,
+          task.siteId, // Pass existing siteId for site reuse
+        )
+
+        // If deployment was successful, update the task with site info and latest iteration with site URL
+        if (result.success) {
+          try {
+            const updatedTask = await services.task.getTask(taskId)
+            if (updatedTask) {
+              // Update task with site information if we have a new siteId
+              if (result.siteId && !updatedTask.siteId) {
+                updatedTask.siteId = result.siteId
+                updatedTask.siteProvider = 'netlify'
+              }
+
+              // Update the latest iteration with the site URL
+              if (result.siteUrl && updatedTask.iterations.length > 0) {
+                const latestIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
+                latestIteration.siteUrl = result.siteUrl
+              }
+
+              // Save the updated task
+              await services.task.updateTask(taskId, updatedTask)
+
+              logger.info('Updated task with deployment info', {
+                taskId,
+                siteId: result.siteId,
+                siteUrl: result.siteUrl,
+                iterationNumber:
+                  updatedTask.iterations.length > 0
+                    ? updatedTask.iterations[updatedTask.iterations.length - 1].iterationNumber
+                    : undefined,
+              })
+            }
+          } catch (updateError) {
+            // Log error but don't fail the deployment response
+            logger.warn('Failed to update task with deployment info', {
+              taskId,
+              error: updateError instanceof Error ? updateError.message : String(updateError),
+            })
+          }
+        }
+
+        return c.json(result)
+      } catch (error) {
+        if (error instanceof HTTPException) {
+          throw error
+        }
+        if (error instanceof TaskNotFoundError) {
+          throw new HTTPException(404, { message: error.message })
+        }
+
+        // Log the error and return a user-friendly message
+        const errorMessage = error instanceof Error ? error.message : 'Unknown deployment error'
+        logger.error('Deployment failed', error as Error, {
+          taskId,
+          taskName: task?.name,
+          error: errorMessage,
+        })
+        return c.json({
+          success: false,
+          error: errorMessage,
+          logs: `Deployment failed: ${errorMessage}`,
+        })
       }
     },
   )
