@@ -1029,13 +1029,13 @@ describe('MessageService Unit Tests', () => {
         taskWithInitialMessageAndClaudeMessages,
       )
 
-      // Currently, the logic detects a user message (even though it's a tool result)
-      // so it doesn't add the initial message. The tool result message gets filtered out,
-      // resulting in no messages. This is a limitation of the current logic.
-      expect(result).toHaveLength(0)
-
-      // TODO: Improve logic to detect that tool result messages will be filtered out
-      // and add initial message when no actual user content messages remain
+      // With the new logic, the first user message gets its content replaced with the initial message
+      // even if it was originally a tool result, ensuring we always have the correct initial message
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe(initialMessage) // Content should be replaced with initial message
+      expect(result[0].id).toBe('tool-result-msg')
+      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
     })
 
     it('should not duplicate initial message when Claude messages already contain user message', async () => {
@@ -1077,11 +1077,59 @@ describe('MessageService Unit Tests', () => {
 
       const result = await service.readMessagesFromClaudeDirectory(taskWithBothMessages)
 
-      // Should have only one message (from Claude), not duplicate the initial message
+      // Should have only one message with content replaced by initial message
       expect(result).toHaveLength(1)
       expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe(claudeUserMessage)
+      expect(result[0].content).toBe(initialMessage) // Content should be replaced
       expect(result[0].id).toBe('claude-user-msg')
+      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
+    })
+
+    it('should replace first user message content with iteration initial message when different', async () => {
+      const initialMessage = 'Create a new feature'
+      const claudeUserMessage = 'Different message from Claude' // Different content
+      const taskWithDifferentMessages = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            status: 'active' as const,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage,
+            agentSessionId: 'session-different',
+          },
+        ],
+      } as TaskResponse
+
+      // Claude messages contain the user message but with different content
+      const claudeMessages: AgentMessage[] = [
+        {
+          userType: 'external',
+          cwd: '/test/workspace',
+          sessionId: 'session-different',
+          version: '1.0.35',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: claudeUserMessage,
+          },
+          uuid: 'claude-user-msg-different',
+          timestamp: '2024-01-01T10:00:01.000Z',
+        },
+      ]
+
+      mockClaudeService.readClaudeMessages.mockResolvedValue(claudeMessages)
+
+      const result = await service.readMessagesFromClaudeDirectory(taskWithDifferentMessages)
+
+      // Should have only one message with the content replaced by initial message
+      expect(result).toHaveLength(1)
+      expect(result[0].role).toBe('user')
+      expect(result[0].content).toBe(initialMessage) // Content should be replaced
+      expect(result[0].id).toBe('claude-user-msg-different') // ID should remain the same
+      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated to iteration start time
     })
 
     it('should handle empty task iterations gracefully', async () => {

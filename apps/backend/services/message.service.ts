@@ -99,35 +99,54 @@ export class MessageService {
             }
           }
         } else {
-          // Add the found messages, but check if we need to add initial message when no user message exists
+          // Add the found messages, but check if we need to replace/add initial message
           const messagesToAdd = [...agentMessages]
 
           if (iteration.initialMessage) {
-            // Check if there's any user message in the Claude messages
-            const hasUserMessage = messagesToAdd.some((msg) => msg.type === 'user')
+            // Check if the first message is a user message that should be replaced
+            if (messagesToAdd.length > 0 && messagesToAdd[0].type === 'user') {
+              // Replace the first user message content with the iteration's initial message
+              logger.info('Replacing first user message with iteration initial message', {
+                taskId: task.taskId,
+                iterationNumber: iteration.iterationNumber,
+                agentSessionId: iteration.agentSessionId,
+              })
 
-            if (!hasUserMessage) {
-              // No user message found, add the iteration's initialMessage as the first message
-              logger.info(
-                'No user message found in Claude messages, adding iteration initial message',
-                {
-                  taskId: task.taskId,
-                  iterationNumber: iteration.iterationNumber,
-                  agentSessionId: iteration.agentSessionId,
-                },
-              )
-
-              const initialUserMessage: AgentMessage = {
-                userType: 'user',
-                uuid: crypto.randomUUID(),
-                timestamp: iteration.startTime.toISOString(),
-                type: 'user',
+              messagesToAdd[0] = {
+                ...messagesToAdd[0],
                 message: {
-                  role: 'user',
+                  ...messagesToAdd[0].message,
                   content: iteration.initialMessage,
                 },
+                timestamp: iteration.startTime.toISOString(),
               }
-              messagesToAdd.unshift(initialUserMessage)
+            } else {
+              // Check if there's any user message in the Claude messages
+              const hasUserMessage = messagesToAdd.some((msg) => msg.type === 'user')
+
+              if (!hasUserMessage) {
+                // No user message found, add the iteration's initialMessage as the first message
+                logger.info(
+                  'No user message found in Claude messages, adding iteration initial message',
+                  {
+                    taskId: task.taskId,
+                    iterationNumber: iteration.iterationNumber,
+                    agentSessionId: iteration.agentSessionId,
+                  },
+                )
+
+                const initialUserMessage: AgentMessage = {
+                  userType: 'user',
+                  uuid: crypto.randomUUID(),
+                  timestamp: iteration.startTime.toISOString(),
+                  type: 'user',
+                  message: {
+                    role: 'user',
+                    content: iteration.initialMessage,
+                  },
+                }
+                messagesToAdd.unshift(initialUserMessage)
+              }
             }
           }
 
