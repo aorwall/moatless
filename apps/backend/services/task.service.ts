@@ -191,6 +191,20 @@ export class TaskService {
     }
 
     try {
+      // Check if preview server is available for this task
+      let hasPreviewServer = false
+      try {
+        const task = await this.storage.getTask(taskId)
+        if (task) {
+          const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+          hasPreviewServer = Boolean(repository?.previewConfig?.serverStartCommand)
+        }
+      } catch (error) {
+        agentLogger.warn('Failed to check preview server availability', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
       // Run agent using environment's runAgent method
       const runOptions = {
         workspaceDir: workspace.getWorkspacePath(),
@@ -198,6 +212,7 @@ export class TaskService {
         resume: resumeSessionId,
         model,
         agentMode: iteration.agentMode,
+        hasPreviewServer,
       }
 
       agentLogger.info('Starting agent execution with options', { ...runOptions })

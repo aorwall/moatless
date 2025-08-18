@@ -133,6 +133,61 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
         })
       })
 
+      // Apply optimistic updates to task data if this event affects the task
+      if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), (old: any) => {
+          if (!old) return old
+
+          let updates: any = {}
+
+          // Handle different event types for task updates
+          switch (event.type) {
+            case 'task':
+              if (event.subType === 'open') {
+                updates = { status: 'open' }
+              } else if (event.subType === 'closed') {
+                updates = { status: 'closed' }
+              } else if (event.subType === 'merged') {
+                updates = { status: 'merged' }
+              }
+              break
+
+            case 'taskIteration':
+              if (event.subType === 'active') {
+                updates = { status: 'running' }
+              } else if (event.subType === 'completed' || event.subType === 'failed') {
+                updates = {
+                  status: 'open',
+                  lastMessageAt: new Date(event.timestamp || Date.now()),
+                }
+              }
+              break
+
+            case 'agent':
+              if (event.subType === 'started') {
+                updates = { status: 'running' }
+              } else if (event.subType === 'stopped') {
+                updates = {
+                  status: 'open',
+                  lastMessageAt: new Date(event.timestamp || Date.now()),
+                }
+              } else if (event.subType === 'completed') {
+                updates = {
+                  status: 'open',
+                  lastMessageAt: new Date(event.timestamp || Date.now()),
+                }
+              } else if (event.subType === 'message') {
+                updates = {
+                  lastMessageAt: new Date(event.timestamp || Date.now()),
+                }
+              }
+              break
+          }
+
+          return Object.keys(updates).length > 0 ? { ...old, ...updates } : old
+        })
+      }
+
       // Update streaming events (keep last 20 events for the minified viewer)
       setStreamingEvents((prev) => {
         const updated = [...prev, event]

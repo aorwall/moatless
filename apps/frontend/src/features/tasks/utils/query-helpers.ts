@@ -1,4 +1,4 @@
-import type { Task, TaskListResponse } from '@moatless/types'
+import type { Event, Task, TaskListResponse } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -83,6 +83,88 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
       }
     }
   })
+}
+
+/**
+ * Applies optimistic updates to task data based on incoming events
+ */
+export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): void {
+  if (!event.taskId) return
+
+  const taskId = event.taskId
+
+  // Get current task data
+  const currentTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
+  if (!currentTask) return
+
+  let taskUpdates: Partial<Task> = {}
+
+  // Handle different event types
+  switch (event.type) {
+    case 'task':
+      if (event.subType === 'open') {
+        taskUpdates = { status: 'open' }
+      } else if (event.subType === 'closed') {
+        taskUpdates = { status: 'closed' }
+      } else if (event.subType === 'merged') {
+        taskUpdates = { status: 'merged' }
+      }
+      break
+
+    case 'taskIteration':
+      if (event.subType === 'active') {
+        // Task iteration is now active - task is running
+        taskUpdates = { status: 'running' }
+      } else if (event.subType === 'completed') {
+        // Iteration completed - task is back to open
+        taskUpdates = {
+          status: 'open',
+          lastMessageAt: new Date(event.timestamp || Date.now()),
+        }
+      } else if (event.subType === 'failed') {
+        // Iteration failed - task is back to open
+        taskUpdates = {
+          status: 'open',
+          lastMessageAt: new Date(event.timestamp || Date.now()),
+        }
+      }
+      break
+
+    case 'agent':
+      if (event.subType === 'started') {
+        // Agent started - task is running
+        taskUpdates = { status: 'running' }
+      } else if (event.subType === 'stopped') {
+        // Agent stopped - task is back to open
+        taskUpdates = {
+          status: 'open',
+          lastMessageAt: new Date(event.timestamp || Date.now()),
+        }
+      } else if (event.subType === 'completed') {
+        // Agent completed - task is back to open
+        taskUpdates = {
+          status: 'open',
+          lastMessageAt: new Date(event.timestamp || Date.now()),
+        }
+      } else if (event.subType === 'message') {
+        // New message - update last message time
+        taskUpdates = {
+          lastMessageAt: new Date(event.timestamp || Date.now()),
+        }
+      }
+      break
+  }
+
+  // Apply updates if we have any
+  if (Object.keys(taskUpdates).length > 0) {
+    const updatedTask = { ...currentTask, ...taskUpdates }
+
+    // Update task detail cache
+    queryClient.setQueryData(queryKeys.tasks.detail(taskId), updatedTask)
+
+    // Update task in all list caches
+    updateTaskInLists(queryClient, taskId, taskUpdates)
+  }
 }
 
 /**

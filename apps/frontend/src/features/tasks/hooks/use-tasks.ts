@@ -1,5 +1,6 @@
 import type {
   CreateTaskRequest,
+  DeployResponse,
   Event,
   GitDiffResponse,
   MergeTaskResponse,
@@ -434,6 +435,26 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
       // Also invalidate the specific task
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
       options?.onSuccess?.(data, taskId, context)
+    },
+    ...options,
+  })
+}
+
+export function useDeployTask(
+  taskId: string,
+  options?: UseMutationOptions<DeployResponse, Error, void>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation<DeployResponse, Error, void>({
+    mutationKey: ['tasks', taskId, 'deploy'],
+    mutationFn: () => tasksApi.deployTask(taskId),
+    onSuccess: (data, _, context) => {
+      // Invalidate task data to refresh any status changes
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.detail(taskId),
+      })
+      options?.onSuccess?.(data, undefined, context)
     },
     ...options,
   })

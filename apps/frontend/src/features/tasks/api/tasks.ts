@@ -1,5 +1,6 @@
 import type {
   CreateTaskRequest,
+  DeployResponse,
   Event,
   EventListResponse,
   FileSearchRequest,
@@ -131,5 +132,9 @@ export const tasksApi = {
 
   async deleteTask(taskId: string): Promise<{ status: string }> {
     return await apiClient.delete<{ status: string }>(`/api/v1/tasks/${taskId}`)
+  },
+
+  async deployTask(taskId: string): Promise<DeployResponse> {
+    return await apiClient.post<DeployResponse>(`/api/v1/tasks/${taskId}/deploy`)
   },
 }
