@@ -1,12 +1,11 @@
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useTaskData, useWorkspaceStatus } from '@/features/tasks/contexts/task-data-provider'
+import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 
 export function TaskLeftHeader() {
   const { status, agentType, repositoryId, iterations, vibe, templateId, name } = useTaskData()
   const { data: repositories } = useRepositoriesList()
-  const workspace = useWorkspaceStatus()
 
   if (!status) {
     return null
@@ -33,11 +32,7 @@ export function TaskLeftHeader() {
             {displayName}
           </span>
           <span className="text-muted-foreground">•</span>
-          <TaskStatusIcon
-            task={{ status: status as any, iterations }}
-            workspace={workspace}
-            showText={false}
-          />
+          <TaskStatusIcon task={{ status: status as any, iterations }} showText={false} />
         </div>
       </div>
     </div>

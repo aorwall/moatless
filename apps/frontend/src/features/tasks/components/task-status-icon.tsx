@@ -1,13 +1,5 @@
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
-import {
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  GitBranch,
-  Loader2,
-  PlayCircle,
-  XCircle,
-} from 'lucide-react'
+import { AlertCircle, CheckCircle, Clock, GitBranch, XCircle } from 'lucide-react'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
@@ -27,29 +19,17 @@ export function TaskStatusIcon({
 }: TaskStatusIconProps) {
   const statusConfig = getTaskStatusConfig(task.status)
 
-  // Determine if task is running based on workspace agent state
-  const isRunning = workspace?.isRunning ?? false
-  const agentState = workspace?.agentState
-  const environmentStatus = workspace?.environmentStatus
-
   // Get git status from workspace if available
   const gitStatus = workspace?.gitStatus
+  const environmentStatus = workspace?.environmentStatus
 
-  // Determine icon and color based on task status and workspace conditions
+  // Determine icon and color based on task status primarily
   let icon = statusConfig.icon
   let color = statusConfig.color
   let displayText: string = task.status
 
-  // Override for running states
-  if (isRunning || agentState === 'running') {
-    icon = <Loader2 className="h-3.5 w-3.5 animate-spin" />
-    color = 'text-blue-500'
-    displayText = 'running'
-  } else if (environmentStatus === 'initializing') {
-    icon = <Clock className="h-3.5 w-3.5" />
-    color = 'text-yellow-500'
-    displayText = 'initializing'
-  } else if (environmentStatus === 'error') {
+  // Override for environment issues (show these as higher priority)
+  if (environmentStatus === 'error') {
     icon = <XCircle className="h-3.5 w-3.5" />
     color = 'text-red-500'
     displayText = 'env error'
@@ -57,7 +37,11 @@ export function TaskStatusIcon({
     icon = <AlertCircle className="h-3.5 w-3.5" />
     color = 'text-orange-500'
     displayText = 'not setup'
-  } else if (gitStatus && (task.status === 'open' || isRunning)) {
+  } else if (environmentStatus === 'initializing') {
+    icon = <Clock className="h-3.5 w-3.5" />
+    color = 'text-yellow-500'
+    displayText = 'initializing'
+  } else if (gitStatus && (task.status === 'open' || task.status === 'running')) {
     // Use git branch icon for open/running tasks with git status
     icon = <GitBranch className="h-3.5 w-3.5" />
 
@@ -78,11 +62,8 @@ export function TaskStatusIcon({
     icon = <CheckCircle className="h-3.5 w-3.5" />
     color = 'text-green-500'
     displayText = 'ready'
-  } else if (task.status === 'open') {
-    // No git status available, but task is open - show default open state
-    icon = <PlayCircle className="h-3.5 w-3.5" />
-    color = 'text-blue-500'
   }
+  // For other statuses (running, merged, closed, etc.), use the default from statusConfig
 
   // Calculate metrics from iterations
   const totalTurns =

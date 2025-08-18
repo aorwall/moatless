@@ -7,7 +7,6 @@ import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import { formatGitSyncDetails } from '@/features/tasks/utils/git-sync-status'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -50,11 +49,6 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
   const taskTitle =
     task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
 
-  // Get workspace status for open tasks to show running state
-  const { data: workspaceData } = useWorkspaceStatus(task.taskId, task, {
-    enabled: task.status === 'open',
-  })
-
   // Get git status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
   const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
@@ -70,7 +64,7 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div>
-                        <TaskStatusIcon task={task} workspace={workspaceData} showText={false} />
+                        <TaskStatusIcon task={task} showText={false} />
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="text-xs">
