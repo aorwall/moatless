@@ -250,6 +250,7 @@ export const CreateVibeTaskRequestSchema = z.object({
   message: z.string().optional(),
   model: z.string().optional(),
   filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
+  start: z.boolean().optional().default(true),
 })
 
 // Additional schemas for task operations

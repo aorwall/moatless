@@ -83,7 +83,10 @@ describe('Task Schemas with newBranch field', () => {
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
-      expect(result).toEqual(validData)
+      expect(result).toEqual({
+        ...validData,
+        start: true, // Default value
+      })
       expect(result.message).toBeUndefined()
       expect(result.model).toBeUndefined()
       expect(result.filePaths).toBeUndefined()
@@ -98,7 +101,10 @@ describe('Task Schemas with newBranch field', () => {
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
-      expect(result).toEqual(validData)
+      expect(result).toEqual({
+        ...validData,
+        start: true, // Default value
+      })
       expect(result.message).toBe('Build a dashboard')
       expect(result.model).toBe('claude-3-haiku')
     })
@@ -113,7 +119,10 @@ describe('Task Schemas with newBranch field', () => {
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
-      expect(result).toEqual(validData)
+      expect(result).toEqual({
+        ...validData,
+        start: true, // Default value
+      })
       expect(result.filePaths).toEqual(['/templates/config.json'])
     })
 
@@ -176,7 +185,10 @@ describe('Task Schemas with newBranch field', () => {
       }
 
       const result = CreateVibeTaskRequestSchema.parse(existingData)
-      expect(result).toEqual(existingData)
+      expect(result).toEqual({
+        ...existingData,
+        start: true, // Default value
+      })
       expect(result.filePaths).toBeUndefined()
     })
   })

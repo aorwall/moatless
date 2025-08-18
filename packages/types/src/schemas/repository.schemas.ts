@@ -18,6 +18,7 @@ export const PreviewConfigSchema = z.object({
   takeScreenshots: z.boolean().optional(),
   buildCommand: z.string().optional(),
   buildOutputDirectory: z.string().default('dist').optional(),
+  enableInspector: z.boolean().default(true).optional(),
 })
 
 // Code execution schema

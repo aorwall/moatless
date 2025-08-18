@@ -76,6 +76,7 @@ export function CreateVibeTask({
         message: message.trim(),
         model: modelSelector.value,
         filePaths,
+        start: true,
       },
       {
         onSuccess: () => {

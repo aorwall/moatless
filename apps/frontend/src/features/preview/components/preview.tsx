@@ -154,8 +154,12 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     toggleSelector(isInspectorActive)
   }, [isInspectorActive, toggleSelector])
 
-  // Use dedicated proxy URL - required for preview functionality
-  const proxyUrl = serverStatus?.proxyUrl ? `${serverStatus.proxyUrl}${currentPath}` : null
+  // Use proxy URL if available, otherwise fall back to direct URL
+  const previewUrl = serverStatus?.proxyUrl
+    ? `${serverStatus.proxyUrl}${currentPath}`
+    : serverStatus?.url
+      ? `${serverStatus.url}${currentPath}`
+      : null
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) {
@@ -221,13 +225,13 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
                 </div>
               )}
 
-              {serverStatus?.running && isConnected && !proxyUrl && (
+              {serverStatus?.running && isConnected && !previewUrl && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                   <div className="text-center space-y-4">
                     <div className="space-y-2">
-                      <p className="text-muted-foreground">Preview proxy is not available</p>
+                      <p className="text-muted-foreground">Preview URL is not available</p>
                       <p className="text-sm text-muted-foreground">
-                        Restart the server to initialize the preview proxy
+                        Restart the server to initialize the preview
                       </p>
                     </div>
                     <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
@@ -255,11 +259,11 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
                 </div>
               )}
 
-              {serverStatus?.running && isConnected && proxyUrl && (
+              {serverStatus?.running && isConnected && previewUrl && (
                 <>
                   <iframe
                     ref={iframeRef}
-                    src={proxyUrl}
+                    src={previewUrl}
                     title="Application Preview"
                     sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
                     onLoad={handleIframeLoad}

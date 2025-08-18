@@ -48,6 +48,7 @@ describe('useRepositories hooks', () => {
     previewConfig: {
       serverStartCommand: 'npm run dev',
       takeScreenshots: false,
+      enableInspector: true,
     },
     createdAt: new Date(),
     updatedAt: new Date(),

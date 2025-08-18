@@ -40,6 +40,7 @@ export class RepositoryService {
         serverStartCommand: 'bun run dev',
         buildCommand: 'bun run build',
         takeScreenshots: true,
+        enableInspector: true,
       },
     ),
   ]
@@ -185,10 +186,11 @@ export class RepositoryService {
           (template.setupCommand ? [template.setupCommand] : undefined),
       }
 
-      // Use template preview config if not provided, with takeScreenshots enabled by default
+      // Use template preview config if not provided, with takeScreenshots and enableInspector enabled by default
       previewConfig = {
         ...template.previewConfig,
         takeScreenshots: true, // Enable screenshots by default for template-based repositories
+        enableInspector: true, // Enable inspector by default for template-based repositories
         ...request.previewConfig, // Allow user override if explicitly provided
       }
     }

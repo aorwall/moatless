@@ -54,6 +54,7 @@ export function createMockPreviewConfig(overrides?: Partial<PreviewConfig>): Pre
   return {
     serverStartCommand: 'npm run dev',
     takeScreenshots: false,
+    enableInspector: true,
     ...overrides,
   }
 }

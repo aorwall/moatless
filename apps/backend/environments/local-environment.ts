@@ -411,34 +411,40 @@ export class LocalEnvironment extends BaseEnvironment {
       // Start the server first
       const result = await this.previewServer.start()
 
-      // Try to create and start proxy server for SPA support
+      // Try to create and start proxy server for SPA support if inspector is enabled
       let proxyUrl: string | undefined
       let proxyPort: number | undefined
 
-      try {
-        proxyPort = await findAvailablePort('general')
-        const targetUrl = `http://localhost:${result.port}`
-        const scriptContent = getPreviewInspectorScript(this.taskId)
+      const enableInspector = this.repositoryConfig.previewConfig?.enableInspector !== false
 
-        this.previewProxy = createPreviewProxy(
-          targetUrl,
-          scriptContent,
-          this.logger as Logger,
-          proxyPort,
-        )
-        await this.previewProxy.start()
+      if (enableInspector) {
+        try {
+          proxyPort = await findAvailablePort('general')
+          const targetUrl = `http://localhost:${result.port}`
+          const scriptContent = getPreviewInspectorScript(this.taskId)
 
-        proxyUrl = `http://localhost:${proxyPort}`
-        this.logger.info('Preview proxy started successfully', { proxyPort, proxyUrl })
-      } catch (error) {
-        this.logger.warn('Failed to start preview proxy, falling back to path-based proxy', {
-          error: error instanceof Error ? error.message : String(error),
-          proxyPort,
-        })
-        // Reset proxy-related variables since proxy failed
-        this.previewProxy = undefined
-        proxyPort = undefined
-        proxyUrl = undefined
+          this.previewProxy = createPreviewProxy(
+            targetUrl,
+            scriptContent,
+            this.logger as Logger,
+            proxyPort,
+          )
+          await this.previewProxy.start()
+
+          proxyUrl = `http://localhost:${proxyPort}`
+          this.logger.info('Preview proxy started successfully', { proxyPort, proxyUrl })
+        } catch (error) {
+          this.logger.warn('Failed to start preview proxy, falling back to direct URL', {
+            error: error instanceof Error ? error.message : String(error),
+            proxyPort,
+          })
+          // Reset proxy-related variables since proxy failed
+          this.previewProxy = undefined
+          proxyPort = undefined
+          proxyUrl = undefined
+        }
+      } else {
+        this.logger.info('Inspector disabled, skipping proxy server creation')
       }
 
       // Save metadata to disk based on server status
@@ -640,50 +646,56 @@ export class LocalEnvironment extends BaseEnvironment {
       if (validation.exists && validation.isCorrectProcess) {
         // Process is still running, check if it's starting or fully running
         if (metadata.starting && metadata.port === -1) {
-          // Server is still starting, check if port is now available
-          const detectedPort = await this.portService.detectAndValidatePort(
-            metadata.logFile,
-            metadata.pid,
-          )
-          if (detectedPort) {
-            // Port detected! Update metadata and status
-            const updatedMetadata = {
-              ...metadata,
-              port: detectedPort,
-              starting: false,
-            }
-            await this.savePreviewEnvironmentMetadata(this.taskId, updatedMetadata)
+          // Server is still starting - check for timeout
+          const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
+          const STARTING_TIMEOUT_SECONDS = 60 // 1 minute timeout
 
-            // Create server handler
-            this.previewServer = new PreviewServer(
-              this.taskId,
-              metadata.workspacePath,
-              metadata.command,
-              metadata.envVars || {},
-            )
-            this.restoreServerHandler(this.previewServer, updatedMetadata)
-
-            const responsive = await this.portService.pingPort(detectedPort)
-            const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
-
-            this.logger.info('Server finished starting, now running', {
+          if (uptime > STARTING_TIMEOUT_SECONDS) {
+            // Server has been starting too long - mark as failed
+            this.logger.warn('Server startup timeout exceeded', {
               pid: metadata.pid,
-              port: detectedPort,
               uptime,
+              timeout: STARTING_TIMEOUT_SECONDS,
+              logFile: metadata.logFile,
             })
 
+            // Update metadata to reflect the timeout failure
+            const timeoutMetadata = {
+              ...metadata,
+              failed: true,
+              error: `Server startup timeout after ${STARTING_TIMEOUT_SECONDS} seconds - no port detected`,
+            }
+            await this.savePreviewEnvironmentMetadata(this.taskId, timeoutMetadata)
+
+            // Try to get server logs for better error context
+            let logs = ''
+            try {
+              if (metadata.logFile) {
+                const content = await fs.readFile(metadata.logFile, 'utf-8')
+                logs = content.slice(-1000) // Last 1000 chars
+              }
+            } catch (logError) {
+              this.logger.debug('Could not retrieve server logs', {
+                error: logError instanceof Error ? logError.message : String(logError),
+              })
+            }
+
             return {
-              running: true,
+              running: false,
               configured,
-              url: `http://localhost:${detectedPort}`,
-              proxyUrl: metadata.proxyUrl,
-              pid: metadata.pid,
               uptimeSeconds: uptime,
-              responsive,
+              error: timeoutMetadata.error,
+              logs: logs || 'No logs available',
             } as ServerStatus
           }
-          // Still starting
-          const uptime = Math.floor((Date.now() - metadata.startTime.getTime()) / 1000)
+
+          this.logger.debug('Server still starting', {
+            pid: metadata.pid,
+            uptime,
+            timeout: STARTING_TIMEOUT_SECONDS,
+            logFile: metadata.logFile,
+          })
+
           return {
             running: false,
             configured,

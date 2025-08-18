@@ -167,7 +167,10 @@ export function RepositoryConfigEditSection({
       path: repository?.path || '',
       useGitWorktrees: repository?.useGitWorktrees || false,
       codeExecution: repository?.codeExecution || { type: 'local' },
-      previewConfig: repository?.previewConfig || {},
+      previewConfig: {
+        enableInspector: true,
+        ...repository?.previewConfig,
+      },
     }),
     [repository],
   )
@@ -409,6 +412,7 @@ export function RepositoryConfigEditSection({
               updateField('previewConfig', {
                 ...formData.previewConfig,
                 serverStartCommand: e.target.value,
+                enableInspector: formData.previewConfig?.enableInspector ?? true,
               })
             }
             placeholder="e.g., npm run dev"
@@ -425,6 +429,7 @@ export function RepositoryConfigEditSection({
               updateField('previewConfig', {
                 ...formData.previewConfig,
                 buildCommand: e.target.value,
+                enableInspector: formData.previewConfig?.enableInspector ?? true,
               })
             }
             placeholder="e.g., npm run build"
@@ -441,6 +446,22 @@ export function RepositoryConfigEditSection({
               updateField('previewConfig', {
                 ...formData.previewConfig,
                 takeScreenshots: checked,
+                enableInspector: formData.previewConfig?.enableInspector ?? true,
+              })
+            }
+          />
+        </ConfigurationItem>
+
+        <ConfigurationItem
+          label="Enable Inspector"
+          description="Inject inspector script for element selection and debugging (may cause compatibility issues with some frameworks)"
+        >
+          <ConfigurationSwitch
+            checked={formData.previewConfig?.enableInspector !== false}
+            onCheckedChange={(checked) =>
+              updateField('previewConfig', {
+                ...formData.previewConfig,
+                enableInspector: checked,
               })
             }
           />
@@ -450,14 +471,16 @@ export function RepositoryConfigEditSection({
           <div className="space-y-2 text-sm text-muted-foreground">
             <p>
               The preview environment allows you to see changes in real-time by running your
-              application and injecting preview scripts.
+              application and optionally injecting inspector scripts.
             </p>
             <p>
-              <strong>HTML Injection:</strong> Automatically modifies your HTML files to include
-              preview scripts.
+              <strong>Inspector Script:</strong> When enabled, injects scripts that allow element
+              selection and debugging. This uses a proxy server to modify your HTML at runtime.
             </p>
             <p>
-              <strong>Middleware:</strong> Uses custom middleware to inject scripts at runtime.
+              <strong>Direct Preview:</strong> When inspector is disabled, serves your application
+              directly without any modifications. Use this if the inspector causes compatibility
+              issues.
             </p>
           </div>
         </CollapsibleHelpSection>

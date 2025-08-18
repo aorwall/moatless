@@ -181,6 +181,7 @@ describe('Worker API Integration Test', () => {
         },
         previewConfig: {
           serverStartCommand: 'npm run dev',
+          enableInspector: true,
         },
       }
 
