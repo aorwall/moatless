@@ -87,7 +87,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         setupCommands: ['npm install'],
       },
       previewConfig: {
-        serverStartCommand: 'npm run dev',
+        serverStartCommands: ['npm run dev'],
         port: 3000,
       },
     }
@@ -325,7 +325,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
         previewConfig: {
           framework: 'vite' as const,
-          serverStartCommand: 'npm run dev',
+          serverStartCommands: ['npm run dev'],
           port: 5173,
           host: '0.0.0.0',
         },
@@ -493,7 +493,7 @@ describe('DockerEnvironment - Unit Tests', () => {
           serverCommand: 'npm start',
         },
         previewConfig: {
-          serverStartCommand: 'npm run dev',
+          serverStartCommands: ['npm run dev'],
           port: 3000,
           host: '0.0.0.0',
         },

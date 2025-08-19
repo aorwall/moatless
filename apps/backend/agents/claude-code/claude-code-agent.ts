@@ -341,6 +341,13 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Build dynamic allowed tools list based on available features
     const allowedTools = ['WebFetch', 'WebSearch', 'Bash']
 
+    // Add repository configuration tools
+    allowedTools.push(
+      'mcp__moatless-tools__updateRepositoryConfig',
+      'mcp__moatless-tools__getRepositoryConfig',
+      'mcp__moatless-tools__install',
+    )
+
     // Add task metadata tool only for first iteration
     if (runOptions.iterationNumber === 1) {
       allowedTools.push('mcp__moatless-tools__updateTaskMetadata')
@@ -349,10 +356,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Add preview server tools if available
     if (runOptions.hasPreviewServer) {
       allowedTools.push(
-        'mcp__moatless-tools__startPreviewServer',
-        'mcp__moatless-tools__stopPreviewServer',
-        'mcp__moatless-tools__restartPreviewServer',
-        'mcp__moatless-tools__getPreviewServerStatus',
+        'mcp__moatless-tools__startOrRestartPreviewServer',
         'mcp__moatless-tools__getPreviewServerLogs',
       )
     }
@@ -404,14 +408,20 @@ export class ClaudeCodeAgent extends BaseAgent {
       systemPromptParts.push(
         "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
         '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
-        '- `mcp__moatless-tools__startPreviewServer` - Start the preview server',
-        '- `mcp__moatless-tools__stopPreviewServer` - Stop the preview server',
-        '- `mcp__moatless-tools__restartPreviewServer` - Restart the preview server',
-        '- `mcp__moatless-tools__getPreviewServerStatus` - Check server status',
+        '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
         '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
         'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
       )
     }
+
+    // Add repository management information
+    systemPromptParts.push(
+      '**Repository Configuration**: You have access to repository management tools:',
+      '- `mcp__moatless-tools__install` - Install the repository by running setup commands (e.g., npm install, pip install)',
+      '- `mcp__moatless-tools__updateRepositoryConfig` - Update repository configuration (setup commands, environment variables, server start commands)',
+      '- `mcp__moatless-tools__getRepositoryConfig` - Get current repository configuration',
+      'Use these tools to manage repository installation and configuration instead of manual commands when appropriate.',
+    )
 
     // Set the combined system prompt if there are any parts
     if (systemPromptParts.length > 0) {

@@ -59,3 +59,4 @@ uploads
 .config
 .cache
 .gitconfig
+.playwright-mcp/

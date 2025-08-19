@@ -597,10 +597,13 @@ export class DockerEnvironment extends BaseEnvironment {
     this.logger.info('Starting server via worker')
 
     // Get server configuration from repository config
-    const serverCommand = this.repositoryConfig.previewConfig?.serverStartCommand
-    if (!serverCommand) {
-      throw new Error('No server command configured for this environment')
+    const serverCommands = this.repositoryConfig.previewConfig?.serverStartCommands
+    if (!serverCommands || serverCommands.length === 0) {
+      throw new Error('No server commands configured for this environment')
     }
+
+    // Use the first command for now - could be enhanced to support multiple commands
+    const serverCommand = serverCommands[0]
 
     try {
       const response = await fetch(
@@ -975,46 +978,25 @@ export class DockerEnvironment extends BaseEnvironment {
       try {
         await fs.writeFile(configPath, JSON.stringify(latestConfig, null, 2))
         this.logger.info('Wrote updated repository configuration to temp file', { configPath })
+
+        // Copy the updated config file to container
+        const containerName = this.getContainerName()
+        await execAsync(`docker cp "${configPath}" "${containerName}:/data/repository-config.json"`)
+        this.logger.info('Updated repository configuration copied to container')
+
+        // Clean up temp file
+        await fs.unlink(configPath)
       } catch (error) {
-        this.logger.error('Failed to write updated repository configuration', error as Error)
+        this.logger.error(
+          'Failed to write and copy updated repository configuration',
+          error as Error,
+        )
         throw error
-      }
-
-      // Step 4: Re-run setup commands in container
-      const setupCommands = latestConfig.codeExecution.setupCommands || []
-      this.logger.info(`Running ${setupCommands.length} setup commands with new configuration`, {
-        setupCommands,
-      })
-
-      for (const command of setupCommands) {
-        this.logger.info(`Running setup command in container: ${command}`)
-        const commandStartTime = Date.now()
-        const result = await this.runCommand(command, 300000) // 5 minutes timeout
-        const commandDuration = Date.now() - commandStartTime
-
-        this.logger.info('Setup command completed', {
-          command,
-          exitCode: result.exitCode,
-          durationMs: commandDuration,
-          outputLength: result.output.length,
-          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''),
-        })
-
-        if (result.exitCode !== 0) {
-          this.logger.error('Setup command failed during refresh', {
-            command,
-            exitCode: result.exitCode,
-            output: result.output,
-          })
-          // Continue with other commands instead of throwing
-          // This ensures partial refresh can succeed
-        }
       }
 
       const totalDuration = Date.now() - startTime
       this.logger.info('Configuration refresh completed successfully', {
         durationMs: totalDuration,
-        commandsRun: setupCommands.length,
         containerName: this.getContainerName(),
       })
     } catch (error) {

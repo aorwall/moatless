@@ -187,7 +187,7 @@ export class TaskService {
         const task = await this.storage.getTask(taskId)
         if (task) {
           const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-          hasPreviewServer = Boolean(repository?.previewConfig?.serverStartCommand)
+          hasPreviewServer = Boolean(repository?.previewConfig?.serverStartCommands?.length)
         }
       } catch (error) {
         agentLogger.warn('Failed to check preview server availability', {

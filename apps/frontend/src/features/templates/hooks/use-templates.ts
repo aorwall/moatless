@@ -20,7 +20,7 @@ const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
     gitUrl: 'https://github.com/aorwall/hello-world-ui.git',
     setupCommand: 'bun install',
     previewConfig: {
-      serverStartCommand: 'bun run dev',
+      serverStartCommands: ['bun run dev'],
       serverPort: 3000,
     },
   },

@@ -222,7 +222,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     try {
       // Use server command from request or fall back to repository config
       const finalServerCommand =
-        serverCommand || repositoryConfig?.previewConfig?.serverStartCommand
+        serverCommand || repositoryConfig?.previewConfig?.serverStartCommands?.[0]
 
       if (!finalServerCommand) {
         return c.json(

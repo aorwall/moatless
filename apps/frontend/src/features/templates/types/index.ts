@@ -5,7 +5,7 @@ export interface RepositoryTemplate {
   gitUrl: string
   setupCommand?: string
   previewConfig?: {
-    serverStartCommand?: string
+    serverStartCommands?: string[]
     serverPort?: number
   }
 }

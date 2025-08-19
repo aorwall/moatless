@@ -39,7 +39,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         setupCommands: ['npm install'],
       },
       previewConfig: {
-        serverStartCommand: 'npm run dev',
+        serverStartCommands: ['npm run dev'],
       },
     }
 
@@ -120,7 +120,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         },
         previewConfig: {
           framework: 'vite' as const,
-          serverStartCommand: 'npm run dev',
+          serverStartCommands: ['npm run dev'],
           port: 3000,
         },
       }

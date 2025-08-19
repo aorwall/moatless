@@ -66,10 +66,10 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
       <div className="flex items-start gap-2">
         <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
-            <span className="font-medium">{content.tool_name}</span>
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="font-medium flex-shrink-0">{content.tool_name}</span>
             {content.tool_input && (
-              <span className="text-muted-foreground truncate">({formatToolInput()})</span>
+              <span className="text-muted-foreground truncate min-w-0">({formatToolInput()})</span>
             )}
           </div>
 

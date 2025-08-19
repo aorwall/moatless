@@ -410,11 +410,7 @@ export function RepositoryConfigEditSection({
           description="Commands to start the preview server (one per line)"
         >
           <ConfigurationTextarea
-            value={
-              formData.previewConfig?.serverStartCommands?.join('\n') ||
-              formData.previewConfig?.serverStartCommand ||
-              ''
-            }
+            value={formData.previewConfig?.serverStartCommands?.join('\n') || ''}
             onChange={(e) => {
               const commands = e.target.value.split('\n')
               updateField('previewConfig', {

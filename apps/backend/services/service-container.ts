@@ -101,8 +101,8 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.repository,
   )
 
-  // MCP service needs task and workspace services
-  container.mcp = createMcpService(container.task, container.workspace)
+  // MCP service needs task, workspace, and repository services
+  container.mcp = createMcpService(container.task, container.workspace, container.repository)
 
   // 8. Message service needs claude and task services
   container.message = createMessageService(container.claude, container.task)

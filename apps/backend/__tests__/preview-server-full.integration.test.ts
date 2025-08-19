@@ -74,7 +74,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
         setupCommands: ['bun install'],
       },
       previewConfig: {
-        serverStartCommand: 'bun run dev',
+        serverStartCommands: ['bun run dev'],
         enableInspector: false,
       },
     })
@@ -214,7 +214,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       },
       previewConfig: {
         // Use build command instead of dev - this runs but doesn't start a server
-        serverStartCommand: 'bun run build',
+        serverStartCommands: ['bun run build'],
         enableInspector: false,
       },
     })
