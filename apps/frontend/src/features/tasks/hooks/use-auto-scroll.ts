@@ -98,12 +98,17 @@ export function useAutoScroll({
     if (currentScrollHeight > lastScrollHeight.current && isAtBottom) {
       // Use RAF to ensure DOM has updated
       requestAnimationFrame(() => {
-        // Double-check we're still at bottom (in case user scrolled during update)
-        const { scrollTop, scrollHeight, clientHeight } = scrollElement
-        const stillAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < threshold
-
-        if (stillAtBottom) {
+        // Special case for initial load: always scroll to bottom
+        if (lastScrollHeight.current === 0) {
           scrollElement.scrollTop = scrollElement.scrollHeight
+        } else {
+          // Double-check we're still at bottom (in case user scrolled during update)
+          const { scrollTop, scrollHeight, clientHeight } = scrollElement
+          const stillAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < threshold
+
+          if (stillAtBottom) {
+            scrollElement.scrollTop = scrollElement.scrollHeight
+          }
         }
       })
     }
