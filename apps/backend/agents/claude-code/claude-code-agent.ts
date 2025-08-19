@@ -351,12 +351,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     )
 
     // Add task metadata tool only for first iteration when prompt indicates it's needed
-    if (
-      runOptions.iterationNumber === 1 &&
-      runOptions.appendSystemPrompt?.includes('updateTaskMetadata')
-    ) {
-      allowedTools.push('mcp__moatless-tools__updateTaskMetadata')
-    }
+    allowedTools.push('mcp__moatless-tools__updateTaskMetadata')
 
     // Add preview server tools if available
     if (runOptions.hasPreviewServer) {

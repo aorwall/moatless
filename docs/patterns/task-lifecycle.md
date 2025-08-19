@@ -74,15 +74,15 @@
    - Waits for workspace to reach 'idle' state (max 30s)
    - Updates iteration `status: 'active'` to indicate processing started
    - Emits `taskIteration` event with `subType: 'active'` for UI updates
-   - Calls executeAgentViaEnvironment with iteration message
+   - Delegates agent execution to AgentService
 
-2. **executeAgentViaEnvironment**: Orchestrates agent creation and execution - apps/backend/services/task.service.ts:94
-   - Gets workspace and validates it's ready - apps/backend/services/task.service.ts:106
-   - Uses environment.runAgent() to create agent and execute it - apps/backend/services/task.service.ts:164
-   - Captures agent session ID for resume capability from environment.getAgentStatus()
-   - Streams events to eventService as they're generated
+2. **Agent Execution via AgentService**: TaskService delegates agent execution to AgentService
+   - TaskService creates AgentExecutionRequest with task details
+   - AgentService.executeAgent() handles workspace validation and agent execution
+   - AgentService validates workspace status and prepares execution context
+   - AgentService streams execution events back to TaskService
+   - TaskService emits events to EventService for frontend consumption
    - Updates iteration end time and duration on completion
-   - Emits error event if agent execution fails
 
 3. **environment.runAgent**: Processes agent messages and events - apps/backend/environments/base-environment.ts:53
    - Creates agent instance using environment's createAgent method
@@ -218,12 +218,20 @@ This separation ensures:
 ## Critical Methods
 
 ### Task Service
-- **createTask**: Entry point for new tasks, returns immediately - apps/backend/services/task.service.ts:367
-- **startTask**: Activates pending iteration for execution - apps/backend/services/task.service.ts:562
-- **sendMessage**: Creates new iteration and starts execution - apps/backend/services/task.service.ts:912
-- **handleResultEvent**: Processes execution completion, updates states - apps/backend/services/task.service.ts:154
-- **handleErrorEvent**: Handles execution failures, marks iteration failed - apps/backend/services/task.service.ts:247
-- **closeTask**: Archives task and cleans up all resources - apps/backend/services/task.service.ts:1074
+- **createTask**: Entry point for new tasks, returns immediately
+- **startTask**: Activates pending iteration for execution  
+- **sendMessage**: Creates new iteration and delegates execution to AgentService
+- **handleResultEvent**: Processes execution completion, updates states
+- **handleErrorEvent**: Handles execution failures, marks iteration failed
+- **closeTask**: Archives task and cleans up all resources
+
+### Agent Service
+- **executeAgent**: Main entry point for agent execution with workspace validation
+- **getAgentStatus**: Returns current agent status and session information
+- **stopAgent**: Stops running agent execution
+- **prepareMessageWithAttachments**: Handles file attachment processing  
+- **checkPreviewServerAvailability**: Determines if preview server features are available
+- **generateSystemPromptParts**: Creates context-aware system prompts
 
 ### Workspace Service
 - **createWorkspace**: Initializes workspace directory and environment - apps/backend/services/workspace.service.ts:30
@@ -231,7 +239,7 @@ This separation ensures:
 - **getWorkspaceStatus**: Returns comprehensive status object - apps/backend/services/workspace.service.ts:566
 - **cleanupWorkspace**: Tears down environment and releases resources - apps/backend/services/workspace.service.ts:483
 
-### Environment (replaces Agent Service)
+### Environment
 - **runAgent**: Main entry for agent execution requests - apps/backend/environments/base-environment.ts:53
 - **getAgentStatus**: Returns current agent status and session information - apps/backend/environments/base-environment.ts:67
 - **stopAgent**: Interrupts running agent execution - apps/backend/environments/base-environment.ts:86

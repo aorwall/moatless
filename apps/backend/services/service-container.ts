@@ -1,4 +1,5 @@
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
@@ -16,6 +17,7 @@ import type { WorkspaceService } from './workspace.service.js'
  * Service container interface containing all application services.
  */
 export interface ServiceContainer {
+  agent: AgentService
   claude: ClaudeService
   command: CommandService
   docker: DockerService
@@ -47,6 +49,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createSettingsService } = await import('./settings.service.js')
   const { createRepositoryService } = await import('./repository.service.js')
   const { createClaudeService } = await import('../agents/claude-code/claude.service.js')
+  const { createAgentService } = await import('./agent.service.js')
   const { createCommandService } = await import('./command.service.js')
   const { createDockerService } = await import('./docker.service.js')
   const { createEventService } = await import('./event.service.js')
@@ -92,13 +95,17 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Set settings service on repository service for GitHub cloning
   container.repository.setSettingsService(container.settings)
 
-  // Task service needs many dependencies
+  // Agent service needs workspace, repository, and storage
+  container.agent = createAgentService(container.workspace, container.repository, container.storage)
+
+  // Task service needs many dependencies including agent service
   container.task = createTaskService(
     container.storage,
     container.event,
     container.workspace,
     container.command,
     container.repository,
+    container.agent,
   )
 
   // MCP service needs task, workspace, and repository services

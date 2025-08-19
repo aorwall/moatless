@@ -112,6 +112,43 @@ app.get('/example', async (c) => {
    )
    ```
 
+### Service Creation Order
+
+Services must be created in dependency order. Here's the current order in `createServiceContainer`:
+
+```typescript
+// 1. Core services with no dependencies
+container.storage = await createStorageService()
+container.github = getGitHubService()
+container.settings = await createSettingsService(container.github)
+
+// 2. Services with single dependencies  
+container.repository = createRepositoryService(container.storage)
+container.claude = createClaudeService(container.settings)
+container.command = createCommandService(container.storage)
+
+// 3. Services with multiple dependencies
+container.event = createEventService(container.storage)
+container.workspace = createWorkspaceService(/* ... dependencies */)
+
+// 4. Agent service (depends on workspace, repository, storage)
+container.agent = createAgentService(
+  container.workspace,
+  container.repository,
+  container.storage
+)
+
+// 5. Task service (depends on agent + other services)
+container.task = createTaskService(
+  container.storage,
+  container.event,
+  container.workspace,
+  container.command,
+  container.repository,
+  container.agent  // AgentService dependency
+)
+```
+
 ### Modifying Existing Services
 
 When adding dependencies to an existing service:
@@ -173,11 +210,11 @@ The following core services are available in the container:
 - `settings`: Application settings management
 - `claude`: Claude AI integration
 - `repository`: Repository management
-- `task`: Task management
+- `task`: Task management and orchestration
+- `agent`: AI agent execution and lifecycle management
 - `event`: Event handling
 - `message`: Message processing
 - `workspace`: Workspace management
-- `agent`: AI agent management
 - `command`: Command execution
 - `previewEnvironment`: Preview environment management
 

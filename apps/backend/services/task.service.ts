@@ -13,6 +13,7 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import { logger } from '../utils/logger.js'
+import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
@@ -46,6 +47,7 @@ export class TaskService {
     private workspaceService: WorkspaceService,
     private commandService: CommandService,
     private repositoryService: RepositoryService,
+    private agentService: AgentService,
   ) {
     // Subscribe to agent events for reactive task updates
     this.setupEventSubscription()
@@ -111,197 +113,6 @@ export class TaskService {
         event.contextTokens !== undefined) ||
       event.agentSessionId !== undefined // Handle any event with agentSessionId
     )
-  }
-
-  /**
-   * Execute an agent via environment (replacement for agentService.executeAgent)
-   */
-  private async executeAgentViaEnvironment(
-    taskId: string,
-    message: string,
-    iteration: TaskIteration,
-    agentType = 'claude-code',
-    resumeSessionId?: string,
-    model?: string,
-  ): Promise<void> {
-    const agentLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
-
-    // Get workspace and validate state
-    agentLogger.debug('Getting workspace for agent execution', { taskId })
-    const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-    const status = workspace.getStatus()
-
-    if (status === 'initializing') {
-      throw new Error('Workspace is still setting up')
-    }
-
-    if (status === 'error') {
-      const environment = workspace.getEnvironment()
-      const errorMessage = environment.getError() || 'Environment setup failed'
-      throw new Error(`Cannot start agent - environment setup failed: ${errorMessage}`)
-    }
-
-    // Check if workspace path actually exists
-    const isWorkspaceValid = await workspace.isWorkspacePathValid()
-    if (!isWorkspaceValid) {
-      throw new Error('Workspace path is invalid - workspace needs to be recreated')
-    }
-
-    agentLogger.debug('Getting environment from workspace', {
-      agentType,
-      workspaceStatus: status,
-      hasResumeSession: !!resumeSessionId,
-      model,
-    })
-
-    // Get environment from workspace
-    const environment = workspace.getEnvironment()
-
-    // Prepare message with file attachments if provided
-    let finalMessage = message
-    if (iteration.attachments && iteration.attachments.length > 0) {
-      // Get the absolute paths for the uploaded files
-      const filePaths: string[] = iteration.attachments.map((attachment) => attachment.path)
-
-      // Log each attachment
-      for (const attachment of iteration.attachments) {
-        agentLogger.info('File attachment included', {
-          filename: attachment.filename,
-          path: attachment.path,
-          mimeType: attachment.mimeType,
-        })
-      }
-
-      // Append file information to message
-      finalMessage = `${message}\n\nUploaded files:\n${filePaths.join('\n')}`
-      agentLogger.info('Message with file attachments prepared', {
-        fileCount: filePaths.length,
-        messageLength: finalMessage.length,
-      })
-    }
-
-    try {
-      // Check if preview server is available for this task
-      let hasPreviewServer = false
-      let task: any = null
-      try {
-        task = await this.storage.getTask(taskId)
-        if (task) {
-          const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-          hasPreviewServer = Boolean(repository?.previewConfig?.serverStartCommands?.length)
-        }
-      } catch (error) {
-        agentLogger.warn('Failed to check preview server availability', {
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-
-      // Generate system prompt parts based on task state
-      const systemPromptParts: string[] = []
-
-      // Add task metadata instruction only if name is not set and it's the first iteration
-      if (iteration.iterationNumber === 1 && !task?.name) {
-        systemPromptParts.push(
-          "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish.",
-        )
-      }
-
-      // Add preview server information when available
-      if (hasPreviewServer) {
-        systemPromptParts.push(
-          "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
-          '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
-          '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
-          '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
-          'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
-        )
-      }
-
-      // Add repository management information
-      systemPromptParts.push(
-        '**Repository Configuration**: You have access to repository management tools:',
-        '- `mcp__moatless-tools__install` - Install the repository by running setup commands (e.g., npm install, pip install)',
-        '- `mcp__moatless-tools__updateRepositoryConfig` - Update repository configuration (setup commands, environment variables, server start commands)',
-        '- `mcp__moatless-tools__getRepositoryConfig` - Get current repository configuration',
-        'Use these tools to manage repository installation and configuration instead of manual commands when appropriate.',
-      )
-
-      // Run agent using environment's runAgent method
-      const runOptions = {
-        workspaceDir: workspace.getWorkspacePath(),
-        iterationNumber: iteration.iterationNumber,
-        resume: resumeSessionId,
-        model,
-        agentMode: iteration.agentMode,
-        hasPreviewServer,
-        appendSystemPrompt:
-          systemPromptParts.length > 0 ? systemPromptParts.join('\n\n') : undefined,
-      }
-
-      agentLogger.info('Starting agent execution with options', { ...runOptions })
-
-      // Process agent events using environment's runAgent method
-      for await (const event of environment.runAgent(agentType, finalMessage, runOptions)) {
-        // Capture session ID if it's not already set
-        const agentStatus = environment.getAgentStatus()
-        if (!iteration.agentSessionId && agentStatus.sessionId) {
-          iteration.agentSessionId = agentStatus.sessionId
-          agentLogger.debug('Captured agent session ID', { sessionId: iteration.agentSessionId })
-        }
-
-        if (event.type === 'agent' && event.subType === 'completed') {
-          const resultPayload = event.payload
-          agentLogger.info('Agent execution completed', {
-            costUsd: resultPayload.total_cost_usd,
-            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-            isError: event.isError,
-            subtype: resultPayload.subtype,
-          })
-
-          // Set basic iteration data for local tracking
-          iteration.costUsd = resultPayload.total_cost_usd ?? 0
-          iteration.endTime = new Date()
-        }
-
-        // Emit agent events to event service with agentSessionId
-        agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
-        await this.eventService.emitEvent({
-          ...event,
-          agentSessionId: iteration.agentSessionId,
-        })
-      }
-
-      agentLogger.info('Agent execution completed successfully', {
-        iterationNumber: iteration.iterationNumber,
-        status: iteration.status,
-      })
-    } catch (error) {
-      agentLogger.error('Agent execution failed', error as Error)
-
-      // Set basic iteration data for local tracking
-      iteration.status = 'failed'
-      iteration.result = `Agent execution failed: ${error instanceof Error ? error.message : String(error)}. Agent: ${agentType}, Model: ${model || 'default'}, Resuming: ${!!resumeSessionId}`
-      iteration.endTime = new Date()
-
-      // Emit error event - task service will handle the task/iteration updates
-      await this.eventService.emitEvent({
-        taskId,
-        type: 'agent',
-        subType: 'error',
-        payload: {
-          error: error instanceof Error ? error.message : String(error),
-          stackTrace: error instanceof Error ? error.stack : undefined,
-        },
-        eventId: randomUUID(),
-        timestamp: new Date(),
-        agentType: 'claude-code',
-        isError: true,
-        iterationId: iteration.iterationNumber,
-        agentSessionId: iteration.agentSessionId,
-      })
-
-      throw error
-    }
   }
 
   /**
@@ -1057,14 +868,21 @@ export class TaskService {
 
     // Execute the agent with the iteration's initial message
     if (lastIteration.initialMessage || lastIteration.commandName) {
-      const executeTask = this.executeAgentViaEnvironment(
+      const agentRequest = {
         taskId,
-        lastIteration.initialMessage || '',
-        lastIteration,
-        'claude-code',
-        undefined,
-        lastIteration.model,
-      ).catch(async (error) => {
+        message: lastIteration.initialMessage || '',
+        iteration: lastIteration,
+        agentType: 'claude-code',
+        resumeSessionId: undefined,
+        model: lastIteration.model,
+      }
+
+      const executeTask = (async () => {
+        for await (const event of this.agentService.executeAgent(agentRequest)) {
+          // Emit agent events to event service
+          await this.eventService.emitEvent(event)
+        }
+      })().catch(async (error) => {
         logger.error('Failed to execute agent during task start', error as Error, {
           taskId,
           iterationNumber: lastIteration.iterationNumber,
@@ -1436,14 +1254,21 @@ export class TaskService {
       : message
 
     // Execute agent through environment in background
-    const backgroundTask = this.executeAgentViaEnvironment(
+    const agentRequest = {
       taskId,
-      finalMessage,
+      message: finalMessage,
       iteration,
-      'claude-code',
+      agentType: 'claude-code',
       resumeSessionId,
       model,
-    ).catch(async (error) => {
+    }
+
+    const backgroundTask = (async () => {
+      for await (const event of this.agentService.executeAgent(agentRequest)) {
+        // Emit agent events to event service
+        await this.eventService.emitEvent(event)
+      }
+    })().catch(async (error) => {
       logger.error('Background agent execution failed', error as Error, { taskId })
 
       // Update status to error on agent failure
@@ -1652,6 +1477,14 @@ export function createTaskService(
   workspaceService: WorkspaceService,
   commandService: CommandService,
   repositoryService: RepositoryService,
+  agentService: AgentService,
 ): TaskService {
-  return new TaskService(storage, eventService, workspaceService, commandService, repositoryService)
+  return new TaskService(
+    storage,
+    eventService,
+    workspaceService,
+    commandService,
+    repositoryService,
+    agentService,
+  )
 }
