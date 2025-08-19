@@ -91,7 +91,17 @@
    - Yields all events from agent execution
    - Clears currentAgent when execution completes or fails
 
-4. **Agent Event Handling**: Reacts to agent events to update state - apps/backend/services/task.service.ts:61
+4. **Message Persistence**: AgentService saves messages immediately - apps/backend/services/agent.service.ts:119
+   - **saveMessageAsync**: Fire-and-forget message persistence during event processing
+     - Extracts message content from agent events with subType 'message'
+     - Converts events to AgentMessage format using convertEventToAgentMessage
+     - Appends to JSONL file via storage.appendJsonl(`messages/${taskId}`, agentMessage)
+     - Non-blocking saves ensure event stream continues uninterrupted
+     - Errors logged but don't fail the agent execution
+   - **Storage Format**: `data/messages/{taskId}.jsonl` - one AgentMessage JSON per line
+   - **Conversion Logic**: Maps Event payload to AgentMessage structure with proper typing
+
+5. **Agent Event Handling**: Reacts to agent events to update state - apps/backend/services/task.service.ts:61
    - handleResultEvent: Processes execution completion - apps/backend/services/task.service.ts:154
      - Updates iteration status to `completed` (success) or `failed` (error)
      - Captures result text and cost information
@@ -250,6 +260,32 @@ This separation ensures:
 - **getWorkspaceExistence**: Checks if workspace path is valid - apps/backend/workspaces/workspace.ts:774
 - **getWorkspaceChangeStatus**: Calculates git change status - apps/backend/workspaces/workspace.ts:802
 - **getAgentState**: Returns current agent execution state - apps/backend/workspaces/workspace.ts:842
+
+### Message Reading Flow
+
+The message reading system implements a hierarchical approach for maximum reliability and backward compatibility:
+
+1. **MessageService.getTaskMessages()**: Main entry point for message retrieval - apps/backend/services/message.service.ts:27
+   - First attempts to read from local storage: `data/messages/{taskId}.jsonl`
+   - If local storage is empty, falls back to Claude directory: `~/.claude/sessions/{sessionId}.jsonl`
+   - Transforms AgentMessage format to UI Message format for frontend consumption
+
+2. **Local Storage Priority**: Modern message persistence (AgentService → Storage)
+   - **getMessagesFromStorage()**: Reads from local JSONL storage - apps/backend/services/message.service.ts:57
+   - Uses storage.readJsonl() to parse each line as AgentMessage
+   - Provides fast access without depending on Claude's file system
+   - Handles parse errors gracefully, skipping corrupted lines
+
+3. **Claude Directory Fallback**: Backward compatibility (legacy tasks)
+   - **readMessagesFromClaudeDirectory()**: Existing logic for Claude file reading
+   - Searches Claude's session directories for matching session IDs
+   - Transforms Claude's JSONL format to AgentMessage format
+   - Maintains support for tasks created before local persistence
+
+4. **Migration Strategy**:
+   - **New Tasks**: Messages saved immediately to local storage during execution
+   - **Existing Tasks**: Continue reading from Claude directory until new messages generated
+   - **Hybrid Support**: Can read from both sources as tasks transition to new system
 
 ### Frontend Hooks
 - **useTask**: Fetches single task with all iterations - apps/frontend/src/features/tasks/hooks/use-tasks.ts:46

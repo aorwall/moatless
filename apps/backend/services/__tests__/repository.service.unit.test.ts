@@ -15,6 +15,9 @@ describe('RepositoryService', () => {
       list: vi.fn(),
       delete: vi.fn(),
       exists: vi.fn(),
+      // JSONL methods
+      appendJsonl: vi.fn(),
+      readJsonl: vi.fn().mockResolvedValue([]),
       // Type-safe convenience methods
       saveTask: vi.fn(),
       getTask: vi.fn(),

@@ -95,8 +95,17 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Set settings service on repository service for GitHub cloning
   container.repository.setSettingsService(container.settings)
 
-  // Agent service needs workspace, repository, and storage
-  container.agent = createAgentService(container.workspace, container.repository, container.storage)
+  // 4. Message service needs claude, task (temp), and storage services (create early for agent dependency)
+  // Note: We'll set task service later after it's created to avoid circular dependency
+  container.message = createMessageService(container.claude, undefined as any, container.storage)
+
+  // Agent service needs workspace, repository, storage, and message service
+  container.agent = createAgentService(
+    container.workspace,
+    container.repository,
+    container.storage,
+    container.message,
+  )
 
   // Task service needs many dependencies including agent service
   container.task = createTaskService(
@@ -108,11 +117,11 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.agent,
   )
 
+  // Now set the task service on message service to complete the circular dependency
+  ;(container.message as any).taskService = container.task
+
   // MCP service needs task, workspace, and repository services
   container.mcp = createMcpService(container.task, container.workspace, container.repository)
-
-  // 8. Message service needs claude and task services
-  container.message = createMessageService(container.claude, container.task)
 
   // Return fully initialized container
   return container as ServiceContainer

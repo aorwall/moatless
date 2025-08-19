@@ -11,6 +11,8 @@ const createMockStorage = (): StorageBackend => ({
   delete: vi.fn(),
   list: vi.fn().mockResolvedValue([]),
   exists: vi.fn(),
+  appendJsonl: vi.fn(),
+  readJsonl: vi.fn().mockResolvedValue([]),
   saveTask: vi.fn(),
   getTask: vi.fn(),
   saveRepository: vi.fn(),

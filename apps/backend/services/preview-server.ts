@@ -359,27 +359,9 @@ export class PreviewServer {
     this.logger.info(`Final server command: ${command}`)
     this.logger.info(`Server logs will be saved to: ${this.logFile}`)
 
-    // Ensure node_modules/.bin is in PATH for the workspace
-    const workspaceBinPath = path.join(this.workspacePath, 'node_modules', '.bin')
-    const currentPath = process.env.PATH || ''
-    const enhancedPath = workspaceBinPath + path.delimiter + currentPath
-
-    // Build environment with sensible defaults that can be overridden
-    const defaultEnv: Record<string, string> = {
-      PATH: enhancedPath,
-      // Only add NODE_OPTIONS if not already provided
-      NODE_OPTIONS: '--preserve-symlinks --preserve-symlinks-main',
-    }
-
-    // Merge envVars, allowing repository config to override defaults
-    const mergedEnv: Record<string, string> = {
-      ...defaultEnv,
-      ...this.envVars, // Repository-specific envVars override defaults
-    }
-
     const commandOptions = {
       cwd: this.workspacePath,
-      env: mergedEnv,
+      env: this.envVars || {},
       timeout: 300000, // 5 minute timeout for server startup
     }
 

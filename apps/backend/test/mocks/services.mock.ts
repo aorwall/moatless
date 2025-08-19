@@ -11,6 +11,8 @@ export function createMockStorageBackend(overrides?: Partial<StorageBackend>): S
     list: vi.fn().mockResolvedValue([]),
     delete: vi.fn().mockResolvedValue(undefined),
     exists: vi.fn().mockResolvedValue(false),
+    appendJsonl: vi.fn().mockResolvedValue(undefined),
+    readJsonl: vi.fn().mockResolvedValue([]),
     saveTask: vi.fn().mockResolvedValue(undefined),
     getTask: vi.fn().mockResolvedValue(null),
     saveRepository: vi.fn().mockResolvedValue(undefined),

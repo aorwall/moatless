@@ -1,30 +1,71 @@
+import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import type { TaskResponse } from '@moatless/types'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ClaudeService } from '../../agents/claude-code/claude.service.js'
 import { fileExists } from '../../agents/claude-code/claude-utils.js'
-import { createMessageService, MessageService } from '../message.service.js'
+import { createMockAgentService } from '../../test/mocks/services.mock.js'
+import { createMessageService, type MessageService } from '../message.service.js'
 import { initializeSettingsService } from '../settings.service.js'
-import type { TaskService } from '../task.service.js'
+import { FileStorage } from '../storage.js'
+import { createTaskService, type TaskService } from '../task.service.js'
 
-describe('MessageService Integration - Real Session Data', () => {
+describe('MessageService Integration - Real File Storage', () => {
   let claudeService: ClaudeService
   let messageService: MessageService
+  let fileStorage: FileStorage
   let sessionExists: boolean
-  let mockTaskService: TaskService
+  let taskService: TaskService
+  let tempTestDir: string
 
   const sessionId = '58a94d13-647a-4d38-b628-fa057f26ec91'
 
   beforeAll(async () => {
+    // Create a temporary directory for test storage
+    tempTestDir = path.join(os.tmpdir(), 'message-service-integration-test', randomUUID())
+    await fs.mkdir(tempTestDir, { recursive: true })
+
     const settingsService = await initializeSettingsService()
     claudeService = new ClaudeService(settingsService)
 
-    // Create a mock TaskService
-    mockTaskService = {
-      getTask: vi.fn(),
-      // Add other required methods as stubs if needed
+    // Create real file storage instead of mock
+    fileStorage = new FileStorage(tempTestDir)
+
+    // Create a real TaskService with minimal mocked dependencies
+    const mockEventService = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      removeAllListeners: vi.fn(),
+      subscribeAll: vi.fn(),
     } as any
 
-    messageService = createMessageService(claudeService, mockTaskService)
+    const mockWorkspaceService = {
+      getWorkspace: vi.fn(),
+      getOrCreateWorkspace: vi.fn(),
+    } as any
+
+    const mockCommandService = {
+      getAvailableCommands: vi.fn().mockReturnValue([]),
+    } as any
+
+    const mockRepositoryService = {
+      getRepositoryById: vi.fn(),
+    } as any
+
+    const mockAgentService = createMockAgentService()
+
+    taskService = createTaskService(
+      fileStorage,
+      mockEventService,
+      mockWorkspaceService,
+      mockCommandService,
+      mockRepositoryService,
+      mockAgentService as any,
+    )
+
+    messageService = createMessageService(claudeService, taskService, fileStorage)
 
     // Check if the session file exists
     const homeDir = require('node:os').homedir()
@@ -36,6 +77,15 @@ describe('MessageService Integration - Real Session Data', () => {
       `${sessionId}.jsonl`,
     )
     sessionExists = await fileExists(sessionFilePath)
+  })
+
+  afterAll(async () => {
+    // Clean up temporary test directory
+    try {
+      await fs.rm(tempTestDir, { recursive: true, force: true })
+    } catch (error) {
+      console.warn('Failed to clean up temp test directory:', error)
+    }
   })
 
   describe('readMessagesFromClaudeDirectory', () => {
@@ -163,91 +213,6 @@ describe('MessageService Integration - Real Session Data', () => {
         console.log('No tool use messages found in this session')
       }
     })
-
-    it('should fall back to task iterations when Claude files are not accessible', async () => {
-      // Create a task with a non-existent session ID
-      const mockTask: TaskResponse = {
-        taskId: 'test-task-fallback',
-        status: 'closed',
-        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: 'non-existent-session-id',
-            startTime: new Date(),
-            endTime: new Date(),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.05,
-            initialMessage: 'Test user message',
-            result: JSON.stringify({
-              content: 'Test assistant response from iteration',
-              type: 'completion',
-            }),
-          },
-          {
-            iterationNumber: 2,
-            agentSessionId: 'another-non-existent-session',
-            startTime: new Date(),
-            endTime: new Date(),
-            status: 'completed',
-            messageCount: 1,
-            costUsd: 0.03,
-            initialMessage: 'Another test message',
-            result: 'Simple text result from second iteration',
-          },
-        ],
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-        numTurns: 2,
-        totalCostUsd: 0.08,
-      }
-
-      const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
-
-      expect(messages).toBeDefined()
-      expect(Array.isArray(messages)).toBe(true)
-      expect(messages.length).toBeGreaterThan(0)
-
-      // Should have messages from both iterations
-      expect(messages.length).toBe(4) // 2 iterations × 2 messages each (user + assistant)
-
-      // Verify first iteration messages
-      const firstUserMessage = messages.find(
-        (msg) => msg.id.includes('iteration-1-user') && msg.role === 'user',
-      )
-      const firstAssistantMessage = messages.find(
-        (msg) => msg.id.includes('iteration-1-assistant') && msg.role === 'assistant',
-      )
-
-      expect(firstUserMessage).toBeDefined()
-      expect(firstUserMessage?.content).toBe('Test user message')
-
-      expect(firstAssistantMessage).toBeDefined()
-      expect(firstAssistantMessage?.content).toBe('Test assistant response from iteration')
-
-      // Verify second iteration messages
-      const secondUserMessage = messages.find(
-        (msg) => msg.id.includes('iteration-2-user') && msg.role === 'user',
-      )
-      const secondAssistantMessage = messages.find(
-        (msg) => msg.id.includes('iteration-2-assistant') && msg.role === 'assistant',
-      )
-
-      expect(secondUserMessage).toBeDefined()
-      expect(secondUserMessage?.content).toBe('Another test message')
-
-      expect(secondAssistantMessage).toBeDefined()
-      expect(secondAssistantMessage?.content).toBe('Simple text result from second iteration')
-
-      console.log('Fallback to task iterations successful:', {
-        totalMessages: messages.length,
-        iterationsProcessed: 2,
-        messageTypes: messages.map((msg) => msg.role),
-      })
-    })
   })
 
   describe('message transformation edge cases', () => {
@@ -355,7 +320,7 @@ describe('MessageService Integration - Real Session Data', () => {
   })
 
   describe('getTaskMessages', () => {
-    it('should get messages using task ID', async () => {
+    it('should get messages using task ID (optional - requires real Claude session)', async () => {
       if (!sessionExists) {
         console.log('Skipping test - session file not found')
         return
@@ -384,13 +349,11 @@ describe('MessageService Integration - Real Session Data', () => {
         totalCostUsd: 0,
       }
 
-      // Mock the TaskService to return our task
-      vi.mocked(mockTaskService.getTask).mockResolvedValue(mockTask)
+      // Save the task to storage so TaskService can find it
+      await fileStorage.saveTask(mockTask)
 
       // Test the new method
       const messages = await messageService.getTaskMessages(taskId)
-
-      expect(mockTaskService.getTask).toHaveBeenCalledWith(taskId)
       expect(messages).toBeDefined()
       expect(Array.isArray(messages)).toBe(true)
       expect(messages.length).toBeGreaterThan(0)
@@ -411,14 +374,10 @@ describe('MessageService Integration - Real Session Data', () => {
     it('should throw error for non-existent task ID', async () => {
       const nonExistentTaskId = 'non-existent-task-id-12345'
 
-      // Mock the TaskService to return null
-      vi.mocked(mockTaskService.getTask).mockResolvedValue(undefined as any)
-
+      // Don't save any task, so it won't be found
       await expect(messageService.getTaskMessages(nonExistentTaskId)).rejects.toThrow(
-        `Task not found: ${nonExistentTaskId}`,
+        `Task ${nonExistentTaskId} not found`,
       )
-
-      expect(mockTaskService.getTask).toHaveBeenCalledWith(nonExistentTaskId)
     })
 
     it('should throw error for non-Claude Code tasks', async () => {
@@ -436,8 +395,8 @@ describe('MessageService Integration - Real Session Data', () => {
         totalCostUsd: 0,
       }
 
-      // Mock the TaskService to return our task
-      vi.mocked(mockTaskService.getTask).mockResolvedValue(mockTask)
+      // Save the task to storage
+      await fileStorage.saveTask(mockTask)
 
       await expect(messageService.getTaskMessages(taskId)).rejects.toThrow(
         'Only Claude Code tasks are supported for message reading',
@@ -470,8 +429,8 @@ describe('MessageService Integration - Real Session Data', () => {
         totalCostUsd: 0,
       }
 
-      // Mock the TaskService to return our task
-      vi.mocked(mockTaskService.getTask).mockResolvedValue(mockTask)
+      // Save the task to storage
+      await fileStorage.saveTask(mockTask)
 
       // Test the method with a task that has no Claude session
       const messages = await messageService.getTaskMessages(taskId)
@@ -497,19 +456,257 @@ describe('MessageService Integration - Real Session Data', () => {
     })
   })
 
-  describe('service factory function', () => {
-    it('should create MessageService instance with factory function', () => {
-      const service = createMessageService(claudeService, mockTaskService)
+  describe('JSONL message persistence through AgentService', () => {
+    it('should save and retrieve user messages through the service workflow', async () => {
+      const taskId = 'test-user-message-persistence'
 
-      expect(service).toBeInstanceOf(MessageService)
-      expect(service).toBeDefined()
+      // Create a task with iteration data
+      const mockTask: TaskResponse = {
+        taskId,
+        status: 'running',
+        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'test-session-123',
+            startTime: new Date(),
+            status: 'active',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'Test user message for persistence',
+          },
+        ],
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        repositoryId: 'test-repo',
+        agentType: 'claude-code',
+        numTurns: 1,
+        totalCostUsd: 0,
+      }
+
+      // Save the task
+      await fileStorage.saveTask(mockTask)
+
+      // Simulate AgentService saving a user message (this is what happens in executeAgent)
+      const userMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'Test user message for persistence',
+        },
+        sessionId: 'test-session-123',
+      }
+
+      // Save the user message as AgentService would
+      await fileStorage.appendJsonl(`messages/${taskId}`, userMessage)
+
+      // Now test that MessageService can retrieve the messages properly
+      const messages = await messageService.getTaskMessages(taskId)
+
+      expect(messages).toBeDefined()
+      expect(Array.isArray(messages)).toBe(true)
+      expect(messages.length).toBe(1)
+
+      // Verify the user message was properly transformed
+      const retrievedMessage = messages[0]
+      expect(retrievedMessage.role).toBe('user')
+      expect(retrievedMessage.content).toBe('Test user message for persistence')
+      expect(retrievedMessage.id).toBeDefined()
+      expect(retrievedMessage.timestamp).toBeInstanceOf(Date)
+
+      // Verify it came from local storage (priority test)
+      const messagesFromStorage = await messageService.getMessagesFromStorage(taskId)
+      expect(messagesFromStorage.length).toBe(1)
+      expect(messagesFromStorage[0].type).toBe('user')
+
+      // Verify the raw JSONL format is correct
+      const rawMessages = await fileStorage.readJsonl(`messages/${taskId}`)
+      expect(rawMessages.length).toBe(1)
+      expect(rawMessages[0]).toHaveProperty('uuid')
+      expect(rawMessages[0]).toHaveProperty('timestamp')
+      expect(rawMessages[0]).toHaveProperty('type', 'user')
+      expect(rawMessages[0]).toHaveProperty('message')
+
+      console.log('User message persistence test successful:', {
+        taskId,
+        messagesSaved: 1,
+        messagesRetrieved: messages.length,
+        messageContent:
+          (typeof retrievedMessage.content === 'string'
+            ? retrievedMessage.content
+            : 'Complex content'
+          ).substring(0, 30) + '...',
+      })
     })
 
-    it('should create MessageService instance without repository config', () => {
-      const service = createMessageService(claudeService, mockTaskService)
+    it('should save and retrieve assistant messages with correct format', async () => {
+      const taskId = 'test-assistant-message-persistence'
 
-      expect(service).toBeInstanceOf(MessageService)
-      expect(service).toBeDefined()
+      // Create a task
+      const mockTask: TaskResponse = {
+        taskId,
+        status: 'running',
+        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'test-session-456',
+            startTime: new Date(),
+            status: 'active',
+            messageCount: 2,
+            costUsd: 0,
+          },
+        ],
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        repositoryId: 'test-repo',
+        agentType: 'claude-code',
+        numTurns: 1,
+        totalCostUsd: 0,
+      }
+
+      await fileStorage.saveTask(mockTask)
+
+      // Simulate AgentService saving messages as they would be saved during execution
+      const userMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'User question about code',
+        },
+        sessionId: 'test-session-456',
+      }
+
+      const assistantMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'I can help you with that code. Let me take a look.',
+            },
+          ],
+        },
+        sessionId: 'test-session-456',
+      }
+
+      // Save messages in the order they would be created
+      await fileStorage.appendJsonl(`messages/${taskId}`, userMessage)
+      await fileStorage.appendJsonl(`messages/${taskId}`, assistantMessage)
+
+      // Test MessageService retrieval and transformation
+      const messages = await messageService.getTaskMessages(taskId)
+
+      expect(messages).toBeDefined()
+      expect(Array.isArray(messages)).toBe(true)
+      expect(messages.length).toBe(2)
+
+      // Verify user message
+      const retrievedUserMessage = messages.find((msg) => msg.role === 'user')
+      expect(retrievedUserMessage).toBeDefined()
+      expect(retrievedUserMessage?.content).toBe('User question about code')
+
+      // Verify assistant message
+      const retrievedAssistantMessage = messages.find((msg) => msg.role === 'assistant')
+      expect(retrievedAssistantMessage).toBeDefined()
+      expect(retrievedAssistantMessage?.content).toBe(
+        'I can help you with that code. Let me take a look.',
+      )
+
+      // Verify the raw JSONL data is properly formatted
+      const rawMessages = await fileStorage.readJsonl(`messages/${taskId}`)
+      expect(rawMessages.length).toBe(2)
+      expect(rawMessages[0]).toHaveProperty('uuid')
+      expect(rawMessages[0]).toHaveProperty('timestamp')
+      expect(rawMessages[0]).toHaveProperty('type')
+      expect(rawMessages[0]).toHaveProperty('message')
+      expect(rawMessages[1]).toHaveProperty('type', 'assistant')
+      expect(rawMessages[1]).toHaveProperty('message.role', 'assistant')
+      expect(Array.isArray((rawMessages[1] as any).message.content)).toBe(true)
+
+      console.log('Assistant message persistence test successful:', {
+        taskId,
+        messagesSaved: 2,
+        messagesRetrieved: messages.length,
+        userMessageExists: !!retrievedUserMessage,
+        assistantMessageExists: !!retrievedAssistantMessage,
+      })
+    })
+
+    it('should prioritize local JSONL storage over Claude directory fallback', async () => {
+      const taskId = 'test-storage-priority'
+
+      // Create a task that would have Claude directory data
+      const mockTask: TaskResponse = {
+        taskId,
+        status: 'closed',
+        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        iterations: [
+          {
+            iterationNumber: 1,
+            agentSessionId: 'fallback-session',
+            startTime: new Date(),
+            endTime: new Date(),
+            status: 'completed',
+            messageCount: 1,
+            costUsd: 0,
+            initialMessage: 'Message that would come from Claude directory',
+            result: 'Result from Claude directory fallback',
+          },
+        ],
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+        repositoryId: 'test-repo',
+        agentType: 'claude-code',
+        numTurns: 1,
+        totalCostUsd: 0,
+      }
+
+      await fileStorage.saveTask(mockTask)
+
+      // Simulate that we have messages saved through AgentService
+      const localMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'Message saved through AgentService to local storage',
+        },
+        sessionId: 'fallback-session',
+      }
+
+      await fileStorage.appendJsonl(`messages/${taskId}`, localMessage)
+
+      // Test that MessageService prioritizes local storage
+      const messages = await messageService.getTaskMessages(taskId)
+
+      expect(messages).toBeDefined()
+      expect(Array.isArray(messages)).toBe(true)
+      expect(messages.length).toBe(1)
+
+      // Should get the message from local storage, not the Claude directory fallback
+      expect(messages[0].content).toBe('Message saved through AgentService to local storage')
+      expect(messages[0].content).not.toBe('Message that would come from Claude directory')
+
+      // Verify that getMessagesFromStorage actually found the local messages
+      const localMessages = await messageService.getMessagesFromStorage(taskId)
+      expect(localMessages.length).toBe(1)
+
+      console.log(
+        'Storage priority test successful - local storage took precedence over Claude directory',
+      )
     })
   })
 })

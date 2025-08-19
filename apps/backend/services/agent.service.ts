@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Event, TaskIteration } from '@moatless/types'
 
 import { logger } from '../utils/logger.js'
+import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -26,6 +27,7 @@ export class AgentService {
     private workspaceService: WorkspaceService,
     private repositoryService: RepositoryService,
     private storage: StorageBackend,
+    private messageService: MessageService,
   ) {}
 
   /**
@@ -105,6 +107,18 @@ export class AgentService {
           systemPromptParts.length > 0 ? systemPromptParts.join('\n\n') : undefined,
       }
 
+      // Save the initial user message before processing agent events
+      // This happens for both new and resumed sessions since we're sending a new message
+      await this.messageService.saveUserMessage(
+        taskId,
+        finalMessage,
+        resumeSessionId || iteration.agentSessionId,
+      )
+      agentLogger.debug('Initial user message persisted via MessageService', {
+        taskId,
+        isResume: !!resumeSessionId,
+      })
+
       agentLogger.info('Starting agent execution with options', { ...runOptions })
 
       // Process agent events using environment's runAgent method
@@ -114,6 +128,21 @@ export class AgentService {
         if (!iteration.agentSessionId && agentStatus.sessionId) {
           iteration.agentSessionId = agentStatus.sessionId
           agentLogger.debug('Captured agent session ID', { sessionId: iteration.agentSessionId })
+        }
+
+        // Save message events to local storage (fire-and-forget, non-blocking)
+        if (event.type === 'agent' && event.subType === 'message') {
+          this.messageService
+            .saveAgentMessage(taskId, {
+              ...event,
+              agentSessionId: iteration.agentSessionId,
+            })
+            .catch((error) => {
+              agentLogger.debug('Message persistence completed with warning', {
+                eventId: event.eventId,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
         }
 
         if (event.type === 'agent' && event.subType === 'completed') {
@@ -318,6 +347,7 @@ export function createAgentService(
   workspaceService: WorkspaceService,
   repositoryService: RepositoryService,
   storage: StorageBackend,
+  messageService: MessageService,
 ): AgentService {
-  return new AgentService(workspaceService, repositoryService, storage)
+  return new AgentService(workspaceService, repositoryService, storage, messageService)
 }

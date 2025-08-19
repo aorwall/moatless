@@ -1,5 +1,6 @@
 import type { AgentMessage, TaskResponse } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockStorageBackend } from '../../test/mocks/services.mock.js'
 import { MessageService } from '../message.service.js'
 
 describe('MessageService Unit Tests', () => {
@@ -38,7 +39,8 @@ describe('MessageService Unit Tests', () => {
       getTask: vi.fn(),
     } as any
 
-    service = new MessageService(mockClaudeService, mockTaskService)
+    const mockStorage = createMockStorageBackend()
+    service = new MessageService(mockClaudeService, mockTaskService, mockStorage)
   })
 
   afterEach(() => {

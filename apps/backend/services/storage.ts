@@ -12,6 +12,10 @@ export interface StorageBackend {
   delete(key: string): Promise<void>
   exists(key: string): Promise<boolean>
 
+  // JSONL methods for append-only data
+  appendJsonl(key: string, data: unknown): Promise<void>
+  readJsonl<T = unknown>(key: string): Promise<T[]>
+
   // Type-safe convenience methods
   saveTask(task: Task): Promise<void>
   getTask(taskId: string): Promise<Task | null>
@@ -132,8 +136,45 @@ export class FileStorage implements StorageBackend {
     return events || []
   }
 
-  private async getPath(key: string): Promise<string> {
-    return path.join(this.basePath, `${key}.json`)
+  // JSONL specific methods for message persistence
+  async appendJsonl(key: string, data: unknown): Promise<void> {
+    const filePath = await this.getPath(key, '.jsonl')
+    const dir = path.dirname(filePath)
+    await fs.mkdir(dir, { recursive: true })
+    await fs.appendFile(filePath, toJSON(data) + '\n', 'utf-8')
+  }
+
+  async readJsonl<T = unknown>(key: string): Promise<T[]> {
+    const filePath = await this.getPath(key, '.jsonl')
+    const results: T[] = []
+
+    try {
+      const content = await fs.readFile(filePath, 'utf-8')
+      const lines = content.trim().split('\n').filter(Boolean)
+
+      for (const line of lines) {
+        try {
+          const parsed = fromJSON<T>(line)
+          results.push(parsed)
+        } catch (parseError) {
+          logger.warn(`Failed to parse JSONL line in file: ${filePath}`, {
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          })
+          // Continue processing other lines
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.error(`Failed to read JSONL file: ${filePath}`, error as Error)
+      }
+      // Return empty array for missing files
+    }
+
+    return results
+  }
+
+  private async getPath(key: string, extension = '.json'): Promise<string> {
+    return path.join(this.basePath, `${key}${extension}`)
   }
 }
 

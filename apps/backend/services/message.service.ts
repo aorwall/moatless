@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import type {
   AgentMessage,
   AssistantMessage,
   AssistantMessageContent,
+  Event,
   Message,
   ToolResult,
   UserMessage,
@@ -10,12 +12,14 @@ import { isToolResultContent, isToolUseContent } from '@moatless/types'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
+import type { StorageBackend } from './storage.js'
 import type { TaskService } from './task.service.js'
 
 export class MessageService {
   constructor(
     private claudeService: ClaudeService,
     private taskService: TaskService,
+    private storage: StorageBackend,
   ) {}
 
   /**
@@ -29,12 +33,103 @@ export class MessageService {
       throw new Error(`Task not found: ${taskId}`)
     }
 
-    // Only support Claude Code tasks with direct directory reading
+    // Only support Claude Code tasks
     if (task.agentType !== 'claude-code') {
       throw new Error('Only Claude Code tasks are supported for message reading')
     }
 
+    // Try to read from local storage first
+    const messagesFromStorage = await this.getMessagesFromStorage(taskId)
+    if (messagesFromStorage.length > 0) {
+      logger.debug('Retrieved messages from local storage', {
+        taskId,
+        messageCount: messagesFromStorage.length,
+      })
+      return this.transformAgentMessagesToMessages(messagesFromStorage)
+    }
+
+    // Fall back to Claude directory if no local messages
+    logger.debug('No messages in local storage, falling back to Claude directory', { taskId })
     return this.readMessagesFromClaudeDirectory(task)
+  }
+
+  /**
+   * Get messages from local JSONL storage
+   */
+  async getMessagesFromStorage(taskId: string): Promise<AgentMessage[]> {
+    try {
+      const messages = await this.storage.readJsonl<AgentMessage>(`messages/${taskId}`)
+      logger.debug('Read messages from local storage', {
+        taskId,
+        messageCount: messages.length,
+      })
+      return messages
+    } catch (error) {
+      logger.warn('Failed to read messages from local storage', {
+        taskId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    }
+  }
+
+  /**
+   * Save a user message to local storage
+   */
+  async saveUserMessage(taskId: string, message: string, sessionId?: string): Promise<void> {
+    try {
+      const userMessage: AgentMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: message,
+        },
+        sessionId,
+      }
+
+      await this.storage.appendJsonl(`messages/${taskId}`, userMessage)
+      logger.debug('User message persisted', {
+        taskId,
+        messageId: userMessage.uuid,
+        hasSessionId: !!sessionId,
+      })
+    } catch (error) {
+      logger.warn('Failed to persist user message', {
+        taskId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+  }
+
+  /**
+   * Save an agent message from an event to local storage
+   */
+  async saveAgentMessage(taskId: string, event: Event): Promise<void> {
+    try {
+      if (event.type === 'agent' && event.subType === 'message' && event.payload) {
+        const agentMessage = this.convertEventToAgentMessage(event)
+        if (agentMessage) {
+          await this.storage.appendJsonl(`messages/${taskId}`, agentMessage)
+          logger.debug('Agent message persisted', {
+            taskId,
+            messageType: agentMessage.type,
+            timestamp: agentMessage.timestamp,
+          })
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to persist agent message', {
+        taskId,
+        eventType: event.type,
+        eventSubType: event.subType,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
   }
 
   /**
@@ -461,11 +556,62 @@ export class MessageService {
       eventId: agentMessage.uuid,
     }
   }
+
+  /**
+   * Convert agent event to AgentMessage format for storage
+   */
+  private convertEventToAgentMessage(event: Event): AgentMessage | null {
+    try {
+      // Ensure we have the required fields
+      if (!event.payload || !event.eventId || !event.timestamp) {
+        return null
+      }
+
+      // Extract the Claude SDK message from the event payload
+      const sdkMessage = event.payload as any
+
+      // The SDK message should have a 'message' field containing the actual message
+      if (!sdkMessage.message) {
+        logger.warn('SDK message missing message field', { eventId: event.eventId })
+        return null
+      }
+
+      // Determine message type from SDK message structure
+      let messageType: 'user' | 'assistant' = 'assistant' // Default
+      if (sdkMessage.type === 'user') {
+        messageType = 'user'
+      } else if (sdkMessage.type === 'assistant') {
+        messageType = 'assistant'
+      }
+
+      // Create base agent message structure
+      const agentMessage: AgentMessage = {
+        uuid: event.eventId,
+        timestamp: event.timestamp.toISOString(),
+        userType: 'user',
+        type: messageType,
+        message: sdkMessage.message, // Store the message field from the SDK message
+        sessionId: event.agentSessionId,
+        // Add optional fields if present in SDK message
+        ...(sdkMessage.parent_tool_use_id && { parentUuid: sdkMessage.parent_tool_use_id }),
+        ...(sdkMessage.session_id && { sessionId: sdkMessage.session_id }),
+      }
+
+      return agentMessage
+    } catch (error) {
+      logger.warn('Failed to convert event to agent message', {
+        eventId: event.eventId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  }
 }
 
 export function createMessageService(
   claudeService: ClaudeService,
   taskService: TaskService,
+  storage: StorageBackend,
 ): MessageService {
-  return new MessageService(claudeService, taskService)
+  return new MessageService(claudeService, taskService, storage)
 }
