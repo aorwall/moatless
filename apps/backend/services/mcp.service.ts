@@ -204,7 +204,7 @@ export class McpService {
           content: [
             {
               type: 'text',
-              text: `Preview server started successfully. Status: ${serverStatus.running ? 'running' : 'stopped'}${
+              text: `Preview server started successfully. Status: ${serverStatus.status}${
                 serverStatus.url ? `, URL: ${serverStatus.url}` : ''
               }`,
             },
@@ -272,7 +272,7 @@ export class McpService {
           content: [
             {
               type: 'text',
-              text: `Preview server restarted successfully. Status: ${serverStatus.running ? 'running' : 'stopped'}${
+              text: `Preview server restarted successfully. Status: ${serverStatus.status}${
                 serverStatus.url ? `, URL: ${serverStatus.url}` : ''
               }`,
             },
@@ -306,9 +306,7 @@ export class McpService {
           content: [
             {
               type: 'text',
-              text: `Preview server status: ${serverStatus.running ? 'running' : 'stopped'}${
-                serverStatus.configured ? '' : ' (not configured)'
-              }${serverStatus.url ? `, URL: ${serverStatus.url}` : ''}${
+              text: `Preview server status: ${serverStatus.status}${serverStatus.url ? `, URL: ${serverStatus.url}` : ''}${
                 serverStatus.uptimeSeconds ? `, Uptime: ${serverStatus.uptimeSeconds}s` : ''
               }`,
             },

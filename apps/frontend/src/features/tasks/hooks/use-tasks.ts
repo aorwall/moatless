@@ -218,9 +218,6 @@ export function useSendMessage(
     },
     onSuccess: async (data, variables, context) => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.lists(),
-      })
-      await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
       // Don't invalidate messages - they will be updated via SSE events when AI responds

@@ -15,9 +15,9 @@ export function useServerStatus(
     queryFn: () => serverApi.getServerStatus(taskId),
     enabled: !!taskId,
     refetchInterval: (query) => {
-      // Poll more frequently when server is running or initializing
+      // Poll more frequently when server is started or starting
       const data = query.state.data
-      if (data?.running || data?.status === 'initializing') {
+      if (data?.status === 'started' || data?.status === 'starting') {
         return 5000 // 5 seconds
       }
       return false
@@ -42,10 +42,10 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
       })
 
       // Show success or error toast based on server status
-      if (data.running) {
+      if (data.status === 'started') {
         // Success case - server started successfully
         toast.success('Preview server started successfully')
-      } else if (data.error) {
+      } else if (data.status === 'failed' && data.error) {
         // Failed case - show error details in toast
         toast.error('Failed to start preview server', {
           description: data.error,
@@ -98,9 +98,9 @@ export function useRestartServer(options?: UseMutationOptions<ServerStatus, Erro
       })
 
       // Show success or error toast based on server status
-      if (data.running) {
+      if (data.status === 'started') {
         toast.success('Preview server restarted successfully')
-      } else if (data.error) {
+      } else if (data.status === 'failed' && data.error) {
         toast.error('Failed to restart preview server', {
           description: data.error,
         })

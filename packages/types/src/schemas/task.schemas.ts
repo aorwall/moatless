@@ -203,20 +203,16 @@ export const CommandResultSchema = z.object({
 })
 
 // Server status enum for better state management
-export const ServerStatusEnumSchema = z.enum(['stopped', 'initializing', 'running', 'failed'])
+export const ServerStatusEnumSchema = z.enum(['stopped', 'starting', 'started', 'failed'])
 
 export const ServerStatusSchema = z.object({
-  running: z.boolean(),
-  configured: z.boolean(),
-  starting: z.boolean().optional(), // Process is running but hasn't bound to port yet
-  status: ServerStatusEnumSchema.optional(), // New status field - will become required later
+  status: ServerStatusEnumSchema,
   url: z.string().optional(),
   proxyUrl: z.string().optional(),
   pid: z.number().optional(),
-  uptimeSeconds: z.number(),
+  uptimeSeconds: z.number().optional(),
   error: z.string().optional(),
   logs: z.string().optional(),
-  responsive: z.boolean().optional(),
 })
 
 export const ServerStopResponseSchema = z.object({

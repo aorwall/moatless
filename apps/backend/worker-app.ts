@@ -235,26 +235,26 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       }
 
       // Create preview server instance
-      previewServer = new PreviewServer(
-        taskId || 'worker',
-        config.workspaceDir,
+      previewServer = new PreviewServer(taskId || 'worker', config.workspaceDir)
+
+      const result = await previewServer.start(
         finalServerCommand,
         envVars || repositoryConfig?.codeExecution?.envVars || {},
+        repositoryConfig,
       )
 
-      const result = await previewServer.start()
-
       logger.info('Preview server started', {
+        status: result.status,
         port: result.port,
         pid: result.pid,
       })
 
       return c.json({
         success: true,
-        running: result.running,
+        status: result.status,
         port: result.port,
         pid: result.pid,
-        url: `http://localhost:${result.port}`,
+        url: result.port ? `http://localhost:${result.port}` : undefined,
         uptimeSeconds: result.uptime_seconds,
       })
     } catch (error) {

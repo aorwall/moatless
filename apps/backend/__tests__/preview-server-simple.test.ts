@@ -57,19 +57,19 @@ describe('PreviewServer Simple Test', () => {
       server = new PreviewServer(
         uniqueTaskId,
         frontendPath, // Point to frontend directory
-        'bun run dev', // The command to run (just 'dev', not 'dev:frontend')
-        {}, // No additional env vars needed
-        undefined, // No event service
-        undefined, // No repository config
       )
 
       // Start the server
       console.log('Starting frontend dev server...')
-      const startResult = await server.start()
+      const startResult = await server.start(
+        'bun run dev', // The command to run (just 'dev', not 'dev:frontend')
+        {}, // No additional env vars needed
+        undefined, // No repository config
+      )
       console.log('Start result:', startResult)
 
       // Verify we get a starting result with PID
-      expect(startResult.starting).toBe(true)
+      expect(startResult.status).toBe('starting')
       expect(startResult.log_file).toBeTruthy()
 
       console.log(`Server starting with PID: ${startResult.pid}`)
@@ -82,23 +82,21 @@ describe('PreviewServer Simple Test', () => {
       const timeout = 45000 // 45 seconds for Vite to start
 
       console.log('Waiting for port detection...')
-      while (!serverStatus.running && !serverStatus.error && Date.now() - startTime < timeout) {
+      while (serverStatus.status === 'starting' && Date.now() - startTime < timeout) {
         await new Promise((resolve) => setTimeout(resolve, 1000)) // Check every second
         serverStatus = server.getStatus()
 
         // Log current status for debugging
-        if (serverStatus.status === 'initializing') {
-          console.log(
-            `Server still initializing... (${Math.floor((Date.now() - startTime) / 1000)}s)`,
-          )
+        if (serverStatus.status === 'starting') {
+          console.log(`Server still starting... (${Math.floor((Date.now() - startTime) / 1000)}s)`)
         }
 
-        if (serverStatus.running) {
+        if (serverStatus.status === 'started') {
           console.log(`✅ Server is now running on ${serverStatus.url}`)
           break
         }
 
-        if (serverStatus.error) {
+        if (serverStatus.status === 'failed') {
           console.log(`❌ Server failed: ${serverStatus.error}`)
           break
         }
@@ -108,10 +106,9 @@ describe('PreviewServer Simple Test', () => {
       console.log('Server logs:', lalal)
 
       // Verify server is running successfully
-      expect(serverStatus.running).toBe(true)
+      expect(serverStatus.status).toBe('started')
       expect(serverStatus.url).toBeDefined()
       expect(serverStatus.url).toMatch(/^http:\/\/localhost:\d+$/)
-      expect(serverStatus.status).toBe('running')
 
       // Extract and verify port
       const portMatch = serverStatus.url!.match(/:(\d+)$/)
@@ -148,7 +145,7 @@ describe('PreviewServer Simple Test', () => {
       // Verify server is stopped (give it a moment)
       await new Promise((resolve) => setTimeout(resolve, 1000))
       const finalStatus = server.getStatus()
-      expect(finalStatus.running).toBe(false)
+      expect(finalStatus.status).toBe('stopped')
       console.log('✅ Server stopped successfully')
     },
     60000,

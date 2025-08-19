@@ -24,14 +24,16 @@ describe('PreviewServer Integration', () => {
   })
 
   it('should execute simple command and write to log file', async () => {
-    const server = new PreviewServer('test-task-id', tempDir, [
-      'echo "Server starting..."',
-      'echo "Server ready"',
-    ])
+    const server = new PreviewServer('test-task-id', tempDir)
 
     // Start the server
-    const result = await server.start(logFile)
-    expect(result.starting).toBe(true)
+    const result = await server.start(
+      ['echo "Server starting..."', 'echo "Server ready"'],
+      {},
+      undefined,
+      logFile,
+    )
+    expect(result.status).toBe('starting')
 
     // Wait a moment for execution
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -60,17 +62,11 @@ describe('PreviewServer Integration', () => {
       },
     }
 
-    const server = new PreviewServer(
-      'test-task-id',
-      tempDir,
-      ['nonexistentcommand'],
-      {},
-      mockEventService as any,
-    )
+    const server = new PreviewServer('test-task-id', tempDir, mockEventService as any)
 
     // Start the server (should fail)
-    const result = await server.start(logFile)
-    expect(result.starting).toBe(true)
+    const result = await server.start(['nonexistentcommand'], {}, undefined, logFile)
+    expect(result.status).toBe('starting')
 
     // Wait for failure detection
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -97,9 +93,10 @@ describe('PreviewServer Integration', () => {
       },
     }
 
-    const server = new PreviewServer(
-      'test-task-id',
-      tempDir,
+    const server = new PreviewServer('test-task-id', tempDir, mockEventService as any)
+
+    // Start the server
+    const result = await server.start(
       [
         'echo "VITE v5.4.19  ready in 385 ms"',
         'echo ""',
@@ -109,12 +106,10 @@ describe('PreviewServer Integration', () => {
         'sleep 1', // Give time for port detection
       ],
       {},
-      mockEventService as any,
+      undefined,
+      logFile,
     )
-
-    // Start the server
-    const result = await server.start(logFile)
-    expect(result.starting).toBe(true)
+    expect(result.status).toBe('starting')
 
     // Wait for port detection
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -127,6 +122,8 @@ describe('PreviewServer Integration', () => {
     // In this test we mainly verify the pattern matching works
     const status = server.getStatus()
     console.log('Final server status:', status)
+    console.log('Running event emitted:', runningEventEmitted)
+    console.log('Detected port:', detectedPort)
 
     await server.stop()
   })
@@ -142,17 +139,16 @@ describe('PreviewServer Integration', () => {
       },
     }
 
-    const server = new PreviewServer(
-      'test-task-id',
-      tempDir,
-      ['printf "  ➜  Local:"', 'printf "   http://localhost:"', 'echo "5173/"', 'sleep 1'],
-      {},
-      mockEventService as any,
-    )
+    const server = new PreviewServer('test-task-id', tempDir, mockEventService as any)
 
     // Start the server
-    const result = await server.start(logFile)
-    expect(result.starting).toBe(true)
+    const result = await server.start(
+      ['printf "  ➜  Local:"', 'printf "   http://localhost:"', 'echo "5173/"', 'sleep 1'],
+      {},
+      undefined,
+      logFile,
+    )
+    expect(result.status).toBe('starting')
 
     // Wait for processing
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -160,17 +156,18 @@ describe('PreviewServer Integration', () => {
     // Check that the chunked output was reassembled correctly
     const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '')
     console.log('Chunked log content:', logContent)
+    console.log('Running event emitted:', runningEventEmitted)
     expect(logContent).toContain('Local:   http://localhost:5173/')
 
     await server.stop()
   })
 
   it('should work with nvm commands', async () => {
-    const server = new PreviewServer('test-task-id', tempDir, ['nvm use 22.6.0', 'node --version'])
+    const server = new PreviewServer('test-task-id', tempDir)
 
     // Start the server
-    const result = await server.start(logFile)
-    expect(result.starting).toBe(true)
+    const result = await server.start(['nvm use 22.6.0', 'node --version'], {}, undefined, logFile)
+    expect(result.status).toBe('starting')
 
     // Wait for execution
     await new Promise((resolve) => setTimeout(resolve, 3000))

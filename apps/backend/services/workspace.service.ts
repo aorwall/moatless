@@ -515,8 +515,9 @@ export class WorkspaceService {
       if (!environment.getServerStatus) {
         return false
       }
-      const serverStatus = await environment.getServerStatus()
-      return serverStatus.configured
+      // We can't check configured status from ServerStatus anymore
+      // Just return false as we don't have access to repository config here
+      return false
     } catch {
       return false
     }
@@ -688,8 +689,7 @@ export class WorkspaceService {
       // All environments must support server operations
       if (!environment.getServerStatus) {
         return {
-          running: false,
-          configured: false,
+          status: 'stopped',
           uptimeSeconds: 0,
         }
       }
@@ -702,8 +702,7 @@ export class WorkspaceService {
     } catch (error) {
       logger.error('Error getting server status', error as Error, { taskId })
       return {
-        running: false,
-        configured: false,
+        status: 'stopped',
         uptimeSeconds: 0,
       }
     }
@@ -807,7 +806,7 @@ export class WorkspaceService {
       workspaceLogger.info('Restarting preview server for screenshot capture')
       const serverStatus = await this.restartServer(taskId)
 
-      if (!serverStatus.running || !serverStatus.url) {
+      if (serverStatus.status !== 'started' || !serverStatus.url) {
         workspaceLogger.warn('Server failed to start for screenshot')
         return undefined
       }

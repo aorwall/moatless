@@ -14,8 +14,8 @@ export function ServerLogsViewer() {
   const selectedTaskId = params.taskId
   const { serverStatus } = useServerEvents(selectedTaskId)
 
-  // Smart streaming: use streaming for initializing/running, static fetch for stopped/failed
-  const shouldStream = serverStatus === 'initializing' || serverStatus === 'running'
+  // Smart streaming: use streaming for starting/started, static fetch for stopped/failed
+  const shouldStream = serverStatus === 'starting' || serverStatus === 'started'
   const streamResult = useServerLogsStream(shouldStream ? selectedTaskId || '' : '')
   const staticLogsResult = useServerLogs(shouldStream ? '' : selectedTaskId || '', {
     enabled: !shouldStream,

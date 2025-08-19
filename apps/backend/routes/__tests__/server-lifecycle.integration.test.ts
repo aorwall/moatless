@@ -185,7 +185,7 @@ process.on('SIGTERM', () => {
     console.log('Initial server status:', initialStatus)
 
     // The server might have been auto-started during setup, so stop it first if needed
-    if (initialStatus.running) {
+    if (initialStatus.status === 'started') {
       console.log('Server was auto-started, stopping it first')
       await app.inject({
         method: 'POST',
@@ -194,7 +194,7 @@ process.on('SIGTERM', () => {
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
 
-    expect(initialStatus.configured).toBe(true) // Should be configured since we provided serverCommand
+    // Server configuration is implicit when serverCommand is provided
 
     // Step 5: Start the server
     const startServerResponse = await app.inject({
@@ -204,10 +204,9 @@ process.on('SIGTERM', () => {
 
     expect(startServerResponse.statusCode).toBe(200)
     const startResult = JSON.parse(startServerResponse.body)
-    expect(startResult.running).toBe(true)
+    expect(startResult.status).toBe('started')
     expect(startResult.url).toMatch(/^http:\/\/localhost:\d+$/)
     expect(startResult.pid).toBeGreaterThan(0)
-    expect(startResult.configured).toBe(true)
 
     // Extract port from URL
     const serverPort = Number.parseInt(startResult.url.split(':').pop()!)
@@ -225,8 +224,7 @@ process.on('SIGTERM', () => {
 
     expect(runningStatusResponse.statusCode).toBe(200)
     const runningStatus: ServerStatus = JSON.parse(runningStatusResponse.body)
-    expect(runningStatus.running).toBe(true)
-    expect(runningStatus.configured).toBe(true)
+    expect(runningStatus.status).toBe('started')
     expect(runningStatus.url).toBe(`http://localhost:${serverPort}`)
     expect(runningStatus.pid).toBe(startResult.pid)
     expect(runningStatus.uptimeSeconds).toBeGreaterThanOrEqual(0)
@@ -295,8 +293,7 @@ process.on('SIGTERM', () => {
 
     expect(stoppedStatusResponse.statusCode).toBe(200)
     const stoppedStatus: ServerStatus = JSON.parse(stoppedStatusResponse.body)
-    expect(stoppedStatus.running).toBe(false)
-    expect(stoppedStatus.configured).toBe(true)
+    expect(stoppedStatus.status).toBe('stopped')
 
     // Step 11: Verify we can't connect to the server anymore
     let connectionFailed = false
@@ -316,7 +313,7 @@ process.on('SIGTERM', () => {
 
     expect(restartServerResponse.statusCode).toBe(200)
     const restartResult = JSON.parse(restartServerResponse.body)
-    expect(restartResult.running).toBe(true)
+    expect(restartResult.status).toBe('started')
     expect(restartResult.url).toMatch(/^http:\/\/localhost:\d+$/)
 
     const restartPort = Number.parseInt(restartResult.url.split(':').pop()!)
@@ -399,8 +396,7 @@ process.exit(1);
     })
 
     const status: ServerStatus = JSON.parse(statusResponse.body)
-    expect(status.running).toBe(false)
-    expect(status.configured).toBe(true)
+    expect(status.status).toBe('stopped')
   })
 
   it('should track multiple server starts and stops', async () => {

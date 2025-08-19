@@ -1,6 +1,7 @@
 import type {
   Event,
   GitDiffResponse,
+  ServerStatus,
   SimpleTaskResponse,
   TaskIteration,
   TaskResponse,
@@ -117,18 +118,9 @@ export function createMockWorkspaceStatus(
   }
 }
 
-export interface MockServerStatus {
-  running: boolean
-  configured: boolean
-  url: string
-  pid: number
-  uptimeSeconds: number
-}
-
-export function createMockServerStatus(overrides?: Partial<MockServerStatus>): MockServerStatus {
+export function createMockServerStatus(overrides?: Partial<ServerStatus>): ServerStatus {
   return {
-    running: false,
-    configured: true,
+    status: 'stopped',
     url: 'http://localhost:8080',
     pid: 1234,
     uptimeSeconds: 0,

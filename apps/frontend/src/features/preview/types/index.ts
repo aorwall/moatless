@@ -36,14 +36,11 @@ export interface PreviewConfig {
   port?: number
 }
 
+import type { ServerStatus } from '@moatless/types'
+
 export interface PreviewProps {
   config: PreviewConfig
-  serverStatus?: {
-    running: boolean
-    configured: boolean
-    url?: string
-    proxyUrl?: string
-  }
+  serverStatus?: ServerStatus
   onElementSelected?: (element: ElementInfo | null) => void
   className?: string
 }

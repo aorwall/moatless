@@ -377,8 +377,7 @@ export class Workspace {
   async getServerStatus(): Promise<ServerStatus> {
     if (!this.environment.getServerStatus) {
       return {
-        running: false,
-        configured: false,
+        status: 'stopped',
         uptimeSeconds: 0,
       }
     }

@@ -39,7 +39,13 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
   } = usePreview()
 
   // Use event-driven server status when available, fall back to polling-based status
-  const effectiveServerStatus = eventServerStatus || (serverStatus?.running ? 'running' : 'stopped')
+  const effectiveServerStatus =
+    eventServerStatus ||
+    (serverStatus?.status === 'started'
+      ? 'running'
+      : serverStatus?.status === 'starting'
+        ? 'initializing'
+        : 'stopped')
   const isConnected = effectiveServerStatus === 'running'
   const isInitializing = effectiveServerStatus === 'initializing'
   const isFailed = effectiveServerStatus === 'failed'

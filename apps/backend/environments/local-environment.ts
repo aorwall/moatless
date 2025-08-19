@@ -388,7 +388,7 @@ export class LocalEnvironment extends BaseEnvironment {
     // Check if server is already running
     if (this.previewServer) {
       const status = this.previewServer.getStatus()
-      if (status.running) {
+      if (status.status === 'started') {
         this.logger.info('Server already running', { port: status.url })
         return status
       }
@@ -400,38 +400,33 @@ export class LocalEnvironment extends BaseEnvironment {
     })
 
     try {
-      // Create server handler with repository config for proxy support
-      this.previewServer = new PreviewServer(
-        this.taskId,
-        this.workspacePath,
+      // Create server handler if it doesn't exist
+      if (!this.previewServer) {
+        this.previewServer = new PreviewServer(this.taskId, this.workspacePath, this.eventService)
+      }
+
+      // Start the server with configuration
+      const result = await this.previewServer.start(
         commands,
         this.repositoryConfig.codeExecution.envVars || {},
-        this.eventService,
         this.repositoryConfig,
       )
 
-      // Start the server (it handles proxy internally now)
-      const result = await this.previewServer.start()
-
-      if (result.running) {
-        const status = this.previewServer.getStatus()
-        this.logger.info('Preview server started successfully', status)
-        return status
-      }
-
-      if (result.starting) {
+      if (result.status === 'starting') {
         this.logger.info('Preview server is starting', {
           pid: result.pid,
           logFile: result.log_file,
         })
 
         return {
-          running: false,
-          configured: true,
-          starting: true,
+          status: 'starting',
           pid: result.pid,
           uptimeSeconds: 0,
         }
+      }
+
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'Failed to start preview server')
       }
 
       // This shouldn't happen, but handle it
@@ -446,8 +441,7 @@ export class LocalEnvironment extends BaseEnvironment {
 
       // Return failed state
       return {
-        running: false,
-        configured: true,
+        status: 'failed',
         uptimeSeconds: 0,
         error: errorMessage,
         logs: 'Failed to start server',
@@ -478,16 +472,13 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async getServerStatus(): Promise<ServerStatus> {
-    const configured = Boolean(this.repositoryConfig.previewConfig?.serverStartCommand)
-
     // Check running servers
     if (this.previewServer) {
-      return this.previewServer.getStatus(configured)
+      return this.previewServer.getStatus()
     }
 
     return {
-      running: false,
-      configured,
+      status: 'stopped',
       uptimeSeconds: 0,
     }
   }
@@ -657,12 +648,6 @@ export class LocalEnvironment extends BaseEnvironment {
       }
     }
   }
-
-  /**
-   * REMOVED: recoverExistingServer was unsafe
-   * We cannot safely "adopt" processes we didn't spawn.
-   * Recovery was creating fake process objects that couldn't be controlled.
-   */
 
   // ===============================
   // Build and Deploy Methods

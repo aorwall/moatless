@@ -124,34 +124,34 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
     // 4. Wait for server to transition from 'starting' to 'running' state
     let serverStatus = startResult
-    if (startResult.starting && !startResult.running) {
+    if (serverStatus.status === 'starting') {
       console.log('Server is starting, waiting for port detection to complete...')
 
       const startTime = Date.now()
       const timeout = 30000 // 30 second timeout
 
-      while (!serverStatus.running && !serverStatus.error && Date.now() - startTime < timeout) {
+      while (serverStatus.status === 'starting' && Date.now() - startTime < timeout) {
         await new Promise((resolve) => setTimeout(resolve, 500)) // Poll every 500ms
         serverStatus = await workspace.getServerStatus()
 
-        if (serverStatus.running) {
+        if (serverStatus.status === 'started') {
           console.log(`✅ Server is now running on ${serverStatus.url}`)
           break
         }
 
-        if (serverStatus.error) {
+        if (serverStatus.status === 'failed') {
           console.log(`❌ Server failed to start: ${serverStatus.error}`)
           break
         }
       }
 
-      if (!serverStatus.running && !serverStatus.error) {
+      if (serverStatus.status === 'starting') {
         throw new Error(`Server did not start within ${timeout}ms timeout`)
       }
     }
 
     // 5. Verify server started successfully and port was detected
-    expect(serverStatus.running).toBe(true)
+    expect(serverStatus.status).toBe('started')
     expect(serverStatus.url).toBeDefined()
     expect(serverStatus.url).toMatch(/^http:\/\/localhost:\d+$/)
 
@@ -185,7 +185,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     // 7. Get server status - this should NOT call detectAndValidatePort again (optimization test)
     console.log('Checking server status (testing optimization)...')
     const status = await workspace.getServerStatus()
-    expect(status.running).toBe(true)
+    expect(status.status).toBe('started')
     expect(status.url).toBe(serverStatus.url)
     // Note: responsive check can be flaky in test environments, focus on the core functionality
     console.log('✅ Server status check passed without re-detecting port')
@@ -197,7 +197,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
     // 9. Verify server is stopped
     const finalStatus = await workspace.getServerStatus()
-    expect(finalStatus.running).toBe(false)
+    expect(finalStatus.status).toBe('stopped')
     console.log('✅ Server stopped successfully')
   }, 180000) // 3 minute timeout for full test
 
@@ -230,36 +230,36 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
     // Wait for server to either start successfully or fail
     let serverStatus = result
-    if (result.starting && !result.running && !result.error) {
+    if (result.status === 'starting') {
       console.log('Server is starting, waiting for completion or failure...')
 
       const startTime = Date.now()
       const timeout = 30000 // 30 second timeout
 
-      while (!serverStatus.running && !serverStatus.error && Date.now() - startTime < timeout) {
+      while (serverStatus.status === 'starting' && Date.now() - startTime < timeout) {
         await new Promise((resolve) => setTimeout(resolve, 500)) // Poll every 500ms
         serverStatus = await badWorkspace.getServerStatus()
 
-        if (serverStatus.running) {
+        if (serverStatus.status === 'started') {
           console.log(`Server unexpectedly started on ${serverStatus.url}`)
           break
         }
 
-        if (serverStatus.error) {
+        if (serverStatus.status === 'failed') {
           console.log(`Server failed as expected: ${serverStatus.error}`)
           break
         }
       }
 
-      // If neither running nor error after timeout, that's also a failure case
-      if (!serverStatus.running && !serverStatus.error) {
+      // If still starting after timeout, that's also a failure case
+      if (serverStatus.status === 'starting') {
         console.log('Server did not start or fail within timeout - treating as failure')
         // This could be a case where the build command completed successfully but no port was detected
       }
     }
 
     // Should return error state since no port was detected or server failed to start
-    expect(serverStatus.running).toBe(false)
+    expect(serverStatus.status).toBe('stopped')
 
     // The error might be immediate or detected after waiting
     if (serverStatus.error) {

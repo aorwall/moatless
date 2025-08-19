@@ -58,9 +58,9 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const { data: serverStatus } = useServerStatus(params.taskId)
   const startServer = useStartServer({
     onSuccess: (data) => {
-      if (data.running) {
+      if (data.status === 'started') {
         toast.success('Preview environment server started successfully')
-      } else if (data.error) {
+      } else if (data.status === 'failed' && data.error) {
         toast.error('Failed to start preview environment server', {
           description: data.error,
         })
@@ -84,9 +84,9 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   })
   const restartServer = useRestartServer({
     onSuccess: (data) => {
-      if (data.running) {
+      if (data.status === 'started') {
         toast.success('Preview environment server restarted successfully')
-      } else if (data.error) {
+      } else if (data.status === 'failed' && data.error) {
         toast.error('Failed to restart preview environment server', {
           description: data.error,
         })
@@ -134,19 +134,17 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
 
   const getServerStatusColor = () => {
     if (!serverStatus) return 'text-muted-foreground'
-    if (serverStatus.running) return 'text-status-success'
-    if (serverStatus.error) return 'text-status-error'
+    if (serverStatus.status === 'started') return 'text-status-success'
+    if (serverStatus.status === 'failed') return 'text-status-error'
+    if (serverStatus.status === 'starting') return 'text-status-warning'
     return 'text-muted-foreground'
   }
 
   const getServerStatusText = () => {
     if (!serverStatus) return 'Unknown'
-    if (serverStatus.running) {
-      return 'Running'
-    }
-    if (serverStatus.error) {
-      return 'Failed'
-    }
+    if (serverStatus.status === 'started') return 'Running'
+    if (serverStatus.status === 'starting') return 'Starting'
+    if (serverStatus.status === 'failed') return 'Failed'
     return 'Stopped'
   }
 
@@ -205,7 +203,11 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
                   <div
                     className={cn(
                       'w-2 h-2 rounded-full',
-                      serverStatus?.running ? 'bg-status-success' : 'bg-status-error',
+                      serverStatus?.status === 'started'
+                        ? 'bg-status-success'
+                        : serverStatus?.status === 'failed'
+                          ? 'bg-status-error'
+                          : 'bg-status-warning',
                     )}
                   />
                   <span className="text-muted-foreground">Status:</span>
@@ -217,7 +219,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
                     <span className="font-mono">{serverStatus.url}</span>
                   </div>
                 )}
-                {serverStatus?.uptimeSeconds !== undefined && serverStatus.running && (
+                {serverStatus?.uptimeSeconds !== undefined && serverStatus.status === 'started' && (
                   <div className="text-sm text-muted-foreground">
                     <span>Uptime: </span>
                     <span>
@@ -248,7 +250,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
               </div>
 
               <div className="flex flex-col gap-2">
-                {!serverStatus?.running ? (
+                {serverStatus?.status !== 'started' ? (
                   <Button
                     onClick={handleStartServer}
                     disabled={startServer.isPending}

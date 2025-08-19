@@ -278,7 +278,7 @@ describe('Task Hooks', () => {
 
   describe('useServerStatus', () => {
     it('fetches server status', async () => {
-      const mockStatus = createMockServerStatus({ running: true })
+      const mockStatus = createMockServerStatus({ status: 'started' })
       vi.mocked(serverApi.getServerStatus).mockResolvedValue(mockStatus)
 
       const { result } = renderHook(() => useServerStatus('task-123'), {
@@ -293,7 +293,7 @@ describe('Task Hooks', () => {
     })
 
     it('refetches when server is running', async () => {
-      const runningStatus = createMockServerStatus({ running: true })
+      const runningStatus = createMockServerStatus({ status: 'started' })
       vi.mocked(serverApi.getServerStatus).mockResolvedValue(runningStatus)
 
       renderHook(() => useServerStatus('task-123'), {
@@ -310,7 +310,7 @@ describe('Task Hooks', () => {
 
   describe('useStartServer', () => {
     it('starts server and invalidates queries', async () => {
-      const mockStatus = createMockServerStatus({ running: true })
+      const mockStatus = createMockServerStatus({ status: 'started' })
       vi.mocked(serverApi.startServer).mockResolvedValue(mockStatus)
 
       const wrapper = createWrapper()
@@ -330,7 +330,7 @@ describe('Task Hooks', () => {
 
   describe('useStopServer', () => {
     it('stops server and invalidates queries', async () => {
-      const mockStatus = createMockServerStatus({ running: false })
+      const mockStatus = createMockServerStatus({ status: 'stopped' })
       vi.mocked(serverApi.stopServer).mockResolvedValue(mockStatus)
 
       const wrapper = createWrapper()

@@ -32,9 +32,7 @@ describe('PreviewServer - Unit Tests', () => {
     mockFindAvailablePort = vi.mocked(findAvailablePort)
     mockFindAvailablePort.mockResolvedValue(3000)
 
-    previewServer = new PreviewServer('test-task', '/test/workspace', 'npm run dev', {
-      NODE_ENV: 'development',
-    })
+    previewServer = new PreviewServer('test-task', '/test/workspace')
   })
 
   describe('Constructor', () => {
@@ -45,21 +43,18 @@ describe('PreviewServer - Unit Tests', () => {
         expect.objectContaining({
           taskId: 'test-task',
           workspacePath: '/test/workspace',
-          serverCommand: 'npm run dev',
-          envVars: ['NODE_ENV'],
         }),
       )
     })
 
     it('should handle empty environment variables', () => {
-      const server = new PreviewServer('test-task-2', '/workspace', 'python manage.py runserver')
+      const server = new PreviewServer('test-task-2', '/workspace')
 
       expect(server).toBeDefined()
       expect(mockLogger.info).toHaveBeenCalledWith(
         'PreviewServer initialized with:',
         expect.objectContaining({
           taskId: 'test-task-2',
-          envVars: [],
         }),
       )
     })
@@ -84,27 +79,19 @@ describe('PreviewServer - Unit Tests', () => {
 
   describe('Command Parsing', () => {
     it('should handle simple commands', () => {
-      const server = new PreviewServer('task', '/workspace', 'npm start')
+      const server = new PreviewServer('task', '/workspace')
 
       expect(server).toBeDefined()
     })
 
     it('should handle commands with arguments', () => {
-      const server = new PreviewServer(
-        'task',
-        '/workspace',
-        'python manage.py runserver --host=0.0.0.0',
-      )
+      const server = new PreviewServer('task', '/workspace')
 
       expect(server).toBeDefined()
     })
 
     it('should handle complex commands with port placeholder', () => {
-      const server = new PreviewServer(
-        'task',
-        '/workspace',
-        'node server.js --port={PORT} --env=development',
-      )
+      const server = new PreviewServer('task', '/workspace')
 
       expect(server).toBeDefined()
     })
@@ -112,19 +99,13 @@ describe('PreviewServer - Unit Tests', () => {
 
   describe('Environment Variables Configuration', () => {
     it('should accept custom environment variables', () => {
-      const customEnvVars = {
-        NODE_ENV: 'production',
-        DEBUG: 'true',
-        API_KEY: 'secret-key',
-      }
-
-      const server = new PreviewServer('task', '/workspace', 'npm start', customEnvVars)
+      const server = new PreviewServer('task', '/workspace')
 
       expect(server).toBeDefined()
       expect(mockLogger.info).toHaveBeenCalledWith(
         'PreviewServer initialized with:',
         expect.objectContaining({
-          envVars: ['NODE_ENV', 'DEBUG', 'API_KEY'],
+          taskId: 'task',
         }),
       )
     })
@@ -134,7 +115,7 @@ describe('PreviewServer - Unit Tests', () => {
     it('should initialize in stopped state', async () => {
       const status = await previewServer.getStatus()
 
-      expect(status.running).toBe(false)
+      expect(status.status).toBe('stopped')
       expect(status.url).toBeUndefined()
       expect(status.pid).toBeUndefined()
     })
@@ -178,7 +159,7 @@ describe('PreviewServer - Unit Tests', () => {
 
   describe('Configuration Validation', () => {
     it('should handle workspace path correctly', () => {
-      new PreviewServer('task', '/different/workspace/path', 'npm start')
+      new PreviewServer('task', '/different/workspace/path')
 
       expect(mockLogger.info).toHaveBeenCalledWith(
         'PreviewServer initialized with:',
@@ -189,12 +170,12 @@ describe('PreviewServer - Unit Tests', () => {
     })
 
     it('should handle server commands correctly', () => {
-      new PreviewServer('task', '/workspace', 'yarn dev --port={PORT}')
+      new PreviewServer('task', '/workspace')
 
       expect(mockLogger.info).toHaveBeenCalledWith(
         'PreviewServer initialized with:',
         expect.objectContaining({
-          serverCommand: 'yarn dev --port={PORT}',
+          taskId: 'task',
         }),
       )
     })
@@ -207,39 +188,23 @@ describe('PreviewServer - Unit Tests', () => {
         expect.objectContaining({
           taskId: 'test-task',
           workspacePath: '/test/workspace',
-          serverCommand: 'npm run dev',
-          portPlaceholder: '{PORT}',
-          envVars: ['NODE_ENV'],
         }),
       )
     })
   })
 
-  describe('Port Placeholder Configuration', () => {
-    it('should use correct port placeholder', () => {
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
-        expect.objectContaining({
-          portPlaceholder: '{PORT}',
-        }),
-      )
-    })
-  })
+  // Port placeholder tests removed as configuration happens at start() now
 
   describe('Error Handling - Constructor', () => {
     it('should handle invalid parameters gracefully', () => {
-      const server = new PreviewServer('', '', '')
+      const server = new PreviewServer('', '')
 
       expect(server).toBeDefined()
       expect(mockLogger.info).toHaveBeenCalled()
     })
 
     it('should handle special characters in commands', () => {
-      const server = new PreviewServer(
-        'task',
-        '/workspace',
-        'node -e "console.log(\'Hello World\')" --port={PORT}',
-      )
+      const server = new PreviewServer('task', '/workspace')
 
       expect(server).toBeDefined()
     })

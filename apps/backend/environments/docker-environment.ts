@@ -625,7 +625,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
       // For proxy approach, we don't expose the direct port
       // The preview will be accessed through the proxy endpoint
-      if (result.running) {
+      if (result.status === 'started') {
         result.url = undefined // Frontend will use proxy endpoint
       }
 
@@ -684,8 +684,6 @@ export class DockerEnvironment extends BaseEnvironment {
     const status = this.getStatus()
     if (status !== 'ready') {
       return {
-        running: false,
-        configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
         status: 'stopped',
         uptimeSeconds: 0,
       }
@@ -704,7 +702,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
       // For proxy approach, we don't expose the direct port
       // The preview will be accessed through the proxy endpoint
-      if (result.running) {
+      if (result.status === 'started') {
         result.url = undefined // Frontend will use proxy endpoint
       }
 
@@ -712,8 +710,6 @@ export class DockerEnvironment extends BaseEnvironment {
     } catch (error) {
       this.logger.error('Failed to get server status', error as Error)
       return {
-        running: false,
-        configured: !!this.repositoryConfig.previewConfig?.serverStartCommand,
         status: 'stopped',
         uptimeSeconds: 0,
       }
