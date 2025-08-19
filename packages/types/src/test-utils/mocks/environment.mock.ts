@@ -78,6 +78,9 @@ export function createMockWorkspaceStatusResponse(
     environmentStatus: 'ready',
     environmentCreatedAt: '2024-01-01T00:00:00Z',
 
+    // Repository config info
+    configOutdated: false,
+
     // Agent info
     agentState: 'idle',
     agentType: 'claude-code',

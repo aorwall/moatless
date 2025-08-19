@@ -80,6 +80,9 @@ describe('Workspace Routes - Integration Tests', () => {
       isRunning: false,
       workspaceReady: true,
       canExecute: true,
+
+      // Config status
+      configOutdated: false,
     })
   })
 

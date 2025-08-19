@@ -965,9 +965,7 @@ export class DockerEnvironment extends BaseEnvironment {
         this.logger.info('Stopping preview server before configuration refresh')
         await this.stopServer()
       }
-
       // Step 2: Update internal config reference
-      const oldConfig = this.repositoryConfig
       ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
 
       // Step 3: Write updated configuration to container

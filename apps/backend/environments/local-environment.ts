@@ -11,6 +11,7 @@ import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { PreviewServer } from '../services/preview-server.js'
+import { pathExists } from '../utils/filesystem.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
 
@@ -87,7 +88,7 @@ export class LocalEnvironment extends BaseEnvironment {
       }
 
       // Check if workspace path exists
-      if (!(await this.pathExists(this.workspacePath))) {
+      if (!(await pathExists(this.workspacePath))) {
         throw new Error(`Workspace path does not exist: ${this.workspacePath}`)
       }
 
@@ -742,7 +743,7 @@ export class LocalEnvironment extends BaseEnvironment {
     const outputPath = path.join(this.workspacePath, outputDir)
 
     // Verify output directory exists
-    const outputExists = await this.pathExists(outputPath)
+    const outputExists = await pathExists(outputPath)
     const duration = Date.now() - startTime
 
     this.logger.info('Build completed', {

@@ -87,7 +87,7 @@ export class Workspace {
 
   constructor(
     private readonly taskId: string,
-    private readonly repositoryConfig: RepositoryConfig,
+    private repositoryConfig: RepositoryConfig,
     private readonly environment: BaseEnvironment,
     workspacePath?: string,
     originalBranch?: string,
@@ -489,6 +489,26 @@ export class Workspace {
     return this.environment
   }
 
+  /**
+   * Refresh the repository configuration without recreating the environment.
+   * This stops the preview server, updates the config, and re-runs setup commands.
+   * @param latestConfig The latest repository configuration
+   */
+  async refreshConfiguration(latestConfig: RepositoryConfig): Promise<void> {
+    this.logger.info('Refreshing workspace configuration', {
+      taskId: this.taskId,
+      repositoryId: latestConfig.id,
+    })
+
+    // Update internal repository config reference
+    this.repositoryConfig = latestConfig
+
+    // Delegate to environment's refreshConfiguration
+    await this.environment.refreshConfiguration(latestConfig)
+
+    this.logger.info('Workspace configuration refreshed successfully')
+  }
+
   // ============================================
   // Capability Check Methods
   // ============================================
@@ -586,6 +606,9 @@ export class Workspace {
       isRunning,
       workspaceReady,
       canExecute,
+
+      // Config status
+      configOutdated: false, // Will be set by WorkspaceService if needed
     }
   }
 

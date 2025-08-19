@@ -1509,7 +1509,10 @@ export class TaskService {
 
     // Stop preview server if running
     try {
-      await this.workspaceService.stopServer(taskId)
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (workspace) {
+        await workspace.stopServer()
+      }
     } catch (error) {
       // Log error but continue with cleanup
       logger.warn('Failed to stop server during task close', {

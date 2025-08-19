@@ -196,7 +196,8 @@ export class McpService {
     _args: any,
   ): Promise<McpResponse> {
     try {
-      const serverStatus = await this.workspaceService.startServer(taskId)
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const serverStatus = await workspace.startServer()
       return {
         jsonrpc: '2.0',
         id: requestId,
@@ -230,7 +231,8 @@ export class McpService {
     _args: any,
   ): Promise<McpResponse> {
     try {
-      const stopped = await this.workspaceService.stopServer(taskId)
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const stopped = await workspace.stopServer()
       return {
         jsonrpc: '2.0',
         id: requestId,
@@ -264,7 +266,10 @@ export class McpService {
     _args: any,
   ): Promise<McpResponse> {
     try {
-      const serverStatus = await this.workspaceService.restartServer(taskId)
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      await workspace.stopServer()
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const serverStatus = await workspace.startServer()
       return {
         jsonrpc: '2.0',
         id: requestId,
@@ -298,7 +303,8 @@ export class McpService {
     _args: any,
   ): Promise<McpResponse> {
     try {
-      const serverStatus = await this.workspaceService.getServerStatus(taskId)
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const serverStatus = await workspace.getServerStatus()
       return {
         jsonrpc: '2.0',
         id: requestId,
@@ -333,7 +339,8 @@ export class McpService {
   ): Promise<McpResponse> {
     try {
       const { lines = 100 } = args
-      const logs = await this.workspaceService.getServerLogs(taskId, lines)
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const logs = await workspace.getServerLogs(lines)
       return {
         jsonrpc: '2.0',
         id: requestId,

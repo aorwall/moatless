@@ -1,17 +1,16 @@
-import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   CommandExecutionEvent,
   CommandExecutionOptions,
   DeployResponse,
   RepositoryConfig,
-  ServerStatus,
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
+import { pathExists } from '../utils/filesystem.js'
 import { branchExists, createGitWorktree, isGitRepository, isGitWorktree } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
@@ -105,7 +104,7 @@ export class WorkspaceService {
     branchName?: string,
     newBranch?: string,
   ): Promise<string> {
-    if (!(await this.pathExists(repo.path))) {
+    if (!(await pathExists(repo.path))) {
       throw new WorkspaceError(`Repository path does not exist: ${repo.path}`, taskId, 400)
     }
 
@@ -160,15 +159,6 @@ export class WorkspaceService {
     return path.join(repo.path, '..')
   }
 
-  private async pathExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath)
-      return true
-    } catch {
-      return false
-    }
-  }
-
   /**
    * Ensures that a worktree exists at the given path, recreating it if necessary.
    * This handles cases where the worktree directory was removed externally (e.g., git worktree remove).
@@ -183,15 +173,15 @@ export class WorkspaceService {
     const workspaceLogger = logger.child({ taskId })
 
     // Check if workspace path exists and is a valid git worktree
-    const pathExists = await this.pathExists(workspacePath)
-    const isValidWorktree = pathExists && (await isGitWorktree(workspacePath))
+    const pathExistsResult = await pathExists(workspacePath)
+    const isValidWorktree = pathExistsResult && (await isGitWorktree(workspacePath))
 
     if (isValidWorktree) {
       workspaceLogger.debug('Worktree already exists and is valid', { workspacePath })
       return
     }
 
-    if (pathExists && !isValidWorktree) {
+    if (pathExistsResult && !isValidWorktree) {
       workspaceLogger.warn('Workspace path exists but is not a valid worktree, will recreate', {
         workspacePath,
       })
@@ -320,7 +310,7 @@ export class WorkspaceService {
 
     try {
       // Check if path exists
-      if (!(await this.pathExists(workspacePath))) {
+      if (!(await pathExists(workspacePath))) {
         workspaceLogger.debug('Worktree path does not exist, skipping removal', { workspacePath })
         return
       }
@@ -441,7 +431,7 @@ export class WorkspaceService {
 
           // Recreate the worktree at the same path
           await this.ensureWorktreeExists(repository, taskId, existingWorkspacePath, branchToUse)
-        } else if (!repository.useGitWorktrees && !(await this.pathExists(existingWorkspacePath))) {
+        } else if (!repository.useGitWorktrees && !(await pathExists(existingWorkspacePath))) {
           throw new WorkspaceError(
             `Workspace path does not exist and worktrees are disabled: ${existingWorkspacePath}`,
             taskId,
@@ -504,20 +494,8 @@ export class WorkspaceService {
   async canManageServer(taskId: string): Promise<boolean> {
     try {
       const workspace = await this.getOrCreateWorkspace(taskId)
-      const environment = workspace.getEnvironment()
-
-      // Check if environment is ready
-      if (environment.getStatus() !== 'ready') {
-        return false
-      }
-
-      // Check if preview server is configured
-      if (!environment.getServerStatus) {
-        return false
-      }
-      // We can't check configured status from ServerStatus anymore
-      // Just return false as we don't have access to repository config here
-      return false
+      // Delegate to workspace's canManageServer method
+      return await workspace.canManageServer()
     } catch {
       return false
     }
@@ -700,88 +678,6 @@ export class WorkspaceService {
     }
   }
 
-  async startServer(taskId: string): Promise<ServerStatus> {
-    // Get workspace and ensure environment is ready
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    const environment = workspace.getEnvironment()
-
-    // Ensure environment is ready (will setup if needed)
-    await environment.ensureReady()
-
-    // All environments must support server operations
-    if (!environment.startServer) {
-      throw new WorkspaceError(
-        `Environment type '${environment.getType()}' does not support server operations`,
-        taskId,
-      )
-    }
-
-    logger.info('Starting server via environment', {
-      taskId,
-      environmentType: environment.getType(),
-    })
-    return environment.startServer()
-  }
-
-  async stopServer(taskId: string): Promise<boolean> {
-    // Get workspace and ensure environment is ready
-    const workspace = await this.getOrCreateWorkspace(taskId)
-    const environment = workspace.getEnvironment()
-
-    // Ensure environment is ready (will setup if needed)
-    await environment.ensureReady()
-
-    // All environments must support server operations
-    if (!environment.stopServer) {
-      throw new WorkspaceError(
-        `Environment type '${environment.getType()}' does not support server operations`,
-        taskId,
-      )
-    }
-
-    logger.info('Stopping server via environment', {
-      taskId,
-      environmentType: environment.getType(),
-    })
-    return environment.stopServer()
-  }
-
-  async restartServer(taskId: string): Promise<ServerStatus> {
-    // For restart, we can simply call stop then start
-    await this.stopServer(taskId)
-    // Wait a moment for the server to fully stop
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    return this.startServer(taskId) as Promise<ServerStatus>
-  }
-
-  async getServerStatus(taskId: string): Promise<ServerStatus> {
-    try {
-      // Get workspace and delegate to environment
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const environment = workspace.getEnvironment()
-
-      // All environments must support server operations
-      if (!environment.getServerStatus) {
-        return {
-          status: 'stopped',
-          uptimeSeconds: 0,
-        }
-      }
-
-      logger.debug('Getting server status via environment', {
-        taskId,
-        environmentType: environment.getType(),
-      })
-      return environment.getServerStatus()
-    } catch (error) {
-      logger.error('Error getting server status', error as Error, { taskId })
-      return {
-        status: 'stopped',
-        uptimeSeconds: 0,
-      }
-    }
-  }
-
   // Background task tracking methods
   public trackBackgroundTask(taskId: string, task: Promise<unknown>): void {
     if (!this.backgroundTasks.has(taskId)) {
@@ -799,70 +695,6 @@ export class WorkspaceService {
     })
   }
 
-  async getServerLogs(taskId: string, lines?: number): Promise<string> {
-    try {
-      // Get workspace - no need to ensure ready, just get logs if available
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const environment = workspace.getEnvironment()
-
-      // Check if environment supports server logs
-      if (!environment.getServerLogs) {
-        return 'Server logs not supported by this environment'
-      }
-
-      logger.debug('Getting server logs via environment', {
-        taskId,
-        environmentType: environment.getType(),
-      })
-      return environment.getServerLogs(lines)
-    } catch (error) {
-      logger.error('Error getting server logs', error as Error, { taskId })
-      return `Error getting server logs: ${error instanceof Error ? error.message : String(error)}`
-    }
-  }
-
-  async streamServerLogs(taskId: string): Promise<AsyncGenerator<{ type: string; data: any }>> {
-    try {
-      // Get workspace
-      const workspace = await this.getOrCreateWorkspace(taskId)
-      const environment = workspace.getEnvironment()
-
-      // Check if environment supports server log streaming
-      if (!environment.streamServerLogs) {
-        // Fallback: create a generator that just returns error
-        return (async function* () {
-          yield {
-            type: 'error',
-            data: {
-              error: 'Server log streaming not supported by this environment',
-              timestamp: new Date().toISOString(),
-            },
-          }
-        })()
-      }
-
-      logger.debug('Streaming server logs via environment', {
-        taskId,
-        environmentType: environment.getType(),
-      })
-
-      return environment.streamServerLogs()
-    } catch (error) {
-      logger.error('Error streaming server logs', error as Error, { taskId })
-
-      // Return error as generator
-      return (async function* () {
-        yield {
-          type: 'error',
-          data: {
-            error: `Error streaming server logs: ${error instanceof Error ? error.message : String(error)}`,
-            timestamp: new Date().toISOString(),
-          },
-        }
-      })()
-    }
-  }
-
   async capturePreviewScreenshot(
     taskId: string,
     iterationNumber: number,
@@ -878,7 +710,10 @@ export class WorkspaceService {
 
       // Restart server to ensure fresh state
       workspaceLogger.info('Restarting preview server for screenshot capture')
-      const serverStatus = await this.restartServer(taskId)
+      const workspace = await this.getOrCreateWorkspace(taskId)
+      await workspace.stopServer()
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const serverStatus = await workspace.startServer()
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
         workspaceLogger.warn('Server failed to start for screenshot')

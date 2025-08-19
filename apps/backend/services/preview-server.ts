@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { RepositoryConfig, ServerStatus, ServerStatusEnum } from '@moatless/types'
 import type { Logger } from 'pino'
+import { pathExists, readFileRange } from '../utils/filesystem.js'
 import { execAsync } from '../utils/git-utils.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
@@ -547,7 +548,7 @@ export class PreviewServer {
   }
 
   async getLogs(lines = 500): Promise<string> {
-    if (!this.logFile || !(await this.pathExists(this.logFile))) {
+    if (!this.logFile || !(await pathExists(this.logFile))) {
       return 'No log file available'
     }
 
@@ -580,7 +581,7 @@ export class PreviewServer {
     }
 
     // Send existing content first if file exists
-    if (await this.pathExists(this.logFile)) {
+    if (await pathExists(this.logFile)) {
       try {
         const existingContent = await fs.readFile(this.logFile, 'utf-8')
         if (existingContent.trim()) {
@@ -611,7 +612,7 @@ export class PreviewServer {
     // Watch for new log content
     try {
       let lastSize = 0
-      if (await this.pathExists(this.logFile)) {
+      if (await pathExists(this.logFile)) {
         const stat = await fs.stat(this.logFile)
         lastSize = stat.size
       }
@@ -620,17 +621,13 @@ export class PreviewServer {
       while (this.process && this.process.exitCode === null) {
         await new Promise((resolve) => setTimeout(resolve, 500)) // Check every 500ms
 
-        if (await this.pathExists(this.logFile)) {
+        if (await pathExists(this.logFile)) {
           try {
             const stat = await fs.stat(this.logFile)
 
             if (stat.size > lastSize) {
               // File has grown, read the new content
-              const newContent = await this.readFileRange(
-                this.logFile,
-                lastSize,
-                stat.size - lastSize,
-              )
+              const newContent = await readFileRange(this.logFile, lastSize, stat.size - lastSize)
               if (newContent) {
                 yield {
                   type: 'chunk',
@@ -667,18 +664,6 @@ export class PreviewServer {
     }
   }
 
-  private async readFileRange(filePath: string, start: number, length: number): Promise<string> {
-    const buffer = Buffer.alloc(length)
-    const fileHandle = await fs.open(filePath, 'r')
-
-    try {
-      const { bytesRead } = await fileHandle.read(buffer, 0, length, start)
-      return buffer.subarray(0, bytesRead).toString('utf-8')
-    } finally {
-      await fileHandle.close()
-    }
-  }
-
   private cleanup(): void {
     if (this.process && this.process.exitCode == null) {
       throw new Error('Unexpected process state')
@@ -690,15 +675,6 @@ export class PreviewServer {
     this.currentStatus = 'stopped'
     this.proxyPort = undefined
     this.proxyUrl = undefined
-  }
-
-  private async pathExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath)
-      return true
-    } catch {
-      return false
-    }
   }
 
   getPort(): number | undefined {

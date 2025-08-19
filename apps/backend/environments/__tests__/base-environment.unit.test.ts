@@ -149,6 +149,12 @@ class TestEnvironment extends BaseEnvironment {
     }
   }
 
+  async refreshConfiguration(_latestConfig: RepositoryConfig): Promise<void> {
+    // Test implementation - just update the internal config
+    // In a real environment, this would re-run setup commands, etc.
+    return Promise.resolve()
+  }
+
   async *runCommandWithStream(
     _command: string,
     _timeout?: number,

@@ -876,7 +876,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
-      const result: ServerStatus = await services.workspace.startServer(taskId)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const result: ServerStatus = await workspace.startServer()
       return c.json(result)
     },
   )
@@ -923,7 +924,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
-      const stopped = await services.workspace.stopServer(taskId)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const stopped = await workspace.stopServer()
       return c.json({
         stopped,
         runtime: 0, // TODO: Calculate actual runtime
@@ -973,7 +975,10 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
-      const result = await services.workspace.restartServer(taskId)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      await workspace.stopServer()
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const result = await workspace.startServer()
       return c.json(result)
     },
   )
@@ -1020,7 +1025,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const taskId = getTaskId(c)
 
       // Task validation and capability check now handled in workspace service
-      const status = await services.workspace.getServerStatus(taskId)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const status = await workspace.getServerStatus()
       return c.json(status)
     },
   )
@@ -1080,7 +1086,8 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { lines } = validatedQuery
 
       // Task validation and capability check now handled in workspace service
-      const logs = await services.workspace.getServerLogs(taskId, lines)
+      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+      const logs = await workspace.getServerLogs(lines)
       return c.json({
         logs,
         lines: logs.split('\n').length,
