@@ -183,8 +183,9 @@ export class TaskService {
     try {
       // Check if preview server is available for this task
       let hasPreviewServer = false
+      let task: any = null
       try {
-        const task = await this.storage.getTask(taskId)
+        task = await this.storage.getTask(taskId)
         if (task) {
           const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
           hasPreviewServer = Boolean(repository?.previewConfig?.serverStartCommands?.length)
@@ -195,6 +196,36 @@ export class TaskService {
         })
       }
 
+      // Generate system prompt parts based on task state
+      const systemPromptParts: string[] = []
+
+      // Add task metadata instruction only if name is not set and it's the first iteration
+      if (iteration.iterationNumber === 1 && !task?.name) {
+        systemPromptParts.push(
+          "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish.",
+        )
+      }
+
+      // Add preview server information when available
+      if (hasPreviewServer) {
+        systemPromptParts.push(
+          "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
+          '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
+          '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
+          '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
+          'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
+        )
+      }
+
+      // Add repository management information
+      systemPromptParts.push(
+        '**Repository Configuration**: You have access to repository management tools:',
+        '- `mcp__moatless-tools__install` - Install the repository by running setup commands (e.g., npm install, pip install)',
+        '- `mcp__moatless-tools__updateRepositoryConfig` - Update repository configuration (setup commands, environment variables, server start commands)',
+        '- `mcp__moatless-tools__getRepositoryConfig` - Get current repository configuration',
+        'Use these tools to manage repository installation and configuration instead of manual commands when appropriate.',
+      )
+
       // Run agent using environment's runAgent method
       const runOptions = {
         workspaceDir: workspace.getWorkspacePath(),
@@ -203,6 +234,8 @@ export class TaskService {
         model,
         agentMode: iteration.agentMode,
         hasPreviewServer,
+        appendSystemPrompt:
+          systemPromptParts.length > 0 ? systemPromptParts.join('\n\n') : undefined,
       }
 
       agentLogger.info('Starting agent execution with options', { ...runOptions })
@@ -688,7 +721,17 @@ export class TaskService {
       hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
       start: params.start ?? true,
       agentMode: params.agentMode,
+      name: params.name,
+      description: params.description,
     })
+
+    // Validate name format if provided
+    if (params.name && !/^[a-zA-Z0-9-]+$/.test(params.name)) {
+      throw new ValidationError(
+        'Task name must be URL-friendly (alphanumeric characters and dashes only)',
+        { name: 'Invalid format' },
+      )
+    }
 
     const now = new Date()
     const task: Task = {
@@ -703,6 +746,8 @@ export class TaskService {
       iterations: [],
       templateId: params.templateId,
       vibe: params.templateId ? true : undefined,
+      name: params.name,
+      description: params.description,
     }
 
     // Create task iteration with 'created' status if message is provided
@@ -1117,6 +1162,8 @@ export class TaskService {
       model: params.model,
       filePaths: params.filePaths, // Support file uploads for context
       templateId: params.templateId,
+      name: params.name,
+      description: params.description,
     }
 
     const task = await this.createTask(createTaskParams)

@@ -241,6 +241,8 @@ export const CreateTaskRequestSchema = z.object({
   filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
   agentMode: z.enum(['edit', 'plan']).optional(), // Agent mode for task creation
   templateId: z.string().optional(), // Template ID when created from template
+  name: z.string().optional(), // URL-friendly task name (alphanumeric and dashes only)
+  description: z.string().optional(), // One-sentence summary of the task
 })
 
 // Create Vibe Task (simplified - vibe tasks always start immediately and don't support branches)
@@ -251,6 +253,8 @@ export const CreateVibeTaskRequestSchema = z.object({
   model: z.string().optional(),
   filePaths: z.array(z.string()).optional(), // Absolute file paths for uploaded files
   start: z.boolean().optional().default(true),
+  name: z.string().optional(), // URL-friendly task name (alphanumeric and dashes only)
+  description: z.string().optional(), // One-sentence summary of the task
 })
 
 // Additional schemas for task operations
