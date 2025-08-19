@@ -5,7 +5,7 @@ import type {
   TaskResponse,
   WorkspaceStatusResponse,
 } from '@moatless/types'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   createContext,
   type ReactNode,
@@ -69,7 +69,6 @@ interface TaskDataProviderProps {
  * Uses React Query without complex selectors to minimize re-renders.
  */
 export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
-  const queryClient = useQueryClient()
   const globalStream = useGlobalEventStream()
 
   // Local state for streaming events (recent events from SSE)
@@ -119,83 +118,14 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     // No polling - events are updated via SSE
   })
 
-  // Event handler - updates both historical and streaming events
-  const handleTaskEvent = useCallback(
-    (event: Event) => {
-      // Update historical events cache
-      queryClient.setQueryData(queryKeys.tasks.events(taskId), (old: Event[] = []) => {
-        const eventMap = new Map(old.map((e) => [e.eventId, e]))
-        eventMap.set(event.eventId, event)
-        return Array.from(eventMap.values()).sort((a, b) => {
-          const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0
-          const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0
-          return aTime - bTime
-        })
-      })
-
-      // Apply optimistic updates to task data if this event affects the task
-      if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
-        queryClient.setQueryData(queryKeys.tasks.detail(taskId), (old: any) => {
-          if (!old) return old
-
-          let updates: any = {}
-
-          // Handle different event types for task updates
-          switch (event.type) {
-            case 'task':
-              if (event.subType === 'open') {
-                updates = { status: 'open' }
-              } else if (event.subType === 'closed') {
-                updates = { status: 'closed' }
-              } else if (event.subType === 'merged') {
-                updates = { status: 'merged' }
-              }
-              break
-
-            case 'taskIteration':
-              if (event.subType === 'active') {
-                updates = { status: 'running' }
-              } else if (event.subType === 'completed' || event.subType === 'failed') {
-                updates = {
-                  status: 'open',
-                  lastMessageAt: new Date(event.timestamp || Date.now()),
-                }
-              }
-              break
-
-            case 'agent':
-              if (event.subType === 'started') {
-                updates = { status: 'running' }
-              } else if (event.subType === 'stopped') {
-                updates = {
-                  status: 'open',
-                  lastMessageAt: new Date(event.timestamp || Date.now()),
-                }
-              } else if (event.subType === 'completed') {
-                updates = {
-                  status: 'open',
-                  lastMessageAt: new Date(event.timestamp || Date.now()),
-                }
-              } else if (event.subType === 'message') {
-                updates = {
-                  lastMessageAt: new Date(event.timestamp || Date.now()),
-                }
-              }
-              break
-          }
-
-          return Object.keys(updates).length > 0 ? { ...old, ...updates } : old
-        })
-      }
-
-      // Update streaming events (keep last 20 events for the minified viewer)
-      setStreamingEvents((prev) => {
-        const updated = [...prev, event]
-        return updated.slice(-20) // Keep only the last 20 events
-      })
-    },
-    [taskId, queryClient],
-  )
+  // Event handler - updates only local streaming events for display
+  const handleTaskEvent = useCallback((event: Event) => {
+    // Update streaming events (keep last 20 events for the minified viewer)
+    setStreamingEvents((prev) => {
+      const updated = [...prev, event]
+      return updated.slice(-20) // Keep only the last 20 events
+    })
+  }, [])
 
   // Subscribe to task-specific events from global stream
   useEffect(() => {
@@ -226,10 +156,10 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     }
   }, [taskQuery.data])
 
-  // Derive agent running state from workspace status
+  // Derive agent running state from task status
   const isAgentRunning = useMemo(
-    () => workspaceQuery.data?.agentState === 'running',
-    [workspaceQuery.data?.agentState],
+    () => taskPrimitives?.status === 'running',
+    [taskPrimitives?.status],
   )
 
   // Event primitives
