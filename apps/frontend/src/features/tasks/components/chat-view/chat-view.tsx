@@ -39,16 +39,29 @@ function ChatViewComponent({ className }: ChatViewProps) {
   const lastIterationModel = lastIteration?.model as ClaudeModel
   const lastIterationAgentMode = lastIteration?.agentMode as 'edit' | 'plan'
 
-  // Initialize selectors with values from last iteration or defaults
-  const modelSelector = useModelSelector(lastIterationModel || CLAUDE_MODELS.SONNET_4)
-  const agentModeSelector = useAgentModeSelector(lastIterationAgentMode || 'edit')
+  // State for controlled selectors
+  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
+    lastIterationModel || CLAUDE_MODELS.SONNET_4,
+  )
+  const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>(
+    lastIterationAgentMode || 'edit',
+  )
+
+  // Initialize selectors with controlled state
+  const modelSelector = useModelSelector(selectedModel, setSelectedModel)
+  const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
 
   // Clear state when task changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
   useEffect(() => {
     setMessage('')
     setUploadedFiles([])
-  }, [params.taskId])
+    // Reset selectors to new task's values or defaults
+    const newModel = lastIterationModel || CLAUDE_MODELS.SONNET_4
+    const newAgentMode = lastIterationAgentMode || 'edit'
+    setSelectedModel(newModel)
+    setSelectedAgentMode(newAgentMode)
+  }, [params.taskId, lastIterationModel, lastIterationAgentMode])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(params.taskId)
@@ -88,9 +101,9 @@ function ChatViewComponent({ className }: ChatViewProps) {
         {
           message: message.trim(),
           resume: resumeConversation,
-          model: modelSelector.value as ClaudeModel,
+          model: selectedModel,
           filePaths,
-          agentMode: agentModeSelector.value,
+          agentMode: selectedAgentMode,
         },
         {
           onSuccess: () => {
@@ -108,8 +121,8 @@ function ChatViewComponent({ className }: ChatViewProps) {
     message,
     uploadedFiles,
     resumeConversation,
-    modelSelector.value,
-    agentModeSelector.value,
+    selectedModel,
+    selectedAgentMode,
   ])
 
   // Handle sending message to task for commands - wrapped in useCallback for stable reference
