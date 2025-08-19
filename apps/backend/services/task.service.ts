@@ -889,13 +889,39 @@ export class TaskService {
     } catch (error) {
       logger.error('Background workspace setup failed', error as Error, { taskId })
 
-      // Task status remains unchanged - workspace setup error doesn't affect task status
+      // Update the iteration status to failed if it's not completed
       try {
         const task = await this.storage.getTask(taskId)
-        if (task) {
-          // No task status change needed
+        if (task && task.iterations.length > 0) {
+          const lastIteration = task.iterations[task.iterations.length - 1]
 
-          // Emit status change event
+          // Only update if iteration is not completed (could be 'created' or 'active')
+          if (lastIteration.status !== 'completed' && lastIteration.status !== 'failed') {
+            const previousStatus = lastIteration.status
+            lastIteration.status = 'failed'
+            lastIteration.result = `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`
+            lastIteration.endTime = new Date()
+
+            await this.storage.saveTask(task)
+
+            // Emit iteration error event
+            await this.eventService.emitEvent({
+              eventId: randomUUID(),
+              taskId,
+              type: 'taskIteration',
+              subType: 'error',
+              isError: true,
+              agentType: task.agentType,
+              timestamp: new Date(),
+              payload: {
+                status: 'error',
+                previousStatus,
+                iterationNumber: lastIteration.iterationNumber,
+              },
+            })
+          }
+
+          // Also emit task event for overall task status
           await this.eventService.emitEvent({
             eventId: randomUUID(),
             taskId,
