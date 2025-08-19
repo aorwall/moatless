@@ -472,7 +472,12 @@ export class PreviewServer {
     }
   }
 
-  async restart(logFile?: string): Promise<ServerStartResult> {
+  async restart(
+    serverCommands?: string | string[],
+    envVars?: Record<string, string>,
+    repositoryConfig?: RepositoryConfig,
+    logFile?: string,
+  ): Promise<ServerStartResult> {
     this.logger.info('Restarting server')
 
     // Stop the server first if it's running
@@ -483,13 +488,19 @@ export class PreviewServer {
       }
     }
 
-    // Ensure we have the required configuration from previous start
-    if (!this.serverCommands) {
-      throw new Error('Cannot restart server without previous configuration. Call start() first.')
+    // Use provided configuration or fall back to cached values
+    const useServerCommands = serverCommands || this.serverCommands
+    const useEnvVars = envVars || this.envVars
+    const useRepositoryConfig = repositoryConfig || this.repositoryConfig
+
+    if (!useServerCommands) {
+      throw new Error(
+        'Cannot restart server without configuration. Provide configuration or call start() first.',
+      )
     }
 
-    // Start the server again with saved configuration
-    return await this.start(this.serverCommands, this.envVars, this.repositoryConfig, logFile)
+    // Start the server again with configuration
+    return await this.start(useServerCommands, useEnvVars, useRepositoryConfig, logFile)
   }
 
   /**

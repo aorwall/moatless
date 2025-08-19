@@ -167,41 +167,9 @@ export class LocalEnvironment extends BaseEnvironment {
       // Step 2: Update internal config reference
       ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
 
-      // Step 3: Re-run setup commands
-      const setupCommands = latestConfig.codeExecution.setupCommands || []
-      this.logger.info(`Running ${setupCommands.length} setup commands with new configuration`, {
-        setupCommands,
-      })
-
-      for (const command of setupCommands) {
-        this.logger.info(`Running setup command: ${command}`)
-        const commandStartTime = Date.now()
-        const result = await this.runCommand(command, 300000) // 5 minutes timeout
-        const commandDuration = Date.now() - commandStartTime
-
-        this.logger.info('Setup command completed', {
-          command,
-          exitCode: result.exitCode,
-          durationMs: commandDuration,
-          outputLength: result.output.length,
-          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''),
-        })
-
-        if (result.exitCode !== 0) {
-          this.logger.error('Setup command failed during refresh', {
-            command,
-            exitCode: result.exitCode,
-            output: result.output,
-          })
-          // Continue with other commands instead of throwing
-          // This ensures partial refresh can succeed
-        }
-      }
-
       const totalDuration = Date.now() - startTime
       this.logger.info('Configuration refresh completed successfully', {
         durationMs: totalDuration,
-        commandsRun: setupCommands.length,
       })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -430,17 +398,13 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async startServer(): Promise<ServerStatus> {
-    // Get server commands with backward compatibility
+    // Get server commands
     const serverStartCommands = this.repositoryConfig.previewConfig?.serverStartCommands
-    const serverStartCommand = this.repositoryConfig.previewConfig?.serverStartCommand
 
     let commands: string[]
     if (serverStartCommands && serverStartCommands.length > 0) {
-      // Use new array format, filter out empty commands
+      // Filter out empty commands
       commands = serverStartCommands.filter((cmd) => cmd.trim() !== '')
-    } else if (serverStartCommand) {
-      // Fall back to legacy single command
-      commands = [serverStartCommand]
     } else {
       throw new Error('No server commands configured')
     }
@@ -470,7 +434,7 @@ export class LocalEnvironment extends BaseEnvironment {
         this.previewServer = new PreviewServer(this.taskId, this.workspacePath, this.eventService)
       }
 
-      // Start the server with configuration
+      // Start the server with latest configuration
       const result = await this.previewServer.start(
         commands,
         this.repositoryConfig.codeExecution.envVars || {},

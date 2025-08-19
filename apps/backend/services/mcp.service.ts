@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger.js'
+import type { RepositoryService } from './repository.service.js'
 import type { TaskService } from './task.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
@@ -42,6 +43,7 @@ export class McpService {
   constructor(
     private taskService: TaskService,
     private workspaceService: WorkspaceService,
+    private repositoryService: RepositoryService,
   ) {}
 
   /**
@@ -128,20 +130,20 @@ export class McpService {
       case 'updateTaskMetadata':
         return await this.executeUpdateTaskMetadata(taskId, request.id, args)
 
-      case 'startPreviewServer':
-        return await this.executeStartPreviewServer(taskId, request.id, args)
+      case 'install':
+        return await this.executeInstall(taskId, request.id, args)
 
-      case 'stopPreviewServer':
-        return await this.executeStopPreviewServer(taskId, request.id, args)
-
-      case 'restartPreviewServer':
-        return await this.executeRestartPreviewServer(taskId, request.id, args)
-
-      case 'getPreviewServerStatus':
-        return await this.executeGetPreviewServerStatus(taskId, request.id, args)
+      case 'startOrRestartPreviewServer':
+        return await this.executeStartOrRestartPreviewServer(taskId, request.id, args)
 
       case 'getPreviewServerLogs':
         return await this.executeGetPreviewServerLogs(taskId, request.id, args)
+
+      case 'updateRepositoryConfig':
+        return await this.executeUpdateRepositoryConfig(taskId, request.id, args)
+
+      case 'getRepositoryConfig':
+        return await this.executeGetRepositoryConfig(taskId, request.id, args)
 
       default:
         return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
@@ -156,6 +158,7 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: any,
   ): Promise<McpResponse> {
+    logger.info('MCP tool execution: updateTaskMetadata', { taskId, requestId, args })
     const { name, description } = args
 
     if (!name && !description) {
@@ -188,16 +191,43 @@ export class McpService {
   }
 
   /**
-   * Execute startPreviewServer tool
+   * Execute startOrRestartPreviewServer tool
    */
-  private async executeStartPreviewServer(
+  private async executeStartOrRestartPreviewServer(
     taskId: string,
     requestId: string | number | null | undefined,
     _args: any,
   ): Promise<McpResponse> {
+    logger.info('MCP tool execution: startOrRestartPreviewServer', {
+      taskId,
+      requestId,
+      args: _args,
+    })
     try {
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+
+      // Get latest repository configuration
+      const task = await this.taskService.getTask(taskId)
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
+      }
+
+      // Refresh workspace configuration with latest repository config
+      await workspace.refreshConfiguration(repository)
+
+      // Check if server is running
+      const currentStatus = await workspace.getServerStatus()
+      if (currentStatus.status === 'started' || currentStatus.status === 'starting') {
+        // Stop it first
+        await workspace.stopServer()
+        // Small delay to ensure clean stop
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+
+      // Start the server
       const serverStatus = await workspace.startServer()
+
       return {
         jsonrpc: '2.0',
         id: requestId,
@@ -205,7 +235,7 @@ export class McpService {
           content: [
             {
               type: 'text',
-              text: `Preview server started successfully. Status: ${serverStatus.status}${
+              text: `Preview server started. Status: ${serverStatus.status}${
                 serverStatus.url ? `, URL: ${serverStatus.url}` : ''
               }`,
             },
@@ -223,113 +253,6 @@ export class McpService {
   }
 
   /**
-   * Execute stopPreviewServer tool
-   */
-  private async executeStopPreviewServer(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    _args: any,
-  ): Promise<McpResponse> {
-    try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-      const stopped = await workspace.stopServer()
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: stopped
-                ? 'Preview server stopped successfully'
-                : 'Preview server was not running or failed to stop',
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to stop preview server',
-        error instanceof Error ? error.message : String(error),
-      )
-    }
-  }
-
-  /**
-   * Execute restartPreviewServer tool
-   */
-  private async executeRestartPreviewServer(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    _args: any,
-  ): Promise<McpResponse> {
-    try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-      await workspace.stopServer()
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      const serverStatus = await workspace.startServer()
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: `Preview server restarted successfully. Status: ${serverStatus.status}${
-                serverStatus.url ? `, URL: ${serverStatus.url}` : ''
-              }`,
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to restart preview server',
-        error instanceof Error ? error.message : String(error),
-      )
-    }
-  }
-
-  /**
-   * Execute getPreviewServerStatus tool
-   */
-  private async executeGetPreviewServerStatus(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    _args: any,
-  ): Promise<McpResponse> {
-    try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-      const serverStatus = await workspace.getServerStatus()
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: `Preview server status: ${serverStatus.status}${serverStatus.url ? `, URL: ${serverStatus.url}` : ''}${
-                serverStatus.uptimeSeconds ? `, Uptime: ${serverStatus.uptimeSeconds}s` : ''
-              }`,
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to get preview server status',
-        error instanceof Error ? error.message : String(error),
-      )
-    }
-  }
-
-  /**
    * Execute getPreviewServerLogs tool
    */
   private async executeGetPreviewServerLogs(
@@ -337,6 +260,7 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: any,
   ): Promise<McpResponse> {
+    logger.info('MCP tool execution: getPreviewServerLogs', { taskId, requestId, args })
     try {
       const { lines = 100 } = args
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
@@ -364,15 +288,193 @@ export class McpService {
   }
 
   /**
+   * Execute updateRepositoryConfig tool
+   */
+  private async executeUpdateRepositoryConfig(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: any,
+  ): Promise<McpResponse> {
+    logger.info('MCP tool execution: updateRepositoryConfig', { taskId, requestId, args })
+    const { setupCommands, envVars, serverStartCommands } = args
+
+    if (!setupCommands && !envVars && !serverStartCommands) {
+      return this.createErrorResponse(
+        requestId,
+        -32602,
+        'At least one field (setupCommands, envVars, or serverStartCommands) must be provided',
+      )
+    }
+
+    try {
+      // Get task to find repository ID
+      const task = await this.taskService.getTask(taskId)
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
+      }
+
+      // Build updates object, preserving existing values
+      const updates: any = {}
+
+      if (setupCommands || envVars) {
+        updates.codeExecution = {
+          ...repository.codeExecution,
+          ...(setupCommands && { setupCommands }),
+          ...(envVars && { envVars }),
+        }
+      }
+
+      if (serverStartCommands) {
+        updates.previewConfig = {
+          ...repository.previewConfig,
+          serverStartCommands,
+        }
+      }
+
+      // Update repository
+      await this.repositoryService.updateRepository(task.repositoryId, updates)
+
+      const updatedFields = []
+      if (setupCommands !== undefined) updatedFields.push('setupCommands')
+      if (envVars !== undefined) updatedFields.push('envVars')
+      if (serverStartCommands !== undefined) updatedFields.push('serverStartCommands')
+
+      return {
+        jsonrpc: '2.0',
+        id: requestId,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully updated repository configuration: ${updatedFields.join(', ')}`,
+            },
+          ],
+        },
+      }
+    } catch (error) {
+      logger.error('Failed to update repository config', error as Error, { taskId })
+      return this.createErrorResponse(
+        requestId,
+        -32603,
+        'Failed to update repository configuration',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /**
+   * Execute getRepositoryConfig tool
+   */
+  private async executeGetRepositoryConfig(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    _args: any,
+  ): Promise<McpResponse> {
+    logger.info('MCP tool execution: getRepositoryConfig', { taskId, requestId, args: _args })
+    try {
+      // Get task to find repository ID
+      const task = await this.taskService.getTask(taskId)
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
+      }
+
+      const config = {
+        name: repository.name,
+        path: repository.path,
+        setupCommands: repository.codeExecution.setupCommands || [],
+        envVars: repository.codeExecution.envVars || {},
+        serverStartCommands: repository.previewConfig?.serverStartCommands || [],
+      }
+
+      return {
+        jsonrpc: '2.0',
+        id: requestId,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `Repository Configuration:
+- Name: ${config.name}
+- Path: ${config.path}
+- Setup Commands: ${config.setupCommands.length ? config.setupCommands.join(', ') : 'None'}
+- Environment Variables: ${Object.keys(config.envVars).length ? Object.keys(config.envVars).join(', ') : 'None'}
+- Server Start Commands: ${config.serverStartCommands.length ? config.serverStartCommands.join(', ') : 'None'}`,
+            },
+          ],
+          config,
+        },
+      }
+    } catch (error) {
+      logger.error('Failed to get repository config', error as Error, { taskId })
+      return this.createErrorResponse(
+        requestId,
+        -32603,
+        'Failed to get repository configuration',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /**
+   * Execute install tool
+   */
+  private async executeInstall(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    _args: any,
+  ): Promise<McpResponse> {
+    logger.info('MCP tool execution: install', { taskId, requestId, args: _args })
+    try {
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+
+      // Get current repository config
+      const task = await this.taskService.getTask(taskId)
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
+      }
+
+      // Update workspace config first
+      await workspace.refreshConfiguration(repository)
+
+      // Run setup which executes setup commands
+      await workspace.setup()
+
+      const setupCommands = repository.codeExecution.setupCommands || []
+
+      return {
+        jsonrpc: '2.0',
+        id: requestId,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully installed repository with ${setupCommands.length} setup command(s): ${setupCommands.join(', ')}`,
+            },
+          ],
+        },
+      }
+    } catch (error) {
+      // Return error with the exception message (which includes command output)
+      return this.createErrorResponse(
+        requestId,
+        -32603,
+        'Installation failed',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /**
    * Check if preview server is available for the task
    */
   private async isPreviewServerAvailable(taskId: string): Promise<boolean> {
     try {
       const task = await this.taskService.getTask(taskId)
-      const repository = await this.taskService['repositoryService'].getRepositoryById(
-        task.repositoryId,
-      )
-      return Boolean(repository?.previewConfig?.serverStartCommand)
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      return Boolean(repository?.previewConfig?.serverStartCommands?.length)
     } catch (error) {
       logger.warn('Failed to check preview server availability', { taskId, error })
       return false
@@ -401,6 +503,50 @@ export class McpService {
           },
         },
       },
+      {
+        name: 'install',
+        description: 'Install the repository by running setup commands',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'updateRepositoryConfig',
+        description:
+          'Update repository configuration (setup commands, environment variables, server start commands)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            setupCommands: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Commands to install/setup the repository (e.g., npm install, pip install -r requirements.txt)',
+            },
+            envVars: {
+              type: 'object',
+              additionalProperties: { type: 'string' },
+              description: 'Environment variables for code execution',
+            },
+            serverStartCommands: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Commands to start the preview server (e.g., npm run dev, python app.py)',
+            },
+          },
+        },
+      },
+      {
+        name: 'getRepositoryConfig',
+        description:
+          'Get current repository configuration including setup commands, environment variables, and server start commands',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
     ]
 
     // Add preview server tools if available
@@ -408,32 +554,8 @@ export class McpService {
     if (hasPreviewServer) {
       tools.push(
         {
-          name: 'startPreviewServer',
-          description: 'Start the preview server for this task',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'stopPreviewServer',
-          description: 'Stop the preview server for this task',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'restartPreviewServer',
-          description: 'Restart the preview server for this task',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'getPreviewServerStatus',
-          description: 'Get the current status of the preview server',
+          name: 'startOrRestartPreviewServer',
+          description: 'Start or restart the preview server for this task',
           inputSchema: {
             type: 'object',
             properties: {},
@@ -482,6 +604,7 @@ export class McpService {
 export function createMcpService(
   taskService: TaskService,
   workspaceService: WorkspaceService,
+  repositoryService: RepositoryService,
 ): McpService {
-  return new McpService(taskService, workspaceService)
+  return new McpService(taskService, workspaceService, repositoryService)
 }
