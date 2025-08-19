@@ -39,6 +39,7 @@ test-results/
 
 # Build cache
 .turbo/
+.vite/
 
 # Data files
 data/

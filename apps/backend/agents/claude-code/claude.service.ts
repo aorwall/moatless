@@ -489,7 +489,7 @@ export class ClaudeService {
       ) {
         hasExitPlanMode = true
         extractedPlan = contentItem.input.plan as string
-        logger.info('Transforming ExitPlanMode tool call to text message', {
+        logger.debug('Transforming ExitPlanMode tool call to text message', {
           planLength: extractedPlan?.length,
         })
         break
