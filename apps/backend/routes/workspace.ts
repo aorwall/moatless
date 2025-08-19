@@ -12,6 +12,8 @@ import {
   GitStatusSchema,
   SyncWorkspaceResponseSchema,
   TaskFileSearchSchema,
+  WorkspaceRefreshConfigRequestSchema,
+  WorkspaceRefreshConfigResponseSchema,
   WorkspaceSetupRequestSchema,
   WorkspaceSetupResponseSchema,
   WorkspaceStatusResponseSchema,
@@ -668,6 +670,64 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
         })
       } catch (error) {
         handleServiceError(error, 'Setup workspace')
+      }
+    },
+  )
+
+  // Refresh workspace configuration
+  app.post(
+    `${prefix}/:taskId/refresh-config`,
+    describeRoute({
+      description: 'Refresh workspace configuration by re-running setup commands',
+      parameters: [CommonParameters.taskId],
+      requestBody: {
+        description: 'Refresh configuration options',
+        content: {
+          'application/json': {
+            schema: resolver(WorkspaceRefreshConfigRequestSchema) as any,
+          },
+        },
+        required: false,
+      },
+      responses: {
+        200: {
+          description: 'Configuration refresh result',
+          content: {
+            'application/json': {
+              schema: resolver(WorkspaceRefreshConfigResponseSchema),
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        404: {
+          description: 'Task or repository not found',
+        },
+        500: {
+          description: 'Refresh failed',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = getTaskId(c)
+
+      try {
+        const body = await c.req.json().catch(() => ({}))
+        const { restartServer = false } = WorkspaceRefreshConfigRequestSchema.parse(body)
+
+        // Refresh configuration and get updated status
+        const status = await services.workspace.refreshWorkspaceConfiguration(taskId, restartServer)
+
+        return c.json({
+          success: true,
+          message: 'Configuration refreshed successfully',
+          status: status.environmentStatus,
+          serverRestarted: restartServer && status.capabilities.serverManagement,
+        })
+      } catch (error) {
+        handleServiceError(error, 'Refresh workspace configuration')
       }
     },
   )

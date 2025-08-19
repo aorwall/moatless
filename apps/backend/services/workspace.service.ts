@@ -623,7 +623,81 @@ export class WorkspaceService {
       status.agentType = task.agentType
     }
 
+    // Check if repository config is outdated
+    try {
+      const latestRepo = await this.repositoryService.getRepositoryById(workspace.repositoryId)
+      if (latestRepo) {
+        status.repositoryUpdatedAt = latestRepo.updatedAt.toISOString()
+        // Compare repository updatedAt with environment createdAt
+        const envCreatedAt = new Date(status.environmentCreatedAt)
+        status.configOutdated = latestRepo.updatedAt > envCreatedAt
+      }
+    } catch (error) {
+      // If we can't fetch the repository, assume config is not outdated
+      status.configOutdated = false
+    }
+
     return status
+  }
+
+  async refreshWorkspaceConfiguration(
+    taskId: string,
+    restartServer = false,
+  ): Promise<WorkspaceStatusResponse> {
+    const workspaceLogger = logger.child({ taskId })
+    workspaceLogger.info('Refreshing workspace configuration', { taskId, restartServer })
+
+    // Validate task exists
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Get workspace
+    const workspace = await this.getWorkspace(taskId)
+    if (!workspace) {
+      throw new WorkspaceError(`No workspace found for task ${taskId}`, taskId)
+    }
+
+    // Fetch latest repository configuration
+    const latestRepo = await this.repositoryService.getRepositoryById(workspace.repositoryId)
+    if (!latestRepo) {
+      throw new RepositoryNotFoundError(workspace.repositoryId)
+    }
+
+    const environment = workspace.getEnvironment()
+
+    try {
+      // Refresh configuration (stops server and runs setup commands)
+      await environment.refreshConfiguration(latestRepo)
+
+      // Optionally restart server
+      if (restartServer && (await workspace.canManageServer())) {
+        workspaceLogger.info('Restarting preview server after configuration refresh')
+        try {
+          await workspace.startServer()
+        } catch (error) {
+          workspaceLogger.error('Failed to restart preview server', error as Error)
+          // Don't throw - configuration refresh was successful
+        }
+      }
+
+      // Return updated workspace status
+      const status = await this.getWorkspaceStatus(taskId)
+
+      workspaceLogger.info('Configuration refresh completed successfully', {
+        configOutdated: status.configOutdated,
+        serverRestarted: restartServer,
+      })
+
+      return status
+    } catch (error) {
+      workspaceLogger.error('Failed to refresh workspace configuration', error as Error)
+      throw new WorkspaceError(
+        `Failed to refresh configuration: ${error instanceof Error ? error.message : String(error)}`,
+        taskId,
+      )
+    }
   }
 
   async startServer(taskId: string): Promise<ServerStatus> {

@@ -148,6 +148,72 @@ export class LocalEnvironment extends BaseEnvironment {
     }
   }
 
+  async refreshConfiguration(latestConfig: RepositoryConfig): Promise<void> {
+    this.logger.info('Refreshing repository configuration', {
+      taskId: this.taskId,
+      oldConfigUpdatedAt: this.repositoryConfig.updatedAt,
+      newConfigUpdatedAt: latestConfig.updatedAt,
+    })
+
+    const startTime = Date.now()
+
+    try {
+      // Step 1: Stop preview server if running
+      if (this.previewServer) {
+        this.logger.info('Stopping preview server before configuration refresh')
+        await this.stopServer()
+      }
+
+      // Step 2: Update internal config reference
+      const oldConfig = this.repositoryConfig
+      ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
+
+      // Step 3: Re-run setup commands
+      const setupCommands = latestConfig.codeExecution.setupCommands || []
+      this.logger.info(`Running ${setupCommands.length} setup commands with new configuration`, {
+        setupCommands,
+      })
+
+      for (const command of setupCommands) {
+        this.logger.info(`Running setup command: ${command}`)
+        const commandStartTime = Date.now()
+        const result = await this.runCommand(command, 300000) // 5 minutes timeout
+        const commandDuration = Date.now() - commandStartTime
+
+        this.logger.info('Setup command completed', {
+          command,
+          exitCode: result.exitCode,
+          durationMs: commandDuration,
+          outputLength: result.output.length,
+          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''),
+        })
+
+        if (result.exitCode !== 0) {
+          this.logger.error('Setup command failed during refresh', {
+            command,
+            exitCode: result.exitCode,
+            output: result.output,
+          })
+          // Continue with other commands instead of throwing
+          // This ensures partial refresh can succeed
+        }
+      }
+
+      const totalDuration = Date.now() - startTime
+      this.logger.info('Configuration refresh completed successfully', {
+        durationMs: totalDuration,
+        commandsRun: setupCommands.length,
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.logger.error('Failed to refresh configuration', error as Error, {
+        errorMessage,
+        durationMs: Date.now() - startTime,
+      })
+      throw new Error(`Configuration refresh failed: ${errorMessage}`)
+    }
+  }
+
   async runCommand(
     command: string,
     timeout = 30000,

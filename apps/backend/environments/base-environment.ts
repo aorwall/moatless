@@ -156,6 +156,13 @@ export abstract class BaseEnvironment {
   abstract setup(iterationNumber?: number): Promise<void>
 
   /**
+   * Refresh repository configuration by re-running setup commands.
+   * This stops the preview server (if running) and re-runs setup commands with latest config.
+   * The agent continues running unaffected.
+   */
+  abstract refreshConfiguration(latestConfig: RepositoryConfig): Promise<void>
+
+  /**
    * Ensures the environment is ready for operations.
    * If not ready, attempts to set it up.
    * @returns Promise that resolves when environment is ready
