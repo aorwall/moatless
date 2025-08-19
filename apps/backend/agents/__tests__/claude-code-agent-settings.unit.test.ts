@@ -347,13 +347,13 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'test message',
-          abortController: expect.any(AbortController),
           options: expect.objectContaining({
             allowedTools: ['WebFetch', 'WebSearch', 'Bash'],
             permissionMode: 'acceptEdits',
             cwd: '/test/workspace',
             model: 'claude-3-sonnet-20240320',
             resume: 'test-session-id',
+            abortController: expect.any(AbortController),
           }),
         }),
       )
@@ -370,9 +370,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'test message',
-          abortController: expect.any(AbortController),
           options: expect.objectContaining({
             cwd: '/fallback/workspace',
+            abortController: expect.any(AbortController),
           }),
         }),
       )
@@ -384,9 +384,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'test message',
-          abortController: expect.any(AbortController),
           options: expect.objectContaining({
             cwd: process.cwd(),
+            abortController: expect.any(AbortController),
           }),
         }),
       )

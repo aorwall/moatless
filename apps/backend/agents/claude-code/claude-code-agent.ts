@@ -68,8 +68,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Use the SDK query function
       for await (const sdkMessage of query({
         prompt: message,
-        abortController: this.abortController,
-        options: sdkOptions,
+        options: {
+          ...sdkOptions,
+          abortController: this.abortController,
+        },
       })) {
         eventCount++
 
@@ -463,8 +465,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Use the SDK query function
       for await (const sdkMessage of query({
         prompt: message,
-        abortController,
-        options: sdkOptions,
+        options: {
+          ...sdkOptions,
+          abortController,
+        },
       })) {
         agentLogger.debug('Received SDK message', { sdkMessage })
 
@@ -522,8 +526,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Use the SDK query function with branch name specific options
       for await (const sdkMessage of query({
         prompt: formattedPrompt,
-        abortController,
-        options: branchNameOptions,
+        options: {
+          ...branchNameOptions,
+          abortController,
+        },
       })) {
         agentLogger.debug('Received SDK message for branch name', { sdkMessage })
 

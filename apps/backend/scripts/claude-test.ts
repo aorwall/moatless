@@ -33,12 +33,12 @@ for await (const message of query({
     '</output>\n' +
     '\n' +
     'Ensure that your response contains only the JSON object within the <output> tags. Do not include any additional text, explanations, or formatting outside of the JSON structure.',
-  abortController: new AbortController(),
   options: {
     appendSystemPrompt: '',
     maxTurns: 2,
     model: 'claude-sonnet-4-20250514',
     allowedTools: [],
+    abortController: new AbortController(),
   },
 })) {
   messages.push(message)

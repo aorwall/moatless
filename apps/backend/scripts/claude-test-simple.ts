@@ -7,10 +7,10 @@ try {
 
   for await (const message of query({
     prompt: 'hello',
-    abortController: new AbortController(),
     options: {
       maxTurns: 1,
       model: 'claude-sonnet-4',
+      abortController: new AbortController(),
     },
   })) {
     messages.push(message)

@@ -200,39 +200,37 @@ describe('ClaudeCodeAgent', () => {
       // Mock the query function to capture the options passed
       let capturedOptions: any
       const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(
-        ({ prompt: _prompt, abortController: _abortController, options }) => {
-          capturedOptions = options
-          const generator = async function* () {
-            const textMessage: SDKMessage = {
-              type: 'assistant',
-              message: {
-                id: 'msg_123',
-                type: 'message',
-                role: 'assistant',
-                model: runOptionsModel, // Should use the model from runOptions
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Response using model from runOptions.',
-                  },
-                ],
-                stop_reason: 'end_turn',
-                stop_sequence: null,
-              },
-              parent_tool_use_id: null,
-              session_id: 'test-session',
-            }
-            yield textMessage
+      vi.mocked(query).mockImplementation(({ prompt: _prompt, options }) => {
+        capturedOptions = options
+        const generator = async function* () {
+          const textMessage: SDKMessage = {
+            type: 'assistant',
+            message: {
+              id: 'msg_123',
+              type: 'message',
+              role: 'assistant',
+              model: runOptionsModel, // Should use the model from runOptions
+              content: [
+                {
+                  type: 'text',
+                  text: 'Response using model from runOptions.',
+                },
+              ],
+              stop_reason: 'end_turn',
+              stop_sequence: null,
+            },
+            parent_tool_use_id: null,
+            session_id: 'test-session',
           }
-          const gen = generator()
-          return {
-            ...gen,
-            [Symbol.asyncIterator]: () => gen,
-            interrupt: vi.fn(),
-          }
-        },
-      )
+          yield textMessage
+        }
+        const gen = generator()
+        return {
+          ...gen,
+          [Symbol.asyncIterator]: () => gen,
+          interrupt: vi.fn(),
+        }
+      })
 
       // Run with model in runOptions
       const events: unknown[] = []
@@ -255,39 +253,37 @@ describe('ClaudeCodeAgent', () => {
       // Mock the query function to capture the options passed
       let capturedOptions: any
       const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(
-        ({ prompt: _prompt, abortController: _abortController, options }) => {
-          capturedOptions = options
-          const generator = async function* () {
-            const textMessage: SDKMessage = {
-              type: 'assistant',
-              message: {
-                id: 'msg_123',
-                type: 'message',
-                role: 'assistant',
-                model: constructorModel,
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Response using model from constructor.',
-                  },
-                ],
-                stop_reason: 'end_turn',
-                stop_sequence: null,
-              },
-              parent_tool_use_id: null,
-              session_id: 'test-session',
-            }
-            yield textMessage
+      vi.mocked(query).mockImplementation(({ prompt: _prompt, options }) => {
+        capturedOptions = options
+        const generator = async function* () {
+          const textMessage: SDKMessage = {
+            type: 'assistant',
+            message: {
+              id: 'msg_123',
+              type: 'message',
+              role: 'assistant',
+              model: constructorModel,
+              content: [
+                {
+                  type: 'text',
+                  text: 'Response using model from constructor.',
+                },
+              ],
+              stop_reason: 'end_turn',
+              stop_sequence: null,
+            },
+            parent_tool_use_id: null,
+            session_id: 'test-session',
           }
-          const gen = generator()
-          return {
-            ...gen,
-            [Symbol.asyncIterator]: () => gen,
-            interrupt: vi.fn(),
-          }
-        },
-      )
+          yield textMessage
+        }
+        const gen = generator()
+        return {
+          ...gen,
+          [Symbol.asyncIterator]: () => gen,
+          interrupt: vi.fn(),
+        }
+      })
 
       // Run without model in runOptions
       const events: unknown[] = []
@@ -310,39 +306,37 @@ describe('ClaudeCodeAgent', () => {
       // Mock the query function to capture the options passed
       let capturedOptions: any
       const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(
-        ({ prompt: _prompt, abortController: _abortController, options }) => {
-          capturedOptions = options
-          const generator = async function* () {
-            const textMessage: SDKMessage = {
-              type: 'assistant',
-              message: {
-                id: 'msg_123',
-                type: 'message',
-                role: 'assistant',
-                model: defaultModel,
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Response using default model.',
-                  },
-                ],
-                stop_reason: 'end_turn',
-                stop_sequence: null,
-              },
-              parent_tool_use_id: null,
-              session_id: 'test-session',
-            }
-            yield textMessage
+      vi.mocked(query).mockImplementation(({ prompt: _prompt, options }) => {
+        capturedOptions = options
+        const generator = async function* () {
+          const textMessage: SDKMessage = {
+            type: 'assistant',
+            message: {
+              id: 'msg_123',
+              type: 'message',
+              role: 'assistant',
+              model: defaultModel,
+              content: [
+                {
+                  type: 'text',
+                  text: 'Response using default model.',
+                },
+              ],
+              stop_reason: 'end_turn',
+              stop_sequence: null,
+            },
+            parent_tool_use_id: null,
+            session_id: 'test-session',
           }
-          const gen = generator()
-          return {
-            ...gen,
-            [Symbol.asyncIterator]: () => gen,
-            interrupt: vi.fn(),
-          }
-        },
-      )
+          yield textMessage
+        }
+        const gen = generator()
+        return {
+          ...gen,
+          [Symbol.asyncIterator]: () => gen,
+          interrupt: vi.fn(),
+        }
+      })
 
       // Run without model
       const events: unknown[] = []
