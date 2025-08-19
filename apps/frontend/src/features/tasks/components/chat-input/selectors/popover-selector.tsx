@@ -47,7 +47,7 @@ export function PopoverSelector({
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline truncate max-w-[120px]">
+              <span className="hidden sm:inline truncate max-w-[200px]">
                 {loading ? 'Loading...' : buttonText}
               </span>
             </Button>
@@ -57,7 +57,7 @@ export function PopoverSelector({
           <p>{tooltip || buttonText}</p>
         </TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-auto max-w-80 p-0" align="start">
+      <PopoverContent className="w-auto max-w-96 p-0" align="start">
         {children}
       </PopoverContent>
     </Popover>

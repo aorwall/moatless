@@ -127,7 +127,7 @@ export function CreateTaskForm() {
                 value={branchSelector.value}
                 onChange={setSelectedBranch}
                 currentBranch={branchSelector.currentBranch}
-                enableSearch={branchSelector.items.length > 10}
+                enableSearch={true}
               />
             </PopoverSelector>
             <p className="text-xs text-muted-foreground">

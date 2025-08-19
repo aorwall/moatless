@@ -155,7 +155,7 @@ export function CreateCodeTask({
                   value={branchSelector.value}
                   onChange={branchSelector.onChange}
                   currentBranch={branchSelector.currentBranch}
-                  enableSearch={branchSelector.items.length > 10}
+                  enableSearch={true}
                 />
               </PopoverSelector>
 
