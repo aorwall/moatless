@@ -1,9 +1,9 @@
 import { useParams } from '@tanstack/react-router'
 import { ArrowDown, WifiOff } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
 import { useServerEvents, useServerLogs, useServerLogsStream } from '@/features/preview'
-import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
+import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
@@ -33,23 +33,17 @@ export function ServerLogsViewer() {
     ? false // Streaming doesn't have a loading state
     : staticLogsResult.isLoading
 
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Use scroll manager for scroll detection and auto-scroll behavior
-  const { isAtBottom, scrollToBottom } = useScrollManager({ scrollRef: scrollAreaRef, bottomRef })
-
-  // Auto-scroll to bottom when new logs arrive, but only if user is at bottom
-  useEffect(() => {
-    if (logs && isAtBottom && scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector(
-        '[data-radix-scroll-area-viewport]',
-      )
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight
-      }
-    }
-  }, [logs, isAtBottom])
+  // Use auto-scroll for scroll detection and auto-scroll behavior
+  const {
+    scrollRef: scrollAreaRef,
+    isAtBottom,
+    scrollToBottom,
+  } = useAutoScroll({
+    scrollOnMount: true,
+    dependencies: [logs], // Re-evaluate scroll when logs change
+  })
 
   if (!selectedTaskId) {
     return null

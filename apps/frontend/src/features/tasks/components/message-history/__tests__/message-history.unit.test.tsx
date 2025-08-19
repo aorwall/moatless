@@ -22,10 +22,6 @@ vi.mock('@/features/tasks/hooks/use-auto-scroll', () => ({
   useAutoScroll: vi.fn(),
 }))
 
-vi.mock('@/features/tasks/hooks/use-scroll-manager', () => ({
-  useScrollManager: vi.fn(),
-}))
-
 vi.mock('@tanstack/react-router', () => ({
   useParams: vi.fn(),
 }))
@@ -33,7 +29,6 @@ vi.mock('@tanstack/react-router', () => ({
 import { useParams } from '@tanstack/react-router'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
-import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 
 // Mock the child components to focus on MessageHistory logic
@@ -121,10 +116,6 @@ describe('MessageHistory - Unit Tests', () => {
       isAtBottom: true,
       scrollToBottom: vi.fn(),
       handleScroll: vi.fn(),
-    })
-    vi.mocked(useScrollManager).mockReturnValue({
-      isAtBottom: true,
-      scrollToBottom: vi.fn(),
     })
   }
 

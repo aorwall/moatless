@@ -9,7 +9,6 @@ import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
-import { useScrollManager } from '@/features/tasks/hooks/use-scroll-manager'
 import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
@@ -113,7 +112,7 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   }) as { data: Message[] | undefined; isLoading: boolean; error: unknown }
 
   // Initialize auto-scroll with proper options
-  const { scrollRef } = useAutoScroll({
+  const { scrollRef, isAtBottom, scrollToBottom } = useAutoScroll({
     scrollOnMount: true,
     dependencies: [messages], // Re-evaluate scroll when messages change
   })
@@ -127,12 +126,6 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
   }, [messages, initialMessageCount])
 
   // Custom hooks for extracted functionality
-
-  const { isAtBottom, scrollToBottom } = useScrollManager({
-    scrollRef,
-    bottomRef,
-    dependencies: [messages],
-  })
 
   // Fix ScrollArea viewport styles
   useEffect(() => {
