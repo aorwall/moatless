@@ -96,16 +96,13 @@ export function useAutoScroll({
     // 1. Content height has increased (new content added)
     // 2. User was at the bottom before the update
     if (currentScrollHeight > lastScrollHeight.current && isAtBottom) {
-      // Save current scroll position
-      const currentScrollTop = scrollElement.scrollTop
-
       // Use RAF to ensure DOM has updated
       requestAnimationFrame(() => {
         // Double-check we're still at bottom (in case user scrolled during update)
         const { scrollTop, scrollHeight, clientHeight } = scrollElement
         const stillAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < threshold
 
-        if (stillAtBottom || scrollTop === currentScrollTop) {
+        if (stillAtBottom) {
           scrollElement.scrollTop = scrollElement.scrollHeight
         }
       })
