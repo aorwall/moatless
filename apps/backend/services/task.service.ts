@@ -12,6 +12,14 @@ import type {
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 
 import { filterAvailableCommands } from '../utils/command-conditions.js'
+import {
+  createGitCheckpoint,
+  getCurrentBranch,
+  getCurrentCommitHash,
+  getOriginCommitCounts,
+  hasUncommittedChanges,
+  pushGitCheckpoint,
+} from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
@@ -241,6 +249,36 @@ export class TaskService {
 
     // Capture git data when iteration completes
     await this.captureGitDataForIteration(task.taskId, iteration)
+
+    // Create git checkpoint if enabled (independent)
+    if (task.gitCheckpointEnabled) {
+      await this.createIterationCheckpoint(task, iteration)
+    }
+
+    // Push to remote if enabled (independent)
+    if (task.gitPushEnabled) {
+      await this.pushIterationChanges(task, iteration)
+    }
+
+    // Always capture the current commit hash for the iteration
+    // (whether from checkpoint, manual commits, or existing state)
+    if (!iteration.checkpointCommitHash) {
+      try {
+        const workspace = await this.workspaceService.getWorkspace(task.taskId)
+        if (workspace) {
+          const workspacePath = workspace.getWorkspacePath()
+          const commitHash = await getCurrentCommitHash(workspacePath)
+          if (commitHash) {
+            iteration.checkpointCommitHash = commitHash
+          }
+        }
+      } catch (error) {
+        // Non-critical, just log
+        taskLogger.debug('Could not capture commit hash', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
 
     // Capture preview screenshot if server is configured and takeScreenshots is enabled (non-blocking)
     this.capturePreviewScreenshotIfEnabled(task.taskId, iteration).catch((error) => {
@@ -523,6 +561,102 @@ export class TaskService {
     }
   }
 
+  /**
+   * Create a git checkpoint for an iteration
+   */
+  private async createIterationCheckpoint(task: Task, iteration: TaskIteration): Promise<void> {
+    const taskLogger = logger.child({
+      taskId: task.taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
+    try {
+      const workspace = await this.workspaceService.getWorkspace(task.taskId)
+      if (!workspace) {
+        taskLogger.warn('Workspace not found, skipping checkpoint')
+        return
+      }
+
+      const workspacePath = workspace.getWorkspacePath()
+
+      // Check if there are changes to commit
+      const hasChanges = await hasUncommittedChanges(workspacePath)
+      if (!hasChanges) {
+        taskLogger.info('No changes to checkpoint')
+        return
+      }
+
+      // Create checkpoint commit
+      const message = `Checkpoint: Iteration ${iteration.iterationNumber} - ${iteration.status} [${new Date().toISOString()}]`
+      const { commitHash } = await createGitCheckpoint(workspacePath, message)
+
+      if (commitHash) {
+        iteration.checkpointCommitHash = commitHash
+        taskLogger.info('Created git checkpoint', { commitHash })
+      }
+    } catch (error) {
+      taskLogger.error('Failed to create git checkpoint', error as Error)
+      // Don't fail the iteration if checkpoint fails
+    }
+  }
+
+  /**
+   * Push any existing commits to remote after iteration
+   */
+  private async pushIterationChanges(task: Task, iteration: TaskIteration): Promise<void> {
+    const taskLogger = logger.child({
+      taskId: task.taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
+
+    try {
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository?.remoteUrl) {
+        taskLogger.info('No remote URL configured, skipping push')
+        return
+      }
+
+      const workspace = await this.workspaceService.getWorkspace(task.taskId)
+      if (!workspace) {
+        taskLogger.warn('Workspace not found, skipping push')
+        return
+      }
+
+      const workspacePath = workspace.getWorkspacePath()
+      const currentBranch = await getCurrentBranch(workspacePath)
+
+      // Check if there are commits to push
+      const { ahead } = await getOriginCommitCounts(workspacePath)
+      if (ahead === 0) {
+        taskLogger.info('No commits to push')
+        return
+      }
+
+      // Push to remote
+      const { pushed, error } = await pushGitCheckpoint(workspacePath, currentBranch)
+
+      if (pushed) {
+        // Capture the HEAD commit that was pushed
+        const headCommit = await getCurrentCommitHash(workspacePath)
+        if (headCommit) {
+          iteration.checkpointCommitHash = headCommit
+        }
+        iteration.checkpointPushed = true
+
+        taskLogger.info('Pushed commits to remote', {
+          branch: currentBranch,
+          commitsAhead: ahead,
+          headCommit,
+        })
+      } else if (error) {
+        taskLogger.warn('Failed to push commits', { error })
+      }
+    } catch (error) {
+      taskLogger.error('Failed to push changes', error as Error)
+      // Don't fail the iteration if push fails
+    }
+  }
+
   async createTask(params: CreateTaskRequest): Promise<Task> {
     logger.info('Starting task creation', {
       agentType: params.agentType,
@@ -559,6 +693,8 @@ export class TaskService {
       vibe: params.templateId ? true : undefined,
       name: params.name,
       description: params.description,
+      gitCheckpointEnabled: params.gitCheckpointEnabled,
+      gitPushEnabled: params.gitPushEnabled,
     }
 
     // Create task iteration with 'created' status if message is provided

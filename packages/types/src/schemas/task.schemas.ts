@@ -109,6 +109,8 @@ export const TaskIterationSchema = z.object({
   screenshotPath: z.string().optional(), // Path to preview screenshot
   thumbnailPath: z.string().optional(), // Path to preview screenshot thumbnail (340px width)
   siteUrl: z.string().optional(), // URL of the deployed iteration (e.g., Netlify deployment URL)
+  checkpointCommitHash: z.string().optional(), // Git commit hash created for this iteration checkpoint
+  checkpointPushed: z.boolean().optional(), // Whether the checkpoint was pushed to remote
 })
 
 // ============================================
@@ -132,6 +134,8 @@ export const TaskResponseSchema = z.object({
   description: z.string().optional(), // One-sentence summary of the task
   siteId: z.string().optional(), // Deployment site ID (e.g., Netlify site ID)
   siteProvider: z.string().optional(), // Deployment provider (e.g., "netlify")
+  gitCheckpointEnabled: z.boolean().optional(), // Whether git checkpoints are enabled for this task
+  gitPushEnabled: z.boolean().optional(), // Whether pushing checkpoints to remote is enabled
 })
 
 export const TaskListResponseSchema = z.object({
@@ -243,6 +247,8 @@ export const CreateTaskRequestSchema = z.object({
   templateId: z.string().optional(), // Template ID when created from template
   name: z.string().optional(), // URL-friendly task name (alphanumeric and dashes only)
   description: z.string().optional(), // One-sentence summary of the task
+  gitCheckpointEnabled: z.boolean().optional(), // Enable automatic git checkpoints after each iteration
+  gitPushEnabled: z.boolean().optional(), // Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)
 })
 
 // Create Vibe Task (simplified - vibe tasks always start immediately and don't support branches)

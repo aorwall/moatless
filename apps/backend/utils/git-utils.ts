@@ -310,6 +310,19 @@ export async function getCommitHash(repoPath: string, short = true): Promise<str
   }
 }
 
+/**
+ * Get the current HEAD commit hash (convenience function for non-throwing version)
+ * @param repoPath - The repository path
+ * @returns The commit hash or null if it fails
+ */
+export async function getCurrentCommitHash(repoPath: string): Promise<string | null> {
+  try {
+    return await getCommitHash(repoPath, false)
+  } catch {
+    return null
+  }
+}
+
 export async function getBranchList(repoPath: string): Promise<string[]> {
   try {
     const { stdout } = await execAsync('git branch --list', {
@@ -1494,6 +1507,106 @@ export async function getGitUserName(): Promise<string | null> {
 export async function getGitUserEmail(): Promise<string | null> {
   try {
     const { stdout } = await execAsync('git config --global user.email', {
+      timeout: 5000,
+    })
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Create a git checkpoint by committing all changes
+ * @param repoPath - The repository path
+ * @param message - The commit message
+ * @returns Object with commit hash (null if no changes) and hasChanges flag
+ */
+export async function createGitCheckpoint(
+  repoPath: string,
+  message: string,
+): Promise<{ commitHash: string | null; hasChanges: boolean }> {
+  try {
+    // Check if there are changes to commit
+    const hasChanges = await hasUncommittedChanges(repoPath)
+    if (!hasChanges) {
+      return { commitHash: null, hasChanges: false }
+    }
+
+    // Stage all changes
+    await execAsync('git add -A', {
+      cwd: repoPath,
+      timeout: 10000,
+    })
+
+    // Create commit
+    await execAsync(`git commit -m "${message}"`, {
+      cwd: repoPath,
+      timeout: 10000,
+    })
+
+    // Get the commit hash
+    const commitHash = await getCommitHash(repoPath, false)
+
+    return { commitHash, hasChanges: true }
+  } catch (error) {
+    throw new Error(
+      `Failed to create git checkpoint: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+/**
+ * Push git checkpoint to remote
+ * @param repoPath - The repository path
+ * @param branch - The branch name to push
+ * @returns Object with push status and error message if any
+ */
+export async function pushGitCheckpoint(
+  repoPath: string,
+  branch: string,
+): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }> {
+  try {
+    // Check if there are commits to push
+    const { ahead } = await getOriginCommitCounts(repoPath)
+    if (ahead === 0) {
+      return { pushed: false, hasCommits: false }
+    }
+
+    // Check if origin exists
+    const originExists = await checkAndFetchOrigin(repoPath, undefined, false)
+    if (!originExists) {
+      return {
+        pushed: false,
+        hasCommits: true,
+        error: 'No remote origin configured',
+      }
+    }
+
+    // Push to remote
+    await execAsync(`git push origin "${branch}"`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+
+    return { pushed: true, hasCommits: true }
+  } catch (error) {
+    return {
+      pushed: false,
+      hasCommits: true,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/**
+ * Get the remote URL for origin
+ * @param repoPath - The repository path
+ * @returns The remote URL or null if no remote configured
+ */
+export async function getRemoteUrl(repoPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync('git remote get-url origin', {
+      cwd: repoPath,
       timeout: 5000,
     })
     return stdout.trim() || null
