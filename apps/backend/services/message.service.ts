@@ -99,55 +99,65 @@ export class MessageService {
             }
           }
         } else {
-          // Add the found messages, but check if we need to replace/add initial message
-          const messagesToAdd = [...agentMessages]
+          // Add the found messages, handling initial message properly
+          const messagesToAdd: AgentMessage[] = []
 
           if (iteration.initialMessage) {
-            // Check if the first message is a user message that should be replaced
-            if (messagesToAdd.length > 0 && messagesToAdd[0].type === 'user') {
-              // Replace the first user message content with the iteration's initial message
-              logger.debug('Replacing first user message with iteration initial message', {
-                taskId: task.taskId,
-                iterationNumber: iteration.iterationNumber,
-                agentSessionId: iteration.agentSessionId,
-              })
+            // Always add the iteration's initial message first
+            logger.debug('Adding iteration initial message', {
+              taskId: task.taskId,
+              iterationNumber: iteration.iterationNumber,
+              agentSessionId: iteration.agentSessionId,
+            })
 
-              messagesToAdd[0] = {
-                ...messagesToAdd[0],
-                message: {
-                  ...messagesToAdd[0].message,
-                  content: iteration.initialMessage,
-                },
-                timestamp: iteration.startTime.toISOString(),
-              }
-            } else {
-              // Check if there's any user message in the Claude messages
-              const hasUserMessage = messagesToAdd.some((msg) => msg.type === 'user')
+            const initialUserMessage: AgentMessage = {
+              userType: 'user',
+              uuid: crypto.randomUUID(),
+              timestamp: iteration.startTime.toISOString(),
+              type: 'user',
+              message: {
+                role: 'user',
+                content: iteration.initialMessage,
+              },
+            }
+            messagesToAdd.push(initialUserMessage)
 
-              if (!hasUserMessage) {
-                // No user message found, add the iteration's initialMessage as the first message
-                logger.info(
-                  'No user message found in Claude messages, adding iteration initial message',
-                  {
-                    taskId: task.taskId,
-                    iterationNumber: iteration.iterationNumber,
-                    agentSessionId: iteration.agentSessionId,
-                  },
-                )
-
-                const initialUserMessage: AgentMessage = {
-                  userType: 'user',
-                  uuid: crypto.randomUUID(),
-                  timestamp: iteration.startTime.toISOString(),
-                  type: 'user',
-                  message: {
-                    role: 'user',
-                    content: iteration.initialMessage,
-                  },
+            // Find the first user message in Claude messages to skip (to avoid duplication)
+            let firstUserMessageIndex = -1
+            for (let i = 0; i < agentMessages.length; i++) {
+              if (agentMessages[i].type === 'user') {
+                // Check if this is a real user message (not a tool result)
+                const msg = agentMessages[i]
+                if (msg.message && msg.message.content) {
+                  const content = Array.isArray(msg.message.content)
+                    ? msg.message.content
+                    : [msg.message.content]
+                  // Check if this has actual text content (not just tool results)
+                  const hasTextContent = content.some(
+                    (c: any) => typeof c === 'string' || (c && c.type === 'text'),
+                  )
+                  if (hasTextContent) {
+                    firstUserMessageIndex = i
+                    logger.debug('Found first user message to skip at index', {
+                      index: i,
+                      taskId: task.taskId,
+                      iterationNumber: iteration.iterationNumber,
+                    })
+                    break
+                  }
                 }
-                messagesToAdd.unshift(initialUserMessage)
               }
             }
+
+            // Add all messages except the first user message (which we replaced)
+            for (let i = 0; i < agentMessages.length; i++) {
+              if (i !== firstUserMessageIndex) {
+                messagesToAdd.push(agentMessages[i])
+              }
+            }
+          } else {
+            // No initial message, just add all Claude messages
+            messagesToAdd.push(...agentMessages)
           }
 
           allAgentMessages.push(...messagesToAdd)
