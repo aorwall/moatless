@@ -43,6 +43,7 @@ describe('useTaskData', () => {
       workspaceState: 'exists' as const,
       workspacePath: '/tmp/test-workspace',
       workspaceChangeStatus: 'no_changes' as const,
+      configOutdated: false,
 
       // Environment info
       environmentType: 'local' as const,
@@ -134,6 +135,7 @@ describe('useTaskData', () => {
       workspaceState: 'exists' as const,
       workspacePath: '/tmp/test-workspace',
       workspaceChangeStatus: 'no_changes' as const,
+      configOutdated: false,
 
       // Environment info
       environmentType: 'local' as const,

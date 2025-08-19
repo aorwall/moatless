@@ -4,7 +4,15 @@ export * from './data-dir.js'
 export * from './docker-container.js'
 export * from './environment-utils.js'
 export * from './file-search.js'
-export * from './filesystem.js'
+export {
+  ensureDirectory,
+  isDirectory,
+  isFile,
+  pathExists,
+  readFileRange,
+  readFileSafe,
+  writeFileSafe,
+} from './filesystem.js'
 export * from './git-utils.js'
 // Logging and monitoring
 export * from './logger.js'
