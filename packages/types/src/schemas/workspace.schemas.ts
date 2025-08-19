@@ -174,6 +174,21 @@ export const WorkspaceSetupResponseSchema = z.object({
 })
 
 // ============================================
+// Workspace Refresh Config Schemas
+// ============================================
+
+export const WorkspaceRefreshConfigRequestSchema = z.object({
+  restartServer: z.boolean().optional().default(false),
+})
+
+export const WorkspaceRefreshConfigResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  status: EnvironmentStatusSchema,
+  serverRestarted: z.boolean().optional(),
+})
+
+// ============================================
 // Derived Types
 // ============================================
 
@@ -195,6 +210,8 @@ export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
 export type WorkspaceSetupRequest = z.infer<typeof WorkspaceSetupRequestSchema>
 export type WorkspaceSetupResponse = z.infer<typeof WorkspaceSetupResponseSchema>
+export type WorkspaceRefreshConfigRequest = z.infer<typeof WorkspaceRefreshConfigRequestSchema>
+export type WorkspaceRefreshConfigResponse = z.infer<typeof WorkspaceRefreshConfigResponseSchema>
 
 // Shared Status Component Types
 export type GitStatus = z.infer<typeof GitStatusSchema>
@@ -247,6 +264,10 @@ export const WorkspaceStatusResponseSchema = z.object({
   environmentStatus: EnvironmentStatusSchema,
   environmentError: z.string().optional(),
   environmentCreatedAt: z.string(),
+
+  // Repository config info
+  repositoryUpdatedAt: z.string().optional(),
+  configOutdated: z.boolean().default(false),
 
   // Agent info
   agentState: AgentStateSchema.or(z.literal('none')).default('none'),

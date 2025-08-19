@@ -948,6 +948,88 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
+  async refreshConfiguration(latestConfig: RepositoryConfig): Promise<void> {
+    this.logger.info('Refreshing repository configuration in Docker environment', {
+      taskId: this.taskId,
+      containerName: this.getContainerName(),
+      oldConfigUpdatedAt: this.repositoryConfig.updatedAt,
+      newConfigUpdatedAt: latestConfig.updatedAt,
+    })
+
+    const startTime = Date.now()
+
+    try {
+      // Step 1: Stop preview server if running
+      const serverStatus = await this.getServerStatus()
+      if (serverStatus.status === 'started') {
+        this.logger.info('Stopping preview server before configuration refresh')
+        await this.stopServer()
+      }
+
+      // Step 2: Update internal config reference
+      const oldConfig = this.repositoryConfig
+      ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
+
+      // Step 3: Write updated configuration to container
+      const tmpDir = path.join(process.env.TMPDIR || '/tmp', 'moatless-configs')
+      const configPath = path.join(tmpDir, `repository-config-${this.taskId}.json`)
+
+      try {
+        await fs.writeFile(configPath, JSON.stringify(latestConfig, null, 2))
+        this.logger.info('Wrote updated repository configuration to temp file', { configPath })
+      } catch (error) {
+        this.logger.error('Failed to write updated repository configuration', error as Error)
+        throw error
+      }
+
+      // Step 4: Re-run setup commands in container
+      const setupCommands = latestConfig.codeExecution.setupCommands || []
+      this.logger.info(`Running ${setupCommands.length} setup commands with new configuration`, {
+        setupCommands,
+      })
+
+      for (const command of setupCommands) {
+        this.logger.info(`Running setup command in container: ${command}`)
+        const commandStartTime = Date.now()
+        const result = await this.runCommand(command, 300000) // 5 minutes timeout
+        const commandDuration = Date.now() - commandStartTime
+
+        this.logger.info('Setup command completed', {
+          command,
+          exitCode: result.exitCode,
+          durationMs: commandDuration,
+          outputLength: result.output.length,
+          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''),
+        })
+
+        if (result.exitCode !== 0) {
+          this.logger.error('Setup command failed during refresh', {
+            command,
+            exitCode: result.exitCode,
+            output: result.output,
+          })
+          // Continue with other commands instead of throwing
+          // This ensures partial refresh can succeed
+        }
+      }
+
+      const totalDuration = Date.now() - startTime
+      this.logger.info('Configuration refresh completed successfully', {
+        durationMs: totalDuration,
+        commandsRun: setupCommands.length,
+        containerName: this.getContainerName(),
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.logger.error('Failed to refresh configuration', error as Error, {
+        errorMessage,
+        durationMs: Date.now() - startTime,
+        containerName: this.getContainerName(),
+      })
+      throw new Error(`Configuration refresh failed: ${errorMessage}`)
+    }
+  }
+
   async teardown(force = false): Promise<void> {
     this.logger.info('Tearing down DockerEnvironment', {
       force,
