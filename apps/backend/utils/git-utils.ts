@@ -777,11 +777,27 @@ export async function createGitWorktree(
 
         if (branchExistsLocally) {
           // Create worktree from existing local branch
-          logger.debug('Using existing local branch for worktree', { branch: branchName })
-          await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
-            cwd: repoPath,
-            timeout: 30000,
-          })
+          if (newBranchName) {
+            // Create new branch based on the existing local branch
+            logger.debug('Creating new branch from existing local branch for worktree', {
+              sourceBranch: branchName,
+              newBranch: newBranchName,
+            })
+            await execAsync(
+              `git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`,
+              {
+                cwd: repoPath,
+                timeout: 30000,
+              },
+            )
+          } else {
+            // Use the existing branch directly
+            logger.debug('Using existing local branch for worktree', { branch: branchName })
+            await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
+              cwd: repoPath,
+              timeout: 30000,
+            })
+          }
         } else {
           // Check if branch exists on remote
           try {
@@ -791,19 +807,33 @@ export async function createGitWorktree(
             })
 
             // Branch exists on remote, create worktree with tracking
-            logger.debug('Using remote branch for worktree, creating local tracking branch', {
-              branch: branchName,
-              remoteBranch: `origin/${branchName}`,
-            })
-
-            // Create worktree with new local branch tracking the remote
-            await execAsync(
-              `git worktree add -b "${branchName}" "${workspacePath}" "origin/${branchName}"`,
-              {
-                cwd: repoPath,
-                timeout: 30000,
-              },
-            )
+            if (newBranchName) {
+              // Create new branch based on the remote branch
+              logger.debug('Creating new branch from remote branch for worktree', {
+                sourceBranch: `origin/${branchName}`,
+                newBranch: newBranchName,
+              })
+              await execAsync(
+                `git worktree add -b "${newBranchName}" "${workspacePath}" "origin/${branchName}"`,
+                {
+                  cwd: repoPath,
+                  timeout: 30000,
+                },
+              )
+            } else {
+              // Create local tracking branch with same name
+              logger.debug('Using remote branch for worktree, creating local tracking branch', {
+                branch: branchName,
+                remoteBranch: `origin/${branchName}`,
+              })
+              await execAsync(
+                `git worktree add -b "${branchName}" "${workspacePath}" "origin/${branchName}"`,
+                {
+                  cwd: repoPath,
+                  timeout: 30000,
+                },
+              )
+            }
           } catch {
             // Branch doesn't exist locally or on remote
             throw new Error(`Branch '${branchName}' does not exist locally or on remote`)
