@@ -1,4 +1,4 @@
-import type { CommandExecutionEvent, CommandExecutionOptions } from '@moatless/types'
+import type { CommandExecutionOptions } from '@moatless/types'
 import { useCallback, useRef, useState } from 'react'
 import type { TerminalLine } from '@/lib/components/terminal/terminal'
 
@@ -53,18 +53,18 @@ export function useCommandExecution() {
         totalCommands: options.commands.length,
         summary: null,
       })
-      lineIdCounter.current = 0
-
-      // Add initial system message
-      addLine('system', `Starting execution of ${options.commands.length} command(s)...`)
 
       // Create abort controller for cancellation
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
+      // Add initial system message
+      addLine('system', `Executing ${options.commands.length} command(s)...`)
+      addLine('system', `Purpose: ${options.purpose || 'custom'}`)
+      addLine('system', '─'.repeat(50))
+
       try {
-        // Send the POST request to initiate the command execution
-        const response = await fetch(`/api/v1/repositories/${repositoryId}/execute-commands`, {
+        const response = await fetch(`/api/v1/repositories/${repositoryId}/execute`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -87,6 +87,10 @@ export function useCommandExecution() {
 
         let buffer = ''
         let currentEventType = ''
+        let commandCounter = 0
+        let successCount = 0
+        let failureCount = 0
+        const startTime = Date.now()
 
         while (true) {
           const { done, value } = await reader.read()
@@ -101,11 +105,104 @@ export function useCommandExecution() {
               currentEventType = line.substring(7).trim()
             } else if (line.startsWith('data: ')) {
               try {
-                const data = JSON.parse(line.substring(6)) as CommandExecutionEvent['data']
+                const data = JSON.parse(line.substring(6))
                 handleSSEEvent(currentEventType, data)
               } catch (error) {
                 console.error('Failed to parse SSE data:', error)
               }
+            }
+          }
+        }
+
+        // Final summary if we completed all commands
+        if (!abortController.signal.aborted) {
+          const totalDuration = Date.now() - startTime
+          setState((prev) => ({
+            ...prev,
+            isExecuting: false,
+            summary: {
+              total: options.commands.length,
+              succeeded: successCount,
+              failed: failureCount,
+              duration: totalDuration,
+            },
+          }))
+
+          addLine('system', '─'.repeat(50))
+          addLine(
+            'system',
+            `Execution completed: ${successCount}/${options.commands.length} succeeded`,
+          )
+          addLine('system', `Total duration: ${totalDuration}ms`)
+        }
+
+        function handleSSEEvent(eventType: string, data: any) {
+          // The backend now sends 'shell-log' events with ShellCommandLogEvent data
+          if (eventType === 'shell-log') {
+            const { logType, timestamp, text } = data
+
+            // Map ShellCommandLogEvent types to TerminalLine types
+            switch (logType) {
+              case 'stdout':
+                addLine('stdout', text, timestamp)
+                break
+              case 'stderr':
+                addLine('stderr', text, timestamp)
+                break
+              case 'system':
+                // Parse system messages to extract meaningful information
+                if (text.includes('Starting command:')) {
+                  const command = text.split('Starting command:')[1]?.split('\n')[0]?.trim()
+                  if (command) {
+                    commandCounter++
+                    setState((prev) => ({
+                      ...prev,
+                      currentCommandIndex: commandCounter - 1,
+                    }))
+                    addLine('command', command)
+                    addLine(
+                      'system',
+                      `Executing command ${commandCounter} of ${options.commands.length}...`,
+                      timestamp,
+                    )
+                  }
+                } else if (text.includes('Command completed')) {
+                  // Extract exit code and duration from the text
+                  const exitCodeMatch = text.match(/Exit code: (\d+)/)
+                  const durationMatch = text.match(/Duration: (\d+)ms/)
+                  const exitCode = exitCodeMatch ? Number.parseInt(exitCodeMatch[1]) : 0
+                  const duration = durationMatch ? Number.parseInt(durationMatch[1]) : 0
+
+                  if (exitCode === 0) {
+                    successCount++
+                    addLine(
+                      'system',
+                      `✓ Command ${commandCounter} completed successfully (${duration}ms)`,
+                      timestamp,
+                    )
+                  } else {
+                    failureCount++
+                    addLine(
+                      'system',
+                      `✗ Command ${commandCounter} failed with exit code ${exitCode} (${duration}ms)`,
+                      timestamp,
+                    )
+                  }
+                } else if (text.includes('Error:')) {
+                  addLine('stderr', text, timestamp)
+                  setState((prev) => ({
+                    ...prev,
+                    error: text,
+                  }))
+                } else {
+                  // Other system messages
+                  addLine('system', text, timestamp)
+                }
+                break
+              default:
+                // Unknown log type, treat as system
+                addLine('system', text, timestamp)
+                break
             }
           }
         }
@@ -120,97 +217,6 @@ export function useCommandExecution() {
         }
       } finally {
         abortControllerRef.current = null
-      }
-
-      function handleSSEEvent(eventType: string, data: CommandExecutionEvent['data']) {
-        switch (eventType) {
-          case 'start':
-            if (data.command) {
-              // Starting a specific command
-              setState((prev) => ({
-                ...prev,
-                currentCommandIndex: data.commandIndex ?? null,
-              }))
-              addLine('command', data.command)
-              addLine(
-                'system',
-                `Executing command ${(data.commandIndex ?? 0) + 1} of ${options.commands.length}...`,
-                data.timestamp,
-              )
-            } else {
-              // Starting the overall execution
-              setState((prev) => ({
-                ...prev,
-                totalCommands: data.total ?? options.commands.length,
-              }))
-            }
-            break
-
-          case 'output':
-            if (data.text) {
-              const outputType = data.outputType === 'stderr' ? 'stderr' : 'stdout'
-              addLine(outputType, data.text)
-            }
-            break
-
-          case 'complete':
-            {
-              const exitCode = data.exitCode ?? 0
-              const duration = data.duration ?? 0
-              const commandNum = (data.commandIndex ?? 0) + 1
-
-              if (exitCode === 0) {
-                addLine(
-                  'system',
-                  `✓ Command ${commandNum} completed successfully (${duration}ms)`,
-                  data.timestamp,
-                )
-              } else {
-                addLine(
-                  'system',
-                  `✗ Command ${commandNum} failed with exit code ${exitCode} (${duration}ms)`,
-                  data.timestamp,
-                )
-              }
-            }
-            break
-
-          case 'done':
-            setState((prev) => ({
-              ...prev,
-              isExecuting: false,
-              summary: data.summary
-                ? {
-                    total: data.summary.total,
-                    succeeded: data.summary.succeeded,
-                    failed: data.summary.failed,
-                    duration: data.summary.totalDuration, // Map totalDuration to duration
-                  }
-                : null,
-              currentCommandIndex: null,
-            }))
-
-            if (data.summary) {
-              addLine('system', '─'.repeat(50))
-              addLine(
-                'system',
-                `Execution completed: ${data.summary.succeeded}/${data.summary.total} succeeded`,
-                data.timestamp,
-              )
-              addLine('system', `Total duration: ${data.summary.totalDuration}ms`)
-            }
-            break
-
-          case 'error':
-            if (data.error) {
-              addLine('stderr', `Error: ${data.error}`)
-              setState((prev) => ({
-                ...prev,
-                error: data.error ?? 'Unknown error',
-              }))
-            }
-            break
-        }
       }
     },
     [addLine],

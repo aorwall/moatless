@@ -1,9 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
-  CommandExecutionEvent,
   CommandExecutionOptions,
-  CommandResult,
   EnvironmentStatus,
   FileTreeNode,
   FileTreeWithChangesResponse,
@@ -11,6 +9,8 @@ import type {
   GitStatus,
   RepositoryConfig,
   ServerStatus,
+  ShellCommandLogEvent,
+  ShellCommandResult,
   Workspace as WorkspaceInfo,
   WorkspaceStatusResponse,
 } from '@moatless/types'
@@ -133,6 +133,9 @@ export class Workspace {
         throw new Error(`Workspace path is not valid: ${resolvedWorkspacePath}`)
       }
 
+      // Step 4: Run setup commands for any environment type
+      await this.environment.runSetupCommands()
+
       this.logger.info('Workspace setup completed', {
         type: this.type,
         workspacePath: resolvedWorkspacePath,
@@ -237,94 +240,62 @@ export class Workspace {
   // Environment Operations (delegated to Environment)
   // ============================================
 
-  async runCommand(command: string, timeout?: number): Promise<CommandResult> {
+  async runCommand(command: string, timeout?: number): Promise<ShellCommandResult> {
     return this.environment.runCommand(command, timeout)
   }
 
   async *executeCommandsWithStream(
     options: CommandExecutionOptions,
-  ): AsyncGenerator<CommandExecutionEvent> {
+  ): AsyncGenerator<ShellCommandLogEvent> {
     const startTime = Date.now()
     let successCount = 0
     let failedCount = 0
 
-    // Emit execution start event
+    // Emit execution start event as system log
     yield {
-      type: 'start',
-      data: {
-        timestamp: new Date().toISOString(),
-        total: options.commands.length,
-        purpose: options.purpose,
-      },
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Starting execution of ${options.commands.length} commands${options.purpose ? ` for ${options.purpose}` : ''}\n`,
     }
 
     for (let i = 0; i < options.commands.length; i++) {
       const command = options.commands[i]
-      const commandStartTime = Date.now()
 
       // Emit command start event
       yield {
-        type: 'start',
-        data: {
-          timestamp: new Date().toISOString(),
-          commandIndex: i,
-          command,
-        },
+        type: 'system',
+        timestamp: new Date().toISOString(),
+        text: `[${i + 1}/${options.commands.length}] Starting: ${command}\n`,
       }
 
       try {
-        // Execute command with streaming
+        // Execute command with streaming and forward all events
+        let commandFailed = false
         for await (const event of this.environment.runCommandWithStream(command, options.timeout)) {
-          // Forward output events with command index
-          if (event.type === 'output') {
-            yield {
-              type: 'output',
-              data: {
-                ...event.data,
-                commandIndex: i,
-              },
-            }
+          yield event
+
+          // Check if command completed (system log with completion message)
+          if (event.type === 'system' && event.text.includes('Command completed')) {
+            successCount++
+          } else if (event.type === 'system' && event.text.includes('Command failed')) {
+            failedCount++
+            commandFailed = true
           }
-          // Handle command complete event
-          else if (event.type === 'complete') {
-            const exitCode = event.data.exitCode || 0
-            const duration = Date.now() - commandStartTime
+        }
 
-            if (exitCode === 0) {
-              successCount++
-            } else {
-              failedCount++
-            }
-
-            // Emit command complete event
-            yield {
-              type: 'complete',
-              data: {
-                timestamp: new Date().toISOString(),
-                commandIndex: i,
-                exitCode,
-                duration,
-              },
-            }
-
-            // If command failed and continueOnError is false, stop execution
-            if (exitCode !== 0 && !options.continueOnError) {
-              break
-            }
-          }
+        // If command failed and continueOnError is false, stop execution
+        if (commandFailed && !options.continueOnError) {
+          break
         }
       } catch (error) {
         failedCount++
         const errorMessage = error instanceof Error ? error.message : String(error)
 
-        // Emit error event
+        // Emit error event as system log
         yield {
-          type: 'error',
-          data: {
-            timestamp: new Date().toISOString(),
-            commandIndex: i,
-            error: errorMessage,
-          },
+          type: 'system',
+          timestamp: new Date().toISOString(),
+          text: `Error: ${errorMessage}\n`,
         }
 
         // If continueOnError is false, stop execution
@@ -336,18 +307,11 @@ export class Workspace {
 
     const totalDuration = Date.now() - startTime
 
-    // Emit done event with summary
+    // Emit done event as system log with summary
     yield {
-      type: 'done',
-      data: {
-        timestamp: new Date().toISOString(),
-        summary: {
-          total: options.commands.length,
-          succeeded: successCount,
-          failed: failedCount,
-          totalDuration,
-        },
-      },
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Execution complete: ${successCount} succeeded, ${failedCount} failed out of ${options.commands.length} total (${totalDuration}ms)\n`,
     }
   }
 

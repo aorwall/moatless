@@ -1,9 +1,9 @@
 import path from 'node:path'
 import type {
-  CommandExecutionEvent,
   CommandExecutionOptions,
   DeployResponse,
   RepositoryConfig,
+  ShellCommandLogEvent,
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
@@ -476,6 +476,9 @@ export class WorkspaceService {
       // Store the workspace in the active workspaces map
       this.activeWorkspaces.set(taskId, workspace)
 
+      // Ensure workspace is properly set up (runs setup commands like package installation)
+      await workspace.setup()
+
       return workspace
     } catch (error) {
       workspaceLogger.error('Workspace creation failed', error as Error, {
@@ -781,7 +784,7 @@ export class WorkspaceService {
   async *executeCommandsInTemporaryWorkspace(
     repositoryId: string,
     options: CommandExecutionOptions,
-  ): AsyncGenerator<CommandExecutionEvent> {
+  ): AsyncGenerator<ShellCommandLogEvent> {
     const workspaceLogger = logger.child({ repositoryId, purpose: options.purpose })
 
     // Generate temporary task ID
@@ -815,11 +818,9 @@ export class WorkspaceService {
 
       // Emit error event
       yield {
-        type: 'error',
-        data: {
-          timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : String(error),
-        },
+        type: 'system',
+        timestamp: new Date().toISOString(),
+        text: `Error: ${error instanceof Error ? error.message : String(error)}\n`,
       }
     } finally {
       // Always cleanup temporary workspace
@@ -841,7 +842,7 @@ export class WorkspaceService {
   async *executeCommandsInTaskWorkspace(
     taskId: string,
     options: CommandExecutionOptions,
-  ): AsyncGenerator<CommandExecutionEvent> {
+  ): AsyncGenerator<ShellCommandLogEvent> {
     const workspaceLogger = logger.child({ taskId, purpose: options.purpose })
 
     workspaceLogger.info('Executing commands in task workspace', {
@@ -869,11 +870,9 @@ export class WorkspaceService {
 
       // Emit error event
       yield {
-        type: 'error',
-        data: {
-          timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : String(error),
-        },
+        type: 'system',
+        timestamp: new Date().toISOString(),
+        text: `Error: ${error instanceof Error ? error.message : String(error)}\n`,
       }
     }
   }

@@ -74,14 +74,38 @@ export function useAutoScroll({
     }
   }, [getScrollElement, handleScroll])
 
-  // Handle initial scroll on mount
+  // Handle initial scroll on mount - retry until content is available
   useEffect(() => {
-    if (scrollOnMount && !hasScrolledOnMount.current) {
+    if (!scrollOnMount || hasScrolledOnMount.current) return
+
+    const tryInitialScroll = () => {
       const scrollElement = getScrollElement()
-      if (scrollElement && scrollElement.scrollHeight > 0) {
+      if (scrollElement && scrollElement.scrollHeight > scrollElement.clientHeight) {
         scrollToBottom()
         hasScrolledOnMount.current = true
+        return true
       }
+      return false
+    }
+
+    // Try immediately
+    if (tryInitialScroll()) return
+
+    // If no content yet, set up an interval to retry
+    const intervalId = setInterval(() => {
+      if (tryInitialScroll()) {
+        clearInterval(intervalId)
+      }
+    }, 100)
+
+    // Clean up after 5 seconds max
+    const timeoutId = setTimeout(() => {
+      clearInterval(intervalId)
+    }, 5000)
+
+    return () => {
+      clearInterval(intervalId)
+      clearTimeout(timeoutId)
     }
   }, [scrollOnMount, getScrollElement, scrollToBottom])
 

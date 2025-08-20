@@ -1,30 +1,30 @@
-import { exec, spawn } from 'node:child_process'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import type {
-  CommandExecutionEvent,
-  CommandResult,
   RepositoryConfig,
   ServerStatus,
+  ShellCommandLogEvent,
+  ShellCommandResult,
 } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { PreviewServer } from '../services/preview-server.js'
+import { ShellCommand } from '../services/shell-command.js'
 import { pathExists } from '../utils/filesystem.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
 
-const execAsync = promisify(exec)
-
 export class LocalEnvironment extends BaseEnvironment {
   private setupInProgress = false
   private setupComplete = false
+  private setupCommandsExecuted = false
   private workspacePath = ''
   private _createdAt = new Date()
   private _error?: string
   private logger = createTaskLogger(this.taskId)
   private previewServer?: PreviewServer
+  private shellCommands: Map<string, ShellCommand> = new Map()
+  private commandCounter = 0
 
   constructor(
     taskId: string,
@@ -69,6 +69,51 @@ export class LocalEnvironment extends BaseEnvironment {
     return this.workspacePath
   }
 
+  areSetupCommandsExecuted(): boolean {
+    return this.setupCommandsExecuted
+  }
+
+  async runSetupCommands(): Promise<void> {
+    const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
+
+    if (setupCommands.length === 0) {
+      this.logger.info('No setup commands configured, marking as executed')
+      this.setupCommandsExecuted = true
+      return
+    }
+
+    if (this.setupCommandsExecuted) {
+      this.logger.info('Setup commands already executed, skipping')
+      return
+    }
+
+    this.logger.info(`Running ${setupCommands.length} setup commands`, { setupCommands })
+
+    for (const command of setupCommands) {
+      this.logger.info(`Running setup command: ${command}`)
+      const commandStartTime = Date.now()
+      const result = await this.runCommand(command, 300000) // 5 minutes timeout
+      const commandDuration = Date.now() - commandStartTime
+
+      this.logger.info('Setup command completed', {
+        command,
+        exitCode: result.exitCode,
+        durationMs: commandDuration,
+        outputLength: result.output.length,
+        output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''), // First 500 chars
+      })
+
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
+        )
+      }
+    }
+
+    this.setupCommandsExecuted = true
+    this.logger.info('All setup commands completed successfully')
+  }
+
   async setup(iterationNumber?: number): Promise<void> {
     const previousStatus = this.getStatus()
     this.setupInProgress = true
@@ -93,31 +138,6 @@ export class LocalEnvironment extends BaseEnvironment {
       }
 
       // Port allocation would be handled here if needed
-
-      // Run setup commands synchronously
-      const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
-      this.logger.info(`Found ${setupCommands.length} setup commands to run`, { setupCommands })
-
-      for (const command of setupCommands) {
-        this.logger.info(`Running setup command: ${command}`)
-        const commandStartTime = Date.now()
-        const result = await this.runCommand(command, 300000) // 5 minutes timeout
-        const commandDuration = Date.now() - commandStartTime
-
-        this.logger.info('Setup command completed', {
-          command,
-          exitCode: result.exitCode,
-          durationMs: commandDuration,
-          outputLength: result.output.length,
-          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''), // First 500 chars
-        })
-
-        if (result.exitCode !== 0) {
-          throw new Error(
-            `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
-          )
-        }
-      }
 
       // Mark setup as complete
       this.setupComplete = true
@@ -185,7 +205,7 @@ export class LocalEnvironment extends BaseEnvironment {
     command: string,
     timeout = 30000,
     additionalEnv?: Record<string, string>,
-  ): Promise<CommandResult> {
+  ): Promise<ShellCommandResult> {
     this.logger.info('Starting command execution', {
       command,
       workspacePath: this.workspacePath,
@@ -193,208 +213,110 @@ export class LocalEnvironment extends BaseEnvironment {
       envVarCount: Object.keys(this.repositoryConfig.codeExecution.envVars || {}).length,
     })
 
-    try {
-      // Create a shell command that sources the profile and then executes the command
-      // This ensures nvm and other shell functions are available
-      const shellCommand =
-        process.platform === 'win32'
-          ? command // Windows doesn't need special handling for nvm
-          : `source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; ${command}`
+    const startTime = Date.now()
 
-      const execOptions = {
-        cwd: this.workspacePath,
-        timeout,
-        maxBuffer: 1024 * 1024, // 1MB buffer
+    try {
+      // Create and execute a new shell command
+      const commandId = this.generateCommandId()
+      const shellCommand = new ShellCommand()
+      this.shellCommands.set(commandId, shellCommand)
+
+      const result = await shellCommand.executeWithResult(command, {
+        workingDirectory: this.workspacePath,
         env: {
-          ...process.env,
           ...this.repositoryConfig.codeExecution.envVars,
           ...additionalEnv,
         },
-        shell: process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh',
-      }
-
-      this.logger.debug('Exec options', {
-        cwd: execOptions.cwd,
-        timeout: execOptions.timeout,
-        shell: execOptions.shell,
-        envKeys: Object.keys(execOptions.env).slice(0, 10), // First 10 env vars
-        hasNpmPath: execOptions.env.PATH?.includes('npm') || false,
+        timeout,
       })
 
-      const { stdout, stderr } = await execAsync(shellCommand, execOptions)
+      // Clean up completed command
+      this.shellCommands.delete(commandId)
 
-      // Log stderr for debugging if present
-      if (stderr) {
-        this.logger.warn(`Command stderr: ${stderr}`)
-      }
-
-      this.logger.info('Command execution successful', {
+      this.logger.info('Command execution completed', {
         command,
-        stdoutLength: stdout.length,
-        stderrLength: stderr.length,
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+        outputLength: result.output.length,
       })
 
-      return {
-        exitCode: 0,
-        output: stdout.trim() + (stderr ? `\n${stderr.trim()}` : ''),
-        durationMs: 0,
-        command,
-      }
+      return result
     } catch (error) {
-      const execError = error as Error & { code?: number; stdout?: string; stderr?: string }
-      this.logger.error('Command execution failed', execError, {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.logger.error('Command execution failed', error as Error, {
         command,
         workspacePath: this.workspacePath,
-        errorCode: execError.code,
-        stdout: execError.stdout,
-        stderr: execError.stderr,
+        errorMessage,
       })
 
       return {
-        exitCode: execError.code || 1,
-        output: execError.stdout?.trim() || execError.stderr?.trim() || execError.message || '',
-        durationMs: 0,
         command,
+        exitCode: 1,
+        output: errorMessage,
+        durationMs: Date.now() - startTime,
+        success: false,
+        error: errorMessage,
       }
     }
+  }
+
+  private generateCommandId(): string {
+    this.commandCounter++
+    return `${this.taskId}-cmd-${this.commandCounter}-${Date.now()}`
   }
 
   async *runCommandWithStream(
     command: string,
     timeout = 30000,
-  ): AsyncGenerator<CommandExecutionEvent> {
+  ): AsyncGenerator<ShellCommandLogEvent> {
     this.logger.info('Starting streaming command execution', {
       command,
       workspacePath: this.workspacePath,
       timeout,
     })
 
-    const startTime = Date.now()
+    try {
+      // Create and execute a new shell command in background
+      const commandId = this.generateCommandId()
+      const shellCommand = new ShellCommand()
+      this.shellCommands.set(commandId, shellCommand)
 
-    // Emit start event
-    yield {
-      type: 'start',
-      data: {
-        timestamp: new Date().toISOString(),
+      await shellCommand.execute(command, {
+        workingDirectory: this.workspacePath,
+        env: this.repositoryConfig.codeExecution.envVars,
+        timeout,
+        background: true, // Run in background for streaming
+      })
+
+      // Stream logs from the shell command (including system messages for start/complete/error)
+      for await (const logEvent of shellCommand.streamLogs()) {
+        yield logEvent
+      }
+
+      // Clean up completed command
+      this.shellCommands.delete(commandId)
+
+      const commandInfo = shellCommand.getInfo()
+      this.logger.info('Streaming command execution completed', {
         command,
-      },
-    }
-
-    // Create the shell command
-    const shellCommand =
-      process.platform === 'win32'
-        ? command
-        : `source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; ${command}`
-
-    const shell = process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh'
-
-    // Use spawn for streaming output
-    const child = spawn(shell, ['-c', shellCommand], {
-      cwd: this.workspacePath,
-      env: { ...process.env, ...this.repositoryConfig.codeExecution.envVars },
-      timeout,
-    })
-
-    let outputBuffer = ''
-    let errorBuffer = ''
-    let timedOut = false
-
-    // Set up timeout
-    const timeoutHandle = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
-    }, timeout)
-
-    // Set up arrays to collect stderr chunks
-    const stderrChunks: Array<{ text: string; timestamp: string }> = []
-
-    // Collect stderr
-    if (child.stderr) {
-      child.stderr.on('data', (chunk) => {
-        const text = chunk.toString()
-        errorBuffer += text
-        stderrChunks.push({
-          text,
-          timestamp: new Date().toISOString(),
-        })
+        exitCode: commandInfo?.exitCode || 0,
+        duration: commandInfo?.duration,
       })
-    }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
 
-    // Stream stdout and periodically check for stderr
-    if (child.stdout) {
-      for await (const chunk of child.stdout) {
-        const text = chunk.toString()
-        outputBuffer += text
-
-        // Yield stdout
-        yield {
-          type: 'output',
-          data: {
-            timestamp: new Date().toISOString(),
-            text,
-            outputType: 'stdout',
-          },
-        }
-
-        // Yield any accumulated stderr
-        while (stderrChunks.length > 0) {
-          const stderrChunk = stderrChunks.shift()!
-          yield {
-            type: 'output',
-            data: {
-              timestamp: stderrChunk.timestamp,
-              text: stderrChunk.text,
-              outputType: 'stderr',
-            },
-          }
-        }
-      }
-    }
-
-    // Wait for process to exit
-    const exitCode = await new Promise<number>((resolve) => {
-      child.on('exit', (code) => {
-        clearTimeout(timeoutHandle)
-        resolve(code || 0)
+      this.logger.error('Streaming command execution failed', error as Error, {
+        command,
+        errorMessage,
       })
-      child.on('error', (error) => {
-        clearTimeout(timeoutHandle)
-        this.logger.error('Command execution error', error)
-        resolve(1)
-      })
-    })
 
-    // Yield any remaining stderr
-    while (stderrChunks.length > 0) {
-      const stderrChunk = stderrChunks.shift()!
+      // Emit error as system log
       yield {
-        type: 'output',
-        data: {
-          timestamp: stderrChunk.timestamp,
-          text: stderrChunk.text,
-          outputType: 'stderr',
-        },
+        type: 'system',
+        timestamp: new Date().toISOString(),
+        text: `Error: ${errorMessage}\n`,
       }
     }
-
-    const duration = Date.now() - startTime
-
-    // Emit complete event
-    yield {
-      type: 'complete',
-      data: {
-        timestamp: new Date().toISOString(),
-        exitCode: timedOut ? 124 : exitCode, // 124 is standard timeout exit code
-        duration,
-      },
-    }
-
-    this.logger.info('Streaming command execution completed', {
-      command,
-      exitCode,
-      duration,
-      timedOut,
-    })
   }
 
   async startServer(): Promise<ServerStatus> {

@@ -55,6 +55,11 @@ class TestEnvironment extends BaseEnvironment {
     return false
   }
 
+  async runSetupCommands(): Promise<void> {
+    // Test implementation - just log that setup commands were called
+    return Promise.resolve()
+  }
+
   // Additional test methods
   isRunning(): boolean {
     return this._isRunning
@@ -158,29 +163,21 @@ class TestEnvironment extends BaseEnvironment {
   async *runCommandWithStream(
     _command: string,
     _timeout?: number,
-  ): AsyncGenerator<import('@moatless/types').CommandExecutionEvent> {
+  ): AsyncGenerator<import('@moatless/types').ShellCommandLogEvent> {
     yield {
-      type: 'start',
-      data: {
-        timestamp: new Date().toISOString(),
-        command: _command,
-      },
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Starting command: ${_command}\n`,
     }
     yield {
-      type: 'output',
-      data: {
-        timestamp: new Date().toISOString(),
-        text: 'Test output',
-        outputType: 'stdout',
-      },
+      type: 'stdout',
+      timestamp: new Date().toISOString(),
+      text: 'Test output\n',
     }
     yield {
-      type: 'complete',
-      data: {
-        timestamp: new Date().toISOString(),
-        exitCode: 0,
-        duration: 100,
-      },
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: 'Command completed successfully\n',
     }
   }
 

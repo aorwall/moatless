@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { CommandResult, RepositoryConfig, ServerStatus } from '@moatless/types'
+import type {
+  RepositoryConfig,
+  ServerStatus,
+  ShellCommandLogEvent,
+  ShellCommandResult,
+} from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 
@@ -132,7 +137,7 @@ export abstract class BaseEnvironment {
   /**
    * Run a command in the workspace
    */
-  abstract runCommand(command: string, timeout?: number): Promise<CommandResult>
+  abstract runCommand(command: string, timeout?: number): Promise<ShellCommandResult>
 
   /**
    * Run a command with streaming output
@@ -140,7 +145,7 @@ export abstract class BaseEnvironment {
   abstract runCommandWithStream(
     command: string,
     timeout?: number,
-  ): AsyncGenerator<import('@moatless/types').CommandExecutionEvent>
+  ): AsyncGenerator<ShellCommandLogEvent>
 
   /**
    * Check if an agent is currently running in this workspace
@@ -148,6 +153,11 @@ export abstract class BaseEnvironment {
   isRunning(): boolean {
     return !!this.currentAgent
   }
+
+  /**
+   * Run setup commands configured in the repository
+   */
+  abstract runSetupCommands(): Promise<void>
 
   /**
    * Set up the environment (starts the environment, then run setup commands)

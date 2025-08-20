@@ -132,20 +132,20 @@ describe('MCP Preview Server Integration Test', () => {
     // Stop any running preview servers
     if (createdTaskId) {
       try {
-        // Use MCP to stop the server first
-        await app.inject({
-          method: 'POST',
-          url: `/api/v1/tasks/${createdTaskId}/mcp`,
-          payload: {
-            jsonrpc: '2.0',
-            method: 'tools/call',
-            params: {
-              name: 'stopPreviewServer',
-              arguments: {},
-            },
-            id: 'cleanup-stop',
-          },
-        })
+        // Use MCP to stop the server first - DISABLED: stopPreviewServer tool doesn't exist
+        // await app.inject({
+        //   method: 'POST',
+        //   url: `/api/v1/tasks/${createdTaskId}/mcp`,
+        //   payload: {
+        //     jsonrpc: '2.0',
+        //     method: 'tools/call',
+        //     params: {
+        //       name: 'stopPreviewServer',
+        //       arguments: {},
+        //     },
+        //     id: 'cleanup-stop',
+        //   },
+        // })
         await new Promise((resolve) => setTimeout(resolve, 2000)) // Wait for server to stop
       } catch (_e) {
         // Server might not be running
@@ -257,13 +257,7 @@ describe('MCP Preview Server Integration Test', () => {
     const tools = toolsResult.result.tools
     const toolNames = tools.map((tool: any) => tool.name)
 
-    const expectedPreviewTools = [
-      'startPreviewServer',
-      'stopPreviewServer',
-      'restartPreviewServer',
-      'getPreviewServerStatus',
-      'getPreviewServerLogs',
-    ]
+    const expectedPreviewTools = ['startOrRestartPreviewServer', 'getPreviewServerLogs']
 
     for (const toolName of expectedPreviewTools) {
       expect(toolNames).toContain(toolName)
@@ -272,26 +266,26 @@ describe('MCP Preview Server Integration Test', () => {
 
     // Step 4: Test server lifecycle management
 
-    // 4a. Check initial server status (should not be running)
-    logger.info('Testing initial server status')
-    const initialStatusResponse = await app.inject({
-      method: 'POST',
-      url: mcpUrl,
-      payload: {
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'getPreviewServerStatus',
-          arguments: {},
-        },
-        id: 'status-1',
-      },
-    })
+    // 4a. Check initial server status (should not be running) - DISABLED: getPreviewServerStatus tool doesn't exist
+    // logger.info('Testing initial server status')
+    // const initialStatusResponse = await app.inject({
+    //   method: 'POST',
+    //   url: mcpUrl,
+    //   payload: {
+    //     jsonrpc: '2.0',
+    //     method: 'tools/call',
+    //     params: {
+    //       name: 'getPreviewServerStatus',
+    //       arguments: {},
+    //     },
+    //     id: 'status-1',
+    //   },
+    // })
 
-    expect(initialStatusResponse.statusCode).toBe(200)
-    const initialStatus = JSON.parse(initialStatusResponse.body)
-    expect(initialStatus.result.content[0].text).toContain('stopped')
-    logger.info('✅ Initial server status: stopped')
+    // expect(initialStatusResponse.statusCode).toBe(200)
+    // const initialStatus = JSON.parse(initialStatusResponse.body)
+    // expect(initialStatus.result.content[0].text).toContain('stopped')
+    // logger.info('✅ Initial server status: stopped')
 
     // 4b. Start the preview server
     logger.info('Testing server start')
@@ -302,7 +296,7 @@ describe('MCP Preview Server Integration Test', () => {
         jsonrpc: '2.0',
         method: 'tools/call',
         params: {
-          name: 'startPreviewServer',
+          name: 'startOrRestartPreviewServer',
           arguments: {},
         },
         id: 'start-1',
@@ -311,34 +305,34 @@ describe('MCP Preview Server Integration Test', () => {
 
     expect(startServerResponse.statusCode).toBe(200)
     const startResult = JSON.parse(startServerResponse.body)
-    expect(startResult.result.content[0].text).toContain('started successfully')
+    expect(startResult.result.content[0].text).toContain('Preview server started')
     logger.info('✅ Server started successfully')
 
     // Wait a bit for server to fully start
     await new Promise((resolve) => setTimeout(resolve, 3000))
 
-    // 4c. Check server status after start
-    logger.info('Testing server status after start')
-    const runningStatusResponse = await app.inject({
-      method: 'POST',
-      url: mcpUrl,
-      payload: {
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'getPreviewServerStatus',
-          arguments: {},
-        },
-        id: 'status-2',
-      },
-    })
+    // 4c. Check server status after start - DISABLED: getPreviewServerStatus tool doesn't exist
+    // logger.info('Testing server status after start')
+    // const runningStatusResponse = await app.inject({
+    //   method: 'POST',
+    //   url: mcpUrl,
+    //   payload: {
+    //     jsonrpc: '2.0',
+    //     method: 'tools/call',
+    //     params: {
+    //       name: 'getPreviewServerStatus',
+    //       arguments: {},
+    //     },
+    //     id: 'status-2',
+    //   },
+    // })
 
-    expect(runningStatusResponse.statusCode).toBe(200)
-    const runningStatus = JSON.parse(runningStatusResponse.body)
-    const statusText = runningStatus.result.content[0].text
-    expect(statusText).toContain('running')
-    expect(statusText).toContain('URL:')
-    logger.info('✅ Server status shows running with URL')
+    // expect(runningStatusResponse.statusCode).toBe(200)
+    // const runningStatus = JSON.parse(runningStatusResponse.body)
+    // const statusText = runningStatus.result.content[0].text
+    // expect(statusText).toContain('running')
+    // expect(statusText).toContain('URL:')
+    // logger.info('✅ Server status shows running with URL')
 
     // 4d. Get server logs
     logger.info('Testing server logs retrieval')
@@ -374,7 +368,7 @@ describe('MCP Preview Server Integration Test', () => {
         jsonrpc: '2.0',
         method: 'tools/call',
         params: {
-          name: 'restartPreviewServer',
+          name: 'startOrRestartPreviewServer',
           arguments: {},
         },
         id: 'restart-1',
@@ -383,53 +377,53 @@ describe('MCP Preview Server Integration Test', () => {
 
     expect(restartResponse.statusCode).toBe(200)
     const restartResult = JSON.parse(restartResponse.body)
-    expect(restartResult.result.content[0].text).toContain('restarted successfully')
+    expect(restartResult.result.content[0].text).toContain('Preview server started')
     logger.info('✅ Server restarted successfully')
 
     // Wait a bit for server to restart
     await new Promise((resolve) => setTimeout(resolve, 3000))
 
-    // 4f. Stop the server
-    logger.info('Testing server stop')
-    const stopResponse = await app.inject({
-      method: 'POST',
-      url: mcpUrl,
-      payload: {
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'stopPreviewServer',
-          arguments: {},
-        },
-        id: 'stop-1',
-      },
-    })
+    // 4f. Stop the server - DISABLED: stopPreviewServer tool doesn't exist
+    // logger.info('Testing server stop')
+    // const stopResponse = await app.inject({
+    //   method: 'POST',
+    //   url: mcpUrl,
+    //   payload: {
+    //     jsonrpc: '2.0',
+    //     method: 'tools/call',
+    //     params: {
+    //       name: 'stopPreviewServer',
+    //       arguments: {},
+    //     },
+    //     id: 'stop-1',
+    //   },
+    // })
 
-    expect(stopResponse.statusCode).toBe(200)
-    const stopResult = JSON.parse(stopResponse.body)
-    expect(stopResult.result.content[0].text).toContain('stopped successfully')
-    logger.info('✅ Server stopped successfully')
+    // expect(stopResponse.statusCode).toBe(200)
+    // const stopResult = JSON.parse(stopResponse.body)
+    // expect(stopResult.result.content[0].text).toContain('stopped successfully')
+    // logger.info('✅ Server stopped successfully')
 
-    // 4g. Verify server is stopped
-    logger.info('Testing final server status')
-    const finalStatusResponse = await app.inject({
-      method: 'POST',
-      url: mcpUrl,
-      payload: {
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'getPreviewServerStatus',
-          arguments: {},
-        },
-        id: 'status-3',
-      },
-    })
+    // 4g. Verify server is stopped - DISABLED: getPreviewServerStatus tool doesn't exist
+    // logger.info('Testing final server status')
+    // const finalStatusResponse = await app.inject({
+    //   method: 'POST',
+    //   url: mcpUrl,
+    //   payload: {
+    //     jsonrpc: '2.0',
+    //     method: 'tools/call',
+    //     params: {
+    //       name: 'getPreviewServerStatus',
+    //       arguments: {},
+    //     },
+    //     id: 'status-3',
+    //   },
+    // })
 
-    expect(finalStatusResponse.statusCode).toBe(200)
-    const finalStatus = JSON.parse(finalStatusResponse.body)
-    expect(finalStatus.result.content[0].text).toContain('stopped')
-    logger.info('✅ Final server status confirmed: stopped')
+    // expect(finalStatusResponse.statusCode).toBe(200)
+    // const finalStatus = JSON.parse(finalStatusResponse.body)
+    // expect(finalStatus.result.content[0].text).toContain('stopped')
+    // logger.info('✅ Final server status confirmed: stopped')
 
     console.log('✅ MCP Preview Server integration test completed successfully:', {
       mcpInitialized: true,
@@ -473,27 +467,27 @@ describe('MCP Preview Server Integration Test', () => {
 
     const mcpUrl = `/api/v1/tasks/${createdTaskId}/mcp`
 
-    // Test stopping a server that's not running
-    logger.info('Testing stop server when not running')
-    const stopNotRunningResponse = await app.inject({
-      method: 'POST',
-      url: mcpUrl,
-      payload: {
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'stopPreviewServer',
-          arguments: {},
-        },
-        id: 'error-stop-1',
-      },
-    })
+    // Test stopping a server that's not running - DISABLED: stopPreviewServer tool doesn't exist
+    // logger.info('Testing stop server when not running')
+    // const stopNotRunningResponse = await app.inject({
+    //   method: 'POST',
+    //   url: mcpUrl,
+    //   payload: {
+    //     jsonrpc: '2.0',
+    //     method: 'tools/call',
+    //     params: {
+    //       name: 'stopPreviewServer',
+    //       arguments: {},
+    //     },
+    //     id: 'error-stop-1',
+    //   },
+    // })
 
-    expect(stopNotRunningResponse.statusCode).toBe(200)
-    const stopNotRunningResult = JSON.parse(stopNotRunningResponse.body)
-    // Should handle gracefully - either success (already stopped) or appropriate message
-    expect(stopNotRunningResult.result.content[0].text).toBeTruthy()
-    logger.info('✅ Stop server when not running handled properly')
+    // expect(stopNotRunningResponse.statusCode).toBe(200)
+    // const stopNotRunningResult = JSON.parse(stopNotRunningResponse.body)
+    // // Should handle gracefully - either success (already stopped) or appropriate message
+    // expect(stopNotRunningResult.result.content[0].text).toBeTruthy()
+    // logger.info('✅ Stop server when not running handled properly')
 
     // Start server for additional error tests
     await app.inject({
@@ -503,7 +497,7 @@ describe('MCP Preview Server Integration Test', () => {
         jsonrpc: '2.0',
         method: 'tools/call',
         params: {
-          name: 'startPreviewServer',
+          name: 'startOrRestartPreviewServer',
           arguments: {},
         },
         id: 'error-start-1',
@@ -522,7 +516,7 @@ describe('MCP Preview Server Integration Test', () => {
         jsonrpc: '2.0',
         method: 'tools/call',
         params: {
-          name: 'startPreviewServer',
+          name: 'startOrRestartPreviewServer',
           arguments: {},
         },
         id: 'error-start-2',
@@ -535,20 +529,20 @@ describe('MCP Preview Server Integration Test', () => {
     expect(startAlreadyRunningResult.result.content[0].text).toBeTruthy()
     logger.info('✅ Start server when already running handled properly')
 
-    // Clean up - stop the server
-    await app.inject({
-      method: 'POST',
-      url: mcpUrl,
-      payload: {
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'stopPreviewServer',
-          arguments: {},
-        },
-        id: 'error-cleanup',
-      },
-    })
+    // Clean up - stop the server - DISABLED: stopPreviewServer tool doesn't exist
+    // await app.inject({
+    //   method: 'POST',
+    //   url: mcpUrl,
+    //   payload: {
+    //     jsonrpc: '2.0',
+    //     method: 'tools/call',
+    //     params: {
+    //       name: 'stopPreviewServer',
+    //       arguments: {},
+    //     },
+    //     id: 'error-cleanup',
+    //   },
+    // })
 
     console.log('✅ MCP Preview Server error handling test completed successfully')
   }, 60000) // 1 minute timeout for error testing

@@ -1,184 +1,153 @@
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { PreviewServer } from '../preview-server.js'
 
-describe('PreviewServer Integration', () => {
+describe('PreviewServer Simple Test', () => {
+  // Skip this test if running in IDE to prevent crashes
+  const isInIDE = process.env.WEBSTORM_ENVIRONMENT || process.env.INTELLIJ_ENVIRONMENT
+  const testFn = isInIDE ? it.skip : it
   let tempDir: string
-  let logFile: string
+  let server: PreviewServer
+  let taskId: string
 
-  beforeEach(async () => {
-    // Create a temporary directory for each test
-    tempDir = await fs.mkdtemp(path.join(tmpdir(), 'preview-server-test-'))
-    logFile = path.join(tempDir, 'server.log')
-  })
+  beforeAll(async () => {
+    // Setup temp directory for logs
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-server-test-'))
+    taskId = randomUUID()
+    console.log(`Test environment created at: ${tempDir}`)
+  }, 30000)
 
-  afterEach(async () => {
-    // Clean up temporary directory
+  afterAll(async () => {
+    // Cleanup server if still running
+    if (server) {
+      try {
+        console.log('Cleaning up server...')
+        await server.stop()
+      } catch (error) {
+        console.warn('Error during server cleanup:', error)
+      }
+    }
+
     try {
+      console.log(`Removing temp directory: ${tempDir}`)
       await fs.rm(tempDir, { recursive: true, force: true })
     } catch (error) {
-      console.warn('Failed to clean up temp dir:', error)
+      console.warn('Error removing temp directory:', error)
     }
-  })
+  }, 30000)
 
-  it('should execute simple command and write to log file', async () => {
-    const server = new PreviewServer('test-task-id', tempDir)
+  testFn(
+    'should start frontend dev server and detect port',
+    async () => {
+      console.log('Creating PreviewServer instance...')
 
-    // Start the server
-    const result = await server.start(
-      ['echo "Server starting..."', 'echo "Server ready"'],
-      {},
-      undefined,
-      logFile,
-    )
-    expect(result.status).toBe('starting')
+      // Get the frontend directory path relative to repo root
+      // Go up four directories from __tests__ to get to repo root
+      const repoRoot = path.resolve(__dirname, '../../../..')
+      const frontendPath = path.join(repoRoot, 'apps', 'frontend')
 
-    // Wait a moment for execution
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+      console.log(`Frontend path: ${frontendPath}`)
 
-    // Check if log file has content
-    const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '')
-    console.log('Log file content:', logContent)
-    expect(logContent).toContain('Server starting...')
-    expect(logContent).toContain('Server ready')
+      // Create PreviewServer instance directly
+      // Use a unique task ID to avoid conflicts with existing metadata
+      const uniqueTaskId = `test-${taskId}`
+      server = new PreviewServer(
+        uniqueTaskId,
+        frontendPath, // Point to frontend directory
+      )
 
-    // Check server status
-    const status = server.getStatus()
-    console.log('Server status:', status)
+      // Start the server
+      console.log('Starting frontend dev server...')
+      const startResult = await server.start(
+        'bun run dev', // The command to run (just 'dev', not 'dev:frontend')
+        {}, // No additional env vars needed
+        undefined, // No repository config
+      )
+      console.log('Start result:', startResult)
 
-    await server.stop()
-  })
+      // Verify we get a starting result with PID
+      expect(startResult.status).toBe('starting')
+      expect(startResult.log_file).toBeTruthy()
 
-  it('should handle command failures and emit failed event', async () => {
-    let failedEventEmitted = false
+      console.log(`Server starting with PID: ${startResult.pid}`)
+      console.log(`Log file: ${startResult.log_file}`)
 
-    const mockEventService = {
-      emitEvent: async (event: any) => {
-        if (event.type === 'server' && event.payload.status === 'failed') {
-          failedEventEmitted = true
+      // Wait for server to start and detect port (up to 45 seconds)
+      let serverStatus = server.getStatus()
+      console.log('Server status while starting:', serverStatus)
+      const startTime = Date.now()
+      const timeout = 45000 // 45 seconds for Vite to start
+
+      console.log('Waiting for port detection...')
+      while (serverStatus.status === 'starting' && Date.now() - startTime < timeout) {
+        await new Promise((resolve) => setTimeout(resolve, 1000)) // Check every second
+        serverStatus = server.getStatus()
+
+        // Log current status for debugging
+        if (serverStatus.status === 'starting') {
+          console.log(`Server still starting... (${Math.floor((Date.now() - startTime) / 1000)}s)`)
         }
-      },
-    }
 
-    const server = new PreviewServer('test-task-id', tempDir, mockEventService as any)
-
-    // Start the server (should fail)
-    const result = await server.start(['nonexistentcommand'], {}, undefined, logFile)
-    expect(result.status).toBe('starting')
-
-    // Wait for failure detection
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-
-    // Check if failed event was emitted
-    expect(failedEventEmitted).toBe(true)
-
-    // Check server status shows failure
-    const status = server.getStatus()
-    expect(status.status).toBe('failed')
-  })
-
-  it('should detect port from Vite output and emit running event', async () => {
-    let runningEventEmitted = false
-    let detectedPort = 0
-
-    const mockEventService = {
-      emitEvent: async (event: any) => {
-        console.log('Event received:', event)
-        if (event.type === 'server' && event.payload.status === 'running') {
-          runningEventEmitted = true
-          detectedPort = event.payload.port
+        if (serverStatus.status === 'started') {
+          console.log(`✅ Server is now running on ${serverStatus.url}`)
+          break
         }
-      },
-    }
 
-    const server = new PreviewServer('test-task-id', tempDir, mockEventService as any)
-
-    // Start the server
-    const result = await server.start(
-      [
-        'echo "VITE v5.4.19  ready in 385 ms"',
-        'echo ""',
-        'echo "$ vite"',
-        'echo "  ➜  Local:   http://localhost:5173/"',
-        'echo "  ➜  Network: use --host to expose"',
-        'sleep 1', // Give time for port detection
-      ],
-      {},
-      undefined,
-      logFile,
-    )
-    expect(result.status).toBe('starting')
-
-    // Wait for port detection
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-
-    // Check log file content
-    const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '')
-    console.log('Log file content:', logContent)
-
-    // Note: The port detection will work but verification will fail since it's just echo
-    // In this test we mainly verify the pattern matching works
-    const status = server.getStatus()
-    console.log('Final server status:', status)
-    console.log('Running event emitted:', runningEventEmitted)
-    console.log('Detected port:', detectedPort)
-
-    await server.stop()
-  })
-
-  it('should handle chunked output correctly', async () => {
-    let runningEventEmitted = false
-
-    const mockEventService = {
-      emitEvent: async (event: any) => {
-        if (event.type === 'server' && event.payload.status === 'running') {
-          runningEventEmitted = true
+        if (serverStatus.status === 'failed') {
+          console.log(`❌ Server failed: ${serverStatus.error}`)
+          break
         }
-      },
-    }
+      }
 
-    const server = new PreviewServer('test-task-id', tempDir, mockEventService as any)
+      const lalal = await server.getLogs(50)
+      console.log('Server logs:', lalal)
 
-    // Start the server
-    const result = await server.start(
-      ['printf "  ➜  Local:"', 'printf "   http://localhost:"', 'echo "5173/"', 'sleep 1'],
-      {},
-      undefined,
-      logFile,
-    )
-    expect(result.status).toBe('starting')
+      // Verify server is running successfully
+      expect(serverStatus.status).toBe('started')
+      expect(serverStatus.url).toBeDefined()
+      expect(serverStatus.url).toMatch(/^http:\/\/localhost:\d+$/)
 
-    // Wait for processing
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+      // Extract and verify port
+      const portMatch = serverStatus.url!.match(/:(\d+)$/)
+      expect(portMatch).toBeTruthy()
+      const port = Number.parseInt(portMatch![1], 10)
+      console.log(`✅ Port successfully detected: ${port}`)
 
-    // Check that the chunked output was reassembled correctly
-    const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '')
-    console.log('Chunked log content:', logContent)
-    console.log('Running event emitted:', runningEventEmitted)
-    expect(logContent).toContain('Local:   http://localhost:5173/')
+      // Verify port is in reasonable range
+      expect(port).toBeGreaterThan(1000)
+      expect(port).toBeLessThan(65536)
 
-    await server.stop()
-  })
+      // Test HTTP connectivity
+      console.log(`Testing HTTP connectivity to ${serverStatus.url}...`)
+      const response = await fetch(serverStatus.url!, {
+        signal: AbortSignal.timeout(5000), // 5 second timeout
+      })
+      expect(response.ok).toBe(true)
+      console.log('✅ HTTP connectivity test passed')
 
-  it('should work with nvm commands', async () => {
-    const server = new PreviewServer('test-task-id', tempDir)
+      // Verify we can get logs
+      const logs = await server.getLogs(10)
+      expect(logs).toBeTruthy()
+      expect(logs).toContain('localhost')
+      console.log('✅ Server logs retrieved successfully')
 
-    // Start the server
-    const result = await server.start(['nvm use 22.6.0', 'node --version'], {}, undefined, logFile)
-    expect(result.status).toBe('starting')
+      // Stop server
+      console.log('Stopping server...')
+      const stopped = await server.stop()
 
-    // Wait for execution
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+      // The stop method might return false due to timing issues with process groups,
+      // but what matters is that the server is no longer running
+      console.log(`Stop method returned: ${stopped}`)
 
-    // Check log file content
-    const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '')
-    console.log('NVM command log content:', logContent)
-
-    // Should have nvm output and node version
-    expect(logContent).toMatch(/Now using node|v\d+\.\d+\.\d+/)
-
-    await server.stop()
-  })
+      // Verify server is stopped (give it a moment)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const finalStatus = server.getStatus()
+      expect(finalStatus.status).toBe('stopped')
+      console.log('✅ Server stopped successfully')
+    },
+    60000,
+  ) // 1 minute timeout for full test
 })

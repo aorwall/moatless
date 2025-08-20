@@ -56,11 +56,11 @@ export * from './usage.js'
 export type {
   AgentState,
   BaseWorkspace,
-  CommandResult,
   DockerWorkspace,
   EnvironmentStatus,
   LocalWorkspace,
   ServerStatus,
+  ShellCommandResult,
   Workspace,
   WorkspaceCapabilities,
   WorkspaceChange,

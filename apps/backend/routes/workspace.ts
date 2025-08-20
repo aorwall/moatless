@@ -1,6 +1,5 @@
 import {
   CommandExecutionSchema,
-  CommandResultSchema,
   FileContentResponseSchema,
   FileContentSchema,
   FileListResponseSchema,
@@ -10,6 +9,7 @@ import {
   FileWriteResponseSchema,
   GitDiffResponseSchema,
   GitStatusSchema,
+  ShellCommandResultSchema,
   SyncWorkspaceResponseSchema,
   TaskFileSearchSchema,
   WorkspaceRefreshConfigRequestSchema,
@@ -588,7 +588,7 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
           description: 'Command execution result',
           content: {
             'application/json': {
-              schema: resolver(CommandResultSchema),
+              schema: resolver(ShellCommandResultSchema),
             },
           },
         },

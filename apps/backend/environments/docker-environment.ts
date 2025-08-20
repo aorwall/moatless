@@ -3,10 +3,10 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type {
-  CommandExecutionEvent,
-  CommandResult,
   RepositoryConfig,
   ServerStatus,
+  ShellCommandLogEvent,
+  ShellCommandResult,
 } from '@moatless/types'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
@@ -75,6 +75,24 @@ export class DockerEnvironment extends BaseEnvironment {
 
   getImage(): string {
     return this.image
+  }
+
+  async runSetupCommands(): Promise<void> {
+    const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
+
+    if (setupCommands.length === 0) {
+      this.logger.info('No setup commands configured, skipping')
+      return
+    }
+
+    this.logger.info('Setup commands in Docker environment not yet implemented', {
+      setupCommands,
+      taskId: this.taskId,
+      containerName: this.getContainerName(),
+    })
+
+    // TODO: Implement setup command execution in Docker environment
+    // This would involve running commands inside the container after it's started
   }
 
   async setup(_iterationNumber?: number): Promise<void> {
@@ -383,7 +401,7 @@ export class DockerEnvironment extends BaseEnvironment {
     throw new Error(`Container did not become ready imeout (${maxWaitTime}ms)`)
   }
 
-  async runCommand(command: string, timeout = 30000): Promise<CommandResult> {
+  async runCommand(command: string, timeout = 30000): Promise<ShellCommandResult> {
     // Ensure container is ready before executing command
     await this.ensureReady()
 
@@ -408,10 +426,11 @@ export class DockerEnvironment extends BaseEnvironment {
       )
 
       return {
+        command,
         exitCode: 0,
         output: stdout + stderr,
         durationMs: Date.now() - startTime,
-        command,
+        success: true,
       }
     } catch (error) {
       this.logger.error('Command execution failed', error as Error)
@@ -419,8 +438,10 @@ export class DockerEnvironment extends BaseEnvironment {
       // Extract exit code from error if available
       let exitCode = 1
       let output = ''
+      let errorMessage = ''
 
       if (error instanceof Error) {
+        errorMessage = error.message
         output = error.message
         // Check if error has exit code property (from child_process)
         if ('code' in error && typeof error.code === 'number') {
@@ -436,10 +457,12 @@ export class DockerEnvironment extends BaseEnvironment {
       }
 
       return {
+        command,
         exitCode,
         output,
         durationMs: Date.now() - startTime,
-        command,
+        success: false,
+        error: errorMessage,
       }
     }
   }
@@ -447,7 +470,7 @@ export class DockerEnvironment extends BaseEnvironment {
   async *runCommandWithStream(
     command: string,
     timeout = 30000,
-  ): AsyncGenerator<CommandExecutionEvent> {
+  ): AsyncGenerator<ShellCommandLogEvent> {
     // Ensure container is ready before executing command
     await this.ensureReady()
 
@@ -460,13 +483,11 @@ export class DockerEnvironment extends BaseEnvironment {
       timeout,
     })
 
-    // Emit start event
+    // Emit start event as system log
     yield {
-      type: 'start',
-      data: {
-        timestamp: new Date().toISOString(),
-        command,
-      },
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Command started: ${command}\n`,
     }
 
     // Build docker exec command with proper escaping
@@ -520,24 +541,18 @@ export class DockerEnvironment extends BaseEnvironment {
 
         // Yield stdout
         yield {
-          type: 'output',
-          data: {
-            timestamp: new Date().toISOString(),
-            text,
-            outputType: 'stdout',
-          },
+          type: 'stdout',
+          timestamp: new Date().toISOString(),
+          text,
         }
 
         // Yield any accumulated stderr
         while (stderrChunks.length > 0) {
           const stderrChunk = stderrChunks.shift()!
           yield {
-            type: 'output',
-            data: {
-              timestamp: stderrChunk.timestamp,
-              text: stderrChunk.text,
-              outputType: 'stderr',
-            },
+            type: 'stderr',
+            timestamp: stderrChunk.timestamp,
+            text: stderrChunk.text,
           }
         }
       }
@@ -560,25 +575,20 @@ export class DockerEnvironment extends BaseEnvironment {
     while (stderrChunks.length > 0) {
       const stderrChunk = stderrChunks.shift()!
       yield {
-        type: 'output',
-        data: {
-          timestamp: stderrChunk.timestamp,
-          text: stderrChunk.text,
-          outputType: 'stderr',
-        },
+        type: 'stderr',
+        timestamp: stderrChunk.timestamp,
+        text: stderrChunk.text,
       }
     }
 
     const duration = Date.now() - startTime
+    const finalExitCode = timedOut ? 124 : exitCode // 124 is standard timeout exit code
 
-    // Emit complete event
+    // Emit complete event as system log
     yield {
-      type: 'complete',
-      data: {
-        timestamp: new Date().toISOString(),
-        exitCode: timedOut ? 124 : exitCode, // 124 is standard timeout exit code
-        duration,
-      },
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Command ${finalExitCode === 0 ? 'completed' : 'failed'}: exit code ${finalExitCode}${timedOut ? ' (timed out)' : ''}\n`,
     }
 
     this.logger.info('Docker streaming command execution completed', {

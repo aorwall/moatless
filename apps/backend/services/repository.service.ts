@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
-  CommandExecutionEvent,
   CommandExecutionOptions,
   FileSearchResponse,
   SetupScriptResponse,
+  ShellCommandLogEvent,
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import {
@@ -810,7 +810,7 @@ export class RepositoryService {
   async *executeCommands(
     repoId: string,
     options: CommandExecutionOptions,
-  ): AsyncGenerator<CommandExecutionEvent> {
+  ): AsyncGenerator<ShellCommandLogEvent> {
     const repository = await this.getRepositoryById(repoId)
     if (!repository) {
       throw new RepositoryNotFoundError(repoId)

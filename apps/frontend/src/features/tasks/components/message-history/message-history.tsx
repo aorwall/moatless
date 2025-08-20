@@ -117,6 +117,7 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
     dependencies: [messages], // Re-evaluate scroll when messages change
   })
   const bottomRef = useRef<HTMLDivElement>(null)
+  const hasInitiallyScrolled = useRef(false)
 
   // Track initial message count on mount
   useEffect(() => {
@@ -124,6 +125,18 @@ function MessageHistoryComponent({ className }: MessageHistoryProps) {
       setInitialMessageCount(messages.length)
     }
   }, [messages, initialMessageCount])
+
+  // Ensure scroll to bottom when messages first load
+  useEffect(() => {
+    if (messages && messages.length > 0 && !hasInitiallyScrolled.current) {
+      // Small delay to ensure DOM is fully rendered
+      const timeoutId = setTimeout(() => {
+        scrollToBottom()
+        hasInitiallyScrolled.current = true
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [messages, scrollToBottom])
 
   // Custom hooks for extracted functionality
 

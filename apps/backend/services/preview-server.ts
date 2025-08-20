@@ -1,19 +1,14 @@
-import { type ChildProcess, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { RepositoryConfig, ServerStatus, ServerStatusEnum } from '@moatless/types'
-import type { Logger } from 'pino'
-import { pathExists, readFileRange } from '../utils/filesystem.js'
-import { execAsync } from '../utils/git-utils.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { findAvailablePort } from '../utils/port-allocation.js'
 import { findHttpPortForPid } from '../utils/port-detection.js'
 import { getPreviewInspectorScript } from '../utils/preview-inspector-script.js'
 import type { EventService } from './event.service.js'
-import { PortService } from './port.service.js'
 import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.service.js'
+import { ShellCommand } from './shell-command.js'
 
 interface ServerStartResult {
   status: 'starting' | 'failed' | 'stopped'
@@ -34,22 +29,16 @@ interface LogStreamEvent {
 }
 
 export class PreviewServer {
-  private process?: ChildProcess
+  private shellCommand?: ShellCommand
   private port?: number
   private logFile?: string
-  private startTime?: number
-  private failureReason?: string
   private logger = createTaskLogger('preview-server')
-  private portService = new PortService(this.logger)
-  private currentStatus: ServerStatusEnum = 'stopped'
   private previewProxy?: PreviewProxyService
   private proxyPort?: number
   private proxyUrl?: string
   private isIntentionallyStopping = false
 
   // Runtime configuration - set when start() is called
-  private serverCommands?: string | string[]
-  private envVars?: Record<string, string>
   private repositoryConfig?: RepositoryConfig
 
   constructor(
@@ -57,7 +46,7 @@ export class PreviewServer {
     private workspacePath: string,
     private eventService?: EventService,
   ) {
-    this.logger.info('PreviewServer initialized with:', {
+    this.logger.info('PreviewServer initialized', {
       taskId: this.taskId,
       workspacePath,
       hasEventService: !!this.eventService,
@@ -65,12 +54,10 @@ export class PreviewServer {
   }
 
   private async emitServerEvent(status: ServerStatusEnum, error?: string): Promise<void> {
-    if (!this.eventService) {
-      return
-    }
+    if (!this.eventService) return
 
-    const previousStatus = this.currentStatus
-    this.currentStatus = status
+    const pid = this.shellCommand?.getPid()
+    const info = this.shellCommand?.getInfo()
 
     try {
       await this.eventService.emitEvent({
@@ -83,563 +70,320 @@ export class PreviewServer {
         isError: status === 'failed',
         payload: {
           status,
-          previousStatus,
           port: this.port,
-          pid: this.process?.pid,
+          pid,
           url: this.port ? `http://localhost:${this.port}` : undefined,
           error,
-          uptimeSeconds: this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0,
+          uptimeSeconds: info?.duration ? Math.floor(info.duration / 1000) : 0,
         },
       })
 
-      this.logger.debug('Server event emitted', {
-        status,
-        previousStatus,
-        taskId: this.taskId,
-      })
+      this.logger.debug('Server event emitted', { status, taskId: this.taskId })
     } catch (eventError) {
       this.logger.error('Failed to emit server event', eventError as Error, {
         status,
-        previousStatus,
         taskId: this.taskId,
       })
     }
   }
 
+  /**
+   * Start the preview server
+   */
   async start(
     serverCommands: string | string[],
     envVars?: Record<string, string>,
     repositoryConfig?: RepositoryConfig,
-    logFile?: string,
   ): Promise<ServerStartResult> {
-    // Store configuration for potential restart
-    this.serverCommands = serverCommands
-    this.envVars = envVars || {}
+    this.logger.info('Starting preview server', {
+      serverCommands,
+      envVars: envVars ? Object.keys(envVars) : [],
+    })
+
+    // Store runtime configuration
     this.repositoryConfig = repositoryConfig
 
-    if (this.process && this.process.exitCode === null) {
-      throw new Error('Server is already running')
+    // Clean up any existing command
+    if (this.shellCommand?.isRunning()) {
+      await this.stop()
     }
-
-    if (this.process && this.process.exitCode) {
-      this.logger.warn('Server process exited unexpectedly, cleanup and start again', {})
-      this.cleanup()
-    }
-
-    // Check if we already have a process starting up
-    if (this.process && this.process.exitCode === null && !this.port) {
-      // Return starting state if process exists but no port detected yet
-      return {
-        status: 'starting',
-        port: 0,
-        pid: this.process.pid || 0,
-        log_file: this.logFile || '',
-        uptime_seconds: 0,
-      }
-    }
-
-    // Clean up any previous state
     this.cleanup()
 
-    // Reset the stopping flag
-    this.isIntentionallyStopping = false
+    // Convert commands to array
+    const commandsArray = Array.isArray(serverCommands) ? serverCommands : [serverCommands]
 
-    // Normalize commands to array and filter out empty commands
-    const rawCommands = Array.isArray(this.serverCommands)
-      ? this.serverCommands
-      : [this.serverCommands]
-    const commandsArray = rawCommands.filter((cmd) => cmd.trim() !== '')
+    // Create log file
+    const timestamp = Date.now()
+    const logFileName = `server-${this.taskId}-${timestamp}.log`
+    this.logFile = path.join(tmpdir(), logFileName)
 
-    if (commandsArray.length === 0) {
-      throw new Error('No valid server commands provided (all commands are empty)')
-    }
-
-    // Setup log file first
-    if (logFile) {
-      this.logFile = logFile
-    } else {
-      const tempDir = path.join(tmpdir(), 'swarm_server_logs')
-      await fs.mkdir(tempDir, { recursive: true })
-      this.logFile = path.join(tempDir, `server_${Date.now()}.log`)
-    }
-
-    // Emit initializing event
-    await this.emitServerEvent('starting')
-
-    // Prepare command and spawn process to get PID immediately
     try {
-      const { command, commandOptions } = await this.prepareServerCommand(commandsArray)
+      // Create new shell command instance
+      this.shellCommand = new ShellCommand()
 
-      // Write command info to log file FIRST
-      await fs.writeFile(
-        this.logFile!,
-        '=== Preview Server Log ===\n' +
-          `Timestamp: ${new Date().toISOString()}\n` +
-          `Working Directory: ${this.workspacePath}\n` +
-          `Command: ${command}\n` +
-          `Environment Variables:\n${JSON.stringify(commandOptions.env, null, 2)}\n` +
-          '===========================\n\n',
-      )
+      // Prepare the command
+      const command = commandsArray.join(' && ')
 
-      // Open log stream for appending
-      const logStream = await fs.open(this.logFile!, 'a')
+      this.logger.info('Starting server with command', {
+        command,
+        workspacePath: this.workspacePath,
+        logFile: this.logFile,
+      })
 
-      // Spawn the process using our own logic
-      this.logger.info('Spawning server process', { command })
-      const { child, timeoutHandle } = this.spawnServerCommand(command, commandOptions)
+      // Start the command in background
+      await this.shellCommand.execute(command, {
+        workingDirectory: this.workspacePath,
+        env: envVars,
+        background: true,
+        logFile: this.logFile,
+        timeout: 300000, // 5 minute timeout
+      })
 
-      // Store process immediately
-      this.process = child
-      this.startTime = Date.now()
-
-      // Check if spawn was successful (PID validation)
-      if (!this.process.pid || this.process.pid <= 0) {
-        this.failureReason = 'Failed to spawn process - no valid PID assigned'
-        this.logger.error('Spawn failed - no valid PID', {
-          pid: this.process.pid,
-          command: command,
-        })
-        await this.emitServerEvent('failed', this.failureReason)
-        await logStream.close()
-
+      const pid = this.shellCommand.getPid()
+      if (!pid) {
+        const error = 'Failed to get process PID'
+        await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
           port: 0,
           pid: 0,
           log_file: this.logFile,
           uptime_seconds: 0,
-          error: this.failureReason,
+          error,
         }
       }
 
-      this.logger.info('Process spawned successfully with PID', {
-        pid: this.process.pid,
-        command: command,
+      this.logger.info('Server process started', { pid, command })
+
+      // Start port detection in background
+      this.detectPort().catch((error) => {
+        this.logger.error('Port detection failed', error as Error)
       })
 
-      // IMMEDIATELY attach log handlers to capture ALL output
-      let portDetected = false
-      let lastPortCheck = 0
-      const PORT_CHECK_INTERVAL = 1000
-
-      if (this.process.stdout) {
-        this.process.stdout.on('data', async (chunk) => {
-          const text = chunk.toString()
-          try {
-            await logStream.write(text)
-          } catch (err) {
-            this.logger.warn('Failed to write stdout to log', err)
-          }
-
-          // Check for port detection
-          if (!portDetected && this.process?.pid) {
-            const now = Date.now()
-            if (now - lastPortCheck > PORT_CHECK_INTERVAL) {
-              lastPortCheck = now
-              const port = await findHttpPortForPid(this.process.pid)
-              if (port) {
-                this.port = port
-                portDetected = true
-                await this.startProxy()
-                await this.emitServerEvent('started')
-                this.logger.info(
-                  `Detected server running on port ${port} via PID ${this.process.pid}`,
-                )
-              }
-            }
-          }
-        })
-      }
-
-      if (this.process.stderr) {
-        this.process.stderr.on('data', async (chunk) => {
-          const text = chunk.toString()
-          try {
-            await logStream.write(text)
-          } catch (err) {
-            this.logger.warn('Failed to write stderr to log', err)
-          }
-        })
-      }
-
-      // Monitor for process exit
-      this.process.on('exit', async (code) => {
-        clearTimeout(timeoutHandle)
-        await logStream.close()
-
-        if (!portDetected && !this.isIntentionallyStopping) {
-          const errorMsg = `Process exited without starting a server (exit code: ${code})`
-          this.logger.error('Server failed - no port detected', { exitCode: code })
-          this.failureReason = errorMsg
-          await this.emitServerEvent('failed', this.failureReason)
-        } else if (code === 0 || this.isIntentionallyStopping) {
-          this.logger.info('Server command completed successfully')
-        } else {
-          const errorMsg = `Command exited with code ${code}`
-          this.logger.error('Server command failed', { error: errorMsg })
-          this.failureReason = errorMsg
-          await this.emitServerEvent('failed', this.failureReason)
-        }
-      })
-
-      // Handle spawn errors
-      this.process.on('error', async (error: Error) => {
-        this.logger.error('Process error', error)
-        this.failureReason = error.message
-        await this.emitServerEvent('failed', this.failureReason)
-        await logStream.close()
-      })
-
-      // Check for immediate process exit
-      if (this.process.exitCode !== null) {
-        const exitCode = this.process.exitCode
-        this.logger.info(`Process exited immediately with code ${exitCode}`)
-
-        if (exitCode !== 0) {
-          this.failureReason = `Process exited immediately with code ${exitCode}`
-          await this.emitServerEvent('failed', this.failureReason)
-        }
-
-        await logStream.close()
+      // Check immediate status
+      const immediateStatus = this.shellCommand.getStatus()
+      if (immediateStatus === 'failed') {
+        const error = 'Process failed to start'
+        await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
           port: 0,
-          pid: this.process?.pid || 0,
+          pid,
           log_file: this.logFile,
           uptime_seconds: 0,
-          error: this.failureReason,
+          error,
         }
       }
 
       // Return immediately with PID available
+      await this.emitServerEvent('starting')
       return {
         status: 'starting',
-        port: this.port || 0,
-        pid: this.process?.pid || 0,
+        port: 0,
+        pid,
         log_file: this.logFile,
         uptime_seconds: 0,
       }
     } catch (error) {
-      this.logger.error('Failed to spawn server process', error as Error)
-      this.failureReason = error instanceof Error ? error.message : String(error)
-      await this.emitServerEvent('failed', this.failureReason)
+      this.logger.error('Failed to start server', error as Error)
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      await this.emitServerEvent('failed', errorMsg)
       throw error
     }
   }
 
-  private async prepareServerCommand(commandsArray: string[]): Promise<{
-    command: string
-    commandOptions: { cwd: string; env: Record<string, string>; timeout: number }
-  }> {
-    this.logger.info('Preparing server command')
+  /**
+   * Detect the port the server is running on
+   */
+  private async detectPort(): Promise<void> {
+    const MAX_ATTEMPTS = 30 // 30 seconds max
+    const INTERVAL = 1000 // Check every second
 
-    // Combine all commands into a single execution context to preserve environment
-    const preparationCommands = commandsArray.slice(0, -1)
-    const serverCommand = commandsArray[commandsArray.length - 1]
+    this.logger.info('Starting port detection')
 
-    // Build combined command string
-    let combinedCommand: string
-    if (preparationCommands.length > 0) {
-      this.logger.info(
-        `Combining ${preparationCommands.length} preparation commands with server command for environment persistence`,
-      )
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      // Check if process is still running
+      if (!this.shellCommand || this.shellCommand.getStatus() !== 'running') {
+        this.logger.info('Process no longer running, stopping port detection')
+        break
+      }
 
-      // Join all commands with && to ensure they run in the same shell context
-      const allCommands = [...preparationCommands, serverCommand]
-      combinedCommand = allCommands.join(' && ')
+      // Get PID and try to detect port
+      const pid = this.shellCommand.getPid()
+      if (pid) {
+        const detectedPort = await findHttpPortForPid(pid)
+        if (detectedPort) {
+          this.port = detectedPort
+          this.logger.info('Port detected', { port: detectedPort, pid, attempt })
 
-      this.logger.info(`Combined command: ${combinedCommand}`)
-    } else {
-      combinedCommand = serverCommand
+          // Start proxy if configured
+          await this.startProxy()
+
+          // Emit success event
+          await this.emitServerEvent('started')
+          return
+        }
+      }
+
+      // Wait before next attempt
+      await new Promise((resolve) => setTimeout(resolve, INTERVAL))
     }
 
-    // Handle port placeholder replacement
-    const command = combinedCommand
+    // Port detection failed or process died
+    if (this.shellCommand) {
+      const info = this.shellCommand.getInfo()
+      const status = this.shellCommand.getStatus()
 
-    this.logger.info(`Final server command: ${command}`)
-    this.logger.info(`Server logs will be saved to: ${this.logFile}`)
-
-    const commandOptions = {
-      cwd: this.workspacePath,
-      env: this.envVars || {},
-      timeout: 300000, // 5 minute timeout for server startup
+      if (!this.isIntentionallyStopping) {
+        if (status === 'failed' || (info?.exitCode && info.exitCode !== 0)) {
+          const error = info?.error || `Process exited with code ${info?.exitCode || 'unknown'}`
+          this.logger.error('Server failed - no port detected', { error })
+          await this.emitServerEvent('failed', error)
+        } else if (status === 'completed') {
+          this.logger.info('Server command completed without starting a server')
+          await this.emitServerEvent('stopped')
+        }
+      }
     }
-
-    return { command, commandOptions }
   }
 
   /**
-   * Spawn a server command with proper environment setup
+   * Stop the preview server
    */
-  private spawnServerCommand(
-    command: string,
-    options: { cwd: string; env: Record<string, string>; timeout?: number },
-  ): { child: ChildProcess; timeoutHandle: NodeJS.Timeout } {
-    const { cwd, env, timeout = 300000 } = options
+  async stop(): Promise<boolean> {
+    if (!this.shellCommand) {
+      this.logger.debug('No server to stop')
+      return false
+    }
 
-    // Create shell command with proper environment setup
-    // First check if .nvmrc exists to determine Node version
-    const shellCommand =
-      process.platform === 'win32'
-        ? command
-        : `export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; [ -f .nvmrc ] && nvm use; ${command}`
+    const status = this.shellCommand.getStatus()
+    if (status !== 'running') {
+      this.logger.debug('Server not running', { status })
+      return false
+    }
 
-    const shellExecutable =
-      process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh'
-    const shellArgs = process.platform === 'win32' ? ['/c', shellCommand] : ['-c', shellCommand]
-
-    // Spawn with immediate stdio access
-    const child = spawn(shellExecutable, shellArgs, {
-      cwd,
-      env: { ...process.env, ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+    this.logger.info('Stopping preview server', {
+      pid: this.shellCommand.getPid(),
+      port: this.port,
     })
 
-    // Set up timeout
-    const timeoutHandle = setTimeout(() => {
-      child.kill('SIGTERM')
-    }, timeout)
-
-    return { child, timeoutHandle }
-  }
-
-  async stop(timeout = 10): Promise<boolean> {
-    // Check for orphaned process if no active process
-    if (!this.process || this.process.exitCode !== null) {
-      this.logger.debug('No server process found')
-      return false
-    }
-
-    this.logger.info(`Stopping server with PID ${this.process.pid}`)
+    this.isIntentionallyStopping = true
 
     try {
-      // Mark that we're intentionally stopping to avoid error logs
-      this.isIntentionallyStopping = true
-
-      // Stop proxy server first
-      await this.stopProxy()
-
-      // Try graceful shutdown first - only kill the child process, not the process group!
-      this.process.kill('SIGTERM')
-
-      // Wait for graceful shutdown
-      const shutdownPromise = new Promise<void>((resolve) => {
-        this.process!.on('exit', () => resolve())
-      })
-
-      const timeoutPromise = new Promise<void>((_, reject) => {
-        setTimeout(() => reject(new Error('Timeout')), timeout * 1000)
-      })
-
-      try {
-        await Promise.race([shutdownPromise, timeoutPromise])
-        this.logger.info('Server stopped gracefully')
-      } catch {
-        // Force kill if graceful shutdown failed - only kill the child process!
-        this.logger.warn('Graceful shutdown timed out, force killing...')
-        this.process.kill('SIGKILL')
-        await shutdownPromise
-        this.logger.info('Server force killed')
+      // Stop proxy first
+      if (this.previewProxy) {
+        this.logger.debug('Stopping preview proxy')
+        await this.previewProxy.stop()
       }
 
-      this.cleanup()
-      await this.emitServerEvent('stopped')
-      return true
-    } catch (error) {
-      this.logger.error('Error stopping server:', error as Error)
+      // Kill the server process
+      const killed = await this.shellCommand.kill()
 
-      this.cleanup()
-      await this.emitServerEvent('stopped')
-      return false
-    }
-  }
-
-  async restart(
-    serverCommands?: string | string[],
-    envVars?: Record<string, string>,
-    repositoryConfig?: RepositoryConfig,
-    logFile?: string,
-  ): Promise<ServerStartResult> {
-    this.logger.info('Restarting server')
-
-    // Stop the server first if it's running
-    if (this.process && this.process.exitCode === null) {
-      const stopped = await this.stop()
-      if (!stopped) {
-        this.logger.warn('Failed to stop server gracefully, proceeding with restart')
+      if (killed) {
+        await this.emitServerEvent('stopped')
+        this.logger.info('Server stopped successfully')
       }
+
+      return killed
+    } finally {
+      this.cleanup()
+      this.isIntentionallyStopping = false
     }
-
-    // Use provided configuration or fall back to cached values
-    const useServerCommands = serverCommands || this.serverCommands
-    const useEnvVars = envVars || this.envVars
-    const useRepositoryConfig = repositoryConfig || this.repositoryConfig
-
-    if (!useServerCommands) {
-      throw new Error(
-        'Cannot restart server without configuration. Provide configuration or call start() first.',
-      )
-    }
-
-    // Start the server again with configuration
-    return await this.start(useServerCommands, useEnvVars, useRepositoryConfig, logFile)
   }
 
   /**
-   * Get current server status based on process and port state.
-   *
-   * Status logic:
-   * - No process → 'stopped'
-   * - Process but no port → 'starting' (starting up, waiting for port detection)
-   * - Process and port → 'started'
-   * - Process exited → 'stopped' or 'failed' (based on failureReason)
+   * Get the current status of the server
    */
   getStatus(): ServerStatus {
-    if (!this.process) {
-      this.logger.debug('No process object')
-      return {
-        status: this.failureReason ? 'failed' : 'stopped',
-        error: this.failureReason,
-      }
+    if (!this.shellCommand) {
+      return { status: 'stopped' }
     }
 
-    if (this.process.exitCode !== null) {
-      // Determine if this was a failure based on exit code
-      // Any non-zero exit code indicates failure
-      const isFailure = this.process.exitCode !== 0
-      const errorMessage =
-        this.failureReason ||
-        (isFailure ? `Process exited with code ${this.process.exitCode}` : undefined)
+    const commandStatus = this.shellCommand.getStatus()
+    const info = this.shellCommand.getInfo()
+
+    // If not running, determine if it failed or stopped
+    if (commandStatus !== 'running') {
+      const isFailure = commandStatus === 'failed' || (info?.exitCode && info.exitCode !== 0)
+      const error =
+        info?.error ||
+        (isFailure && info?.exitCode !== undefined
+          ? `Process exited with code ${info.exitCode}`
+          : undefined)
 
       return {
         status: isFailure ? 'failed' : 'stopped',
-        error: errorMessage,
+        error,
       }
     }
 
-    // Process is running - but we need to check if it has a valid port
-    const uptime = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0
+    // Process is running - check if we have a port
+    const uptime = info?.duration ? Math.floor(info.duration / 1000) : 0
+    const pid = this.shellCommand.getPid()
 
-    // Only consider server "running" if we have a detected port
     if (this.port) {
-      this.logger.debug(`Process ${this.process.pid} is running on port ${this.port}`)
+      // Server is fully running with detected port
       return {
         status: 'started',
         url: `http://localhost:${this.port}`,
         proxyUrl: this.proxyUrl,
-        pid: this.process.pid,
+        pid,
         uptimeSeconds: uptime,
       }
     }
-    // Process exists but no port detected - server is still starting up
-    this.logger.debug(`Process ${this.process.pid} is starting - no port detected yet`)
+
+    // Process is running but no port detected yet
     return {
       status: 'starting',
-      pid: this.process.pid,
+      pid,
       uptimeSeconds: uptime,
     }
   }
 
+  /**
+   * Get server logs
+   */
   async getLogs(lines = 500): Promise<string> {
-    if (!this.logFile || !(await pathExists(this.logFile))) {
-      return 'No log file available'
+    if (!this.shellCommand) {
+      return 'No server process available'
     }
 
     try {
-      if (process.platform !== 'win32') {
-        // Use tail on Unix
-        const { stdout } = await execAsync(`tail -n ${lines} "${this.logFile}"`)
-        return stdout
-      }
-      // On Windows, read the whole file
-      const content = await fs.readFile(this.logFile, 'utf-8')
-      const allLines = content.split('\n')
-      return allLines.slice(-lines).join('\n')
+      return this.shellCommand.getFormattedLogs(true, lines)
     } catch (error) {
       this.logger.error('Error reading logs:', error as Error)
       return `Error reading logs: ${error}`
     }
   }
 
+  /**
+   * Stream server logs
+   */
   async *streamLogs(): AsyncGenerator<LogStreamEvent> {
-    if (!this.logFile) {
+    if (!this.shellCommand) {
       yield {
         type: 'error',
         data: {
-          error: 'No log file available',
+          error: 'No server process available',
           timestamp: new Date().toISOString(),
         },
       }
       return
     }
 
-    // Send existing content first if file exists
-    if (await pathExists(this.logFile)) {
-      try {
-        const existingContent = await fs.readFile(this.logFile, 'utf-8')
-        if (existingContent.trim()) {
-          yield {
-            type: 'chunk',
-            data: {
-              text: existingContent,
-              timestamp: new Date().toISOString(),
-            },
-          }
-        }
-      } catch (error) {
-        this.logger.error('Error reading existing logs:', error as Error)
-      }
-    }
-
-    // If server is not running, just send what we have and complete
-    if (!this.process || this.process.exitCode !== null) {
-      yield {
-        type: 'complete',
-        data: {
-          timestamp: new Date().toISOString(),
-        },
-      }
-      return
-    }
-
-    // Watch for new log content
     try {
-      let lastSize = 0
-      if (await pathExists(this.logFile)) {
-        const stat = await fs.stat(this.logFile)
-        lastSize = stat.size
-      }
-
-      // Poll for file changes (in production, consider using fs.watch)
-      while (this.process && this.process.exitCode === null) {
-        await new Promise((resolve) => setTimeout(resolve, 500)) // Check every 500ms
-
-        if (await pathExists(this.logFile)) {
-          try {
-            const stat = await fs.stat(this.logFile)
-
-            if (stat.size > lastSize) {
-              // File has grown, read the new content
-              const newContent = await readFileRange(this.logFile, lastSize, stat.size - lastSize)
-              if (newContent) {
-                yield {
-                  type: 'chunk',
-                  data: {
-                    text: newContent,
-                    timestamp: new Date().toISOString(),
-                  },
-                }
-              }
-              lastSize = stat.size
-            }
-          } catch (error) {
-            // File might be temporarily unavailable, continue watching
-            this.logger.debug('Temporary error reading log file:', error)
-          }
+      // Stream logs from ShellCommand
+      for await (const logEvent of this.shellCommand.streamLogs()) {
+        yield {
+          type: 'chunk',
+          data: {
+            text: `[${logEvent.type}] ${logEvent.text}`,
+            timestamp: logEvent.timestamp,
+          },
         }
       }
 
-      // Send final completion event
+      // Send completion event
       yield {
         type: 'complete',
         data: {
@@ -657,23 +401,16 @@ export class PreviewServer {
     }
   }
 
-  private cleanup(): void {
-    if (this.process && this.process.exitCode == null) {
-      throw new Error('Unexpected process state')
-    }
-
-    this.port = undefined
-    this.startTime = undefined
-    this.failureReason = undefined
-    this.currentStatus = 'stopped'
-    this.proxyPort = undefined
-    this.proxyUrl = undefined
-  }
-
+  /**
+   * Get the detected port
+   */
   getPort(): number | undefined {
     return this.port
   }
 
+  /**
+   * Get the actual server port (same as getPort)
+   */
   getActualPort(): number | undefined {
     return this.port
   }
@@ -703,48 +440,25 @@ export class PreviewServer {
       const targetUrl = `http://localhost:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.taskId)
 
-      this.previewProxy = createPreviewProxy(
-        targetUrl,
-        scriptContent,
-        this.logger as Logger,
-        this.proxyPort,
-      )
-      await this.previewProxy.start()
+      this.previewProxy = createPreviewProxy(targetUrl, scriptContent, this.logger, this.proxyPort)
 
+      await this.previewProxy.start()
       this.proxyUrl = `http://localhost:${this.proxyPort}`
-      this.logger.info('Preview proxy started successfully', {
+
+      this.logger.info('Preview proxy started', {
         proxyPort: this.proxyPort,
-        proxyUrl: this.proxyUrl,
+        targetPort: this.port,
+        targetUrl,
       })
     } catch (error) {
-      this.logger.warn('Failed to start preview proxy, falling back to direct URL', {
-        error: error instanceof Error ? error.message : String(error),
-        proxyPort: this.proxyPort,
-      })
-      // Reset proxy-related variables since proxy failed
-      this.previewProxy = undefined
-      this.proxyPort = undefined
-      this.proxyUrl = undefined
+      this.logger.error('Failed to start preview proxy', error as Error)
+      // Don't fail the server start if proxy fails
     }
   }
 
   /**
-   * Stop the preview proxy server
+   * Proxy a request to the preview server
    */
-  private async stopProxy(): Promise<void> {
-    if (this.previewProxy) {
-      try {
-        await this.previewProxy.stop()
-        this.previewProxy = undefined
-        this.proxyPort = undefined
-        this.proxyUrl = undefined
-        this.logger.info('Preview proxy stopped successfully')
-      } catch (error) {
-        this.logger.error('Error stopping preview proxy', error as Error)
-      }
-    }
-  }
-
   async proxyRequest(request: {
     method: string
     path: string
@@ -755,80 +469,43 @@ export class PreviewServer {
     headers: Headers
     body: string | Buffer
   }> {
-    // Use the detected port
-    const targetPort = this.port
-
-    if (!targetPort) {
-      throw new Error('No port available for proxying - server may not be running')
+    if (!this.port) {
+      throw new Error('Preview server not running')
     }
 
-    // Check if we have a process or if the port is in use (server might be running independently)
-    if (!this.portService.isPortInUseSync(targetPort)) {
-      throw new Error(`Server is not running on port ${targetPort}`)
-    }
-
-    const url = `http://localhost:${targetPort}${request.path}`
-    this.logger.debug('Proxying request', {
-      url,
-      method: request.method,
-      targetPort,
-      detectedPort: this.port,
-      processRunning: this.process && this.process.exitCode === null,
-    })
+    const url = `http://localhost:${this.port}${request.path}`
 
     try {
-      const fetchOptions: RequestInit = {
+      const response = await fetch(url, {
         method: request.method,
         headers: request.headers,
-      }
-
-      if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
-        fetchOptions.body = request.body
-      }
-
-      const response = await fetch(url, fetchOptions)
-      const responseHeaders = new Headers()
-
-      // Copy response headers, filtering out hop-by-hop headers
-      const hopByHopHeaders = [
-        'connection',
-        'keep-alive',
-        'proxy-authenticate',
-        'proxy-authorization',
-        'te',
-        'trailer',
-        'transfer-encoding',
-        'upgrade',
-      ]
-
-      response.headers.forEach((value, key) => {
-        if (!hopByHopHeaders.includes(key.toLowerCase())) {
-          responseHeaders.set(key, value)
-        }
+        body: request.body,
       })
 
-      // Read response body
-      const contentType = response.headers.get('content-type') || ''
-      let body: string | Buffer
-
-      if (
-        contentType.includes('text/') ||
-        contentType.includes('application/json') ||
-        contentType.includes('application/javascript')
-      ) {
-        body = await response.text()
-      } else {
-        body = Buffer.from(await response.arrayBuffer())
-      }
+      const responseBody = await response.text()
 
       return {
         status: response.status,
-        headers: responseHeaders,
-        body,
+        headers: response.headers,
+        body: responseBody,
       }
     } catch (error) {
-      this.logger.error('Error proxying request', error as Error)
+      this.logger.error('Failed to proxy request', error as Error, {
+        url,
+        method: request.method,
+      })
       throw error
     }
+  }
+
+  /**
+   * Clean up resources
+   */
+  private cleanup(): void {
+    this.shellCommand = undefined
+    this.port = undefined
+    this.proxyPort = undefined
+    this.proxyUrl = undefined
+    this.previewProxy = undefined
   }
 }

@@ -216,6 +216,27 @@ export class McpService {
       // Refresh workspace configuration with latest repository config
       await workspace.refreshConfiguration(repository)
 
+      // Ensure setup commands are run before starting the preview server
+      const environment = workspace.getEnvironment()
+      if (
+        'areSetupCommandsExecuted' in environment &&
+        typeof environment.areSetupCommandsExecuted === 'function'
+      ) {
+        const setupExecuted = (environment as any).areSetupCommandsExecuted()
+        if (!setupExecuted) {
+          logger.info(
+            'Setup commands not executed yet, running them before starting preview server',
+            { taskId },
+          )
+          if (
+            'runSetupCommands' in environment &&
+            typeof environment.runSetupCommands === 'function'
+          ) {
+            await (environment as any).runSetupCommands()
+          }
+        }
+      }
+
       // Check if server is running
       const currentStatus = await workspace.getServerStatus()
       if (currentStatus.status === 'started' || currentStatus.status === 'starting') {
@@ -439,10 +460,16 @@ export class McpService {
       // Update workspace config first
       await workspace.refreshConfiguration(repository)
 
-      // Run setup which executes setup commands
+      // Ensure workspace is ready
       await workspace.setup()
 
       const setupCommands = repository.codeExecution.setupCommands || []
+
+      // Execute setup commands using the environment's method
+      const environment = workspace.getEnvironment()
+      if ('runSetupCommands' in environment && typeof environment.runSetupCommands === 'function') {
+        await (environment as any).runSetupCommands()
+      }
 
       return {
         jsonrpc: '2.0',
@@ -451,7 +478,10 @@ export class McpService {
           content: [
             {
               type: 'text',
-              text: `Successfully installed repository with ${setupCommands.length} setup command(s): ${setupCommands.join(', ')}`,
+              text:
+                setupCommands.length > 0
+                  ? `Successfully installed repository with ${setupCommands.length} setup command(s): ${setupCommands.join(', ')}`
+                  : 'No setup commands configured for this repository',
             },
           ],
         },

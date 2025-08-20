@@ -330,6 +330,27 @@ export class AgentService {
       )
     }
 
+    // Add repository setup commands information
+    try {
+      const task = await this.storage.getTask(taskId)
+      if (task) {
+        const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+        if (repository?.codeExecution?.setupCommands?.length) {
+          const setupCommands = repository.codeExecution.setupCommands
+          systemPromptParts.push(
+            '**Repository Setup Commands**: The following setup commands are configured for this repository:',
+            ...setupCommands.map((cmd, index) => `  ${index + 1}. \`${cmd}\``),
+            '',
+            'You should run these commands when needed for the repository to work properly. You can use the `mcp__moatless-tools__install` tool to run all setup commands at once, or run them individually using bash commands.',
+          )
+        }
+      }
+    } catch (error) {
+      agentLogger.warn('Failed to get setup commands for system prompt', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
     // Add repository management information
     systemPromptParts.push(
       '**Repository Configuration**: You have access to repository management tools:',

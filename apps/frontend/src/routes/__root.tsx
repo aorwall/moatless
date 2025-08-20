@@ -112,7 +112,7 @@ export const Route = createRootRoute({
           <Outlet />
         </Layout>
       </ErrorBoundary>
-      <TanStackRouterDevtools position="bottom-right" />
+      <TanStackRouterDevtools position="top-right" />
     </>
   ),
 })

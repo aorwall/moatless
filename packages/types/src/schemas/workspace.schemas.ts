@@ -319,54 +319,8 @@ export const CommandExecutionOptionsSchema = z.object({
   workingDirectory: z.string().optional(),
 })
 
-export const CommandExecutionEventSchema = z.object({
-  type: z.enum([
-    'start', // Execution or command started
-    'output', // Command output chunk
-    'complete', // Command completed
-    'done', // All commands done
-    'error', // Error occurred
-  ]),
-
-  data: z.object({
-    // Timing fields
-    timestamp: z.string().optional(), // ISO 8601 timestamp
-    duration: z.number().optional(), // Milliseconds
-
-    // Command tracking
-    commandIndex: z.number().optional(),
-    command: z.string().optional(),
-
-    // For 'start' event
-    total: z.number().optional(), // Total number of commands
-    purpose: z.string().optional(), // setup/test/build/etc
-    pid: z.number().optional(), // Process ID
-
-    // For 'output' event
-    text: z.string().optional(), // The actual output text
-    outputType: z.enum(['stdout', 'stderr']).optional(), // Stream type
-
-    // For 'complete' event
-    exitCode: z.number().optional(), // Command exit code
-
-    // For 'done' event - final summary
-    summary: z
-      .object({
-        total: z.number(),
-        succeeded: z.number(),
-        failed: z.number(),
-        totalDuration: z.number(), // Total time in ms
-      })
-      .optional(),
-
-    // For 'error' event
-    error: z.string().optional(),
-  }),
-})
-
 // Export types
 export type CommandExecutionOptions = z.infer<typeof CommandExecutionOptionsSchema>
-export type CommandExecutionEvent = z.infer<typeof CommandExecutionEventSchema>
 
 // ============================================
 // Helper Functions (these remain as utilities)

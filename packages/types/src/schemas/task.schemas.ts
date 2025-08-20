@@ -199,13 +199,6 @@ export const GitDiffResponseSchema = z.object({
   files: z.array(GitDiffFileSchema),
 })
 
-export const CommandResultSchema = z.object({
-  command: z.string(),
-  output: z.string(),
-  exitCode: z.number(),
-  durationMs: z.number(),
-})
-
 // Server status enum for better state management
 export const ServerStatusEnumSchema = z.enum(['stopped', 'starting', 'started', 'failed'])
 
@@ -293,7 +286,6 @@ export type FileContentResponse = z.infer<typeof FileContentResponseSchema>
 export type FileWriteResponse = z.infer<typeof FileWriteResponseSchema>
 export type FileSearchResponse = z.infer<typeof FileSearchResponseSchema>
 export type GitDiffResponse = z.infer<typeof GitDiffResponseSchema>
-export type CommandResult = z.infer<typeof CommandResultSchema>
 export type ServerStatusEnum = z.infer<typeof ServerStatusEnumSchema>
 export type ServerStatus = z.infer<typeof ServerStatusSchema>
 export type ServerStopResponse = z.infer<typeof ServerStopResponseSchema>

@@ -823,9 +823,23 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
       const { createSSEStream } = await import('../utils/sse-stream.js')
 
       // Create SSE stream from command execution generator
-      const generator = workspaceService.executeCommandsInTaskWorkspace(taskId, options)
+      const shellLogGenerator = workspaceService.executeCommandsInTaskWorkspace(taskId, options)
 
-      return createSSEStream(generator, {
+      // Transform ShellCommandLogEvent to SSEEvent format
+      async function* transformToSSEEvents() {
+        for await (const event of shellLogGenerator) {
+          yield {
+            type: 'shell-log',
+            data: {
+              logType: event.type,
+              timestamp: event.timestamp,
+              text: event.text,
+            },
+          }
+        }
+      }
+
+      return createSSEStream(transformToSSEEvents(), {
         headers: {
           'Cache-Control': 'no-cache',
           'X-Task-Id': taskId,
