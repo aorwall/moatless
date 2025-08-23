@@ -233,15 +233,47 @@ export class TaskService {
         iteration.result = errorMessage
       }
     } else {
-      // Handle successful result
-      iteration.status = 'completed'
-      // Type guard to ensure we're dealing with a success result
-      if ('result' in resultPayload) {
-        // Use nullish coalescing to only replace null/undefined, not empty strings
-        iteration.result =
-          resultPayload.result ?? 'No result found in Claude Code SDK result message'
+      // Check if we have a meaningful result
+      // The result field only exists when subtype is 'success'
+      if (resultPayload.subtype === 'success') {
+        // TypeScript now knows this has a result field due to discriminated union
+        const hasValidResult =
+          resultPayload.result !== null &&
+          resultPayload.result !== undefined &&
+          resultPayload.result !== ''
+
+        if (!hasValidResult) {
+          // Treat missing or empty result as a failure
+          iteration.status = 'failed'
+
+          let errorMessage = 'Agent completed without producing output'
+          if (resultPayload.result === null || resultPayload.result === undefined) {
+            errorMessage = 'Agent completed successfully but returned no result'
+          } else if (resultPayload.result === '') {
+            errorMessage = 'Agent completed successfully with empty result'
+          }
+
+          iteration.result = errorMessage
+
+          taskLogger.warn('Agent completed without valid result', {
+            resultValue: resultPayload.result,
+            subtype: resultPayload.subtype,
+          })
+        } else {
+          // Handle successful result with valid content
+          iteration.status = 'completed'
+          iteration.result = resultPayload.result
+        }
       } else {
-        iteration.result = 'No result found in Claude Code SDK result message'
+        // This shouldn't happen - non-error, non-success result
+        // But handle it gracefully
+        iteration.status = 'failed'
+        iteration.result = `Unexpected result subtype: ${resultPayload.subtype}`
+
+        taskLogger.error('Unexpected non-error, non-success result subtype', {
+          subtype: resultPayload.subtype,
+          isError: resultPayload.is_error,
+        })
       }
     }
 
@@ -290,7 +322,8 @@ export class TaskService {
 
     // Update task status based on iteration result
     const previousStatus = task.status
-    const newStatus = event.isError || resultPayload.is_error ? 'error' : 'open'
+    // Set error status if iteration failed (including missing results)
+    const newStatus = iteration.status === 'failed' ? 'error' : 'open'
     task.status = newStatus
 
     // Save task with updated iteration and status
