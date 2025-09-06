@@ -11,7 +11,13 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
 import { pathExists } from '../utils/filesystem.js'
-import { branchExists, createGitWorktree, isGitRepository, isGitWorktree } from '../utils/index.js'
+import {
+  branchExists,
+  cloneRepository,
+  createGitWorktree,
+  isGitRepository,
+  isGitWorktree,
+} from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
@@ -108,6 +114,11 @@ export class WorkspaceService {
       throw new WorkspaceError(`Repository path does not exist: ${repo.path}`, taskId, 400)
     }
 
+    // If clone on new task is enabled, clone the repository to a new directory
+    if (repo.cloneOnNewTask) {
+      return await this.createClonedRepository(repo, taskId, branchName)
+    }
+
     // If worktrees are disabled, use repository path directly
     if (!repo.useGitWorktrees) {
       return repo.path
@@ -140,6 +151,66 @@ export class WorkspaceService {
 
     // Use the branch name for the worktree folder
     return `${repoLastDirName}-${this.getBranchName(taskId)}`
+  }
+
+  private getCloneFolderName(repo: RepositoryConfig, taskId: string): string {
+    // Get the last directory name from the repo path
+    const repoLastDirName = path.basename(repo.path)
+
+    // Use clone prefix to distinguish from worktrees
+    return `${repoLastDirName}-clone-${taskId}`
+  }
+
+  private async createClonedRepository(
+    repo: RepositoryConfig,
+    taskId: string,
+    branchName?: string,
+  ): Promise<string> {
+    const workspaceLogger = logger.child({ taskId })
+
+    // Create clone path similar to worktree path
+    const cloneDir = this.getWorktreeDir(repo)
+    const clonePath = path.join(cloneDir, this.getCloneFolderName(repo, taskId))
+
+    workspaceLogger.info('Creating cloned repository', { clonePath, taskId })
+
+    // Check if clone already exists
+    if (await pathExists(clonePath)) {
+      workspaceLogger.info('Cloned repository already exists, using existing clone', { clonePath })
+      return clonePath
+    }
+
+    // Verify source repo is a git repository
+    if (!(await isGitRepository(repo.path))) {
+      throw new WorkspaceError(`Repository path ${repo.path} is not a git repository`, taskId, 400)
+    }
+
+    try {
+      // Clone the repository using git-utils
+      workspaceLogger.info('Cloning repository', {
+        source: repo.path,
+        destination: clonePath,
+        branchName,
+      })
+
+      await cloneRepository(repo.path, clonePath, branchName, {
+        timeout: 300000, // 5 minutes timeout
+      })
+
+      workspaceLogger.info('Repository cloned successfully', { clonePath })
+      return clonePath
+    } catch (error) {
+      workspaceLogger.error('Failed to clone repository', error as Error, {
+        source: repo.path,
+        destination: clonePath,
+        branchName,
+      })
+      throw new WorkspaceError(
+        `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`,
+        taskId,
+        500,
+      )
+    }
   }
 
   // Private helper methods
@@ -339,28 +410,44 @@ export class WorkspaceService {
         return
       }
 
-      // Only remove if worktrees are enabled for this repository
-      if (!repository.useGitWorktrees) {
-        workspaceLogger.debug('Git worktrees disabled for repository, skipping removal', {
-          repositoryId: repository.id,
-          workspacePath,
-        })
+      // Handle different types of workspace paths
+      const isClonedRepository = repository.cloneOnNewTask
+      const isWorktreeRepository = repository.useGitWorktrees && !isClonedRepository
+
+      if (!isClonedRepository && !isWorktreeRepository) {
+        workspaceLogger.debug(
+          'Neither cloning nor worktrees enabled for repository, skipping removal',
+          {
+            repositoryId: repository.id,
+            workspacePath,
+          },
+        )
         return
       }
 
-      // Remove the worktree using git command
-      workspaceLogger.info('Removing git worktree', { workspacePath })
+      if (isClonedRepository) {
+        // Remove cloned repository directory
+        workspaceLogger.info('Removing cloned repository', { workspacePath })
 
-      const { exec } = await import('node:child_process')
-      const { promisify } = await import('node:util')
-      const execAsync = promisify(exec)
+        const { rm } = await import('node:fs/promises')
+        await rm(workspacePath, { recursive: true, force: true })
 
-      await execAsync(`git worktree remove "${workspacePath}" --force`, {
-        cwd: repository.path,
-        timeout: 10000,
-      })
+        workspaceLogger.info('Cloned repository removed successfully', { workspacePath })
+      } else if (isWorktreeRepository) {
+        // Remove the worktree using git command
+        workspaceLogger.info('Removing git worktree', { workspacePath })
 
-      workspaceLogger.info('Git worktree removed successfully', { workspacePath })
+        const { exec } = await import('node:child_process')
+        const { promisify } = await import('node:util')
+        const execAsync = promisify(exec)
+
+        await execAsync(`git worktree remove "${workspacePath}" --force`, {
+          cwd: repository.path,
+          timeout: 10000,
+        })
+
+        workspaceLogger.info('Git worktree removed successfully', { workspacePath })
+      }
     } catch (error) {
       workspaceLogger.error('Failed to remove git worktree', error as Error, {
         workspacePath,
@@ -413,32 +500,51 @@ export class WorkspaceService {
       // For existing workspaces, validate the workspace path and recreate if necessary
       let workspacePath: string
       if (existingWorkspacePath) {
-        // Check if the existing workspace path is still valid
-        if (repository.useGitWorktrees && !(await isGitWorktree(existingWorkspacePath))) {
-          workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
-            existingPath: existingWorkspacePath,
-          })
+        const pathExistsResult = await pathExists(existingWorkspacePath)
 
-          // Try to get the branch from the last completed iteration
-          const lastIterationBranch = await this.getLastIterationBranch(taskId)
-          const branchToUse = branchName || lastIterationBranch || undefined
+        // Handle different repository types
+        if (repository.cloneOnNewTask) {
+          // For cloned repositories, check if clone still exists
+          if (!pathExistsResult) {
+            workspaceLogger.warn('Existing cloned workspace no longer exists, recreating', {
+              existingPath: existingWorkspacePath,
+            })
+            workspacePath = await this.createClonedRepository(repository, taskId, branchName)
+          } else {
+            workspacePath = existingWorkspacePath
+          }
+        } else if (repository.useGitWorktrees) {
+          // Check if the existing workspace path is still valid worktree
+          if (!pathExistsResult || !(await isGitWorktree(existingWorkspacePath))) {
+            workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
+              existingPath: existingWorkspacePath,
+            })
 
-          workspaceLogger.debug('Using branch for worktree recreation', {
-            providedBranch: branchName,
-            lastIterationBranch,
-            branchToUse,
-          })
+            // Try to get the branch from the last completed iteration
+            const lastIterationBranch = await this.getLastIterationBranch(taskId)
+            const branchToUse = branchName || lastIterationBranch || undefined
 
-          // Recreate the worktree at the same path
-          await this.ensureWorktreeExists(repository, taskId, existingWorkspacePath, branchToUse)
-        } else if (!repository.useGitWorktrees && !(await pathExists(existingWorkspacePath))) {
-          throw new WorkspaceError(
-            `Workspace path does not exist and worktrees are disabled: ${existingWorkspacePath}`,
-            taskId,
-            400,
-          )
+            workspaceLogger.debug('Using branch for worktree recreation', {
+              providedBranch: branchName,
+              lastIterationBranch,
+              branchToUse,
+            })
+
+            // Recreate the worktree at the same path
+            await this.ensureWorktreeExists(repository, taskId, existingWorkspacePath, branchToUse)
+          }
+          workspacePath = existingWorkspacePath
+        } else {
+          // Direct repository path usage
+          if (!pathExistsResult) {
+            throw new WorkspaceError(
+              `Workspace path does not exist and neither worktrees nor cloning are enabled: ${existingWorkspacePath}`,
+              taskId,
+              400,
+            )
+          }
+          workspacePath = existingWorkspacePath
         }
-        workspacePath = existingWorkspacePath
       } else {
         // Create new workspace path
         workspacePath = await this.createWorkspaceRepository(

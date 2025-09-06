@@ -1644,3 +1644,54 @@ export async function getRemoteUrl(repoPath: string): Promise<string | null> {
     return null
   }
 }
+
+/**
+ * Clone a git repository to a destination path
+ * @param sourcePath - Source repository path (can be local or remote URL)
+ * @param destinationPath - Destination directory path
+ * @param branchName - Optional branch name to clone
+ * @param options - Optional configuration
+ */
+export async function cloneRepository(
+  sourcePath: string,
+  destinationPath: string,
+  branchName?: string,
+  options?: { timeout?: number },
+): Promise<void> {
+  try {
+    const timeout = options?.timeout || 300000 // 5 minutes default
+
+    // Build clone command
+    let cloneCmd: string
+    if (branchName) {
+      cloneCmd = `git clone "${sourcePath}" "${destinationPath}" --branch "${branchName}" --single-branch`
+    } else {
+      cloneCmd = `git clone "${sourcePath}" "${destinationPath}"`
+    }
+
+    logger.debug('Cloning repository', {
+      sourcePath,
+      destinationPath,
+      branchName,
+      command: cloneCmd,
+    })
+
+    await execAsync(cloneCmd, {
+      timeout,
+    })
+
+    logger.debug('Repository cloned successfully', {
+      sourcePath,
+      destinationPath,
+    })
+  } catch (error) {
+    logger.error('Failed to clone repository', error as Error, {
+      sourcePath,
+      destinationPath,
+      branchName,
+    })
+    throw new Error(
+      `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}

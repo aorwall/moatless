@@ -54,6 +54,7 @@ export const RepositoryConfigSchema = z.object({
   remoteUrl: z.string().optional(), // GitHub or other remote URL
   sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
+  cloneOnNewTask: z.boolean().optional(), // Whether to clone repository for each new task instead of using worktrees
   originalBranch: z.string().optional(),
   deleted: z.boolean().optional(), // Soft deletion flag
   templateId: z.string().optional(), // Template ID when created from template
@@ -74,6 +75,7 @@ export const CreateRepositorySchema = z.object({
   remoteUrl: z.string().optional(), // GitHub URL for cloning
   sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
+  cloneOnNewTask: z.boolean().optional(), // Whether to clone repository for each new task instead of using worktrees
   originalBranch: z.string().optional(),
   templateId: z.string().optional(), // Template ID when created from template
   vibe: z.boolean().optional(), // Flag to identify repositories created from templates
@@ -90,6 +92,7 @@ export const UpdateRepositorySchema = z.object({
   remoteUrl: z.string().optional(),
   sourceType: z.enum(['local', 'github']).optional(),
   useGitWorktrees: z.boolean().optional(),
+  cloneOnNewTask: z.boolean().optional(), // Whether to clone repository for each new task instead of using worktrees
   originalBranch: z.string().optional(),
   // Original fields
   codeExecution: CodeExecutionSchema.optional(),
