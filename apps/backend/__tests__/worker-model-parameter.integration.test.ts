@@ -188,6 +188,7 @@ describe('Worker Model Parameter Integration Test', () => {
       description: 'Test repository for model parameter verification in worker',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },
@@ -272,6 +273,7 @@ describe('Worker Model Parameter Integration Test', () => {
       name: 'worker-direct-model-test',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },

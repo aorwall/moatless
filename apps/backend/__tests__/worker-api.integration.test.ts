@@ -110,6 +110,7 @@ describe('Worker API Integration Test', () => {
         description: 'Test repository for worker API integration',
         path: tempDir,
         useGitWorktrees: false,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'local',
           setupCommands: ['echo "Setup complete"'],
@@ -171,6 +172,7 @@ describe('Worker API Integration Test', () => {
         description: 'Another test repository',
         path: tempDir,
         useGitWorktrees: true,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'docker',
           dockerImage: 'node:20',
@@ -229,6 +231,7 @@ describe('Worker API Integration Test', () => {
         name: 'worker-mode-test-repo',
         path: tempDir,
         useGitWorktrees: false,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'local',
         },
@@ -359,6 +362,7 @@ describe('Worker API Integration Test', () => {
         name: 'event-emission-test-repo',
         path: tempDir,
         useGitWorktrees: false,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'local',
         },

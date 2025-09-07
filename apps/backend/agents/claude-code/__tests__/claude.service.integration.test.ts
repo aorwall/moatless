@@ -184,6 +184,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         name: 'Test Repository',
         path: '/Users/albert/repos/moatless/moatless-swarm-ui',
         description: 'Test repository',
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'docker',
           dockerImage: 'ubuntu:latest',
@@ -220,6 +221,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         name: 'Test Repository',
         path: '/Users/albert/repos/moatless/moatless-swarm-ui',
         description: 'Test repository',
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'docker',
           dockerImage: 'ubuntu:latest',

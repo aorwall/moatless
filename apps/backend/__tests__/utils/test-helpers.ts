@@ -45,6 +45,7 @@ export function createTestRepositoryConfig(
     description: `Test repository for ${config.workspaceType} environment validation`,
     path: tempDir,
     useGitWorktrees: false,
+    cloneOnNewTask: false,
     codeExecution: {
       type: config.workspaceType,
       setupCommands: config.setupCommands || ['echo "Repository setup complete"'],

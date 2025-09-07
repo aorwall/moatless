@@ -106,6 +106,7 @@ describe('Repository Routes Integration (broad)', () => {
         description: 'Test repository for E2E testing',
         path: tempDir,
         useGitWorktrees: false,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'local',
           setupCommands: ['echo "Setting up test repository"'],
@@ -205,6 +206,7 @@ describe('Repository Routes Integration (broad)', () => {
         description: 'Docker-based test repository',
         path: tempDir,
         useGitWorktrees: false,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'docker',
           dockerImage: 'moatless-vibe-universal:latest',
@@ -333,6 +335,7 @@ describe('Repository Routes Integration (broad)', () => {
       const createRequest: CreateRepositoryRequest = {
         name: 'E2E Test Search Validation',
         path: tempDir,
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'local',
         },
@@ -485,6 +488,7 @@ describe('Repositories Integration - Additional Tests (broad)', () => {
       description: 'A test repository for E2E testing',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },

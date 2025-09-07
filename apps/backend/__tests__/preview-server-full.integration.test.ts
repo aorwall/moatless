@@ -69,6 +69,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       name: 'hello-world-test',
       sourceType: 'github',
       remoteUrl: 'https://github.com/aorwall/hello-world-ui.git',
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
         setupCommands: ['bun install'],
@@ -208,6 +209,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       name: 'no-port-test',
       sourceType: 'github',
       remoteUrl: 'https://github.com/aorwall/hello-world-ui.git',
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
         setupCommands: ['bun install'],

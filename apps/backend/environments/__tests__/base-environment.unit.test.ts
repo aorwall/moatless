@@ -218,6 +218,7 @@ describe('BaseEnvironment - Unit Tests', () => {
     id: 'test-repo',
     name: 'Test Repository',
     path: '/test/path',
+    cloneOnNewTask: false,
     codeExecution: { type: 'local' },
     createdAt: new Date(),
     updatedAt: new Date(),

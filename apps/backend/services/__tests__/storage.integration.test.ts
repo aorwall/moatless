@@ -99,6 +99,7 @@ describe('FileStorage', () => {
         name: 'Test Repository',
         path: '/test/path',
         useGitWorktrees: false,
+        cloneOnNewTask: false,
         codeExecution: { type: 'local' as const },
         variables: {},
         createdAt: new Date(),

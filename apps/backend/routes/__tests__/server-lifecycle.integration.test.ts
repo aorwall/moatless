@@ -127,6 +127,7 @@ process.on('SIGTERM', () => {
       description: 'Test repository for server lifecycle management',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
         setupCommands: ['echo "Repository ready for server"'],
@@ -342,6 +343,7 @@ process.exit(1);
       name: 'Failing Server Test Repository',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },
@@ -431,6 +433,7 @@ process.on('SIGTERM', () => {
       name: 'Server Tracking Test',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },
@@ -562,6 +565,7 @@ process.on('SIGTERM', () => {
       name: 'Server Persistence Test',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },

@@ -14,6 +14,7 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
     description: 'A test repository',
     path: '/tmp/test-repo',
     useGitWorktrees: false,
+    cloneOnNewTask: false,
     originalBranch: 'main',
     codeExecution: createMockCodeExecution(),
     createdAt: new Date('2024-01-01T00:00:00Z'),

@@ -171,6 +171,7 @@ describe('Agent Model Parameter Test', () => {
       description: 'Test repository for model parameter verification',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
         setupCommands: ['echo "Repository ready for model parameter test"'],
@@ -246,6 +247,7 @@ describe('Agent Model Parameter Test', () => {
       name: 'model-parameter-message-test-repository',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },
@@ -323,6 +325,7 @@ describe('Agent Model Parameter Test', () => {
       name: 'default-model-test-repository',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },

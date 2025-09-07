@@ -1132,6 +1132,7 @@ export class TaskService {
       sourceType: 'template',
       templateId: params.templateId,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
         // setupCommands will be handled by RepositoryService from template definition

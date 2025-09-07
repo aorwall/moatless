@@ -11,6 +11,7 @@ import type {
 import {
   type CreateRepositoryRequest,
   type RepositoryConfig,
+  RepositoryConfigSchema,
   RepositoryNotFoundError,
   RepositoryTemplate,
   ValidationError,
@@ -203,7 +204,7 @@ export class RepositoryService {
       remoteUrl: request.remoteUrl,
       sourceType: request.sourceType || 'local',
       useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
-      cloneOnNewTask: request.cloneOnNewTask ?? false,
+      cloneOnNewTask: request.cloneOnNewTask,
       originalBranch: request.originalBranch,
       templateId: request.templateId,
       vibe: request.sourceType === 'template' ? true : undefined,
@@ -227,6 +228,10 @@ export class RepositoryService {
     // Return null for soft-deleted repositories
     if (repository?.deleted) {
       return null
+    }
+    // Parse through schema to ensure legacy repositories get default values
+    if (repository) {
+      return RepositoryConfigSchema.parse(repository)
     }
     return repository
   }

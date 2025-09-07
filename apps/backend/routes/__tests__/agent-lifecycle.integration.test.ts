@@ -148,6 +148,7 @@ describe('Agent Lifecycle Test', () => {
       description: 'Test repository for agent lifecycle verification',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
         setupCommands: ['echo "Repository ready for agent lifecycle test"'],
@@ -321,6 +322,7 @@ describe('Agent Lifecycle Test', () => {
       name: 'Multiple Agent Cycles Test',
       path: tempDir,
       useGitWorktrees: false,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },

@@ -397,6 +397,7 @@ describe('WorkspaceService', () => {
       vi.mocked(repositoryService.getRepositoryById).mockResolvedValueOnce({
         ...mockRepository,
         path: '/test/docker-repo',
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'docker',
         },

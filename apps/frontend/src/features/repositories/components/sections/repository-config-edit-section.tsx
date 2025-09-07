@@ -193,10 +193,10 @@ export function RepositoryConfigEditSection({
     field: K,
     value: UpdateRepositoryRequest[K],
   ) => {
-    setUserModifications({
-      ...userModifications,
+    setUserModifications((prev) => ({
+      ...prev,
       [field]: value,
-    })
+    }))
   }
 
   const handleValidateExecution = () => {
