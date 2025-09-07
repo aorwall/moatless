@@ -14,6 +14,7 @@ import { pathExists } from '../utils/filesystem.js'
 import {
   branchExists,
   cloneRepository,
+  createBranch,
   createGitWorktree,
   isGitRepository,
   isGitWorktree,
@@ -116,7 +117,7 @@ export class WorkspaceService {
 
     // If clone on new task is enabled, clone the repository to a new directory
     if (repo.cloneOnNewTask) {
-      return await this.createClonedRepository(repo, taskId, branchName)
+      return await this.createClonedRepository(repo, taskId, branchName, newBranch)
     }
 
     // If worktrees are disabled, use repository path directly
@@ -165,6 +166,7 @@ export class WorkspaceService {
     repo: RepositoryConfig,
     taskId: string,
     branchName?: string,
+    newBranch?: string,
   ): Promise<string> {
     const workspaceLogger = logger.child({ taskId })
 
@@ -194,20 +196,37 @@ export class WorkspaceService {
       workspaceLogger.info('Cloning repository from remote URL', {
         remoteUrl: repo.remoteUrl,
         destination: clonePath,
-        branchName,
+        sourceBranch: branchName,
+        newBranch,
       })
 
       await cloneRepository(repo.remoteUrl, clonePath, branchName, {
         timeout: 300000, // 5 minutes timeout
       })
 
-      workspaceLogger.info('Repository cloned successfully from remote', { clonePath })
+      // After cloning, create a new branch for this task if newBranch is specified
+      // or use a generated branch name to ensure each task has its own branch
+      const workspaceBranchName = newBranch || this.getBranchName(taskId)
+
+      workspaceLogger.info('Creating task-specific branch after clone', {
+        workspaceBranch: workspaceBranchName,
+        sourceBranch: branchName || 'default',
+      })
+
+      // Create and checkout the new branch in the cloned repository
+      await createBranch(clonePath, workspaceBranchName)
+
+      workspaceLogger.info('Repository cloned and task branch created successfully', {
+        clonePath,
+        workspaceBranch: workspaceBranchName,
+      })
       return clonePath
     } catch (error) {
       workspaceLogger.error('Failed to clone repository from remote URL', error as Error, {
         remoteUrl: repo.remoteUrl,
         destination: clonePath,
         branchName,
+        newBranch,
       })
       throw new WorkspaceError(
         `Failed to clone repository from remote URL: ${error instanceof Error ? error.message : String(error)}`,
@@ -513,7 +532,12 @@ export class WorkspaceService {
             workspaceLogger.warn('Existing cloned workspace no longer exists, recreating', {
               existingPath: existingWorkspacePath,
             })
-            workspacePath = await this.createClonedRepository(repository, taskId, branchName)
+            workspacePath = await this.createClonedRepository(
+              repository,
+              taskId,
+              branchName,
+              undefined,
+            )
           } else {
             workspacePath = existingWorkspacePath
           }
