@@ -36,6 +36,7 @@ export function RepositoryConfigCreateSection({
     path: '',
     remoteUrl: '',
     useGitWorktrees: false,
+    cloneOnNewTask: false,
   })
 
   const handleSubmit = () => {
@@ -91,6 +92,7 @@ export function RepositoryConfigCreateSection({
         path: formData.path.trim(),
         sourceType: 'local',
         useGitWorktrees: formData.useGitWorktrees,
+        cloneOnNewTask: formData.cloneOnNewTask,
         codeExecution: {
           type: 'local',
         },
@@ -203,7 +205,29 @@ export function RepositoryConfigCreateSection({
           >
             <ConfigurationSwitch
               checked={formData.useGitWorktrees}
-              onCheckedChange={(checked) => handleFieldChange('useGitWorktrees', checked)}
+              onCheckedChange={(checked) => {
+                handleFieldChange('useGitWorktrees', checked)
+                // Disable cloneOnNewTask when worktrees are enabled
+                if (checked) {
+                  handleFieldChange('cloneOnNewTask', false)
+                }
+              }}
+            />
+          </ConfigurationItem>
+
+          <ConfigurationItem
+            label="Clone on New Task"
+            description="Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
+          >
+            <ConfigurationSwitch
+              checked={formData.cloneOnNewTask}
+              onCheckedChange={(checked) => {
+                handleFieldChange('cloneOnNewTask', checked)
+                // Disable worktrees when cloning is enabled
+                if (checked) {
+                  handleFieldChange('useGitWorktrees', false)
+                }
+              }}
             />
           </ConfigurationItem>
         </ConfigurationGroup>

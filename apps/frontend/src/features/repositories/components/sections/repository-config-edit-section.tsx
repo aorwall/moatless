@@ -166,6 +166,7 @@ export function RepositoryConfigEditSection({
       description: repository?.description || '',
       path: repository?.path || '',
       useGitWorktrees: repository?.useGitWorktrees || false,
+      cloneOnNewTask: repository?.cloneOnNewTask || false,
       codeExecution: repository?.codeExecution || { type: 'local' },
       previewConfig: {
         enableInspector: true,
@@ -312,7 +313,29 @@ export function RepositoryConfigEditSection({
         >
           <ConfigurationSwitch
             checked={formData.useGitWorktrees || false}
-            onCheckedChange={(checked) => updateField('useGitWorktrees', checked)}
+            onCheckedChange={(checked) => {
+              updateField('useGitWorktrees', checked)
+              // Disable cloneOnNewTask when worktrees are enabled
+              if (checked) {
+                updateField('cloneOnNewTask', false)
+              }
+            }}
+          />
+        </ConfigurationItem>
+
+        <ConfigurationItem
+          label="Clone on New Task"
+          description="Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
+        >
+          <ConfigurationSwitch
+            checked={formData.cloneOnNewTask || false}
+            onCheckedChange={(checked) => {
+              updateField('cloneOnNewTask', checked)
+              // Disable worktrees when cloning is enabled
+              if (checked) {
+                updateField('useGitWorktrees', false)
+              }
+            }}
           />
         </ConfigurationItem>
       </ConfigurationGroup>
