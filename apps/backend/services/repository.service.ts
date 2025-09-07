@@ -203,6 +203,7 @@ export class RepositoryService {
       remoteUrl: request.remoteUrl,
       sourceType: request.sourceType || 'local',
       useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
+      cloneOnNewTask: request.cloneOnNewTask ?? false,
       originalBranch: request.originalBranch,
       templateId: request.templateId,
       vibe: request.sourceType === 'template' ? true : undefined,
