@@ -80,6 +80,7 @@ export function RepositoryConfigCreateSection({
         remoteUrl: remoteUrl,
         sourceType: 'github',
         useGitWorktrees: false, // Default to false for GitHub repos
+        cloneOnNewTask: false,
         codeExecution: {
           type: 'local',
         },

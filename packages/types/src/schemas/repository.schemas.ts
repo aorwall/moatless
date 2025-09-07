@@ -92,7 +92,7 @@ export const UpdateRepositorySchema = z.object({
   remoteUrl: z.string().optional(),
   sourceType: z.enum(['local', 'github']).optional(),
   useGitWorktrees: z.boolean().optional(),
-  cloneOnNewTask: z.boolean().default(false), // Whether to clone repository for each new task instead of using worktrees
+  cloneOnNewTask: z.boolean().optional(), // Whether to clone repository for each new task instead of using worktrees
   originalBranch: z.string().optional(),
   // Original fields
   codeExecution: CodeExecutionSchema.optional(),

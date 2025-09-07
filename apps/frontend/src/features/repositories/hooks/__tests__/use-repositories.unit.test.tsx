@@ -41,6 +41,7 @@ describe('useRepositories hooks', () => {
     description: 'Test description',
     path: '/test/repo',
     useGitWorktrees: true,
+    cloneOnNewTask: false,
     originalBranch: 'main',
     codeExecution: {
       type: 'local' as const,
@@ -131,6 +132,7 @@ describe('useRepositories hooks', () => {
         description: 'New description',
         path: '/new/repo',
         useGitWorktrees: true,
+        cloneOnNewTask: false,
         originalBranch: 'main',
         codeExecution: {
           type: 'local' as const,
@@ -157,6 +159,7 @@ describe('useRepositories hooks', () => {
       result.current.mutate({
         name: 'New Repo',
         path: '/new/repo',
+        cloneOnNewTask: false,
         codeExecution: { type: 'local' as const },
       })
 

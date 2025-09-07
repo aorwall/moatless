@@ -38,6 +38,7 @@ export function createMockRepository(overrides?: Partial<RepositoryResponse>): R
     description: 'A test repository for unit tests',
     path: '/Users/developer/projects/test-app',
     useGitWorktrees: false,
+    cloneOnNewTask: false,
     codeExecution: createMockLocalCodeExecution(),
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
@@ -54,6 +55,7 @@ export function createMockCreateRepositoryRequest(
     description: 'A newly created test repository',
     path: '/Users/developer/projects/test-app',
     useGitWorktrees: false,
+    cloneOnNewTask: false,
     codeExecution: createMockLocalCodeExecution(),
     ...overrides,
   }

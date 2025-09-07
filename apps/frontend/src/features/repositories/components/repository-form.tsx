@@ -82,6 +82,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
       description: formData.description.trim() || undefined,
       path: formData.path.trim(),
       useGitWorktrees: formData.useGitWorktrees,
+      cloneOnNewTask: false,
       codeExecution: {
         type: 'local',
       },
