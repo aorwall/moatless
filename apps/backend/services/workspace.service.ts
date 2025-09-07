@@ -168,6 +168,15 @@ export class WorkspaceService {
   ): Promise<string> {
     const workspaceLogger = logger.child({ taskId })
 
+    // Ensure repository has a remote URL for cloning
+    if (!repo.remoteUrl) {
+      throw new WorkspaceError(
+        'cloneOnNewTask requires a remoteUrl to be configured. Cannot clone without remote URL.',
+        taskId,
+        400,
+      )
+    }
+
     // Create clone path similar to worktree path
     const cloneDir = this.getWorktreeDir(repo)
     const clonePath = path.join(cloneDir, this.getCloneFolderName(repo, taskId))
@@ -180,33 +189,28 @@ export class WorkspaceService {
       return clonePath
     }
 
-    // Verify source repo is a git repository
-    if (!(await isGitRepository(repo.path))) {
-      throw new WorkspaceError(`Repository path ${repo.path} is not a git repository`, taskId, 400)
-    }
-
     try {
-      // Clone the repository using git-utils
-      workspaceLogger.info('Cloning repository', {
-        source: repo.path,
+      // Clone the repository from remote URL using git-utils
+      workspaceLogger.info('Cloning repository from remote URL', {
+        remoteUrl: repo.remoteUrl,
         destination: clonePath,
         branchName,
       })
 
-      await cloneRepository(repo.path, clonePath, branchName, {
+      await cloneRepository(repo.remoteUrl, clonePath, branchName, {
         timeout: 300000, // 5 minutes timeout
       })
 
-      workspaceLogger.info('Repository cloned successfully', { clonePath })
+      workspaceLogger.info('Repository cloned successfully from remote', { clonePath })
       return clonePath
     } catch (error) {
-      workspaceLogger.error('Failed to clone repository', error as Error, {
-        source: repo.path,
+      workspaceLogger.error('Failed to clone repository from remote URL', error as Error, {
+        remoteUrl: repo.remoteUrl,
         destination: clonePath,
         branchName,
       })
       throw new WorkspaceError(
-        `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to clone repository from remote URL: ${error instanceof Error ? error.message : String(error)}`,
         taskId,
         500,
       )

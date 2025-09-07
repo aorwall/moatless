@@ -171,6 +171,14 @@ export class RepositoryService {
     // Validate repository configuration
     await this.validateRepository({ ...request, path: finalPath })
 
+    // Validate cloneOnNewTask requires remoteUrl
+    if (request.cloneOnNewTask && !request.remoteUrl) {
+      throw new ValidationError(
+        'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
+        { cloneOnNewTask: request.cloneOnNewTask, remoteUrl: request.remoteUrl },
+      )
+    }
+
     // For template-based repositories, merge template configuration with request
     let codeExecution = request.codeExecution
     let previewConfig = request.previewConfig
@@ -268,6 +276,19 @@ export class RepositoryService {
     // Validate repository if path is being updated
     if (updates.path) {
       await this.validateRepository(updates as CreateRepositoryRequest)
+    }
+
+    // Validate cloneOnNewTask requires remoteUrl
+    const finalRemoteUrl =
+      updates.remoteUrl !== undefined ? updates.remoteUrl : repository.remoteUrl
+    const finalCloneOnNewTask =
+      updates.cloneOnNewTask !== undefined ? updates.cloneOnNewTask : repository.cloneOnNewTask
+
+    if (finalCloneOnNewTask && !finalRemoteUrl) {
+      throw new ValidationError(
+        'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
+        { cloneOnNewTask: finalCloneOnNewTask, remoteUrl: finalRemoteUrl },
+      )
     }
 
     const updatedRepository = {
