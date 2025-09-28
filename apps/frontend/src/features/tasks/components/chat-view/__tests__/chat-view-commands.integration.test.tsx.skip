@@ -139,7 +139,7 @@ describe('ChatView Commands Integration', () => {
         isLoading: false,
       } as any)
 
-      // The component filters out commands when task is running (line 209 in chat-view.tsx)
+      // The component filters out commands when task is running (line 209 in chat-container.tsx)
       vi.mocked(useTaskCommands).mockReturnValue({
         data: {
           commands: [
