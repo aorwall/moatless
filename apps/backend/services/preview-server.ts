@@ -3,10 +3,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { RepositoryConfig, ServerStatus, ServerStatusEnum } from '@moatless/types'
 import { createTaskLogger } from '../utils/logger.js'
-import { findAvailablePort } from '../utils/port-allocation.js'
-import { findHttpPortForPid } from '../utils/port-detection.js'
 import { getPreviewInspectorScript } from '../utils/preview-inspector-script.js'
 import type { EventService } from './event.service.js'
+import { PortService } from './port.service.js'
 import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.service.js'
 import { ShellCommand } from './shell-command.js'
 
@@ -32,11 +31,11 @@ export class PreviewServer {
   private shellCommand?: ShellCommand
   private port?: number
   private logFile?: string
-  private logger = createTaskLogger('preview-server')
+  private logger
   private previewProxy?: PreviewProxyService
   private proxyPort?: number
   private proxyUrl?: string
-  private isIntentionallyStopping = false
+  private portService: PortService
 
   // Runtime configuration - set when start() is called
   private repositoryConfig?: RepositoryConfig
@@ -45,18 +44,52 @@ export class PreviewServer {
     private taskId: string,
     private workspacePath: string,
     private eventService?: EventService,
+    logFile?: string,
   ) {
+    // Initialize logger with actual taskId
+    this.logger = createTaskLogger(taskId)
+    this.portService = new PortService(this.logger)
+
+    // Use provided log file or undefined
+    this.logFile = logFile
+
     this.logger.info('PreviewServer initialized', {
       taskId: this.taskId,
       workspacePath,
       hasEventService: !!this.eventService,
+      hasLogFile: !!this.logFile,
     })
+  }
+
+  /**
+   * Wait for the server to be HTTP-responsive on the allocated port
+   */
+  private async waitForHttpReady(maxAttempts = 10, delayMs = 500): Promise<boolean> {
+    if (!this.port) {
+      return false
+    }
+
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const response = await fetch(`http://localhost:${this.port}`, {
+          signal: AbortSignal.timeout(2000),
+        })
+        if (response.ok) {
+          this.logger.info({ port: this.port, attempts: i + 1 }, 'Server is HTTP-responsive')
+          return true
+        }
+      } catch (error) {
+        this.logger.debug({ port: this.port, attempt: i + 1, maxAttempts }, 'Server not ready yet')
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+    }
+    return false
   }
 
   private async emitServerEvent(status: ServerStatusEnum, error?: string): Promise<void> {
     if (!this.eventService) return
 
-    const pid = this.shellCommand?.getPid()
+    const serverPid = this.shellCommand?.getPid()
     const info = this.shellCommand?.getInfo()
 
     try {
@@ -71,7 +104,7 @@ export class PreviewServer {
         payload: {
           status,
           port: this.port,
-          pid,
+          pid: serverPid,
           url: this.port ? `http://localhost:${this.port}` : undefined,
           error,
           uptimeSeconds: info?.duration ? Math.floor(info.duration / 1000) : 0,
@@ -112,40 +145,59 @@ export class PreviewServer {
     // Convert commands to array
     const commandsArray = Array.isArray(serverCommands) ? serverCommands : [serverCommands]
 
-    // Create log file
-    const timestamp = Date.now()
-    const logFileName = `server-${this.taskId}-${timestamp}.log`
-    this.logFile = path.join(tmpdir(), logFileName)
+    // Log file should already be set from constructor
+    // If not set, create a fallback temporary log file
+    if (!this.logFile) {
+      const timestamp = Date.now()
+      const logFileName = `server-${this.taskId}-${timestamp}.log`
+      this.logFile = path.join(tmpdir(), logFileName)
+      this.logger.warn('No log file provided to PreviewServer, using temporary file', {
+        logFile: this.logFile,
+      })
+    }
+
+    this.port = await this.portService.findAvailablePort(9000)
+
+    if (!this.port) {
+      throw new Error('Failed to find available port')
+    }
+
+    this.logger.info('Pre-allocated port for server', { port: this.port })
 
     try {
-      // Create new shell command instance
       this.shellCommand = new ShellCommand()
 
-      // Prepare the command
-      const command = commandsArray.join(' && ')
+      // Prepare the command - replace {PORT} placeholder if present
+      const command = commandsArray
+        .map((cmd) => cmd.replace(/{PORT}/g, String(this.port)))
+        .join(' && ')
 
       this.logger.info('Starting server with command', {
         command,
         workspacePath: this.workspacePath,
         logFile: this.logFile,
+        port: this.port,
       })
 
-      // Start the command in background
+      // Start the command in background with PORT environment variable
       await this.shellCommand.execute(command, {
         workingDirectory: this.workspacePath,
-        env: envVars,
+        env: {
+          ...envVars,
+          PORT: String(this.port),
+        },
         background: true,
         logFile: this.logFile,
-        timeout: 300000, // 5 minute timeout
       })
 
       const pid = this.shellCommand.getPid()
       if (!pid) {
         const error = 'Failed to get process PID'
+        this.logger.error({ command, error }, 'Failed to start server - no PID')
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
-          port: 0,
+          port: this.port,
           pid: 0,
           log_file: this.logFile,
           uptime_seconds: 0,
@@ -153,12 +205,7 @@ export class PreviewServer {
         }
       }
 
-      this.logger.info('Server process started', { pid, command })
-
-      // Start port detection in background
-      this.detectPort().catch((error) => {
-        this.logger.error('Port detection failed', error as Error)
-      })
+      this.logger.info({ serverPid: pid, command, port: this.port }, 'Server process started')
 
       // Check immediate status
       const immediateStatus = this.shellCommand.getStatus()
@@ -167,7 +214,7 @@ export class PreviewServer {
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
-          port: 0,
+          port: this.port,
           pid,
           log_file: this.logFile,
           uptime_seconds: 0,
@@ -175,11 +222,33 @@ export class PreviewServer {
         }
       }
 
-      // Return immediately with PID available
-      await this.emitServerEvent('starting')
+      // Start proxy if configured
+      await this.startProxy()
+
+      // Wait for server to be HTTP-responsive before emitting 'started'
+      this.logger.info({ port: this.port }, 'Waiting for server to be HTTP-responsive...')
+      const isReady = await this.waitForHttpReady()
+
+      if (!isReady) {
+        const error = 'Server process started but did not become HTTP-responsive'
+        this.logger.error({ port: this.port }, error)
+        await this.emitServerEvent('failed', error)
+        return {
+          status: 'failed',
+          port: this.port,
+          pid,
+          log_file: this.logFile,
+          uptime_seconds: 0,
+          error,
+        }
+      }
+
+      // Now emit started event
+      await this.emitServerEvent('started')
+
       return {
         status: 'starting',
-        port: 0,
+        port: this.port,
         pid,
         log_file: this.logFile,
         uptime_seconds: 0,
@@ -189,61 +258,6 @@ export class PreviewServer {
       const errorMsg = error instanceof Error ? error.message : String(error)
       await this.emitServerEvent('failed', errorMsg)
       throw error
-    }
-  }
-
-  /**
-   * Detect the port the server is running on
-   */
-  private async detectPort(): Promise<void> {
-    const MAX_ATTEMPTS = 30 // 30 seconds max
-    const INTERVAL = 1000 // Check every second
-
-    this.logger.info('Starting port detection')
-
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      // Check if process is still running
-      if (!this.shellCommand || this.shellCommand.getStatus() !== 'running') {
-        this.logger.info('Process no longer running, stopping port detection')
-        break
-      }
-
-      // Get PID and try to detect port
-      const pid = this.shellCommand.getPid()
-      if (pid) {
-        const detectedPort = await findHttpPortForPid(pid)
-        if (detectedPort) {
-          this.port = detectedPort
-          this.logger.info('Port detected', { port: detectedPort, pid, attempt })
-
-          // Start proxy if configured
-          await this.startProxy()
-
-          // Emit success event
-          await this.emitServerEvent('started')
-          return
-        }
-      }
-
-      // Wait before next attempt
-      await new Promise((resolve) => setTimeout(resolve, INTERVAL))
-    }
-
-    // Port detection failed or process died
-    if (this.shellCommand) {
-      const info = this.shellCommand.getInfo()
-      const status = this.shellCommand.getStatus()
-
-      if (!this.isIntentionallyStopping) {
-        if (status === 'failed' || (info?.exitCode && info.exitCode !== 0)) {
-          const error = info?.error || `Process exited with code ${info?.exitCode || 'unknown'}`
-          this.logger.error('Server failed - no port detected', { error })
-          await this.emitServerEvent('failed', error)
-        } else if (status === 'completed') {
-          this.logger.info('Server command completed without starting a server')
-          await this.emitServerEvent('stopped')
-        }
-      }
     }
   }
 
@@ -262,12 +276,13 @@ export class PreviewServer {
       return false
     }
 
-    this.logger.info('Stopping preview server', {
-      pid: this.shellCommand.getPid(),
-      port: this.port,
-    })
-
-    this.isIntentionallyStopping = true
+    this.logger.info(
+      {
+        serverPid: this.shellCommand.getPid(),
+        port: this.port,
+      },
+      'Stopping preview server',
+    )
 
     try {
       // Stop proxy first
@@ -286,8 +301,14 @@ export class PreviewServer {
 
       return killed
     } finally {
+      // Release allocated ports
+      if (this.port) {
+        this.portService.releasePort(this.port)
+      }
+      if (this.proxyPort) {
+        this.portService.releasePort(this.proxyPort)
+      }
       this.cleanup()
-      this.isIntentionallyStopping = false
     }
   }
 
@@ -319,23 +340,23 @@ export class PreviewServer {
 
     // Process is running - check if we have a port
     const uptime = info?.duration ? Math.floor(info.duration / 1000) : 0
-    const pid = this.shellCommand.getPid()
+    const shellPid = this.shellCommand.getPid()
 
     if (this.port) {
-      // Server is fully running with detected port
+      // Server is running with allocated port
       return {
         status: 'started',
         url: `http://localhost:${this.port}`,
         proxyUrl: this.proxyUrl,
-        pid,
+        pid: shellPid,
         uptimeSeconds: uptime,
       }
     }
 
-    // Process is running but no port detected yet
+    // Process is running but no port allocated yet (shouldn't happen)
     return {
       status: 'starting',
-      pid,
+      pid: shellPid,
       uptimeSeconds: uptime,
     }
   }
@@ -436,7 +457,7 @@ export class PreviewServer {
     }
 
     try {
-      this.proxyPort = await findAvailablePort('general')
+      this.proxyPort = await this.portService.findAvailablePort(6000)
       const targetUrl = `http://localhost:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.taskId)
 
@@ -502,6 +523,14 @@ export class PreviewServer {
    * Clean up resources
    */
   private cleanup(): void {
+    // Release ports if not already released
+    if (this.port) {
+      this.portService.releasePort(this.port)
+    }
+    if (this.proxyPort) {
+      this.portService.releasePort(this.proxyPort)
+    }
+
     this.shellCommand = undefined
     this.port = undefined
     this.proxyPort = undefined
