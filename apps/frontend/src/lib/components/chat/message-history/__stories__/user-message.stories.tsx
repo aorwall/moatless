@@ -70,54 +70,6 @@ export const WithLinks: Story = {
   },
 }
 
-export const WithEmoji: Story = {
-  args: {
-    message: createUserMessage('Great work! 🎉 Can we add more tests? 🧪'),
-  },
-}
-
-export const WithList: Story = {
-  args: {
-    message: createUserMessage(
-      'Please complete the following tasks:\n\n' +
-        '- [ ] Fix the login bug\n' +
-        '- [ ] Add error handling\n' +
-        '- [ ] Write unit tests\n' +
-        '- [ ] Update documentation',
-    ),
-  },
-}
-
-export const WithTable: Story = {
-  args: {
-    message: createUserMessage(
-      'Here are the performance metrics:\n\n' +
-        '| Endpoint | Response Time | Status |\n' +
-        '|----------|--------------|--------|\n' +
-        '| /login   | 250ms        | OK     |\n' +
-        '| /logout  | 100ms        | OK     |\n' +
-        '| /refresh | 1500ms       | SLOW   |',
-    ),
-  },
-}
-
-export const ShortQuestion: Story = {
-  args: {
-    message: createUserMessage('What is the current status?'),
-  },
-}
-
-export const WithBlockquote: Story = {
-  args: {
-    message: createUserMessage(
-      'As mentioned in the docs:\n\n' +
-        '> Authentication tokens should be refreshed every 30 minutes\n' +
-        '> to maintain security.\n\n' +
-        'Should we implement this?',
-    ),
-  },
-}
-
 export const ComplexFormatting: Story = {
   args: {
     message: createUserMessage(

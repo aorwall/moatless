@@ -18,14 +18,14 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     id,
     role: 'user',
     content,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(),
   })
 
   const createAssistantMessage = (id: string, content: string): AssistantMessage => ({
     id,
     role: 'assistant',
     content: [{ type: 'text', text: content }],
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(),
   })
 
   const createToolUseMessage = (id: string, toolName: string): AssistantMessage => ({
@@ -34,12 +34,12 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     content: [
       {
         type: 'tool_use',
-        id: `tool-${id}`,
+        tool_use_id: `tool-${id}`,
         tool_name: toolName,
-        input: { test: 'data' },
+        tool_input: { test: 'data' },
       },
     ],
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(),
   })
 
   describe('Message Rendering', () => {

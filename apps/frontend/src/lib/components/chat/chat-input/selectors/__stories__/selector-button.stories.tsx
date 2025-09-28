@@ -1,6 +1,6 @@
 import { action } from '@storybook/addon-actions'
 import type { Meta, StoryObj } from '@storybook/react'
-import { Bot, Brain, Database, FileText, GitBranch, Sparkles, Wand2 } from 'lucide-react'
+import { Bot, Brain, Database, Sparkles } from 'lucide-react'
 import { SelectorButton } from '../selector-button'
 
 const meta = {
@@ -45,30 +45,6 @@ export const RepositorySelector: Story = {
   },
 }
 
-export const BranchSelector: Story = {
-  args: {
-    icon: GitBranch,
-    label: 'main',
-    onClick: action('onClick'),
-  },
-}
-
-export const TemplateSelector: Story = {
-  args: {
-    icon: FileText,
-    label: 'React Component',
-    onClick: action('onClick'),
-  },
-}
-
-export const AgentModeSelector: Story = {
-  args: {
-    icon: Wand2,
-    label: 'Edit Mode',
-    onClick: action('onClick'),
-  },
-}
-
 export const Disabled: Story = {
   args: {
     icon: Brain,
@@ -94,11 +70,4 @@ export const MultipleSelectors: Story = {
       <SelectorButton icon={Database} label="my-project" onClick={action('repo-click')} />
     </div>
   ),
-}
-
-export const WithoutClick: Story = {
-  args: {
-    icon: Brain,
-    label: 'No Click Handler',
-  },
 }

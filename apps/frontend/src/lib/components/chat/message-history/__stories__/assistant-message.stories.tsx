@@ -93,36 +93,6 @@ export const WithMarkdown: Story = {
   ),
 }
 
-export const WithSingleToolCall: Story = {
-  render: () => {
-    const content: AssistantMessageContent[] = [
-      {
-        type: 'text',
-        text: 'Let me read the authentication file to understand the issue.',
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'read-1',
-        tool_name: 'Read',
-        tool_input: {
-          file_path: '/src/auth/authenticate.js',
-          limit: 100,
-        },
-        tool_result: {
-          content:
-            'function authenticate(user) {\n' +
-            '  return token.verify(user.token);\n' +
-            '}\n\n' +
-            'function logout(user) {\n' +
-            '  token.revoke(user.token);\n' +
-            '}',
-        },
-      },
-    ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
-  },
-}
-
 export const WithMultipleToolCalls: Story = {
   render: () => {
     const content: AssistantMessageContent[] = [
@@ -155,30 +125,6 @@ export const WithMultipleToolCalls: Story = {
       {
         type: 'text',
         text: 'Found the issue! The token service needs to be imported.',
-      },
-    ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
-  },
-}
-
-export const WithLongToolResult: Story = {
-  render: () => {
-    const longResult = Array.from(
-      { length: 20 },
-      (_, i) => `Line ${i + 1}: This is a sample line of code output from the tool`,
-    ).join('\n')
-
-    const content: AssistantMessageContent[] = [
-      {
-        type: 'tool_use',
-        tool_use_id: 'bash-1',
-        tool_name: 'Bash',
-        tool_input: {
-          command: 'npm run test',
-        },
-        tool_result: {
-          content: longResult,
-        },
       },
     ]
     return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
@@ -234,63 +180,6 @@ export const WithTodoWrite: Story = {
   },
 }
 
-export const WithEdit: Story = {
-  render: () => {
-    const content: AssistantMessageContent[] = [
-      {
-        type: 'text',
-        text: "I'll fix the authentication bug by adding proper error handling:",
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'edit-1',
-        tool_name: 'Edit',
-        tool_input: {
-          file_path: '/src/auth/authenticate.js',
-          old_string: 'function authenticate(user) {\n  return token.verify(user.token);\n}',
-          new_string:
-            'function authenticate(user) {\n  if (!token) {\n    throw new Error("Token service not initialized");\n  }\n  return token.verify(user.token);\n}',
-        },
-        tool_result: {
-          content: 'File updated successfully.',
-        },
-      },
-    ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
-  },
-}
-
-export const OnlyToolCalls: Story = {
-  render: () => {
-    const content: AssistantMessageContent[] = [
-      {
-        type: 'tool_use',
-        tool_use_id: 'grep-1',
-        tool_name: 'Grep',
-        tool_input: {
-          pattern: 'authenticate',
-          path: '/src',
-        },
-        tool_result: {
-          content: 'Found 5 matches in 3 files',
-        },
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'read-1',
-        tool_name: 'Read',
-        tool_input: {
-          file_path: '/src/auth/authenticate.js',
-        },
-        tool_result: {
-          content: 'File content here...',
-        },
-      },
-    ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
-  },
-}
-
 export const WithError: Story = {
   render: () => {
     const content: AssistantMessageContent[] = [
@@ -312,97 +201,6 @@ export const WithError: Story = {
       {
         type: 'text',
         text: "The file doesn't exist. Let me search for it in the project:",
-      },
-    ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
-  },
-}
-
-export const ComplexMessage: Story = {
-  render: () => {
-    const content: AssistantMessageContent[] = [
-      {
-        type: 'text',
-        text:
-          '# Authentication Bug Fix\n\n' +
-          "I've identified the issue with the authentication system. Let me fix it step by step:",
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'todo-complex',
-        tool_name: 'TodoWrite',
-        tool_input: {
-          todos: [
-            { id: '1', content: 'Identify the bug', status: 'completed' },
-            { id: '2', content: 'Fix token initialization', status: 'in_progress' },
-          ],
-        },
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'read-complex',
-        tool_name: 'Read',
-        tool_input: { file_path: '/src/auth/token.js' },
-        tool_result: {
-          content: 'export const token = new TokenService();',
-        },
-      },
-      {
-        type: 'text',
-        text:
-          '## Solution\n\n' +
-          'The issue was that the `token` variable was not being imported. ' +
-          "Here's the fix:\n\n" +
-          '```javascript\n' +
-          "import { token } from './token';\n\n" +
-          'function authenticate(user) {\n' +
-          '  if (!token) {\n' +
-          '    throw new Error("Token service not initialized");\n' +
-          '  }\n' +
-          '  return token.verify(user.token);\n' +
-          '}\n' +
-          '```',
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'edit-complex',
-        tool_name: 'Edit',
-        tool_input: {
-          file_path: '/src/auth/authenticate.js',
-          old_string: 'old code',
-          new_string: 'new code',
-        },
-        tool_result: {
-          content: 'Successfully updated the file',
-        },
-      },
-      {
-        type: 'text',
-        text: '✅ **Fixed!** The authentication should now work correctly.',
-      },
-    ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
-  },
-}
-
-export const WithWebFetch: Story = {
-  render: () => {
-    const content: AssistantMessageContent[] = [
-      {
-        type: 'text',
-        text: 'Let me check the latest documentation for this API:',
-      },
-      {
-        type: 'tool_use',
-        tool_use_id: 'web-1',
-        tool_name: 'WebFetch',
-        tool_input: {
-          url: 'https://api.example.com/docs',
-          prompt: 'Get authentication requirements',
-        },
-        tool_result: {
-          content: 'API requires OAuth 2.0 authentication with JWT tokens...',
-        },
       },
     ]
     return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
