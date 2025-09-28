@@ -76,13 +76,16 @@ export class PreviewProxyService {
     // Copy query parameters
     requestUrl.search = new URL(req.url || '/', 'http://localhost').search
 
+    // Remove accept-encoding to prevent compression so we can modify HTML
+    const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers
+
     const options: http.RequestOptions = {
       hostname: targetUrl.hostname,
       port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
       path: requestUrl.pathname + requestUrl.search,
       method: req.method,
       headers: {
-        ...req.headers,
+        ...forwardHeaders,
         host: targetUrl.host, // Override host header
       },
     }

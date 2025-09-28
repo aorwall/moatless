@@ -457,7 +457,7 @@ export class PreviewServer {
     }
 
     try {
-      this.proxyPort = await this.portService.findAvailablePort(6000)
+      this.proxyPort = await this.portService.findAvailablePort(7000)
       const targetUrl = `http://localhost:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.taskId)
 
