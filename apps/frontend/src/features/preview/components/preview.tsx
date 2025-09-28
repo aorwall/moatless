@@ -1,59 +1,40 @@
-import { useParams } from '@tanstack/react-router'
 import { Loader2, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useServerEvents, useStartServer } from '@/features/preview'
+import { useServerEvents, useServerStatus, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { PreviewProvider, usePreview } from '../hooks/use-preview'
-import type { PreviewProps } from '../types'
+import type { ElementInfo, PreviewProps, ScriptHealthStatus } from '../types'
 import { InspectorOverlay } from './inspector-overlay'
 import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
 
-function PreviewContent({ config, serverStatus, onElementSelected, className }: PreviewProps) {
+export function Preview({ taskId, onElementSelected, className }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
-  const params = useParams({ from: '/tasks/$taskId' })
+
+  // Fetch server status via query (initial load)
+  const { data: serverStatus } = useServerStatus(taskId)
+
+  // Listen for real-time SSE updates
   const startServer = useStartServer()
-  const { serverStatus: eventServerStatus, serverError: eventServerError } = useServerEvents(
-    params.taskId,
-  )
+  const { serverStatus: eventServerStatus, serverError: eventServerError } = useServerEvents(taskId)
 
-  const {
-    currentPath,
-    isInspectorActive,
-    isLoaded,
-    error,
-    selectedElement,
-    scriptHealthStatus,
-    lastHeartbeat,
-    setConfig,
-    setLoaded,
-    setError,
-    setDisplayPath,
-    setScriptHealthStatus,
-    updateHeartbeat,
-  } = usePreview()
+  const [path, setPath] = useState('/')
+  const [isInspectorActive, setIsInspectorActive] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null)
+  const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
+  const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
 
-  // Use event-driven server status when available, fall back to polling-based status
-  const effectiveServerStatus =
-    eventServerStatus ||
-    (serverStatus?.status === 'started'
-      ? 'running'
-      : serverStatus?.status === 'starting'
-        ? 'initializing'
-        : 'stopped')
-  const isConnected = effectiveServerStatus === 'running'
-  const isInitializing = effectiveServerStatus === 'initializing'
+  // Use SSE status when available, fall back to query status
+  const effectiveServerStatus = eventServerStatus || serverStatus?.status || 'stopped'
+  const isConnected = effectiveServerStatus === 'started'
+  const isInitializing = effectiveServerStatus === 'starting'
   const isFailed = effectiveServerStatus === 'failed'
-
-  // Update config when props change
-  useEffect(() => {
-    setConfig(config)
-  }, [config, setConfig])
 
   // Monitor heartbeat and update script health status
   useEffect(() => {
@@ -79,7 +60,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
         clearTimeout(heartbeatTimeoutRef.current)
       }
     }
-  }, [lastHeartbeat, scriptHealthStatus, setScriptHealthStatus])
+  }, [lastHeartbeat, scriptHealthStatus])
 
   // Handle messages from the injected script
   useEffect(() => {
@@ -139,7 +120,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
           if (isConsoleExpanded) {
             console.log('[Preview Route]:', `Route changed to ${payload.path}`)
           }
-          setDisplayPath(payload.path)
+          setPath(payload.path)
           break
 
         case 'INSPECTOR_SCRIPT_LOADED':
@@ -147,12 +128,12 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
             console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
           }
           setScriptHealthStatus('injected-reachable')
-          updateHeartbeat()
+          setLastHeartbeat(Date.now())
           break
 
         case 'HEARTBEAT':
           // Update heartbeat timestamp
-          updateHeartbeat()
+          setLastHeartbeat(Date.now())
           break
 
         default:
@@ -163,7 +144,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onElementSelected, setDisplayPath, setScriptHealthStatus, updateHeartbeat, isConsoleExpanded])
+  }, [onElementSelected, isConsoleExpanded])
 
   // Function to toggle the element selector in the iframe
   const toggleSelector = useCallback((enabled: boolean) => {
@@ -185,10 +166,20 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
 
   // Use proxy URL if available, otherwise fall back to direct URL
   const previewUrl = serverStatus?.proxyUrl
-    ? `${serverStatus.proxyUrl}${currentPath}`
+    ? `${serverStatus.proxyUrl}${path}`
     : serverStatus?.url
-      ? `${serverStatus.url}${currentPath}`
+      ? `${serverStatus.url}${path}`
       : null
+
+  const toggleInspector = useCallback(() => {
+    setIsInspectorActive((prev) => {
+      const newValue = !prev
+      if (!newValue) {
+        setSelectedElement(null)
+      }
+      return newValue
+    })
+  }, [])
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) {
@@ -199,7 +190,7 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
   }, [])
 
   const handleIframeLoad = useCallback(() => {
-    setLoaded(true)
+    setIsLoaded(true)
     setError(null)
 
     // Reset script health status when iframe loads
@@ -209,20 +200,28 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
     // Script injection is now handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
-  }, [setLoaded, setError, setScriptHealthStatus])
+  }, [])
 
   const handleIframeError = useCallback(() => {
     setError('Failed to load preview')
-    setLoaded(false)
-  }, [setError, setLoaded])
+    setIsLoaded(false)
+  }, [])
 
   const handleStartServer = useCallback(() => {
-    startServer.mutate(params.taskId)
-  }, [params.taskId, startServer])
+    startServer.mutate(taskId)
+  }, [taskId, startServer])
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      <PreviewHeader onReload={reloadPreview} />
+      <PreviewHeader
+        path={path}
+        onNavigate={setPath}
+        isInspectorActive={isInspectorActive}
+        onToggleInspector={toggleInspector}
+        scriptHealthStatus={scriptHealthStatus}
+        lastHeartbeat={lastHeartbeat}
+        onReload={reloadPreview}
+      />
 
       <div className="flex-1 flex flex-col overflow-hidden bg-background">
         {/* Preview content takes available space */}
@@ -354,13 +353,26 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
               />
 
               {isInspectorActive && (
-                <InspectorOverlay iframeRef={iframeRef} onElementSelected={onElementSelected} />
+                <InspectorOverlay
+                  iframeRef={iframeRef}
+                  isActive={isInspectorActive}
+                  onElementSelected={(element) => {
+                    setSelectedElement(element)
+                    onElementSelected?.(element)
+                  }}
+                />
               )}
             </>
           )}
 
           {/* Inspector Panel - Shows element details */}
-          {isInspectorActive && selectedElement && <InspectorPanel className="z-20" />}
+          {isInspectorActive && selectedElement && (
+            <InspectorPanel
+              className="z-20"
+              element={selectedElement}
+              onClose={() => setSelectedElement(null)}
+            />
+          )}
         </div>
 
         {/* Console panel - always render container, conditionally show content */}
@@ -373,13 +385,5 @@ function PreviewContent({ config, serverStatus, onElementSelected, className }: 
         </div>
       </div>
     </div>
-  )
-}
-
-export function Preview(props: PreviewProps) {
-  return (
-    <PreviewProvider>
-      <PreviewContent {...props} />
-    </PreviewProvider>
   )
 }

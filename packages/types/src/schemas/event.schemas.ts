@@ -74,8 +74,8 @@ export const TaskIterationPayloadSchema = z.object({
 
 // Server event payload schema
 export const ServerEventPayloadSchema = z.object({
-  status: z.enum(['stopped', 'initializing', 'running', 'failed']),
-  previousStatus: z.enum(['stopped', 'initializing', 'running', 'failed']).optional(),
+  status: z.enum(['stopped', 'starting', 'started', 'failed']),
+  previousStatus: z.enum(['stopped', 'starting', 'started', 'failed']).optional(),
   port: z.number().optional(),
   pid: z.number().optional(),
   url: z.string().optional(),

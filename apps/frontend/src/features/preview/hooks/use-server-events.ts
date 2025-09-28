@@ -38,16 +38,8 @@ export function useServerEvents(taskId: string | undefined): UseServerEventsResu
       })
 
       setLastServerEvent(event)
-      // Map old status values to new ones
-      const mappedStatus =
-        event.payload.status === 'running'
-          ? 'started'
-          : event.payload.status === 'initializing'
-            ? 'starting'
-            : event.payload.status === 'failed'
-              ? 'failed'
-              : 'stopped'
-      setServerStatus(mappedStatus)
+      // Use status directly from backend (no mapping needed)
+      setServerStatus(event.payload.status)
       setServerError(event.payload.error || null)
       setServerPort(event.payload.port)
       setServerUrl(event.payload.url)

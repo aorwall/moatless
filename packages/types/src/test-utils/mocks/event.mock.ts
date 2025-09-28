@@ -94,8 +94,8 @@ export function createMockServerEvent(overrides?: Partial<ServerEvent>): ServerE
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
     payload: {
-      status: 'running',
-      previousStatus: 'initializing',
+      status: 'started',
+      previousStatus: 'starting',
       port: 3000,
       url: 'http://localhost:3000',
     },

@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router'
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -17,16 +17,31 @@ function TaskPageComponent() {
 
   // Use specialized hooks that only cause re-renders when specific data changes
   const { isLoading, error } = useTaskData()
-  const { rightPanelView } = usePanelView()
+  const { rightPanelView, setRightPanelView } = usePanelView()
 
   // Fetch workspace status to determine capabilities and server URL
   const workspaceStatusQuery = useWorkspaceStatusWithTask(taskId)
   const workspaceStatus = workspaceStatusQuery.data
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
-  // Determine effective panel view based on workspace status
-  const effectivePanelView =
-    workspaceStatus && serverManagement && rightPanelView === 'files' ? 'preview' : rightPanelView
+  // Track if we've already applied the serverManagement-based default
+  const hasAppliedServerDefault = useRef(false)
+
+  // Apply initial default: show preview for tasks with serverManagement capability
+  // This effect runs once when serverManagement data loads, before user interaction
+  // Subsequent user toggles are respected (effect won't run again due to ref guard)
+  useEffect(() => {
+    if (
+      !hasAppliedServerDefault.current &&
+      serverManagement && // workspace has preview capability
+      rightPanelView === 'files' // still on default files view (user hasn't toggled yet)
+    ) {
+      setRightPanelView('preview')
+      hasAppliedServerDefault.current = true
+    }
+  }, [serverManagement, rightPanelView, setRightPanelView])
+
+  const effectivePanelView = rightPanelView
 
   if (error) {
     return <ErrorAlert error={error} />
@@ -66,7 +81,7 @@ function TaskPageComponent() {
               {effectivePanelView === 'files' ? (
                 <FileExplorer taskId={taskId} />
               ) : (
-                <Preview config={{ url: '' }} />
+                <Preview taskId={taskId} />
               )}
             </ErrorBoundary>
           )}
