@@ -25,15 +25,18 @@ export class LocalEnvironment extends BaseEnvironment {
   private previewServer?: PreviewServer
   private shellCommands: Map<string, ShellCommand> = new Map()
   private commandCounter = 0
+  private logFile?: string
 
   constructor(
     taskId: string,
     repositoryConfig: RepositoryConfig,
     workspacePath?: string,
     eventService?: EventService,
+    logFile?: string,
   ) {
     super(taskId, repositoryConfig, eventService)
     this.workspacePath = workspacePath || ''
+    this.logFile = logFile
     this.logger = createTaskLogger(taskId)
 
     this.logger.debug('LocalEnvironment constructor', {
@@ -92,7 +95,22 @@ export class LocalEnvironment extends BaseEnvironment {
     for (const command of setupCommands) {
       this.logger.info(`Running setup command: ${command}`)
       const commandStartTime = Date.now()
-      const result = await this.runCommand(command, 300000) // 5 minutes timeout
+
+      // Create shell command with log file
+      const commandId = this.generateCommandId()
+      const shellCommand = new ShellCommand()
+      this.shellCommands.set(commandId, shellCommand)
+
+      const result = await shellCommand.executeWithResult(command, {
+        workingDirectory: this.workspacePath,
+        env: this.repositoryConfig.codeExecution.envVars,
+        timeout: 300000, // 5 minutes timeout
+        logFile: this.logFile,
+      })
+
+      // Clean up completed command
+      this.shellCommands.delete(commandId)
+
       const commandDuration = Date.now() - commandStartTime
 
       this.logger.info('Setup command completed', {
@@ -353,7 +371,12 @@ export class LocalEnvironment extends BaseEnvironment {
     try {
       // Create server handler if it doesn't exist
       if (!this.previewServer) {
-        this.previewServer = new PreviewServer(this.taskId, this.workspacePath, this.eventService)
+        this.previewServer = new PreviewServer(
+          this.taskId,
+          this.workspacePath,
+          this.eventService,
+          this.logFile,
+        )
       }
 
       // Start the server with latest configuration

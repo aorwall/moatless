@@ -1,5 +1,4 @@
 import { createRootRoute, HeadContent, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { Layout } from '@/lib/layout'
@@ -8,7 +7,7 @@ const title = 'Moatless Vibe'
 const description = 'Moatless Vibe'
 const url = 'https://moatless.ai'
 const ogImgUrl =
-  'https://og.sznm.dev/api/generate?heading=Moatless+Swarm&text=Moatless+Swarm&template=color'
+  'https://og.sznm.dev/api/generate?heading=Moatless+Vibe&text=Moatless+Vibe&template=color'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -112,7 +111,6 @@ export const Route = createRootRoute({
           <Outlet />
         </Layout>
       </ErrorBoundary>
-      <TanStackRouterDevtools position="top-right" />
     </>
   ),
 })

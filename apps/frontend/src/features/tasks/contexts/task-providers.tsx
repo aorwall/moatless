@@ -48,7 +48,6 @@ export {
   useTaskLoadingError,
   useTaskMetadata,
   useTaskStatus,
-  useWorkspaceStatus,
 } from './task-data-provider'
 export {
   TaskUIProvider,

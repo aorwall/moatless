@@ -4,13 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { Folder, GitBranch, Settings, Zap } from 'lucide-react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
-import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
 import {
   useAgentModeSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
-} from '../../chat-input/selectors'
+} from '@/lib/components/chat/chat-input/selectors'
+import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
 import { CreateCodeTask } from '../create-code-task'
 
 vi.mock('../../chat-input/selectors', () => ({

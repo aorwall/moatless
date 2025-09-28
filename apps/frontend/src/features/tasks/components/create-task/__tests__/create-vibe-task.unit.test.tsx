@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { FileText, Zap } from 'lucide-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCreateVibeTask } from '@/features/templates'
+import { useModelSelector, useTemplateSelector } from '@/lib/components/chat/chat-input/selectors'
 import { createMockMutationResult, createPendingMutation } from '@/test-utils/mock-mutations'
-import { useModelSelector, useTemplateSelector } from '../../chat-input/selectors'
 import { CreateVibeTask } from '../create-vibe-task'
 
 // Mock the hooks

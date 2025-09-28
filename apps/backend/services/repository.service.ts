@@ -124,7 +124,7 @@ export class RepositoryService {
 
     // Handle GitHub repository
     if (request.sourceType === 'github' && request.remoteUrl) {
-      const cloneResult = await this.cloneGitHubRepository(request.remoteUrl, request.name)
+      const cloneResult = await this.cloneGitRepository(request.remoteUrl, request.name)
       finalPath = cloneResult.path
       finalName = cloneResult.name
     } else if (request.sourceType === 'template' || request.templateId) {
@@ -482,9 +482,9 @@ export class RepositoryService {
   }
 
   /**
-   * Clone a GitHub repository using the PAT from settings
+   * Clone a Git repository (GitHub or other Git hosting services)
    */
-  private async cloneGitHubRepository(
+  private async cloneGitRepository(
     remoteUrl: string,
     suggestedName?: string,
   ): Promise<{ path: string; name: string }> {
@@ -492,33 +492,50 @@ export class RepositoryService {
       throw new Error('SettingsService not available')
     }
 
-    // Parse GitHub URL to extract owner and repo name
-    // Support both HTTPS and SSH URLs
-    const httpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
-    const sshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
+    // Parse Git URL to extract owner and repo name
+    // Support HTTPS, GitHub SSH, and generic Git SSH URLs
+    const githubHttpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
+    const githubSshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
+    const genericGitSshPattern = /^git@([^:]+):(?:([^/]+)\/)?([^/.]+?)(?:\.git)?$/
 
     let owner: string
     let repoName: string
+    let hostname: string | undefined
     let isSSH = false
+    let isGitHub = false
 
-    // Try HTTPS pattern first
-    let match = remoteUrl.match(httpsPattern)
+    // Try GitHub HTTPS pattern first
+    let match = remoteUrl.match(githubHttpsPattern)
     if (match) {
       ;[, owner, repoName] = match
+      hostname = 'github.com'
+      isGitHub = true
     } else {
-      // Try SSH pattern
-      match = remoteUrl.match(sshPattern)
+      // Try GitHub SSH pattern
+      match = remoteUrl.match(githubSshPattern)
       if (match) {
         ;[, owner, repoName] = match
+        hostname = 'github.com'
         isSSH = true
+        isGitHub = true
       } else {
-        throw new ValidationError('Invalid GitHub URL format', { url: remoteUrl })
+        // Try generic Git SSH pattern (e.g., git@fp:owner/repo.git or git@gitlab.com:group/repo.git)
+        match = remoteUrl.match(genericGitSshPattern)
+        if (match) {
+          hostname = match[1]
+          owner = match[2] || ''
+          repoName = match[3]
+          isSSH = true
+          isGitHub = false
+        } else {
+          throw new ValidationError('Invalid Git URL format', { url: remoteUrl })
+        }
       }
     }
 
     let finalName = suggestedName || repoName
 
-    // Get GitHub PAT from settings
+    // Get GitHub PAT from settings (only used for GitHub HTTPS URLs)
     const githubSettings = this.settingsService?.getGitHubSettings()
     const pat = githubSettings?.personalAccessToken
 
@@ -543,23 +560,26 @@ export class RepositoryService {
       // SSH URLs use SSH keys for authentication, no need to modify the URL
       // The system's SSH configuration will handle authentication
       logger.info('Using SSH URL for cloning - ensure SSH keys are configured', {
+        hostname,
         owner,
         repo: repoName,
         path: clonePath,
+        isGitHub,
       })
-    } else if (pat) {
-      // For HTTPS URLs, add PAT authentication if available
+    } else if (isGitHub && pat) {
+      // For GitHub HTTPS URLs, add PAT authentication if available
       const urlWithAuth = remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
       cloneUrl = urlWithAuth
     }
 
-    logger.info('Cloning GitHub repository', {
+    logger.info('Cloning Git repository', {
+      hostname,
       owner,
-      cloneUrl,
       repo: repoName,
       path: clonePath,
       isSSH,
-      hasAuth: !isSSH && !!pat,
+      isGitHub,
+      hasAuth: isGitHub && !isSSH && !!pat,
     })
 
     // Clone the repository with SSH workaround for systemd services
@@ -608,6 +628,7 @@ export class RepositoryService {
         exitCode: cloneResult.exit_code,
         output: cloneResult.output,
         isSSH,
+        isGitHub,
       })
 
       // Remove PAT from error message for security
@@ -615,32 +636,30 @@ export class RepositoryService {
 
       let errorMessage = `Failed to clone repository: ${sanitizedError}`
       if (isSSH) {
-        errorMessage += '\n\nFor SSH URLs, ensure you have SSH keys configured for GitHub access.'
-      } else if (!pat) {
+        errorMessage += `\n\nFor SSH URLs, ensure you have SSH keys configured for ${hostname || 'the Git host'}.`
+      } else if (isGitHub && !pat) {
         errorMessage +=
-          '\n\nFor HTTPS URLs, consider adding a GitHub Personal Access Token in settings.'
+          '\n\nFor GitHub HTTPS URLs, consider adding a GitHub Personal Access Token in settings.'
       }
 
       throw new ValidationError(errorMessage, {
         url: remoteUrl,
         error: sanitizedError,
         isSSH,
+        isGitHub,
       })
     }
-    logger.info('Successfully cloned GitHub repository', {
-      owner,
-      cloneUrl,
-      repo: repoName,
-      path: clonePath,
-    })
 
-    // For HTTPS URLs with PAT, remove the PAT from the remote URL for security
+    // For GitHub HTTPS URLs with PAT, remove the PAT from the remote URL for security
     // SSH URLs don't need this step
-    if (!isSSH && pat) {
+    if (isGitHub && !isSSH && pat) {
       await this.executeCommand(`git remote set-url origin "${remoteUrl}"`, clonePath)
     }
 
-    logger.info('Successfully cloned GitHub repository', {
+    logger.info('Successfully cloned Git repository', {
+      hostname,
+      owner,
+      repo: repoName,
       name: finalName,
       path: clonePath,
     })

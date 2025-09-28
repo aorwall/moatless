@@ -52,9 +52,10 @@ export function RepositoryConfigCreateSection({
       }
 
       // Extract name from URL for validation
-      // Support both HTTPS and SSH URLs
+      // Support HTTPS, GitHub SSH, and generic Git SSH URLs
       const httpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/
-      const sshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
+      const githubSshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
+      const genericGitSshPattern = /^git@[^:]+:(?:[^/]+\/)?([^/.]+?)(?:\.git)?$/
 
       let repoName: string | undefined
 
@@ -63,15 +64,21 @@ export function RepositoryConfigCreateSection({
       if (match) {
         repoName = match[1]
       } else {
-        // Try SSH pattern
-        match = remoteUrl.match(sshPattern)
+        // Try GitHub SSH pattern
+        match = remoteUrl.match(githubSshPattern)
         if (match) {
           repoName = match[2]
+        } else {
+          // Try generic Git SSH pattern (e.g., git@fp:owner/repo.git)
+          match = remoteUrl.match(genericGitSshPattern)
+          if (match) {
+            repoName = match[1]
+          }
         }
       }
 
       if (!repoName) {
-        toast.error('Please enter a valid GitHub repository URL (HTTPS or SSH)')
+        toast.error('Please enter a valid Git repository URL (HTTPS or SSH)')
         return
       }
 
@@ -241,7 +248,7 @@ export function RepositoryConfigCreateSection({
             <ConfigurationInput
               value={formData.remoteUrl}
               onChange={(e) => handleGitHubUrlChange(e.target.value)}
-              placeholder="https://github.com/owner/repository or git@github.com:owner/repository.git"
+              placeholder="https://github.com/owner/repo or git@github.com:owner/repo.git or git@host:owner/repo.git"
               className={errors.remoteUrl ? 'border-destructive' : ''}
               autoFocus
             />

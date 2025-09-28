@@ -33,7 +33,7 @@ describe('PortService', () => {
   })
 
   describe('findAvailablePort', () => {
-    it('should find first available port in preview range', async () => {
+    it('should find first available port in specified range', async () => {
       const mockSocket = {
         setTimeout: vi.fn(),
         on: vi.fn(),
@@ -44,11 +44,11 @@ describe('PortService', () => {
       // Mock socket creation
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      // Mock first port (3000) as unavailable, second port (3001) as available
+      // Mock first port (9000) as unavailable, second port (9001) as available
       mockSocket.on
         .mockImplementationOnce((event: string, callback: () => void) => {
           if (event === 'connect') {
-            setTimeout(() => callback(), 10) // Port 3000 in use
+            setTimeout(() => callback(), 10) // Port 9000 in use
           }
           return mockSocket
         })
@@ -64,7 +64,7 @@ describe('PortService', () => {
         })
         .mockImplementationOnce((event: string, callback: () => void) => {
           if (event === 'timeout') {
-            setTimeout(() => callback(), 10) // Port 3001 available (timeout)
+            setTimeout(() => callback(), 10) // Port 9001 available (timeout)
           }
           return mockSocket
         })
@@ -79,10 +79,10 @@ describe('PortService', () => {
           return mockSocket
         })
 
-      const port = await portService.findAvailablePort('preview')
+      const port = await portService.findAvailablePort(9000)
 
-      expect(port).toBe(3001)
-      expect(mockLogger.debug).toHaveBeenCalledWith('Found available port 3001 for type: preview')
+      expect(port).toBe(9001)
+      expect(mockLogger.debug).toHaveBeenCalledWith('Found and reserved available port 9001')
     })
 
     it('should throw error when no ports available in range', async () => {
@@ -100,14 +100,8 @@ describe('PortService', () => {
 
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      await expect(portService.findAvailablePort('preview')).rejects.toThrow(
-        'No available ports in range 3000-3999 for type: preview',
-      )
-    })
-
-    it('should throw error for invalid port type', async () => {
-      await expect(portService.findAvailablePort('invalid' as any)).rejects.toThrow(
-        'Invalid port type: invalid',
+      await expect(portService.findAvailablePort(9000)).rejects.toThrow(
+        'No available ports in range 9000-9999',
       )
     })
   })

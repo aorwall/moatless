@@ -12,7 +12,7 @@ export function Markdown({ content, className }: MarkdownProps) {
   return (
     <div
       className={cn(
-        'prose prose-sm dark:prose-invert max-w-none',
+        'prose prose-sm dark:prose-invert max-w-none w-full',
         'prose-p:my-2',
         'prose-pre:bg-gray-100 prose-pre:dark:bg-gray-800',
         'prose-pre:text-gray-800 prose-pre:dark:text-gray-200',
@@ -33,7 +33,7 @@ export function Markdown({ content, className }: MarkdownProps) {
         components={{
           pre: ({ children, ...props }) => (
             <pre
-              className="overflow-x-auto rounded-md bg-gray-100 dark:bg-gray-800 p-4 text-sm"
+              className="overflow-x-auto rounded-md bg-gray-100 dark:bg-gray-800 p-4 text-sm max-w-full contain-inline-size"
               {...props}
             >
               {children}
@@ -49,7 +49,7 @@ export function Markdown({ content, className }: MarkdownProps) {
                 {children}
               </code>
             ) : (
-              <code className={className} {...props}>
+              <code className={cn('max-w-full block', className)} {...props}>
                 {children}
               </code>
             )

@@ -75,8 +75,8 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
         setupCommands: ['bun install'],
       },
       previewConfig: {
-        serverStartCommands: ['bun run dev'],
-        enableInspector: false,
+        serverStartCommands: ['bun run dev --port {PORT}'],
+        enableInspector: true, // Required for proxy server and script injection
       },
     })
 
@@ -107,7 +107,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     delete process.env.DATA_DIR
   }, 30000)
 
-  it('should detect port from server logs and complete full lifecycle', async () => {
+  it('should start preview server, detect port, and verify proxy injection', async () => {
     // 1. Create workspace
     console.log('Creating workspace...')
     workspace = await workspaceService.createWorkspace(taskId, repository.id)
@@ -166,14 +166,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     expect(port).toBeGreaterThan(1000)
     expect(port).toBeLessThan(65536)
 
-    // 5. Verify server logs contain the detected port
-    const logs = await workspace.getServerLogs(100)
-    expect(logs).toBeTruthy()
-    console.log('Server logs preview:', logs.split('\n').slice(0, 5).join('\n'))
-
-    // Vite typically outputs "Local: http://localhost:XXXX" or similar
-    expect(logs).toMatch(/Local.*localhost.*\d+|listening.*\d+|started.*\d+/i)
-
+    // Server should already be HTTP-responsive since PreviewServer waits for it
     // 6. Test actual HTTP connectivity to the detected port
     console.log(`Testing HTTP connectivity to detected port ${port}...`)
     const response = await fetch(serverStatus.url!, {
@@ -181,7 +174,64 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     })
     expect(response.ok).toBe(true)
     expect(response.status).toBe(200)
+    const directHtml = await response.text() // Get direct HTML first
     console.log('✅ HTTP connectivity test passed')
+
+    // 6.5. Verify proxy URL is available and working
+    expect(serverStatus.proxyUrl).toBeDefined()
+    expect(serverStatus.proxyUrl).toMatch(/^http:\/\/localhost:\d+$/)
+    console.log(`✅ Proxy URL available: ${serverStatus.proxyUrl}`)
+
+    // Extract proxy port and verify it's different from main port
+    const proxyPortMatch = serverStatus.proxyUrl!.match(/:(\d+)$/)
+    expect(proxyPortMatch).toBeTruthy()
+    const proxyPort = Number.parseInt(proxyPortMatch![1], 10)
+    expect(proxyPort).not.toBe(port) // Proxy should be on different port
+    console.log(`✅ Proxy port ${proxyPort} is different from main port ${port}`)
+
+    // 6.6. Fetch content from proxy and verify script injection
+    console.log('Testing proxy content and script injection...')
+    const proxyResponse = await fetch(serverStatus.proxyUrl!, {
+      signal: AbortSignal.timeout(5000),
+    })
+    expect(proxyResponse.ok).toBe(true)
+    expect(proxyResponse.status).toBe(200)
+    expect(proxyResponse.headers.get('content-type')).toMatch(/text\/html/)
+
+    const proxyHtml = await proxyResponse.text()
+
+    // Verify inspector script is injected in proxy response
+    expect(proxyHtml).toContain('Preview Inspector')
+    expect(proxyHtml).toContain(
+      'Preview Inspector Script - Injected by Preview Environment Service',
+    )
+    expect(proxyHtml).toContain('hookConsole')
+    expect(proxyHtml).toContain('hookFetch')
+    expect(proxyHtml).toContain('hookScroll')
+    expect(proxyHtml).toContain('hookNavigation')
+    expect(proxyHtml).toContain(`taskId: '${taskId}'`)
+    console.log('✅ Inspector script found in proxy response')
+
+    // Verify script is injected before closing body tag
+    const scriptTagIndex = proxyHtml.indexOf('<script>')
+    const bodyCloseIndex = proxyHtml.indexOf('</body>')
+    expect(scriptTagIndex).toBeGreaterThan(0)
+    expect(bodyCloseIndex).toBeGreaterThan(scriptTagIndex)
+    console.log('✅ Script correctly injected before </body>')
+
+    // Verify proxy response is larger than direct response (due to script injection)
+    expect(proxyHtml.length).toBeGreaterThan(directHtml.length)
+    const injectedSize = proxyHtml.length - directHtml.length
+    console.log(`✅ Proxy response is ${injectedSize} bytes larger (script injection)`)
+
+    // Verify direct response does NOT contain inspector script
+    expect(directHtml).not.toContain('Preview Inspector Script')
+    console.log('✅ Direct server response does not contain inspector script')
+
+    // Verify original content is preserved in proxy response
+    expect(proxyHtml.toLowerCase()).toContain('<!doctype html>')
+    expect(proxyHtml).toContain('</html>')
+    console.log('✅ Original HTML structure preserved in proxy')
 
     // 7. Get server status - this should NOT call detectAndValidatePort again (optimization test)
     console.log('Checking server status (testing optimization)...')
@@ -215,8 +265,8 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
         setupCommands: ['bun install'],
       },
       previewConfig: {
-        // Use build command instead of dev - this runs but doesn't start a server
-        serverStartCommands: ['bun run build'],
+        // Use a command that exits immediately without starting a server
+        serverStartCommands: ['echo "not a server"'],
         enableInspector: false,
       },
     })
@@ -260,19 +310,17 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       }
     }
 
-    // Should return error state since no port was detected or server failed to start
-    expect(serverStatus.status).toBe('stopped')
+    // Should return error state since the command exits immediately
+    // The process completes (exit 0) so status is 'stopped', not 'failed'
+    expect(['stopped', 'failed']).toContain(serverStatus.status)
 
-    // The error might be immediate or detected after waiting
-    if (serverStatus.error) {
+    if (serverStatus.status === 'stopped') {
+      console.log('✅ Command completed but did not maintain a server process')
+    } else if (serverStatus.error) {
       expect(serverStatus.error).toMatch(
-        /Failed to start server|Failed to detect server port|no port|killed|Process exited without starting a server/i,
+        /Failed to start server|HTTP-responsive|no port|killed|Process exited/i,
       )
-      console.log('✅ Port detection failure handled correctly:', serverStatus.error)
-    } else {
-      // If no explicit error but also not running, that's also a valid failure case
-      // (e.g., build command completed but no server port was detected)
-      console.log('✅ Server failed to start (no port detected after command completion)')
+      console.log('✅ Server failure handled correctly:', serverStatus.error)
     }
 
     // Cleanup

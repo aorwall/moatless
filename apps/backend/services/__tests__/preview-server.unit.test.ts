@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTaskLogger } from '../../utils/logger.js'
+import { PortService } from '../port.service.js'
 import { PreviewServer } from '../preview-server.js'
 
 // Mock all external dependencies
-vi.mock('../../utils/port-allocation.js', () => ({
-  findAvailablePort: vi.fn(),
-}))
+vi.mock('../port.service.js')
 vi.mock('../../utils/logger.js')
 
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)
@@ -13,7 +12,7 @@ const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 describe('PreviewServer - Unit Tests', () => {
   let previewServer: PreviewServer
   let mockLogger: any
-  let mockFindAvailablePort: any
+  let mockPortService: any
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -27,10 +26,11 @@ describe('PreviewServer - Unit Tests', () => {
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
 
-    // Mock port allocation utility - import after mocking
-    const { findAvailablePort } = await import('../../utils/port-allocation.js')
-    mockFindAvailablePort = vi.mocked(findAvailablePort)
-    mockFindAvailablePort.mockResolvedValue(3000)
+    // Mock PortService
+    mockPortService = {
+      findAvailablePort: vi.fn().mockResolvedValue(9000),
+    }
+    vi.mocked(PortService).mockImplementation(() => mockPortService)
 
     previewServer = new PreviewServer('test-task', '/test/workspace')
   })
@@ -61,9 +61,10 @@ describe('PreviewServer - Unit Tests', () => {
   })
 
   describe('Port Management Integration', () => {
-    it('should use port allocation utility', () => {
-      // Port allocation is now handled by utility functions
-      expect(mockFindAvailablePort).toBeDefined()
+    it('should use PortService for port allocation', () => {
+      // Port allocation is now handled by PortService
+      expect(mockPortService).toBeDefined()
+      expect(mockPortService.findAvailablePort).toBeDefined()
     })
 
     it('should be constructed with taskId for port allocation', () => {
@@ -130,15 +131,15 @@ describe('PreviewServer - Unit Tests', () => {
     it('should return port when server has allocated port', () => {
       // Simulate port allocation by setting internal port
       // This would normally happen during start()
-      ;(previewServer as any).port = 3000
+      ;(previewServer as any).port = 9000
 
       const port = previewServer.getPort()
-      expect(port).toBe(3000)
+      expect(port).toBe(9000)
     })
 
     it('should return correct port after multiple allocations', () => {
       // Test different port values
-      const testPorts = [3000, 3001, 4000, 8080]
+      const testPorts = [9000, 9001, 9100, 9999]
 
       testPorts.forEach((testPort) => {
         ;(previewServer as any).port = testPort
@@ -148,8 +149,8 @@ describe('PreviewServer - Unit Tests', () => {
 
     it('should return undefined when port is reset', () => {
       // Set a port first
-      ;(previewServer as any).port = 3000
-      expect(previewServer.getPort()).toBe(3000)
+      ;(previewServer as any).port = 9000
+      expect(previewServer.getPort()).toBe(9000)
 
       // Reset port (happens during stop)
       ;(previewServer as any).port = undefined

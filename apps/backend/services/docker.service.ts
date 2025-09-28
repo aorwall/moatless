@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import type { RepositoryConfig } from '@moatless/types'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
-import { findAvailablePort } from '../utils/port-allocation.js'
+import { PortService } from './port.service.js'
 import type { SettingsService } from './settings.service.js'
 
 const execAsync = promisify(exec)
@@ -442,7 +442,8 @@ export class DockerService {
    * Allocate port for worker
    */
   async allocateWorkerPort(): Promise<PortMapping> {
-    const workerPort = await findAvailablePort('worker')
+    const portService = new PortService(this.logger)
+    const workerPort = await portService.findAvailablePort(8000)
     return { containerPort: 8001, hostPort: workerPort }
   }
 

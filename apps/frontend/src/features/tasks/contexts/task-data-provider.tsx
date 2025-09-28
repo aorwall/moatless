@@ -1,10 +1,4 @@
-import type {
-  Event,
-  GitDiffResponse,
-  TaskIteration,
-  TaskResponse,
-  WorkspaceStatusResponse,
-} from '@moatless/types'
+import type { Event, GitDiffResponse, TaskIteration, TaskResponse } from '@moatless/types'
 import { useQuery } from '@tanstack/react-query'
 import {
   createContext,
@@ -34,9 +28,6 @@ interface TaskDataContextValue {
 
   // Git diff data
   gitDiff: GitDiffResponse | undefined
-
-  // Workspace status
-  workspaceStatus: WorkspaceStatusResponse | undefined
 
   // Derived flags for components (stable primitives)
   canExecute: boolean
@@ -88,25 +79,6 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     enabled: !!taskId && !taskId.startsWith('temp-'),
     staleTime: 10 * 60 * 1000, // 10 minutes - git diff doesn't change frequently
     retry: false, // Don't retry on failure
-  })
-
-  // Workspace status query
-  const workspaceQuery = useQuery({
-    queryKey: queryKeys.tasks.workspaceStatus(taskId),
-    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
-    enabled: !!taskId && !taskId.startsWith('temp-') && taskQuery.data?.status === 'open',
-    refetchInterval: (query) => {
-      const data = query.state.data as WorkspaceStatusResponse | undefined
-      const envStatus = data?.environmentStatus
-      const agentState = data?.agentState
-
-      // Only poll when in transitional states
-      if (envStatus === 'initializing' || envStatus === 'cleaning' || agentState === 'running') {
-        return 3000 // 3 seconds for transitional states
-      }
-      return false // Stop polling when stable
-    },
-    staleTime: 2000, // Consider data stale after 2 seconds
   })
 
   // Events query - historical events from API
@@ -196,9 +168,6 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       // Git diff data
       gitDiff: gitDiffQuery.data,
 
-      // Workspace status
-      workspaceStatus: workspaceQuery.data,
-
       // Derived flags (stable primitives)
       canExecute: taskPrimitives?.canExecute ?? false,
       isAgentRunning,
@@ -220,7 +189,6 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       taskId,
       taskPrimitives,
       gitDiffQuery.data,
-      workspaceQuery.data,
       isAgentRunning,
       eventPrimitives,
       streamingEvents,
@@ -282,11 +250,6 @@ export function useGitDiffWithLoading() {
     isLoading: gitDiffQuery.isLoading,
     error: gitDiffQuery.error,
   }
-}
-
-export function useWorkspaceStatus() {
-  const { workspaceStatus } = useTaskData()
-  return workspaceStatus
 }
 
 // Performance optimized hooks that only return specific fields

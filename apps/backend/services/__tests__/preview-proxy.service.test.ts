@@ -1,6 +1,6 @@
 import http from 'node:http'
-import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Logger } from '../../utils/logger.js'
 import { createPreviewProxy, PreviewProxyService } from '../preview-proxy.service.js'
 
 describe('PreviewProxyService', () => {

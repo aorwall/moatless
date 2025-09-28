@@ -1,13 +1,10 @@
 import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import {
-  useIsAgentRunning,
-  useTaskData,
-  useWorkspaceStatus,
-} from '@/features/tasks/contexts/task-data-provider'
+import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,
@@ -21,8 +18,8 @@ export function FileExplorerHeader() {
   const { taskId, status } = useTaskData()
 
   // Get workspace status and agent running state
-  const workspace = useWorkspaceStatus()
-  const gitStatus = workspace?.gitStatus
+  const workspaceQuery = useWorkspaceStatusWithTask(taskId)
+  const gitStatus = workspaceQuery.data?.gitStatus
   const isAgentRunning = useIsAgentRunning()
 
   const mergeTask = useMergeTask(taskId, {

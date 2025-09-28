@@ -283,6 +283,9 @@ export const WorkspaceStatusResponseSchema = z.object({
   isRunning: z.boolean(),
   workspaceReady: z.boolean(),
   canExecute: z.boolean(),
+
+  // Logging
+  logFilePath: z.string().optional(),
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>

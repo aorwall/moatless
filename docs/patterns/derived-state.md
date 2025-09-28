@@ -315,7 +315,7 @@ Effects are still appropriate for:
 
 ## Specific Refactoring Opportunities in Task Components
 
-### 1. ChatView Component (chat-view.tsx)
+### 1. ChatView Component (chat-container.tsx)
 
 #### Scroll Position State Synchronization (Lines 51-59, 106-145)
 **Current Pattern:**

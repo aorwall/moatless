@@ -2,19 +2,9 @@ import { exec, execSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as net from 'node:net'
 import { promisify } from 'node:util'
-import type { Logger } from 'pino'
-import { createTaskLogger } from '../utils/logger.js'
+import { createTaskLogger, type Logger } from '../utils/logger.js'
 
 const execAsync = promisify(exec)
-
-// Port range constants
-export const PORT_RANGES = {
-  PREVIEW: { min: 3000, max: 3999 },
-  WORKER: { min: 4000, max: 4999 },
-  GENERAL: { min: 8000, max: 8999 },
-} as const
-
-export type PortType = 'preview' | 'worker' | 'general'
 
 /**
  * Comprehensive port management service that handles all port-related operations
@@ -22,6 +12,7 @@ export type PortType = 'preview' | 'worker' | 'general'
  */
 export class PortService {
   private logger: Logger
+  private static allocatedPorts = new Set<number>()
 
   constructor(logger?: Logger) {
     this.logger = logger || createTaskLogger('port-service')
@@ -32,23 +23,36 @@ export class PortService {
   // ===============================
 
   /**
-   * Finds the first available port in the specified range
+   * Finds the first available port starting from basePort
+   * @param basePort - Starting port number (e.g., 9000 for preview, 6000 for proxy)
+   * @param rangeSize - Number of ports to search (default: 1000)
    */
-  async findAvailablePort(type: PortType = 'general'): Promise<number> {
-    const range = PORT_RANGES[type.toUpperCase() as keyof typeof PORT_RANGES]
+  async findAvailablePort(basePort: number, rangeSize = 1000): Promise<number> {
+    const maxPort = basePort + rangeSize - 1
 
-    if (!range) {
-      throw new Error(`Invalid port type: ${type}`)
-    }
+    for (let port = basePort; port <= maxPort; port++) {
+      // Skip already allocated ports
+      if (PortService.allocatedPorts.has(port)) {
+        continue
+      }
 
-    for (let port = range.min; port <= range.max; port++) {
       if (await this.isPortAvailable(port)) {
-        this.logger.debug(`Found available port ${port} for type: ${type}`)
+        // Reserve the port immediately
+        PortService.allocatedPorts.add(port)
+        this.logger.debug(`Found and reserved available port ${port}`)
         return port
       }
     }
 
-    throw new Error(`No available ports in range ${range.min}-${range.max} for type: ${type}`)
+    throw new Error(`No available ports in range ${basePort}-${maxPort}`)
+  }
+
+  /**
+   * Release a port back to the available pool
+   */
+  releasePort(port: number): void {
+    PortService.allocatedPorts.delete(port)
+    this.logger.debug(`Released port ${port}`)
   }
 
   /**
@@ -70,29 +74,58 @@ export class PortService {
   }
 
   /**
-   * Checks if a port is available (not in use)
+   * Try to connect to a host:port to check availability
    */
-  async isPortAvailable(port: number): Promise<boolean> {
+  private async tryConnect(
+    host: string,
+    port: number,
+    timeoutMs = 200,
+  ): Promise<'open' | 'refused' | 'other'> {
     return new Promise((resolve) => {
-      const client = new net.Socket()
-      client.setTimeout(100)
+      const s = new net.Socket()
 
-      client.on('connect', () => {
-        client.destroy()
-        resolve(false) // Port is in use
+      const done = (result: 'open' | 'refused' | 'other') => {
+        s.destroy()
+        resolve(result)
+      }
+
+      s.setTimeout(timeoutMs, () => done('other'))
+
+      s.once('connect', () => done('open'))
+      s.once('error', (err: NodeJS.ErrnoException) => {
+        if (err && (err.code === 'ECONNREFUSED' || err.code === 'EHOSTUNREACH')) {
+          return done('refused')
+        }
+        done('other')
       })
 
-      client.on('timeout', () => {
-        client.destroy()
-        resolve(true) // Port is available
-      })
-
-      client.on('error', () => {
-        resolve(true) // Port is available
-      })
-
-      client.connect(port, '127.0.0.1')
+      s.connect({ host, port })
     })
+  }
+
+  /**
+   * Checks if a port is available (not in use)
+   * Tests both IPv4 and IPv6 loopback addresses
+   */
+  async isPortAvailable(port: number, timeoutMs = 200): Promise<boolean> {
+    // Check IPv4 and IPv6 loopback
+    const results = await Promise.allSettled([
+      this.tryConnect('127.0.0.1', port, timeoutMs),
+      this.tryConnect('::1', port, timeoutMs),
+    ])
+
+    // If any path connects -> in use
+    if (results.some((r) => r.status === 'fulfilled' && r.value === 'open')) {
+      return false
+    }
+
+    // If both explicitly refused -> free
+    if (results.every((r) => r.status === 'fulfilled' && r.value === 'refused')) {
+      return true
+    }
+
+    // Ambiguous (timeout/other) -> treat as in use (conservative)
+    return false
   }
 
   /**
@@ -172,14 +205,6 @@ export class PortService {
     }
 
     return pids
-  }
-
-  /**
-   * Checks if a specific process (PID) is using a port
-   */
-  async isPortUsedByProcess(port: number, pid: number): Promise<boolean> {
-    const pids = await this.getProcessesUsingPort(port)
-    return pids.includes(pid)
   }
 
   /**

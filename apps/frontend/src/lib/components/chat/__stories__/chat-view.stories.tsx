@@ -5,10 +5,10 @@ import type {
   UploadFileResponse,
   UserMessage,
 } from '@moatless/types'
-import { action } from '@storybook/addon-actions'
 import type { Meta, StoryObj } from '@storybook/react'
 import { Brain, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { action } from 'storybook/actions'
 import { ChatInput, Files, Selectors, SendButton, UploadButton } from '../chat-input'
 import { SelectorButton } from '../chat-input/selectors'
 import { ChatView } from '../chat-view'

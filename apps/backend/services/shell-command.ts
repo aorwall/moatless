@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import type {
   ShellCommandInfo,
   ShellCommandLogEvent,
@@ -73,13 +74,21 @@ export class ShellCommand {
     const shellArgs = process.platform === 'win32' ? ['/c', shellCommand] : ['-c', shellCommand]
 
     // Spawn the process
+    // Use 'pipe' for stdin instead of 'ignore' to allow dev servers (like Next.js) to detect port conflicts
+    // When stdin is ignored, some dev servers skip port availability checks
     this.process = spawn(shell, shellArgs, {
       cwd: workingDirectory,
       env: { ...process.env, ...options?.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
 
     this.pid = this.process.pid
+
+    // Close stdin pipe to signal EOF to child process
+    // This allows dev servers to know they're running non-interactively
+    if (this.process.stdin) {
+      this.process.stdin.end()
+    }
 
     // Set up timeout if specified
     if (timeout) {
@@ -158,6 +167,10 @@ export class ShellCommand {
     if (!this.logFile) return
 
     try {
+      // Ensure directory exists before writing
+      const dir = path.dirname(this.logFile)
+      await fs.mkdir(dir, { recursive: true })
+
       const logLine = `[${logEvent.timestamp}] [${logEvent.type}] ${logEvent.text}`
       await fs.appendFile(this.logFile, logLine)
     } catch (error) {

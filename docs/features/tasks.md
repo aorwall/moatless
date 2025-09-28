@@ -80,7 +80,7 @@ TaskPage (h-full w-full flex flex-col)
 - Repository name, task title, status indicators
 - View toggle buttons for Files/Preview panels
 
-**ChatView** (`apps/frontend/src/features/tasks/components/chat-view/chat-view.tsx`)
+**ChatView** (`apps/frontend/src/features/tasks/components/chat-view/chat-container.tsx`)
 - Combines MessageHistory and ChatInput in proper flex layout
 - Ensures MessageHistory scrolls while ChatInput stays visible
 - Handles command buttons display when available

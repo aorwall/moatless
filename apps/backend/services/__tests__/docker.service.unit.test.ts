@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockerService } from '../docker.service.js'
+import { PortService } from '../port.service.js'
 import type { SettingsService } from '../settings.service.js'
 
 // Mock child_process at the module level
@@ -13,10 +14,8 @@ vi.mock('node:child_process', () => ({
   }),
 }))
 
-// Mock port allocation
-vi.mock('../../utils/port-allocation.js', () => ({
-  findAvailablePort: vi.fn().mockResolvedValue(8080),
-}))
+// Mock PortService
+vi.mock('../port.service.js')
 
 // Mock data-dir
 vi.mock('../../utils/data-dir.js', () => ({
@@ -87,8 +86,10 @@ describe('DockerService - Unit Tests', () => {
 
   describe('Port Allocation', () => {
     it('should allocate ports correctly', async () => {
-      const { findAvailablePort } = await import('../../utils/port-allocation.js')
-      vi.mocked(findAvailablePort).mockResolvedValue(8080)
+      const mockPortService = {
+        findAvailablePort: vi.fn().mockResolvedValue(8080),
+      }
+      vi.mocked(PortService).mockImplementation(() => mockPortService as any)
 
       const portMapping = await dockerService.allocateWorkerPort()
 
@@ -96,11 +97,14 @@ describe('DockerService - Unit Tests', () => {
         containerPort: 8001,
         hostPort: 8080,
       })
+      expect(mockPortService.findAvailablePort).toHaveBeenCalled()
     })
 
     it('should handle port allocation errors', async () => {
-      const { findAvailablePort } = await import('../../utils/port-allocation.js')
-      vi.mocked(findAvailablePort).mockRejectedValue(new Error('No ports available'))
+      const mockPortService = {
+        findAvailablePort: vi.fn().mockRejectedValue(new Error('No ports available')),
+      }
+      vi.mocked(PortService).mockImplementation(() => mockPortService as any)
 
       await expect(dockerService.allocateWorkerPort()).rejects.toThrow('No ports available')
     })

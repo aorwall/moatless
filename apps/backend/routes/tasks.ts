@@ -37,6 +37,7 @@ import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
+import { readTaskLog, taskLogExists } from '../utils/task-log.js'
 
 // All schemas are now imported from @moatless/types
 
@@ -1106,6 +1107,83 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
         logs,
         lines: logs.split('\n').length,
         truncated: false, // TODO: Implement truncation logic
+      })
+    },
+  )
+
+  // Get task logs (setup commands, server logs, all workspace operations)
+  app.get(
+    `${prefix}/:taskId/logs`,
+    describeRoute({
+      description:
+        'Get all task logs including setup commands, server logs, and workspace operations',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'lines',
+          in: 'query',
+          required: false,
+          description: 'Number of lines to retrieve from the end of the log',
+          schema: {
+            type: 'number',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Task logs retrieved successfully',
+          content: {
+            'application/json': {
+              schema: resolver(ServerLogsResponseExtendedSchema) as any,
+            },
+          },
+        },
+        404: {
+          description: 'Task not found or logs not available',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = getTaskId(c)
+
+      // Validate task exists
+      const task = await services.storage.getTask(taskId)
+      if (!task) {
+        throw new TaskNotFoundError(taskId)
+      }
+
+      // Parse query parameters
+      const queryParams = c.req.query()
+      const validatedQuery = ServerLogsQuerySchema.parse({
+        lines: queryParams.lines ? Number.parseInt(queryParams.lines) : undefined,
+      })
+      const { lines } = validatedQuery
+
+      // Check if log file exists
+      const logExists = await taskLogExists(taskId)
+      if (!logExists) {
+        return c.json({
+          logs: '',
+          lines: 0,
+          truncated: false,
+        })
+      }
+
+      // Read task logs
+      const logs = await readTaskLog(taskId, lines)
+      return c.json({
+        logs,
+        lines: logs.split('\n').filter((line) => line.trim() !== '').length,
+        truncated: lines !== undefined && lines > 0,
       })
     },
   )

@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
-import type { Logger } from 'pino'
+import type { Logger } from '../utils/logger.js'
 
 interface ProxyConfig {
   targetUrl: string
@@ -178,12 +178,11 @@ export function createPreviewProxy(
   targetUrl: string,
   scriptContent: string,
   logger: Logger,
-  basePort = 9000,
+  proxyPort: number,
 ): PreviewProxyService {
-  // Use the provided port directly
   return new PreviewProxyService({
     targetUrl,
-    proxyPort: basePort,
+    proxyPort,
     scriptContent,
     logger,
   })

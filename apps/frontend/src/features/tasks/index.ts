@@ -33,7 +33,6 @@ export {
   useTaskMetadata,
   useTaskStatus,
   useTaskUI,
-  useWorkspaceStatus,
 } from './contexts/task-providers'
 
 // Hooks

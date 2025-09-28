@@ -20,6 +20,7 @@ import {
   isGitWorktree,
 } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
+import { getTaskLogPath } from '../utils/task-log.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
@@ -88,7 +89,14 @@ export class WorkspaceService {
       )
     } else {
       logger.info('Creating Local environment', { taskId, workspacePath })
-      environment = new LocalEnvironment(taskId, repository, workspacePath, this.eventService)
+      const logFilePath = getTaskLogPath(taskId)
+      environment = new LocalEnvironment(
+        taskId,
+        repository,
+        workspacePath,
+        this.eventService,
+        logFilePath,
+      )
     }
 
     // Create unified workspace that composes the environment and file operations
@@ -601,7 +609,14 @@ export class WorkspaceService {
           branchName,
           existingWorkspacePath,
         })
-        environment = new LocalEnvironment(taskId, repository, workspacePath, this.eventService)
+        const logFilePath = getTaskLogPath(taskId)
+        environment = new LocalEnvironment(
+          taskId,
+          repository,
+          workspacePath,
+          this.eventService,
+          logFilePath,
+        )
       }
 
       // Create unified workspace that composes the environment and file operations

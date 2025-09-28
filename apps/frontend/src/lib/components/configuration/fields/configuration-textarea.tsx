@@ -32,5 +32,5 @@ export function ConfigurationTextarea({
     onKeyDown?.(e)
   }
 
-  return <Textarea className="bg-input min-h-[80px]" onKeyDown={handleKeyDown} {...props} />
+  return <Textarea className="min-h-[80px]" onKeyDown={handleKeyDown} {...props} />
 }

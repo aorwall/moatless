@@ -1,12 +1,14 @@
 import { useParams } from '@tanstack/react-router'
 import React from 'react'
 import { FileExplorer } from '@/features/file-viewer'
-import { Preview, useServerStatus } from '@/features/preview'
+import { Preview } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { Skeleton } from '@/lib/components/ui/skeleton'
 import { usePanelView, useTaskData } from '../contexts/task-providers'
-import { ChatView } from './chat-view/chat-view'
+import { useWorkspaceStatusWithTask } from '../hooks/use-workspace-status'
+import { ChatView } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskDetailSkeleton } from './task-skeletons'
 
@@ -17,10 +19,14 @@ function TaskPageComponent() {
   const { isLoading, error } = useTaskData()
   const { rightPanelView } = usePanelView()
 
-  // All hooks at the top before any conditional logic
-  const { data: serverStatus } = useServerStatus(taskId, {
-    enabled: rightPanelView === 'preview',
-  })
+  // Fetch workspace status to determine capabilities and server URL
+  const workspaceStatusQuery = useWorkspaceStatusWithTask(taskId)
+  const workspaceStatus = workspaceStatusQuery.data
+  const serverManagement = workspaceStatus?.capabilities.serverManagement
+
+  // Determine effective panel view based on workspace status
+  const effectivePanelView =
+    workspaceStatus && serverManagement && rightPanelView === 'files' ? 'preview' : rightPanelView
 
   if (error) {
     return <ErrorAlert error={error} />
@@ -45,13 +51,25 @@ function TaskPageComponent() {
 
         {/* Right Panel - Files/Preview */}
         <ResizablePanel className="flex flex-col">
-          <ErrorBoundary componentName={rightPanelView === 'files' ? 'File Explorer' : 'Preview'}>
-            {rightPanelView === 'files' ? (
-              <FileExplorer taskId={taskId} />
-            ) : (
-              <Preview config={{ url: serverStatus?.url || '' }} serverStatus={serverStatus} />
-            )}
-          </ErrorBoundary>
+          {workspaceStatusQuery.isLoading ? (
+            <div className="p-4 space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-64 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : workspaceStatusQuery.error ? (
+            <ErrorAlert error={workspaceStatusQuery.error} />
+          ) : (
+            <ErrorBoundary
+              componentName={effectivePanelView === 'files' ? 'File Explorer' : 'Preview'}
+            >
+              {effectivePanelView === 'files' ? (
+                <FileExplorer taskId={taskId} />
+              ) : (
+                <Preview config={{ url: '' }} />
+              )}
+            </ErrorBoundary>
+          )}
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

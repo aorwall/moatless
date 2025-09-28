@@ -2,6 +2,7 @@ import { CreateTaskRequestSchema, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import {
   BranchPopoverContent,
   PopoverSelector,
@@ -10,8 +11,7 @@ import {
   useAgentModeSelector,
   useBranchSelector,
   useRepositorySelector,
-} from '@/features/tasks/components/chat-input/selectors'
-import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+} from '@/lib/components/chat/chat-input/selectors'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Label } from '@/lib/components/ui/label'

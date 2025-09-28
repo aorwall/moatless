@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ChatInput } from '../../chat-input/chat-input'
+import { ChatInput } from '@/lib/components/chat/chat-input/chat-input'
 
 // Mock the file autocomplete hook
 vi.mock('@/lib/hooks/use-universal-file-autocomplete', () => ({
@@ -164,17 +164,14 @@ describe('ChatInput (MessageInput replacement)', () => {
     expect(screen.getByText('Submit')).toBeInTheDocument()
   })
 
-  it('renders selectors when provided', () => {
+  it('renders children when provided', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
     render(
-      <ChatInput
-        message=""
-        onMessageChange={handleChange}
-        onSubmit={handleSubmit}
-        selectors={<div data-testid="test-selector">Test Selector</div>}
-      />,
+      <ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit}>
+        <div data-testid="test-selector">Test Selector</div>
+      </ChatInput>,
     )
 
     expect(screen.getByTestId('test-selector')).toBeInTheDocument()
@@ -205,7 +202,7 @@ describe('ChatInput (MessageInput replacement)', () => {
         message=""
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
-        maxHeight="150px"
+        className="max-h-[150px]"
       />,
     )
 
@@ -234,7 +231,7 @@ describe('ChatInput (MessageInput replacement)', () => {
     expect(textarea.style.height).toBe('80px')
   })
 
-  it('respects maxHeight when auto-resizing', () => {
+  it('respects className for styling', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
@@ -243,64 +240,21 @@ describe('ChatInput (MessageInput replacement)', () => {
         message=""
         onMessageChange={handleChange}
         onSubmit={handleSubmit}
-        maxHeight="100px"
+        className="max-h-[100px]"
       />,
     )
 
     const textarea = screen.getByPlaceholderText('Type a message...')
-    expect(textarea.style.maxHeight).toBe('100px')
+    expect(textarea).toBeInTheDocument()
   })
 
-  it('does not show file autocomplete when no repositoryId is provided', () => {
+  it('renders as a pure UI component without hooks', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
 
     render(<ChatInput message="@test" onMessageChange={handleChange} onSubmit={handleSubmit} />)
 
-    expect(screen.queryByTestId('file-autocomplete')).not.toBeInTheDocument()
-  })
-
-  it('can be used with repositoryId for file search functionality', () => {
-    const handleChange = vi.fn()
-    const handleSubmit = vi.fn()
-
-    render(
-      <ChatInput
-        message=""
-        onMessageChange={handleChange}
-        onSubmit={handleSubmit}
-        repositoryId="repo-123"
-      />,
-    )
-
-    // The component should render without errors when repositoryId is provided
+    // Should render successfully as a pure UI component
     expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
-  })
-
-  it('does not show file upload button by default', () => {
-    const handleChange = vi.fn()
-    const handleSubmit = vi.fn()
-
-    render(<ChatInput message="" onMessageChange={handleChange} onSubmit={handleSubmit} />)
-
-    // Should not show file upload button when enableFileUpload is false (default)
-    expect(screen.queryByRole('button', { name: 'Upload file' })).not.toBeInTheDocument()
-  })
-
-  it('shows file upload button when enableFileUpload is true', () => {
-    const handleChange = vi.fn()
-    const handleSubmit = vi.fn()
-
-    render(
-      <ChatInput
-        message=""
-        onMessageChange={handleChange}
-        onSubmit={handleSubmit}
-        enableFileUpload={true}
-      />,
-    )
-
-    // Should show file upload button when enableFileUpload is true
-    expect(screen.getByRole('button', { name: 'Upload file' })).toBeInTheDocument()
   })
 })

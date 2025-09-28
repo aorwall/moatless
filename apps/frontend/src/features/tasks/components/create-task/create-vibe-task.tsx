@@ -3,14 +3,21 @@ import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
-import { getErrorMessage } from '@/lib/utils/error'
-import { ChatInput } from '../chat-input/chat-input'
+import { useUploadFile } from '@/features/uploads/hooks/use-upload'
+import {
+  ChatInput,
+  Files,
+  Selectors,
+  SendButton,
+  UploadButton,
+} from '@/lib/components/chat/chat-input'
 import {
   PopoverSelector,
   SimpleListPopoverContent,
   useModelSelector,
   useTemplateSelector,
-} from '../chat-input/selectors'
+} from '@/lib/components/chat/chat-input/selectors'
+import { getErrorMessage } from '@/lib/utils/error'
 
 interface CreateVibeTaskProps {
   className?: string
@@ -46,6 +53,19 @@ export function CreateVibeTask({
   // Use controlled selectors
   const modelSelector = useModelSelector(model, onModelChange)
   const templateSelector = useTemplateSelector(templateId, onTemplateChange, true)
+
+  // File upload hook
+  const uploadFile = useUploadFile({
+    onSuccess: (data) => {
+      setUploadedFiles((prev) => [...prev, data])
+    },
+    onError: (error) => {
+      console.error('File upload failed:', error)
+      toast.error('Failed to upload file', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
 
   const createVibeTask = useCreateVibeTask({
     onSuccess: (data) => {
@@ -105,15 +125,19 @@ export function CreateVibeTask({
           onSubmit={handleSubmit}
           disabled={isSendDisabled}
           placeholder="Describe what you want to build from this template..."
-          buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}
-          loading={createVibeTask.isPending}
-          maxHeight={maxHeight}
-          minHeight={minHeight}
-          enableFileUpload={true}
-          files={uploadedFiles}
-          onFilesChange={setUploadedFiles}
-          selectors={
-            <>
+          className={
+            maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
+          }
+        >
+          {uploadedFiles.length > 0 && (
+            <Files
+              files={uploadedFiles}
+              onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
+            />
+          )}
+
+          <div className="flex items-center justify-between gap-2">
+            <Selectors>
               <PopoverSelector
                 icon={templateSelector.icon}
                 value={templateSelector.value}
@@ -142,9 +166,23 @@ export function CreateVibeTask({
                   onChange={modelSelector.onChange}
                 />
               </PopoverSelector>
-            </>
-          }
-        />
+            </Selectors>
+
+            <div className="flex items-center gap-2">
+              <UploadButton
+                onFileSelect={(file) => uploadFile.mutate(file)}
+                disabled={uploadFile.isPending}
+              />
+              <SendButton
+                onSubmit={handleSubmit}
+                disabled={isSendDisabled}
+                loading={createVibeTask.isPending}
+                buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}
+                message={message}
+              />
+            </div>
+          </div>
+        </ChatInput>
       </div>
     </div>
   )

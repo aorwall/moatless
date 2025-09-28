@@ -20,5 +20,5 @@ export function ConfigurationInput({
     onKeyDown?.(e)
   }
 
-  return <Input className="bg-input" onKeyDown={handleKeyDown} {...props} />
+  return <Input onKeyDown={handleKeyDown} {...props} />
 }

@@ -26,6 +26,7 @@ import type { BaseAgent } from '../services/index.js'
 import type { GitDiffResponse } from '../utils/index.js'
 import { syncWithMain } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
+import { getTaskLogPath } from '../utils/task-log.js'
 
 // Type guards for environment types
 function isLocalEnvironment(env: BaseEnvironment): env is LocalEnvironment {
@@ -45,6 +46,7 @@ function isDockerEnvironment(env: BaseEnvironment): env is DockerEnvironment {
 export class Workspace {
   private fileOperations: FileOperations
   private logger
+  private logFilePath: string
 
   // Properties that match the previous BaseWorkspace interface
   get id(): string {
@@ -95,6 +97,9 @@ export class Workspace {
     // Initialize logger
     this.logger = createTaskLogger(taskId)
 
+    // Initialize log file path
+    this.logFilePath = getTaskLogPath(taskId)
+
     // Initialize FileOperations with the workspace path from environment
     const initialWorkspacePath = workspacePath || environment.getWorkspacePath()
     this.fileOperations = new FileOperations(taskId, initialWorkspacePath, originalBranch)
@@ -105,7 +110,15 @@ export class Workspace {
       repositoryPath: repositoryConfig.path,
       workspacePath: initialWorkspacePath,
       hasOriginalBranch: !!originalBranch,
+      logFilePath: this.logFilePath,
     })
+  }
+
+  /**
+   * Get the log file path for this workspace
+   */
+  getLogFilePath(): string {
+    return this.logFilePath
   }
 
   /**
@@ -573,6 +586,9 @@ export class Workspace {
 
       // Config status
       configOutdated: false, // Will be set by WorkspaceService if needed
+
+      // Logging
+      logFilePath: this.logFilePath,
     }
   }
 

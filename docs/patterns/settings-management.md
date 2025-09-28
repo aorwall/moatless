@@ -1,6 +1,6 @@
 # Settings Management Pattern
 
-This document describes the settings management pattern used in the Moatless Swarm UI application, demonstrating how settings are organized into logical sections with dedicated API endpoints.
+This document describes the settings management pattern used in the Moatless Vibe UI application, demonstrating how settings are organized into logical sections with dedicated API endpoints.
 
 ## Overview
 
