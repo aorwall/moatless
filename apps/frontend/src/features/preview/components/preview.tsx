@@ -165,11 +165,47 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   }, [isInspectorActive, toggleSelector])
 
   // Use proxy URL if available, otherwise fall back to direct URL
-  const previewUrl = serverStatus?.proxyUrl
-    ? `${serverStatus.proxyUrl}${path}`
-    : serverStatus?.url
-      ? `${serverStatus.url}${path}`
-      : null
+  // Always load iframe with root path - navigation handled after load
+  const baseUrl = serverStatus?.proxyUrl || serverStatus?.url
+  const previewUrl = baseUrl ? `${baseUrl}/` : null
+
+  // Track if we need to update iframe src (only for initial load or explicit refresh)
+  const [iframeSrcKey, setIframeSrcKey] = useState(0)
+
+  // Navigate within the iframe without full page reload
+  const navigatePreview = useCallback((newPath: string) => {
+    if (iframeRef.current?.contentWindow) {
+      try {
+        // Update path state for UI
+        setPath(newPath)
+
+        // Navigate within the iframe using History API
+        const iframeWindow = iframeRef.current.contentWindow
+
+        // Check if the iframe supports client-side routing
+        if (iframeWindow.location.hash && iframeWindow.location.hash.startsWith('#/')) {
+          // Hash-based routing (e.g., React HashRouter)
+          iframeWindow.location.hash = '#' + newPath
+        } else {
+          // Regular routing (e.g., React BrowserRouter)
+          // Use replaceState for navigation without adding to history
+          iframeWindow.history.pushState(null, '', newPath)
+
+          // Dispatch a popstate event to trigger client-side routers
+          const popstateEvent = new PopStateEvent('popstate', { state: null })
+          iframeWindow.dispatchEvent(popstateEvent)
+        }
+      } catch (error) {
+        console.error('[Preview] Failed to navigate within iframe:', error)
+        // Fallback: force reload by changing iframe src key
+        setPath(newPath)
+        setIframeSrcKey((prev) => prev + 1)
+      }
+    } else {
+      // No iframe yet, just update path for initial load
+      setPath(newPath)
+    }
+  }, [])
 
   const toggleInspector = useCallback(() => {
     setIsInspectorActive((prev) => {
@@ -182,11 +218,8 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   }, [])
 
   const reloadPreview = useCallback(() => {
-    if (iframeRef.current) {
-      // Force reload by reassigning the same URL
-      const currentSrc = iframeRef.current.src
-      iframeRef.current.src = currentSrc
-    }
+    // Force reload by incrementing the iframe key
+    setIframeSrcKey((prev) => prev + 1)
   }, [])
 
   const handleIframeLoad = useCallback(() => {
@@ -197,10 +230,18 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     // If script is injected, we'll receive INSPECTOR_SCRIPT_LOADED message
     setScriptHealthStatus('not-injected')
 
+    // After iframe loads, navigate to the current path if not root
+    if (path !== '/' && iframeRef.current?.contentWindow) {
+      // Give the app time to initialize before navigating
+      setTimeout(() => {
+        navigatePreview(path)
+      }, 100)
+    }
+
     // Script injection is now handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
-  }, [])
+  }, [path, navigatePreview])
 
   const handleIframeError = useCallback(() => {
     setError('Failed to load preview')
@@ -215,7 +256,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader
         path={path}
-        onNavigate={setPath}
+        onNavigate={navigatePreview}
         isInspectorActive={isInspectorActive}
         onToggleInspector={toggleInspector}
         scriptHealthStatus={scriptHealthStatus}
@@ -343,6 +384,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
           {isConnected && previewUrl && (
             <>
               <iframe
+                key={iframeSrcKey}
                 ref={iframeRef}
                 src={previewUrl}
                 title="Application Preview"

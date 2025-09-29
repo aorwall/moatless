@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { RepositoryConfig } from '@moatless/types'
+import type { RepositoryConfig, ServerStatus } from '@moatless/types'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { DockerService } from '../services/docker.service.js'
@@ -12,6 +12,24 @@ import { getSettingsService } from '../services/settings.service.js'
 import { FileStorage } from '../services/storage.js'
 import { WorkspaceService } from '../services/workspace.service.js'
 import type { Workspace } from '../workspaces/workspace.js'
+
+// ========================================
+// Test Configuration Constants
+// ========================================
+const TEST_CONFIG = {
+  SETUP_TIMEOUT: 120000, // 2 minutes for repository cloning
+  TEST_TIMEOUT: 180000, // 3 minutes for full tests
+  SERVER_START_TIMEOUT: 30000, // 30 seconds for server to start
+  HTTP_TIMEOUT: 5000, // 5 seconds for HTTP requests
+  POLL_INTERVAL: 500, // 500ms between status polls
+  DELAY_BEFORE_RESTART: 1000, // 1 second delay before restart
+  MIN_PORT: 1000,
+  MAX_PORT: 65536,
+}
+
+// ========================================
+// Test Suite
+// ========================================
 
 describe('PreviewServer Full Integration Test with Port Detection', () => {
   let tempDir: string
@@ -26,7 +44,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-test-'))
     process.env.DATA_DIR = tempDir
 
-    console.log(`Test environment created at: ${tempDir}`)
+    log.info(`Test environment created at: ${tempDir}`)
 
     // Initialize services with minimal mocking
     const storage = new FileStorage(tempDir)
@@ -63,8 +81,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     )
 
     // Clone the real repository and use the actual dev server commands
-    // This tests the full integration with a real Vite development server
-    console.log('Creating repository from GitHub (using real bun run dev)...')
+    log.info('Creating repository from GitHub (using real bun run dev)...')
     repository = await repositoryService.createRepository({
       name: 'hello-world-test',
       sourceType: 'github',
@@ -80,434 +97,462 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       },
     })
 
-    console.log(`Repository created: ${repository.name} at ${repository.path}`)
+    log.info(`Repository created: ${repository.name} at ${repository.path}`)
 
     taskId = randomUUID()
-  }, 120000) // 2 minute timeout for cloning
+  }, TEST_CONFIG.SETUP_TIMEOUT)
 
   afterAll(async () => {
     // Cleanup workspace and temp directory
     try {
       if (workspace) {
-        console.log('Cleaning up workspace...')
+        log.info('Cleaning up workspace...')
         await workspace.teardown(true)
       }
     } catch (error) {
-      console.warn('Error during workspace cleanup:', error)
+      log.warn(`Error during workspace cleanup: ${error}`)
     }
 
     try {
-      console.log(`Removing temp directory: ${tempDir}`)
+      log.info(`Removing temp directory: ${tempDir}`)
       await fs.rm(tempDir, { recursive: true, force: true })
     } catch (error) {
-      console.warn('Error removing temp directory:', error)
+      log.warn(`Error removing temp directory: ${error}`)
     }
 
     // Clean up environment variable
     delete process.env.DATA_DIR
-  }, 30000)
+  }, TEST_CONFIG.SERVER_START_TIMEOUT)
 
-  it('should start preview server, detect port, and verify proxy injection', async () => {
-    // 1. Create workspace
-    console.log('Creating workspace...')
-    workspace = await workspaceService.createWorkspace(taskId, repository.id)
-    expect(workspace).toBeDefined()
-    expect(workspace.id).toBe(taskId)
+  it(
+    'should start preview server, detect port, and verify proxy injection',
+    async () => {
+      // 1. Create workspace
+      const result = await createTestWorkspace(workspaceService, repository.id, taskId)
+      workspace = result.workspace
 
-    // 2. Setup environment (runs bun install)
-    console.log('Setting up environment (running bun install)...')
-    await workspace.setup()
-    expect(workspace.status).toBe('ready')
+      // 2. Setup environment
+      await setupWorkspaceEnvironment(workspace)
 
-    // 3. Start server - this should detect port from logs since no {PORT} placeholder
-    console.log('Starting preview server (will detect port from logs)...')
-    const startResult = await workspace.startServer()
+      // 3. Start server and wait for it to be ready
+      const serverStatus = await startAndWaitForServer(workspace)
 
-    // 4. Wait for server to transition from 'starting' to 'running' state
-    let serverStatus = startResult
-    if (serverStatus.status === 'starting') {
-      console.log('Server is starting, waiting for port detection to complete...')
+      // 4. Verify server started successfully
+      expect(serverStatus.status).toBe('started')
+      expect(serverStatus.url).toBeDefined()
+      expect(serverStatus.url).toMatch(/^http:\/\/localhost:\d+$/)
 
-      const startTime = Date.now()
-      const timeout = 30000 // 30 second timeout
+      // 5. Extract and validate port
+      const port = extractPortFromUrl(serverStatus.url!)
+      log.success(`Port successfully detected from logs: ${port}`)
+      validatePort(port)
 
-      while (serverStatus.status === 'starting' && Date.now() - startTime < timeout) {
-        await new Promise((resolve) => setTimeout(resolve, 500)) // Poll every 500ms
-        serverStatus = await workspace.getServerStatus()
+      // 6. Test HTTP connectivity
+      const response = await testHttpConnectivity(serverStatus.url!)
+      const directHtml = await response.text()
 
-        if (serverStatus.status === 'started') {
-          console.log(`✅ Server is now running on ${serverStatus.url}`)
-          break
-        }
+      // 7. Verify proxy URL
+      expect(serverStatus.proxyUrl).toBeDefined()
+      expect(serverStatus.proxyUrl).toMatch(/^http:\/\/localhost:\d+$/)
+      log.success(`Proxy URL available: ${serverStatus.proxyUrl}`)
 
-        if (serverStatus.status === 'failed') {
-          console.log(`❌ Server failed to start: ${serverStatus.error}`)
-          break
+      // 8. Extract and verify proxy port
+      const proxyPort = extractPortFromUrl(serverStatus.proxyUrl!)
+      expect(proxyPort).not.toBe(port)
+      log.success(`Proxy port ${proxyPort} is different from main port ${port}`)
+
+      // 9. Verify proxy injection
+      await verifyProxyInjection(serverStatus.proxyUrl!, directHtml, taskId)
+
+      // 10. Get server status (optimization test)
+      log.info('Checking server status (testing optimization)...')
+      const status = await workspace.getServerStatus()
+      expect(status.status).toBe('started')
+      expect(status.url).toBe(serverStatus.url)
+      log.success('Server status check passed without re-detecting port')
+
+      // 11. Stop server
+      log.info('Stopping preview server...')
+      const stopped = await workspace.stopServer()
+      expect(stopped).toBe(true)
+
+      // 12. Verify server is stopped
+      const finalStatus = await workspace.getServerStatus()
+      expect(finalStatus.status).toBe('stopped')
+      log.success('Server stopped successfully')
+    },
+    TEST_CONFIG.TEST_TIMEOUT,
+  )
+
+  it(
+    'should fail gracefully when port cannot be detected',
+    async () => {
+      log.info('Testing port detection failure scenario...')
+
+      // Create a repository with a command that doesn't start a server
+      const badRepo = await repositoryService.createRepository({
+        name: 'no-port-test',
+        sourceType: 'github',
+        remoteUrl: 'https://github.com/aorwall/hello-world-ui.git',
+        cloneOnNewTask: false,
+        codeExecution: {
+          type: 'local',
+          setupCommands: ['bun install'],
+        },
+        previewConfig: {
+          serverStartCommands: ['echo "not a server"'],
+          enableInspector: false,
+        },
+      })
+
+      // Create workspace
+      const { workspace: badWorkspace } = await createTestWorkspace(workspaceService, badRepo.id)
+
+      // Setup environment
+      await setupWorkspaceEnvironment(badWorkspace)
+
+      // Start server (should fail or stop immediately)
+      log.info('Starting server with command that does not bind to port...')
+      const result = await badWorkspace.startServer()
+      const serverStatus = await waitForServerStatus(badWorkspace, result, {
+        throwOnFailed: false,
+      })
+
+      // Should return error or stopped state
+      expect(['stopped', 'failed']).toContain(serverStatus.status)
+
+      if (serverStatus.status === 'stopped') {
+        log.success('Command completed but did not maintain a server process')
+      } else if (serverStatus.error) {
+        expect(serverStatus.error).toMatch(
+          /Failed to start server|HTTP-responsive|no port|killed|Process exited/i,
+        )
+        log.success(`Server failure handled correctly: ${serverStatus.error}`)
+      }
+
+      // Cleanup
+      await badWorkspace.teardown(true)
+    },
+    TEST_CONFIG.SETUP_TIMEOUT,
+  )
+
+  it(
+    'should restart server and maintain same port allocation',
+    async () => {
+      log.info('Testing server restart with port preservation...')
+
+      // 1. Create workspace and setup
+      const { workspace: restartWorkspace } = await createTestWorkspace(
+        workspaceService,
+        repository.id,
+      )
+      await setupWorkspaceEnvironment(restartWorkspace)
+
+      // 2. Start server first time
+      log.info('Starting server for first time...')
+      const initialStatus = await startAndWaitForServer(restartWorkspace)
+      expect(initialStatus.status).toBe('started')
+
+      // 3. Extract initial ports
+      const initialPort = extractPortFromUrl(initialStatus.url!)
+      log.success(`Initial server port: ${initialPort}`)
+
+      const initialProxyPort = initialStatus.proxyUrl
+        ? extractPortFromUrl(initialStatus.proxyUrl)
+        : null
+      if (initialProxyPort) {
+        log.success(`Initial proxy port: ${initialProxyPort}`)
+      }
+
+      // 4. Verify initial server is responsive
+      await testHttpConnectivity(initialStatus.url!)
+
+      // 5. Stop the server
+      log.info('Stopping server...')
+      const stopped = await restartWorkspace.stopServer()
+      expect(stopped).toBe(true)
+
+      const stoppedStatus = await restartWorkspace.getServerStatus()
+      expect(stoppedStatus.status).toBe('stopped')
+      log.success('Server stopped successfully')
+
+      // 6. Wait before restart
+      await new Promise((resolve) => setTimeout(resolve, TEST_CONFIG.DELAY_BEFORE_RESTART))
+
+      // 7. Restart the server
+      log.info('Restarting server...')
+      const restartStatus = await startAndWaitForServer(restartWorkspace)
+      expect(restartStatus.status).toBe('started')
+
+      // 8. Extract restart port and verify it's preserved
+      const restartPort = extractPortFromUrl(restartStatus.url!)
+      log.success(`Restarted server port: ${restartPort}`)
+
+      expect(restartPort).toBe(initialPort)
+      log.success('✅✅✅ PORT PRESERVED AFTER RESTART - Test Passed!')
+
+      // 9. Check proxy port
+      if (restartStatus.proxyUrl) {
+        const restartProxyPort = extractPortFromUrl(restartStatus.proxyUrl)
+        log.success(`Restarted proxy port: ${restartProxyPort}`)
+        if (restartProxyPort === initialProxyPort) {
+          log.success('Proxy port also preserved')
+        } else {
+          log.info('ℹ️ Proxy port changed (acceptable)')
         }
       }
 
-      if (serverStatus.status === 'starting') {
-        throw new Error(`Server did not start within ${timeout}ms timeout`)
+      // 10. Verify restarted server is responsive
+      await testHttpConnectivity(restartStatus.url!)
+
+      // 11. Test proxy functionality after restart
+      if (restartStatus.proxyUrl) {
+        const proxyResponse = await fetch(restartStatus.proxyUrl, {
+          signal: AbortSignal.timeout(TEST_CONFIG.HTTP_TIMEOUT),
+        })
+        expect(proxyResponse.ok).toBe(true)
+
+        const proxyHtml = await proxyResponse.text()
+        expect(proxyHtml).toContain('Preview Inspector')
+        log.success('Proxy with inspector script working after restart')
       }
+
+      // 12. Test multiple restart cycles
+      log.info('Testing second restart cycle...')
+      await restartWorkspace.stopServer()
+      await new Promise((resolve) => setTimeout(resolve, TEST_CONFIG.POLL_INTERVAL))
+
+      const secondRestartResult = await restartWorkspace.startServer()
+      const secondRestartStatus = await waitForServerStatus(restartWorkspace, secondRestartResult, {
+        throwOnFailed: false,
+      })
+
+      if (secondRestartStatus.status === 'started') {
+        const secondPort = extractPortFromUrl(secondRestartStatus.url!)
+        expect(secondPort).toBe(initialPort)
+        log.success('Port preserved across multiple restarts')
+      }
+
+      // Cleanup
+      log.info('Cleaning up restart test workspace...')
+      await restartWorkspace.teardown(true)
+      log.success('Restart test completed successfully')
+    },
+    TEST_CONFIG.TEST_TIMEOUT,
+  )
+})
+
+// ========================================
+// Test Logger Utilities
+// ========================================
+const log = {
+  success: (msg: string) => console.log(`✅ ${msg}`),
+  error: (msg: string) => console.log(`❌ ${msg}`),
+  info: (msg: string) => console.log(msg),
+  warn: (msg: string) => console.warn(msg),
+}
+
+// ========================================
+// Helper Functions
+// ========================================
+
+/**
+ * Wait for server to reach a specific status
+ */
+async function waitForServerStatus(
+  workspace: Workspace,
+  initialStatus: ServerStatus,
+  options: {
+    targetStatuses?: string[]
+    timeoutMs?: number
+    pollInterval?: number
+    throwOnFailed?: boolean
+  } = {},
+): Promise<ServerStatus> {
+  const {
+    targetStatuses = ['started', 'failed', 'stopped'],
+    timeoutMs = TEST_CONFIG.SERVER_START_TIMEOUT,
+    pollInterval = TEST_CONFIG.POLL_INTERVAL,
+    throwOnFailed = false,
+  } = options
+
+  let serverStatus = initialStatus
+
+  if (targetStatuses.includes(serverStatus.status)) {
+    return serverStatus
+  }
+
+  if (serverStatus.status !== 'starting') {
+    return serverStatus
+  }
+
+  log.info('Server is starting, waiting for status change...')
+  const startTime = Date.now()
+
+  while (serverStatus.status === 'starting' && Date.now() - startTime < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, pollInterval))
+    serverStatus = await workspace.getServerStatus()
+
+    if (serverStatus.status === 'started') {
+      log.success(`Server is now running on ${serverStatus.url}`)
+      break
     }
 
-    // 5. Verify server started successfully and port was detected
-    expect(serverStatus.status).toBe('started')
-    expect(serverStatus.url).toBeDefined()
-    expect(serverStatus.url).toMatch(/^http:\/\/localhost:\d+$/)
-
-    // Extract the detected port
-    const portMatch = serverStatus.url!.match(/:(\d+)$/)
-    expect(portMatch).toBeTruthy()
-    const port = Number.parseInt(portMatch![1], 10)
-    console.log(`✅ Port successfully detected from logs: ${port}`)
-
-    // Verify port is in reasonable range
-    expect(port).toBeGreaterThan(1000)
-    expect(port).toBeLessThan(65536)
-
-    // Server should already be HTTP-responsive since PreviewServer waits for it
-    // 6. Test actual HTTP connectivity to the detected port
-    console.log(`Testing HTTP connectivity to detected port ${port}...`)
-    const response = await fetch(serverStatus.url!, {
-      signal: AbortSignal.timeout(5000), // 5 second timeout
-    })
-    expect(response.ok).toBe(true)
-    expect(response.status).toBe(200)
-    const directHtml = await response.text() // Get direct HTML first
-    console.log('✅ HTTP connectivity test passed')
-
-    // 6.5. Verify proxy URL is available and working
-    expect(serverStatus.proxyUrl).toBeDefined()
-    expect(serverStatus.proxyUrl).toMatch(/^http:\/\/localhost:\d+$/)
-    console.log(`✅ Proxy URL available: ${serverStatus.proxyUrl}`)
-
-    // Extract proxy port and verify it's different from main port
-    const proxyPortMatch = serverStatus.proxyUrl!.match(/:(\d+)$/)
-    expect(proxyPortMatch).toBeTruthy()
-    const proxyPort = Number.parseInt(proxyPortMatch![1], 10)
-    expect(proxyPort).not.toBe(port) // Proxy should be on different port
-    console.log(`✅ Proxy port ${proxyPort} is different from main port ${port}`)
-
-    // 6.6. Fetch content from proxy and verify script injection
-    console.log('Testing proxy content and script injection...')
-    const proxyResponse = await fetch(serverStatus.proxyUrl!, {
-      signal: AbortSignal.timeout(5000),
-    })
-    expect(proxyResponse.ok).toBe(true)
-    expect(proxyResponse.status).toBe(200)
-    expect(proxyResponse.headers.get('content-type')).toMatch(/text\/html/)
-
-    const proxyHtml = await proxyResponse.text()
-
-    // Verify inspector script is injected in proxy response
-    expect(proxyHtml).toContain('Preview Inspector')
-    expect(proxyHtml).toContain(
-      'Preview Inspector Script - Injected by Preview Environment Service',
-    )
-    expect(proxyHtml).toContain('hookConsole')
-    expect(proxyHtml).toContain('hookFetch')
-    expect(proxyHtml).toContain('hookScroll')
-    expect(proxyHtml).toContain('hookNavigation')
-    expect(proxyHtml).toContain(`taskId: '${taskId}'`)
-    console.log('✅ Inspector script found in proxy response')
-
-    // Verify script is injected before closing body tag
-    const scriptTagIndex = proxyHtml.indexOf('<script>')
-    const bodyCloseIndex = proxyHtml.indexOf('</body>')
-    expect(scriptTagIndex).toBeGreaterThan(0)
-    expect(bodyCloseIndex).toBeGreaterThan(scriptTagIndex)
-    console.log('✅ Script correctly injected before </body>')
-
-    // Verify proxy response is larger than direct response (due to script injection)
-    expect(proxyHtml.length).toBeGreaterThan(directHtml.length)
-    const injectedSize = proxyHtml.length - directHtml.length
-    console.log(`✅ Proxy response is ${injectedSize} bytes larger (script injection)`)
-
-    // Verify direct response does NOT contain inspector script
-    expect(directHtml).not.toContain('Preview Inspector Script')
-    console.log('✅ Direct server response does not contain inspector script')
-
-    // Verify original content is preserved in proxy response
-    expect(proxyHtml.toLowerCase()).toContain('<!doctype html>')
-    expect(proxyHtml).toContain('</html>')
-    console.log('✅ Original HTML structure preserved in proxy')
-
-    // 7. Get server status - this should NOT call detectAndValidatePort again (optimization test)
-    console.log('Checking server status (testing optimization)...')
-    const status = await workspace.getServerStatus()
-    expect(status.status).toBe('started')
-    expect(status.url).toBe(serverStatus.url)
-    // Note: responsive check can be flaky in test environments, focus on the core functionality
-    console.log('✅ Server status check passed without re-detecting port')
-
-    // 8. Stop server
-    console.log('Stopping preview server...')
-    const stopped = await workspace.stopServer()
-    expect(stopped).toBe(true)
-
-    // 9. Verify server is stopped
-    const finalStatus = await workspace.getServerStatus()
-    expect(finalStatus.status).toBe('stopped')
-    console.log('✅ Server stopped successfully')
-  }, 180000) // 3 minute timeout for full test
-
-  it('should fail gracefully when port cannot be detected', async () => {
-    // Create a repository with a command that runs but doesn't bind to a port
-    console.log('Testing port detection failure scenario...')
-    const badRepo = await repositoryService.createRepository({
-      name: 'no-port-test',
-      sourceType: 'github',
-      remoteUrl: 'https://github.com/aorwall/hello-world-ui.git',
-      cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-        setupCommands: ['bun install'],
-      },
-      previewConfig: {
-        // Use a command that exits immediately without starting a server
-        serverStartCommands: ['echo "not a server"'],
-        enableInspector: false,
-      },
-    })
-
-    const badTaskId = randomUUID()
-    const badWorkspace = await workspaceService.createWorkspace(badTaskId, badRepo.id)
-
-    await badWorkspace.setup()
-
-    // Should fail because the build command doesn't start a server/bind to a port
-    console.log('Starting server with command that does not bind to port...')
-    const result = await badWorkspace.startServer()
-
-    // Wait for server to either start successfully or fail
-    let serverStatus = result
-    if (result.status === 'starting') {
-      console.log('Server is starting, waiting for completion or failure...')
-
-      const startTime = Date.now()
-      const timeout = 30000 // 30 second timeout
-
-      while (serverStatus.status === 'starting' && Date.now() - startTime < timeout) {
-        await new Promise((resolve) => setTimeout(resolve, 500)) // Poll every 500ms
-        serverStatus = await badWorkspace.getServerStatus()
-
-        if (serverStatus.status === 'started') {
-          console.log(`Server unexpectedly started on ${serverStatus.url}`)
-          break
-        }
-
-        if (serverStatus.status === 'failed') {
-          console.log(`Server failed as expected: ${serverStatus.error}`)
-          break
-        }
+    if (serverStatus.status === 'failed') {
+      const msg = `Server failed to start: ${serverStatus.error}`
+      if (throwOnFailed) {
+        throw new Error(msg)
       }
-
-      // If still starting after timeout, that's also a failure case
-      if (serverStatus.status === 'starting') {
-        console.log('Server did not start or fail within timeout - treating as failure')
-        // This could be a case where the build command completed successfully but no port was detected
-      }
+      log.error(msg)
+      break
     }
-
-    // Should return error state since the command exits immediately
-    // The process completes (exit 0) so status is 'stopped', not 'failed'
-    expect(['stopped', 'failed']).toContain(serverStatus.status)
 
     if (serverStatus.status === 'stopped') {
-      console.log('✅ Command completed but did not maintain a server process')
-    } else if (serverStatus.error) {
-      expect(serverStatus.error).toMatch(
-        /Failed to start server|HTTP-responsive|no port|killed|Process exited/i,
-      )
-      console.log('✅ Server failure handled correctly:', serverStatus.error)
+      log.info('Server stopped')
+      break
     }
+  }
 
-    // Cleanup
-    await badWorkspace.teardown(true)
-  }, 120000) // 2 minute timeout
-
-  it('should restart server and maintain same port allocation', async () => {
-    console.log('Testing server restart with port preservation...')
-
-    // 1. Create workspace
-    console.log('Creating workspace for restart test...')
-    const restartTaskId = randomUUID()
-    const restartWorkspace = await workspaceService.createWorkspace(restartTaskId, repository.id)
-    expect(restartWorkspace).toBeDefined()
-
-    // 2. Setup environment
-    console.log('Setting up environment...')
-    await restartWorkspace.setup()
-    expect(restartWorkspace.status).toBe('ready')
-
-    // 3. Start server first time
-    console.log('Starting server for first time...')
-    const initialStart = await restartWorkspace.startServer()
-
-    // Wait for server to be running
-    let initialStatus = initialStart
-    if (initialStatus.status === 'starting') {
-      const startTime = Date.now()
-      const timeout = 30000
-
-      while (initialStatus.status === 'starting' && Date.now() - startTime < timeout) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        initialStatus = await restartWorkspace.getServerStatus()
-
-        if (initialStatus.status === 'started') {
-          break
-        }
-        if (initialStatus.status === 'failed') {
-          throw new Error(`Server failed to start: ${initialStatus.error}`)
-        }
-      }
+  if (serverStatus.status === 'starting') {
+    const msg = `Server did not start within ${timeoutMs}ms timeout`
+    if (throwOnFailed) {
+      throw new Error(msg)
     }
+    log.error(msg)
+  }
 
-    expect(initialStatus.status).toBe('started')
-    expect(initialStatus.url).toBeDefined()
+  return serverStatus
+}
 
-    // 4. Extract initial ports
-    const initialPortMatch = initialStatus.url!.match(/:(\d+)$/)
-    expect(initialPortMatch).toBeTruthy()
-    const initialPort = Number.parseInt(initialPortMatch![1], 10)
-    console.log(`✅ Initial server port: ${initialPort}`)
+/**
+ * Extract port number from a URL
+ */
+function extractPortFromUrl(url: string): number {
+  const portMatch = url.match(/:(\d+)$/)
+  if (!portMatch) {
+    throw new Error(`Could not extract port from URL: ${url}`)
+  }
+  return Number.parseInt(portMatch[1], 10)
+}
 
-    const initialProxyPortMatch = initialStatus.proxyUrl?.match(/:(\d+)$/)
-    const initialProxyPort = initialProxyPortMatch
-      ? Number.parseInt(initialProxyPortMatch[1], 10)
-      : null
-    if (initialProxyPort) {
-      console.log(`✅ Initial proxy port: ${initialProxyPort}`)
-    }
+/**
+ * Test HTTP connectivity to a URL
+ */
+async function testHttpConnectivity(
+  url: string,
+  timeoutMs = TEST_CONFIG.HTTP_TIMEOUT,
+): Promise<Response> {
+  log.info(`Testing HTTP connectivity to ${url}...`)
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP request failed with status ${response.status}`)
+  }
+  log.success('HTTP connectivity test passed')
+  return response
+}
 
-    // 5. Verify initial server is responsive
-    const initialResponse = await fetch(initialStatus.url!, {
-      signal: AbortSignal.timeout(5000),
-    })
-    expect(initialResponse.ok).toBe(true)
-    console.log('✅ Initial server is HTTP-responsive')
+/**
+ * Create a test workspace with standard configuration
+ */
+async function createTestWorkspace(
+  workspaceService: WorkspaceService,
+  repositoryId: string,
+  taskId?: string,
+): Promise<{ workspace: Workspace; taskId: string }> {
+  const actualTaskId = taskId || randomUUID()
+  log.info(`Creating workspace with task ID: ${actualTaskId}`)
 
-    // 6. Stop the server
-    console.log('Stopping server...')
-    const stopped = await restartWorkspace.stopServer()
-    expect(stopped).toBe(true)
+  const workspace = await workspaceService.createWorkspace(actualTaskId, repositoryId)
+  expect(workspace).toBeDefined()
+  expect(workspace.id).toBe(actualTaskId)
 
-    // Verify server is stopped
-    const stoppedStatus = await restartWorkspace.getServerStatus()
-    expect(stoppedStatus.status).toBe('stopped')
-    console.log('✅ Server stopped successfully')
+  return { workspace, taskId: actualTaskId }
+}
 
-    // 7. Wait a moment before restart
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+/**
+ * Setup workspace environment (run setup commands)
+ */
+async function setupWorkspaceEnvironment(workspace: Workspace): Promise<void> {
+  log.info('Setting up environment (running setup commands)...')
+  await workspace.setup()
+  expect(workspace.status).toBe('ready')
+}
 
-    // 8. Restart the server
-    console.log('Restarting server...')
-    const restartResult = await restartWorkspace.startServer()
+/**
+ * Start server and wait for it to be ready
+ */
+async function startAndWaitForServer(
+  workspace: Workspace,
+  throwOnFailed = true,
+): Promise<ServerStatus> {
+  log.info('Starting preview server...')
+  const startResult = await workspace.startServer()
+  return waitForServerStatus(workspace, startResult, { throwOnFailed })
+}
 
-    // Wait for server to be running again
-    let restartStatus = restartResult
-    if (restartStatus.status === 'starting') {
-      const startTime = Date.now()
-      const timeout = 30000
+/**
+ * Verify proxy injection is working correctly
+ */
+async function verifyProxyInjection(
+  proxyUrl: string,
+  directHtml: string,
+  taskId: string,
+): Promise<void> {
+  log.info('Testing proxy content and script injection...')
 
-      while (restartStatus.status === 'starting' && Date.now() - startTime < timeout) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        restartStatus = await restartWorkspace.getServerStatus()
+  const proxyResponse = await fetch(proxyUrl, {
+    signal: AbortSignal.timeout(TEST_CONFIG.HTTP_TIMEOUT),
+  })
+  expect(proxyResponse.ok).toBe(true)
+  expect(proxyResponse.status).toBe(200)
+  expect(proxyResponse.headers.get('content-type')).toMatch(/text\/html/)
 
-        if (restartStatus.status === 'started') {
-          break
-        }
-        if (restartStatus.status === 'failed') {
-          throw new Error(`Server failed to restart: ${restartStatus.error}`)
-        }
-      }
-    }
+  const proxyHtml = await proxyResponse.text()
 
-    expect(restartStatus.status).toBe('started')
-    expect(restartStatus.url).toBeDefined()
+  // Verify inspector script is injected
+  const expectedContent = [
+    'Preview Inspector',
+    'Preview Inspector Script - Injected by Preview Environment Service',
+    'hookConsole',
+    'hookFetch',
+    'hookScroll',
+    'hookNavigation',
+    `taskId: '${taskId}'`,
+  ]
 
-    // 9. Extract restart ports
-    const restartPortMatch = restartStatus.url!.match(/:(\d+)$/)
-    expect(restartPortMatch).toBeTruthy()
-    const restartPort = Number.parseInt(restartPortMatch![1], 10)
-    console.log(`✅ Restarted server port: ${restartPort}`)
+  for (const content of expectedContent) {
+    expect(proxyHtml).toContain(content)
+  }
+  log.success('Inspector script found in proxy response')
 
-    // 10. CRITICAL: Verify main port is preserved
-    expect(restartPort).toBe(initialPort)
-    console.log('✅✅✅ PORT PRESERVED AFTER RESTART - Test Passed!')
+  // Verify script is injected before closing body tag
+  const scriptTagIndex = proxyHtml.indexOf('<script>')
+  const bodyCloseIndex = proxyHtml.indexOf('</body>')
+  expect(scriptTagIndex).toBeGreaterThan(0)
+  expect(bodyCloseIndex).toBeGreaterThan(scriptTagIndex)
+  log.success('Script correctly injected before </body>')
 
-    // 11. Check proxy port (may change, that's OK)
-    if (restartStatus.proxyUrl) {
-      const restartProxyPortMatch = restartStatus.proxyUrl.match(/:(\d+)$/)
-      if (restartProxyPortMatch) {
-        const restartProxyPort = Number.parseInt(restartProxyPortMatch[1], 10)
-        console.log(`✅ Restarted proxy port: ${restartProxyPort}`)
-        // Proxy port may or may not change, both are acceptable
-        if (restartProxyPort === initialProxyPort) {
-          console.log('✅ Proxy port also preserved')
-        } else {
-          console.log('ℹ️ Proxy port changed (acceptable)')
-        }
-      }
-    }
+  // Verify proxy response is larger than direct response
+  expect(proxyHtml.length).toBeGreaterThan(directHtml.length)
+  const injectedSize = proxyHtml.length - directHtml.length
+  log.success(`Proxy response is ${injectedSize} bytes larger (script injection)`)
 
-    // 12. Verify restarted server is responsive
-    const restartResponse = await fetch(restartStatus.url!, {
-      signal: AbortSignal.timeout(5000),
-    })
-    expect(restartResponse.ok).toBe(true)
-    console.log('✅ Restarted server is HTTP-responsive')
+  // Verify direct response does NOT contain inspector script
+  expect(directHtml).not.toContain('Preview Inspector Script')
+  log.success('Direct server response does not contain inspector script')
 
-    // 13. Test proxy functionality after restart
-    if (restartStatus.proxyUrl) {
-      const proxyResponse = await fetch(restartStatus.proxyUrl, {
-        signal: AbortSignal.timeout(5000),
-      })
-      expect(proxyResponse.ok).toBe(true)
+  // Verify original content is preserved
+  expect(proxyHtml.toLowerCase()).toContain('<!doctype html>')
+  expect(proxyHtml).toContain('</html>')
+  log.success('Original HTML structure preserved in proxy')
+}
 
-      const proxyHtml = await proxyResponse.text()
-      expect(proxyHtml).toContain('Preview Inspector')
-      console.log('✅ Proxy with inspector script working after restart')
-    }
-
-    // 14. Optional: Test multiple restart cycles
-    console.log('Testing second restart cycle...')
-    await restartWorkspace.stopServer()
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const secondRestartResult = await restartWorkspace.startServer()
-    let secondRestartStatus = secondRestartResult
-
-    if (secondRestartStatus.status === 'starting') {
-      const startTime = Date.now()
-      const timeout = 30000
-
-      while (secondRestartStatus.status === 'starting' && Date.now() - startTime < timeout) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        secondRestartStatus = await restartWorkspace.getServerStatus()
-
-        if (secondRestartStatus.status === 'started') {
-          break
-        }
-        if (secondRestartStatus.status === 'failed') {
-          break // Don't throw, just log
-        }
-      }
-    }
-
-    if (secondRestartStatus.status === 'started') {
-      const secondPortMatch = secondRestartStatus.url!.match(/:(\d+)$/)
-      if (secondPortMatch) {
-        const secondPort = Number.parseInt(secondPortMatch[1], 10)
-        expect(secondPort).toBe(initialPort)
-        console.log('✅ Port preserved across multiple restarts')
-      }
-    }
-
-    // 15. Cleanup
-    console.log('Cleaning up restart test workspace...')
-    await restartWorkspace.teardown(true)
-    console.log('✅ Restart test completed successfully')
-  }, 180000) // 3 minute timeout
-})
+/**
+ * Validate port number is in reasonable range
+ */
+function validatePort(port: number): void {
+  expect(port).toBeGreaterThan(TEST_CONFIG.MIN_PORT)
+  expect(port).toBeLessThan(TEST_CONFIG.MAX_PORT)
+}
