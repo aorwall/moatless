@@ -139,8 +139,12 @@ export class PreviewServer {
     // Clean up any existing command
     if (this.shellCommand?.isRunning()) {
       await this.stop()
+      this.cleanup() // Only do full cleanup if we had to stop a running server
+    } else if (this.shellCommand) {
+      // If we have a shell command but it's not running (stopped server),
+      // just clean up the command reference but keep the port
+      this.shellCommand = undefined
     }
-    this.cleanup()
 
     // Convert commands to array
     const commandsArray = Array.isArray(serverCommands) ? serverCommands : [serverCommands]
@@ -156,13 +160,18 @@ export class PreviewServer {
       })
     }
 
-    this.port = await this.portService.findAvailablePort(9000)
-
+    // Only allocate a new port if we don't have one already
     if (!this.port) {
-      throw new Error('Failed to find available port')
-    }
+      this.port = await this.portService.findAvailablePort(9000)
 
-    this.logger.info('Pre-allocated port for server', { port: this.port })
+      if (!this.port) {
+        throw new Error('Failed to find available port')
+      }
+
+      this.logger.info('Allocated new port for server', { port: this.port })
+    } else {
+      this.logger.info('Reusing existing port for server', { port: this.port })
+    }
 
     try {
       this.shellCommand = new ShellCommand()
@@ -301,14 +310,13 @@ export class PreviewServer {
 
       return killed
     } finally {
-      // Release allocated ports
-      if (this.port) {
-        this.portService.releasePort(this.port)
-      }
+      // Don't release the main port on stop - we want to reuse it on restart
+      // Only release proxy port since it can change
       if (this.proxyPort) {
         this.portService.releasePort(this.proxyPort)
       }
-      this.cleanup()
+      // Clean up everything except the main port
+      this.cleanupForStop()
     }
   }
 
@@ -520,10 +528,26 @@ export class PreviewServer {
   }
 
   /**
-   * Clean up resources
+   * Clean up resources after stop (keeps port allocation)
+   */
+  private cleanupForStop(): void {
+    // Release proxy port if allocated
+    if (this.proxyPort) {
+      this.portService.releasePort(this.proxyPort)
+    }
+
+    this.shellCommand = undefined
+    // Keep this.port for reuse on restart
+    this.proxyPort = undefined
+    this.proxyUrl = undefined
+    this.previewProxy = undefined
+  }
+
+  /**
+   * Clean up all resources (full disposal)
    */
   private cleanup(): void {
-    // Release ports if not already released
+    // Release all ports
     if (this.port) {
       this.portService.releasePort(this.port)
     }
@@ -536,5 +560,13 @@ export class PreviewServer {
     this.proxyPort = undefined
     this.proxyUrl = undefined
     this.previewProxy = undefined
+  }
+
+  /**
+   * Dispose of the preview server completely
+   */
+  async dispose(): Promise<void> {
+    await this.stop()
+    this.cleanup()
   }
 }

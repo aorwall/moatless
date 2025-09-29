@@ -433,7 +433,8 @@ export class LocalEnvironment extends BaseEnvironment {
       // Stop the server (it handles proxy and metadata cleanup internally)
       const stopped = await this.previewServer.stop()
       if (stopped) {
-        this.previewServer = undefined
+        // Don't set previewServer to undefined - we want to reuse it for restart
+        // The PreviewServer.stop() method now preserves the port allocation
         this.logger.info('Preview server stopped successfully')
       }
       return stopped
@@ -609,10 +610,11 @@ export class LocalEnvironment extends BaseEnvironment {
       // Stop agent
       await this.stopAgent()
 
-      // Stop server
-      await this.stopServer()
-
-      // Port cleanup would be handled here if needed
+      // Stop and dispose server (releases port)
+      if (this.previewServer) {
+        await this.previewServer.dispose()
+        this.previewServer = undefined
+      }
 
       this.logger.info('LocalEnvironment teardown completed')
     } catch (error) {

@@ -326,4 +326,188 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     // Cleanup
     await badWorkspace.teardown(true)
   }, 120000) // 2 minute timeout
+
+  it('should restart server and maintain same port allocation', async () => {
+    console.log('Testing server restart with port preservation...')
+
+    // 1. Create workspace
+    console.log('Creating workspace for restart test...')
+    const restartTaskId = randomUUID()
+    const restartWorkspace = await workspaceService.createWorkspace(restartTaskId, repository.id)
+    expect(restartWorkspace).toBeDefined()
+
+    // 2. Setup environment
+    console.log('Setting up environment...')
+    await restartWorkspace.setup()
+    expect(restartWorkspace.status).toBe('ready')
+
+    // 3. Start server first time
+    console.log('Starting server for first time...')
+    const initialStart = await restartWorkspace.startServer()
+
+    // Wait for server to be running
+    let initialStatus = initialStart
+    if (initialStatus.status === 'starting') {
+      const startTime = Date.now()
+      const timeout = 30000
+
+      while (initialStatus.status === 'starting' && Date.now() - startTime < timeout) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        initialStatus = await restartWorkspace.getServerStatus()
+
+        if (initialStatus.status === 'started') {
+          break
+        }
+        if (initialStatus.status === 'failed') {
+          throw new Error(`Server failed to start: ${initialStatus.error}`)
+        }
+      }
+    }
+
+    expect(initialStatus.status).toBe('started')
+    expect(initialStatus.url).toBeDefined()
+
+    // 4. Extract initial ports
+    const initialPortMatch = initialStatus.url!.match(/:(\d+)$/)
+    expect(initialPortMatch).toBeTruthy()
+    const initialPort = Number.parseInt(initialPortMatch![1], 10)
+    console.log(`✅ Initial server port: ${initialPort}`)
+
+    const initialProxyPortMatch = initialStatus.proxyUrl?.match(/:(\d+)$/)
+    const initialProxyPort = initialProxyPortMatch
+      ? Number.parseInt(initialProxyPortMatch[1], 10)
+      : null
+    if (initialProxyPort) {
+      console.log(`✅ Initial proxy port: ${initialProxyPort}`)
+    }
+
+    // 5. Verify initial server is responsive
+    const initialResponse = await fetch(initialStatus.url!, {
+      signal: AbortSignal.timeout(5000),
+    })
+    expect(initialResponse.ok).toBe(true)
+    console.log('✅ Initial server is HTTP-responsive')
+
+    // 6. Stop the server
+    console.log('Stopping server...')
+    const stopped = await restartWorkspace.stopServer()
+    expect(stopped).toBe(true)
+
+    // Verify server is stopped
+    const stoppedStatus = await restartWorkspace.getServerStatus()
+    expect(stoppedStatus.status).toBe('stopped')
+    console.log('✅ Server stopped successfully')
+
+    // 7. Wait a moment before restart
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    // 8. Restart the server
+    console.log('Restarting server...')
+    const restartResult = await restartWorkspace.startServer()
+
+    // Wait for server to be running again
+    let restartStatus = restartResult
+    if (restartStatus.status === 'starting') {
+      const startTime = Date.now()
+      const timeout = 30000
+
+      while (restartStatus.status === 'starting' && Date.now() - startTime < timeout) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        restartStatus = await restartWorkspace.getServerStatus()
+
+        if (restartStatus.status === 'started') {
+          break
+        }
+        if (restartStatus.status === 'failed') {
+          throw new Error(`Server failed to restart: ${restartStatus.error}`)
+        }
+      }
+    }
+
+    expect(restartStatus.status).toBe('started')
+    expect(restartStatus.url).toBeDefined()
+
+    // 9. Extract restart ports
+    const restartPortMatch = restartStatus.url!.match(/:(\d+)$/)
+    expect(restartPortMatch).toBeTruthy()
+    const restartPort = Number.parseInt(restartPortMatch![1], 10)
+    console.log(`✅ Restarted server port: ${restartPort}`)
+
+    // 10. CRITICAL: Verify main port is preserved
+    expect(restartPort).toBe(initialPort)
+    console.log('✅✅✅ PORT PRESERVED AFTER RESTART - Test Passed!')
+
+    // 11. Check proxy port (may change, that's OK)
+    if (restartStatus.proxyUrl) {
+      const restartProxyPortMatch = restartStatus.proxyUrl.match(/:(\d+)$/)
+      if (restartProxyPortMatch) {
+        const restartProxyPort = Number.parseInt(restartProxyPortMatch[1], 10)
+        console.log(`✅ Restarted proxy port: ${restartProxyPort}`)
+        // Proxy port may or may not change, both are acceptable
+        if (restartProxyPort === initialProxyPort) {
+          console.log('✅ Proxy port also preserved')
+        } else {
+          console.log('ℹ️ Proxy port changed (acceptable)')
+        }
+      }
+    }
+
+    // 12. Verify restarted server is responsive
+    const restartResponse = await fetch(restartStatus.url!, {
+      signal: AbortSignal.timeout(5000),
+    })
+    expect(restartResponse.ok).toBe(true)
+    console.log('✅ Restarted server is HTTP-responsive')
+
+    // 13. Test proxy functionality after restart
+    if (restartStatus.proxyUrl) {
+      const proxyResponse = await fetch(restartStatus.proxyUrl, {
+        signal: AbortSignal.timeout(5000),
+      })
+      expect(proxyResponse.ok).toBe(true)
+
+      const proxyHtml = await proxyResponse.text()
+      expect(proxyHtml).toContain('Preview Inspector')
+      console.log('✅ Proxy with inspector script working after restart')
+    }
+
+    // 14. Optional: Test multiple restart cycles
+    console.log('Testing second restart cycle...')
+    await restartWorkspace.stopServer()
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    const secondRestartResult = await restartWorkspace.startServer()
+    let secondRestartStatus = secondRestartResult
+
+    if (secondRestartStatus.status === 'starting') {
+      const startTime = Date.now()
+      const timeout = 30000
+
+      while (secondRestartStatus.status === 'starting' && Date.now() - startTime < timeout) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        secondRestartStatus = await restartWorkspace.getServerStatus()
+
+        if (secondRestartStatus.status === 'started') {
+          break
+        }
+        if (secondRestartStatus.status === 'failed') {
+          break // Don't throw, just log
+        }
+      }
+    }
+
+    if (secondRestartStatus.status === 'started') {
+      const secondPortMatch = secondRestartStatus.url!.match(/:(\d+)$/)
+      if (secondPortMatch) {
+        const secondPort = Number.parseInt(secondPortMatch[1], 10)
+        expect(secondPort).toBe(initialPort)
+        console.log('✅ Port preserved across multiple restarts')
+      }
+    }
+
+    // 15. Cleanup
+    console.log('Cleaning up restart test workspace...')
+    await restartWorkspace.teardown(true)
+    console.log('✅ Restart test completed successfully')
+  }, 180000) // 3 minute timeout
 })
