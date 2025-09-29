@@ -27,7 +27,6 @@ import {
 import { ChatView } from '@/lib/components/chat/chat-view'
 import { MessageHistory } from '@/lib/components/chat/message-history'
 import { getErrorMessage } from '@/lib/utils/error'
-import { CommandButtons } from './command-buttons'
 
 interface ChatContainerProps {
   className?: string
@@ -233,42 +232,6 @@ function ChatContainer({ className }: ChatContainerProps) {
 
   return (
     <div className={`h-full flex flex-col ${className || ''}`}>
-      {lastIterationHasError && (
-        <div className="flex-shrink-0 p-4 pb-0">
-          <div className="px-4 py-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
-            <div className="flex items-start gap-3">
-              <div className="flex-1">
-                <p className="text-sm text-status-warning font-medium">Previous iteration failed</p>
-                <p className="text-sm text-status-warning mt-1">
-                  You can choose to start fresh without context from the previous conversation.
-                </p>
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={resumeConversation}
-                  onChange={(e) => setResumeConversation(e.target.checked)}
-                  className="rounded border-status-warning/30 text-status-warning focus:ring-status-warning/50"
-                />
-                <span className="text-sm text-status-warning whitespace-nowrap">
-                  Resume conversation
-                </span>
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!isTaskRunning && availableCommands.length > 0 && messages.length > 0 && (
-        <div className="flex-shrink-0 p-4 pb-0">
-          <CommandButtons
-            commands={availableCommands as Command[]}
-            onCommandClick={handleCommandClick}
-            disabled={sendMessage.isPending}
-          />
-        </div>
-      )}
-
       <ChatView className="flex-1">
         <MessageHistory
           messages={messages}

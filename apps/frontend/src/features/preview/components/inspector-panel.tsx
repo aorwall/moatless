@@ -3,26 +3,22 @@ import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Separator } from '@/lib/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { usePreview } from '../hooks/use-preview'
+import type { ElementInfo } from '../types'
 
 interface InspectorPanelProps {
+  element: ElementInfo
   className?: string
-  onClose?: () => void
+  onClose: () => void
 }
 
-export function InspectorPanel({ className, onClose }: InspectorPanelProps) {
-  const { selectedElement, setSelectedElement } = usePreview()
-
-  if (!selectedElement) {
-    return null
-  }
-
-  const handleCopySelector = () => {
-    if (selectedElement.displayText) {
+export function InspectorPanel({ element, className, onClose }: InspectorPanelProps) {
+  const handleCopyLocation = () => {
+    if (element.filePath && element.lineNumber) {
+      const locationText = `${element.filePath}:${element.lineNumber}:${element.columnNumber || 0}`
       navigator.clipboard
-        .writeText(selectedElement.displayText)
+        .writeText(locationText)
         .then(() => {
-          console.log('Selector copied:', selectedElement.displayText)
+          console.log('Location copied:', locationText)
         })
         .catch((err) => {
           console.warn('Failed to copy:', err)
@@ -31,8 +27,7 @@ export function InspectorPanel({ className, onClose }: InspectorPanelProps) {
   }
 
   const handleClose = () => {
-    setSelectedElement(null)
-    onClose?.()
+    onClose()
   }
 
   return (
@@ -51,115 +46,53 @@ export function InspectorPanel({ className, onClose }: InspectorPanelProps) {
 
       <ScrollArea className="h-80">
         <div className="p-3 space-y-3">
-          {/* Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground">Selector</span>
-              <Button variant="ghost" size="sm" onClick={handleCopySelector} className="h-6 px-2">
-                <Copy className="h-3 w-3 mr-1" />
-                Copy
-              </Button>
+          {/* Source Location */}
+          {element.filePath ? (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-muted-foreground">Source Location</span>
+                <Button variant="ghost" size="sm" onClick={handleCopyLocation} className="h-6 px-2">
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </Button>
+              </div>
+              <code className="block p-2 bg-muted rounded text-xs break-all">
+                {element.filePath}:{element.lineNumber || 0}:{element.columnNumber || 0}
+              </code>
             </div>
-            <code className="block p-2 bg-muted rounded text-xs break-all">
-              {selectedElement.displayText}
-            </code>
-          </div>
+          ) : (
+            <div>
+              <span className="text-xs text-muted-foreground">Source Location</span>
+              <div className="mt-1 p-2 bg-muted rounded text-xs text-muted-foreground">
+                No source location available. Enable code-inspector plugin to see file locations.
+              </div>
+            </div>
+          )}
 
           <Separator />
 
           {/* Element Info */}
           <div className="space-y-2">
             <h4 className="text-xs font-semibold">Element Details</h4>
-
             <div className="space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Tag</span>
-                <span className="font-mono">{selectedElement.tagName}</span>
+                <span className="font-mono">&lt;{element.elementTag}&gt;</span>
               </div>
-
-              {selectedElement.id && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">ID</span>
-                  <span className="font-mono">#{selectedElement.id}</span>
-                </div>
-              )}
-
-              {selectedElement.className && (
-                <div className="text-xs">
-                  <span className="text-muted-foreground">Classes</span>
-                  <div className="mt-1 space-y-1">
-                    {selectedElement.className
-                      .split(' ')
-                      .filter((c) => c)
-                      .map((cls) => (
-                        <code key={cls} className="block p-1 bg-muted rounded text-xs">
-                          .{cls}
-                        </code>
-                      ))}
+              {element.filePath && (
+                <>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Line</span>
+                    <span className="font-mono">{element.lineNumber || 'N/A'}</span>
                   </div>
-                </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Column</span>
+                    <span className="font-mono">{element.columnNumber || 'N/A'}</span>
+                  </div>
+                </>
               )}
             </div>
           </div>
-
-          <Separator />
-
-          {/* Computed Styles */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-semibold">Computed Styles</h4>
-            <div className="space-y-1">
-              {Object.entries(selectedElement.computedStyles).map(([key, value]) => (
-                <div key={key} className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">{key}</span>
-                  <span className="font-mono truncate max-w-[180px]">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Dimensions */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-semibold">Dimensions</h4>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <span className="text-muted-foreground">Width:</span>
-                <span className="ml-1 font-mono">
-                  {Math.round(selectedElement.boundingRect.width)}px
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Height:</span>
-                <span className="ml-1 font-mono">
-                  {Math.round(selectedElement.boundingRect.height)}px
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">X:</span>
-                <span className="ml-1 font-mono">
-                  {Math.round(selectedElement.boundingRect.x)}px
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Y:</span>
-                <span className="ml-1 font-mono">
-                  {Math.round(selectedElement.boundingRect.y)}px
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Text Content */}
-          {selectedElement.textContent && (
-            <>
-              <Separator />
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold">Text Content</h4>
-                <p className="text-xs text-muted-foreground">{selectedElement.textContent}</p>
-              </div>
-            </>
-          )}
         </div>
       </ScrollArea>
     </div>
