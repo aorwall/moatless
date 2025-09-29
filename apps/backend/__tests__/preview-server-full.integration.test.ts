@@ -28,6 +28,16 @@ const TEST_CONFIG = {
 }
 
 // ========================================
+// Test Logger Utilities
+// ========================================
+const log = {
+  success: (msg: string) => console.log(`✅ ${msg}`),
+  error: (msg: string) => console.log(`❌ ${msg}`),
+  info: (msg: string) => console.log(msg),
+  warn: (msg: string) => console.warn(msg),
+}
+
+// ========================================
 // Test Suite
 // ========================================
 
@@ -343,16 +353,6 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 })
 
 // ========================================
-// Test Logger Utilities
-// ========================================
-const log = {
-  success: (msg: string) => console.log(`✅ ${msg}`),
-  error: (msg: string) => console.log(`❌ ${msg}`),
-  info: (msg: string) => console.log(msg),
-  warn: (msg: string) => console.warn(msg),
-}
-
-// ========================================
 // Helper Functions
 // ========================================
 
@@ -370,13 +370,18 @@ async function waitForServerStatus(
   } = {},
 ): Promise<ServerStatus> {
   const {
-    targetStatuses = ['started', 'failed', 'stopped'],
+    targetStatuses = ['started', 'stopped'],
     timeoutMs = TEST_CONFIG.SERVER_START_TIMEOUT,
     pollInterval = TEST_CONFIG.POLL_INTERVAL,
     throwOnFailed = false,
   } = options
 
   let serverStatus = initialStatus
+
+  // Handle failed status immediately if throwOnFailed is true
+  if (serverStatus.status === 'failed' && throwOnFailed) {
+    throw new Error(`Server failed to start: ${serverStatus.error || 'Unknown error'}`)
+  }
 
   if (targetStatuses.includes(serverStatus.status)) {
     return serverStatus
