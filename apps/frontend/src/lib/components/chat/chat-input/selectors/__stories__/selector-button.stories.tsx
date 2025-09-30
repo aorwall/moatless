@@ -63,7 +63,7 @@ export const LongLabel: Story = {
 }
 
 export const MultipleSelectors: Story = {
-  args: {},
+  args: {} as any,
   render: () => (
     <div className="flex items-center gap-2">
       <SelectorButton icon={Brain} label="Sonnet 4" onClick={fn()} />

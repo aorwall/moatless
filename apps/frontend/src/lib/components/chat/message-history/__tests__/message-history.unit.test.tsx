@@ -205,7 +205,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
       if (!scrollViewport) return
       act(() => {
         const event = new Event('scroll', { bubbles: true })
-        scrollViewport.dispatchEvent(event)
+        scrollViewport?.dispatchEvent(event)
       })
     }
 

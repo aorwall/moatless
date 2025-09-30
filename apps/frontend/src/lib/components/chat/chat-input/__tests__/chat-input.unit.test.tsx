@@ -124,7 +124,6 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
       render(<ChatInput {...defaultProps} />)
 
       const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
-      const initialHeight = textarea.style.height
 
       await userEvent.type(textarea, 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5')
 

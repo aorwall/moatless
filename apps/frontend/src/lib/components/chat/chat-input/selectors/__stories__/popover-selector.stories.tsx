@@ -67,7 +67,7 @@ const mockTemplates = [
 ]
 
 export const Default: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('')
     return (
@@ -91,7 +91,7 @@ export const Default: Story = {
 }
 
 export const ModelSelector: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('sonnet-4')
     const selectedModel = mockModels.find((m) => m.id === value)
@@ -116,7 +116,7 @@ export const ModelSelector: Story = {
 }
 
 export const RepositorySelector: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('repo-1')
     const selectedRepo = mockRepositories.find((r) => r.id === value)
@@ -143,7 +143,7 @@ export const RepositorySelector: Story = {
 }
 
 export const BranchSelector: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('main')
     const selectedBranch = mockBranches.find((b) => b.id === value)
@@ -171,7 +171,7 @@ export const BranchSelector: Story = {
 }
 
 export const AgentModeSelector: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('edit')
     const selectedMode = mockAgentModes.find((m) => m.id === value)
@@ -196,7 +196,7 @@ export const AgentModeSelector: Story = {
 }
 
 export const TemplateSelector: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('template-1')
     const selectedTemplate = mockTemplates.find((t) => t.id === value)
@@ -223,7 +223,7 @@ export const TemplateSelector: Story = {
 }
 
 export const NoValue: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('')
     return (
@@ -269,7 +269,7 @@ export const Disabled: Story = {
 }
 
 export const EmptyList: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('')
     return (
@@ -295,7 +295,7 @@ export const EmptyList: Story = {
 }
 
 export const LongLabels: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [value, setValue] = useState('long-1')
     const longRepos = [
@@ -333,7 +333,7 @@ export const LongLabels: Story = {
 }
 
 export const MultipleSelectors: Story = {
-  args: {},
+  args: {} as any,
   render: () => {
     const [model, setModel] = useState('sonnet-4')
     const [mode, setMode] = useState('edit')

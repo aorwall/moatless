@@ -299,4 +299,4 @@ function ChatContainer({ className }: ChatContainerProps) {
   )
 }
 
-export { ChatContainer as ChatView }
+export { ChatContainer }

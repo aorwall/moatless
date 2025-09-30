@@ -336,15 +336,15 @@ export const PositionBelow: Story = {
 }
 
 export const InteractiveSelection: Story = {
+  args: {} as any,
   render: () => {
     const [selectedFile, setSelectedFile] = useState<string | null>(null)
-    const [selectedIndex, setSelectedIndex] = useState(0)
 
     return (
       <div>
         <FileAutocomplete
           results={mockHookResults}
-          selectedIndex={selectedIndex}
+          selectedIndex={0}
           onSelect={(file) => {
             setSelectedFile(file.path)
             fn()(file)

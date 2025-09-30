@@ -8,7 +8,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/comp
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { usePanelView, useTaskData } from '../contexts/task-providers'
 import { useWorkspaceStatusWithTask } from '../hooks/use-workspace-status'
-import { ChatView } from './chat-view/chat-container.tsx'
+import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskDetailSkeleton } from './task-skeletons'
 
@@ -58,7 +58,7 @@ function TaskPageComponent() {
         <ResizablePanel defaultSize={40} minSize={25} maxSize={60} className="flex flex-col">
           <TaskLeftHeader />
           <ErrorBoundary componentName="Chat View">
-            <ChatView className="flex-1 min-h-0" />
+            <ChatContainer className="flex-1 min-h-0" />
           </ErrorBoundary>
         </ResizablePanel>
 

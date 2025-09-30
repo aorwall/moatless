@@ -4,7 +4,6 @@
 export * from './api/tasks'
 
 // Components
-export { ChatView } from './components/chat-view'
 export { CreateTaskForm } from './components/create-task-form'
 export { TaskPage } from './components/task-page'
 

@@ -121,12 +121,14 @@ describe('ChatForm - Tier 1 Critical Tests', () => {
       const uploadedFile = {
         id: 'file-1',
         filename: 'test.txt',
+        path: '/uploads/file-1/test.txt',
+        absolutePath: '/workspace/uploads/file-1/test.txt',
         mimeType: 'text/plain',
         size: 100,
         uploadedAt: new Date().toISOString(),
       }
 
-      const mockMutate = vi.fn((file: any, options: any) => {
+      const mockMutate = vi.fn((_file: any, options: any) => {
         options.onSuccess(uploadedFile)
       })
 
@@ -147,6 +149,8 @@ describe('ChatForm - Tier 1 Critical Tests', () => {
         {
           id: 'file-1',
           filename: 'test.txt',
+          path: '/uploads/file-1/test.txt',
+          absolutePath: '/workspace/uploads/file-1/test.txt',
           mimeType: 'text/plain',
           size: 100,
           uploadedAt: new Date().toISOString(),
@@ -164,6 +168,8 @@ describe('ChatForm - Tier 1 Critical Tests', () => {
         {
           id: 'file-1',
           filename: 'test.txt',
+          path: '/uploads/file-1/test.txt',
+          absolutePath: '/workspace/uploads/file-1/test.txt',
           mimeType: 'text/plain',
           size: 100,
           uploadedAt: new Date().toISOString(),

@@ -89,7 +89,6 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       const { result } = renderHook(() => useFileAutocomplete(defaultProps))
 
       const testValue = 'Look at @src/button'
-      const atPosition = testValue.indexOf('@')
 
       act(() => {
         result.current.handleInputChange(testValue, testValue.length)
@@ -113,9 +112,6 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       act(() => {
         result.current.handleInputChange('@but', 4)
       })
-
-      // Manually change selection
-      const firstSearchTerm = result.current.searchTerm
 
       // Second search with different term
       act(() => {
