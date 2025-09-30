@@ -358,6 +358,7 @@ export class PreviewServer {
         proxyUrl: this.proxyUrl,
         pid: shellPid,
         uptimeSeconds: uptime,
+        currentPath: this.previewProxy?.getCurrentPath(),
       }
     }
 
@@ -469,7 +470,14 @@ export class PreviewServer {
       const targetUrl = `http://localhost:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.taskId)
 
-      this.previewProxy = createPreviewProxy(targetUrl, scriptContent, this.logger, this.proxyPort)
+      this.previewProxy = createPreviewProxy(
+        targetUrl,
+        scriptContent,
+        this.logger,
+        this.proxyPort,
+        this.taskId,
+        this.eventService,
+      )
 
       await this.previewProxy.start()
       this.proxyUrl = `http://localhost:${this.proxyPort}`
