@@ -123,7 +123,6 @@ export function CreateVibeTask({
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSubmit}
-          disabled={isSendDisabled}
           placeholder="Describe what you want to build from this template..."
           className={
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
@@ -178,7 +177,6 @@ export function CreateVibeTask({
                 disabled={isSendDisabled}
                 loading={createVibeTask.isPending}
                 buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}
-                message={message}
               />
             </div>
           </div>

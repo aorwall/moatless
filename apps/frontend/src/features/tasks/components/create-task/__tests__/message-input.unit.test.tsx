@@ -114,23 +114,6 @@ describe('ChatInput (MessageInput replacement)', () => {
     expect(button).toBeDisabled()
   })
 
-  it('disables submit button when disabled prop is true', () => {
-    const handleChange = vi.fn()
-    const handleSubmit = vi.fn()
-
-    render(
-      <ChatInput
-        message="Test message"
-        onMessageChange={handleChange}
-        onSubmit={handleSubmit}
-        disabled={true}
-      />,
-    )
-
-    const button = screen.getByRole('button')
-    expect(button).toBeDisabled()
-  })
-
   it('shows loading state', () => {
     const handleChange = vi.fn()
     const handleSubmit = vi.fn()
@@ -146,22 +129,6 @@ describe('ChatInput (MessageInput replacement)', () => {
 
     const textarea = screen.getByPlaceholderText('Type a message...')
     expect(textarea).toBeDisabled()
-  })
-
-  it('renders custom button text in screen reader text', () => {
-    const handleChange = vi.fn()
-    const handleSubmit = vi.fn()
-
-    render(
-      <ChatInput
-        message=""
-        onMessageChange={handleChange}
-        onSubmit={handleSubmit}
-        buttonText="Submit"
-      />,
-    )
-
-    expect(screen.getByText('Submit')).toBeInTheDocument()
   })
 
   it('renders children when provided', () => {

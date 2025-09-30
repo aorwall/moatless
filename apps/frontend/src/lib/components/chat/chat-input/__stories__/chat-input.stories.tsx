@@ -55,8 +55,19 @@ const mockFiles: UploadFileResponse[] = [
 function InteractiveWrapper({
   children,
   ...props
-}: Partial<React.ComponentProps<typeof ChatInput>>) {
+}: Partial<React.ComponentProps<typeof ChatInput>> & {
+  disabled?: boolean
+  running?: boolean
+  buttonText?: string
+}) {
   const [message, setMessage] = useState(props.message || '')
+  // Remove invalid props that don't exist on ChatInput
+  const {
+    disabled: _disabled,
+    running: _running,
+    buttonText: _buttonText,
+    ...chatInputProps
+  } = props
 
   return (
     <ChatInput
@@ -69,35 +80,30 @@ function InteractiveWrapper({
         fn()(message)
         setMessage('')
       }}
-      {...props}
+      {...chatInputProps}
     >
       {children}
     </ChatInput>
   )
 }
 
-export const Default: Story = {
-  args: {},
+export const Default = {
   render: () => <InteractiveWrapper />,
-}
+} as unknown as Story
 
-export const WithMessage: Story = {
-  args: {},
+export const WithMessage = {
   render: () => <InteractiveWrapper message="Hello, can you help me with this code?" />,
-}
+} as unknown as Story
 
-export const WithPlaceholder: Story = {
-  args: {},
+export const WithPlaceholder = {
   render: () => <InteractiveWrapper placeholder="Ask me anything about your codebase..." />,
-}
+} as unknown as Story
 
-export const Loading: Story = {
-  args: {},
+export const Loading = {
   render: () => <InteractiveWrapper message="Sending message..." loading={true} disabled={true} />,
-}
+} as unknown as Story
 
-export const Running: Story = {
-  args: {},
+export const Running = {
   render: () => (
     <InteractiveWrapper
       message="Type your next request..."
@@ -106,15 +112,13 @@ export const Running: Story = {
       placeholder="Agent is running... Type your next request"
     />
   ),
-}
+} as unknown as Story
 
-export const Disabled: Story = {
-  args: {},
+export const Disabled = {
   render: () => <InteractiveWrapper disabled={true} placeholder="Input is disabled" />,
-}
+} as unknown as Story
 
-export const WithFiles: Story = {
-  args: {},
+export const WithFiles = {
   render: () => {
     const [files, setFiles] = useState(mockFiles)
     return (
@@ -126,10 +130,9 @@ export const WithFiles: Story = {
       </InteractiveWrapper>
     )
   },
-}
+} as unknown as Story
 
-export const WithSelectors: Story = {
-  args: {},
+export const WithSelectors = {
   render: () => (
     <InteractiveWrapper>
       <div className="flex items-center justify-between gap-2">
@@ -140,10 +143,9 @@ export const WithSelectors: Story = {
       </div>
     </InteractiveWrapper>
   ),
-}
+} as unknown as Story
 
-export const LongText: Story = {
-  args: {},
+export const LongText = {
   render: () => (
     <InteractiveWrapper
       message={`This is a very long message that demonstrates the auto-resize functionality of the chat input.
@@ -160,10 +162,9 @@ This helps test the scrolling behavior when content exceeds the maximum height.`
       className="max-h-[150px]"
     />
   ),
-}
+} as unknown as Story
 
-export const AllFeatures: Story = {
-  args: {},
+export const AllFeatures = {
   render: () => {
     const [files, setFiles] = useState(mockFiles)
     return (
@@ -190,9 +191,9 @@ export const AllFeatures: Story = {
       </InteractiveWrapper>
     )
   },
-}
+} as unknown as Story
 
-export const MinimalEmpty: Story = {
+export const MinimalEmpty = {
   args: {},
   render: () => <InteractiveWrapper placeholder="Start typing..." buttonText="Send" />,
-}
+} as unknown as Story

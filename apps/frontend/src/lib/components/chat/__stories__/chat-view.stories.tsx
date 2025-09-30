@@ -78,7 +78,6 @@ function InteractiveChatView({
   buttonText = 'Send',
   running = false,
   loading = false,
-  disabled = false,
   ...inputProps
 }: {
   messages?: Message[]
@@ -88,7 +87,6 @@ function InteractiveChatView({
   buttonText?: string
   running?: boolean
   loading?: boolean
-  disabled?: boolean
 } & Partial<
   Omit<React.ComponentProps<typeof ChatInput>, 'message' | 'onMessageChange' | 'onSubmit'>
 >) {
@@ -107,7 +105,6 @@ function InteractiveChatView({
           action('onSubmit')(message)
           setMessage('')
         }}
-        disabled={disabled}
         {...inputProps}
       >
         {children}
@@ -116,7 +113,7 @@ function InteractiveChatView({
   )
 }
 
-export const Default: Story = {
+export const Default = {
   render: () => {
     const [files, setFiles] = useState(mockFiles)
     const [message, setMessage] = useState('')
@@ -164,7 +161,7 @@ export const Default: Story = {
                   action('onSubmit')(message)
                   setMessage('')
                 }}
-                message={message}
+                disabled={!message.trim()}
               />
             </div>
           </div>
@@ -172,13 +169,13 @@ export const Default: Story = {
       </ChatView>
     )
   },
-}
+} as unknown as Story
 
-export const EmptyChat: Story = {
+export const EmptyChat = {
   render: () => <InteractiveChatView messages={[]} placeholder="Start a conversation..." />,
-}
+} as unknown as Story
 
-export const WithToolCalls: Story = {
+export const WithToolCalls = {
   render: () => (
     <InteractiveChatView
       messages={
@@ -213,9 +210,9 @@ export const WithToolCalls: Story = {
       placeholder="Continue the conversation..."
     />
   ),
-}
+} as unknown as Story
 
-export const ErrorState: Story = {
+export const ErrorState = {
   render: () => (
     <InteractiveChatView
       messages={undefined}
@@ -223,9 +220,9 @@ export const ErrorState: Story = {
       placeholder="Type a message..."
     />
   ),
-}
+} as unknown as Story
 
-export const CompleteExample: Story = {
+export const CompleteExample = {
   render: () => {
     const [message, setMessage] = useState('')
     return (
@@ -277,11 +274,11 @@ export const CompleteExample: Story = {
                 action('onSubmit')(message)
                 setMessage('')
               }}
-              message={message}
+              disabled={!message.trim()}
             />
           </div>
         </ChatInput>
       </ChatView>
     )
   },
-}
+} as unknown as Story

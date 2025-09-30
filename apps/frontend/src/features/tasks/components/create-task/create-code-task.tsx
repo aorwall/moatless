@@ -134,7 +134,6 @@ export function CreateCodeTask({
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSubmit}
-          disabled={isSendDisabled}
           placeholder="Describe your coding task or feature... (use @ to reference files)"
           className={
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
@@ -232,7 +231,6 @@ export function CreateCodeTask({
                       ? 'Start Task'
                       : 'Create Task'
                 }
-                message={message}
               />
             </div>
           </div>

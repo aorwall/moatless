@@ -62,8 +62,7 @@ const createAssistantMessage = (
   timestamp: new Date(),
 })
 
-export const SimpleText: Story = {
-  args: {},
+export const SimpleText = {
   render: () => (
     <InteractiveAssistantMessage
       message={createAssistantMessage(
@@ -71,10 +70,9 @@ export const SimpleText: Story = {
       )}
     />
   ),
-}
+} as unknown as Story
 
-export const WithMarkdown: Story = {
-  args: {},
+export const WithMarkdown = {
   render: () => (
     <InteractiveAssistantMessage
       message={createAssistantMessage(
@@ -93,10 +91,9 @@ export const WithMarkdown: Story = {
       )}
     />
   ),
-}
+} as unknown as Story
 
-export const WithMultipleToolCalls: Story = {
-  args: {},
+export const WithMultipleToolCalls = {
   render: () => {
     const content: AssistantMessageContent[] = [
       {
@@ -132,10 +129,9 @@ export const WithMultipleToolCalls: Story = {
     ]
     return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
   },
-}
+} as unknown as Story
 
-export const WithTodoWrite: Story = {
-  args: {},
+export const WithTodoWrite = {
   render: () => {
     const content: AssistantMessageContent[] = [
       {
@@ -182,10 +178,9 @@ export const WithTodoWrite: Story = {
     ]
     return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
   },
-}
+} as unknown as Story
 
-export const WithError: Story = {
-  args: {},
+export const WithError = {
   render: () => {
     const content: AssistantMessageContent[] = [
       {
@@ -210,4 +205,4 @@ export const WithError: Story = {
     ]
     return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
   },
-}
+} as unknown as Story

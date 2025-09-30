@@ -1,15 +1,10 @@
-import type { ClaudeModel, Command, Message, UploadFileResponse } from '@moatless/types'
+import type { ClaudeModel, Message, UploadFileResponse } from '@moatless/types'
 import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useParams } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-providers'
-import {
-  useSendMessage,
-  useStopAgent,
-  useTaskCommands,
-  useTaskMessages,
-} from '@/features/tasks/hooks/use-tasks'
+import { useSendMessage, useStopAgent, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
@@ -42,7 +37,7 @@ function ChatContainer({ className }: ChatContainerProps) {
   // Local state for chat values
   const [message, setMessage] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
-  const [resumeConversation, setResumeConversation] = useState(true)
+  const [resumeConversation] = useState(true)
 
   // File upload hook
   const uploadFile = useUploadFile({
@@ -99,11 +94,6 @@ function ChatContainer({ className }: ChatContainerProps) {
     enabled: !!params.taskId,
   }) as { data: Message[] | undefined; isLoading: boolean; error: unknown }
 
-  // Fetch available commands for this task
-  const { data: commandsData } = useTaskCommands(params.taskId, {
-    enabled: !!params.taskId && !isTaskRunning,
-  })
-
   // Task message sending hook
   const sendMessage = useSendMessage(params.taskId, {
     onError: (error) => {
@@ -158,51 +148,6 @@ function ChatContainer({ className }: ChatContainerProps) {
     selectedAgentMode,
   ])
 
-  // Handle sending message to task for commands - wrapped in useCallback for stable reference
-  const handleSendMessage = useCallback(
-    (
-      _taskId: string,
-      messageText: string,
-      clearMessageCallback: () => void,
-      resume?: boolean,
-      model?: string,
-      filePaths?: string[],
-      commandName?: string,
-    ) => {
-      sendMessage.mutate(
-        { message: messageText, resume, model, filePaths, commandName },
-        {
-          onSuccess: () => {
-            clearMessageCallback()
-          },
-        },
-      )
-    },
-    [sendMessage],
-  )
-
-  // Get available commands from the API response
-  const availableCommands = useMemo(() => {
-    if (!commandsData || isTaskRunning) return []
-    return commandsData.commands
-  }, [commandsData, isTaskRunning])
-
-  // Handle command click
-  const handleCommandClick = useCallback(
-    (command: Command) => {
-      handleSendMessage(
-        params.taskId,
-        command.prompt,
-        () => {},
-        true,
-        undefined,
-        undefined,
-        command.name,
-      )
-    },
-    [params.taskId, handleSendMessage],
-  )
-
   // Helper functions for ChatInput
   const getButtonText = () => {
     if (isTaskRunning) {
@@ -223,9 +168,6 @@ function ChatContainer({ className }: ChatContainerProps) {
     }
     return 'Type a new request... (use @ to reference files)'
   }
-
-  // Check if last iteration has an error
-  const lastIterationHasError = lastIteration && lastIteration.status === 'failed'
 
   // Disable sending based on conditions
   const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())
