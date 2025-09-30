@@ -272,7 +272,7 @@ import { ChatForm } from '../chat-form'
 vi.mock('@/features/uploads/hooks/use-upload')
 vi.mock('@/lib/hooks/use-universal-file-autocomplete')
 
-describe('ChatForm - Tier 1 Critical Tests', () => {
+describe('ChatForm', () => {
   const defaultProps = {
     message: '',
     onMessageChange: vi.fn(),
@@ -361,7 +361,7 @@ import { userEvent } from '@testing-library/user-event'
 import { FileIcon } from 'lucide-react'
 import { PopoverSelector } from '../popover-selector'
 
-describe('PopoverSelector - Tier 2 State Tests', () => {
+describe('PopoverSelector', () => {
   // Test loading state
   it('shows loading text when loading', () => {
     render(
@@ -458,5 +458,4 @@ it('displays error message', () => {
 
 ## Related Patterns
 
-- [Backend Testing Patterns](docs/patterns/backend-testing.md) - Backend-specific testing strategy
 - [Strategic Mocking Pattern](docs/patterns/strategic-mocking.md) - Detailed mocking frameworks
