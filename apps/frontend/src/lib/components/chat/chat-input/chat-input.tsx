@@ -10,6 +10,10 @@ interface ChatInputProps {
   className?: string
   loading?: boolean
   children?: React.ReactNode
+  // File autocomplete support
+  onKeyDownCapture?: (e: KeyboardEvent<HTMLTextAreaElement>) => void
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>
+  autocompleteSlot?: React.ReactNode
 }
 
 export function ChatInput({
@@ -20,11 +24,25 @@ export function ChatInput({
   className,
   loading = false,
   children,
+  onKeyDownCapture,
+  textareaRef: externalTextareaRef,
+  autocompleteSlot,
 }: ChatInputProps) {
   const formRef = useRef<HTMLFormElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const internalTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Use external ref if provided, otherwise use internal ref
+  const textareaRef = externalTextareaRef || internalTextareaRef
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Call external key handler first (for autocomplete)
+    onKeyDownCapture?.(e)
+
+    // If event was handled by autocomplete, don't process further
+    if (e.defaultPrevented) {
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && !loading) {
       e.preventDefault()
       if (message.trim()) {
@@ -67,6 +85,7 @@ export function ChatInput({
               className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto max-h-[400px]"
               disabled={loading}
             />
+            {autocompleteSlot}
           </div>
 
           {children}

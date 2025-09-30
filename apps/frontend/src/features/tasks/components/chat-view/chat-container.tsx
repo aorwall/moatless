@@ -3,6 +3,7 @@ import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useParams } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-providers'
 import { useSendMessage, useStopAgent, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
@@ -20,6 +21,7 @@ import {
   useModelSelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import { ChatView } from '@/lib/components/chat/chat-view'
+import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { MessageHistory } from '@/lib/components/chat/message-history'
 import { getErrorMessage } from '@/lib/utils/error'
 
@@ -50,6 +52,30 @@ function ChatContainer({ className }: ChatContainerProps) {
         description: getErrorMessage(error),
       })
     },
+  })
+
+  // File search mutation (task-specific)
+  const fileSearchMutation = useFileSearch(params.taskId)
+
+  // File autocomplete hook (generic)
+  const {
+    inputRef: textareaRef,
+    isOpen: isAutocompleteOpen,
+    results: autocompleteResults,
+    selectedIndex: autocompleteSelectedIndex,
+    isLoading: isAutocompleteLoading,
+    error: autocompleteError,
+    handleInputChange,
+    handleKeyDown: handleAutocompleteKeyDown,
+    selectFile,
+  } = useFileAutocomplete({
+    value: message,
+    onValueChange: setMessage,
+    enabled: true,
+    onSearch: fileSearchMutation.mutate,
+    results: fileSearchMutation.data?.results || [],
+    isLoading: fileSearchMutation.isPending,
+    error: fileSearchMutation.error,
   })
 
   // Derive initial values from last iteration
@@ -172,6 +198,19 @@ function ChatContainer({ className }: ChatContainerProps) {
   // Disable sending based on conditions
   const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())
 
+  // Handle message changes with autocomplete
+  const handleMessageChange = useCallback(
+    (newMessage: string) => {
+      setMessage(newMessage)
+      // Update autocomplete state based on cursor position
+      if (textareaRef.current) {
+        const cursorPosition = textareaRef.current.selectionStart || 0
+        handleInputChange(newMessage, cursorPosition)
+      }
+    },
+    [handleInputChange, textareaRef],
+  )
+
   return (
     <ChatView className={className}>
       <MessageHistory
@@ -182,10 +221,24 @@ function ChatContainer({ className }: ChatContainerProps) {
       />
       <ChatInput
         message={message}
-        onMessageChange={setMessage}
+        onMessageChange={handleMessageChange}
         onSubmit={handleChatSubmit}
         loading={sendMessage.isPending}
         placeholder={getPlaceholderText()}
+        textareaRef={textareaRef}
+        onKeyDownCapture={handleAutocompleteKeyDown}
+        autocompleteSlot={
+          isAutocompleteOpen && (
+            <FileAutocomplete
+              results={autocompleteResults}
+              selectedIndex={autocompleteSelectedIndex}
+              onSelect={selectFile}
+              isLoading={isAutocompleteLoading}
+              error={autocompleteError}
+              position="above"
+            />
+          )
+        }
       >
         {uploadedFiles.length > 0 && (
           <Files

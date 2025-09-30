@@ -26,6 +26,7 @@ describe('ChatForm - Tier 1 Critical Tests', () => {
   const mockAutocomplete = {
     inputRef: { current: null },
     isOpen: false,
+    searchTerm: '',
     results: [],
     selectedIndex: -1,
     isLoading: false,

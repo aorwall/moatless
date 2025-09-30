@@ -37,6 +37,7 @@ export function FileAutocomplete({
   if (isLoading) {
     return (
       <div
+        data-testid="file-autocomplete"
         className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg p-2`}
       >
         <div className="text-sm text-muted-foreground">Searching files...</div>
@@ -47,6 +48,7 @@ export function FileAutocomplete({
   if (error) {
     return (
       <div
+        data-testid="file-autocomplete"
         className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg p-2`}
       >
         <div className="flex flex-col gap-1">
@@ -63,6 +65,7 @@ export function FileAutocomplete({
   if (results.length === 0) {
     return (
       <div
+        data-testid="file-autocomplete"
         className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg p-2`}
       >
         <div className="text-sm text-muted-foreground">No files found</div>
@@ -73,6 +76,7 @@ export function FileAutocomplete({
   return (
     <div
       ref={listRef}
+      data-testid="file-autocomplete"
       className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg`}
     >
       {results.map((file, index) => {
@@ -89,9 +93,6 @@ export function FileAutocomplete({
             <FileIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm truncate">{file.path}</div>
-              {file.score && (
-                <div className="text-xs text-muted-foreground">Score: {file.score.toFixed(2)}</div>
-              )}
             </div>
           </button>
         )

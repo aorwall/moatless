@@ -1,7 +1,7 @@
 import { ArrowUp, Loader2 } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
+import { FileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
 import { Textarea } from '@/lib/components/ui/textarea'
 import { useUniversalFileAutocomplete } from '@/lib/hooks/use-universal-file-autocomplete'

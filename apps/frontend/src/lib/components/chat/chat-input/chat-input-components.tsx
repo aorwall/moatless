@@ -1,7 +1,7 @@
 import type { FileSearchResult, UploadFileResponse } from '@moatless/types'
 import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
 import { useRef } from 'react'
-import { FileAutocomplete } from '@/features/tasks/components/file-autocomplete'
+import { FileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,
