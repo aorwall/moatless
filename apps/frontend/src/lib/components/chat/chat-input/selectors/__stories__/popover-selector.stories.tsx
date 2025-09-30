@@ -1,5 +1,5 @@
-import { action } from '@storybook/addon-actions'
 import type { Meta, StoryObj } from '@storybook/react'
+import { fn } from '@storybook/test'
 import { Bot, Database, FileText, GitBranch, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import {
@@ -67,6 +67,7 @@ const mockTemplates = [
 ]
 
 export const Default: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('')
     return (
@@ -81,7 +82,7 @@ export const Default: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
         />
       </PopoverSelector>
@@ -90,6 +91,7 @@ export const Default: Story = {
 }
 
 export const ModelSelector: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('sonnet-4')
     const selectedModel = mockModels.find((m) => m.id === value)
@@ -105,7 +107,7 @@ export const ModelSelector: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
         />
       </PopoverSelector>
@@ -114,6 +116,7 @@ export const ModelSelector: Story = {
 }
 
 export const RepositorySelector: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('repo-1')
     const selectedRepo = mockRepositories.find((r) => r.id === value)
@@ -129,7 +132,7 @@ export const RepositorySelector: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
           placeholder="Search repositories..."
           emptyText="No repositories found"
@@ -140,6 +143,7 @@ export const RepositorySelector: Story = {
 }
 
 export const BranchSelector: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('main')
     const selectedBranch = mockBranches.find((b) => b.id === value)
@@ -155,7 +159,7 @@ export const BranchSelector: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
           currentBranch="main"
           enableSearch={true}
@@ -167,6 +171,7 @@ export const BranchSelector: Story = {
 }
 
 export const AgentModeSelector: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('edit')
     const selectedMode = mockAgentModes.find((m) => m.id === value)
@@ -182,7 +187,7 @@ export const AgentModeSelector: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
         />
       </PopoverSelector>
@@ -191,6 +196,7 @@ export const AgentModeSelector: Story = {
 }
 
 export const TemplateSelector: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('template-1')
     const selectedTemplate = mockTemplates.find((t) => t.id === value)
@@ -206,7 +212,7 @@ export const TemplateSelector: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
           placeholder="Search templates..."
           emptyText="No templates found"
@@ -217,6 +223,7 @@ export const TemplateSelector: Story = {
 }
 
 export const NoValue: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('')
     return (
@@ -231,7 +238,7 @@ export const NoValue: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
           placeholder="Search repositories..."
           emptyText="No repositories found"
@@ -262,6 +269,7 @@ export const Disabled: Story = {
 }
 
 export const EmptyList: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('')
     return (
@@ -276,7 +284,7 @@ export const EmptyList: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
           placeholder="Search repositories..."
           emptyText="No repositories available"
@@ -287,6 +295,7 @@ export const EmptyList: Story = {
 }
 
 export const LongLabels: Story = {
+  args: {},
   render: () => {
     const [value, setValue] = useState('long-1')
     const longRepos = [
@@ -314,7 +323,7 @@ export const LongLabels: Story = {
           value={value}
           onChange={(newValue) => {
             setValue(newValue)
-            action('onChange')(newValue)
+            fn()(newValue)
           }}
           placeholder="Search..."
         />
@@ -324,6 +333,7 @@ export const LongLabels: Story = {
 }
 
 export const MultipleSelectors: Story = {
+  args: {},
   render: () => {
     const [model, setModel] = useState('sonnet-4')
     const [mode, setMode] = useState('edit')
@@ -346,7 +356,7 @@ export const MultipleSelectors: Story = {
             value={repo}
             onChange={(newValue) => {
               setRepo(newValue)
-              action('repo-change')(newValue)
+              fn()(newValue)
             }}
             placeholder="Search repositories..."
           />
@@ -363,7 +373,7 @@ export const MultipleSelectors: Story = {
             value={model}
             onChange={(newValue) => {
               setModel(newValue)
-              action('model-change')(newValue)
+              fn()(newValue)
             }}
           />
         </PopoverSelector>
@@ -379,7 +389,7 @@ export const MultipleSelectors: Story = {
             value={mode}
             onChange={(newValue) => {
               setMode(newValue)
-              action('mode-change')(newValue)
+              fn()(newValue)
             }}
           />
         </PopoverSelector>

@@ -42,8 +42,35 @@ vi.mock('@/lib/components/ui/resizable', () => ({
   ResizableHandle: () => <div data-testid="resize-handle" />,
 }))
 
+import type { WorkspaceStatusResponse } from '@moatless/types'
 import { usePanelView, useTaskData } from '../../contexts/task-providers'
 import { useWorkspaceStatusWithTask } from '../../hooks/use-workspace-status'
+
+/**
+ * Helper to create a complete WorkspaceStatusResponse mock with defaults
+ */
+function createWorkspaceStatusMock(
+  overrides?: Partial<WorkspaceStatusResponse>,
+): WorkspaceStatusResponse {
+  return {
+    workspaceState: 'exists',
+    workspacePath: '/test/workspace',
+    environmentType: 'local',
+    environmentStatus: 'ready',
+    environmentCreatedAt: new Date().toISOString(),
+    agentState: 'idle',
+    capabilities: {
+      fileOperations: true,
+      commandExecution: true,
+      serverManagement: false,
+    },
+    isRunning: false,
+    workspaceReady: true,
+    canExecute: true,
+    configOutdated: false,
+    ...overrides,
+  }
+}
 
 describe('TaskPage - Toggle Functionality', () => {
   const mockSetRightPanelView = vi.fn()
@@ -88,11 +115,15 @@ describe('TaskPage - Toggle Functionality', () => {
 
       // Workspace has serverManagement capability
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: true },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(
+          createWorkspaceStatusMock({
+            capabilities: {
+              fileOperations: true,
+              commandExecution: true,
+              serverManagement: true,
+            },
+          }),
+        ),
       )
 
       render(<TaskPage />)
@@ -111,11 +142,7 @@ describe('TaskPage - Toggle Functionality', () => {
 
       // Workspace does NOT have serverManagement capability
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: false },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(createWorkspaceStatusMock()),
       )
 
       render(<TaskPage />)
@@ -134,11 +161,15 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: true },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(
+          createWorkspaceStatusMock({
+            capabilities: {
+              fileOperations: true,
+              commandExecution: true,
+              serverManagement: true,
+            },
+          }),
+        ),
       )
 
       render(<TaskPage />)
@@ -158,11 +189,7 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: false },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(createWorkspaceStatusMock()),
       )
 
       render(<TaskPage />)
@@ -178,11 +205,15 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: true },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(
+          createWorkspaceStatusMock({
+            capabilities: {
+              fileOperations: true,
+              commandExecution: true,
+              serverManagement: true,
+            },
+          }),
+        ),
       )
 
       render(<TaskPage />)
@@ -199,11 +230,15 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: true },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(
+          createWorkspaceStatusMock({
+            capabilities: {
+              fileOperations: true,
+              commandExecution: true,
+              serverManagement: true,
+            },
+          }),
+        ),
       )
 
       // First render would trigger the effect, but the ref prevents re-running
@@ -235,11 +270,7 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery({
-          capabilities: { serverManagement: false },
-          environmentStatus: 'ready',
-          agentState: 'idle',
-        }),
+        createMockQuery(createWorkspaceStatusMock()),
       )
 
       render(<TaskPage />)

@@ -1,6 +1,6 @@
 import type { UploadFileResponse } from '@moatless/types'
-import { action } from '@storybook/addon-actions'
 import type { Meta, StoryObj } from '@storybook/react'
+import { fn } from '@storybook/test'
 import { Brain, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
@@ -63,10 +63,10 @@ function InteractiveWrapper({
       message={message}
       onMessageChange={(msg) => {
         setMessage(msg)
-        action('onMessageChange')(msg)
+        fn()(msg)
       }}
       onSubmit={() => {
-        action('onSubmit')(message)
+        fn()(message)
         setMessage('')
       }}
       {...props}
@@ -77,22 +77,27 @@ function InteractiveWrapper({
 }
 
 export const Default: Story = {
+  args: {},
   render: () => <InteractiveWrapper />,
 }
 
 export const WithMessage: Story = {
+  args: {},
   render: () => <InteractiveWrapper message="Hello, can you help me with this code?" />,
 }
 
 export const WithPlaceholder: Story = {
+  args: {},
   render: () => <InteractiveWrapper placeholder="Ask me anything about your codebase..." />,
 }
 
 export const Loading: Story = {
+  args: {},
   render: () => <InteractiveWrapper message="Sending message..." loading={true} disabled={true} />,
 }
 
 export const Running: Story = {
+  args: {},
   render: () => (
     <InteractiveWrapper
       message="Type your next request..."
@@ -104,10 +109,12 @@ export const Running: Story = {
 }
 
 export const Disabled: Story = {
+  args: {},
   render: () => <InteractiveWrapper disabled={true} placeholder="Input is disabled" />,
 }
 
 export const WithFiles: Story = {
+  args: {},
   render: () => {
     const [files, setFiles] = useState(mockFiles)
     return (
@@ -122,6 +129,7 @@ export const WithFiles: Story = {
 }
 
 export const WithSelectors: Story = {
+  args: {},
   render: () => (
     <InteractiveWrapper>
       <div className="flex items-center justify-between gap-2">
@@ -135,6 +143,7 @@ export const WithSelectors: Story = {
 }
 
 export const LongText: Story = {
+  args: {},
   render: () => (
     <InteractiveWrapper
       message={`This is a very long message that demonstrates the auto-resize functionality of the chat input.
@@ -154,6 +163,7 @@ This helps test the scrolling behavior when content exceeds the maximum height.`
 }
 
 export const AllFeatures: Story = {
+  args: {},
   render: () => {
     const [files, setFiles] = useState(mockFiles)
     return (
@@ -173,7 +183,7 @@ export const AllFeatures: Story = {
           </Selectors>
           <UploadButton
             onFileSelect={(file) => {
-              action('onFileSelect')(file)
+              fn()(file)
             }}
           />
         </div>
@@ -183,5 +193,6 @@ export const AllFeatures: Story = {
 }
 
 export const MinimalEmpty: Story = {
+  args: {},
   render: () => <InteractiveWrapper placeholder="Start typing..." buttonText="Send" />,
 }

@@ -63,6 +63,7 @@ const createAssistantMessage = (
 })
 
 export const SimpleText: Story = {
+  args: {},
   render: () => (
     <InteractiveAssistantMessage
       message={createAssistantMessage(
@@ -73,6 +74,7 @@ export const SimpleText: Story = {
 }
 
 export const WithMarkdown: Story = {
+  args: {},
   render: () => (
     <InteractiveAssistantMessage
       message={createAssistantMessage(
@@ -94,6 +96,7 @@ export const WithMarkdown: Story = {
 }
 
 export const WithMultipleToolCalls: Story = {
+  args: {},
   render: () => {
     const content: AssistantMessageContent[] = [
       {
@@ -132,6 +135,7 @@ export const WithMultipleToolCalls: Story = {
 }
 
 export const WithTodoWrite: Story = {
+  args: {},
   render: () => {
     const content: AssistantMessageContent[] = [
       {
@@ -181,6 +185,7 @@ export const WithTodoWrite: Story = {
 }
 
 export const WithError: Story = {
+  args: {},
   render: () => {
     const content: AssistantMessageContent[] = [
       {
