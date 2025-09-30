@@ -21,6 +21,13 @@ import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
 import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
@@ -37,6 +44,7 @@ interface PreviewHeaderProps {
   scriptHealthStatus: ScriptHealthStatus
   lastHeartbeat: number | null
   onReload: () => void
+  isInspectorAvailable: boolean | null
 }
 
 export function PreviewHeader({
@@ -46,6 +54,7 @@ export function PreviewHeader({
   onToggleInspector,
   scriptHealthStatus,
   onReload,
+  isInspectorAvailable,
 }: PreviewHeaderProps) {
   const params = useParams({ from: '/tasks/$taskId' })
 
@@ -58,6 +67,7 @@ export function PreviewHeader({
 
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
+  const [isInspectorDialogOpen, setIsInspectorDialogOpen] = useState(false)
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -367,15 +377,59 @@ export function PreviewHeader({
                 <Button
                   variant={isInspectorActive ? 'default' : 'ghost'}
                   size="icon"
-                  onClick={onToggleInspector}
+                  onClick={() => {
+                    if (!isInspectorAvailable) {
+                      setIsInspectorDialogOpen(true)
+                    } else {
+                      onToggleInspector()
+                    }
+                  }}
                   className="h-8 w-8"
                   aria-label="Toggle Inspector"
                 >
                   <MousePointer className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Toggle Element Inspector</TooltipContent>
+              <TooltipContent>
+                {isInspectorAvailable === null
+                  ? 'Toggle Element Inspector not available'
+                  : 'Toggle Element Inspector'}
+              </TooltipContent>
             </Tooltip>
+
+            <Dialog open={isInspectorDialogOpen} onOpenChange={setIsInspectorDialogOpen}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Element Inspector Unavailable</DialogTitle>
+                  <DialogDescription>
+                    The element inspector requires code inspector attributes in your components.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Install the <strong>React Inspector Plugin</strong> to enable this feature. This
+                    plugin adds{' '}
+                    <code className="text-xs bg-muted px-1 py-0.5 rounded">data-insp-path</code>{' '}
+                    attributes to your React components, allowing the inspector to identify and
+                    navigate to source code.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      window.open(
+                        'https://inspector.fe-dev.cn/en/',
+                        '_blank',
+                        'noopener,noreferrer',
+                      )
+                    }}
+                  >
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Learn more about React Inspector Plugin
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             <Tooltip>
               <TooltipTrigger asChild>

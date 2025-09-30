@@ -38,8 +38,10 @@
       // Always ensure source is set for all messages
       const messageWithSource = { ...payload, source: 'preview-iframe' }
 
-      // Use internal logging to prevent infinite recursion
-      internalLog.log('[Preview Inspector] Sending message to parent:', messageWithSource)
+      // Use internal logging to prevent infinite recursion (exclude HEARTBEAT from logs)
+      if (payload.type !== 'HEARTBEAT') {
+        internalLog.log('[Preview Inspector] Sending message to parent:', messageWithSource)
+      }
 
       window.parent.postMessage(messageWithSource, '*')
     } catch (err) {
@@ -218,6 +220,28 @@
 
     // Also listen for hash changes (for hash-based routing)
     window.addEventListener('hashchange', checkRouteChange)
+  }
+
+  function checkInspectorAvailability() {
+    // Scan DOM for elements with data-insp-path attribute
+    const elementsWithInspPath = document.querySelectorAll('[data-insp-path]')
+    const isAvailable = elementsWithInspPath.length > 0
+
+    internalLog.log(
+      '[Preview Inspector] Inspector availability check:',
+      isAvailable
+        ? `Found ${elementsWithInspPath.length} elements with data-insp-path`
+        : 'No data-insp-path attributes found',
+    )
+
+    sendToParent({
+      type: 'INSPECTOR_AVAILABILITY',
+      payload: {
+        isAvailable,
+        elementCount: elementsWithInspPath.length,
+        timestamp: Date.now(),
+      },
+    })
   }
 
   function buildOverlay() {
@@ -424,9 +448,13 @@
     internalLog.log('[Preview Inspector] Overlay built')
 
     window.addEventListener('message', (ev) => {
-      internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
-
       const { type, payload } = ev.data ?? {}
+
+      // Only log known Preview Inspector message types
+      if (type === 'TOGGLE_SELECTOR' || type === 'SELECTOR_STATE_REQUEST') {
+        internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
+      }
+
       switch (type) {
         case 'TOGGLE_SELECTOR':
           internalLog.log('[Preview Inspector] Toggling selector:', payload)
@@ -455,6 +483,9 @@
 
     hookNavigation()
     internalLog.log('[Preview Inspector] Navigation hooks installed')
+
+    internalLog.log('[Preview Inspector] Checking inspector availability...')
+    checkInspectorAvailability()
 
     internalLog.log('[Preview Inspector] Sending SCRIPT_LOADED message...')
     sendToParent({

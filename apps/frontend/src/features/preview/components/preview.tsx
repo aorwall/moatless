@@ -29,6 +29,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null)
   const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
+  const [isInspectorAvailable, setIsInspectorAvailable] = useState<boolean | null>(null)
 
   // Use SSE status when available, fall back to query status
   const effectiveServerStatus = eventServerStatus || serverStatus?.status || 'stopped'
@@ -136,6 +137,18 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
           setLastHeartbeat(Date.now())
           break
 
+        case 'INSPECTOR_AVAILABILITY':
+          // Update inspector availability status
+          // Always log this for debugging (not conditional on isConsoleExpanded)
+          console.log('[Preview] INSPECTOR_AVAILABILITY received:', {
+            isAvailable: payload?.isAvailable,
+            elementCount: payload?.elementCount,
+            fullPayload: payload,
+          })
+          setIsInspectorAvailable(payload.isAvailable)
+          console.log('[Preview] Set isInspectorAvailable to:', payload.isAvailable)
+          break
+
         default:
           // Unknown message type
           break
@@ -230,6 +243,9 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     // If script is injected, we'll receive INSPECTOR_SCRIPT_LOADED message
     setScriptHealthStatus('not-injected')
 
+    // Don't reset isInspectorAvailable - it will be updated when the script
+    // sends the INSPECTOR_AVAILABILITY message. Resetting here causes race conditions.
+
     // After iframe loads, navigate to the current path if not root
     if (path !== '/' && iframeRef.current?.contentWindow) {
       // Give the app time to initialize before navigating
@@ -262,6 +278,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
         scriptHealthStatus={scriptHealthStatus}
         lastHeartbeat={lastHeartbeat}
         onReload={reloadPreview}
+        isInspectorAvailable={isInspectorAvailable}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden bg-background">
