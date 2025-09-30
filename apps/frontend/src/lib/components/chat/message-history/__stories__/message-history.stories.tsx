@@ -5,6 +5,7 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import type { Meta, StoryObj } from '@storybook/react'
+import React from 'react'
 import { MessageHistory } from '../message-history.tsx'
 
 const meta = {
@@ -441,5 +442,107 @@ export const ThinkingState: Story = {
     ] as Message[],
     isLoading: false,
     isRunning: true,
+  },
+}
+
+export const AutoScrollBehavior: Story = {
+  render: () => {
+    const [messages, setMessages] = React.useState<Message[]>([
+      createUserMessage('Hello! Can you help me with auto-scrolling?', 'msg-1'),
+      createAssistantMessage(
+        'Sure! Let me demonstrate how auto-scrolling works when new messages arrive.',
+        'msg-2',
+      ),
+    ])
+    const [isAdding, setIsAdding] = React.useState(false)
+    const counterRef = React.useRef(3)
+
+    const addMessage = React.useCallback(() => {
+      const newId = `msg-${counterRef.current}`
+      const isUser = counterRef.current % 2 === 1
+      const newMessage = isUser
+        ? createUserMessage(`User message #${Math.floor(counterRef.current / 2) + 1}`, newId)
+        : createAssistantMessage(`Assistant response #${Math.floor(counterRef.current / 2)}`, newId)
+
+      setMessages((prev) => [...prev, newMessage])
+      counterRef.current += 1
+    }, [])
+
+    const startAutoAdd = () => {
+      setIsAdding(true)
+    }
+
+    const stopAutoAdd = () => {
+      setIsAdding(false)
+    }
+
+    React.useEffect(() => {
+      if (!isAdding) return
+
+      const interval = setInterval(() => {
+        addMessage()
+      }, 2000)
+
+      return () => clearInterval(interval)
+    }, [isAdding, addMessage])
+
+    return (
+      <div className="h-screen flex flex-col bg-background">
+        <div className="border-b border-border p-4 bg-muted/30">
+          <h2 className="text-lg font-semibold mb-2">Auto-Scroll Behavior Test</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Try scrolling up in the message history, then add a new message. Auto-scroll should only
+            work if you're at the bottom.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={addMessage}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm"
+            >
+              Add Message
+            </button>
+            {!isAdding ? (
+              <button
+                type="button"
+                onClick={startAutoAdd}
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 text-sm"
+              >
+                Start Auto-Add (2s interval)
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopAutoAdd}
+                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 text-sm"
+              >
+                Stop Auto-Add
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setMessages([
+                  createUserMessage('Hello! Can you help me with auto-scrolling?', 'msg-1'),
+                  createAssistantMessage(
+                    'Sure! Let me demonstrate how auto-scrolling works when new messages arrive.',
+                    'msg-2',
+                  ),
+                ])
+                counterRef.current = 3
+                setIsAdding(false)
+              }}
+              className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 text-sm border border-border"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+        <MessageHistory messages={messages} />
+      </div>
+    )
+  },
+  parameters: {
+    layout: 'fullscreen',
   },
 }

@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll.ts'
 import { groupMessages } from '@/features/tasks/utils/group-messages.ts'
 import { Button } from '@/lib/components/ui/button.tsx'
+import { ScrollArea } from '@/lib/components/ui/scroll-area.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
 import { AssistantMessageComponent } from './assistant-message.tsx'
@@ -176,7 +177,7 @@ function MessageHistoryComponent({
   return (
     <div className={cn('flex-1 overflow-hidden min-h-0', className)}>
       <div className="h-full relative">
-        <div ref={scrollRef} className="h-full w-full overflow-y-auto">
+        <ScrollArea ref={scrollRef} className="h-full w-full">
           <div className="p-4 space-y-4 w-full max-w-full">
             {groupedMessages.map((item) => {
               if (Array.isArray(item)) {
@@ -216,7 +217,7 @@ function MessageHistoryComponent({
 
             <div ref={bottomRef} />
           </div>
-        </div>
+        </ScrollArea>
 
         {/* Scroll to bottom indicator */}
         {!isAtBottom && (
