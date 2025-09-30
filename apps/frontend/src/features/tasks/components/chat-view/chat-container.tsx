@@ -231,79 +231,76 @@ function ChatContainer({ className }: ChatContainerProps) {
   const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())
 
   return (
-    <div className={`h-full flex flex-col ${className || ''}`}>
-      <ChatView className="flex-1">
-        <MessageHistory
-          messages={messages}
-          isLoading={isLoadingMessages}
-          error={messagesError as Error | null}
-          isRunning={isTaskRunning}
-        />
-        <ChatInput
-          message={message}
-          onMessageChange={setMessage}
-          onSubmit={handleChatSubmit}
-          loading={sendMessage.isPending}
-          placeholder={getPlaceholderText()}
-          className="max-h-[150px]"
-        >
-          {uploadedFiles.length > 0 && (
-            <Files
-              files={uploadedFiles}
-              onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
-            />
-          )}
+    <ChatView className={className}>
+      <MessageHistory
+        messages={messages}
+        isLoading={isLoadingMessages}
+        error={messagesError as Error | null}
+        isRunning={isTaskRunning}
+      />
+      <ChatInput
+        message={message}
+        onMessageChange={setMessage}
+        onSubmit={handleChatSubmit}
+        loading={sendMessage.isPending}
+        placeholder={getPlaceholderText()}
+      >
+        {uploadedFiles.length > 0 && (
+          <Files
+            files={uploadedFiles}
+            onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
+          />
+        )}
 
-          <div className="flex items-center justify-between gap-2">
-            <Selectors>
-              <PopoverSelector
-                icon={modelSelector.icon}
+        <div className="flex items-center justify-between gap-2">
+          <Selectors>
+            <PopoverSelector
+              icon={modelSelector.icon}
+              value={modelSelector.value}
+              displayValue={modelSelector.displayValue}
+              tooltip={modelSelector.tooltip}
+              loading={modelSelector.loading}
+              disabled={modelSelector.disabled}
+            >
+              <SimpleListPopoverContent
+                items={modelSelector.items}
                 value={modelSelector.value}
-                displayValue={modelSelector.displayValue}
-                tooltip={modelSelector.tooltip}
-                loading={modelSelector.loading}
-                disabled={modelSelector.disabled}
-              >
-                <SimpleListPopoverContent
-                  items={modelSelector.items}
-                  value={modelSelector.value}
-                  onChange={modelSelector.onChange}
-                />
-              </PopoverSelector>
+                onChange={modelSelector.onChange}
+              />
+            </PopoverSelector>
 
-              <PopoverSelector
-                icon={agentModeSelector.icon}
+            <PopoverSelector
+              icon={agentModeSelector.icon}
+              value={agentModeSelector.value}
+              displayValue={agentModeSelector.displayValue}
+              tooltip={agentModeSelector.tooltip}
+              loading={agentModeSelector.loading}
+              disabled={agentModeSelector.disabled}
+            >
+              <SimpleListPopoverContent
+                items={agentModeSelector.items}
                 value={agentModeSelector.value}
-                displayValue={agentModeSelector.displayValue}
-                tooltip={agentModeSelector.tooltip}
-                loading={agentModeSelector.loading}
-                disabled={agentModeSelector.disabled}
-              >
-                <SimpleListPopoverContent
-                  items={agentModeSelector.items}
-                  value={agentModeSelector.value}
-                  onChange={agentModeSelector.onChange}
-                />
-              </PopoverSelector>
-            </Selectors>
+                onChange={agentModeSelector.onChange}
+              />
+            </PopoverSelector>
+          </Selectors>
 
-            <div className="flex items-center gap-2">
-              <UploadButton
-                onFileSelect={(file) => uploadFile.mutate(file)}
-                disabled={uploadFile.isPending}
-              />
-              <SendButton
-                onSubmit={handleChatSubmit}
-                disabled={isSendDisabled}
-                loading={sendMessage.isPending}
-                running={isTaskRunning}
-                buttonText={getButtonText()}
-              />
-            </div>
+          <div className="flex items-center gap-2">
+            <UploadButton
+              onFileSelect={(file) => uploadFile.mutate(file)}
+              disabled={uploadFile.isPending}
+            />
+            <SendButton
+              onSubmit={handleChatSubmit}
+              disabled={isSendDisabled}
+              loading={sendMessage.isPending}
+              running={isTaskRunning}
+              buttonText={getButtonText()}
+            />
           </div>
-        </ChatInput>
-      </ChatView>
-    </div>
+        </div>
+      </ChatInput>
+    </ChatView>
   )
 }
 

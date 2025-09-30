@@ -1,5 +1,4 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
@@ -46,14 +45,13 @@ if (rootElement && !rootElement.innerHTML) {
       <QueryClientProvider client={queryClient}>
         <GlobalEventStreamProvider>
           <RouterProvider router={router} />
-          <ReactQueryDevtools initialIsOpen={false} buttonPosition={'bottom-left'} />
           <Toaster position="bottom-right" />
         </GlobalEventStreamProvider>
       </QueryClientProvider>
     </StrictMode>,
   )
 }
-
+//           <ReactQueryDevtools initialIsOpen={false} buttonPosition={'bottom-left'} />
 // If you want to start measuring performance in your app, pass a function
 // to log results (for example: reportWebVitals(console.log))
 // or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
