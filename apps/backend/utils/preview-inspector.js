@@ -228,7 +228,7 @@
     document.body.appendChild(tooltip)
 
     const style = document.createElement('style')
-    style.textContent = `[${ATTR_HOVERED}]::before,[${ATTR_SELECTED}]::before{content:'';position:absolute;inset:0;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};pointer-events:none;z-index:${CONFIG.Z}}[${ATTR_SELECTED}]::before{outline-offset:3px}`
+    style.textContent = `[${ATTR_HOVERED}],[${ATTR_SELECTED}]{position:relative !important}[${ATTR_HOVERED}]::before,[${ATTR_SELECTED}]::before{content:'';position:absolute;inset:0;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};pointer-events:none;z-index:${CONFIG.Z}}[${ATTR_SELECTED}]::before{outline-offset:3px}`
     document.head.appendChild(style)
 
     let enabled = false
@@ -266,44 +266,77 @@
       hideTooltip()
     }, CONFIG.DEBOUNCE_MS)
 
-    // Extract source information from data-insp-path attribute
+    // Extract source information from a single element's data-insp-path attribute
     // Format: "src/path/to/file.tsx:line:column:element"
-    const extractSourceFromInspPath = (element) => {
-      // Check the element and its parents for data-insp-path attribute
+    const extractSourceFromElement = (element) => {
+      if (!element || !element.getAttribute) return null
+
+      const inspPath = element.getAttribute('data-insp-path')
+      if (!inspPath) return null
+
+      // Parse the format: "path/to/file.tsx:line:column:element"
+      const parts = inspPath.split(':')
+      if (parts.length >= 3) {
+        const filePath = parts[0]
+        const lineNumber = Number.parseInt(parts[1], 10)
+        const columnNumber = Number.parseInt(parts[2], 10)
+        const elementTag = parts[3] || element.tagName?.toLowerCase() || null
+
+        return {
+          filePath,
+          lineNumber: isNaN(lineNumber) ? null : lineNumber,
+          columnNumber: isNaN(columnNumber) ? null : columnNumber,
+          elementTag,
+        }
+      }
+      return null
+    }
+
+    // Extract source information from element and its parent chain
+    const extractParentChainInfo = (element, maxParents = 3) => {
+      const result = {
+        element: null,
+        parents: [],
+      }
+
+      // First, find the element with data-insp-path (could be the element itself or a parent)
       let currentElement = element
       let attempts = 0
-      const maxAttempts = 10 // Limit how far up we traverse
+      const maxSearchAttempts = 10
 
-      while (currentElement && attempts < maxAttempts) {
-        const inspPath = currentElement.getAttribute?.('data-insp-path')
+      // Find the first element with data-insp-path
+      while (currentElement && attempts < maxSearchAttempts) {
+        const sourceInfo = extractSourceFromElement(currentElement)
+        if (sourceInfo) {
+          result.element = sourceInfo
 
-        if (inspPath) {
-          internalLog.log('[Inspector Debug] Found data-insp-path:', inspPath)
+          // Now collect parent elements with data-insp-path
+          let parentElement = currentElement.parentElement
+          let parentCount = 0
 
-          // Parse the format: "path/to/file.tsx:line:column:element"
-          const parts = inspPath.split(':')
-          if (parts.length >= 3) {
-            const filePath = parts[0]
-            const lineNumber = Number.parseInt(parts[1], 10)
-            const columnNumber = Number.parseInt(parts[2], 10)
-            const elementTag = parts[3] || null // Optional 4th part is element tag
-
-            return {
-              filePath,
-              lineNumber: isNaN(lineNumber) ? null : lineNumber,
-              columnNumber: isNaN(columnNumber) ? null : columnNumber,
-              elementTag,
+          while (parentElement && parentCount < maxParents) {
+            const parentInfo = extractSourceFromElement(parentElement)
+            if (parentInfo) {
+              result.parents.push(parentInfo)
+              parentCount++
             }
+            parentElement = parentElement.parentElement
           }
+
+          internalLog.log(
+            '[Inspector Debug] Found element and',
+            result.parents.length,
+            'parents with data-insp-path',
+          )
+          return result
         }
 
-        // Move up to parent element
         currentElement = currentElement.parentElement
         attempts++
       }
 
       internalLog.log('[Inspector Debug] No data-insp-path attribute found')
-      return null
+      return result
     }
 
     const click = (ev) => {
@@ -320,18 +353,19 @@
 
       target.setAttribute(ATTR_SELECTED, 'true')
 
-      // Extract source location information from data-insp-path
-      const sourceInfo = extractSourceFromInspPath(target)
+      // Extract source location information from element and parent chain
+      const chainInfo = extractParentChainInfo(target)
 
-      // Send only source location information to parent
+      // Send source location information with parent chain to parent
       sendToParent({
         type: 'ELEMENT_CLICKED',
-        payload: sourceInfo
+        payload: chainInfo.element
           ? {
-              filePath: sourceInfo.filePath,
-              lineNumber: sourceInfo.lineNumber,
-              columnNumber: sourceInfo.columnNumber,
-              elementTag: sourceInfo.elementTag || target.tagName.toLowerCase(),
+              filePath: chainInfo.element.filePath,
+              lineNumber: chainInfo.element.lineNumber,
+              columnNumber: chainInfo.element.columnNumber,
+              elementTag: chainInfo.element.elementTag || target.tagName.toLowerCase(),
+              parents: chainInfo.parents,
               timestamp: Date.now(),
             }
           : {
@@ -339,6 +373,7 @@
               lineNumber: null,
               columnNumber: null,
               elementTag: target.tagName.toLowerCase(),
+              parents: [],
               timestamp: Date.now(),
             },
       })
