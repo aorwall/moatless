@@ -71,7 +71,7 @@ export function createMockMessageEvent(
     payload: {
       role,
       content,
-      model: role === 'assistant' ? 'claude-3-sonnet' : undefined,
+      model: role === 'assistant' ? 'claude-sonnet-4-5-20250929' : undefined,
     },
   })
 }

@@ -6,7 +6,7 @@ import { dateSchema } from '../utils/validation.js'
 // ============================================
 
 // Event type enum using string literals (following schema design patterns)
-// Consolidated from 12 types to 5 logical types
+// Consolidated from 12 types to 6 logical types
 export const EventTypeSchema = z.enum([
   'task', // Task lifecycle (replaces task_status)
   'taskIteration', // Task iteration execution (new)
@@ -14,6 +14,7 @@ export const EventTypeSchema = z.enum([
   'environment', // Environment setup/status (unchanged)
   'agent', // Agent lifecycle + messages + results (consolidated)
   'server', // Server management (unchanged)
+  'navigation', // Preview navigation events (new)
 ])
 
 // ============================================
@@ -83,6 +84,14 @@ export const ServerEventPayloadSchema = z.object({
   uptimeSeconds: z.number().optional(),
 })
 
+// Navigation event payload schema
+export const NavigationEventPayloadSchema = z.object({
+  path: z.string(),
+  previousPath: z.string(),
+  url: z.string().optional(),
+  timestamp: z.date().optional(),
+})
+
 // ============================================
 // Specific Event Schemas
 // ============================================
@@ -127,6 +136,13 @@ export const ServerEventSchema = BaseEventSchema.extend({
   payload: ServerEventPayloadSchema,
 })
 
+// Navigation event
+export const NavigationEventSchema = BaseEventSchema.extend({
+  type: z.literal('navigation'),
+  subType: z.enum(['navigated', 'loaded', 'refreshed']),
+  payload: NavigationEventPayloadSchema,
+})
+
 // Agent event (consolidated: messages, results, lifecycle)
 export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
@@ -145,6 +161,7 @@ export const SpecificEventSchema = z.discriminatedUnion('type', [
   WorkspaceEventSchema,
   EnvironmentEventSchema,
   ServerEventSchema,
+  NavigationEventSchema,
   AgentEventSchema,
 ])
 
@@ -224,9 +241,11 @@ export type { ClaudeCodeSDKMessage, SDKResultMessage } from '../types/claude.js'
 export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
 export type ServerEventPayload = z.infer<typeof ServerEventPayloadSchema>
+export type NavigationEventPayload = z.infer<typeof NavigationEventPayloadSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
+export type NavigationEvent = z.infer<typeof NavigationEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 export type SpecificEvent = z.infer<typeof SpecificEventSchema>
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>

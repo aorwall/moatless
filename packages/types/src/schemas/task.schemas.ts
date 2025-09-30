@@ -210,6 +210,7 @@ export const ServerStatusSchema = z.object({
   uptimeSeconds: z.number().optional(),
   error: z.string().optional(),
   logs: z.string().optional(),
+  currentPath: z.string().optional(), // Current navigation path in preview
 })
 
 export const ServerStopResponseSchema = z.object({
