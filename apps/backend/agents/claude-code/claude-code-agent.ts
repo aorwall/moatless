@@ -509,7 +509,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         ...sdkOptions,
         maxTurns: 1,
         allowedTools: [],
-        model: sdkOptions.model || 'claude-sonnet-4-20250514',
+        model: sdkOptions.model || 'claude-sonnet-4-5-20250929',
       }
 
       // Create the formatted prompt with the user's request

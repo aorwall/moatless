@@ -329,7 +329,9 @@ describe('DockerEnvironment Integration Tests', () => {
     })
 
     it('should handle agent creation with options', async () => {
-      const agent = await dockerEnvironment.createAgent('claude-code', { model: 'claude-3-sonnet' })
+      const agent = await dockerEnvironment.createAgent('claude-code', {
+        model: 'claude-sonnet-4-5-20250929',
+      })
 
       expect(agent).toBeDefined()
     })

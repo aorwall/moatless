@@ -34,7 +34,7 @@ export class ClaudeService {
 
   // Model pricing per million tokens (as of Nov 2024)
   private readonly modelPricing: Record<string, ModelPricing> = {
-    'claude-3-5-sonnet-20241022': {
+    'claude-sonnet-4-5-20250929': {
       input: 3.0,
       output: 15.0,
       cache_write: 3.75,
