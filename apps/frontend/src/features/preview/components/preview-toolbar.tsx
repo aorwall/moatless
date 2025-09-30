@@ -23,35 +23,39 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
-import { usePreview } from '../hooks/use-preview'
+import type { ScriptHealthStatus } from '../types'
 import { ScriptHealthIndicator } from './script-health-indicator'
 
 interface PreviewToolbarProps {
+  path: string
+  onNavigate: (path: string) => void
+  isInspectorActive: boolean
+  onToggleInspector: () => void
+  scriptHealthStatus: ScriptHealthStatus
+  lastHeartbeat: number | null
   onReload: () => void
 }
 
-export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
+export function PreviewToolbar({
+  path,
+  onNavigate,
+  isInspectorActive,
+  onToggleInspector,
+  scriptHealthStatus,
+  onReload,
+}: PreviewToolbarProps) {
   const params = useParams({ from: '/tasks/$taskId' })
-  const {
-    config,
-    currentPath,
-    displayPath,
-    isInspectorActive,
-    scriptHealthStatus,
-    navigateToPath,
-    toggleInspector,
-  } = usePreview()
 
-  const [pathInput, setPathInput] = useState(displayPath)
+  const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
 
-  // Reset pathInput when displayPath changes (using key prop pattern in parent is better)
-  // But for internal component state, we need to track when displayPath changes
-  const [lastDisplayPath, setLastDisplayPath] = useState(displayPath)
+  // Reset pathInput when path changes (using key prop pattern in parent is better)
+  // But for internal component state, we need to track when path changes
+  const [lastPath, setLastPath] = useState(path)
 
-  if (displayPath !== lastDisplayPath) {
-    setPathInput(displayPath)
-    setLastDisplayPath(displayPath)
+  if (path !== lastPath) {
+    setPathInput(path)
+    setLastPath(path)
   }
 
   // Server management hooks
@@ -102,20 +106,22 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
   const handlePathSubmit = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
-        let path = pathInput.trim()
-        if (!path.startsWith('/')) {
-          path = `/${path}`
+        let newPath = pathInput.trim()
+        if (!newPath.startsWith('/')) {
+          newPath = `/${newPath}`
         }
-        navigateToPath(path)
+        onNavigate(newPath)
       }
     },
-    [pathInput, navigateToPath],
+    [pathInput, onNavigate],
   )
 
   const handleOpenInNewTab = useCallback(() => {
-    const fullUrl = `${config.url}${currentPath}`
-    window.open(fullUrl, '_blank', 'noopener,noreferrer')
-  }, [config.url, currentPath])
+    if (serverStatus?.url) {
+      const fullUrl = `${serverStatus.url}${path}`
+      window.open(fullUrl, '_blank', 'noopener,noreferrer')
+    }
+  }, [serverStatus?.url, path])
 
   const handleStartServer = useCallback(() => {
     startServer.mutate(params.taskId)
@@ -321,7 +327,7 @@ export function PreviewToolbar({ onReload }: PreviewToolbarProps) {
             <Button
               variant={isInspectorActive ? 'default' : 'ghost'}
               size="icon"
-              onClick={toggleInspector}
+              onClick={onToggleInspector}
               className="h-8 w-8"
               aria-label="Toggle Inspector"
             >

@@ -14,14 +14,6 @@ export function useServerStatus(
     queryKey: queryKeys.tasks.serverStatus(taskId),
     queryFn: () => serverApi.getServerStatus(taskId),
     enabled: !!taskId,
-    refetchInterval: (query) => {
-      // Poll more frequently when server is started or starting
-      const data = query.state.data
-      if (data?.status === 'started' || data?.status === 'starting') {
-        return 5000 // 5 seconds
-      }
-      return false
-    },
     ...options,
   })
 }

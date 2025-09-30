@@ -1,9 +1,6 @@
 export { serverApi } from './api/server'
 export { InspectorPanel } from './components/inspector-panel'
 export { Preview } from './components/preview'
-export { useInspector } from './hooks/use-inspector'
-export { PreviewProvider, usePreview } from './hooks/use-preview'
-export { usePreviewConnection } from './hooks/use-preview-connection'
 export {
   useRestartServer,
   useServerLogs,
@@ -13,4 +10,4 @@ export {
 } from './hooks/use-server'
 export { useServerEvents } from './hooks/use-server-events'
 export { useServerLogsStream } from './hooks/use-server-logs-stream'
-export type { ElementInfo, PreviewConfig, PreviewProps, ScriptHealthStatus } from './types'
+export type { ElementInfo, PreviewProps, ScriptHealthStatus } from './types'

@@ -4,6 +4,7 @@ import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Separator } from '@/lib/components/ui/separator'
 import { cn } from '@/lib/utils'
 import type { ElementInfo } from '../types'
+import { generateComponentList } from '../utils/inspector-utils'
 
 interface InspectorPanelProps {
   element: ElementInfo
@@ -13,17 +14,15 @@ interface InspectorPanelProps {
 
 export function InspectorPanel({ element, className, onClose }: InspectorPanelProps) {
   const handleCopyLocation = () => {
-    if (element.filePath && element.lineNumber) {
-      const locationText = `${element.filePath}:${element.lineNumber}:${element.columnNumber || 0}`
-      navigator.clipboard
-        .writeText(locationText)
-        .then(() => {
-          console.log('Location copied:', locationText)
-        })
-        .catch((err) => {
-          console.warn('Failed to copy:', err)
-        })
-    }
+    const componentList = generateComponentList(element)
+    navigator.clipboard
+      .writeText(componentList)
+      .then(() => {
+        console.log('Component list copied')
+      })
+      .catch((err) => {
+        console.warn('Failed to copy:', err)
+      })
   }
 
   const handleClose = () => {
@@ -46,28 +45,19 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
 
       <ScrollArea className="h-80">
         <div className="p-3 space-y-3">
-          {/* Source Location */}
-          {element.filePath ? (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-muted-foreground">Source Location</span>
-                <Button variant="ghost" size="sm" onClick={handleCopyLocation} className="h-6 px-2">
-                  <Copy className="h-3 w-3 mr-1" />
-                  Copy
-                </Button>
-              </div>
-              <code className="block p-2 bg-muted rounded text-xs break-all">
-                {element.filePath}:{element.lineNumber || 0}:{element.columnNumber || 0}
-              </code>
+          {/* Relevant Components */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-muted-foreground">Relevant Components</span>
+              <Button variant="ghost" size="sm" onClick={handleCopyLocation} className="h-6 px-2">
+                <Copy className="h-3 w-3 mr-1" />
+                Copy
+              </Button>
             </div>
-          ) : (
-            <div>
-              <span className="text-xs text-muted-foreground">Source Location</span>
-              <div className="mt-1 p-2 bg-muted rounded text-xs text-muted-foreground">
-                No source location available. Enable code-inspector plugin to see file locations.
-              </div>
-            </div>
-          )}
+            <pre className="block p-2 bg-muted rounded text-xs whitespace-pre-wrap break-all">
+              {generateComponentList(element)}
+            </pre>
+          </div>
 
           <Separator />
 

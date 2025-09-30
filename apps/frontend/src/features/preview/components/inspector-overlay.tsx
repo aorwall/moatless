@@ -19,12 +19,13 @@ export function InspectorOverlay({
         // Extract source location info from the simplified payload
         const payload = event.data.payload || {}
 
-        // Convert to ElementInfo format with only source location data
+        // Convert to ElementInfo format with source location data and parent chain
         const elementInfo: ElementInfo = {
           filePath: payload.filePath,
           lineNumber: payload.lineNumber,
           columnNumber: payload.columnNumber,
           elementTag: payload.elementTag || 'unknown',
+          parents: payload.parents || [],
         }
 
         onElementSelected(elementInfo)
