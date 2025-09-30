@@ -19,6 +19,7 @@ export const PreviewConfigSchema = z.object({
   buildCommand: z.string().optional(),
   buildOutputDirectory: z.string().default('dist').optional(),
   enableInspector: z.boolean().default(true).optional(),
+  startupTimeoutSeconds: z.number().min(5).default(30).optional(), // Time to wait for server to become HTTP-responsive (default: 30 seconds)
 })
 
 // Code execution schema

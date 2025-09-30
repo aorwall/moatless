@@ -465,6 +465,26 @@ export function RepositoryConfigEditSection({
         </ConfigurationItem>
 
         <ConfigurationItem
+          label="Startup Timeout"
+          description="Maximum time to wait for preview server to become HTTP-responsive (in seconds, default: 30)"
+        >
+          <ConfigurationInput
+            type="number"
+            min={5}
+            value={formData.previewConfig?.startupTimeoutSeconds ?? ''}
+            onChange={(e) => {
+              const value = e.target.value ? Number(e.target.value) : undefined
+              updateField('previewConfig', {
+                ...formData.previewConfig,
+                startupTimeoutSeconds: value,
+                enableInspector: formData.previewConfig?.enableInspector ?? true,
+              })
+            }}
+            placeholder="30"
+          />
+        </ConfigurationItem>
+
+        <ConfigurationItem
           label="Take Screenshots"
           description="Automatically take screenshots after each task iteration"
         >

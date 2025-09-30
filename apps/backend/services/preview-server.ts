@@ -63,23 +63,46 @@ export class PreviewServer {
 
   /**
    * Wait for the server to be HTTP-responsive on the allocated port
+   * @param timeoutSeconds - Total time to wait in seconds (default: 30, from config or fallback)
    */
-  private async waitForHttpReady(maxAttempts = 10, delayMs = 500): Promise<boolean> {
+  private async waitForHttpReady(timeoutSeconds = 30): Promise<boolean> {
     if (!this.port) {
       return false
     }
 
+    // Fixed delay between attempts
+    const delayMs = 1000
+    // Calculate attempts based on timeout
+    const maxAttempts = Math.floor(timeoutSeconds / (delayMs / 1000))
+
+    this.logger.info(
+      { port: this.port, maxAttempts, timeoutSeconds },
+      'Waiting for server to become HTTP-responsive',
+    )
+
     for (let i = 0; i < maxAttempts; i++) {
       try {
         const response = await fetch(`http://localhost:${this.port}`, {
-          signal: AbortSignal.timeout(2000),
+          signal: AbortSignal.timeout(3000),
         })
         if (response.ok) {
           this.logger.info({ port: this.port, attempts: i + 1 }, 'Server is HTTP-responsive')
           return true
         }
       } catch (error) {
-        this.logger.debug({ port: this.port, attempt: i + 1, maxAttempts }, 'Server not ready yet')
+        // Log progress every 5 attempts (every ~5 seconds)
+        if (i > 0 && i % 5 === 0) {
+          const elapsedSeconds = Math.floor((i * delayMs) / 1000)
+          this.logger.info(
+            { port: this.port, attempt: i + 1, maxAttempts, elapsedSeconds },
+            'Still waiting for server to start...',
+          )
+        } else {
+          this.logger.debug(
+            { port: this.port, attempt: i + 1, maxAttempts },
+            'Server not ready yet',
+          )
+        }
         await new Promise((resolve) => setTimeout(resolve, delayMs))
       }
     }
@@ -235,8 +258,12 @@ export class PreviewServer {
       await this.startProxy()
 
       // Wait for server to be HTTP-responsive before emitting 'started'
-      this.logger.info({ port: this.port }, 'Waiting for server to be HTTP-responsive...')
-      const isReady = await this.waitForHttpReady()
+      const timeoutSeconds = this.repositoryConfig?.previewConfig?.startupTimeoutSeconds ?? 30
+      this.logger.info(
+        { port: this.port, timeoutSeconds },
+        'Waiting for server to be HTTP-responsive...',
+      )
+      const isReady = await this.waitForHttpReady(timeoutSeconds)
 
       if (!isReady) {
         const error = 'Server process started but did not become HTTP-responsive'
