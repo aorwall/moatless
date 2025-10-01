@@ -1,14 +1,16 @@
-import type { SDKMessage } from '@anthropic-ai/claude-code'
+import { randomUUID } from 'node:crypto'
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
-// Mock the @anthropic-ai/claude-code module
-vi.mock('@anthropic-ai/claude-code', () => ({
+// Mock the @anthropic-ai/claude-agent-sdk module
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn().mockImplementation(() => {
     const generator = async function* () {
       // Default empty generator - will be overridden in tests
       yield {
         type: 'assistant',
+        uuid: randomUUID(),
         message: {
           id: 'msg_default',
           type: 'message',
@@ -43,6 +45,7 @@ describe('ClaudeCodeAgent', () => {
         const generator = async function* () {
           const textMessage: SDKMessage = {
             type: 'assistant',
+            uuid: randomUUID(),
             message: {
               id: 'msg_123',
               type: 'message',

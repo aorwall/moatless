@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { SDKMessage } from '@anthropic-ai/claude-code'
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent, ClaudeCodeSettings, Event, Task } from '@moatless/types'
 
 import { calculateContextTokens } from './context-tokens.js'

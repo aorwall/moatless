@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-code'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentEvent,
   BranchNameAndSummary,
@@ -416,7 +416,11 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     // Use the system prompt passed from TaskService
     if (runOptions.appendSystemPrompt) {
-      sdkOptions.appendSystemPrompt = runOptions.appendSystemPrompt
+      sdkOptions.systemPrompt = {
+        type: 'preset',
+        preset: 'claude_code',
+        append: runOptions.appendSystemPrompt,
+      }
     }
 
     return sdkOptions

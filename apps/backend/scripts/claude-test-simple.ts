@@ -1,6 +1,6 @@
-import { query, type SDKMessage } from '@anthropic-ai/claude-code'
+import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
-console.log('Starting Claude Code test...')
+console.log('Starting Claude Agent SDK test...')
 
 try {
   const messages: SDKMessage[] = []

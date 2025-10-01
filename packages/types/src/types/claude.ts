@@ -8,7 +8,7 @@ import type {
   SDKResultMessage,
   SDKSystemMessage,
   SDKUserMessage,
-} from '@anthropic-ai/claude-code'
+} from '@anthropic-ai/claude-agent-sdk'
 
 // Re-export the types we need from claude-code
 export type {

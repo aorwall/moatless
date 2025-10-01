@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useRef } from 'react'
+import { type KeyboardEvent, useEffect, useRef } from 'react'
 import { Textarea } from '@/lib/components/ui/textarea.tsx'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +33,13 @@ export function ChatInput({
 
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = externalTextareaRef || internalTextareaRef
+
+  // Reset textarea height when message is cleared
+  useEffect(() => {
+    if (!message && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [message, textareaRef])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Call external key handler first (for autocomplete)

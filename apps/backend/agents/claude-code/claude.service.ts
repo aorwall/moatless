@@ -4,7 +4,7 @@ import * as path from 'node:path'
 import type {
   SDKAssistantMessage as SDKAssistantMessageFromClaude,
   SDKMessage,
-} from '@anthropic-ai/claude-code'
+} from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentMessage,
   ClaudeSessionUsageResponse,

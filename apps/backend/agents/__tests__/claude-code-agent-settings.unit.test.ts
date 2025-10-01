@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mock the Claude Code SDK
-vi.mock('@anthropic-ai/claude-code', () => ({
+// Mock the Claude Agent SDK
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn().mockImplementation(() => {
     const generator = async function* () {
       yield {

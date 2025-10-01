@@ -144,6 +144,25 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
 
       expect(Number.parseInt(textarea.style.height || '0')).toBeLessThanOrEqual(400)
     })
+
+    it('resets height when message is cleared', async () => {
+      const { rerender } = render(<ChatInput {...defaultProps} message="test message" />)
+
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+
+      // Simulate textarea expansion by typing
+      await userEvent.type(textarea, '\nLine 2\nLine 3')
+
+      // Height should be set after typing
+      expect(textarea.style.height).toBeDefined()
+      expect(textarea.style.height).not.toBe('auto')
+
+      // Simulate parent clearing message after send
+      rerender(<ChatInput {...defaultProps} message="" />)
+
+      // Height should be reset to auto
+      expect(textarea.style.height).toBe('auto')
+    })
   })
 
   describe('Placeholder', () => {

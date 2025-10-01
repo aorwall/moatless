@@ -1,4 +1,4 @@
-import { query, type SDKMessage } from '@anthropic-ai/claude-code'
+import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
 const messages: SDKMessage[] = []
 
@@ -34,7 +34,10 @@ for await (const message of query({
     '\n' +
     'Ensure that your response contains only the JSON object within the <output> tags. Do not include any additional text, explanations, or formatting outside of the JSON structure.',
   options: {
-    appendSystemPrompt: '',
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+    },
     maxTurns: 2,
     model: 'claude-sonnet-4-20250514',
     allowedTools: [],
