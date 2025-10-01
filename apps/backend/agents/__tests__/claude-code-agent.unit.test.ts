@@ -1,37 +1,19 @@
-import { randomUUID } from 'node:crypto'
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it, vi } from 'vitest'
-import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 // Mock the @anthropic-ai/claude-agent-sdk module
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn().mockImplementation(() => {
-    const generator = async function* () {
-      // Default empty generator - will be overridden in tests
-      yield {
-        type: 'assistant',
-        uuid: randomUUID(),
-        message: {
-          id: 'msg_default',
-          type: 'message',
-          role: 'assistant',
-          model: 'claude-sonnet-4-20250514',
-          content: [{ type: 'text', text: 'Default test message' }],
-          stop_reason: 'end_turn',
-          stop_sequence: null,
-        },
-        parent_tool_use_id: null,
-        session_id: 'default-session',
-      }
-    }
-    const gen = generator()
-    return {
-      ...gen,
-      [Symbol.asyncIterator]: () => gen,
-      interrupt: vi.fn(),
-    }
-  }),
-}))
+vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
+  const { createMockQueryImplementation } = await import('../../test-utils/claude-agent-mocks.js')
+  return {
+    query: createMockQueryImplementation(),
+  }
+})
+
+import {
+  createMockQuery,
+  createMockSDKAssistantMessage,
+  createMockSDKUserMessage,
+} from '../../test-utils/claude-agent-mocks.js'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 describe('ClaudeCodeAgent', () => {
   describe('Context Tokens Calculation', () => {
@@ -40,12 +22,10 @@ describe('ClaudeCodeAgent', () => {
       const agent = new ClaudeCodeAgent(taskId)
 
       // Mock the query function to yield a message with usage data
-      const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(() => {
-        const generator = async function* () {
-          const textMessage: SDKMessage = {
-            type: 'assistant',
-            uuid: randomUUID(),
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+      vi.mocked(query).mockImplementation(() =>
+        createMockQuery([
+          createMockSDKAssistantMessage({
             message: {
               id: 'msg_123',
               type: 'message',
@@ -66,18 +46,9 @@ describe('ClaudeCodeAgent', () => {
                 cache_read_input_tokens: 10161,
               },
             },
-            parent_tool_use_id: null,
-            session_id: 'test-session',
-          }
-          yield textMessage
-        }
-        const gen = generator()
-        return {
-          ...gen,
-          [Symbol.asyncIterator]: () => gen,
-          interrupt: vi.fn(),
-        }
-      })
+          }),
+        ]),
+      )
 
       const events: unknown[] = []
       for await (const event of agent.run('test message')) {
@@ -96,11 +67,10 @@ describe('ClaudeCodeAgent', () => {
       const agent = new ClaudeCodeAgent(taskId)
 
       // Mock the query function to yield a message without usage data
-      const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(() => {
-        const generator = async function* () {
-          const textMessage: SDKMessage = {
-            type: 'user',
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+      vi.mocked(query).mockImplementation(() =>
+        createMockQuery([
+          createMockSDKUserMessage({
             message: {
               role: 'user',
               content: [
@@ -110,18 +80,9 @@ describe('ClaudeCodeAgent', () => {
                 },
               ],
             },
-            parent_tool_use_id: null,
-            session_id: 'test-session',
-          }
-          yield textMessage
-        }
-        const gen = generator()
-        return {
-          ...gen,
-          [Symbol.asyncIterator]: () => gen,
-          interrupt: vi.fn(),
-        }
-      })
+          }),
+        ]),
+      )
 
       const events: unknown[] = []
       for await (const event of agent.run('test message')) {
@@ -142,11 +103,10 @@ describe('ClaudeCodeAgent', () => {
       const agent = new ClaudeCodeAgent(taskId)
 
       // Mock the query function to yield a regular text message
-      const { query } = await import('@anthropic-ai/claude-code')
-      vi.mocked(query).mockImplementation(() => {
-        const generator = async function* () {
-          const textMessage: SDKMessage = {
-            type: 'assistant',
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+      vi.mocked(query).mockImplementation(() =>
+        createMockQuery([
+          createMockSDKAssistantMessage({
             message: {
               id: 'msg_123',
               type: 'message',
@@ -165,18 +125,9 @@ describe('ClaudeCodeAgent', () => {
                 output_tokens: 20,
               },
             },
-            parent_tool_use_id: null,
-            session_id: 'test-session',
-          }
-          yield textMessage
-        }
-        const gen = generator()
-        return {
-          ...gen,
-          [Symbol.asyncIterator]: () => gen,
-          interrupt: vi.fn(),
-        }
-      })
+          }),
+        ]),
+      )
 
       const events: unknown[] = []
       for await (const event of agent.run('test message')) {
@@ -202,12 +153,11 @@ describe('ClaudeCodeAgent', () => {
 
       // Mock the query function to capture the options passed
       let capturedOptions: any
-      const { query } = await import('@anthropic-ai/claude-code')
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
       vi.mocked(query).mockImplementation(({ prompt: _prompt, options }) => {
         capturedOptions = options
-        const generator = async function* () {
-          const textMessage: SDKMessage = {
-            type: 'assistant',
+        return createMockQuery([
+          createMockSDKAssistantMessage({
             message: {
               id: 'msg_123',
               type: 'message',
@@ -222,17 +172,8 @@ describe('ClaudeCodeAgent', () => {
               stop_reason: 'end_turn',
               stop_sequence: null,
             },
-            parent_tool_use_id: null,
-            session_id: 'test-session',
-          }
-          yield textMessage
-        }
-        const gen = generator()
-        return {
-          ...gen,
-          [Symbol.asyncIterator]: () => gen,
-          interrupt: vi.fn(),
-        }
+          }),
+        ])
       })
 
       // Run with model in runOptions
@@ -255,12 +196,11 @@ describe('ClaudeCodeAgent', () => {
 
       // Mock the query function to capture the options passed
       let capturedOptions: any
-      const { query } = await import('@anthropic-ai/claude-code')
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
       vi.mocked(query).mockImplementation(({ prompt: _prompt, options }) => {
         capturedOptions = options
-        const generator = async function* () {
-          const textMessage: SDKMessage = {
-            type: 'assistant',
+        return createMockQuery([
+          createMockSDKAssistantMessage({
             message: {
               id: 'msg_123',
               type: 'message',
@@ -275,17 +215,8 @@ describe('ClaudeCodeAgent', () => {
               stop_reason: 'end_turn',
               stop_sequence: null,
             },
-            parent_tool_use_id: null,
-            session_id: 'test-session',
-          }
-          yield textMessage
-        }
-        const gen = generator()
-        return {
-          ...gen,
-          [Symbol.asyncIterator]: () => gen,
-          interrupt: vi.fn(),
-        }
+          }),
+        ])
       })
 
       // Run without model in runOptions
@@ -308,12 +239,11 @@ describe('ClaudeCodeAgent', () => {
 
       // Mock the query function to capture the options passed
       let capturedOptions: any
-      const { query } = await import('@anthropic-ai/claude-code')
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
       vi.mocked(query).mockImplementation(({ prompt: _prompt, options }) => {
         capturedOptions = options
-        const generator = async function* () {
-          const textMessage: SDKMessage = {
-            type: 'assistant',
+        return createMockQuery([
+          createMockSDKAssistantMessage({
             message: {
               id: 'msg_123',
               type: 'message',
@@ -328,17 +258,8 @@ describe('ClaudeCodeAgent', () => {
               stop_reason: 'end_turn',
               stop_sequence: null,
             },
-            parent_tool_use_id: null,
-            session_id: 'test-session',
-          }
-          yield textMessage
-        }
-        const gen = generator()
-        return {
-          ...gen,
-          [Symbol.asyncIterator]: () => gen,
-          interrupt: vi.fn(),
-        }
+          }),
+        ])
       })
 
       // Run without model

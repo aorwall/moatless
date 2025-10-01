@@ -4,41 +4,12 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the Claude Agent SDK
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn().mockImplementation(() => {
-    const generator = async function* () {
-      yield {
-        type: 'assistant',
-        message: {
-          id: 'msg_123',
-          type: 'message',
-          role: 'assistant',
-          model: 'claude-opus-4-20250514',
-          content: [
-            {
-              type: 'text',
-              text: 'This is a regular text message.',
-            },
-          ],
-          stop_reason: 'end_turn',
-          stop_sequence: null,
-          usage: {
-            input_tokens: 10,
-            output_tokens: 20,
-          },
-        },
-        parent_tool_use_id: null,
-        session_id: 'test-session',
-      }
-    }
-    const gen = generator()
-    return {
-      ...gen,
-      [Symbol.asyncIterator]: () => gen,
-      interrupt: vi.fn(),
-    }
-  }),
-}))
+vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
+  const { createMockQueryImplementation } = await import('../../test-utils/claude-agent-mocks.js')
+  return {
+    query: createMockQueryImplementation(),
+  }
+})
 
 // Mock logger
 vi.mock('../../utils/logger.js', () => ({
@@ -56,7 +27,7 @@ vi.mock('../../utils/context-tokens.js', () => ({
   calculateContextTokens: vi.fn().mockReturnValue(100),
 }))
 
-import { query as mockQuery } from '@anthropic-ai/claude-code'
+import { query as mockQuery } from '@anthropic-ai/claude-agent-sdk'
 import { resetSettingsServiceInstance } from '../../services/settings.service.js'
 import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
