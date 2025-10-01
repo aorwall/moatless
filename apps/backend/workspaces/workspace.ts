@@ -333,7 +333,10 @@ export class Workspace {
   }
 
   async stopAgent(): Promise<boolean> {
-    return this.environment.stopAgent()
+    const result = await this.environment.stopAgent()
+    // Invalidate git status cache when agent stops (may have made changes)
+    this.fileOperations.invalidateGitStatusCache()
+    return result
   }
 
   // Server methods (optional - only available if environment supports them)
@@ -466,6 +469,10 @@ export class Workspace {
     return this.environment
   }
 
+  getFileOperations(): FileOperations {
+    return this.fileOperations
+  }
+
   /**
    * Refresh the repository configuration without recreating the environment.
    * This stops the preview server, updates the config, and re-runs setup commands.
@@ -557,7 +564,7 @@ export class Workspace {
       // Workspace info
       workspaceState: await this.getWorkspaceExistence(),
       workspacePath: this.getWorkspacePath(),
-      workspaceChangeStatus: await this.getWorkspaceChangeStatus(),
+      workspaceChangeStatus: this.getWorkspaceChangeStatus(gitStatus),
 
       // Environment info
       environmentType,
@@ -623,6 +630,9 @@ export class Workspace {
         commitsBehind: result.commitsBehind,
         commitsAhead: result.commitsAhead,
       })
+
+      // Invalidate git status cache after sync operation
+      this.fileOperations.invalidateGitStatusCache()
 
       return result
     } catch (error) {
@@ -923,12 +933,10 @@ export class Workspace {
   /**
    * Get workspace change status
    */
-  private async getWorkspaceChangeStatus(): Promise<
-    'no_changes' | 'merged' | 'committed_unmerged' | 'uncommitted' | 'conflicts'
-  > {
+  private getWorkspaceChangeStatus(
+    gitStatus: GitStatus,
+  ): 'no_changes' | 'merged' | 'committed_unmerged' | 'uncommitted' | 'conflicts' {
     try {
-      const gitStatus = await this.getGitStatus()
-
       if (!gitStatus) {
         return 'no_changes'
       }

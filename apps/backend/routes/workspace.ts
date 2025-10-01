@@ -569,6 +569,71 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
     },
   )
 
+  // Sync workspace with origin (fetch from remote)
+  app.post(
+    `${prefix}/:taskId/sync-origin`,
+    describeRoute({
+      description: 'Fetch latest changes from origin and return updated workspace status',
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          description: 'Task ID',
+          schema: {
+            type: 'string',
+          },
+        },
+        {
+          name: 'baseBranch',
+          in: 'query',
+          required: false,
+          description: 'Base branch to fetch (defaults to main)',
+          schema: {
+            type: 'string',
+            default: 'main',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Updated workspace status after origin sync',
+          content: {
+            'application/json': {
+              schema: resolver(WorkspaceStatusResponseSchema),
+            },
+          },
+        },
+        400: {
+          description: 'Invalid request',
+        },
+        403: {
+          description: 'Cannot access git or workspace not ready',
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = getTaskId(c)
+
+      const baseBranch = c.req.query('baseBranch')
+
+      try {
+        // Sync with origin and get updated status
+        await services.workspace.syncWithOrigin(taskId, baseBranch)
+
+        // Return updated workspace status
+        const status = await services.workspace.getWorkspaceStatus(taskId)
+        return c.json(status)
+      } catch (error) {
+        handleServiceError(error, 'Sync with origin')
+      }
+    },
+  )
+
   // Execute command in workspace
   app.post(
     `${prefix}/:taskId/execute`,

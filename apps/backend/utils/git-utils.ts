@@ -186,8 +186,8 @@ export async function getGitDiffString(
   baseBranch?: string,
 ): Promise<[string, string]> {
   try {
-    // Check if origin exists and fetch if available
-    await checkAndFetchOrigin(repoPath, baseBranch, true)
+    // Check if origin exists but don't fetch (for performance - fetching should be done via sync endpoint)
+    await checkAndFetchOrigin(repoPath, baseBranch, false)
 
     // Get the best reference to compare against (prioritizes origin/base)
     const { reference: compareBase, type } = await getBestCompareReference(repoPath, baseBranch)
@@ -908,8 +908,8 @@ export async function getOriginSyncStatus(
     // Detect base branch if not provided
     const base = baseBranch || (await detectBaseBranch(repoPath))
 
-    // Check if origin exists and fetch if available
-    const originExists = await checkAndFetchOrigin(repoPath, base, true)
+    // Check if origin exists but don't fetch (for performance - fetching should be done via sync endpoint)
+    const originExists = await checkAndFetchOrigin(repoPath, base, false)
 
     if (!originExists) {
       const hasChanges = await hasUncommittedChanges(repoPath)

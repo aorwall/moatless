@@ -28,12 +28,19 @@ export interface FileSearchResponse {
   query: string
 }
 
+interface GitStatusCache {
+  status: GitStatus
+  timestamp: number
+}
+
 /**
  * Service responsible for all file system and git operations within a workspace.
  * This includes reading/writing files, listing directories, and git operations.
  */
 export class FileOperations {
   private logger
+  private gitStatusCache: GitStatusCache | null = null
+  private readonly gitStatusCacheTTL = 60000 // 60 seconds
 
   constructor(
     private readonly taskId: string,
@@ -252,6 +259,9 @@ export class FileOperations {
     try {
       await fs.mkdir(path.dirname(fullPath), { recursive: true })
       await fs.writeFile(fullPath, content, 'utf-8')
+
+      // Invalidate git status cache after file write
+      this.invalidateGitStatusCache()
     } catch (error) {
       throw new Error(
         `Failed to write file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -290,6 +300,25 @@ export class FileOperations {
   }
 
   /**
+   * Invalidate the git status cache
+   */
+  invalidateGitStatusCache(): void {
+    this.gitStatusCache = null
+    this.logger.debug('Git status cache invalidated', { taskId: this.taskId })
+  }
+
+  /**
+   * Check if git status cache is valid
+   */
+  private isGitStatusCacheValid(): boolean {
+    if (!this.gitStatusCache) {
+      return false
+    }
+    const age = Date.now() - this.gitStatusCache.timestamp
+    return age < this.gitStatusCacheTTL
+  }
+
+  /**
    * Check if the workspace has uncommitted git changes
    */
   async hasUncommittedChanges(): Promise<boolean> {
@@ -305,6 +334,12 @@ export class FileOperations {
    * Get git status with additions, deletions, modifications
    */
   async getGitStatus(): Promise<GitStatus> {
+    // Check cache first
+    if (this.isGitStatusCacheValid()) {
+      this.logger.debug('Returning cached git status', { taskId: this.taskId })
+      return this.gitStatusCache!.status
+    }
+
     // If workspace doesn't exist or is not set up, return defaults
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
       this.logger.warn('Workspace path does not exist when getting git status', {
@@ -326,6 +361,8 @@ export class FileOperations {
     }
 
     try {
+      this.logger.debug('Fetching fresh git status', { taskId: this.taskId })
+
       // Import the functions from git-utils
       const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import(
         '../utils/git-utils.js'
@@ -351,7 +388,7 @@ export class FileOperations {
         }
       }
 
-      return {
+      const status: GitStatus = {
         currentBranch: syncStatus.currentBranch,
         baseBranch: syncStatus.baseBranch,
         hasUncommittedChanges: syncStatus.hasUncommittedChanges,
@@ -364,6 +401,14 @@ export class FileOperations {
         deletions,
         modifications,
       }
+
+      // Cache the result
+      this.gitStatusCache = {
+        status,
+        timestamp: Date.now(),
+      }
+
+      return status
     } catch (_error) {
       // Fall back to defaults on error
       return {

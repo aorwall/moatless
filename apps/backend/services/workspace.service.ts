@@ -830,6 +830,57 @@ export class WorkspaceService {
     }
   }
 
+  /**
+   * Sync workspace with origin (fetch latest changes from remote)
+   */
+  async syncWithOrigin(taskId: string, baseBranch?: string): Promise<void> {
+    const workspaceLogger = logger.child({ taskId })
+    workspaceLogger.info('Syncing workspace with origin', { taskId, baseBranch })
+
+    // Validate task exists
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Get workspace
+    const workspace = await this.getOrCreateWorkspace(taskId)
+    const workspacePath = workspace.getWorkspacePath()
+
+    if (!workspacePath) {
+      throw new WorkspaceError('Workspace path not available', taskId)
+    }
+
+    try {
+      // Import git utilities
+      const { checkAndFetchOrigin, detectBaseBranch } = await import('../utils/git-utils.js')
+
+      // Determine base branch
+      const base = baseBranch || (await detectBaseBranch(workspacePath))
+
+      // Perform git fetch
+      workspaceLogger.info('Fetching from origin', { baseBranch: base })
+      const originExists = await checkAndFetchOrigin(workspacePath, base, true)
+
+      if (!originExists) {
+        workspaceLogger.warn('No origin remote found, skipping fetch')
+      }
+
+      // Invalidate git status cache to force fresh status on next request
+      const fileOperations = workspace.getFileOperations()
+      fileOperations.invalidateGitStatusCache()
+      workspaceLogger.debug('Git status cache invalidated after origin sync')
+
+      workspaceLogger.info('Origin sync completed successfully')
+    } catch (error) {
+      workspaceLogger.error('Failed to sync with origin', error as Error)
+      throw new WorkspaceError(
+        `Failed to sync with origin: ${error instanceof Error ? error.message : String(error)}`,
+        taskId,
+      )
+    }
+  }
+
   // Background task tracking methods
   public trackBackgroundTask(taskId: string, task: Promise<unknown>): void {
     if (!this.backgroundTasks.has(taskId)) {
