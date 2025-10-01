@@ -144,11 +144,32 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         if (sdkMessage.type === 'result') {
           const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
+          const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
+          const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
+
           agentLogger.info('Received result message from SDK', {
             isError,
-            subtype: 'subtype' in sdkMessage ? sdkMessage.subtype : undefined,
+            subtype,
             hasExtractedPlan: !!this.extractedPlan,
+            hasResult,
+            totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
           })
+
+          // Detect contradictory error states
+          const isErrorSubtype = subtype && subtype.startsWith('error_')
+          if (isErrorSubtype && !isError) {
+            agentLogger.warn('Contradictory result state: error subtype with is_error=false', {
+              subtype,
+              isError,
+              fullMessage: JSON.stringify(sdkMessage, null, 2),
+            })
+          } else if (!isErrorSubtype && isError) {
+            agentLogger.warn('Contradictory result state: non-error subtype with is_error=true', {
+              subtype,
+              isError,
+              fullMessage: JSON.stringify(sdkMessage, null, 2),
+            })
+          }
 
           // Create the result event with extracted plan if available
           let resultEvent: AgentEvent
