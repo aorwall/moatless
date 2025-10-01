@@ -29,6 +29,10 @@ vi.mock('@/features/tasks/hooks/use-tasks', () => ({
     isLoading: false,
     error: null,
   })),
+  useCloseTask: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
 }))
 
 // Mock UI components

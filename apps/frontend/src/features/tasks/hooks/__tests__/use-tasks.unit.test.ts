@@ -193,10 +193,7 @@ describe('Task Hooks', () => {
         })
       })
 
-      // Mutations invalidate both task lists and task-specific queries
-      expect(spyInvalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks.lists(),
-      })
+      // useSendMessage only invalidates task detail, not lists
       expect(spyInvalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.tasks.detail('task-123'),
       })
