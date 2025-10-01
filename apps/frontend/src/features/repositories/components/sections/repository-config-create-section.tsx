@@ -196,15 +196,29 @@ export function RepositoryConfigCreateSection({
 
           <ConfigurationItem
             label="Repository Path"
-            description="Absolute path to your local repository"
+            description="Absolute path to your local repository (disabled when cloning on each task)"
           >
             <ConfigurationInput
               value={formData.path}
               onChange={(e) => handleFieldChange('path', e.target.value)}
               placeholder="/Users/username/projects/my-project"
-              className={errors.path ? 'border-destructive' : ''}
+              disabled={formData.cloneOnNewTask}
+              className={
+                errors.path ? 'border-destructive' : formData.cloneOnNewTask ? 'bg-muted' : ''
+              }
             />
             {errors.path && <p className="text-sm text-destructive mt-1">{errors.path}</p>}
+          </ConfigurationItem>
+
+          <ConfigurationItem
+            label="Git Remote URL"
+            description="Optional Git remote URL (enables cloning feature)"
+          >
+            <ConfigurationInput
+              value={formData.remoteUrl}
+              onChange={(e) => handleFieldChange('remoteUrl', e.target.value)}
+              placeholder="https://github.com/owner/repo or git@github.com:owner/repo.git"
+            />
           </ConfigurationItem>
 
           <ConfigurationItem
@@ -225,10 +239,11 @@ export function RepositoryConfigCreateSection({
 
           <ConfigurationItem
             label="Clone on New Task"
-            description="Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
+            description="Requires a Git remote URL. Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
           >
             <ConfigurationSwitch
               checked={formData.cloneOnNewTask}
+              disabled={!formData.remoteUrl}
               onCheckedChange={(checked) => {
                 handleFieldChange('cloneOnNewTask', checked)
                 // Disable worktrees when cloning is enabled

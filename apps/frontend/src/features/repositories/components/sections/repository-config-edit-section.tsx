@@ -165,6 +165,7 @@ export function RepositoryConfigEditSection({
       name: repository?.name || '',
       description: repository?.description || '',
       path: repository?.path || '',
+      remoteUrl: repository?.remoteUrl || '',
       useGitWorktrees: repository?.useGitWorktrees || false,
       cloneOnNewTask: repository?.cloneOnNewTask || false,
       codeExecution: repository?.codeExecution || { type: 'local' },
@@ -294,16 +295,26 @@ export function RepositoryConfigEditSection({
           />
         </ConfigurationItem>
 
-        {repository?.remoteUrl && (
-          <ConfigurationItem label="GitHub URL" description="Remote repository URL (read-only)">
-            <ConfigurationInput value={repository.remoteUrl} disabled className="bg-muted" />
-          </ConfigurationItem>
-        )}
+        <ConfigurationItem
+          label="Git Remote URL"
+          description="Remote repository URL (optional, enables cloning feature)"
+        >
+          <ConfigurationInput
+            value={formData.remoteUrl || ''}
+            onChange={(e) => updateField('remoteUrl', e.target.value || undefined)}
+            placeholder="https://github.com/owner/repo or git@github.com:owner/repo.git"
+          />
+        </ConfigurationItem>
 
-        <ConfigurationItem label="Repository Path" description="Local path to your repository">
+        <ConfigurationItem
+          label="Repository Path"
+          description="Local path to your repository (disabled when cloning on each task)"
+        >
           <ConfigurationInput
             value={formData.path || ''}
             onChange={(e) => updateField('path', e.target.value)}
+            disabled={formData.cloneOnNewTask}
+            className={formData.cloneOnNewTask ? 'bg-muted' : ''}
           />
         </ConfigurationItem>
 
@@ -325,10 +336,11 @@ export function RepositoryConfigEditSection({
 
         <ConfigurationItem
           label="Clone on New Task"
-          description="Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
+          description="Requires a Git remote URL. Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
         >
           <ConfigurationSwitch
             checked={formData.cloneOnNewTask || false}
+            disabled={!formData.remoteUrl}
             onCheckedChange={(checked) => {
               updateField('cloneOnNewTask', checked)
               // Disable worktrees when cloning is enabled
