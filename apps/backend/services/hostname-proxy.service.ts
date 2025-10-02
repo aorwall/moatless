@@ -201,6 +201,11 @@ export class HostnameProxyService {
     // Remove accept-encoding to prevent compression so we can modify HTML
     const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers
 
+    // Get client IP for x-forwarded-for
+    const clientIp = req.socket.remoteAddress || ''
+    const existingForwardedFor = req.headers['x-forwarded-for']
+    const xForwardedFor = existingForwardedFor ? `${existingForwardedFor}, ${clientIp}` : clientIp
+
     const options: http.RequestOptions = {
       hostname: targetUrl.hostname,
       port: targetPort,
@@ -209,6 +214,9 @@ export class HostnameProxyService {
       headers: {
         ...forwardHeaders,
         host: targetUrl.host,
+        'x-forwarded-host': req.headers.host || '',
+        'x-forwarded-proto': this.protocol,
+        'x-forwarded-for': xForwardedFor,
       },
     }
 
