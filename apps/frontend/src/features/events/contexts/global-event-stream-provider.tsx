@@ -183,7 +183,10 @@ export function GlobalEventStreamProvider({
       const params = new URLSearchParams()
       if (types?.length) params.append('types', types.join(','))
 
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+      // Use same URL pattern as API client: relative URLs in production, absolute in development
+      const baseUrl = import.meta.env.PROD
+        ? '' // Empty string for relative URLs in production
+        : import.meta.env.VITE_API_URL || 'http://localhost:8000'
       const url = `${baseUrl}/api/v1/events/stream?${params.toString()}`
 
       // Use fetch with ReadableStream to handle NDJSON format
