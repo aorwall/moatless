@@ -468,10 +468,21 @@
           internalLog.log('[Preview Inspector] Navigating to:', payload)
           try {
             const newPath = payload.path || payload
-            // Use window.location.href for universal navigation
-            // This works for all frameworks (Next.js, React Router, Vue Router, etc.)
-            // Causes a full page reload but works cross-origin
-            window.location.href = newPath
+            const currentPath = window.location.pathname + window.location.search
+
+            // Only navigate if we're not already at the target path
+            if (currentPath !== newPath) {
+              internalLog.log('[Preview Inspector] Current path differs, navigating:', {
+                from: currentPath,
+                to: newPath,
+              })
+              // Use window.location.href for universal navigation
+              // This works for all frameworks (Next.js, React Router, Vue Router, etc.)
+              // Causes a full page reload but works cross-origin
+              window.location.href = newPath
+            } else {
+              internalLog.log('[Preview Inspector] Already at target path, skipping navigation')
+            }
           } catch (error) {
             internalLog.error('[Preview Inspector] Navigation failed:', error)
           }
