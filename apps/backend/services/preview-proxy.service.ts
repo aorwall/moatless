@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
+import { createModifiedHtmlHeaders, injectScriptIntoHtml } from '../utils/html-injector.js'
 import type { Logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
 
@@ -154,44 +155,16 @@ export class PreviewProxyService {
     })
 
     proxyRes.on('end', () => {
-      let html = Buffer.concat(chunks).toString('utf-8')
+      const html = Buffer.concat(chunks).toString('utf-8')
 
-      // Inject script before closing body tag or at the end of HTML
-      const injectionPoint = '</body>'
-      const scriptTag = `<script>${this.config.scriptContent}</script>`
-
-      if (html.includes(injectionPoint)) {
-        html = html.replace(injectionPoint, `${scriptTag}${injectionPoint}`)
-      } else if (html.includes('</html>')) {
-        html = html.replace('</html>', `${scriptTag}</html>`)
-      } else {
-        // Fallback: append to end
-        html += scriptTag
-      }
+      // Inject script using shared utility
+      const modifiedHtml = injectScriptIntoHtml(html, this.config.scriptContent)
 
       // Update headers for modified HTML content
-      const headers: Record<string, string | string[]> = {}
-      for (const [key, value] of Object.entries(proxyRes.headers)) {
-        // Skip headers that would cause caching issues for modified content
-        if (
-          value !== undefined &&
-          key !== 'content-length' &&
-          key !== 'content-encoding' &&
-          key !== 'etag' &&
-          key !== 'last-modified' &&
-          key !== 'cache-control'
-        ) {
-          headers[key] = value
-        }
-      }
-
-      // Add cache-busting headers for modified HTML content
-      headers['cache-control'] = 'no-cache, no-store, must-revalidate'
-      headers['pragma'] = 'no-cache'
-      headers['expires'] = '0'
+      const headers = createModifiedHtmlHeaders(proxyRes.headers)
 
       res.writeHead(proxyRes.statusCode || 200, headers)
-      res.end(html)
+      res.end(modifiedHtml)
     })
 
     proxyRes.on('error', (error) => {

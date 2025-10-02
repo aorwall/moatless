@@ -86,6 +86,15 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.claude,
   )
 
+  // Initialize hostname proxy service if hostname routing is enabled
+  const { HostnameProxyService } = await import('./hostname-proxy.service.js')
+  const { logger } = await import('../utils/logger.js')
+  const hostnameProxyService = await HostnameProxyService.getInstance(logger)
+  if (hostnameProxyService) {
+    // Wire workspace service to hostname proxy
+    hostnameProxyService.setWorkspaceService(container.workspace)
+  }
+
   // Set workspace service on repository service for verification
   container.repository.setWorkspaceService(container.workspace)
 

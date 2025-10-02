@@ -474,10 +474,11 @@ export class PreviewServer {
 
   /**
    * Start the preview proxy server with inspector script injection
+   * Note: When hostname routing is enabled, this is skipped - the global HostnameProxyService handles it
    */
   private async startProxy(): Promise<void> {
     if (!this.repositoryConfig?.previewConfig) {
-      this.logger.debug('No repository config for proxy setup')
+      this.logger.warn('No repository config for proxy setup')
       return
     }
 
@@ -487,11 +488,27 @@ export class PreviewServer {
       return
     }
 
+    // Check if hostname routing is enabled
+    const useHostnameRouting = process.env.USE_HOSTNAME_ROUTING === 'true'
+    if (useHostnameRouting) {
+      // When hostname routing is enabled, the global HostnameProxyService handles all proxying
+      // We don't need a per-task proxy server
+      const proxyDomain = process.env.PROXY_DOMAIN || 'proxy.moatless.ai'
+      this.proxyUrl = `http://${this.taskId}.${proxyDomain}`
+
+      this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
+        proxyUrl: this.proxyUrl,
+        taskId: this.taskId,
+      })
+      return
+    }
+
     if (!this.port) {
       this.logger.warn('Cannot start proxy without main server port')
       return
     }
 
+    // Port-based routing: create per-task proxy server
     try {
       this.proxyPort = await this.portService.findAvailablePort(7000)
       const targetUrl = `http://localhost:${this.port}`
@@ -507,10 +524,11 @@ export class PreviewServer {
       )
 
       await this.previewProxy.start()
-      this.proxyUrl = `http://localhost:${this.proxyPort}`
+      this.proxyUrl = this.previewProxy.getProxyUrl()
 
-      this.logger.info('Preview proxy started', {
+      this.logger.info('Preview proxy started (port-based)', {
         proxyPort: this.proxyPort,
+        proxyUrl: this.proxyUrl,
         targetPort: this.port,
         targetUrl,
       })
