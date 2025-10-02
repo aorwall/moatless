@@ -23,6 +23,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const { serverStatus: eventServerStatus, serverError: eventServerError } = useServerEvents(taskId)
 
   const [path, setPath] = useState('/')
+  const [iframeTargetPath, setIframeTargetPath] = useState('/') // Path to load in iframe (for reloads)
   const [isInspectorActive, setIsInspectorActive] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -178,9 +179,9 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   }, [isInspectorActive, toggleSelector])
 
   // Use proxy URL if available, otherwise fall back to direct URL
-  // Always load iframe with root path - navigation handled after load
+  // Use iframeTargetPath (not path) to avoid reloading iframe on every navigation
   const baseUrl = serverStatus?.proxyUrl || serverStatus?.url
-  const previewUrl = baseUrl ? `${baseUrl}/` : null
+  const previewUrl = baseUrl ? `${baseUrl}${iframeTargetPath}` : null
 
   // Track if we need to update iframe src (only for initial load or explicit refresh)
   const [iframeSrcKey, setIframeSrcKey] = useState(0)
@@ -224,9 +225,11 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   }, [])
 
   const reloadPreview = useCallback(() => {
+    // Update target path to current path before reloading
+    setIframeTargetPath(path)
     // Force reload by incrementing the iframe key
     setIframeSrcKey((prev) => prev + 1)
-  }, [])
+  }, [path])
 
   const handleIframeLoad = useCallback(() => {
     setIsLoaded(true)
@@ -239,18 +242,10 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     // Don't reset isInspectorAvailable - it will be updated when the script
     // sends the INSPECTOR_AVAILABILITY message. Resetting here causes race conditions.
 
-    // After iframe loads, navigate to the current path if not root
-    if (path !== '/' && iframeRef.current?.contentWindow) {
-      // Give the app time to initialize before navigating
-      setTimeout(() => {
-        navigatePreview(path)
-      }, 100)
-    }
-
     // Script injection is now handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
-  }, [path, navigatePreview])
+  }, [])
 
   const handleIframeError = useCallback(() => {
     setError('Failed to load preview')
