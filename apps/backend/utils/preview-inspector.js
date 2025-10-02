@@ -468,17 +468,10 @@
           internalLog.log('[Preview Inspector] Navigating to:', payload)
           try {
             const newPath = payload.path || payload
-            // Check if the app uses hash-based routing
-            if (window.location.hash && window.location.hash.startsWith('#/')) {
-              // Hash-based routing (e.g., React HashRouter)
-              window.location.hash = '#' + newPath
-            } else {
-              // Regular routing (e.g., React BrowserRouter)
-              window.history.pushState(null, '', newPath)
-              // Dispatch a popstate event to trigger client-side routers
-              const popstateEvent = new PopStateEvent('popstate', { state: null })
-              window.dispatchEvent(popstateEvent)
-            }
+            // Use window.location.href for universal navigation
+            // This works for all frameworks (Next.js, React Router, Vue Router, etc.)
+            // Causes a full page reload but works cross-origin
+            window.location.href = newPath
           } catch (error) {
             internalLog.error('[Preview Inspector] Navigation failed:', error)
           }
