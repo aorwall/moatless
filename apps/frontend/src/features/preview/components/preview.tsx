@@ -192,22 +192,15 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
         // Update path state for UI
         setPath(newPath)
 
-        // Navigate within the iframe using History API
-        const iframeWindow = iframeRef.current.contentWindow
-
-        // Check if the iframe supports client-side routing
-        if (iframeWindow.location.hash && iframeWindow.location.hash.startsWith('#/')) {
-          // Hash-based routing (e.g., React HashRouter)
-          iframeWindow.location.hash = '#' + newPath
-        } else {
-          // Regular routing (e.g., React BrowserRouter)
-          // Use replaceState for navigation without adding to history
-          iframeWindow.history.pushState(null, '', newPath)
-
-          // Dispatch a popstate event to trigger client-side routers
-          const popstateEvent = new PopStateEvent('popstate', { state: null })
-          iframeWindow.dispatchEvent(popstateEvent)
-        }
+        // Use postMessage to request navigation (works cross-origin)
+        // The injected script will handle the actual navigation
+        iframeRef.current.contentWindow.postMessage(
+          {
+            type: 'NAVIGATE',
+            payload: { path: newPath },
+          },
+          '*',
+        )
       } catch (error) {
         console.error('[Preview] Failed to navigate within iframe:', error)
         // Fallback: force reload by changing iframe src key

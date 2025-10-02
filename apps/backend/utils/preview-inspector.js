@@ -451,7 +451,7 @@
       const { type, payload } = ev.data ?? {}
 
       // Only log known Preview Inspector message types
-      if (type === 'TOGGLE_SELECTOR' || type === 'SELECTOR_STATE_REQUEST') {
+      if (type === 'TOGGLE_SELECTOR' || type === 'SELECTOR_STATE_REQUEST' || type === 'NAVIGATE') {
         internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
       }
 
@@ -463,6 +463,25 @@
           break
         case 'SELECTOR_STATE_REQUEST':
           sendToParent({ type: 'SELECTOR_STATE_RESPONSE', payload: { isActive: selectorEnabled } })
+          break
+        case 'NAVIGATE':
+          internalLog.log('[Preview Inspector] Navigating to:', payload)
+          try {
+            const newPath = payload.path || payload
+            // Check if the app uses hash-based routing
+            if (window.location.hash && window.location.hash.startsWith('#/')) {
+              // Hash-based routing (e.g., React HashRouter)
+              window.location.hash = '#' + newPath
+            } else {
+              // Regular routing (e.g., React BrowserRouter)
+              window.history.pushState(null, '', newPath)
+              // Dispatch a popstate event to trigger client-side routers
+              const popstateEvent = new PopStateEvent('popstate', { state: null })
+              window.dispatchEvent(popstateEvent)
+            }
+          } catch (error) {
+            internalLog.error('[Preview Inspector] Navigation failed:', error)
+          }
           break
       }
     })
