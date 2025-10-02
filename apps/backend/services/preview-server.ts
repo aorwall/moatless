@@ -493,8 +493,9 @@ export class PreviewServer {
     if (useHostnameRouting) {
       // When hostname routing is enabled, the global HostnameProxyService handles all proxying
       // We don't need a per-task proxy server
+      const protocol = process.env.PROXY_PROTOCOL || 'http'
       const proxyDomain = process.env.PROXY_DOMAIN || 'proxy.moatless.ai'
-      this.proxyUrl = `http://${this.taskId}.${proxyDomain}`
+      this.proxyUrl = `${protocol}://${this.taskId}.${proxyDomain}`
 
       this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
         proxyUrl: this.proxyUrl,

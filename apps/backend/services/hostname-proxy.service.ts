@@ -18,12 +18,14 @@ export class HostnameProxyService {
   private readonly logger: Logger
   private readonly proxyPort: number
   private readonly proxyDomain: string
+  private readonly protocol: string
   private workspaceService?: WorkspaceService
 
-  private constructor(logger: Logger, proxyPort: number, proxyDomain: string) {
+  private constructor(logger: Logger, proxyPort: number, proxyDomain: string, protocol = 'http') {
     this.logger = logger.child({ service: 'hostname-proxy' })
     this.proxyPort = proxyPort
     this.proxyDomain = proxyDomain
+    this.protocol = protocol
   }
 
   /**
@@ -39,7 +41,13 @@ export class HostnameProxyService {
     if (!HostnameProxyService.instance) {
       const proxyPort = Number.parseInt(process.env.PROXY_PORT || '80', 10)
       const proxyDomain = process.env.PROXY_DOMAIN || 'proxy.moatless.ai'
-      HostnameProxyService.instance = new HostnameProxyService(logger, proxyPort, proxyDomain)
+      const protocol = process.env.PROXY_PROTOCOL || 'http'
+      HostnameProxyService.instance = new HostnameProxyService(
+        logger,
+        proxyPort,
+        proxyDomain,
+        protocol,
+      )
       await HostnameProxyService.instance.start()
     }
 
@@ -262,6 +270,6 @@ export class HostnameProxyService {
   }
 
   getProxyUrl(taskId: string): string {
-    return `http://${taskId}.${this.proxyDomain}`
+    return `${this.protocol}://${taskId}.${this.proxyDomain}`
   }
 }
