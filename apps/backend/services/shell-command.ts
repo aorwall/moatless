@@ -8,6 +8,7 @@ import type {
   ShellCommandResult,
   ShellCommandStatus,
 } from '@moatless/types'
+import { getSafeSystemEnvironment } from '../utils/environment-utils.js'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -76,9 +77,15 @@ export class ShellCommand {
     // Spawn the process
     // Use 'pipe' for stdin instead of 'ignore' to allow dev servers (like Next.js) to detect port conflicts
     // When stdin is ignored, some dev servers skip port availability checks
+    // Build environment: safe system vars + workspace-specific vars (no backend server vars)
+    const processEnv = {
+      ...getSafeSystemEnvironment(),
+      ...options?.env,
+    }
+
     this.process = spawn(shell, shellArgs, {
       cwd: workingDirectory,
-      env: { ...process.env, ...options?.env },
+      env: processEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
