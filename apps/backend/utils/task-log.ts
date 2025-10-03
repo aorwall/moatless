@@ -59,3 +59,16 @@ export async function taskLogExists(taskId: string): Promise<boolean> {
     return false
   }
 }
+
+export async function clearTaskLog(taskId: string): Promise<void> {
+  const logPath = getTaskLogPath(taskId)
+  await ensureTaskLogDirectory()
+
+  try {
+    // Truncate the file (or create empty file if it doesn't exist)
+    await fs.writeFile(logPath, '', 'utf-8')
+  } catch (error) {
+    // Log but don't throw - clearing logs shouldn't fail workspace creation
+    console.error(`Failed to clear task log for ${taskId}:`, error)
+  }
+}

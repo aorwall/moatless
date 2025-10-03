@@ -1,4 +1,5 @@
 import { exec, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -77,12 +78,47 @@ export class DockerEnvironment extends BaseEnvironment {
     return this.image
   }
 
+  /**
+   * Emit server event during setup commands
+   */
+  private async emitServerEvent(status: 'installing' | 'failed', error?: string): Promise<void> {
+    if (!this.eventService) return
+
+    try {
+      await this.eventService.emitEvent({
+        eventId: randomUUID(),
+        agentType: 'environment' as const,
+        type: 'server' as const,
+        subType: status,
+        taskId: this.taskId,
+        timestamp: new Date(),
+        isError: status === 'failed',
+        payload: {
+          status,
+          error,
+        },
+      })
+
+      this.logger.debug('Server event emitted during setup', { status, taskId: this.taskId })
+    } catch (eventError) {
+      this.logger.error('Failed to emit server event during setup', eventError as Error)
+    }
+  }
+
   async runSetupCommands(): Promise<void> {
     const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
 
     if (setupCommands.length === 0) {
       this.logger.info('No setup commands configured, skipping')
       return
+    }
+
+    // Check if preview server is configured
+    const hasPreviewConfig = this.repositoryConfig.previewConfig?.serverStartCommands?.length
+
+    // Emit 'installing' status if preview is configured
+    if (hasPreviewConfig && this.eventService) {
+      await this.emitServerEvent('installing')
     }
 
     this.logger.info('Setup commands in Docker environment not yet implemented', {
@@ -93,6 +129,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     // TODO: Implement setup command execution in Docker environment
     // This would involve running commands inside the container after it's started
+    // When implemented, add the same error handling with emitServerEvent('failed') as LocalEnvironment
   }
 
   async setup(_iterationNumber?: number): Promise<void> {

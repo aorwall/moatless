@@ -9,6 +9,8 @@ import {
   FileWriteResponseSchema,
   GitDiffResponseSchema,
   GitStatusSchema,
+  ServerLogsQuerySchema,
+  ServerLogsResponseExtendedSchema,
   ShellCommandResultSchema,
   SyncWorkspaceResponseSchema,
   TaskFileSearchSchema,
@@ -29,6 +31,7 @@ import {
   validateQueryParams,
   validateRequestBody,
 } from '../utils/route-helpers.js'
+import { readTaskLog } from '../utils/task-log.js'
 
 export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: string) {
   // Get workspace status
@@ -794,6 +797,65 @@ export async function registerWorkspaceRoutes(app: Hono<AppBindings>, prefix: st
       } catch (error) {
         handleServiceError(error, 'Refresh workspace configuration')
       }
+    },
+  )
+
+  // Get workspace logs (all shell commands including setup and server)
+  app.get(
+    `${prefix}/:taskId/workspace/logs`,
+    describeRoute({
+      description:
+        'Get all workspace logs including setup commands, server logs, and shell command executions',
+      parameters: [
+        CommonParameters.taskId,
+        {
+          name: 'lines',
+          in: 'query',
+          required: false,
+          description: 'Number of lines to retrieve from the end of the log',
+          schema: {
+            type: 'number',
+          },
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Workspace logs retrieved successfully',
+          content: {
+            'application/json': {
+              schema: resolver(ServerLogsResponseExtendedSchema) as any,
+            },
+          },
+        },
+        404: {
+          description: 'Task not found',
+        },
+      },
+    }),
+    async (c) => {
+      const services = c.get('services')
+      const taskId = getTaskId(c)
+
+      // Validate task exists
+      const task = await services.storage.getTask(taskId)
+      if (!task) {
+        return c.json({ error: 'Task not found' }, 404)
+      }
+
+      // Parse query parameters
+      const queryParams = c.req.query()
+      const validatedQuery = ServerLogsQuerySchema.parse({
+        lines: queryParams.lines ? Number.parseInt(queryParams.lines) : undefined,
+      })
+      const { lines } = validatedQuery
+
+      // Read workspace logs from unified log file
+      const logs = await readTaskLog(taskId, lines)
+      return c.json({
+        logs,
+        lines: logs.split('\n').filter((line) => line.trim() !== '').length,
+        truncated: lines !== undefined && lines > 0,
+      })
     },
   )
 }

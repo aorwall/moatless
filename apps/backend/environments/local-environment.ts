@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type {
   RepositoryConfig,
@@ -12,6 +13,7 @@ import { PreviewServer } from '../services/preview-server.js'
 import { ShellCommand } from '../services/shell-command.js'
 import { pathExists } from '../utils/filesystem.js'
 import { createTaskLogger } from '../utils/logger.js'
+import { clearTaskLog } from '../utils/task-log.js'
 import { BaseEnvironment } from './base-environment.js'
 
 export class LocalEnvironment extends BaseEnvironment {
@@ -76,6 +78,33 @@ export class LocalEnvironment extends BaseEnvironment {
     return this.setupCommandsExecuted
   }
 
+  /**
+   * Emit server event during setup commands
+   */
+  private async emitServerEvent(status: 'installing' | 'failed', error?: string): Promise<void> {
+    if (!this.eventService) return
+
+    try {
+      await this.eventService.emitEvent({
+        eventId: randomUUID(),
+        agentType: 'environment' as const,
+        type: 'server' as const,
+        subType: status,
+        taskId: this.taskId,
+        timestamp: new Date(),
+        isError: status === 'failed',
+        payload: {
+          status,
+          error,
+        },
+      })
+
+      this.logger.debug('Server event emitted during setup', { status, taskId: this.taskId })
+    } catch (eventError) {
+      this.logger.error('Failed to emit server event during setup', eventError as Error)
+    }
+  }
+
   async runSetupCommands(): Promise<void> {
     const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
 
@@ -92,44 +121,66 @@ export class LocalEnvironment extends BaseEnvironment {
 
     this.logger.info(`Running ${setupCommands.length} setup commands`, { setupCommands })
 
-    for (const command of setupCommands) {
-      this.logger.info(`Running setup command: ${command}`)
-      const commandStartTime = Date.now()
+    // Check if preview server is configured
+    const hasPreviewConfig = this.repositoryConfig.previewConfig?.serverStartCommands?.length
 
-      // Create shell command with log file
-      const commandId = this.generateCommandId()
-      const shellCommand = new ShellCommand()
-      this.shellCommands.set(commandId, shellCommand)
-
-      const result = await shellCommand.executeWithResult(command, {
-        workingDirectory: this.workspacePath,
-        env: this.repositoryConfig.codeExecution.envVars,
-        timeout: 300000, // 5 minutes timeout
-        logFile: this.logFile,
-      })
-
-      // Clean up completed command
-      this.shellCommands.delete(commandId)
-
-      const commandDuration = Date.now() - commandStartTime
-
-      this.logger.info('Setup command completed', {
-        command,
-        exitCode: result.exitCode,
-        durationMs: commandDuration,
-        outputLength: result.output.length,
-        output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''), // First 500 chars
-      })
-
-      if (result.exitCode !== 0) {
-        throw new Error(
-          `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
-        )
-      }
+    // Emit 'installing' status if preview is configured
+    if (hasPreviewConfig && this.eventService) {
+      await this.emitServerEvent('installing')
     }
 
-    this.setupCommandsExecuted = true
-    this.logger.info('All setup commands completed successfully')
+    try {
+      for (const command of setupCommands) {
+        this.logger.info(`Running setup command: ${command}`)
+        const commandStartTime = Date.now()
+
+        // Create shell command with log file
+        const commandId = this.generateCommandId()
+        const shellCommand = new ShellCommand()
+        this.shellCommands.set(commandId, shellCommand)
+
+        const result = await shellCommand.executeWithResult(command, {
+          workingDirectory: this.workspacePath,
+          env: this.repositoryConfig.codeExecution.envVars,
+          timeout: 300000, // 5 minutes timeout
+          logFile: this.logFile,
+        })
+
+        // Clean up completed command
+        this.shellCommands.delete(commandId)
+
+        const commandDuration = Date.now() - commandStartTime
+
+        this.logger.info('Setup command completed', {
+          command,
+          exitCode: result.exitCode,
+          durationMs: commandDuration,
+          outputLength: result.output.length,
+          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''), // First 500 chars
+        })
+
+        if (result.exitCode !== 0) {
+          // Emit 'failed' status if preview is configured
+          if (hasPreviewConfig && this.eventService) {
+            await this.emitServerEvent('failed', `Setup command failed: ${command}`)
+          }
+
+          throw new Error(
+            `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
+          )
+        }
+      }
+
+      this.setupCommandsExecuted = true
+      this.logger.info('All setup commands completed successfully')
+    } catch (error) {
+      // Emit 'failed' status if preview is configured and not already emitted
+      if (hasPreviewConfig && this.eventService) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        await this.emitServerEvent('failed', errorMsg)
+      }
+      throw error
+    }
   }
 
   async setup(iterationNumber?: number): Promise<void> {
@@ -338,6 +389,10 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   async startServer(): Promise<ServerStatus> {
+    // Clear logs from previous server runs
+    await clearTaskLog(this.taskId)
+    this.logger.info('Cleared task logs for new server session')
+
     // Get server commands
     const serverStartCommands = this.repositoryConfig.previewConfig?.serverStartCommands
 

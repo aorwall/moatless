@@ -200,7 +200,13 @@ export const GitDiffResponseSchema = z.object({
 })
 
 // Server status enum for better state management
-export const ServerStatusEnumSchema = z.enum(['stopped', 'starting', 'started', 'failed'])
+export const ServerStatusEnumSchema = z.enum([
+  'stopped',
+  'installing', // Dependencies/setup commands are running
+  'starting', // Server process is starting
+  'started', // Server is running
+  'failed',
+])
 
 export const ServerStatusSchema = z.object({
   status: ServerStatusEnumSchema,

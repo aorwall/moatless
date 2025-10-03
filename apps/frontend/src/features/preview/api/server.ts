@@ -19,6 +19,6 @@ export const serverApi = {
   },
 
   async getServerLogs(taskId: string): Promise<ServerLogsResponse> {
-    return await apiClient.get<ServerLogsResponse>(`/api/v1/tasks/${taskId}/server/logs`)
+    return await apiClient.get<ServerLogsResponse>(`/api/v1/tasks/${taskId}/workspace/logs`)
   },
 }

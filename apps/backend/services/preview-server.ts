@@ -211,6 +211,9 @@ export class PreviewServer {
         port: this.port,
       })
 
+      // Emit 'starting' event before starting the process
+      await this.emitServerEvent('starting')
+
       // Start the command in background with PORT environment variable
       await this.shellCommand.execute(command, {
         workingDirectory: this.workspacePath,

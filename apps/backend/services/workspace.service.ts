@@ -20,7 +20,7 @@ import {
   isGitWorktree,
 } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
-import { getTaskLogPath } from '../utils/task-log.js'
+import { clearTaskLog, getTaskLogPath } from '../utils/task-log.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
@@ -74,6 +74,10 @@ export class WorkspaceService {
       workspacePath,
       branchName,
     })
+
+    // Clear task logs for fresh workspace
+    await clearTaskLog(taskId)
+    logger.debug('Task logs cleared for new workspace', { taskId })
 
     // Create the appropriate environment based on repository config
     let environment: DockerEnvironment | LocalEnvironment
@@ -589,6 +593,10 @@ export class WorkspaceService {
           branchName,
           undefined,
         )
+
+        // Clear task logs for fresh workspace
+        await clearTaskLog(taskId)
+        workspaceLogger.debug('Task logs cleared for new workspace')
       }
 
       // Create the appropriate environment based on repository config
@@ -715,6 +723,23 @@ export class WorkspaceService {
     })
 
     await workspace.setup(iterationNumber)
+
+    // Auto-start preview server if configured
+    const repository = workspace.environmentConfig
+    if (repository.previewConfig?.serverStartCommands?.length) {
+      logger.info('Starting preview server after workspace setup', {
+        taskId,
+        serverCommands: repository.previewConfig.serverStartCommands,
+      })
+
+      workspace.startServer().catch((error) => {
+        logger.warn('Failed to auto-start preview server', {
+          error: error instanceof Error ? error.message : String(error),
+          taskId,
+        })
+        // Don't fail workspace setup if server fails to start
+      })
+    }
 
     logger.info('Workspace setup completed', {
       taskId,

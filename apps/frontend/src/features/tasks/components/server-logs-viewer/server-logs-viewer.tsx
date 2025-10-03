@@ -1,8 +1,8 @@
 import { useParams } from '@tanstack/react-router'
-import { ArrowDown, WifiOff } from 'lucide-react'
+import { ArrowDown, RefreshCw } from 'lucide-react'
 import { useRef } from 'react'
 
-import { useServerEvents, useServerLogs, useServerLogsStream } from '@/features/preview'
+import { useServerEvents, useServerLogs } from '@/features/preview'
 import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -14,24 +14,20 @@ export function ServerLogsViewer() {
   const selectedTaskId = params.taskId
   const { serverStatus } = useServerEvents(selectedTaskId)
 
-  // Smart streaming: use streaming for starting/started, static fetch for stopped/failed
-  const shouldStream = serverStatus === 'starting' || serverStatus === 'started'
-  const streamResult = useServerLogsStream(shouldStream ? selectedTaskId || '' : '')
-  const staticLogsResult = useServerLogs(shouldStream ? '' : selectedTaskId || '', {
-    enabled: !shouldStream,
+  // Poll logs when server is running (starting or started)
+  const shouldPoll = serverStatus === 'starting' || serverStatus === 'started'
+  const {
+    data: logsData,
+    error: logsError,
+    isLoading,
+    refetch,
+  } = useServerLogs(selectedTaskId || '', {
+    enabled: !!selectedTaskId,
+    refetchInterval: shouldPoll ? 1000 : false, // Poll every 1 second when server is running
   })
 
-  // Use streaming logs when streaming, static logs when not streaming
-  const rawLogs = shouldStream ? streamResult.logs : staticLogsResult.data
-  const logs = typeof rawLogs === 'string' ? rawLogs : rawLogs?.logs || ''
-  const isConnected = shouldStream ? streamResult.isConnected : false
-  const error = shouldStream ? streamResult.error : staticLogsResult.error?.message || null
-  const reconnect = streamResult.reconnect
-
-  // Proper loading state detection
-  const isLoading = shouldStream
-    ? false // Streaming doesn't have a loading state
-    : staticLogsResult.isLoading
+  const logs = logsData?.logs || ''
+  const error = logsError?.message || null
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -53,10 +49,10 @@ export function ServerLogsViewer() {
     return (
       <div className="flex h-full items-center justify-center p-4">
         <div className="text-center space-y-4 max-w-md">
-          <ErrorAlert error={error} title="Failed to connect to server logs" />
-          <Button onClick={reconnect} variant="outline">
-            <WifiOff className="mr-2 h-4 w-4" />
-            Retry Connection
+          <ErrorAlert error={error} title="Failed to load server logs" />
+          <Button onClick={() => refetch()} variant="outline">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
           </Button>
         </div>
       </div>
@@ -76,17 +72,6 @@ export function ServerLogsViewer() {
             <p className="text-lg font-medium">No server logs available</p>
             <p className="mt-2 text-sm">Server logs will appear here when the server is running</p>
           </div>
-          <div className="flex items-center justify-center gap-2 text-sm">
-            {shouldStream && !isConnected && (
-              <>
-                <WifiOff className="h-4 w-4 text-muted-foreground" />
-                <span>Disconnected</span>
-                <Button onClick={reconnect} variant="outline" size="sm">
-                  Reconnect
-                </Button>
-              </>
-            )}
-          </div>
         </div>
       </div>
     )
@@ -94,26 +79,6 @@ export function ServerLogsViewer() {
 
   return (
     <div className="h-full w-full bg-background relative">
-      {/* Connection status header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50">
-        <div className="flex items-center gap-2 text-sm">
-          {shouldStream && !isConnected && (
-            <>
-              <WifiOff className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Disconnected</span>
-            </>
-          )}
-        </div>
-        {error && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-destructive">{error}</span>
-            <Button onClick={reconnect} variant="ghost" size="sm">
-              Retry
-            </Button>
-          </div>
-        )}
-      </div>
-
       <ScrollArea ref={scrollAreaRef} className="h-full w-full">
         <div className="p-4">
           <pre className="text-xs leading-relaxed text-foreground font-mono whitespace-pre-wrap break-all">

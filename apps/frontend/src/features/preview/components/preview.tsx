@@ -1,4 +1,4 @@
-import { Loader2, Play, Server } from 'lucide-react'
+import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServerEvents, useServerStatus, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
@@ -35,6 +35,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   // Use SSE status when available, fall back to query status
   const effectiveServerStatus = eventServerStatus || serverStatus?.status || 'stopped'
   const isConnected = effectiveServerStatus === 'started'
+  const isInstalling = effectiveServerStatus === 'installing'
   const isInitializing = effectiveServerStatus === 'starting'
   const isFailed = effectiveServerStatus === 'failed'
 
@@ -294,6 +295,27 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
                     </>
                   )}
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {isInstalling && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-6">
+                <div className="flex flex-col items-center space-y-4">
+                  <Package className="h-12 w-12 text-muted-foreground animate-pulse" />
+                  <div className="space-y-2">
+                    <p className="text-lg font-medium">Installing dependencies...</p>
+                    <p className="text-sm text-muted-foreground">Running setup commands</p>
+                  </div>
+                </div>
+
+                {/* Skeleton loader for the preview area */}
+                <div className="w-full max-w-md mx-auto space-y-3">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                </div>
               </div>
             </div>
           )}
