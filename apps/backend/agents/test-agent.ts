@@ -1,4 +1,4 @@
-import type { BranchNameAndSummary, Event } from '@moatless/types'
+import type { AgentEvent, BranchNameAndSummary, Event } from '@moatless/types'
 import { type AgentOptions, type AgentRunOptions, BaseAgent } from './base-agent.js'
 
 /**
@@ -174,11 +174,11 @@ export class TestAgent extends BaseAgent {
 
   // Helper method to create events with consistent structure
   private createEvent(
-    type: Event['type'],
+    type: 'agent',
     subType: string,
     payload: Record<string, unknown>,
     isError = false,
-  ): Event {
+  ): AgentEvent {
     return {
       eventId: `test-event-${type}-${subType}-${Date.now()}-${Math.random().toString(36).substring(7)}`,
       agentType: 'test-agent',
@@ -188,8 +188,10 @@ export class TestAgent extends BaseAgent {
       iterationId: this.iterationNumber,
       timestamp: new Date(),
       isError,
-      payload,
-      agentSessionId: this.sessionId,
-    }
+      payload: {
+        ...payload,
+        agentSessionId: this.sessionId,
+      },
+    } as AgentEvent
   }
 }

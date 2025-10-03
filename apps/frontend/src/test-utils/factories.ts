@@ -1,4 +1,5 @@
 import type {
+  AgentEvent,
   Event,
   GitDiffResponse,
   ServerStatus,
@@ -58,7 +59,7 @@ export function createMockEvent(overrides?: Partial<Event>): Event {
       content: 'Test event content',
     },
     ...overrides,
-  }
+  } as AgentEvent
 }
 
 export function createMockMessageEvent(

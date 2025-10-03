@@ -11,15 +11,15 @@ import type {
 export function createMockEvent(overrides?: Partial<Event>): Event {
   return {
     eventId: 'event-123',
-    agentType: 'claude-code',
     type: 'agent',
     subType: 'message',
+    agentType: 'claude-code',
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: false,
     payload: { message: 'Test event payload' },
     ...overrides,
-  }
+  } as AgentEvent
 }
 
 export function createMockAgentMessageEvent(overrides?: Partial<AgentEvent>): AgentEvent {
@@ -68,7 +68,6 @@ export function createMockAgentErrorEvent(
 export function createMockWorkspaceEvent(overrides?: Partial<WorkspaceEvent>): WorkspaceEvent {
   return {
     eventId: 'workspace-event-123',
-    agentType: 'claude-code',
     type: 'workspace',
     subType: 'ready',
     taskId: 'task-123',
@@ -86,7 +85,6 @@ export function createMockWorkspaceEvent(overrides?: Partial<WorkspaceEvent>): W
 export function createMockServerEvent(overrides?: Partial<ServerEvent>): ServerEvent {
   return {
     eventId: 'server-event-123',
-    agentType: 'claude-code',
     type: 'server',
     subType: 'started',
     taskId: 'task-123',
@@ -146,9 +144,10 @@ export function createMockTaskIterationEvent(
 ): TaskIterationEvent {
   return {
     eventId: 'task-iteration-event-123',
-    agentType: 'claude-code',
     type: 'taskIteration',
     subType: status,
+    agentType: 'claude-code',
+    iterationId: 1,
     taskId: 'task-123',
     timestamp: new Date('2024-01-01T00:00:00Z'),
     isError: status === 'error',

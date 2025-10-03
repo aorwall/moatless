@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentEvent,
@@ -5,13 +6,12 @@ import type {
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
-  EventTypeSchema,
 } from '@moatless/types'
-import type { z } from 'zod'
 
 import { getGitHubService } from '../../services/github.service.js'
 import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
+import { getDataDir } from '../../utils/data-dir.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
 import { logger } from '../../utils/logger.js'
 import { createBranchNamePrompt } from '../../utils/prompts.js'
@@ -300,10 +300,10 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   private createEventWithContextTokens(
     payload: ClaudeCodeSDKMessage | Record<string, unknown>,
-    type: z.infer<typeof EventTypeSchema>,
+    type: 'agent',
     isError = false,
     subType?: string,
-  ): Event {
+  ): AgentEvent {
     const contextTokens =
       'type' in payload && 'session_id' in payload
         ? calculateContextTokens(payload as ClaudeCodeSDKMessage)
@@ -320,11 +320,13 @@ export class ClaudeCodeAgent extends BaseAgent {
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),
-      agentSessionId: sessionId,
       isError,
-      contextTokens,
-      payload,
-    }
+      payload: {
+        ...payload,
+        contextTokens,
+        agentSessionId: sessionId,
+      },
+    } as AgentEvent
   }
 
   private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
@@ -382,11 +384,16 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
+    // Get upload directory to add to additional directories
+    const dataDir = getDataDir()
+    const uploadDir = process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
+
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
+      additionalDirectories: [uploadDir],
     }
 
     // Add model if provided (prioritize runOptions.model over options.model)

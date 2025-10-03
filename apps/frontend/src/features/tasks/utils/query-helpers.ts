@@ -106,8 +106,6 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
         taskUpdates = { status: 'open' }
       } else if (event.subType === 'closed') {
         taskUpdates = { status: 'closed' }
-      } else if (event.subType === 'merged') {
-        taskUpdates = { status: 'merged' }
       }
       break
 
@@ -121,8 +119,8 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
           status: 'open',
           lastMessageAt: new Date(event.timestamp || Date.now()),
         }
-      } else if (event.subType === 'failed') {
-        // Iteration failed - task is back to open
+      } else if (event.subType === 'error') {
+        // Iteration errored - task is back to open
         taskUpdates = {
           status: 'open',
           lastMessageAt: new Date(event.timestamp || Date.now()),

@@ -194,7 +194,6 @@ export class PreviewProxyService {
         subType: 'navigated',
         taskId: this.config.taskId,
         timestamp: new Date(),
-        agentType: 'environment',
         isError: false,
         payload: {
           path: to,

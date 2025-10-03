@@ -18,7 +18,8 @@ export function useMessageCounting({ events, isStreaming }: UseMessageCountingPr
           event.type === 'agent' &&
           event.subType === 'message' &&
           event.payload?.role === 'assistant' &&
-          event.iterationId
+          'iterationId' in event &&
+          typeof event.iterationId === 'number'
         ) {
           const currentCount = counts.get(event.iterationId) || 0
           counts.set(event.iterationId, currentCount + 1)

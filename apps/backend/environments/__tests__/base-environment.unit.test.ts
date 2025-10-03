@@ -315,7 +315,7 @@ describe('BaseEnvironment - Unit Tests', () => {
         expect.objectContaining({
           taskId: 'test-task',
           type: 'environment',
-          subType: 'environment:ready',
+          subType: 'ready',
           payload: {
             status: 'ready',
             previousStatus: 'initializing',

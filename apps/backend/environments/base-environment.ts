@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  EnvironmentStatus,
   RepositoryConfig,
   ServerStatus,
   ShellCommandLogEvent,
@@ -21,8 +22,8 @@ export abstract class BaseEnvironment {
    * Emit environment status change event
    */
   protected async emitStatusChange(
-    status: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
-    previousStatus: 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning',
+    status: EnvironmentStatus,
+    previousStatus: EnvironmentStatus,
     error?: Error | string,
   ): Promise<void> {
     if (!this.eventService) {
@@ -32,7 +33,7 @@ export abstract class BaseEnvironment {
     await this.eventService.emitEvent({
       taskId: this.taskId,
       type: 'environment',
-      subType: `environment:${status}`,
+      subType: status,
       payload: {
         status,
         previousStatus,
@@ -41,7 +42,6 @@ export abstract class BaseEnvironment {
       },
       eventId: randomUUID(),
       timestamp: new Date(),
-      agentType: 'environment', // Required field for environment events
       isError: status === 'error',
     })
   }

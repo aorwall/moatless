@@ -1,7 +1,7 @@
 import type { ClaudeModel, Message, UploadFileResponse } from '@moatless/types'
 import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useParams } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-providers'
@@ -20,6 +20,10 @@ import {
   useAgentModeSelector,
   useModelSelector,
 } from '@/lib/components/chat/chat-input/selectors'
+import {
+  ChatStatusBanner,
+  type ChatStatusBannerProps,
+} from '@/lib/components/chat/chat-status-banner'
 import { ChatView } from '@/lib/components/chat/chat-view'
 import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { MessageHistory } from '@/lib/components/chat/message-history'
@@ -33,7 +37,7 @@ function ChatContainer({ className }: ChatContainerProps) {
   const params = useParams({ from: '/tasks/$taskId' })
 
   // Use specialized hooks from tri-context pattern
-  const { status, iterations } = useTaskData()
+  const { status, iterations, workspaceStatus } = useTaskData()
   const isTaskRunning = useIsAgentRunning()
 
   // Local state for chat values
@@ -176,6 +180,14 @@ function ChatContainer({ className }: ChatContainerProps) {
 
   // Helper functions for ChatInput
   const getButtonText = () => {
+    const envStatus = workspaceStatus?.environmentStatus
+
+    if (envStatus === 'initializing') {
+      return 'Queued'
+    }
+    if (envStatus === 'error') {
+      return 'Setup Failed'
+    }
     if (isTaskRunning) {
       return 'Running'
     }
@@ -186,6 +198,17 @@ function ChatContainer({ className }: ChatContainerProps) {
   }
 
   const getPlaceholderText = () => {
+    const envStatus = workspaceStatus?.environmentStatus
+
+    if (envStatus === 'initializing') {
+      return 'Task queued: setting up workspace...'
+    }
+    if (envStatus === 'error') {
+      return 'Workspace setup failed. Check error details above.'
+    }
+    if (lastIteration?.status === 'created' && envStatus === 'ready') {
+      return 'Task queued: starting agent...'
+    }
     if (isTaskRunning) {
       return 'Task is running... Type your next request'
     }
@@ -196,7 +219,14 @@ function ChatContainer({ className }: ChatContainerProps) {
   }
 
   // Disable sending based on conditions
-  const isSendDisabled = sendMessage.isPending || (!isTaskRunning && !message.trim())
+  const envStatus = workspaceStatus?.environmentStatus
+  const isWorkspaceSetup = envStatus === 'initializing'
+  const isWorkspaceError = envStatus === 'error'
+  const isSendDisabled =
+    sendMessage.isPending ||
+    isWorkspaceSetup ||
+    isWorkspaceError ||
+    (!isTaskRunning && !message.trim())
 
   // Handle message changes with autocomplete
   const handleMessageChange = useCallback(
@@ -211,6 +241,50 @@ function ChatContainer({ className }: ChatContainerProps) {
     [handleInputChange, textareaRef],
   )
 
+  // Derive status banner props from workspace and iteration state
+  const statusBannerProps: ChatStatusBannerProps | null = useMemo(() => {
+    const envStatus = workspaceStatus?.environmentStatus
+    const envError = workspaceStatus?.environmentError
+
+    // Task queued - workspace initializing
+    if (envStatus === 'initializing') {
+      return {
+        variant: 'loading',
+        message: 'Task queued',
+        description: 'Setting up workspace: installing dependencies and configuring environment...',
+      }
+    }
+
+    // Workspace setup failed
+    if (envStatus === 'error') {
+      return {
+        variant: 'error',
+        message: 'Workspace setup failed',
+        description: envError || 'An error occurred during workspace setup',
+      }
+    }
+
+    // Task queued - iteration waiting to start (workspace is ready but agent hasn't started)
+    if (lastIteration?.status === 'created' && envStatus === 'ready') {
+      return {
+        variant: 'info',
+        message: 'Task queued',
+        description: 'Starting agent...',
+      }
+    }
+
+    // Iteration failed
+    if (lastIteration?.status === 'failed' && !isTaskRunning) {
+      return {
+        variant: 'error',
+        message: 'Task failed',
+        description: lastIteration.result || 'The task encountered an error',
+      }
+    }
+
+    return null
+  }, [workspaceStatus, lastIteration, isTaskRunning])
+
   return (
     <ChatView className={className}>
       <MessageHistory
@@ -219,6 +293,9 @@ function ChatContainer({ className }: ChatContainerProps) {
         error={messagesError as Error | null}
         isRunning={isTaskRunning}
       />
+
+      {statusBannerProps && <ChatStatusBanner {...statusBannerProps} />}
+
       <ChatInput
         message={message}
         onMessageChange={handleMessageChange}

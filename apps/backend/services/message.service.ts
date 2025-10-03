@@ -111,6 +111,16 @@ export class MessageService {
   async saveAgentMessage(taskId: string, event: Event): Promise<void> {
     try {
       if (event.type === 'agent' && event.subType === 'message' && event.payload) {
+        const sdkMessage = event.payload as any
+
+        // Check if this is a duplicate initial message (only for user messages)
+        if (sdkMessage.type === 'user') {
+          const isDuplicate = await this.isInitialMessageDuplicate(taskId, event, sdkMessage)
+          if (isDuplicate) {
+            return
+          }
+        }
+
         const agentMessage = this.convertEventToAgentMessage(event)
         if (agentMessage) {
           await this.storage.appendJsonl(`messages/${taskId}`, agentMessage)
@@ -130,6 +140,51 @@ export class MessageService {
       })
       throw error
     }
+  }
+
+  /**
+   * Check if a user message is a duplicate of the iteration's initial message
+   */
+  private async isInitialMessageDuplicate(
+    taskId: string,
+    event: Event,
+    sdkMessage: any,
+  ): Promise<boolean> {
+    const iterationId =
+      event.type === 'agent' && 'iterationId' in event ? event.iterationId : undefined
+    if (!iterationId || !sdkMessage.message?.content) {
+      return false
+    }
+
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      return false
+    }
+
+    const iteration = task.iterations.find((it) => it.iterationNumber === iterationId)
+    if (!iteration?.initialMessage) {
+      return false
+    }
+
+    const messageContent =
+      typeof sdkMessage.message.content === 'string'
+        ? sdkMessage.message.content
+        : Array.isArray(sdkMessage.message.content)
+          ? sdkMessage.message.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text)
+              .join('\n')
+          : ''
+
+    if (messageContent === iteration.initialMessage) {
+      logger.debug('Skipping duplicate initial message', {
+        taskId,
+        iterationNumber: iteration.iterationNumber,
+      })
+      return true
+    }
+
+    return false
   }
 
   /**
@@ -585,13 +640,14 @@ export class MessageService {
       }
 
       // Create base agent message structure
+      const agentSessionId = event.type === 'agent' ? event.payload?.agentSessionId : undefined
       const agentMessage: AgentMessage = {
         uuid: event.eventId,
         timestamp: event.timestamp.toISOString(),
         userType: 'user',
         type: messageType,
         message: sdkMessage.message, // Store the message field from the SDK message
-        sessionId: event.agentSessionId,
+        sessionId: agentSessionId,
         // Add optional fields if present in SDK message
         ...(sdkMessage.parent_tool_use_id && { parentUuid: sdkMessage.parent_tool_use_id }),
         ...(sdkMessage.session_id && { sessionId: sdkMessage.session_id }),

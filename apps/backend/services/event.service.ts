@@ -32,8 +32,12 @@ export class EventService extends EventEmitter {
     const cachedEvents = this.eventCache.get(event.taskId)!
     cachedEvents.push(event)
 
-    // Only save to disk if agent type is not claude-code
-    if (event.agentType !== 'claude-code') {
+    // Only save to disk if event is not a claude-code agent/task/taskIteration event
+    const isClaudeCodeEvent =
+      (event.type === 'agent' || event.type === 'task' || event.type === 'taskIteration') &&
+      'agentType' in event &&
+      event.agentType === 'claude-code'
+    if (!isClaudeCodeEvent) {
       await this.storage.saveEvents(event.taskId, cachedEvents)
     }
 

@@ -87,7 +87,6 @@ export class DockerEnvironment extends BaseEnvironment {
     try {
       await this.eventService.emitEvent({
         eventId: randomUUID(),
-        agentType: 'environment' as const,
         type: 'server' as const,
         subType: status,
         taskId: this.taskId,

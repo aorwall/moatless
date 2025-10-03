@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types'
+import type { AgentEvent, Event, TaskEvent, WorkspaceEvent } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
@@ -18,8 +18,8 @@ describe('event-handlers', () => {
         taskId: 'task-123',
         agentType: 'test',
         isError: false,
-        payload: { status: 'open' },
-      }
+        payload: { status: 'open', previousStatus: 'created' },
+      } as TaskEvent
 
       const keys = getInvalidationKeys(event)
 
@@ -37,7 +37,7 @@ describe('event-handlers', () => {
         agentType: 'test',
         isError: false,
         payload: {},
-      }
+      } as AgentEvent
 
       const keys = getInvalidationKeys(event)
 
@@ -56,7 +56,7 @@ describe('event-handlers', () => {
         agentType: 'test',
         isError: false,
         payload: {},
-      }
+      } as AgentEvent
 
       const keys = getInvalidationKeys(event)
       expect(keys).toHaveLength(1)
@@ -68,10 +68,9 @@ describe('event-handlers', () => {
         eventId: 'event-4',
         type: 'workspace',
         taskId: 'task-999',
-        agentType: 'test',
         isError: false,
         payload: {},
-      }
+      } as WorkspaceEvent
 
       const keys = getInvalidationKeys(event)
 

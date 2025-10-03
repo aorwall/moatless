@@ -25,7 +25,6 @@ export type {
   EventType,
   SDKResultMessage,
   ServerEvent,
-  SpecificEvent,
   TaskEvent,
   TaskIterationEvent,
   WorkspaceEvent,

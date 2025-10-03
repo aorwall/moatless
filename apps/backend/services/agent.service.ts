@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Event, TaskIteration } from '@moatless/types'
+import type { AgentEvent, Event, TaskIteration } from '@moatless/types'
 
 import { logger } from '../utils/logger.js'
 import type { MessageService } from './message.service.js'
@@ -159,11 +159,14 @@ export class AgentService {
           iteration.endTime = new Date()
         }
 
-        // Emit agent events to event service with agentSessionId
+        // Emit agent events to event service with agentSessionId in payload
         agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
         yield {
           ...event,
-          agentSessionId: iteration.agentSessionId,
+          payload: {
+            ...event.payload,
+            agentSessionId: iteration.agentSessionId,
+          },
         }
       }
 
@@ -184,17 +187,17 @@ export class AgentService {
         taskId,
         type: 'agent',
         subType: 'error',
+        agentType: 'claude-code',
+        iterationId: iteration.iterationNumber,
         payload: {
           error: error instanceof Error ? error.message : String(error),
           stackTrace: error instanceof Error ? error.stack : undefined,
+          agentSessionId: iteration.agentSessionId,
         },
         eventId: randomUUID(),
         timestamp: new Date(),
-        agentType: 'claude-code',
         isError: true,
-        iterationId: iteration.iterationNumber,
-        agentSessionId: iteration.agentSessionId,
-      }
+      } as AgentEvent
 
       throw error
     }

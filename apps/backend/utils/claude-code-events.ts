@@ -23,28 +23,32 @@ export function sdkMessageToEvent(
   if (sdkMessage.type === 'result') {
     return {
       eventId: crypto.randomUUID(),
-      agentType: 'claude-code',
       type: 'agent',
       subType: 'completed',
       taskId,
+      agentType: 'claude-code',
       iterationId: iterationNumber,
       isError,
-      contextTokens,
-      payload: sdkMessage,
+      payload: {
+        ...sdkMessage,
+        contextTokens,
+      },
     } as AgentEvent
   }
 
   return {
     eventId: crypto.randomUUID(),
-    agentType: 'claude-code',
     type: 'agent',
     subType: 'message',
     taskId,
+    agentType: 'claude-code',
     iterationId: iterationNumber,
     isError,
-    contextTokens,
-    payload: sdkMessage,
-  }
+    payload: {
+      ...sdkMessage,
+      contextTokens,
+    },
+  } as AgentEvent
 }
 
 /**

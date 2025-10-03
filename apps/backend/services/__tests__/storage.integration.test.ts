@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs'
-import type { Event, Task, Workspace } from '@moatless/types'
+import type { AgentEvent, Event, Task, Workspace } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FileStorage } from '../storage.js'
 
@@ -143,7 +143,7 @@ describe('FileStorage', () => {
           isError: false,
           agentType: 'test-agent',
           payload: { message: 'Starting' },
-        },
+        } as AgentEvent,
         {
           eventId: 'evt-2',
           type: 'agent',
@@ -153,7 +153,7 @@ describe('FileStorage', () => {
           isError: false,
           agentType: 'test-agent',
           payload: { content: 'Hello' },
-        },
+        } as AgentEvent,
       ]
 
       await storage.saveEvents('task-123', events)

@@ -7,7 +7,9 @@ import type {
   Event,
   SDKResultMessage,
   Task,
+  TaskEvent,
   TaskIteration,
+  TaskIterationEvent,
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 
@@ -113,14 +115,15 @@ export class TaskService {
    */
   private shouldHandleEvent(event: Event): boolean {
     // Handle events that affect task state
-    return (
-      (event.type === 'agent' && event.subType === 'completed') ||
-      (event.type === 'agent' && event.subType === 'error') ||
-      (event.type === 'agent' &&
-        event.subType === 'message' &&
-        event.contextTokens !== undefined) ||
-      event.agentSessionId !== undefined // Handle any event with agentSessionId
-    )
+    if (event.type === 'agent') {
+      return (
+        event.subType === 'completed' ||
+        event.subType === 'error' ||
+        (event.subType === 'message' && event.payload?.contextTokens !== undefined) ||
+        event.payload?.agentSessionId !== undefined
+      )
+    }
+    return false
   }
 
   /**
@@ -141,22 +144,30 @@ export class TaskService {
       }
 
       // Find the iteration this event belongs to
-      const iteration = event.iterationId
-        ? task.iterations.find((it) => it.iterationNumber === event.iterationId)
+      const iterationId =
+        (event.type === 'agent' || event.type === 'taskIteration') && 'iterationId' in event
+          ? event.iterationId
+          : undefined
+      const iteration = iterationId
+        ? task.iterations.find((it) => it.iterationNumber === iterationId)
         : task.iterations[task.iterations.length - 1] // Latest iteration if no iterationId
 
       if (!iteration) {
         taskLogger.warn('Iteration not found for event, skipping update', {
-          iterationId: event.iterationId,
+          iterationId,
           totalIterations: task.iterations.length,
         })
         return
       }
 
       // Handle agentSessionId if present and not already set
-      if (event.agentSessionId && !iteration.agentSessionId) {
-        iteration.agentSessionId = event.agentSessionId
-        taskLogger.debug('Updated agent session ID from event', { sessionId: event.agentSessionId })
+      const agentSessionId =
+        event.type === 'agent' && typeof event.payload?.agentSessionId === 'string'
+          ? event.payload.agentSessionId
+          : undefined
+      if (agentSessionId && !iteration.agentSessionId) {
+        iteration.agentSessionId = agentSessionId
+        taskLogger.debug('Updated agent session ID from event', { sessionId: agentSessionId })
       }
 
       // Handle different event types
@@ -168,14 +179,14 @@ export class TaskService {
             await this.handleErrorEvent(task, iteration, event)
           } else if (event.subType === 'message') {
             await this.handleMessageEvent(task, iteration, event)
-          } else if (event.agentSessionId) {
+          } else if (agentSessionId) {
             // For any other agent event type, just save if we updated agentSessionId
             await this.storage.saveTask(task)
           }
           break
         default:
           // For any other event type, just save if we updated agentSessionId
-          if (event.agentSessionId) {
+          if (agentSessionId) {
             await this.storage.saveTask(task)
           }
           break
@@ -335,6 +346,8 @@ export class TaskService {
         taskId: task.taskId,
         type: 'taskIteration',
         subType: 'completed',
+        agentType: task.agentType,
+        iterationId: iteration.iterationNumber,
         payload: {
           status: 'completed',
           previousStatus: 'active',
@@ -343,10 +356,8 @@ export class TaskService {
         },
         eventId: randomUUID(),
         timestamp: new Date(),
-        agentType: task.agentType,
         isError: false,
-        iterationId: iteration.iterationNumber,
-      })
+      } as TaskIterationEvent)
     }
 
     // Emit task status change event if status actually changed
@@ -355,15 +366,15 @@ export class TaskService {
         taskId: task.taskId,
         type: 'task',
         subType: newStatus as 'open' | 'closed',
+        agentType: task.agentType,
         payload: {
           status: newStatus,
           previousStatus,
         },
         eventId: randomUUID(),
         timestamp: new Date(),
-        agentType: task.agentType,
         isError: newStatus === 'error',
-      })
+      } as TaskEvent)
     }
   }
 
@@ -400,6 +411,8 @@ export class TaskService {
       taskId: task.taskId,
       type: 'taskIteration',
       subType: 'error',
+      agentType: task.agentType,
+      iterationId: iteration.iterationNumber,
       payload: {
         status: 'error',
         previousStatus: 'active',
@@ -407,7 +420,6 @@ export class TaskService {
       },
       eventId: randomUUID(),
       timestamp: new Date(),
-      agentType: task.agentType,
       isError: true,
     })
   }
@@ -420,9 +432,13 @@ export class TaskService {
     iteration: TaskIteration,
     event: Event,
   ): Promise<void> {
-    // Update contextTokens if provided in the event
-    if (event.contextTokens !== undefined) {
-      iteration.contextTokens = event.contextTokens
+    // Update contextTokens if provided in the event payload (for AgentEvents)
+    const contextTokens =
+      event.type === 'agent' && typeof event.payload?.contextTokens === 'number'
+        ? event.payload.contextTokens
+        : undefined
+    if (contextTokens !== undefined) {
+      iteration.contextTokens = contextTokens
 
       // Save task with updated context tokens
       await this.storage.saveTask(task)
@@ -430,7 +446,7 @@ export class TaskService {
       logger.debug('Updated context tokens from MESSAGE event', {
         taskId: task.taskId,
         iterationNumber: iteration.iterationNumber,
-        contextTokens: event.contextTokens,
+        contextTokens,
       })
     }
   }
@@ -527,6 +543,8 @@ export class TaskService {
             taskId: task.taskId,
             type: 'taskIteration',
             subType: 'updated',
+            agentType: task.agentType,
+            iterationId: iteration.iterationNumber,
             payload: {
               status: taskIteration?.status || iteration.status,
               previousStatus: taskIteration?.status || iteration.status,
@@ -536,7 +554,6 @@ export class TaskService {
             },
             eventId: randomUUID(),
             timestamp: new Date(),
-            agentType: task.agentType,
             isError: false,
           })
           taskLogger.info('Emitted screenshot update event', {
@@ -753,13 +770,13 @@ export class TaskService {
         taskId: task.taskId,
         type: 'task',
         subType: 'open',
+        agentType: params.agentType,
         payload: {
           status: 'open',
           previousStatus: 'created',
         },
         eventId: randomUUID(),
         timestamp: now,
-        agentType: params.agentType,
         isError: false,
       })
 
@@ -838,9 +855,10 @@ export class TaskService {
               taskId,
               type: 'taskIteration',
               subType: 'error',
-              isError: true,
               agentType: task.agentType,
+              iterationId: lastIteration.iterationNumber,
               timestamp: new Date(),
+              isError: true,
               payload: {
                 status: 'error',
                 previousStatus: 'created',
@@ -888,9 +906,10 @@ export class TaskService {
                   taskId,
                   type: 'taskIteration',
                   subType: 'error',
-                  isError: true,
                   agentType: task.agentType,
+                  iterationId: lastIteration.iterationNumber,
                   timestamp: new Date(),
+                  isError: true,
                   payload: {
                     status: 'error',
                     previousStatus: 'active',
@@ -935,9 +954,10 @@ export class TaskService {
               taskId,
               type: 'taskIteration',
               subType: 'error',
-              isError: true,
               agentType: task.agentType,
+              iterationId: lastIteration.iterationNumber,
               timestamp: new Date(),
+              isError: true,
               payload: {
                 status: 'error',
                 previousStatus,
@@ -952,9 +972,9 @@ export class TaskService {
             taskId,
             type: 'task',
             subType: 'open',
-            isError: true,
             agentType: task.agentType,
             timestamp: new Date(),
+            isError: true,
             payload: {
               status: 'open',
               previousStatus: task.status,
@@ -1024,6 +1044,8 @@ export class TaskService {
       taskId,
       type: 'taskIteration',
       subType: 'active',
+      agentType: task.agentType,
+      iterationId: lastIteration.iterationNumber,
       payload: {
         status: 'active',
         previousStatus: lastIteration.status,
@@ -1031,7 +1053,6 @@ export class TaskService {
       },
       eventId: randomUUID(),
       timestamp: new Date(),
-      agentType: task.agentType,
       isError: false,
     })
 
@@ -1078,9 +1099,10 @@ export class TaskService {
                 taskId,
                 type: 'taskIteration',
                 subType: 'error',
-                isError: true,
                 agentType: updatedTask.agentType,
+                iterationId: lastIteration.iterationNumber,
                 timestamp: new Date(),
+                isError: true,
                 payload: {
                   status: 'error',
                   previousStatus: lastIteration.status,
@@ -1407,6 +1429,8 @@ export class TaskService {
       taskId,
       type: 'taskIteration',
       subType: 'active',
+      agentType: metadata.agentType,
+      iterationId: iteration.iterationNumber,
       payload: {
         status: 'active',
         previousStatus: 'created',
@@ -1414,7 +1438,6 @@ export class TaskService {
       },
       eventId: randomUUID(),
       timestamp: now,
-      agentType: metadata.agentType,
       isError: false,
     })
 
@@ -1458,9 +1481,10 @@ export class TaskService {
           taskId,
           type: 'taskIteration',
           subType: 'error',
-          isError: true,
           agentType: metadata.agentType,
+          iterationId: iteration.iterationNumber,
           timestamp: new Date(),
+          isError: true,
           payload: {
             status: 'error',
             previousStatus: 'active',
@@ -1578,13 +1602,13 @@ export class TaskService {
       taskId,
       type: 'task',
       subType: 'closed',
+      agentType: task.agentType,
       payload: {
         status: 'closed',
         previousStatus,
       },
       eventId: randomUUID(),
       timestamp: new Date(),
-      agentType: task.agentType,
       isError: false,
     })
 

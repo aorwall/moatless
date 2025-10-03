@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type {
+  AgentEvent,
   CreateRepositoryRequest,
   CreateTaskRequest,
-  Event,
   RepositoryConfig,
 } from '@moatless/types'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -393,7 +393,7 @@ describe('Worker API Integration Test', () => {
       createdTaskId = taskResult.taskId
 
       // Test emitting an event
-      const testEvent: Event = {
+      const testEvent: AgentEvent = {
         eventId: 'test-event-123',
         agentType: 'claude-code',
         type: 'agent',
@@ -404,7 +404,7 @@ describe('Worker API Integration Test', () => {
           type: 'text',
           content: 'Test event from worker',
         },
-      }
+      } as AgentEvent
 
       // Test emitting an event - should succeed without error
       await expect(apiClient.emitEvent(createdTaskId, testEvent)).resolves.not.toThrow()

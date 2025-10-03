@@ -304,8 +304,12 @@ export function useLatestContextTokens() {
     // Find the last message event with contextTokens
     for (let i = streamingEvents.length - 1; i >= 0; i--) {
       const event = streamingEvents[i]
-      if (event.type === 'agent' && event.subType === 'message' && event.contextTokens) {
-        return event.contextTokens
+      if (
+        event.type === 'agent' &&
+        event.subType === 'message' &&
+        typeof event.payload?.contextTokens === 'number'
+      ) {
+        return event.payload.contextTokens
       }
     }
     return 0

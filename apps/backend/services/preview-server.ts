@@ -118,7 +118,6 @@ export class PreviewServer {
     try {
       await this.eventService.emitEvent({
         eventId: randomUUID(),
-        agentType: 'environment' as const,
         type: 'server' as const,
         subType: status,
         taskId: this.taskId,

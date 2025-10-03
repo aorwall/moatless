@@ -7,7 +7,6 @@ export type {
   EventPayload,
   EventType,
   ServerEvent,
-  SpecificEvent,
   StreamStatusResponse,
   TaskEvent,
   TaskIterationEvent,

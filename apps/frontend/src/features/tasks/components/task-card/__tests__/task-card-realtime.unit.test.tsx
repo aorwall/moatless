@@ -1,4 +1,4 @@
-import type { Event, Task } from '@moatless/types'
+import type { AgentEvent, Event, Task } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TaskCard } from '../task-card'
@@ -81,7 +81,7 @@ describe('TaskCard Real-time Updates', () => {
       agentType: 'test-agent',
       isError: false,
       timestamp: new Date(),
-    }
+    } as AgentEvent
 
     // Call the event handler (we know it's set by the mock)
     eventHandler!(newEvent)
@@ -157,7 +157,7 @@ describe('TaskCard Real-time Updates', () => {
       agentType: 'test-agent',
       isError: false,
       timestamp: new Date(),
-    }
+    } as AgentEvent
 
     // Call the event handler (we know it's set by the mock)
     eventHandler!(newEvent)
@@ -203,7 +203,7 @@ describe('TaskCard Real-time Updates', () => {
       agentType: 'test-agent',
       isError: false,
       timestamp: new Date(),
-    }
+    } as AgentEvent
 
     // Call the event handler twice with the same event (we know it's set by the mock)
     eventHandler!(duplicateEvent)

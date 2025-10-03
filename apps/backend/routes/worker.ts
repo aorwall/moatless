@@ -1,7 +1,12 @@
-import type { Event } from '@moatless/types'
 import { schemas } from '@moatless/types'
+import { z } from 'zod'
 
-const { EventSchema, WorkerEventResponseSchema } = schemas
+const { EventSchema } = schemas
+
+const WorkerEventResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+})
 
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -55,7 +60,7 @@ export async function registerWorkerRoutes(app: Hono<AppBindings>, prefix: strin
 
       try {
         const body = await c.req.json()
-        const event = EventSchema.parse(body) as Event
+        const event = EventSchema.parse(body)
         const { taskId } = event
 
         // Verify task exists
