@@ -1,9 +1,11 @@
 import { logger } from '../utils/logger.js'
 
 export interface GitHubUser {
+  id: number
   login: string
   email: string | null
   name: string | null
+  avatar_url: string | null
 }
 
 export interface GitHubEmail {
@@ -54,9 +56,11 @@ export class GitHubService {
       }
 
       return {
+        id: userData.id,
         login: userData.login,
         email: email,
         name: userData.name,
+        avatar_url: userData.avatar_url,
       }
     } catch (error) {
       logger.error('Error fetching GitHub user', error as Error)
@@ -137,6 +141,49 @@ export class GitHubService {
       return scopesHeader.split(',').map((scope) => scope.trim())
     } catch (error) {
       logger.error('Error fetching GitHub token scopes', error as Error)
+      return null
+    }
+  }
+
+  /**
+   * Get repositories accessible by the authenticated user
+   */
+  async getUserRepositories(
+    token: string,
+    options?: { page?: number; per_page?: number },
+  ): Promise<Array<{ id: number; name: string; full_name: string; private: boolean }> | null> {
+    try {
+      const page = options?.page || 1
+      const perPage = options?.per_page || 30
+
+      const response = await fetch(
+        `${this.apiBaseUrl}/user/repos?page=${page}&per_page=${perPage}&sort=updated`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        },
+      )
+
+      if (!response.ok) {
+        logger.error(
+          'GitHub API: Failed to fetch user repositories',
+          new Error(`Status: ${response.status}`),
+        )
+        return null
+      }
+
+      const repos = (await response.json()) as Array<{
+        id: number
+        name: string
+        full_name: string
+        private: boolean
+      }>
+
+      return repos
+    } catch (error) {
+      logger.error('Error fetching GitHub user repositories', error as Error)
       return null
     }
   }

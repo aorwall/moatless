@@ -63,6 +63,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const response = await fetch(url, {
     ...fetchOptions,
     headers,
+    credentials: 'include', // Include cookies for session management
   })
 
   if (!response.ok) {
@@ -72,6 +73,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     } catch {
       errorData = null
     }
+
     throw new ApiError(response.status, response.statusText, errorData)
   }
 

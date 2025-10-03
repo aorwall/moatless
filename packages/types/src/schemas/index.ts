@@ -1,5 +1,6 @@
 export * from './agent-message.schemas.js'
 export * from './api.schemas.js'
+export * from './auth.schemas.js'
 export * from './base.schemas.js'
 export * from './command.schemas.js'
 export * from './deploy.schemas.js'

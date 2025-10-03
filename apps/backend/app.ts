@@ -1,11 +1,13 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { UserSession } from '@moatless/types'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
 import { basicAuth } from './middleware/basic-auth.js'
 import { errorHandler } from './middleware/error-handler.js'
+import { githubAuth } from './middleware/github-auth.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { registerRoutes } from './routes/index.js'
@@ -19,6 +21,7 @@ export type AppBindings = {
   Variables: {
     services: ServiceContainer
     requestId: string
+    session?: UserSession
   }
 }
 
@@ -38,11 +41,6 @@ export async function createApp(): Promise<AppWithServices> {
 
   // Security headers
   app.use('*', secureHeaders())
-
-  // Authentication middleware (choose one: basicAuth or tokenAuth)
-  // Basic Auth is easier for browser access, Token Auth is better for API access
-  app.use('*', basicAuth) // Use basic auth by default
-  // app.use('*', tokenAuth) // Alternative: use token auth
 
   // CORS
   app.use(
@@ -64,15 +62,23 @@ export async function createApp(): Promise<AppWithServices> {
     }),
   )
 
-  // Error handling middleware
-  app.onError(errorHandler)
-
   // Setup services and inject into context
   const services = await createServiceContainer()
   app.use('*', async (c, next) => {
     c.set('services', services)
     await next()
   })
+
+  // Authentication middleware
+  // Use GitHub OAuth if enabled, otherwise fall back to basic auth
+  if (process.env.GITHUB_OAUTH_ENABLED === 'true') {
+    app.use('*', githubAuth)
+  } else {
+    app.use('*', basicAuth)
+  }
+
+  // Error handling middleware
+  app.onError(errorHandler)
 
   // Register API routes
   await registerRoutes(app)

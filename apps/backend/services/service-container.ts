@@ -1,5 +1,6 @@
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { AgentService } from './agent.service.js'
+import type { AuthService } from './auth.service.js'
 import type { CommandService } from './command.service.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
@@ -18,6 +19,7 @@ import type { WorkspaceService } from './workspace.service.js'
  */
 export interface ServiceContainer {
   agent: AgentService
+  auth: AuthService
   claude: ClaudeService
   command: CommandService
   docker: DockerService
@@ -46,6 +48,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Import all service factories
   const { createStorageService } = await import('./storage.js')
   const { getGitHubService } = await import('./github.service.js')
+  const { createAuthService } = await import('./auth.service.js')
   const { createSettingsService } = await import('./settings.service.js')
   const { createRepositoryService } = await import('./repository.service.js')
   const { createClaudeService } = await import('../agents/claude-code/claude.service.js')
@@ -68,7 +71,8 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.github = getGitHubService()
   container.settings = await createSettingsService(container.github)
 
-  // 2. Services with single dependencies
+  // 2. Services with single or dual dependencies
+  container.auth = createAuthService(container.storage, container.github)
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)

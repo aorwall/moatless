@@ -21,6 +21,7 @@ import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as RepositoriesNewRouteImport } from './routes/repositories/new'
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as CommandsCommandNameRouteImport } from './routes/commands/$commandName'
+import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -82,6 +83,11 @@ const CommandsCommandNameRoute = CommandsCommandNameRouteImport.update({
   path: '/commands/$commandName',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/repositories': typeof RepositoriesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
+  '/auth/callback': typeof AuthCallbackRoute
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
   '/repositories/new': typeof RepositoriesNewRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/settings': typeof SettingsRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
   '/repositories/new': typeof RepositoriesNewRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/repositories': typeof RepositoriesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
+  '/auth/callback': typeof AuthCallbackRoute
   '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
   '/repositories/new': typeof RepositoriesNewRoute
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/repositories'
     | '/settings'
     | '/tasks'
+    | '/auth/callback'
     | '/commands/$commandName'
     | '/commands/new'
     | '/repositories/new'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/settings'
+    | '/auth/callback'
     | '/commands/$commandName'
     | '/commands/new'
     | '/repositories/new'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/repositories'
     | '/settings'
     | '/tasks'
+    | '/auth/callback'
     | '/commands/$commandName'
     | '/commands/new'
     | '/repositories/new'
@@ -173,6 +185,7 @@ export interface RootRouteChildren {
   RepositoriesRoute: typeof RepositoriesRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
+  AuthCallbackRoute: typeof AuthCallbackRoute
   CommandsCommandNameRoute: typeof CommandsCommandNameRoute
   CommandsNewRoute: typeof CommandsNewRoute
   CommandsIndexRoute: typeof CommandsIndexRoute
@@ -264,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommandsCommandNameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -299,6 +319,7 @@ const rootRouteChildren: RootRouteChildren = {
   RepositoriesRoute: RepositoriesRouteWithChildren,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
+  AuthCallbackRoute: AuthCallbackRoute,
   CommandsCommandNameRoute: CommandsCommandNameRoute,
   CommandsNewRoute: CommandsNewRoute,
   CommandsIndexRoute: CommandsIndexRoute,

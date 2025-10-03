@@ -3,6 +3,7 @@ import { describeRoute } from 'hono-openapi'
 import { resolver } from 'hono-openapi/zod'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
+import { registerAuthRoutes } from './auth.js'
 import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
 import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
@@ -65,6 +66,11 @@ export async function registerRoutes(app: Hono<AppBindings>) {
       })
     },
   )
+
+  // Register authentication routes (if GitHub OAuth is enabled)
+  if (process.env.GITHUB_OAUTH_ENABLED === 'true') {
+    await registerAuthRoutes(app, '/auth')
+  }
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app, `${API_PREFIX}/tasks`)

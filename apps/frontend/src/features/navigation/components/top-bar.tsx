@@ -1,8 +1,10 @@
-import { FolderGit2, Settings } from 'lucide-react'
+import { FolderGit2, LogOut, Settings, User } from 'lucide-react'
 import { useState } from 'react'
 import { ViewToggle } from '@/components/view-toggle'
+import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
+import { Separator } from '@/lib/components/ui/separator'
 
 type ViewMode = 'code' | 'vibe'
 
@@ -20,6 +22,7 @@ export function TopBar({
   onViewModeChange,
 }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const { user, isAuthenticated, logout } = useAuth()
 
   const handleRepositoriesClick = () => {
     onRepositoriesClick()
@@ -28,6 +31,11 @@ export function TopBar({
 
   const handleSettingsClick = () => {
     onSettingsClick()
+    setIsMenuOpen(false)
+  }
+
+  const handleLogout = () => {
+    logout()
     setIsMenuOpen(false)
   }
 
@@ -61,6 +69,40 @@ export function TopBar({
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </Button>
+                {isAuthenticated && user && (
+                  <>
+                    <Separator className="my-1" />
+                    <div className="px-2 py-1.5 text-sm">
+                      <div className="flex items-center gap-2">
+                        {user.avatarUrl ? (
+                          <img
+                            src={user.avatarUrl}
+                            alt={user.login}
+                            className="w-6 h-6 rounded-full"
+                          />
+                        ) : (
+                          <User className="w-4 h-4" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{user.login}</div>
+                          {user.email && (
+                            <div className="text-xs text-muted-foreground truncate">
+                              {user.email}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start h-8 px-2 text-destructive hover:text-destructive"
+                      onClick={handleLogout}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Logout
+                    </Button>
+                  </>
+                )}
               </div>
             </PopoverContent>
           </Popover>

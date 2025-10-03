@@ -10,6 +10,7 @@ export type {
   TaskListResponse,
 } from './api.js'
 export * from './api-errors.js'
+export * from './auth.js'
 export * from './claude.js'
 export * from './claude-code.js'
 export * from './claude-content.js'
