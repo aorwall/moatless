@@ -5,7 +5,6 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
-import { basicAuth } from './middleware/basic-auth.js'
 import { errorHandler } from './middleware/error-handler.js'
 import { githubAuth } from './middleware/github-auth.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
@@ -70,11 +69,9 @@ export async function createApp(): Promise<AppWithServices> {
   })
 
   // Authentication middleware
-  // Use GitHub OAuth if enabled, otherwise fall back to basic auth
+  // Use GitHub OAuth if enabled, otherwise no authentication
   if (process.env.GITHUB_OAUTH_ENABLED === 'true') {
     app.use('*', githubAuth)
-  } else {
-    app.use('*', basicAuth)
   }
 
   // Error handling middleware

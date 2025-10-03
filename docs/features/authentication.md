@@ -38,14 +38,14 @@ const { user, isAuthenticated, isLoading, logout } = useAuth()
 
 ## Architecture Overview
 
-The application supports two authentication modes:
-1. **Basic Auth** (default) - Browser's native username/password dialog
-2. **GitHub OAuth** - OAuth 2.0 flow with session-based authentication
+The application supports optional GitHub OAuth authentication:
+- **GitHub OAuth enabled** - OAuth 2.0 flow with session-based authentication
+- **GitHub OAuth disabled** - No authentication (open access)
 
 ```mermaid
 graph TD
     A[User visits app] --> B{OAuth enabled?}
-    B -->|No| C[Basic Auth Dialog]
+    B -->|No| C[No auth - open access]
     B -->|Yes| D[API call gets 401]
     D --> E[Redirect to /auth/login]
     E --> F[GitHub OAuth Flow]
@@ -60,7 +60,7 @@ graph TD
 
 ### Environment Variables
 ```bash
-# Enable GitHub OAuth (when false, falls back to Basic Auth)
+# Enable GitHub OAuth (when false or unset, no authentication is used)
 GITHUB_OAUTH_ENABLED=true
 
 # GitHub OAuth App credentials
@@ -322,14 +322,13 @@ app.get('/api/v1/user-repos', async (c) => {
 - Auto-cleanup on retrieval
 - `lastAccessedAt` updated on each request
 
-## Fallback to Basic Auth
+## No Authentication Mode
 
 When `GITHUB_OAUTH_ENABLED=false` or unset:
 1. GitHub auth middleware is **not loaded**
-2. Basic auth middleware is loaded instead
-3. Browser shows native username/password dialog
-4. No OAuth routes registered
-5. Frontend works as-is (401s trigger browser dialog)
+2. No authentication is enforced - open access to all endpoints
+3. No OAuth routes registered
+4. Suitable for local development or trusted network deployments
 
 ## Troubleshooting
 
