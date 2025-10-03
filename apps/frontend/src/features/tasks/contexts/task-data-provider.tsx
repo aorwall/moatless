@@ -1,11 +1,4 @@
-import type {
-  Event,
-  GitDiffResponse,
-  TaskIteration,
-  TaskResponse,
-  WorkspaceStatusResponse,
-} from '@moatless/types'
-import { useQuery } from '@tanstack/react-query'
+import type { Event } from '@moatless/types'
 import {
   createContext,
   type ReactNode,
@@ -16,42 +9,12 @@ import {
   useState,
 } from 'react'
 import { useGlobalEventStream, useTaskEventSubscription } from '@/features/events'
-import { queryKeys } from '@/lib/api/query-keys'
-import { tasksApi } from '../api/tasks'
 
 interface TaskDataContextValue {
-  // Task metadata (rarely changes)
   taskId: string
-  status: string | undefined
-  agentType: string | undefined
-  repositoryId: string | undefined
-  iterations: TaskIteration[]
-  createdAt: Date | undefined
-  vibe: boolean | undefined
-  templateId: string | undefined
-  name: string | undefined
-  description: string | undefined
-
-  // Git diff data
-  gitDiff: GitDiffResponse | undefined
-
-  // Workspace status
-  workspaceStatus: WorkspaceStatusResponse | undefined
-  workspaceLoading: boolean
-
-  // Derived flags for components (stable primitives)
-  canExecute: boolean
-  isAgentRunning: boolean
-  isComplete: boolean
-
-  // Event data
-  streamingEvents: Event[] // Live events from SSE (for minified viewer)
+  streamingEvents: Event[]
   isStreaming: boolean
   streamingError: string | null
-
-  // Loading & error states
-  isLoading: boolean
-  error: Error | null
 }
 
 const TaskDataContext = createContext<TaskDataContextValue | undefined>(undefined)
@@ -61,50 +24,11 @@ interface TaskDataProviderProps {
   children: ReactNode
 }
 
-/**
- * TaskDataProvider manages stable task metadata, workspace status, and events.
- * Handles both historical events (from API) and live streaming events (from SSE).
- * Uses React Query without complex selectors to minimize re-renders.
- */
 export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   const globalStream = useGlobalEventStream()
 
   // Local state for streaming events (recent events from SSE)
   const [streamingEvents, setStreamingEvents] = useState<Event[]>([])
-  // Task metadata query - simplified without select
-  const taskQuery = useQuery({
-    queryKey: queryKeys.tasks.detail(taskId),
-    queryFn: () => tasksApi.getTask(taskId),
-    staleTime: 30000, // 30s - task metadata doesn't change frequently
-    enabled: !!taskId && !taskId.startsWith('temp-'),
-  })
-
-  // Git diff query
-  const gitDiffQuery = useQuery({
-    queryKey: queryKeys.tasks.gitDiff(taskId),
-    queryFn: () => tasksApi.getTaskGitDiff(taskId),
-    enabled: !!taskId && !taskId.startsWith('temp-'),
-    staleTime: 10 * 60 * 1000, // 10 minutes - git diff doesn't change frequently
-    retry: false, // Don't retry on failure
-  })
-
-  // Workspace status query
-  const workspaceQuery = useQuery({
-    queryKey: queryKeys.tasks.workspaceStatus(taskId),
-    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
-    enabled: !!taskId && !taskId.startsWith('temp-') && taskQuery.data?.status === 'open',
-    refetchInterval: (query) => {
-      const data = query.state.data as WorkspaceStatusResponse | undefined
-      const envStatus = data?.environmentStatus
-
-      // Only poll when in transitional states
-      if (envStatus === 'initializing' || envStatus === 'cleaning') {
-        return 3000 // 3 seconds for transitional states
-      }
-      return false // Stop polling when stable
-    },
-    staleTime: 2000, // Consider data stale after 2 seconds
-  })
 
   // Event handler - updates only local streaming events for display
   const handleTaskEvent = useCallback((event: Event) => {
@@ -117,38 +41,12 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
 
   // Subscribe to task-specific events from global stream
   useEffect(() => {
-    console.log('[TaskDataProvider] Setting up event subscription for task:', taskId)
+    if (!taskId) return
+    // Reset stream buffer whenever the task changes so consumers get a clean slate
+    setStreamingEvents([])
   }, [taskId])
 
   useTaskEventSubscription(taskId, handleTaskEvent)
-
-  // Extract primitive values in useMemo to ensure stability
-  const taskPrimitives = useMemo(() => {
-    const task: TaskResponse | undefined = taskQuery.data
-    if (!task) return null
-
-    const iterations = task.iterations || []
-
-    return {
-      status: task.status,
-      agentType: task.agentType,
-      repositoryId: task.repositoryId,
-      iterations,
-      createdAt: task.createdAt,
-      vibe: task.vibe,
-      templateId: task.templateId,
-      name: task.name,
-      description: task.description,
-      canExecute: task.status === 'open', // Can execute if task is open
-      isComplete: task.status === 'closed', // Complete if task is closed
-    }
-  }, [taskQuery.data])
-
-  // Derive agent running state from task status
-  const isAgentRunning = useMemo(
-    () => taskPrimitives?.status === 'running',
-    [taskPrimitives?.status],
-  )
 
   // Streaming status from global stream
   const isStreaming = globalStream.isConnected
@@ -157,121 +55,20 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
   // Memoized context value with stable primitive dependencies
   const contextValue: TaskDataContextValue = useMemo(
     () => ({
-      // Task metadata primitives
       taskId,
-      status: taskPrimitives?.status,
-      agentType: taskPrimitives?.agentType,
-      repositoryId: taskPrimitives?.repositoryId,
-      iterations: taskPrimitives?.iterations || [],
-      createdAt: taskPrimitives?.createdAt,
-      vibe: taskPrimitives?.vibe,
-      templateId: taskPrimitives?.templateId,
-      name: taskPrimitives?.name,
-      description: taskPrimitives?.description,
-
-      // Git diff data
-      gitDiff: gitDiffQuery.data,
-
-      // Workspace status
-      workspaceStatus: workspaceQuery.data,
-      workspaceLoading: workspaceQuery.isLoading,
-
-      // Derived flags (stable primitives)
-      canExecute: taskPrimitives?.canExecute ?? false,
-      isAgentRunning,
-      isComplete: taskPrimitives?.isComplete ?? false,
-
-      // Event data
-      streamingEvents, // Live events for minified viewer
-      isStreaming,
-      streamingError,
-
-      // Loading & error states - only block on core task data
-      isLoading: taskQuery.isLoading,
-      error: taskQuery.error || null,
-    }),
-    [
-      taskId,
-      taskPrimitives,
-      gitDiffQuery.data,
-      workspaceQuery.data,
-      workspaceQuery.isLoading,
-      isAgentRunning,
       streamingEvents,
       isStreaming,
       streamingError,
-      taskQuery.isLoading,
-      taskQuery.error,
-    ],
+    }),
+    [taskId, streamingEvents, isStreaming, streamingError],
   )
 
   return <TaskDataContext.Provider value={contextValue}>{children}</TaskDataContext.Provider>
 }
 
-/**
- * Hook to access stable task data and status.
- * Returns primitives that only change when actual values change.
- */
-export function useTaskData() {
-  const context = useContext(TaskDataContext)
-  if (!context) {
-    throw new Error('useTaskData must be used within TaskDataProvider')
-  }
-  return context
-}
-
-// Specialized hooks for specific data slices
-export function useTaskStatus() {
-  const { status, isAgentRunning, canExecute, isComplete } = useTaskData()
-  return { status, isAgentRunning, canExecute, isComplete }
-}
-
-export function useIsAgentRunning() {
-  const { isAgentRunning } = useTaskData()
-  return isAgentRunning
-}
-
-export function useTaskIterations() {
-  const { iterations } = useTaskData()
-  return iterations
-}
-
-export function useGitDiff() {
-  const { gitDiff } = useTaskData()
-  return gitDiff
-}
-
-export function useGitDiffWithLoading() {
-  const { taskId } = useTaskData()
-  const gitDiffQuery = useQuery({
-    queryKey: queryKeys.tasks.gitDiff(taskId),
-    queryFn: () => tasksApi.getTaskGitDiff(taskId),
-    enabled: !!taskId && !taskId.startsWith('temp-'),
-    staleTime: 10 * 60 * 1000, // 10 minutes - git diff doesn't change frequently
-    retry: false, // Don't retry on failure
-  })
-
-  return {
-    gitDiff: gitDiffQuery.data,
-    isLoading: gitDiffQuery.isLoading,
-    error: gitDiffQuery.error,
-  }
-}
-
-// Performance optimized hooks that only return specific fields
-export function useTaskLoadingError() {
-  const { isLoading, error } = useTaskData()
-  return { isLoading, error }
-}
-
-export function useTaskMetadata() {
-  const { taskId, agentType, repositoryId, createdAt } = useTaskData()
-  return { taskId, agentType, repositoryId, createdAt }
-}
-
 // Event hooks (previously in TaskEventsProvider)
 export function useTaskEvents() {
-  const { streamingEvents, isStreaming, streamingError } = useTaskData()
+  const { streamingEvents, isStreaming, streamingError } = useTaskDataContext()
   return {
     events: streamingEvents, // Only streaming events now
     streamingEvents,
@@ -283,13 +80,13 @@ export function useTaskEvents() {
 }
 
 export function useEventStream() {
-  const { streamingEvents, isStreaming } = useTaskData()
+  const { streamingEvents, isStreaming } = useTaskDataContext()
   // For compatibility - return streaming events for components like MinifiedLastEventsDisplay
   return { events: streamingEvents, isStreaming }
 }
 
 export function useStreamingStatus() {
-  const { isStreaming, streamingError } = useTaskData()
+  const { isStreaming, streamingError } = useTaskDataContext()
   return { isStreaming, streamingError }
 }
 
@@ -298,7 +95,7 @@ export function useStreamingStatus() {
  * Returns the contextTokens from the most recent message event.
  */
 export function useLatestContextTokens() {
-  const { streamingEvents } = useTaskData()
+  const { streamingEvents } = useTaskDataContext()
 
   return useMemo(() => {
     // Find the last message event with contextTokens
@@ -314,4 +111,22 @@ export function useLatestContextTokens() {
     }
     return 0
   }, [streamingEvents])
+}
+
+function useTaskDataContext() {
+  const context = useContext(TaskDataContext)
+  if (!context) {
+    throw new Error('Task data hooks must be used within TaskDataProvider')
+  }
+  return context
+}
+
+export function useTaskId() {
+  const { taskId } = useTaskDataContext()
+  return taskId
+}
+
+export function useTaskStreamingState() {
+  const { streamingEvents, isStreaming, streamingError } = useTaskDataContext()
+  return { streamingEvents, isStreaming, streamingError }
 }

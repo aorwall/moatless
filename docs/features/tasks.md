@@ -139,41 +139,51 @@ const { message, setMessage } = useChatMessage();
 const { selectedModel, setSelectedModel } = useChatModel();
 ```
 
-### 2. TaskDataProvider (Server State)
+### 2. TaskDataProvider (Task Identity & Streaming)
 ```typescript
 // apps/frontend/src/features/tasks/contexts/task-data-provider.tsx
 interface TaskDataContext {
   taskId: string;
-  isLoading: boolean;
-  error: Error | null;
-  status: TaskStatus;
-  iterations: TaskIteration[];
-  repositoryId: string;
-  // Specialized data access methods
+  streamingEvents: Event[];
+  isStreaming: boolean;
+  streamingError: string | null;
 }
 
-// Usage
-const { taskId, status, iterations, repositoryId } = useTaskData();
-const { data: workspaceStatus } = useWorkspaceStatus();
+// Usage inside TaskPage
+const taskId = useTaskId();
+const { streamingEvents, isStreaming } = useTaskStreamingState();
+
+// Server data is fetched via React Query hooks
+const taskQuery = useTaskDetailQuery(taskId);
+const workspaceQuery = useWorkspaceStatus(taskId, taskQuery.data);
 ```
 
 ### 3. TaskProviders (Unified Provider)
 ```typescript
 // apps/frontend/src/features/tasks/contexts/task-providers.tsx
-export function TaskProviders({ taskId, children }) {
+type TaskProvidersProps = { taskId: string; children: React.ReactNode };
+
+function TaskProvidersInternal({ taskId, children }: TaskProvidersProps) {
+  const { vibe } = useTaskMetadata();
+  return (
+    <TaskUIProvider taskId={taskId} vibe={vibe}>
+      {children}
+    </TaskUIProvider>
+  );
+}
+
+export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
     <TaskDataProvider taskId={taskId}>
-      <TaskUIProvider>
-        {children}
-      </TaskUIProvider>
+      <TaskProvidersInternal taskId={taskId}>{children}</TaskProvidersInternal>
     </TaskDataProvider>
   );
 }
 
-// Convenience hooks for common patterns
-export const usePanelView = () => { /* Panel state management */ };
-export const usePanelSizes = () => { /* Panel sizing logic */ };
-export const useTaskData = () => { /* Task data access */ };
+// Consumers stitch pieces together explicitly
+const taskId = useTaskId();
+const { data: task } = useTaskDetailQuery(taskId);
+const { rightPanelView } = usePanelView();
 ```
 
 ### Context Isolation Benefits

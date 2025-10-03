@@ -41,6 +41,23 @@ export function useTasksList(options?: UseTasksListOptions) {
 }
 ```
 
+### Task Detail Consumption
+
+```typescript
+// Inside components wrapped by TaskProviders
+const taskId = useTaskId();
+const { data: task, isLoading, error } = useTaskDetailQuery(taskId);
+
+// Workspace polling only runs while the task is open
+const workspaceStatusQuery = useWorkspaceStatus(taskId, task);
+const gitDiffQuery = useTaskGitDiffQuery(taskId, { retry: false });
+
+// Streaming state comes from context buffers
+const { streamingEvents, isStreaming } = useTaskStreamingState();
+```
+
+> **Note:** `TaskDataProvider` exposes only `taskId` and SSE buffers. Components opt into granular React Query hooks so unrelated sections avoid rerenders and cache lifetimes remain predictable.
+
 ### Mutation Hooks Pattern
 
 ```typescript
@@ -53,14 +70,9 @@ export function useCreateTask(options?: UseCreateTaskOptions) {
     // Optimistic update
     onMutate: async (newTask) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.tasks() });
-      
+
       const previousTasks = queryClient.getQueryData(queryKeys.tasksList());
-      
-      // Optimistically add to list
-      queryClient.setQueryData(queryKeys.tasksList(), (old) => {
-        return [...(old || []), { ...newTask, id: 'temp-' + Date.now() }];
-      });
-      
+
       return { previousTasks };
     },
     
@@ -71,6 +83,10 @@ export function useCreateTask(options?: UseCreateTaskOptions) {
     
     // Update with real data
     onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.tasksList(), (old) => {
+        return [...(old || []), data];
+      });
+
       queryClient.setQueryData(queryKeys.taskDetail(data.id), data);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() });
     },
@@ -183,45 +199,13 @@ export function useInfiniteTaskEvents(taskId: string) {
 export function useCreateTaskWithNavigation() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: tasksApi.create,
-    
-    onMutate: async (newTask) => {
-      const tempId = 'temp-' + Date.now();
-      
-      // Create temporary task
-      const tempTask = {
-        ...newTask,
-        id: tempId,
-        status: 'creating',
-        createdAt: new Date().toISOString(),
-      };
-      
-      // Add to cache
-      queryClient.setQueryData(
-        queryKeys.taskDetail(tempId), 
-        tempTask
-      );
-      
-      // Navigate immediately
-      navigate(`/tasks/${tempId}`);
-      
-      return { tempId };
-    },
-    
-    onSuccess: (data, variables, context) => {
-      // Replace temp with real data
-      queryClient.removeQueries({
-        queryKey: queryKeys.taskDetail(context.tempId),
-      });
-      queryClient.setQueryData(
-        queryKeys.taskDetail(data.id), 
-        data
-      );
-      
-      // Update URL
-      navigate(`/tasks/${data.id}`, { replace: true });
+
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.taskDetail(data.id), data);
+      navigate(`/tasks/${data.id}`);
     },
   });
 }

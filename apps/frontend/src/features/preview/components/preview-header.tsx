@@ -1,4 +1,3 @@
-import { useParams } from '@tanstack/react-router'
 import {
   ExternalLink,
   Loader2,
@@ -18,7 +17,8 @@ import {
   useStopServer,
 } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -56,10 +56,10 @@ export function PreviewHeader({
   onReload,
   isInspectorAvailable,
 }: PreviewHeaderProps) {
-  const params = useParams({ from: '/tasks/$taskId' })
-
-  // Get task data to check if it's a vibe task and get current iteration
-  const { vibe, iterations } = useTaskData()
+  const taskId = useTaskId()
+  const { data: task } = useTaskDetailQuery(taskId)
+  const vibe = task?.vibe
+  const iterations = task?.iterations ?? []
 
   // Get the latest iteration to check for site URL
   const latestIteration = iterations?.[iterations.length - 1]
@@ -79,10 +79,10 @@ export function PreviewHeader({
   }
 
   // Server management hooks
-  const { data: serverStatus } = useServerStatus(params.taskId)
+  const { data: serverStatus } = useServerStatus(taskId)
 
   // Deploy hook for publishing vibe tasks
-  const deployTask = useDeployTask(params.taskId, {
+  const deployTask = useDeployTask(taskId, {
     onSuccess: (data) => {
       if (data.success && data.siteUrl) {
         toast.success('Site published successfully!', {
@@ -168,19 +168,19 @@ export function PreviewHeader({
   }, [serverStatus?.url, path])
 
   const handleStartServer = useCallback(() => {
-    startServer.mutate(params.taskId)
+    startServer.mutate(taskId)
     setIsServerPopoverOpen(false)
-  }, [params.taskId, startServer])
+  }, [taskId, startServer])
 
   const handleStopServer = useCallback(() => {
-    stopServer.mutate(params.taskId)
+    stopServer.mutate(taskId)
     setIsServerPopoverOpen(false)
-  }, [params.taskId, stopServer])
+  }, [taskId, stopServer])
 
   const handleRestartServer = useCallback(() => {
-    restartServer.mutate(params.taskId)
+    restartServer.mutate(taskId)
     setIsServerPopoverOpen(false)
-  }, [params.taskId, restartServer])
+  }, [taskId, restartServer])
 
   const handlePublish = useCallback(() => {
     deployTask.mutate()

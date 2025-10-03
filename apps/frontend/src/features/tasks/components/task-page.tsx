@@ -1,4 +1,3 @@
-import { useParams } from '@tanstack/react-router'
 import React, { useEffect, useRef } from 'react'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
@@ -6,21 +5,22 @@ import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { usePanelView, useTaskData } from '../contexts/task-providers'
-import { useWorkspaceStatusWithTask } from '../hooks/use-workspace-status'
+import { usePanelView, useTaskId } from '../contexts/task-providers'
+import { useTaskDetailQuery } from '../hooks/use-task-queries'
+import { useWorkspaceStatus } from '../hooks/use-workspace-status'
 import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskDetailSkeleton } from './task-skeletons'
 
 function TaskPageComponent() {
-  const { taskId } = useParams({ from: '/tasks/$taskId' })
+  const taskId = useTaskId()
 
-  // Use specialized hooks that only cause re-renders when specific data changes
-  const { isLoading, error } = useTaskData()
+  const taskQuery = useTaskDetailQuery(taskId)
   const { rightPanelView, setRightPanelView } = usePanelView()
 
   // Fetch workspace status to determine capabilities and server URL
-  const workspaceStatusQuery = useWorkspaceStatusWithTask(taskId)
+  // Fetch workspace status only once the task is known to be open
+  const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
   const workspaceStatus = workspaceStatusQuery.data
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
@@ -43,11 +43,11 @@ function TaskPageComponent() {
 
   const effectivePanelView = rightPanelView
 
-  if (error) {
-    return <ErrorAlert error={error} />
+  if (taskQuery.error) {
+    return <ErrorAlert error={taskQuery.error} />
   }
 
-  if (isLoading) {
+  if (taskQuery.isLoading) {
     return <TaskDetailSkeleton />
   }
 
