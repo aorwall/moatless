@@ -1,17 +1,10 @@
-import type {
-  Event,
-  GitDiffResponse,
-  Task,
-  TaskIteration,
-  WorkspaceStatusResponse,
-} from '@moatless/types'
+import type { GitDiffResponse, Task, TaskIteration, WorkspaceStatusResponse } from '@moatless/types'
 import { useQueries } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
 interface UseTaskDataResult {
   task: Task | undefined
-  events: Event[]
   iterations: TaskIteration[]
   gitDiff: GitDiffResponse | undefined
   workspaceStatus: WorkspaceStatusResponse | undefined
@@ -40,12 +33,6 @@ export function useTaskData(taskId: string): UseTaskDataResult {
         enabled: shouldFetch,
       },
       {
-        queryKey: queryKeys.tasks.events(taskId),
-        queryFn: () => tasksApi.getTaskEvents(taskId),
-        staleTime: 60 * 1000,
-        enabled: shouldFetch,
-      },
-      {
         queryKey: queryKeys.tasks.gitDiff(taskId),
         queryFn: () => tasksApi.getTaskGitDiff(taskId),
         staleTime: 10 * 60 * 1000,
@@ -62,16 +49,14 @@ export function useTaskData(taskId: string): UseTaskDataResult {
     ],
   })
 
-  const [taskQuery, eventsQuery, gitDiffQuery, workspaceStatusQuery] = queries
+  const [taskQuery, gitDiffQuery, workspaceStatusQuery] = queries
 
   const task = taskQuery.data as Task | undefined
-  const events = (eventsQuery.data as Event[]) || []
   const gitDiff = gitDiffQuery.data as GitDiffResponse | undefined
   const workspaceStatus = workspaceStatusQuery.data as WorkspaceStatusResponse | undefined
 
   return {
     task,
-    events,
     iterations: task?.iterations || [], // Extract iterations from task data
     gitDiff,
     workspaceStatus,

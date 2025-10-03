@@ -5,9 +5,7 @@ import { errorHandler } from '../../middleware/error-handler.js'
 import { registerTaskRoutes } from '../tasks.js'
 
 // Mock the service dependencies
-const mockEventService = {
-  getTaskEvents: vi.fn(),
-}
+const mockEventService = {}
 
 const mockTaskService = {
   getTask: vi.fn(),

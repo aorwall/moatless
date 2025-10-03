@@ -1,7 +1,6 @@
 import type {
   CreateTaskRequest,
   DeployResponse,
-  Event,
   GitDiffResponse,
   MergeTaskResponse,
   Message,
@@ -209,21 +208,6 @@ export function useStopAgent(
       })
       options?.onSuccess?.(data, undefined, context)
     },
-    ...options,
-  })
-}
-
-export function useTaskEvents(
-  taskId: string,
-  type?: string,
-  options?: Omit<UseQueryOptions<Array<Event>>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: type
-      ? ([...queryKeys.tasks.events(taskId), { type }] as const)
-      : queryKeys.tasks.events(taskId),
-    queryFn: () => tasksApi.getTaskEvents(taskId, type),
-    enabled: !!taskId,
     ...options,
   })
 }

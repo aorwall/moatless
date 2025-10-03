@@ -1,4 +1,3 @@
-import type { Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper.js'
 
@@ -359,62 +358,6 @@ describe('Task Routes', () => {
       )
 
       expect(response.status).toBe(400)
-    })
-  })
-
-  describe('GET /api/tasks/:taskId/events', () => {
-    it('should return task events with pagination', async () => {
-      const mockTask: Partial<Task> = {
-        taskId: 'test-123',
-        status: 'running' as const,
-      }
-
-      const mockEvents = [
-        {
-          eventId: 'evt-1',
-          agentType: 'claude-code',
-          type: 'start' as const,
-          taskId: 'test-123',
-          timestamp: new Date(),
-          isError: false,
-          payload: {},
-        },
-        {
-          eventId: 'evt-2',
-          agentType: 'claude-code',
-          type: 'message' as const,
-          taskId: 'test-123',
-          timestamp: new Date(),
-          isError: false,
-          payload: { content: 'Hello' },
-        },
-      ]
-
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(mockTask as Task)
-      vi.spyOn(app.services.event, 'getEvents').mockResolvedValueOnce(mockEvents as any)
-
-      const response = await app.fetch(
-        new Request('http://localhost/api/v1/tasks/test-123/events?limit=10', {
-          method: 'GET',
-        }),
-      )
-
-      expect(response.status).toBe(200)
-      const body = (await response.json()) as any
-      expect(body.events).toHaveLength(2)
-      expect(body.items).toHaveLength(2)
-    })
-
-    it('should return 404 if task does not exist', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
-
-      const response = await app.fetch(
-        new Request('http://localhost/api/v1/tasks/non-existent/events', {
-          method: 'GET',
-        }),
-      )
-
-      expect(response.status).toBe(404)
     })
   })
 

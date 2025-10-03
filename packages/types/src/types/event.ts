@@ -4,7 +4,6 @@ export type {
   BaseEvent,
   EnvironmentEvent,
   Event,
-  EventListResponse,
   EventPayload,
   EventType,
   ServerEvent,

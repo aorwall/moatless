@@ -13,22 +13,6 @@ import { useTaskEventSubscription } from '@/features/events/contexts/global-even
 
 // Mock the hooks
 vi.mock('@/features/tasks/hooks/use-tasks', () => ({
-  useTaskEvents: vi.fn(() => ({
-    data: [
-      {
-        eventId: 'initial-1',
-        taskId: 'task-123',
-        type: 'agent',
-        subType: 'message',
-        payload: { type: 'assistant', content: 'Initial message' },
-        agentType: 'test-agent',
-        isError: false,
-        timestamp: new Date(),
-      },
-    ],
-    isLoading: false,
-    error: null,
-  })),
   useCloseTask: vi.fn(() => ({
     mutate: vi.fn(),
     isPending: false,
@@ -84,9 +68,8 @@ describe('TaskCard Real-time Updates', () => {
 
     const { rerender } = render(<TaskCard task={mockTask} repositoryName="Test Repo" />)
 
-    // Initially should show 1 event from the mocked data
-    expect(screen.getAllByTestId('event-item')).toHaveLength(1)
-    expect(screen.getByText('initial-1')).toBeInTheDocument()
+    // Initially should show no events (we only use streaming now)
+    expect(screen.queryAllByTestId('event-item')).toHaveLength(0)
 
     // Simulate receiving a new event
     const newEvent: Event = {
@@ -106,10 +89,9 @@ describe('TaskCard Real-time Updates', () => {
     // Force re-render to see the updated state
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
 
-    // Should now show 2 events (initial + real-time)
+    // Should now show 1 event from real-time stream
     const eventItems = screen.getAllByTestId('event-item')
-    expect(eventItems).toHaveLength(2)
-    expect(screen.getByText('initial-1')).toBeInTheDocument()
+    expect(eventItems).toHaveLength(1)
     expect(screen.getByText('realtime-1')).toBeInTheDocument()
   })
 
@@ -181,7 +163,7 @@ describe('TaskCard Real-time Updates', () => {
     eventHandler!(newEvent)
 
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
-    expect(screen.getAllByTestId('event-item')).toHaveLength(2)
+    expect(screen.getAllByTestId('event-item')).toHaveLength(1)
 
     // Change task status to closed and mark iteration as completed
     const completedTask = {
@@ -229,9 +211,9 @@ describe('TaskCard Real-time Updates', () => {
 
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
 
-    // Should only show the event once
+    // Should only show the event once (duplicates are filtered)
     const eventItems = screen.getAllByTestId('event-item')
-    expect(eventItems).toHaveLength(2) // initial + 1 duplicate (not 3)
+    expect(eventItems).toHaveLength(1)
     expect(screen.getAllByText('duplicate-1')).toHaveLength(1)
   })
 })

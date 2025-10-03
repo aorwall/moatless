@@ -11,7 +11,6 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.tasks.all, 'detail', id] as const,
 
     // Sub-resources - automatically invalidated with parent
-    events: (id: string) => [...queryKeys.tasks.detail(id), 'events'] as const,
     messages: (id: string, filters?: { limit?: number; offset?: number }) =>
       [...queryKeys.tasks.detail(id), 'messages', filters] as const,
     gitDiff: (id: string) => [...queryKeys.tasks.detail(id), 'git-diff'] as const,

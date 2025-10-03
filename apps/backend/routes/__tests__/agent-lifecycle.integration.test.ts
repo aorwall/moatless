@@ -264,17 +264,7 @@ describe('Agent Lifecycle Test', () => {
     expect(task.taskId).toBe(createdTaskId)
     console.log('✅ Can get task details')
 
-    // Test 3: Get task events
-    const getEventsResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/tasks/${createdTaskId}/events`,
-    })
-    expect(getEventsResponse.statusCode).toBe(200)
-    const { events } = JSON.parse(getEventsResponse.body)
-    expect(Array.isArray(events)).toBe(true)
-    console.log('✅ Can get task events')
-
-    // Test 4: Create a new task to verify we can start new agents
+    // Test 3: Create a new task to verify we can start new agents
     const createNewTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
       repositoryId: repository.id,

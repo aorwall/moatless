@@ -7,7 +7,6 @@ import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   createMockAgentTriggerResponse,
-  createMockEventList,
   createMockGitDiff,
   createMockServerStatus,
   createMockTask,
@@ -19,7 +18,6 @@ import {
   useSendMessage,
   useStopAgent,
   useTask,
-  useTaskEvents,
   useTaskGitDiff,
   useTasksList,
 } from '../use-tasks'
@@ -32,7 +30,6 @@ vi.mock('@/features/tasks/api/tasks', () => ({
     createTask: vi.fn(),
     sendMessage: vi.fn(),
     stopAgent: vi.fn(),
-    getTaskEvents: vi.fn(),
     getTaskGitDiff: vi.fn(),
     getTaskWorkspaceStatus: vi.fn(),
     getServerStatus: vi.fn(),
@@ -226,36 +223,6 @@ describe('Task Hooks', () => {
     })
   })
 
-  describe('useTaskEvents', () => {
-    it('fetches task events', async () => {
-      const mockEvents = createMockEventList(5)
-      vi.mocked(tasksApi.getTaskEvents).mockResolvedValue(mockEvents)
-
-      const { result } = renderHook(() => useTaskEvents('task-123'), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => {
-        expect(result.current.isSuccess).toBe(true)
-      })
-
-      expect(result.current.data).toEqual(mockEvents)
-    })
-
-    it('fetches events with type filter', async () => {
-      const type = 'message'
-      vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
-
-      renderHook(() => useTaskEvents('task-123', type), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => {
-        expect(tasksApi.getTaskEvents).toHaveBeenCalledWith('task-123', type)
-      })
-    })
-  })
-
   describe('useTaskGitDiff', () => {
     it('fetches git diff', async () => {
       const mockDiff = createMockGitDiff()
@@ -354,7 +321,6 @@ describe('Task Hooks', () => {
       // Set up some query data
       client.setQueryData(queryKeys.tasks.all, [])
       client.setQueryData(queryKeys.tasks.detail('task-123'), createMockTask())
-      client.setQueryData(queryKeys.tasks.events('task-123'), [])
 
       // Invalidate parent key
       await client.invalidateQueries({

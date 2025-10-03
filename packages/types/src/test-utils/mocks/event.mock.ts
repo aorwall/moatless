@@ -1,7 +1,6 @@
 import type {
   AgentEvent,
   Event,
-  EventListResponse,
   ServerEvent,
   StreamStatusResponse,
   TaskEvent,
@@ -159,34 +158,6 @@ export function createMockTaskIterationEvent(
       iterationNumber: 1,
     },
     ...overrides,
-  }
-}
-
-export function createMockEventListResponse(eventCount = 5): EventListResponse {
-  const items: Event[] = []
-
-  for (let i = 0; i < eventCount; i++) {
-    const eventTypes = ['agent', 'workspace', 'server', 'task'] as const
-    const type = eventTypes[i % eventTypes.length]
-
-    items.push(
-      createMockEvent({
-        eventId: `event-${i + 1}`,
-        type,
-        timestamp: new Date(`2024-01-01T00:${String(i).padStart(2, '0')}:00Z`),
-        payload: { message: `Event ${i + 1} payload` },
-      }),
-    )
-  }
-
-  return {
-    items,
-    pagination: {
-      limit: 20,
-      offset: 0,
-      total: eventCount,
-      hasMore: false,
-    },
   }
 }
 

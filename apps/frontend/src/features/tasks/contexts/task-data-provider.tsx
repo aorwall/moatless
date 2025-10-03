@@ -1,4 +1,10 @@
-import type { Event, GitDiffResponse, TaskIteration, TaskResponse } from '@moatless/types'
+import type {
+  Event,
+  GitDiffResponse,
+  TaskIteration,
+  TaskResponse,
+  WorkspaceStatusResponse,
+} from '@moatless/types'
 import { useQuery } from '@tanstack/react-query'
 import {
   createContext,
@@ -29,18 +35,19 @@ interface TaskDataContextValue {
   // Git diff data
   gitDiff: GitDiffResponse | undefined
 
+  // Workspace status
+  workspaceStatus: WorkspaceStatusResponse | undefined
+  workspaceLoading: boolean
+
   // Derived flags for components (stable primitives)
   canExecute: boolean
   isAgentRunning: boolean
   isComplete: boolean
 
   // Event data
-  events: Event[] // Historical events from API
   streamingEvents: Event[] // Live events from SSE (for minified viewer)
   isStreaming: boolean
   streamingError: string | null
-  latestEventId: string | null
-  hasNewEvents: boolean
 
   // Loading & error states
   isLoading: boolean
@@ -81,13 +88,22 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     retry: false, // Don't retry on failure
   })
 
-  // Events query - historical events from API
-  const eventsQuery = useQuery({
-    queryKey: queryKeys.tasks.events(taskId),
-    queryFn: () => tasksApi.getTaskEvents(taskId),
-    staleTime: Number.POSITIVE_INFINITY, // Never stale - updated via SSE only
-    enabled: !!taskId && !taskId.startsWith('temp-'),
-    // No polling - events are updated via SSE
+  // Workspace status query
+  const workspaceQuery = useQuery({
+    queryKey: queryKeys.tasks.workspaceStatus(taskId),
+    queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
+    enabled: !!taskId && !taskId.startsWith('temp-') && taskQuery.data?.status === 'open',
+    refetchInterval: (query) => {
+      const data = query.state.data as WorkspaceStatusResponse | undefined
+      const envStatus = data?.environmentStatus
+
+      // Only poll when in transitional states
+      if (envStatus === 'initializing' || envStatus === 'cleaning') {
+        return 3000 // 3 seconds for transitional states
+      }
+      return false // Stop polling when stable
+    },
+    staleTime: 2000, // Consider data stale after 2 seconds
   })
 
   // Event handler - updates only local streaming events for display
@@ -134,18 +150,6 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     [taskPrimitives?.status],
   )
 
-  // Event primitives
-  const eventPrimitives = useMemo(() => {
-    const events = eventsQuery.data || []
-    const latestEventId = events.length > 0 ? events[events.length - 1].eventId : null
-
-    return {
-      events,
-      latestEventId,
-      hasNewEvents: false, // Not needed with single source of truth
-    }
-  }, [eventsQuery.data])
-
   // Streaming status from global stream
   const isStreaming = globalStream.isConnected
   const streamingError = globalStream.connectionError?.message || null
@@ -168,18 +172,19 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       // Git diff data
       gitDiff: gitDiffQuery.data,
 
+      // Workspace status
+      workspaceStatus: workspaceQuery.data,
+      workspaceLoading: workspaceQuery.isLoading,
+
       // Derived flags (stable primitives)
       canExecute: taskPrimitives?.canExecute ?? false,
       isAgentRunning,
       isComplete: taskPrimitives?.isComplete ?? false,
 
       // Event data
-      events: eventPrimitives.events,
       streamingEvents, // Live events for minified viewer
       isStreaming,
       streamingError,
-      latestEventId: eventPrimitives.latestEventId,
-      hasNewEvents: eventPrimitives.hasNewEvents,
 
       // Loading & error states - only block on core task data
       isLoading: taskQuery.isLoading,
@@ -189,8 +194,9 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
       taskId,
       taskPrimitives,
       gitDiffQuery.data,
+      workspaceQuery.data,
+      workspaceQuery.isLoading,
       isAgentRunning,
-      eventPrimitives,
       streamingEvents,
       isStreaming,
       streamingError,
@@ -265,29 +271,26 @@ export function useTaskMetadata() {
 
 // Event hooks (previously in TaskEventsProvider)
 export function useTaskEvents() {
-  const { events, streamingEvents, isStreaming, streamingError, latestEventId, hasNewEvents } =
-    useTaskData()
+  const { streamingEvents, isStreaming, streamingError } = useTaskData()
   return {
-    events,
+    events: streamingEvents, // Only streaming events now
     streamingEvents,
     isStreaming,
     streamingError,
-    latestEventId,
-    hasNewEvents,
     error: streamingError ? new Error(streamingError) : null,
     isLoading: false, // Events are always available
   }
 }
 
 export function useEventStream() {
-  const { streamingEvents, isStreaming, latestEventId } = useTaskData()
+  const { streamingEvents, isStreaming } = useTaskData()
   // For compatibility - return streaming events for components like MinifiedLastEventsDisplay
-  return { events: streamingEvents, isStreaming, latestEventId }
+  return { events: streamingEvents, isStreaming }
 }
 
 export function useStreamingStatus() {
-  const { isStreaming, streamingError, hasNewEvents } = useTaskData()
-  return { isStreaming, streamingError, hasNewEvents }
+  const { isStreaming, streamingError } = useTaskData()
+  return { isStreaming, streamingError }
 }
 
 /**
@@ -295,16 +298,16 @@ export function useStreamingStatus() {
  * Returns the contextTokens from the most recent message event.
  */
 export function useLatestContextTokens() {
-  const { events } = useTaskData()
+  const { streamingEvents } = useTaskData()
 
   return useMemo(() => {
     // Find the last message event with contextTokens
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i]
+    for (let i = streamingEvents.length - 1; i >= 0; i--) {
+      const event = streamingEvents[i]
       if (event.type === 'agent' && event.subType === 'message' && event.contextTokens) {
         return event.contextTokens
       }
     }
     return 0
-  }, [events])
+  }, [streamingEvents])
 }

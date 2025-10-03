@@ -5,10 +5,6 @@ import {
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
   DeployResponseSchema,
-  type EventListResponse,
-  EventListResponseSchema,
-  type EventType,
-  EventTypeQuerySchema,
   MergeTaskResponseSchema,
   MergeTaskSchema,
   MessagesResponseSchema,
@@ -470,78 +466,6 @@ export async function registerTaskRoutes(app: Hono<AppBindings>, prefix: string)
 
       await taskService.sendCommand(taskId, commandName, resume, model, filePaths)
       return c.json({ status: 'sent', timestamp: new Date().toISOString() })
-    },
-  )
-
-  // Get task events without pagination
-  app.get(
-    `${prefix}/:taskId/events`,
-    describeRoute({
-      description: 'Get all events for a task',
-      parameters: [
-        {
-          name: 'taskId',
-          in: 'path',
-          required: true,
-          description: 'Task ID',
-          schema: {
-            type: 'string',
-          },
-        },
-        {
-          name: 'type',
-          in: 'query',
-          required: false,
-          description: 'Filter by event type',
-          schema: {
-            type: 'string',
-          },
-        },
-      ],
-      responses: {
-        200: {
-          description: 'List of task events',
-          content: {
-            'application/json': {
-              schema: resolver(EventListResponseSchema) as any,
-            },
-          },
-        },
-        400: {
-          description: 'Invalid request',
-        },
-        404: {
-          description: 'Task not found',
-        },
-      },
-    }),
-    async (c) => {
-      const services = c.get('services')
-      const { task: taskService, event: eventService } = services
-
-      const taskId = getTaskId(c)
-
-      const queryParams = c.req.query()
-      const validatedQuery = EventTypeQuerySchema.parse(queryParams)
-      const { type } = validatedQuery
-
-      // Verify task exists
-      const task = await taskService.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      const events = await eventService.getEvents(
-        taskId,
-        undefined, // no limit
-        0, // offset 0
-        type as EventType | undefined,
-      )
-
-      const response: EventListResponse = {
-        items: events,
-      }
-      return c.json(response)
     },
   )
 

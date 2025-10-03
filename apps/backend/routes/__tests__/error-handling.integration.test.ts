@@ -47,18 +47,6 @@ describe('API Error Handling', () => {
       const body = (await response.json()) as any
       expect(body.error.code).toBe('VALIDATION_ERROR')
     })
-
-    it('should return 404 for invalid path parameters', async () => {
-      const response = await app.fetch(
-        new Request('http://localhost/api/v1/tasks/invalid-uuid-format/events', {
-          method: 'GET',
-        }),
-      )
-
-      expect(response.status).toBe(404) // Hono returns 404 for unmatched routes
-      const body = (await response.json()) as any
-      expect(body.error).toBeDefined()
-    })
   })
 
   describe('Service Errors', () => {

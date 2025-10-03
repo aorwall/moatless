@@ -58,7 +58,6 @@ describe('Create Task Flow - Data Sync Integration', () => {
     }
 
     vi.mocked(tasksApi.getTask).mockResolvedValue(realTaskData)
-    vi.mocked(tasksApi.getTaskEvents).mockResolvedValue([])
     vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
 
     // Import and create the mutation directly (avoiding React component rendering)
@@ -73,10 +72,6 @@ describe('Create Task Flow - Data Sync Integration', () => {
           queryClient.prefetchQuery({
             queryKey: queryKeys.tasks.detail(data.taskId),
             queryFn: () => tasksApi.getTask(data.taskId),
-          }),
-          queryClient.prefetchQuery({
-            queryKey: queryKeys.tasks.events(data.taskId),
-            queryFn: () => tasksApi.getTaskEvents(data.taskId),
           }),
           queryClient.prefetchQuery({
             queryKey: queryKeys.tasks.gitDiff(data.taskId),
@@ -105,7 +100,6 @@ describe('Create Task Flow - Data Sync Integration', () => {
 
     // Verify the prefetch calls happened
     expect(tasksApi.getTask).toHaveBeenCalledWith('test-123')
-    expect(tasksApi.getTaskEvents).toHaveBeenCalledWith('test-123')
     expect(tasksApi.getTaskGitDiff).toHaveBeenCalledWith('test-123')
 
     // Verify navigation was called
@@ -117,9 +111,6 @@ describe('Create Task Flow - Data Sync Integration', () => {
     // CRITICAL: Verify the cache now contains the real data (the key fix)
     const cachedTask = queryClient.getQueryData(queryKeys.tasks.detail('test-123'))
     expect(cachedTask).toEqual(realTaskData)
-
-    const cachedEvents = queryClient.getQueryData(queryKeys.tasks.events('test-123'))
-    expect(cachedEvents).toEqual([])
 
     const cachedDiff = queryClient.getQueryData(queryKeys.tasks.gitDiff('test-123'))
     expect(cachedDiff).toEqual({ files: [], diff: '' })

@@ -1,8 +1,6 @@
 import type {
   CreateTaskRequest,
   DeployResponse,
-  Event,
-  EventListResponse,
   FileSearchRequest,
   FileSearchResponse,
   GitDiffResponse,
@@ -82,14 +80,6 @@ export const tasksApi = {
   // Deprecated: Use deleteTask instead
   async stopAgent(taskId: string): Promise<StopAgentResponse> {
     return await apiClient.post<StopAgentResponse>(`/api/v1/tasks/${taskId}/stop`)
-  },
-
-  async getTaskEvents(taskId: string, type?: string): Promise<Array<Event>> {
-    const response = await apiClient.get<EventListResponse>(
-      `/api/v1/tasks/${taskId}/events`,
-      type ? { type } : undefined,
-    )
-    return response.items
   },
 
   async getTaskMessages(taskId: string): Promise<Array<Message>> {

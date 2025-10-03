@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
+import { EnvironmentStatusSchema } from './workspace.schemas.js'
 
 // ============================================
 // Event Types and Enums
@@ -125,7 +126,7 @@ export const WorkspaceEventSchema = BaseEventSchema.extend({
 // Environment event
 export const EnvironmentEventSchema = BaseEventSchema.extend({
   type: z.literal('environment'),
-  subType: z.enum(['initializing', 'ready', 'error', 'cleaning']),
+  subType: EnvironmentStatusSchema,
   payload: EventPayloadSchema,
 })
 
@@ -186,46 +187,9 @@ export const StreamStatusResponseSchema = z.object({
   totalEventCount: z.number(),
 })
 
-// ============================================
-// Worker Event Schemas (for worker.ts)
-// ============================================
-
-// Worker emits events directly - no wrapper needed since Event already has taskId
-// Using EventSchema directly for the request body
-
 export const WorkerEventResponseSchema = z.object({
   success: z.boolean(),
   message: z.string().optional(),
-})
-
-// ============================================
-// Query Schemas (moved from task.schemas.ts)
-// ============================================
-
-export const EventTypeQuerySchema = z.object({
-  type: z.string().optional(),
-})
-
-export const EventListQuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(20),
-  offset: z.coerce.number().min(0).default(0),
-  type: z.string().optional(),
-})
-
-// ============================================
-// Response Schemas
-// ============================================
-
-export const EventListResponseSchema = z.object({
-  items: z.array(EventSchema), // Using proper Event schema instead of z.any()
-  pagination: z
-    .object({
-      limit: z.number(),
-      offset: z.number(),
-      total: z.number().optional(),
-      hasMore: z.boolean().optional(),
-    })
-    .optional(),
 })
 
 // ============================================
@@ -236,21 +200,16 @@ export type EventType = z.infer<typeof EventTypeSchema>
 export type BaseEvent = z.infer<typeof BaseEventSchema>
 export type EventPayload = z.infer<typeof EventPayloadSchema>
 export type Event = z.infer<typeof EventSchema>
+
 // Re-export types from claude.js
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from '../types/claude.js'
+
 export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
-export type ServerEventPayload = z.infer<typeof ServerEventPayloadSchema>
-export type NavigationEventPayload = z.infer<typeof NavigationEventPayloadSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
-export type NavigationEvent = z.infer<typeof NavigationEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 export type SpecificEvent = z.infer<typeof SpecificEventSchema>
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
 export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>
-export type WorkerEventResponse = z.infer<typeof WorkerEventResponseSchema>
-export type EventTypeQuery = z.infer<typeof EventTypeQuerySchema>
-export type EventListQuery = z.infer<typeof EventListQuerySchema>
-export type EventListResponse = z.infer<typeof EventListResponseSchema>

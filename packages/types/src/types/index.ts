@@ -4,7 +4,6 @@ export * from '../schemas/index.js'
 export * from './agent-message.js'
 // For api.ts and workspace.ts, explicitly export only non-conflicting exports
 export type {
-  EventListResponse,
   GitStatus,
   MergeTaskResponse,
   TaskListResponse,

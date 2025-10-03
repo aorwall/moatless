@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useCloseTask, useTaskEvents } from '@/features/tasks/hooks/use-tasks'
+import { useCloseTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
 import { type Todo, TodoList } from '@/lib/components/chat/message-history/tool-calls'
@@ -104,12 +104,6 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get iteration with thumbnail (may be different from last iteration)
   const thumbnailIteration = findIterationWithThumbnail(task.iterations)
 
-  // Get initial events for running tasks
-  const { data: eventsData } = useTaskEvents(task.taskId, undefined, {
-    enabled: isTaskRunning(task),
-    refetchInterval: false, // Real-time updates handled by global event stream
-  })
-
   // Close task mutation
   const closeTaskMutation = useCloseTask(task.taskId)
 
@@ -141,15 +135,13 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     [closeTaskMutation],
   )
 
-  // Combine initial events with real-time events
   const allEvents = useMemo(() => {
-    const events = [...(eventsData || []), ...realtimeEvents]
     // Remove duplicates based on eventId
-    const uniqueEvents = events.filter(
+    const uniqueEvents = realtimeEvents.filter(
       (event, index, self) => index === self.findIndex((e) => e.eventId === event.eventId),
     )
     return uniqueEvents
-  }, [eventsData, realtimeEvents])
+  }, [realtimeEvents])
 
   // Filter events to show only last 3 message/tool events
   const displayedEvents = useMemo(() => {
