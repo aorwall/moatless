@@ -3,11 +3,11 @@ import { ArrowDown, RefreshCw } from 'lucide-react'
 import { useRef } from 'react'
 
 import { useServerEvents, useServerLogs } from '@/features/preview'
-import { useAutoScroll } from '@/features/tasks/hooks/use-auto-scroll'
 import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Skeleton } from '@/lib/components/ui/skeleton'
+import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 
 export function ServerLogsViewer() {
   const params = useParams({ from: '/tasks/$taskId' })
