@@ -1,11 +1,12 @@
 import type { ClaudeModel, Message, UploadFileResponse } from '@moatless/types'
 import { CLAUDE_MODELS } from '@moatless/types/constants'
-import { useParams } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
-import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-providers'
+import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useSendMessage, useStopAgent, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
@@ -34,11 +35,16 @@ interface ChatContainerProps {
 }
 
 function ChatContainer({ className }: ChatContainerProps) {
-  const params = useParams({ from: '/tasks/$taskId' })
+  const taskId = useTaskId()
 
-  // Use specialized hooks from tri-context pattern
-  const { status, iterations, workspaceStatus } = useTaskData()
-  const isTaskRunning = useIsAgentRunning()
+  const { data: task } = useTaskDetailQuery(taskId)
+  const status = task?.status
+  const iterations = task?.iterations ?? []
+  const isTaskRunning = status === 'running'
+
+  // Poll workspace status only while the task remains open (hook handles gating)
+  const workspaceStatusQuery = useWorkspaceStatus(taskId, task)
+  const workspaceStatus = workspaceStatusQuery.data
 
   // Local state for chat values
   const [message, setMessage] = useState('')
@@ -59,7 +65,7 @@ function ChatContainer({ className }: ChatContainerProps) {
   })
 
   // File search mutation (task-specific)
-  const fileSearchMutation = useFileSearch(params.taskId)
+  const fileSearchMutation = useFileSearch(taskId)
 
   // File autocomplete hook (generic)
   const {
@@ -110,22 +116,22 @@ function ChatContainer({ className }: ChatContainerProps) {
     const newAgentMode = lastIterationAgentMode || 'edit'
     setSelectedModel(newModel)
     setSelectedAgentMode(newAgentMode)
-  }, [params.taskId, lastIterationModel, lastIterationAgentMode])
+  }, [taskId, lastIterationModel, lastIterationAgentMode])
 
   // Stop agent mutation
-  const stopAgent = useStopAgent(params.taskId)
+  const stopAgent = useStopAgent(taskId)
 
   // Fetch messages for this task
   const {
     data: messages,
     isLoading: isLoadingMessages,
     error: messagesError,
-  } = useTaskMessages(params.taskId, {
-    enabled: !!params.taskId,
+  } = useTaskMessages(taskId, {
+    enabled: !!taskId,
   }) as { data: Message[] | undefined; isLoading: boolean; error: unknown }
 
   // Task message sending hook
-  const sendMessage = useSendMessage(params.taskId, {
+  const sendMessage = useSendMessage(taskId, {
     onError: (error) => {
       console.error('Failed to send message:', error)
       toast.error('Failed to send message', {

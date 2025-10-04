@@ -8,16 +8,24 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 vi.mock('../../contexts/task-providers', () => ({
-  useTaskData: vi.fn(),
+  useTaskId: vi.fn(),
   usePanelView: vi.fn(),
 }))
 
 vi.mock('../../hooks/use-workspace-status', () => ({
-  useWorkspaceStatusWithTask: vi.fn(),
+  useWorkspaceStatus: vi.fn(),
+}))
+
+vi.mock('../../hooks/use-task-queries', () => ({
+  useTaskDetailQuery: vi.fn(),
 }))
 
 vi.mock('../chat-view/chat-container.tsx', () => ({
-  ChatView: () => <div data-testid="chat-view">Chat</div>,
+  ChatContainer: ({ className }: { className?: string }) => (
+    <div data-testid="chat-view" className={className}>
+      Chat
+    </div>
+  ),
 }))
 
 vi.mock('../task-header/task-left-header', () => ({
@@ -43,8 +51,9 @@ vi.mock('@/lib/components/ui/resizable', () => ({
 }))
 
 import type { WorkspaceStatusResponse } from '@moatless/types'
-import { usePanelView, useTaskData } from '../../contexts/task-providers'
-import { useWorkspaceStatusWithTask } from '../../hooks/use-workspace-status'
+import { usePanelView, useTaskId } from '../../contexts/task-providers'
+import { useTaskDetailQuery } from '../../hooks/use-task-queries'
+import { useWorkspaceStatus } from '../../hooks/use-workspace-status'
 
 /**
  * Helper to create a complete WorkspaceStatusResponse mock with defaults
@@ -74,35 +83,25 @@ function createWorkspaceStatusMock(
 
 describe('TaskPage - Toggle Functionality', () => {
   const mockSetRightPanelView = vi.fn()
+  const taskMock = {
+    taskId: 'task-123',
+    status: 'open',
+    agentType: 'claude-code',
+    repositoryId: 'repo-123',
+    iterations: [],
+    createdAt: new Date().toISOString(),
+    name: 'Test Task',
+    description: 'Test description',
+    vibe: false,
+    templateId: undefined,
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
 
-    // Default task data mock
-    vi.mocked(useTaskData).mockReturnValue({
-      isLoading: false,
-      error: null,
-      taskId: 'task-123',
-      status: 'open',
-      agentType: 'claude-code',
-      repositoryId: 'repo-123',
-      iterations: [],
-      createdAt: new Date(),
-      vibe: false,
-      templateId: undefined,
-      name: 'Test Task',
-      description: 'Test description',
-      gitDiff: undefined,
-      canExecute: true,
-      isAgentRunning: false,
-      isComplete: false,
-      events: [],
-      streamingEvents: [],
-      isStreaming: false,
-      streamingError: null,
-      latestEventId: null,
-      hasNewEvents: false,
-    } as any)
+    vi.mocked(useTaskId).mockReturnValue('task-123')
+    vi.mocked(useTaskDetailQuery).mockReturnValue(createMockQuery(taskMock))
+    vi.mocked(useWorkspaceStatus).mockReturnValue(createMockQuery(createWorkspaceStatusMock()))
   })
 
   describe('Initial Default View', () => {
@@ -114,7 +113,7 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       // Workspace has serverManagement capability
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
+      vi.mocked(useWorkspaceStatus).mockReturnValue(
         createMockQuery(
           createWorkspaceStatusMock({
             capabilities: {
@@ -141,9 +140,7 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       // Workspace does NOT have serverManagement capability
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery(createWorkspaceStatusMock()),
-      )
+      vi.mocked(useWorkspaceStatus).mockReturnValue(createMockQuery(createWorkspaceStatusMock()))
 
       render(<TaskPage />)
 
@@ -160,7 +157,7 @@ describe('TaskPage - Toggle Functionality', () => {
         setRightPanelView: mockSetRightPanelView,
       })
 
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
+      vi.mocked(useWorkspaceStatus).mockReturnValue(
         createMockQuery(
           createWorkspaceStatusMock({
             capabilities: {
@@ -188,9 +185,7 @@ describe('TaskPage - Toggle Functionality', () => {
         setRightPanelView: mockSetRightPanelView,
       })
 
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery(createWorkspaceStatusMock()),
-      )
+      vi.mocked(useWorkspaceStatus).mockReturnValue(createMockQuery(createWorkspaceStatusMock()))
 
       render(<TaskPage />)
 
@@ -204,7 +199,7 @@ describe('TaskPage - Toggle Functionality', () => {
         setRightPanelView: mockSetRightPanelView,
       })
 
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
+      vi.mocked(useWorkspaceStatus).mockReturnValue(
         createMockQuery(
           createWorkspaceStatusMock({
             capabilities: {
@@ -229,7 +224,7 @@ describe('TaskPage - Toggle Functionality', () => {
         setRightPanelView: mockSetRightPanelView,
       })
 
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
+      vi.mocked(useWorkspaceStatus).mockReturnValue(
         createMockQuery(
           createWorkspaceStatusMock({
             capabilities: {
@@ -259,19 +254,21 @@ describe('TaskPage - Toggle Functionality', () => {
 
   describe('Loading States', () => {
     it('shows skeleton when task is loading', () => {
-      vi.mocked(useTaskData).mockReturnValue({
-        isLoading: true,
-        error: null,
-      } as any)
+      vi.mocked(useTaskDetailQuery).mockReturnValue(
+        createMockQuery(undefined, {
+          data: undefined,
+          isLoading: true,
+          isSuccess: false,
+          status: 'pending',
+        }),
+      )
 
       vi.mocked(usePanelView).mockReturnValue({
         rightPanelView: 'files',
         setRightPanelView: mockSetRightPanelView,
       })
 
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue(
-        createMockQuery(createWorkspaceStatusMock()),
-      )
+      vi.mocked(useWorkspaceStatus).mockReturnValue(createMockQuery(createWorkspaceStatusMock()))
 
       render(<TaskPage />)
 
@@ -281,10 +278,7 @@ describe('TaskPage - Toggle Functionality', () => {
     })
 
     it('shows skeleton when workspace status is loading', () => {
-      vi.mocked(useTaskData).mockReturnValue({
-        isLoading: false,
-        error: null,
-      } as any)
+      vi.mocked(useTaskDetailQuery).mockReturnValue(createMockQuery(taskMock))
 
       vi.mocked(usePanelView).mockReturnValue({
         rightPanelView: 'files',
@@ -292,11 +286,14 @@ describe('TaskPage - Toggle Functionality', () => {
       })
 
       // Workspace status is loading
-      vi.mocked(useWorkspaceStatusWithTask).mockReturnValue({
-        isLoading: true,
-        data: undefined,
-        error: null,
-      } as any)
+      vi.mocked(useWorkspaceStatus).mockReturnValue(
+        createMockQuery(undefined, {
+          isLoading: true,
+          data: undefined,
+          isSuccess: false,
+          status: 'pending',
+        }),
+      )
 
       render(<TaskPage />)
 

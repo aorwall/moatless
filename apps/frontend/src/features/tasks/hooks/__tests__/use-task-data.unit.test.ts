@@ -174,17 +174,51 @@ describe('useTaskData', () => {
     expect(result.current.task).toBeUndefined()
   })
 
-  it('should not fetch data for temporary task IDs', () => {
+  it('should still fetch data for task IDs that look temporary', async () => {
     const tempTaskId = 'temp-12345'
+    const mockTask = createMockTask({ taskId: tempTaskId })
 
-    // Render the hook with temp ID
+    vi.mocked(tasksApi.getTask).mockResolvedValue(mockTask)
+    vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
+    vi.mocked(tasksApi.getTaskWorkspaceStatus).mockResolvedValue({
+      workspaceState: 'exists',
+      workspacePath: '/tmp/test-workspace',
+      workspaceChangeStatus: 'no_changes',
+      configOutdated: false,
+      environmentType: 'local',
+      environmentStatus: 'ready',
+      environmentCreatedAt: new Date().toISOString(),
+      agentState: 'idle',
+      agentType: 'claude-code',
+      gitStatus: {
+        currentBranch: 'main',
+        baseBranch: 'main',
+        hasUncommittedChanges: false,
+        hasConflicts: false,
+        status: 'synced',
+        commitsAhead: 0,
+        commitsBehind: 0,
+        originExists: true,
+      },
+      capabilities: {
+        fileOperations: true,
+        commandExecution: true,
+        serverManagement: true,
+      },
+      isRunning: false,
+      workspaceReady: true,
+      canExecute: true,
+    })
+
     renderHook(() => useTaskData(tempTaskId), {
       wrapper: createWrapper(),
     })
 
-    // APIs should not be called
-    expect(tasksApi.getTask).not.toHaveBeenCalled()
-    expect(tasksApi.getTaskGitDiff).not.toHaveBeenCalled()
-    expect(tasksApi.getTaskWorkspaceStatus).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(tasksApi.getTask).toHaveBeenCalledWith(tempTaskId)
+    })
+
+    expect(tasksApi.getTaskGitDiff).toHaveBeenCalledWith(tempTaskId)
+    expect(tasksApi.getTaskWorkspaceStatus).toHaveBeenCalledWith(tempTaskId)
   })
 })

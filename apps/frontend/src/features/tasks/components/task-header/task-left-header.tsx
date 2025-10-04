@@ -1,10 +1,21 @@
+import type { Task } from '@moatless/types'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 
 export function TaskLeftHeader() {
-  const { status, agentType, repositoryId, iterations, vibe, templateId, name } = useTaskData()
+  const taskId = useTaskId()
+  const taskQuery = useTaskDetailQuery(taskId)
+  const task = taskQuery.data as Task | undefined
+  const status = task?.status
+  const agentType = task?.agentType
+  const repositoryId = task?.repositoryId
+  const iterations = task?.iterations ?? []
+  const vibe = task?.vibe
+  const templateId = task?.templateId
+  const name = task?.name
   const { data: repositories } = useRepositoriesList()
 
   if (!status) {

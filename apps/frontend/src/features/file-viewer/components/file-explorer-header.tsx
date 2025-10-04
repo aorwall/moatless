@@ -1,10 +1,10 @@
 import { GitMerge, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import { useIsAgentRunning, useTaskData } from '@/features/tasks/contexts/task-data-provider'
+import { useTaskId, useTaskStatus } from '@/features/tasks/contexts/task-providers'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
+import { useTaskWorkspaceStatusQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceStatusWithTask } from '@/features/tasks/hooks/use-workspace-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,
@@ -15,12 +15,15 @@ import {
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function FileExplorerHeader() {
-  const { taskId, status } = useTaskData()
+  const taskId = useTaskId()
+  const { status, isAgentRunning } = useTaskStatus()
 
   // Get workspace status and agent running state
-  const workspaceQuery = useWorkspaceStatusWithTask(taskId)
+  // Workspace status polling stays active only for open tasks to reduce API churn
+  const workspaceQuery = useTaskWorkspaceStatusQuery(taskId, {
+    enabled: status === 'open',
+  })
   const gitStatus = workspaceQuery.data?.gitStatus
-  const isAgentRunning = useIsAgentRunning()
 
   const mergeTask = useMergeTask(taskId, {
     onSuccess: () => {

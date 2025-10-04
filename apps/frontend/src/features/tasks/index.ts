@@ -12,8 +12,9 @@ export {
   TaskDataProvider,
   TaskProviders,
   TaskUIProvider,
-  // Data hooks
+  // Task context hooks
   useEventStream,
+  // Data selectors
   useGitDiff,
   // UI hooks
   useGitDiffState,
@@ -27,10 +28,10 @@ export {
   useStreamingStatus,
   useTaskData,
   useTaskEvents,
-  useTaskIterations,
-  useTaskLoadingError,
+  useTaskId,
   useTaskMetadata,
   useTaskStatus,
+  useTaskStreamingState,
   useTaskUI,
 } from './contexts/task-providers'
 

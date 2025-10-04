@@ -1,7 +1,9 @@
 import type { GitDiffResponse, Task, TaskIteration, WorkspaceStatusResponse } from '@moatless/types'
-import { useQueries } from '@tanstack/react-query'
-import { tasksApi } from '@/features/tasks/api/tasks'
-import { queryKeys } from '@/lib/api/query-keys'
+import {
+  useTaskDetailQuery,
+  useTaskGitDiffQuery,
+  useTaskWorkspaceStatusQuery,
+} from './use-task-queries'
 
 interface UseTaskDataResult {
   task: Task | undefined
@@ -20,47 +22,39 @@ interface UseTaskDataResult {
  * are automatically invalidated when the parent task is invalidated.
  */
 export function useTaskData(taskId: string): UseTaskDataResult {
-  // Don't fetch data for temporary task IDs
-  const isTemporaryId = taskId.startsWith('temp-')
-  const shouldFetch = !!taskId && !isTemporaryId
-
-  const queries = useQueries({
-    queries: [
-      {
-        queryKey: queryKeys.tasks.detail(taskId),
-        queryFn: () => tasksApi.getTask(taskId),
-        staleTime: 5 * 60 * 1000,
-        enabled: shouldFetch,
-      },
-      {
-        queryKey: queryKeys.tasks.gitDiff(taskId),
-        queryFn: () => tasksApi.getTaskGitDiff(taskId),
-        staleTime: 10 * 60 * 1000,
-        enabled: shouldFetch,
-        retry: false,
-      },
-      {
-        queryKey: queryKeys.tasks.workspaceStatus(taskId),
-        queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
-        enabled: shouldFetch,
-        // Removed polling - rely on event-driven updates
-        staleTime: 5 * 60 * 1000, // Increase stale time since we have real-time updates
-      },
-    ],
+  const taskQuery = useTaskDetailQuery(taskId, {
+    staleTime: 5 * 60 * 1000,
   })
 
-  const [taskQuery, gitDiffQuery, workspaceStatusQuery] = queries
+  const gitDiffQuery = useTaskGitDiffQuery(taskId, {
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  })
+
+  const workspaceStatusQuery = useTaskWorkspaceStatusQuery(taskId, {
+    // Removed polling - rely on event-driven updates when aggregating task data
+    refetchInterval: false,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const task = taskQuery.data as Task | undefined
   const gitDiff = gitDiffQuery.data as GitDiffResponse | undefined
   const workspaceStatus = workspaceStatusQuery.data as WorkspaceStatusResponse | undefined
+
+  const isLoading = taskQuery.isLoading || gitDiffQuery.isLoading || workspaceStatusQuery.isLoading
+  const isFetching =
+    taskQuery.isFetching || gitDiffQuery.isFetching || workspaceStatusQuery.isFetching
+
+  const error = [taskQuery.error, gitDiffQuery.error, workspaceStatusQuery.error].find(
+    (e): e is Error => e instanceof Error,
+  )
 
   return {
     task,
     iterations: task?.iterations || [], // Extract iterations from task data
     gitDiff,
     workspaceStatus,
-    isLoading: queries.some((q) => q.isLoading || q.isFetching),
-    error: queries.find((q) => q.error)?.error || null,
+    isLoading: isLoading || isFetching,
+    error: error ?? null,
   }
 }

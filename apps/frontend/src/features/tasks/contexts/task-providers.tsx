@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { TaskDataProvider, useTaskData } from './task-data-provider'
+import { useTaskMetadata } from '../hooks/use-task-context'
+import { TaskDataProvider } from './task-data-provider'
 import { TaskUIProvider } from './task-ui-provider'
 
 interface TaskProvidersProps {
@@ -11,7 +12,7 @@ interface TaskProvidersProps {
  * Internal component that has access to task data and can pass vibe to TaskUIProvider
  */
 function TaskProvidersInternal({ taskId, children }: { taskId: string; children: ReactNode }) {
-  const { vibe } = useTaskData()
+  const { vibe } = useTaskMetadata()
   return (
     <TaskUIProvider taskId={taskId} vibe={vibe}>
       {children}
@@ -32,22 +33,23 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   )
 }
 
+export {
+  useGitDiff,
+  useGitDiffWithLoading,
+  useIsAgentRunning,
+  useTaskData,
+  useTaskMetadata,
+  useTaskStatus,
+} from '../hooks/use-task-context'
 // Export all the individual providers and hooks
 export {
   TaskDataProvider,
   useEventStream,
-  useGitDiff,
-  useGitDiffWithLoading,
-  useIsAgentRunning,
   useLatestContextTokens,
   useStreamingStatus,
-  useTaskData,
-  // Event hooks (now in TaskDataProvider)
   useTaskEvents,
-  useTaskIterations,
-  useTaskLoadingError,
-  useTaskMetadata,
-  useTaskStatus,
+  useTaskId,
+  useTaskStreamingState,
 } from './task-data-provider'
 export {
   TaskUIProvider,
