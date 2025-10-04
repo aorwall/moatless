@@ -270,33 +270,31 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
  * Create a GET list route configuration (Read list of resources)
  *
  * @param path - Route path (e.g., '/api/v1/tasks')
- * @param querySchema - Zod schema for query parameters (optional)
+ * @param querySchema - Zod schema for query parameters
  * @param responseSchema - Zod schema for response
  * @param description - Description of the response
  * @returns Complete route configuration
  *
  * @example
  * ```typescript
- * const listTasksRoute = createRoute(
- *   createGetListRoute(
- *     '/api/v1/tasks',
- *     TaskListQuerySchema,
- *     TaskListResponseSchema,
- *     'Tasks retrieved successfully'
- *   )
+ * const listTasksRoute = createGetListRoute(
+ *   '/api/v1/tasks',
+ *   TaskListQuerySchema,
+ *   TaskListResponseSchema,
+ *   'Tasks retrieved successfully'
  * )
  * ```
  */
-export function createGetListRoute<TQuery extends z.ZodType, TResponse extends z.ZodType>(
+export function createGetListRoute<TQuery extends z.ZodObject<any>, TResponse extends z.ZodType>(
   path: string,
-  querySchema: TQuery | undefined,
+  querySchema: TQuery,
   responseSchema: TResponse,
   description: string,
 ) {
   return createRoute({
     method: 'get',
     path,
-    request: querySchema ? { query: querySchema } : {},
+    request: { query: querySchema },
     responses: withStandardErrors(responseSchema, description),
   })
 }

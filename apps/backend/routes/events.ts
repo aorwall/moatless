@@ -1,8 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { schemas } from '@moatless/types'
-
-const { StreamStatusResponseSchema } = schemas
-
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'

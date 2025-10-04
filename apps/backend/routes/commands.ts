@@ -2,28 +2,7 @@ import type { CommandList } from '@moatless/types'
 import { CommandNotFoundError, CreateCommandSchema, UpdateCommandSchema } from '@moatless/types'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { z } from 'zod'
 import type { AppBindings } from '../app.js'
-
-// Response schemas
-const commandResponseSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  prompt: z.string(),
-  conditions: z.any().optional(), // CommandConditionsSchema
-  icon: z.string().optional(),
-  variant: z.enum(['default', 'outline', 'secondary', 'ghost', 'destructive']).optional(),
-  active: z.boolean().optional(),
-  willNotResume: z.boolean().optional(),
-})
-
-const _commandListResponseSchema = z.object({
-  commands: z.array(commandResponseSchema),
-})
-
-const _deleteResponseSchema = z.object({
-  status: z.literal('deleted'),
-})
 
 export async function registerCommandRoutes(app: Hono<AppBindings>, prefix: string) {
   // Create command

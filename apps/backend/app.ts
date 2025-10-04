@@ -112,10 +112,8 @@ export async function createApp(): Promise<AppWithServices> {
   app.get(
     '/docs',
     apiReference({
-      spec: {
-        url: '/openapi.json',
-      },
       theme: 'purple',
+      url: '/openapi.json',
     }),
   )
 

@@ -1,5 +1,4 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { registerAuthRoutes } from './auth.js'
 import { registerCommandRoutes } from './commands.js'
@@ -14,21 +13,6 @@ import { registerWorkerRoutes } from './worker.js'
 import { registerWorkspaceRoutes } from './workspace.js'
 
 const API_PREFIX = '/api/v1'
-
-const _apiInfoResponseSchema = z.object({
-  message: z.string(),
-  version: z.string(),
-  endpoints: z.object({
-    health: z.string(),
-    tasks: z.string(),
-    repositories: z.string(),
-    commands: z.string(),
-    events: z.string(),
-    settings: z.string(),
-    usage: z.string(),
-    worker: z.string(),
-  }),
-})
 
 export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // Main API info endpoint

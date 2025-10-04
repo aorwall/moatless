@@ -1,12 +1,6 @@
 import { schemas } from '@moatless/types'
-import { z } from 'zod'
 
 const { EventSchema } = schemas
-
-const _WorkerEventResponseSchema = z.object({
-  success: z.boolean(),
-  message: z.string(),
-})
 
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
