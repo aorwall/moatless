@@ -1186,7 +1186,26 @@ export class TaskService {
       throw new TaskNotFoundError(taskId)
     }
 
-    return this.deriveTaskStatus(task)
+    // Derive task status
+    const taskWithStatus = this.deriveTaskStatus(task)
+
+    // Fetch repository for display name
+    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+
+    // Compute title from name, first message, or agent type
+    const title =
+      task.name ||
+      (task.iterations?.[0]?.initialMessage?.split('\n')[0] ?? task.agentType) ||
+      'Task'
+
+    // Add repository name
+    const repositoryName = repository?.name || task.repositoryId
+
+    return {
+      ...taskWithStatus,
+      title,
+      repositoryName,
+    }
   }
 
   async listTasks(

@@ -136,6 +136,8 @@ export const TaskResponseSchema = z.object({
   siteProvider: z.string().optional(), // Deployment provider (e.g., "netlify")
   gitCheckpointEnabled: z.boolean().optional(), // Whether git checkpoints are enabled for this task
   gitPushEnabled: z.boolean().optional(), // Whether pushing checkpoints to remote is enabled
+  title: z.string().optional(), // Derived title for display (computed from name or first message)
+  repositoryName: z.string().optional(), // Repository name for display (computed from repositoryId)
 })
 
 export const TaskListResponseSchema = z.object({

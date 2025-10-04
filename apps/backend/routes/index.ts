@@ -1,6 +1,4 @@
-import type { Hono } from 'hono'
-import { describeRoute } from 'hono-openapi'
-import { resolver } from 'hono-openapi/zod'
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
 import { registerAuthRoutes } from './auth.js'
@@ -17,7 +15,7 @@ import { registerWorkspaceRoutes } from './workspace.js'
 
 const API_PREFIX = '/api/v1'
 
-const apiInfoResponseSchema = z.object({
+const _apiInfoResponseSchema = z.object({
   message: z.string(),
   version: z.string(),
   endpoints: z.object({
@@ -32,40 +30,24 @@ const apiInfoResponseSchema = z.object({
   }),
 })
 
-export async function registerRoutes(app: Hono<AppBindings>) {
+export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // Main API info endpoint
-  app.get(
-    `${API_PREFIX}`,
-    describeRoute({
-      description: 'Get API information and available endpoints',
-      responses: {
-        200: {
-          description: 'API information and endpoint list',
-          content: {
-            'application/json': {
-              schema: resolver(apiInfoResponseSchema),
-            },
-          },
-        },
+  app.get(`${API_PREFIX}`, (c) => {
+    return c.json({
+      message: 'Moatless API',
+      version: '1.0.0',
+      endpoints: {
+        health: '/health',
+        tasks: `${API_PREFIX}/tasks`,
+        repositories: `${API_PREFIX}/repositories`,
+        commands: `${API_PREFIX}/commands`,
+        events: `${API_PREFIX}/events`,
+        settings: `${API_PREFIX}/settings`,
+        usage: `${API_PREFIX}/usage`,
+        worker: `${API_PREFIX}/worker`,
       },
-    }),
-    (c) => {
-      return c.json({
-        message: 'Moatless API',
-        version: '1.0.0',
-        endpoints: {
-          health: '/health',
-          tasks: `${API_PREFIX}/tasks`,
-          repositories: `${API_PREFIX}/repositories`,
-          commands: `${API_PREFIX}/commands`,
-          events: `${API_PREFIX}/events`,
-          settings: `${API_PREFIX}/settings`,
-          usage: `${API_PREFIX}/usage`,
-          worker: `${API_PREFIX}/worker`,
-        },
-      })
-    },
-  )
+    })
+  })
 
   // Register authentication routes (if GitHub OAuth is enabled)
   if (process.env.GITHUB_OAUTH_ENABLED === 'true') {

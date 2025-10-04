@@ -1,7 +1,4 @@
-import { SystemStatusCheckSchema } from '@moatless/types'
 import { Hono } from 'hono'
-import { describeRoute } from 'hono-openapi'
-import { resolver } from 'hono-openapi/zod'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 import { registerClaudeSettingsRoutes } from './settings/claude.js'
@@ -29,33 +26,14 @@ export async function registerSettingsRoutes(app: Hono<AppBindings>, prefix: str
   app.route(`${prefix}/publish`, publishRouter)
 
   // GET settings/status - Get system status
-  app.get(
-    `${prefix}/status`,
-    describeRoute({
-      description: 'Get system status including Claude and Docker availability',
-      responses: {
-        200: {
-          description: 'System status information',
-          content: {
-            'application/json': {
-              schema: resolver(SystemStatusCheckSchema) as any,
-            },
-          },
-        },
-        500: {
-          description: 'Failed to get system status',
-        },
-      },
-    }),
-    async (c) => {
-      try {
-        const services = c.get('services')
-        const { settings: settingsService } = services
-        const status = await settingsService.getSystemStatus()
-        return c.json(status)
-      } catch (error) {
-        handleServiceError(error, 'Get system status')
-      }
-    },
-  )
+  app.get(`${prefix}/status`, async (c) => {
+    try {
+      const services = c.get('services')
+      const { settings: settingsService } = services
+      const status = await settingsService.getSystemStatus()
+      return c.json(status)
+    } catch (error) {
+      handleServiceError(error, 'Get system status')
+    }
+  })
 }

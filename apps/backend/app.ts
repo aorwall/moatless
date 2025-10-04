@@ -1,7 +1,8 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import type { UserSession } from '@moatless/types'
-import { Hono } from 'hono'
+import { apiReference } from '@scalar/hono-api-reference'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
@@ -25,12 +26,12 @@ export type AppBindings = {
 }
 
 export interface AppWithServices {
-  app: Hono<AppBindings>
+  app: OpenAPIHono<AppBindings>
   services: ServiceContainer
 }
 
 export async function createApp(): Promise<AppWithServices> {
-  const app = new Hono<AppBindings>()
+  const app = new OpenAPIHono<AppBindings>()
 
   // Request ID middleware (must be first)
   app.use('*', requestId)
@@ -88,6 +89,35 @@ export async function createApp(): Promise<AppWithServices> {
       version: process.env.npm_package_version || '1.0.0',
     })
   })
+
+  // OpenAPI specification endpoint (automatically generated from routes)
+  app.doc('/openapi.json', {
+    openapi: '3.0.0',
+    info: {
+      title: 'Moatless API',
+      version: '1.0.0',
+      description:
+        'API for the Moatless application - AI-powered task management and code generation',
+    },
+    servers: [
+      {
+        url: process.env.API_URL || 'http://localhost:8000',
+        description:
+          process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+      },
+    ],
+  })
+
+  // API documentation UI with Scalar
+  app.get(
+    '/docs',
+    apiReference({
+      spec: {
+        url: '/openapi.json',
+      },
+      theme: 'purple',
+    }),
+  )
 
   // Serve client build in production
   if (process.env.NODE_ENV === 'production') {

@@ -4,9 +4,8 @@ import { z } from 'zod'
 export const uuidSchema = z.string().uuid()
 
 // Date validation and parsing
-export const dateSchema = z
-  .union([z.string().datetime(), z.date()])
-  .transform((val) => (val instanceof Date ? val : new Date(val)))
+// Using .pipe(z.coerce.date()) to make it OpenAPI-compatible
+export const dateSchema = z.string().datetime().pipe(z.coerce.date())
 
 // JSON serialization helpers
 export function toJSON<T>(data: T): string {
