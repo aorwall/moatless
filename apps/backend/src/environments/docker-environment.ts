@@ -319,7 +319,7 @@ export class DockerEnvironment extends BaseEnvironment {
   /**
    * Override to implement custom error recovery for Docker containers
    */
-  protected async recoverFromError(): Promise<void> {
+  protected override async recoverFromError(): Promise<void> {
     this.logger.info('Container in error state, attempting recovery', {
       previousError: this._error,
       containerName: this.getContainerName(),
@@ -338,7 +338,7 @@ export class DockerEnvironment extends BaseEnvironment {
   /**
    * Override to implement Docker-specific waiting logic
    */
-  protected async waitForReady(): Promise<void> {
+  protected override async waitForReady(): Promise<void> {
     const status = this.getStatus()
 
     if (status === 'cleaning') {

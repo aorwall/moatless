@@ -61,7 +61,7 @@ class TestEnvironment extends BaseEnvironment {
   }
 
   // Additional test methods
-  isRunning(): boolean {
+  override isRunning(): boolean {
     return this._isRunning
   }
 

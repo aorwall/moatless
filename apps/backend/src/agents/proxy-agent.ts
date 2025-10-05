@@ -87,7 +87,7 @@ export class ProxyAgent extends BaseAgentClass {
     return this.agentType
   }
 
-  getSessionId(): string | undefined {
+  override getSessionId(): string | undefined {
     return this.remoteSessionId
   }
 
