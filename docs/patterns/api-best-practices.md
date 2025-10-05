@@ -95,13 +95,14 @@ type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
 export async function getTaskWorkspaceStatus(
   taskId: RouteParams<typeof getWorkspaceStatusRoute>['taskId'],
 ): Promise<WorkspaceStatusResponse> {
-  return apiClient.get(buildPath(getWorkspaceStatusRoute, { taskId }))
+  return apiClient.get<WorkspaceStatusResponse>(buildPath(getWorkspaceStatusRoute, { taskId }))
 }
 ```
 
 Guidelines:
 - Never hard-code `/api/v1/...`; always call `buildPath(route, params)`.
 - Use `RouteSuccess` / `RouteRequestJson` / `RouteParams` to infer types.
+- **Always pass the generic type parameter** to `apiClient.get<T>()` / `post<T>()` / `delete<T>()` to ensure proper type inference.
 - API client automatically throws `ApiError`; callers should handle it or let React Query error flow.
 
 ---
