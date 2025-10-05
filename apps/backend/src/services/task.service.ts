@@ -81,7 +81,7 @@ export class TaskService {
     const lastIteration = task.iterations[task.iterations.length - 1]
 
     // If the last iteration is active, the task is running
-    if (lastIteration.status === 'active') {
+    if (lastIteration && lastIteration.status === 'active') {
       return {
         ...task,
         status: 'running',
@@ -840,7 +840,7 @@ export class TaskService {
         const task = await this.storage.getTask(taskId)
         if (task && task.iterations.length > 0) {
           const lastIteration = task.iterations[task.iterations.length - 1]
-          if (lastIteration.status === 'created') {
+          if (lastIteration && lastIteration.status === 'created') {
             lastIteration.status = 'failed'
             const environment = workspace.getEnvironment()
             const errorMessage = environment.getError() || 'Environment setup failed'
@@ -940,7 +940,11 @@ export class TaskService {
           const lastIteration = task.iterations[task.iterations.length - 1]
 
           // Only update if iteration is not completed (could be 'created' or 'active')
-          if (lastIteration.status !== 'completed' && lastIteration.status !== 'failed') {
+          if (
+            lastIteration &&
+            lastIteration.status !== 'completed' &&
+            lastIteration.status !== 'failed'
+          ) {
             const previousStatus = lastIteration.status
             lastIteration.status = 'failed'
             lastIteration.result = `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`
@@ -1379,7 +1383,7 @@ export class TaskService {
     // Mark last iteration as willNotResume if resume is false
     if (!resume && metadata.iterations.length > 0) {
       const lastIteration = metadata.iterations[metadata.iterations.length - 1]
-      if (!lastIteration.willNotResume) {
+      if (lastIteration && !lastIteration.willNotResume) {
         lastIteration.willNotResume = true
         await this.storage.saveTask(metadata)
 
@@ -1422,11 +1426,11 @@ export class TaskService {
       const previousIteration = metadata.iterations[metadata.iterations.length - 1]
 
       // Check if previous iteration has willNotResume flag set
-      if (previousIteration.willNotResume && previousIteration.result) {
+      if (previousIteration && previousIteration.willNotResume && previousIteration.result) {
         // Prepend the result to the message instead of resuming
         prependedResult = previousIteration.result
         resumeSessionId = undefined
-      } else if (resume) {
+      } else if (resume && previousIteration) {
         // Normal resume behavior
         resumeSessionId = previousIteration.agentSessionId
       }
@@ -1675,7 +1679,7 @@ export class TaskService {
 
     const iterationIndex = task.iterations.findIndex((it) => it.iterationNumber === iterationNumber)
 
-    if (iterationIndex >= 0) {
+    if (iterationIndex >= 0 && task.iterations[iterationIndex]) {
       task.iterations[iterationIndex].willNotResume = true
       await this.storage.saveTask(task)
 

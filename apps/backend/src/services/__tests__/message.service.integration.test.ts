@@ -128,6 +128,7 @@ describe('MessageService Integration - Real File Storage', () => {
 
       // Verify message structure
       const firstMessage = messages[0]
+      if (!firstMessage) throw new Error('Expected first message')
       expect(firstMessage).toHaveProperty('id')
       expect(firstMessage).toHaveProperty('role')
       expect(firstMessage).toHaveProperty('content')
@@ -193,6 +194,7 @@ describe('MessageService Integration - Real File Storage', () => {
 
       if (messagesWithTools.length > 0) {
         const toolMessage = messagesWithTools[0]
+        if (!toolMessage) throw new Error('Expected tool message')
         expect(toolMessage.role).toBe('assistant')
         expect(Array.isArray(toolMessage.content)).toBe(true)
 
@@ -360,6 +362,7 @@ describe('MessageService Integration - Real File Storage', () => {
 
       // Verify message structure
       const firstMessage = messages[0]
+      if (!firstMessage) throw new Error('Expected first message')
       expect(firstMessage).toHaveProperty('uuid')
       expect(firstMessage).toHaveProperty('message')
       expect(firstMessage.message).toHaveProperty('role')
@@ -513,6 +516,7 @@ describe('MessageService Integration - Real File Storage', () => {
 
       // Verify the user message was properly transformed
       const retrievedMessage = messages[0]
+      if (!retrievedMessage) throw new Error('Expected retrieved message')
       expect(retrievedMessage.message.role).toBe('user')
       expect(retrievedMessage.message.content).toBe('Test user message for persistence')
       expect(retrievedMessage.uuid).toBeDefined()

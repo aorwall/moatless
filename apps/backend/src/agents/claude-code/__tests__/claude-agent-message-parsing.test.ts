@@ -57,6 +57,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     // Verify first message (user - commit changes)
     const firstMsg = messages[0]
+    if (!firstMsg) throw new Error('Expected first message')
     expect(firstMsg.type).toBe('user')
     expect(firstMsg.uuid).toBe('b87215e7-8274-4a86-84c0-01998dd143cd')
     expect(firstMsg.sessionId).toBe(sessionId)
@@ -67,6 +68,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     // Verify second message (assistant - text response)
     const secondMsg = messages[1]
+    if (!secondMsg) throw new Error('Expected second message')
     expect(secondMsg.type).toBe('assistant')
     expect(secondMsg.uuid).toBe('e127ad75-ca76-4278-9a44-9df0212bdc64')
     expect(secondMsg.parentUuid).toBe('b87215e7-8274-4a86-84c0-01998dd143cd')
@@ -79,6 +81,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     // Verify third message (assistant - tool use: git status)
     const thirdMsg = messages[2]
+    if (!thirdMsg) throw new Error('Expected third message')
     expect(thirdMsg.type).toBe('assistant')
     expect(thirdMsg.uuid).toBe('d17a3e06-4bae-4105-b260-26e2594d6364')
     expect(thirdMsg.parentUuid).toBe('e127ad75-ca76-4278-9a44-9df0212bdc64')
@@ -89,6 +92,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     // Verify fourth message (assistant - tool use: git diff)
     const fourthMsg = messages[3]
+    if (!fourthMsg) throw new Error('Expected fourth message')
     expect(fourthMsg.type).toBe('assistant')
     expect(fourthMsg.uuid).toBe('65c16e85-cac1-4715-97f9-00aa38d19397')
     const toolUse2 = (fourthMsg.message.content as any[])[0]
@@ -98,6 +102,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     // Verify fifth message (user - tool result)
     const fifthMsg = messages[4]
+    if (!fifthMsg) throw new Error('Expected fifth message')
     expect(fifthMsg.type).toBe('user')
     expect(fifthMsg.uuid).toBe('00d372ae-09a6-441a-8fa3-42e01c952845')
     expect((fifthMsg as any).toolUseResult).toBeDefined()
@@ -126,8 +131,8 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     // Should only parse the valid messages
     expect(messages).toHaveLength(2)
-    expect(messages[0].uuid).toBe('test-123')
-    expect(messages[1].uuid).toBe('test-456')
+    expect(messages[0]?.uuid).toBe('test-123')
+    expect(messages[1]?.uuid).toBe('test-456')
   })
 
   it('should return empty array when file does not exist', async () => {
@@ -176,6 +181,7 @@ describe('ClaudeService AgentMessage Parsing', () => {
 
     expect(messages).toHaveLength(1)
     const parsed = messages[0]
+    if (!parsed) throw new Error('Expected parsed message')
     expect(parsed.gitBranch).toBe('feature-branch')
     expect((parsed as any).requestId).toBe('req-123')
     expect(parsed.isSidechain).toBe(true)

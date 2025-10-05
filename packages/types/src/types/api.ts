@@ -10,8 +10,8 @@ export interface TaskListResponse {
   pagination: {
     limit: number
     offset: number
-    total?: number
-    hasMore?: boolean
+    total: number | undefined
+    hasMore: boolean | undefined
   }
 }
 

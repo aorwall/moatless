@@ -18,7 +18,7 @@ export interface AgentExecutionRequest {
 
 export interface AgentStatus {
   isRunning: boolean
-  sessionId?: string
+  sessionId: string | undefined
   taskId: string
 }
 

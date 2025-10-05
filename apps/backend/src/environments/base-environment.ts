@@ -70,9 +70,9 @@ export abstract class BaseEnvironment {
    * Get the current agent status
    */
   getAgentStatus(): {
-    agentType?: string
+    agentType: string | undefined
     state: 'idle' | 'running' | 'none'
-    sessionId?: string
+    sessionId: string | undefined
   } {
     if (!this.currentAgent) {
       return { state: 'none' }

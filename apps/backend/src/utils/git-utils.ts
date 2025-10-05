@@ -665,9 +665,10 @@ export async function mergeGitBranch(
 
       // If .git is a file (worktree), extract main repo path
       if (gitFileContent.startsWith('gitdir:')) {
-        const gitDir = gitFileContent.split(':')[1].trim()
+        const gitDir = gitFileContent.split(':')[1]?.trim()
         // Extract main repo path from worktree git dir
         // Format: /path/to/main/.git/worktrees/name -> /path/to/main
+        if (!gitDir) return repoPath
         const pathParts = gitDir.split('/')
         const worktreesIndex = pathParts.lastIndexOf('worktrees')
         if (worktreesIndex > 0) {
@@ -1042,7 +1043,9 @@ export async function getGitDiffDetailed(
       if (lines.length === 0) continue
 
       // Parse file names from the diff header
-      const fileMatch = lines[0].match(/a\/(.+) b\/(.+)/)
+      const firstLine = lines[0]
+      if (!firstLine) continue
+      const fileMatch = firstLine.match(/a\/(.+) b\/(.+)/)
       if (!fileMatch) continue
 
       const oldFileName = fileMatch[1]
@@ -1299,10 +1302,12 @@ export async function getFileChangeInfo(
     let status: 'added' | 'modified' | 'deleted' | 'renamed' = 'modified'
     if (statusOutput.trim()) {
       const statusCode = statusOutput.trim().split('\t')[0]
-      if (statusCode.startsWith('A')) status = 'added'
-      else if (statusCode.startsWith('D')) status = 'deleted'
-      else if (statusCode.startsWith('R')) status = 'renamed'
-      else status = 'modified'
+      if (statusCode) {
+        if (statusCode.startsWith('A')) status = 'added'
+        else if (statusCode.startsWith('D')) status = 'deleted'
+        else if (statusCode.startsWith('R')) status = 'renamed'
+        else status = 'modified'
+      }
     }
 
     // Get old content if file was modified or deleted

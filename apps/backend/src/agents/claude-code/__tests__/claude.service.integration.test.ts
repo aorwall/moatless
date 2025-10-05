@@ -145,6 +145,7 @@ describe('ClaudeService Integration - Real Session File', () => {
       // Verify structure of the first message
       const firstMessage = allMessages[0]
       expect(firstMessage).toBeDefined()
+      if (!firstMessage) throw new Error('Expected first message')
       expect(firstMessage.type).toBeDefined()
 
       // Count different message types

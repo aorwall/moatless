@@ -148,6 +148,7 @@ describe('getGitDiffDetailed', () => {
     expect(result.files).toHaveLength(1)
 
     const appFile = result.files[0]
+    if (!appFile) throw new Error('Expected appFile')
     expect(appFile.status).toBe('modified')
     expect(appFile.filename).toBe('app.js')
     expect(appFile.isStaged).toBe(true)
@@ -177,6 +178,7 @@ describe('getGitDiffDetailed', () => {
     expect(result.files).toHaveLength(1)
 
     const deletedFile = result.files[0]
+    if (!deletedFile) throw new Error('Expected deletedFile')
     expect(deletedFile.status).toBe('deleted')
     expect(deletedFile.filename).toBe('deprecated.js')
     expect(deletedFile.isStaged).toBe(true)

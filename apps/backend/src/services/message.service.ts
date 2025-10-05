@@ -265,9 +265,10 @@ export class MessageService {
             // Find the first user message in Claude messages to skip (to avoid duplication)
             let firstUserMessageIndex = -1
             for (let i = 0; i < agentMessages.length; i++) {
-              if (agentMessages[i].type === 'user') {
+              const agentMsg = agentMessages[i]
+              if (agentMsg && agentMsg.type === 'user') {
                 // Check if this is a real user message (not a tool result)
-                const msg = agentMessages[i]
+                const msg = agentMsg
                 if (msg.message && msg.message.content) {
                   const content = Array.isArray(msg.message.content)
                     ? msg.message.content
@@ -563,7 +564,7 @@ export class MessageService {
       id: agentMessage.uuid,
       role: 'assistant',
       content:
-        content.length === 1 && content[0].type === 'text' && content[0].text
+        content.length === 1 && content[0]?.type === 'text' && content[0]?.text
           ? content[0].text
           : content,
       timestamp: new Date(agentMessage.timestamp),

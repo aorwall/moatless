@@ -346,7 +346,9 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
             // Update the latest iteration with the site URL
             if (result.siteUrl && updatedTask.iterations.length > 0) {
               const latestIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
-              latestIteration.siteUrl = result.siteUrl
+              if (latestIteration) {
+                latestIteration.siteUrl = result.siteUrl
+              }
             }
 
             // Save the updated task
@@ -358,7 +360,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
               siteUrl: result.siteUrl,
               iterationNumber:
                 updatedTask.iterations.length > 0
-                  ? updatedTask.iterations[updatedTask.iterations.length - 1].iterationNumber
+                  ? updatedTask.iterations[updatedTask.iterations.length - 1]?.iterationNumber
                   : undefined,
             })
           }

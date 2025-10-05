@@ -213,7 +213,7 @@ export function detectTemplate(files: string[]): EnvironmentTemplate | undefined
 
   for (const templateId of templatePriority) {
     const template = ENVIRONMENT_TEMPLATES[templateId]
-    if (!template.requiredFiles) continue
+    if (!template || !template.requiredFiles) continue
 
     // Check if any required file pattern matches
     const hasRequiredFile = template.requiredFiles.some((pattern) => {

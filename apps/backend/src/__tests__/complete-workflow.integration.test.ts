@@ -401,6 +401,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
     // Verify the first iteration has completed successfully
     const firstIteration = finalTask.iterations[0]
+    if (!firstIteration) throw new Error('Expected at least one iteration')
     expect(firstIteration.status).toBe('completed')
     expect(firstIteration.agentSessionId).toBeDefined()
     expect(firstIteration.agentSessionId).toMatch(
@@ -771,6 +772,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
       // Verify the first iteration has completed successfully
       const firstIteration = finalTask.iterations[0]
+      if (!firstIteration) throw new Error('Expected at least one iteration')
       expect(firstIteration.status).toBe('completed')
       expect(firstIteration.agentSessionId).toBeDefined()
       expect(firstIteration.agentSessionId).toMatch(

@@ -238,6 +238,7 @@ describe('Agent Model Parameter Test', () => {
     // Check that the latest iteration has the model
     const latestIteration = task.iterations[task.iterations.length - 1]
     expect(latestIteration).toBeDefined()
+    if (!latestIteration) throw new Error('Expected latest iteration')
     expect(latestIteration.model).toBe(testModel)
   }, 30000)
 
@@ -316,6 +317,7 @@ describe('Agent Model Parameter Test', () => {
     const task: Task = JSON.parse(getTaskResponse.body)
     const latestIteration = task.iterations[task.iterations.length - 1]
     expect(latestIteration).toBeDefined()
+    if (!latestIteration) throw new Error('Expected latest iteration')
     expect(latestIteration.model).toBe(testModel)
   }, 30000)
 

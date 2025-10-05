@@ -985,8 +985,8 @@ export class ClaudeService {
   ): Promise<{
     binDirValid: boolean
     configDirValid: boolean
-    claudeVersion?: string
-    error?: string
+    claudeVersion: string | undefined
+    error: string | undefined
   }> {
     // Check if binDir exists and contains claude executable
     let binDirValid = false

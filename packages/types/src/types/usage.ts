@@ -58,8 +58,8 @@ export interface ClaudeSessionUsageResponse {
   tokens: TokenCounts
   messageCount: number
   modelDistribution: Record<string, number>
-  startTime?: string
-  endTime?: string
+  startTime: string | undefined
+  endTime: string | undefined
 }
 
 export type ClaudeUsagePlan = 'pro' | 'max5' | 'max20' | 'custom'

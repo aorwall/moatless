@@ -202,10 +202,10 @@ export class FileOperations {
    */
   async readFileWithChanges(filePath: string): Promise<{
     content: string
-    oldContent?: string
-    additions?: number
-    deletions?: number
-    isModified?: boolean
+    oldContent: string | undefined
+    additions: number | undefined
+    deletions: number | undefined
+    isModified: boolean | undefined
   }> {
     // First read the current content
     const content = await this.readFile(filePath)

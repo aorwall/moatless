@@ -65,7 +65,7 @@ export class DockerService {
     available: boolean
     dockerRunning: boolean
     hasClaudeToken: boolean
-    message?: string
+    message: string | undefined
   }> {
     const dockerRunning = await this.isDockerRunning()
     const hasClaudeToken = !!process.env['CLAUDE_CODE_OAUTH_TOKEN']
