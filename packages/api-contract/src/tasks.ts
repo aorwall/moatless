@@ -9,8 +9,6 @@ import {
   McpResponseSchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
-  ServerLogsQuerySchema,
-  ServerLogsResponseExtendedSchema,
   SimpleTaskResponseSchema,
   StartTaskResponseSchema,
   StopAgentResponseSchema,
@@ -336,32 +334,6 @@ export const closeTaskRoute = createRoute({
       content: {
         'application/json': {
           schema: CloseTaskResponseSchemaAPI,
-        },
-      },
-    },
-  },
-})
-
-/**
- * GET /api/v1/tasks/{taskId}/logs
- * Get task logs
- */
-export const getTaskLogsRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/logs',
-  tags: ['Task Logs'],
-  description:
-    'Retrieve complete task logs including setup commands, server output, and all workspace operations',
-  request: {
-    params: pathParams.taskId,
-    query: ServerLogsQuerySchema,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: ServerLogsResponseExtendedSchema,
         },
       },
     },

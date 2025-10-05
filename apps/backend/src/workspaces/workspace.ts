@@ -19,7 +19,7 @@ import type { DockerEnvironment } from '../environments/docker-environment.js'
 import type { LocalEnvironment } from '../environments/local-environment.js'
 import { FileOperations, type FileSearchRequest } from '../services/file-operations.service.js'
 import type { BaseAgent } from '../services/index.js'
-import { getGitDiffDetailed, syncWithMain } from '../utils/index.js'
+import { getGitDiffDetailed } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { getTaskLogPath } from '../utils/task-log.js'
 
@@ -586,51 +586,6 @@ export class Workspace {
 
       // Logging
       logFilePath: this.logFilePath,
-    }
-  }
-
-  /**
-   * Sync workspace with main branch
-   */
-  async syncWithMain(baseBranch?: string): Promise<{
-    success: boolean
-    conflicts: boolean
-    message: string
-    commitsBehind?: number
-    commitsAhead?: number
-  }> {
-    const workspacePath = this.getWorkspacePath()
-
-    if (!workspacePath) {
-      throw new Error('Workspace path not available')
-    }
-
-    if (!(await this.canPerformFileOperations())) {
-      throw new Error('Cannot access git: workspace not ready')
-    }
-
-    try {
-      const result = await syncWithMain(workspacePath, baseBranch)
-
-      this.logger.info('Workspace sync completed', {
-        taskId: this.taskId,
-        workspacePath,
-        success: result.success,
-        conflicts: result.conflicts,
-        commitsBehind: result.commitsBehind,
-        commitsAhead: result.commitsAhead,
-      })
-
-      // Invalidate git status cache after sync operation
-      this.fileOperations.invalidateGitStatusCache()
-
-      return result
-    } catch (error) {
-      this.logger.error('Failed to sync workspace with main', error as Error, {
-        taskId: this.taskId,
-        workspacePath,
-      })
-      throw new Error(`Sync failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 

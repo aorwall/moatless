@@ -1,10 +1,5 @@
 import { createRoute } from '@hono/zod-openapi'
-import {
-  ServerLogsQuerySchema,
-  ServerLogsResponseExtendedSchema,
-  ServerStatusSchema,
-  ServerStopResponseSchema,
-} from '@moatless/types'
+import { ServerStatusSchema, ServerStopResponseSchema } from '@moatless/types'
 import { pathParams } from './params.js'
 
 export const startServerRoute = createRoute({
@@ -73,27 +68,6 @@ export const getServerStatusRoute = createRoute({
       content: {
         'application/json': {
           schema: ServerStatusSchema,
-        },
-      },
-    },
-  },
-})
-
-export const getServerLogsRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/server/logs',
-  tags: ['Preview Server'],
-  description: 'Retrieve development server logs for a task with optional line limit',
-  request: {
-    params: pathParams.taskId,
-    query: ServerLogsQuerySchema,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: ServerLogsResponseExtendedSchema,
         },
       },
     },

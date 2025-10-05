@@ -190,20 +190,6 @@ describe('Workspace Routes - Integration Tests', () => {
     })
   })
 
-  describe('POST /api/v1/tasks/:taskId/sync-with-main', () => {
-    it('should sync workspace with main branch', async () => {
-      const res = await app.app.request('/api/v1/tasks/test-task/sync-with-main', {
-        method: 'POST',
-      })
-
-      expect(res.status).toBe(200)
-      const result = await res.json()
-      expect(result).toHaveProperty('success', true)
-      expect(result).toHaveProperty('conflicts', false)
-      expect(mockWorkspace.syncWithMain).toHaveBeenCalledWith(undefined)
-    })
-  })
-
   describe('POST /api/v1/tasks/:taskId/execute', () => {
     it('should execute command in workspace', async () => {
       const res = await app.app.request('/api/v1/tasks/test-task/execute', {

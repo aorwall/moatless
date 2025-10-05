@@ -2,17 +2,13 @@ import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   executeCommandRoute,
   getFileTreeWithChangesRoute,
-  getGitSyncStatusRoute,
   getWorkspaceGitDiffRoute,
   getWorkspaceLogsRoute,
   getWorkspaceStatusRoute,
   listWorkspaceFilesRoute,
   readWorkspaceFileRoute,
-  refreshWorkspaceConfigRoute,
   searchWorkspaceFilesRoute,
   setupWorkspaceRoute,
-  syncWithMainRoute,
-  syncWithOriginRoute,
   writeWorkspaceFileRoute,
 } from '@moatless/api-contract/workspace'
 import { TaskNotFoundError } from '@moatless/types'
@@ -121,33 +117,6 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
     }
   })
 
-  // GET /api/v1/tasks/:taskId/git-sync-status
-  app.openapi(getGitSyncStatusRoute, async (c) => {
-    const services = c.get('services')
-    const { taskId } = c.req.valid('param')
-
-    try {
-      const workspaceStatus = await services.workspace.getWorkspaceStatus(taskId)
-
-      if (workspaceStatus.gitStatus) {
-        return c.json(workspaceStatus.gitStatus)
-      }
-
-      return c.json({
-        currentBranch: 'unknown',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        status: 'error',
-        commitsAhead: 0,
-        commitsBehind: 0,
-        originExists: false,
-      })
-    } catch (error) {
-      handleServiceError(error, 'Get workspace status')
-    }
-  })
-
   // GET /api/v1/tasks/:taskId/file-tree-with-changes
   app.openapi(getFileTreeWithChangesRoute, async (c) => {
     const services = c.get('services')
@@ -160,36 +129,6 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
       return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Get file tree with changes')
-    }
-  })
-
-  // POST /api/v1/tasks/:taskId/sync-with-main
-  app.openapi(syncWithMainRoute, async (c) => {
-    const services = c.get('services')
-    const { taskId } = c.req.valid('param')
-    const { baseBranch } = c.req.valid('query')
-
-    try {
-      const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-      const result = await workspace.syncWithMain(baseBranch)
-      return c.json(result)
-    } catch (error) {
-      handleServiceError(error, 'Sync with main')
-    }
-  })
-
-  // POST /api/v1/tasks/:taskId/sync-origin
-  app.openapi(syncWithOriginRoute, async (c) => {
-    const services = c.get('services')
-    const { taskId } = c.req.valid('param')
-    const { baseBranch } = c.req.valid('query')
-
-    try {
-      await services.workspace.syncWithOrigin(taskId, baseBranch)
-      const status = await services.workspace.getWorkspaceStatus(taskId)
-      return c.json(status)
-    } catch (error) {
-      handleServiceError(error, 'Sync with origin')
     }
   })
 
@@ -223,26 +162,6 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
       })
     } catch (error) {
       handleServiceError(error, 'Setup workspace')
-    }
-  })
-
-  // POST /api/v1/tasks/:taskId/refresh-config
-  app.openapi(refreshWorkspaceConfigRoute, async (c) => {
-    const services = c.get('services')
-    const { taskId } = c.req.valid('param')
-    const { restartServer = false } = c.req.valid('json')
-
-    try {
-      const status = await services.workspace.refreshWorkspaceConfiguration(taskId, restartServer)
-
-      return c.json({
-        success: true,
-        message: 'Configuration refreshed successfully',
-        status: status.environmentStatus,
-        serverRestarted: restartServer && status.capabilities.serverManagement,
-      })
-    } catch (error) {
-      handleServiceError(error, 'Refresh workspace configuration')
     }
   })
 

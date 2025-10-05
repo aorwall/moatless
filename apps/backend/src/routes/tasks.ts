@@ -7,7 +7,6 @@ import {
   deployRoute,
   getCommandsRoute,
   getMessagesRoute,
-  getTaskLogsRoute,
   getTaskRoute,
   listTasksRoute,
   mcpRoute,
@@ -18,7 +17,6 @@ import {
 } from '@moatless/api-contract/tasks'
 import {
   CommandExecutionOptionsSchema,
-  ServerLogsQuerySchema,
   type TaskListResponse,
   TaskNotFoundError,
   ValidationError,
@@ -27,7 +25,6 @@ import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
-import { readTaskLog, taskLogExists } from '../utils/task-log.js'
 
 export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Create a new task
@@ -277,43 +274,6 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
         'Cache-Control': 'no-cache',
         'X-Task-Id': taskId,
       },
-    })
-  })
-
-  // Get task logs (setup commands, server logs, all workspace operations)
-  app.openapi(getTaskLogsRoute, async (c) => {
-    const services = c.get('services')
-    const { taskId } = c.req.valid('param')
-
-    // Validate task exists
-    const task = await services.storage.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    // Parse query parameters
-    const queryParams = c.req.query()
-    const validatedQuery = ServerLogsQuerySchema.parse({
-      lines: queryParams.lines ? Number.parseInt(queryParams.lines) : undefined,
-    })
-    const { lines } = validatedQuery
-
-    // Check if log file exists
-    const logExists = await taskLogExists(taskId)
-    if (!logExists) {
-      return c.json({
-        logs: '',
-        lines: 0,
-        truncated: false,
-      })
-    }
-
-    // Read task logs
-    const logs = await readTaskLog(taskId, lines)
-    return c.json({
-      logs,
-      lines: logs.split('\n').filter((line) => line.trim() !== '').length,
-      truncated: lines !== undefined && lines > 0,
     })
   })
 

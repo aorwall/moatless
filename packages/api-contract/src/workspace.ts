@@ -8,14 +8,10 @@ import {
   FileSearchResponseSchema,
   FileTreeWithChangesResponseSchema,
   GitDiffResponseSchema,
-  GitStatusSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
   ShellCommandResultSchema,
-  SyncWorkspaceResponseSchema,
   TaskFileSearchSchema,
-  WorkspaceRefreshConfigRequestSchema,
-  WorkspaceRefreshConfigResponseSchema,
   WorkspaceSetupRequestSchema,
   WorkspaceSetupResponseSchema,
   WorkspaceStatusResponseSchema,
@@ -27,7 +23,6 @@ const taskIdAndFileParams = z.object({
   taskId: z.string().min(1),
   filePath: z.string().min(1),
 })
-const baseBranchQuery = z.object({ baseBranch: z.string().optional() })
 const pathQuery = z.object({ path: z.string().optional() })
 
 export const getWorkspaceStatusRoute = createRoute({
@@ -194,25 +189,6 @@ export const writeWorkspaceFileRoute = createRoute({
   },
 })
 
-export const getGitSyncStatusRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/git-sync-status',
-  tags: ['Workspace Git'],
-  description:
-    'Get git sync status including current branch, uncommitted changes, conflicts, and commits ahead/behind origin',
-  request: { params: taskIdParams },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: GitStatusSchema,
-        },
-      },
-    },
-  },
-})
-
 export const getFileTreeWithChangesRoute = createRoute({
   method: 'get',
   path: '/api/v1/tasks/{taskId}/file-tree-with-changes',
@@ -228,48 +204,6 @@ export const getFileTreeWithChangesRoute = createRoute({
       content: {
         'application/json': {
           schema: FileTreeWithChangesResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const syncWithMainRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/sync-with-main',
-  tags: ['Workspace Git'],
-  description: 'Sync workspace with main/base branch by pulling latest changes',
-  request: {
-    params: taskIdParams,
-    query: baseBranchQuery,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: SyncWorkspaceResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const syncWithOriginRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/sync-origin',
-  tags: ['Workspace Git'],
-  description: 'Fetch latest changes from remote origin repository',
-  request: {
-    params: taskIdParams,
-    query: baseBranchQuery,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: WorkspaceStatusResponseSchema,
         },
       },
     },
@@ -297,33 +231,6 @@ export const executeCommandRoute = createRoute({
       content: {
         'application/json': {
           schema: ShellCommandResultSchema,
-        },
-      },
-    },
-  },
-})
-
-export const refreshWorkspaceConfigRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/refresh-config',
-  tags: ['Workspace Operations'],
-  description: 'Refresh workspace configuration and optionally restart development server',
-  request: {
-    params: taskIdParams,
-    body: {
-      content: {
-        'application/json': {
-          schema: WorkspaceRefreshConfigRequestSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: WorkspaceRefreshConfigResponseSchema,
         },
       },
     },
