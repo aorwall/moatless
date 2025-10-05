@@ -5,34 +5,39 @@ import {
   type RouteSuccess,
 } from '@moatless/api-contract'
 import {
+  closeTaskRoute,
+  createTaskRoute,
+  deleteTaskRoute,
+  deployRoute,
+  getCommandsRoute,
+  getMessagesRoute,
+  getTaskRoute,
+  listTasksRoute,
+  sendMessageRoute,
+  stopAgentRoute,
+} from '@moatless/api-contract/routes/tasks'
+import {
   getWorkspaceGitDiffRoute,
   getWorkspaceStatusRoute,
   searchWorkspaceFilesRoute,
   setupWorkspaceRoute,
 } from '@moatless/api-contract/routes/workspace'
-import type {
-  CreateTaskRequest,
-  DeployResponse,
-  MergeTaskResponse,
-  Message,
-  MessagesResponse,
-  SimpleTaskResponse,
-  StopAgentResponse,
-  Task,
-  TaskCommandsResponse,
-  TaskListResponse,
-} from '@moatless/types'
+import type { CreateTaskRequest, Message } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
+type TaskListResponse = RouteSuccess<typeof listTasksRoute>
 type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
 type WorkspaceSetupResponse = RouteSuccess<typeof setupWorkspaceRoute>
 type FileSearchRequest = RouteRequestJson<typeof searchWorkspaceFilesRoute>
 type FileSearchResponse = RouteSuccess<typeof searchWorkspaceFilesRoute>
 type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
+type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
+type MergeTaskResponse = { success: boolean; mergeCommitSha?: string; targetBranch: string }
 
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
-    const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
+    const path = buildPath(listTasksRoute)
+    const response: TaskListResponse = await apiClient.get(path, {
       status: 'active',
     })
     return response.items.map((task) => task.taskId)
@@ -44,24 +49,27 @@ export const tasksApi = {
     limit?: number
     offset?: number
   }): Promise<TaskListResponse> {
-    const response = await apiClient.get<TaskListResponse>('/api/v1/tasks', {
+    const path = buildPath(listTasksRoute)
+    return await apiClient.get(path, {
       status: params?.status || (params?.activeOnly ? 'active' : undefined),
       limit: params?.limit,
       offset: params?.offset,
     })
-    return response
   },
 
-  async getTask(taskId: string): Promise<Task> {
-    return await apiClient.get<Task>(`/api/v1/tasks/${taskId}`)
+  async getTask(taskId: string): Promise<RouteSuccess<typeof getTaskRoute>> {
+    const path = buildPath(getTaskRoute, { taskId })
+    return await apiClient.get(path)
   },
 
-  async getTaskMetadata(taskId: string): Promise<Task> {
-    return await apiClient.get<Task>(`/api/v1/tasks/${taskId}`)
+  async getTaskMetadata(taskId: string): Promise<RouteSuccess<typeof getTaskRoute>> {
+    const path = buildPath(getTaskRoute, { taskId })
+    return await apiClient.get(path)
   },
 
-  async createTask(request: CreateTaskRequest): Promise<SimpleTaskResponse> {
-    return await apiClient.post<SimpleTaskResponse>('/api/v1/tasks', request)
+  async createTask(request: RouteRequestJson<typeof createTaskRoute>): Promise<SimpleTaskResponse> {
+    const path = buildPath(createTaskRoute)
+    return await apiClient.post(path, request)
   },
 
   async sendMessage(
@@ -73,8 +81,9 @@ export const tasksApi = {
     filePaths?: string[],
     commandName?: string,
     agentMode?: string,
-  ): Promise<SimpleTaskResponse> {
-    return await apiClient.post<SimpleTaskResponse>(`/api/v1/tasks/${taskId}/messages`, {
+  ): Promise<RouteSuccess<typeof sendMessageRoute>> {
+    const path = buildPath(sendMessageRoute, { taskId })
+    return await apiClient.post(path, {
       message,
       resume,
       model,
@@ -91,12 +100,14 @@ export const tasksApi = {
   },
 
   // Deprecated: Use deleteTask instead
-  async stopAgent(taskId: string): Promise<StopAgentResponse> {
-    return await apiClient.post<StopAgentResponse>(`/api/v1/tasks/${taskId}/stop`)
+  async stopAgent(taskId: string): Promise<RouteSuccess<typeof stopAgentRoute>> {
+    const path = buildPath(stopAgentRoute, { taskId })
+    return await apiClient.post(path)
   },
 
   async getTaskMessages(taskId: string): Promise<Array<Message>> {
-    const response = await apiClient.get<MessagesResponse>(`/api/v1/tasks/${taskId}/messages`)
+    const path = buildPath(getMessagesRoute, { taskId })
+    const response: RouteSuccess<typeof getMessagesRoute> = await apiClient.get(path)
     return response.messages
   },
 
@@ -129,28 +140,30 @@ export const tasksApi = {
     return await apiClient.post<WorkspaceSetupResponse>(path, {})
   },
 
-  async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {
-    return await apiClient.get<TaskCommandsResponse>(`/api/v1/tasks/${taskId}/commands`)
+  async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {
+    const path = buildPath(getCommandsRoute, { taskId })
+    return await apiClient.get(path)
   },
 
   async mergeTask(
     taskId: string,
     options?: { targetBranch?: string; commitMessage?: string },
   ): Promise<MergeTaskResponse> {
-    return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`, options || {})
+    return await apiClient.post(`/api/v1/tasks/${taskId}/merge`, options || {})
   },
 
-  async closeTask(taskId: string): Promise<{ status: 'closed'; taskId: string }> {
-    return await apiClient.post<{ status: 'closed'; taskId: string }>(
-      `/api/v1/tasks/${taskId}/close`,
-    )
+  async closeTask(taskId: string): Promise<RouteSuccess<typeof closeTaskRoute>> {
+    const path = buildPath(closeTaskRoute, { taskId })
+    return await apiClient.post(path)
   },
 
-  async deleteTask(taskId: string): Promise<{ status: string }> {
-    return await apiClient.delete<{ status: string }>(`/api/v1/tasks/${taskId}`)
+  async deleteTask(taskId: string): Promise<RouteSuccess<typeof deleteTaskRoute>> {
+    const path = buildPath(deleteTaskRoute, { taskId })
+    return await apiClient.delete(path)
   },
 
-  async deployTask(taskId: string): Promise<DeployResponse> {
-    return await apiClient.post<DeployResponse>(`/api/v1/tasks/${taskId}/deploy`)
+  async deployTask(taskId: string): Promise<RouteSuccess<typeof deployRoute>> {
+    const path = buildPath(deployRoute, { taskId })
+    return await apiClient.post(path)
   },
 }
