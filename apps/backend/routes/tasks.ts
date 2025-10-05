@@ -13,9 +13,6 @@ import {
   SendMessageResponseSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
-  type ServerStatus,
-  ServerStatusSchema,
-  ServerStopResponseSchema,
   SimpleTaskResponseSchema,
   StartTaskResponseSchema,
   StopAgentResponseSchema,
@@ -55,6 +52,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
         'Returns the created task with unique ID, current status (open/running), and complete task details including iterations and workspace path',
     },
     200, // Use 200 instead of 201 to match existing behavior
+    ['Tasks'],
   )
 
   app.openapi(createTaskRoute, async (c) => {
@@ -85,6 +83,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
         'Returns the created vibe task with unique ID, running status, and task details. The task begins executing immediately after creation.',
     },
     200,
+    ['Tasks'],
   )
 
   app.openapi(createVibeTaskRoute, async (c) => {
@@ -115,6 +114,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
       response:
         'Returns complete task details including all iterations, current status, cost tracking, workspace path, and git information',
     },
+    ['Tasks'],
   )
 
   app.openapi(getTaskRoute, async (c) => {
@@ -140,6 +140,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
       response:
         'Returns paginated list of tasks with pagination metadata (limit, offset, total, hasMore). Each task includes iterations, status, and cost information.',
     },
+    ['Tasks'],
   )
 
   app.openapi(listTasksRoute, async (c) => {
@@ -166,6 +167,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const deleteTaskRoute = createRoute({
     method: 'delete',
     path: '/api/v1/tasks/{taskId}',
+    tags: ['Tasks'],
     description:
       'Delete a task and clean up associated resources including workspace, git worktree, and event data',
     request: { params: pathParams.taskId },
@@ -192,6 +194,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const sendMessageRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/messages',
+    tags: ['Task Messages'],
     description:
       'Send a message to an AI agent task to provide additional instructions or feedback',
     request: {
@@ -237,6 +240,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const getCommandsRoute = createRoute({
     method: 'get',
     path: '/api/v1/tasks/{taskId}/commands',
+    tags: ['Task Commands'],
     description: 'Retrieve list of available AI agent commands for a task based on current state',
     request: { params: pathParams.taskId },
     responses: withStandardErrors(
@@ -259,6 +263,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const sendCommandRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/commands',
+    tags: ['Task Commands'],
     description: 'Execute a predefined command on an AI agent task to perform specific actions',
     request: {
       params: pathParams.taskId,
@@ -293,6 +298,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const getMessagesRoute = createRoute({
     method: 'get',
     path: '/api/v1/tasks/{taskId}/messages',
+    tags: ['Task Messages'],
     description: 'Retrieve all messages for a task with tool calls merged into assistant messages',
     request: { params: pathParams.taskId },
     responses: withStandardErrors(
@@ -329,6 +335,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const startTaskRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/start',
+    tags: ['Task Execution'],
     description: 'Start AI agent execution for a task that was created without auto-start',
     request: { params: pathParams.taskId },
     responses: withStandardErrors(
@@ -362,6 +369,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const stopAgentRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/stop',
+    tags: ['Task Execution'],
     description:
       'Stop the running AI agent for a task while preserving the workspace and task data',
     request: { params: pathParams.taskId },
@@ -393,6 +401,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const closeTaskRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/close',
+    tags: ['Task Execution'],
     description:
       'Close a task and tear down its workspace, stop dev server, and mark status as closed',
     request: { params: pathParams.taskId },
@@ -456,139 +465,11 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     })
   })
 
-  // Start development server
-  const startServerRoute = createRoute({
-    method: 'post',
-    path: '/api/v1/tasks/{taskId}/server/start',
-    description: 'Start the development server for a task workspace to preview the application',
-    request: { params: pathParams.taskId },
-    responses: withStandardErrors(
-      ServerStatusSchema,
-      'Returns server status including running state, URL, proxy URL, PID, and uptime',
-    ),
-  })
-
-  app.openapi(startServerRoute, async (c) => {
-    const services = c.get('services')
-
-    const { taskId } = c.req.valid('param')
-
-    // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-    const result: ServerStatus = await workspace.startServer()
-    return c.json(result)
-  })
-
-  // Stop development server
-  const stopServerRoute = createRoute({
-    method: 'post',
-    path: '/api/v1/tasks/{taskId}/server/stop',
-    description: 'Stop the running development server for a task workspace',
-    request: { params: pathParams.taskId },
-    responses: withStandardErrors(
-      ServerStopResponseSchema,
-      'Returns stopped status and runtime duration',
-    ),
-  })
-
-  app.openapi(stopServerRoute, async (c) => {
-    const services = c.get('services')
-
-    const { taskId } = c.req.valid('param')
-
-    // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-    const stopped = await workspace.stopServer()
-    return c.json({
-      stopped,
-      runtime: 0, // TODO: Calculate actual runtime
-    })
-  })
-
-  // Restart development server
-  const restartServerRoute = createRoute({
-    method: 'post',
-    path: '/api/v1/tasks/{taskId}/server/restart',
-    description:
-      'Restart the development server for a task workspace (stops, waits 1s, then starts)',
-    request: { params: pathParams.taskId },
-    responses: withStandardErrors(
-      ServerStatusSchema,
-      'Returns updated server status after restart including URL and running state',
-    ),
-  })
-
-  app.openapi(restartServerRoute, async (c) => {
-    const services = c.get('services')
-
-    const { taskId } = c.req.valid('param')
-
-    // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-    await workspace.stopServer()
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    const result = await workspace.startServer()
-    return c.json(result)
-  })
-
-  // Get server status
-  const getServerStatusRoute = createRoute({
-    method: 'get',
-    path: '/api/v1/tasks/{taskId}/server/status',
-    description: 'Get current status of the development server for a task workspace',
-    request: { params: pathParams.taskId },
-    responses: withStandardErrors(
-      ServerStatusSchema,
-      'Returns current server status including running state, URL, PID, uptime, and any errors',
-    ),
-  })
-
-  app.openapi(getServerStatusRoute, async (c) => {
-    const services = c.get('services')
-
-    const { taskId } = c.req.valid('param')
-
-    // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-    const status = await workspace.getServerStatus()
-    return c.json(status)
-  })
-
-  // Get server logs
-  const getServerLogsRoute = createRoute({
-    method: 'get',
-    path: '/api/v1/tasks/{taskId}/server/logs',
-    description: 'Retrieve development server logs for a task with optional line limit',
-    request: {
-      params: pathParams.taskId,
-      query: ServerLogsQuerySchema,
-    },
-    responses: withStandardErrors(
-      ServerLogsResponseExtendedSchema,
-      'Returns server logs with line count and truncation status',
-    ),
-  })
-
-  app.openapi(getServerLogsRoute, async (c) => {
-    const services = c.get('services')
-
-    const { taskId } = c.req.valid('param')
-    const { lines } = c.req.valid('query')
-
-    // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-    const logs = await workspace.getServerLogs(lines)
-    return c.json({
-      logs,
-      lines: logs.split('\n').length,
-      truncated: false, // TODO: Implement truncation logic
-    })
-  })
-
   // Get task logs (setup commands, server logs, all workspace operations)
   const getTaskLogsRoute = createRoute({
     method: 'get',
     path: '/api/v1/tasks/{taskId}/logs',
+    tags: ['Task Logs'],
     description:
       'Retrieve complete task logs including setup commands, server output, and all workspace operations',
     request: {
@@ -641,6 +522,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const mcpRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/mcp',
+    tags: ['Task MCP'],
     description:
       'Execute Model Context Protocol (MCP) JSON-RPC requests for task-scoped tools and operations',
     request: {
@@ -689,6 +571,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const deployRoute = createRoute({
     method: 'post',
     path: '/api/v1/tasks/{taskId}/deploy',
+    tags: ['Task Deployment'],
     description: 'Deploy task workspace to Netlify for live preview and sharing',
     request: { params: pathParams.taskId },
     responses: withStandardErrors(

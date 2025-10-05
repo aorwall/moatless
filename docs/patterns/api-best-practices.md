@@ -182,29 +182,82 @@ try {
 
 #### OpenAPI Integration
 ```typescript
-// ✅ Proper schema integration
-app.post('/endpoint',
-  describeRoute({
-    requestBody: {
-      content: {
-        'application/json': {
-          schema: resolver(RequestSchema),  // Direct schema usage
-        },
-      },
-    },
-    responses: {
-      200: {
-        content: {
-          'application/json': {
-            schema: resolver(ResponseSchema),  // Direct schema usage
-          },
-        },
-      },
-    },
-  }),
-  handler
+// ✅ Use @hono/zod-openapi for route definition
+import { createRoute } from '@hono/zod-openapi'
+import { createPostRoute, pathParams, withStandardErrors } from '../utils/openapi-helpers.js'
+
+// Option 1: Using helper functions (recommended for standard CRUD)
+const createTaskRoute = createPostRoute(
+  '/api/v1/tasks',
+  CreateTaskRequestSchema,
+  TaskResponseSchema,
+  {
+    operation: 'Create a new AI agent task to make code changes in a repository',
+    request: 'Provide task configuration including agent type, repository ID, and initial message',
+    response: 'Returns the created task with unique ID and current status'
+  },
+  201
 )
+
+app.openapi(createTaskRoute, async (c) => {
+  const validated = c.req.valid('json')
+  // ... handler logic
+})
+
+// Option 2: Using createRoute directly for more control
+const startServerRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/tasks/{taskId}/server/start',
+  tags: ['Preview Server'],  // ✅ IMPORTANT: Always add tags to group related endpoints
+  description: 'Start the development server for a task workspace',
+  request: { params: pathParams.taskId },
+  responses: withStandardErrors(
+    ServerStatusSchema,
+    'Returns server status including running state, URL, and PID'
+  ),
+})
+
+app.openapi(startServerRoute, async (c) => {
+  const { taskId } = c.req.valid('param')
+  // ... handler logic
+})
 ```
+
+#### Route Tagging Best Practices ✅
+**ALWAYS add tags to group related endpoints in OpenAPI documentation:**
+
+```typescript
+// ✅ Group related routes with consistent tags
+const routes = [
+  createRoute({
+    tags: ['Tasks'],  // Primary resource
+    // ...
+  }),
+  createRoute({
+    tags: ['Preview Server'],  // Feature-based grouping
+    // ...
+  }),
+  createRoute({
+    tags: ['Workspaces'],  // Domain grouping
+    // ...
+  }),
+]
+```
+
+**Tag Naming Conventions:**
+- Use **PascalCase with spaces** for multi-word tags (e.g., `'Preview Server'`, `'Task Management'`)
+- Use **singular nouns** for resource-based tags (e.g., `'Task'`, `'Repository'`)
+- Use **descriptive names** that clearly indicate the feature area (e.g., `'Preview Server'` not just `'Server'`)
+- Be **consistent** across related routes (all preview server routes use same tag)
+
+**Common Tags in the Codebase:**
+- `'Tasks'` - Task CRUD operations
+- `'Preview Server'` - Development server management
+- `'Workspaces'` - Workspace operations
+- `'Repositories'` - Repository management
+- `'Events'` - Event streaming and retrieval
+- `'Settings'` - Application settings
+- `'Commands'` - Custom command execution
 
 ## Frontend Integration Patterns
 

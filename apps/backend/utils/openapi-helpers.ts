@@ -229,10 +229,12 @@ export function createPostRoute<TBody extends z.ZodType, TResponse extends z.Zod
   responseSchema: TResponse,
   descriptions: { operation: string; request: string; response: string },
   statusCode = 201,
+  tags?: string[],
 ) {
   return createRoute({
     method: 'post',
     path,
+    tags,
     description: descriptions.operation,
     request: jsonBody(bodySchema, descriptions.request),
     responses: withStandardErrors(responseSchema, descriptions.response, statusCode),
@@ -266,10 +268,12 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
   paramsSchema: TParams,
   responseSchema: TResponse,
   descriptions: { operation: string; response: string },
+  tags?: string[],
 ) {
   return createRoute({
     method: 'get',
     path,
+    tags,
     description: descriptions.operation,
     request: { params: paramsSchema },
     responses: withStandardErrors(responseSchema, descriptions.response),
@@ -303,10 +307,12 @@ export function createGetListRoute<TQuery extends z.ZodObject<any>, TResponse ex
   querySchema: TQuery,
   responseSchema: TResponse,
   descriptions: { operation: string; response: string },
+  tags?: string[],
 ) {
   return createRoute({
     method: 'get',
     path,
+    tags,
     description: descriptions.operation,
     request: { query: querySchema },
     responses: withStandardErrors(responseSchema, descriptions.response),
