@@ -721,8 +721,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      const content = result[0].content as any[]
+      expect(result[0]?.role).toBe('assistant')
+      const content = result[0]?.content as any[]
       expect(content[0].tool_result?.content).toContain('6c89efa Merge branch')
     })
   })
@@ -804,11 +804,11 @@ describe('MessageService Unit Tests', () => {
       expect(result).toHaveLength(2)
 
       // Should have messages from Claude service
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe('Claude file user message')
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe('Claude file user message')
 
-      expect(result[1].role).toBe('assistant')
-      expect(result[1].content).toBe('Claude file assistant message')
+      expect(result[1]?.role).toBe('assistant')
+      expect(result[1]?.content).toBe('Claude file assistant message')
     })
 
     it('should fall back to task iterations when no Claude messages exist', async () => {
@@ -858,10 +858,10 @@ describe('MessageService Unit Tests', () => {
       expect(result).toHaveLength(4)
 
       // Should have messages from task iterations
-      expect(result[0].content).toBe('First fallback message')
-      expect(result[1].content).toBe('First fallback response')
-      expect(result[2].content).toBe('Second fallback message')
-      expect(result[3].content).toBe('Second fallback response')
+      expect(result[0]?.content).toBe('First fallback message')
+      expect(result[1]?.content).toBe('First fallback response')
+      expect(result[2]?.content).toBe('Second fallback message')
+      expect(result[3]?.content).toBe('Second fallback response')
     })
 
     it('should not process Claude files when workspace path is missing', async () => {
@@ -890,8 +890,8 @@ describe('MessageService Unit Tests', () => {
 
       // Should only get messages from task iterations
       expect(result).toHaveLength(2)
-      expect(result[0].content).toBe('Message without workspace')
-      expect(result[1].content).toBe('Response without workspace')
+      expect(result[0]?.content).toBe('Message without workspace')
+      expect(result[1]?.content).toBe('Response without workspace')
     })
 
     it('should maintain chronological order of messages', async () => {
@@ -943,10 +943,10 @@ describe('MessageService Unit Tests', () => {
       expect(result).toHaveLength(4)
 
       // Should have messages from all iterations that have content
-      expect(result[0].content).toBe('First iteration user message')
-      expect(result[1].content).toBe('First iteration result')
-      expect(result[2].content).toBe('Third iteration user message')
-      expect(result[3].content).toBe('Third iteration result')
+      expect(result[0]?.content).toBe('First iteration user message')
+      expect(result[1]?.content).toBe('First iteration result')
+      expect(result[2]?.content).toBe('Third iteration user message')
+      expect(result[3]?.content).toBe('Third iteration result')
     })
   })
 
@@ -976,10 +976,10 @@ describe('MessageService Unit Tests', () => {
 
       // Should have exactly one message - the initial user message
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe(initialMessage)
-      expect(result[0].id).toBeDefined() // ID can vary based on path taken
-      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe(initialMessage)
+      expect(result[0]?.id).toBeDefined() // ID can vary based on path taken
+      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
     })
 
     it('should return only initial message when Claude messages exist but no user message found', async () => {
@@ -1034,10 +1034,10 @@ describe('MessageService Unit Tests', () => {
       // With the new logic, the first user message gets its content replaced with the initial message
       // even if it was originally a tool result, ensuring we always have the correct initial message
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe(initialMessage) // Content should be replaced with initial message
-      expect(result[0].id).toBe('tool-result-msg')
-      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe(initialMessage) // Content should be replaced with initial message
+      expect(result[0]?.id).toBe('tool-result-msg')
+      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
     })
 
     it('should not duplicate initial message when Claude messages already contain user message', async () => {
@@ -1081,10 +1081,10 @@ describe('MessageService Unit Tests', () => {
 
       // Should have only one message with content replaced by initial message
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe(initialMessage) // Content should be replaced
-      expect(result[0].id).toBe('claude-user-msg')
-      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe(initialMessage) // Content should be replaced
+      expect(result[0]?.id).toBe('claude-user-msg')
+      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
     })
 
     it('should replace first user message content with iteration initial message when different', async () => {
@@ -1128,10 +1128,10 @@ describe('MessageService Unit Tests', () => {
 
       // Should have only one message with the content replaced by initial message
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe(initialMessage) // Content should be replaced
-      expect(result[0].id).toBe('claude-user-msg-different') // ID should remain the same
-      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated to iteration start time
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe(initialMessage) // Content should be replaced
+      expect(result[0]?.id).toBe('claude-user-msg-different') // ID should remain the same
+      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated to iteration start time
     })
 
     it('should handle empty task iterations gracefully', async () => {
