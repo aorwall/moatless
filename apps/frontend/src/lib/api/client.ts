@@ -81,7 +81,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     return null as unknown as T
   }
 
-  return response.json()
+  return (await response.json()) as unknown as T
 }
 
 export const apiClient = {

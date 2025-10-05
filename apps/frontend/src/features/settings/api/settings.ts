@@ -1,20 +1,30 @@
-import type {
-  ClaudeSettingsResponse,
-  GeneralSettingsResponse,
-  GitHubSettingsResponse,
-  PublishSettingsResponse,
-  SettingsResponse,
-  SystemStatusCheck,
-  UpdateClaudeSettingsRequest,
-  UpdateGeneralSettingsRequest,
-  UpdateGitHubSettingsRequest,
-  UpdatePublishSettingsRequest,
-  UpdateSettingsRequest,
-} from '@moatless/types'
+import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
+import {
+  getClaudeSettingsRoute,
+  getGeneralSettingsRoute,
+  getGitHubSettingsRoute,
+  getPublishSettingsRoute,
+  getSystemStatusRoute,
+  updateClaudeSettingsRoute,
+  updateGeneralSettingsRoute,
+  updateGitHubSettingsRoute,
+  updatePublishSettingsRoute,
+} from '@moatless/api-contract/routes/settings'
+import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
+type SystemStatusCheck = RouteSuccess<typeof getSystemStatusRoute>
+type GeneralSettingsResponse = RouteSuccess<typeof getGeneralSettingsRoute>
+type ClaudeSettingsResponse = RouteSuccess<typeof getClaudeSettingsRoute>
+type GitHubSettingsResponse = RouteSuccess<typeof getGitHubSettingsRoute>
+type PublishSettingsResponse = RouteSuccess<typeof getPublishSettingsRoute>
+type UpdateGeneralSettingsRequest = RouteRequestJson<typeof updateGeneralSettingsRoute>
+type UpdateClaudeSettingsRequest = RouteRequestJson<typeof updateClaudeSettingsRoute>
+type UpdateGitHubSettingsRequest = RouteRequestJson<typeof updateGitHubSettingsRoute>
+type UpdatePublishSettingsRequest = RouteRequestJson<typeof updatePublishSettingsRoute>
+
 export const settingsApi = {
-  // Legacy monolithic endpoints
+  // Legacy monolithic endpoints - TODO: Migrate to section-specific endpoints or add route descriptors
   getSettings: async (): Promise<SettingsResponse> => {
     return apiClient.get<SettingsResponse>('/api/v1/settings')
   },
@@ -28,43 +38,52 @@ export const settingsApi = {
   },
 
   getSystemStatus: async (): Promise<SystemStatusCheck> => {
-    return apiClient.get<SystemStatusCheck>('/api/v1/settings/status')
+    const path = buildPath(getSystemStatusRoute)
+    return apiClient.get<SystemStatusCheck>(path)
   },
 
   // Section-specific endpoints
   general: {
     get: async (): Promise<GeneralSettingsResponse> => {
-      return apiClient.get<GeneralSettingsResponse>('/api/v1/settings/general')
+      const path = buildPath(getGeneralSettingsRoute)
+      return apiClient.get<GeneralSettingsResponse>(path)
     },
     update: async (request: UpdateGeneralSettingsRequest): Promise<GeneralSettingsResponse> => {
-      return apiClient.put<GeneralSettingsResponse>('/api/v1/settings/general', request)
+      const path = buildPath(updateGeneralSettingsRoute)
+      return apiClient.put<GeneralSettingsResponse>(path, request)
     },
   },
 
   claude: {
     get: async (): Promise<ClaudeSettingsResponse> => {
-      return apiClient.get<ClaudeSettingsResponse>('/api/v1/settings/claude')
+      const path = buildPath(getClaudeSettingsRoute)
+      return apiClient.get<ClaudeSettingsResponse>(path)
     },
     update: async (request: UpdateClaudeSettingsRequest): Promise<ClaudeSettingsResponse> => {
-      return apiClient.put<ClaudeSettingsResponse>('/api/v1/settings/claude', request)
+      const path = buildPath(updateClaudeSettingsRoute)
+      return apiClient.put<ClaudeSettingsResponse>(path, request)
     },
   },
 
   github: {
     get: async (): Promise<GitHubSettingsResponse> => {
-      return apiClient.get<GitHubSettingsResponse>('/api/v1/settings/github')
+      const path = buildPath(getGitHubSettingsRoute)
+      return apiClient.get<GitHubSettingsResponse>(path)
     },
     update: async (request: UpdateGitHubSettingsRequest): Promise<GitHubSettingsResponse> => {
-      return apiClient.put<GitHubSettingsResponse>('/api/v1/settings/github', request)
+      const path = buildPath(updateGitHubSettingsRoute)
+      return apiClient.put<GitHubSettingsResponse>(path, request)
     },
   },
 
   publish: {
     get: async (): Promise<PublishSettingsResponse> => {
-      return apiClient.get<PublishSettingsResponse>('/api/v1/settings/publish')
+      const path = buildPath(getPublishSettingsRoute)
+      return apiClient.get<PublishSettingsResponse>(path)
     },
     update: async (request: UpdatePublishSettingsRequest): Promise<PublishSettingsResponse> => {
-      return apiClient.put<PublishSettingsResponse>('/api/v1/settings/publish', request)
+      const path = buildPath(updatePublishSettingsRoute)
+      return apiClient.put<PublishSettingsResponse>(path, request)
     },
   },
 }

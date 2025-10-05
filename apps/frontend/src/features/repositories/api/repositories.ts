@@ -1,62 +1,96 @@
+import {
+  buildPath,
+  type RouteParams,
+  type RouteRequestJson,
+  type RouteSuccess,
+} from '@moatless/api-contract'
+import {
+  createRepositoryRoute,
+  deleteRepositoryRoute,
+  getRepositoryBranchesRoute,
+  getRepositoryRoute,
+  listRepositoriesRoute,
+  searchRepositoryFilesRoute,
+  updateRepositoryRoute,
+  verifyRepositoryRoute,
+} from '@moatless/api-contract/routes/repositories'
 import type {
   BranchListResponse,
   CommandExecutionOptions,
-  CreateRepositoryRequest,
-  FileSearchRequest,
   FileSearchResponse,
-  RepositoryList,
-  RepositoryResponse,
   SetupScriptResponse,
-  UpdateRepositoryRequest,
-  VerificationResponse,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
+type RepositoryListResponse = RouteSuccess<typeof listRepositoriesRoute>
+type RepositoryResponse = RouteSuccess<typeof getRepositoryRoute>
+type CreateRepositoryRequest = RouteRequestJson<typeof createRepositoryRoute>
+type UpdateRepositoryRequest = RouteRequestJson<typeof updateRepositoryRoute>
+type FileSearchRequest = RouteRequestJson<typeof searchRepositoryFilesRoute>
+
 export const repositoriesApi = {
   async listRepositories(): Promise<Array<RepositoryResponse>> {
-    const response = await apiClient.get<RepositoryList>('/api/v1/repositories')
+    const path = buildPath(listRepositoriesRoute)
+    const response = await apiClient.get<RepositoryListResponse>(path)
     return response.repositories
   },
 
-  async getRepository(repoId: string): Promise<RepositoryResponse> {
-    return await apiClient.get<RepositoryResponse>(`/api/v1/repositories/${repoId}`)
+  async getRepository(
+    repoId: RouteParams<typeof getRepositoryRoute>['repositoryId'],
+  ): Promise<RepositoryResponse> {
+    const path = buildPath(getRepositoryRoute, { repositoryId: repoId })
+    return await apiClient.get<RepositoryResponse>(path)
   },
 
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryResponse> {
-    return await apiClient.post<RepositoryResponse>('/api/v1/repositories', request)
+    const path = buildPath(createRepositoryRoute)
+    return await apiClient.post<RepositoryResponse>(path, request)
   },
 
   async updateRepository(
-    repoId: string,
+    repoId: RouteParams<typeof updateRepositoryRoute>['repositoryId'],
     request: UpdateRepositoryRequest,
   ): Promise<RepositoryResponse> {
-    return await apiClient.put<RepositoryResponse>(`/api/v1/repositories/${repoId}`, request)
+    const path = buildPath(updateRepositoryRoute, { repositoryId: repoId })
+    return await apiClient.put<RepositoryResponse>(path, request)
   },
 
-  async deleteRepository(repoId: string): Promise<void> {
-    await apiClient.delete(`/api/v1/repositories/${repoId}`)
+  async deleteRepository(
+    repoId: RouteParams<typeof deleteRepositoryRoute>['repositoryId'],
+  ): Promise<void> {
+    const path = buildPath(deleteRepositoryRoute, { repositoryId: repoId })
+    await apiClient.delete(path)
   },
 
-  async searchFiles(repoId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
-    return await apiClient.post<FileSearchResponse>(
-      `/api/v1/repositories/${repoId}/search-files`,
-      request,
-    )
+  async searchFiles(
+    repoId: RouteParams<typeof searchRepositoryFilesRoute>['repositoryId'],
+    request: FileSearchRequest,
+  ): Promise<FileSearchResponse> {
+    const path = buildPath(searchRepositoryFilesRoute, { repositoryId: repoId })
+    return await apiClient.post<FileSearchResponse>(path, request)
   },
 
-  async getBranches(repoId: string): Promise<BranchListResponse> {
-    return await apiClient.get<BranchListResponse>(`/api/v1/repositories/${repoId}/branches`)
+  async getBranches(
+    repoId: RouteParams<typeof getRepositoryBranchesRoute>['repositoryId'],
+  ): Promise<BranchListResponse> {
+    const path = buildPath(getRepositoryBranchesRoute, { repositoryId: repoId })
+    return await apiClient.get<BranchListResponse>(path)
   },
 
   async runSetupScript(repoId: string): Promise<SetupScriptResponse> {
+    // TODO: No route descriptor exists for this endpoint - needs backend migration
     return await apiClient.post<SetupScriptResponse>(`/api/v1/repositories/${repoId}/run-setup`)
   },
 
-  async verifyRepository(repoId: string): Promise<VerificationResponse> {
-    return await apiClient.post<VerificationResponse>(`/api/v1/repositories/${repoId}/verify`)
+  async verifyRepository(
+    repoId: RouteParams<typeof verifyRepositoryRoute>['repositoryId'],
+  ): Promise<RouteSuccess<typeof verifyRepositoryRoute>> {
+    const path = buildPath(verifyRepositoryRoute, { repositoryId: repoId })
+    return await apiClient.post<RouteSuccess<typeof verifyRepositoryRoute>>(path)
   },
 
   async executeCommands(repoId: string, options: CommandExecutionOptions): Promise<Response> {
+    // TODO: No route descriptor exists for this SSE endpoint - needs backend migration
     // For SSE, we need to handle the request differently - return the raw response
     // The hook will handle creating the EventSource connection
     return await fetch(`/api/v1/repositories/${repoId}/execute-commands`, {

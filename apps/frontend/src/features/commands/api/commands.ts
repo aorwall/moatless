@@ -1,30 +1,54 @@
-import type {
-  Command,
-  CommandList,
-  CreateCommandRequest,
-  UpdateCommandRequest,
-} from '@moatless/types'
+import {
+  buildPath,
+  type RouteParams,
+  type RouteRequestJson,
+  type RouteSuccess,
+} from '@moatless/api-contract'
+import {
+  createCommandRoute,
+  deleteCommandRoute,
+  getCommandRoute,
+  listCommandsRoute,
+  updateCommandRoute,
+} from '@moatless/api-contract/routes/commands'
 import { apiClient } from '@/lib/api/client'
+
+type CommandListResponse = RouteSuccess<typeof listCommandsRoute>
+type Command = RouteSuccess<typeof getCommandRoute>
+type CreateCommandRequest = RouteRequestJson<typeof createCommandRoute>
+type UpdateCommandRequest = RouteRequestJson<typeof updateCommandRoute>
 
 export const commandsApi = {
   async listCommands(): Promise<Array<Command>> {
-    const response = await apiClient.get<CommandList>('/api/v1/commands')
+    const path = buildPath(listCommandsRoute)
+    const response = await apiClient.get<CommandListResponse>(path)
     return response.commands
   },
 
-  async getCommand(commandName: string): Promise<Command> {
-    return await apiClient.get<Command>(`/api/v1/commands/${commandName}`)
+  async getCommand(
+    commandName: RouteParams<typeof getCommandRoute>['commandName'],
+  ): Promise<Command> {
+    const path = buildPath(getCommandRoute, { commandName })
+    return await apiClient.get<Command>(path)
   },
 
   async createCommand(request: CreateCommandRequest): Promise<Command> {
-    return await apiClient.post<Command>('/api/v1/commands', request)
+    const path = buildPath(createCommandRoute)
+    return await apiClient.post<Command>(path, request)
   },
 
-  async updateCommand(commandName: string, request: UpdateCommandRequest): Promise<Command> {
-    return await apiClient.put<Command>(`/api/v1/commands/${commandName}`, request)
+  async updateCommand(
+    commandName: RouteParams<typeof updateCommandRoute>['commandName'],
+    request: UpdateCommandRequest,
+  ): Promise<Command> {
+    const path = buildPath(updateCommandRoute, { commandName })
+    return await apiClient.put<Command>(path, request)
   },
 
-  async deleteCommand(commandName: string): Promise<void> {
-    await apiClient.delete(`/api/v1/commands/${commandName}`)
+  async deleteCommand(
+    commandName: RouteParams<typeof deleteCommandRoute>['commandName'],
+  ): Promise<void> {
+    const path = buildPath(deleteCommandRoute, { commandName })
+    await apiClient.delete(path)
   },
 }

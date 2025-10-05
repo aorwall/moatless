@@ -122,7 +122,7 @@ export const WorkspaceCapabilitiesSchema = z.object({
 export const GitChangeStatusSchema = z.enum(['added', 'modified', 'deleted', 'renamed'])
 
 // Type definition for FileTreeNode will be inferred from the schema
-type FileTreeNodeType = {
+export type FileTreeNodeType = {
   name: string
   path: string
   type: 'file' | 'directory'

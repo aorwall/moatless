@@ -1,7 +1,6 @@
 import { createRoute } from '@hono/zod-openapi'
 import { oauthCallbackQuerySchema, sessionResponseSchema } from '@moatless/types'
 import { z } from 'zod'
-import { withStandardErrors } from '../responses.js'
 
 export const authLoginRoute = createRoute({
   method: 'get',
@@ -31,10 +30,16 @@ export const getCurrentUserRoute = createRoute({
   tags: ['Authentication'],
   description:
     'Get current authenticated user session. In dev mode (GITHUB_OAUTH_ENABLED !== true), returns mock dev user.',
-  responses: withStandardErrors(
-    sessionResponseSchema,
-    'Returns current user session with expiration time',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: sessionResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const logoutRoute = createRoute({
@@ -42,8 +47,14 @@ export const logoutRoute = createRoute({
   path: '/api/v1/auth/logout',
   tags: ['Authentication'],
   description: 'Logout and destroy session, clears session cookie',
-  responses: withStandardErrors(
-    z.object({ message: z.string() }),
-    'Returns logout success message',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: z.object({ message: z.string() }),
+        },
+      },
+    },
+  },
 })

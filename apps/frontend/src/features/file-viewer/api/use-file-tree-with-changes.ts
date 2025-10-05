@@ -1,7 +1,10 @@
-import type { FileTreeWithChangesResponse } from '@moatless/types'
+import { buildPath, type RouteSuccess } from '@moatless/api-contract'
+import { getFileTreeWithChangesRoute } from '@moatless/api-contract/routes/workspace'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
+
+type FileTreeWithChangesResponse = RouteSuccess<typeof getFileTreeWithChangesRoute>
 
 interface FileTreeWithChangesParams {
   taskId: string
@@ -16,7 +19,8 @@ export function useFileTreeWithChanges({ taskId, path = '.' }: FileTreeWithChang
       if (path && path !== '.') params.append('path', path)
 
       const queryString = params.toString()
-      const url = `/api/v1/tasks/${taskId}/file-tree-with-changes${queryString ? `?${queryString}` : ''}`
+      const basePath = buildPath(getFileTreeWithChangesRoute, { taskId })
+      const url = `${basePath}${queryString ? `?${queryString}` : ''}`
 
       const response = await apiClient.get<FileTreeWithChangesResponse>(url)
       return response

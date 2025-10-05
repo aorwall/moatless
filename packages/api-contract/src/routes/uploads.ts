@@ -1,7 +1,6 @@
 import { createRoute } from '@hono/zod-openapi'
 import { UploadFileResponseSchema } from '@moatless/types'
 import { pathParams } from '../params.js'
-import { withStandardErrors } from '../responses.js'
 
 // POST /api/v1/uploads - Upload file
 export const uploadFileRoute = createRoute({
@@ -32,11 +31,16 @@ export const uploadFileRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(
-    UploadFileResponseSchema,
-    'File uploaded successfully with metadata and storage location',
-    201,
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: UploadFileResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 // GET /api/v1/uploads/{uploadId}/{filename} - Retrieve uploaded file

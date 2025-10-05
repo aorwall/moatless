@@ -1,7 +1,10 @@
-import type { FileListResponse } from '@moatless/types'
+import { buildPath, type RouteSuccess } from '@moatless/api-contract'
+import { listWorkspaceFilesRoute } from '@moatless/api-contract/routes/workspace'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
+
+type FileListResponse = RouteSuccess<typeof listWorkspaceFilesRoute>
 
 interface FileListParams {
   taskId: string
@@ -18,7 +21,8 @@ export function useFileList({ taskId, path = '/', recursive = false }: FileListP
       if (recursive) params.append('recursive', 'true')
 
       const queryString = params.toString()
-      const url = `/api/v1/tasks/${taskId}/files${queryString ? `?${queryString}` : ''}`
+      const basePath = buildPath(listWorkspaceFilesRoute, { taskId })
+      const url = `${basePath}${queryString ? `?${queryString}` : ''}`
 
       const response = await apiClient.get<FileListResponse>(url)
       return response

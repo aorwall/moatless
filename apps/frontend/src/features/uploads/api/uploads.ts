@@ -1,11 +1,15 @@
-import type { UploadFileResponse } from '@moatless/types'
+import { buildPath, type RouteParams, type RouteSuccess } from '@moatless/api-contract'
+import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/routes/uploads'
+
+type UploadFileResponse = RouteSuccess<typeof uploadFileRoute>
 
 export const uploadsApi = {
   async uploadFile(file: File): Promise<UploadFileResponse> {
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/v1/uploads', {
+    const path = buildPath(uploadFileRoute)
+    const response = await fetch(path, {
       method: 'POST',
       body: formData,
     })
@@ -18,7 +22,10 @@ export const uploadsApi = {
     return await response.json()
   },
 
-  getFileUrl(uploadId: string, filename: string): string {
-    return `/api/v1/uploads/${uploadId}/${filename}`
+  getFileUrl(
+    uploadId: RouteParams<typeof getUploadedFileRoute>['uploadId'],
+    filename: RouteParams<typeof getUploadedFileRoute>['filename'],
+  ): string {
+    return buildPath(getUploadedFileRoute, { uploadId, filename })
   },
 }

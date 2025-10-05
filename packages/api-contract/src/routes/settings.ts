@@ -10,7 +10,6 @@ import {
   updateGeneralSettingsSchema,
   updateGitHubSettingsSchema,
 } from '@moatless/types'
-import { withStandardErrors } from '../responses.js'
 
 // GET /api/v1/settings/status - Get system status
 export const getSystemStatusRoute = createRoute({
@@ -18,10 +17,16 @@ export const getSystemStatusRoute = createRoute({
   path: '/api/v1/settings/status',
   tags: ['Settings'],
   description: 'Retrieve system status checks for all configured tools and services',
-  responses: withStandardErrors(
-    SystemStatusCheckSchema,
-    'System status retrieved successfully with validation results',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SystemStatusCheckSchema,
+        },
+      },
+    },
+  },
 })
 
 // General Settings Routes
@@ -31,10 +36,16 @@ export const getGeneralSettingsRoute = createRoute({
   tags: ['Settings'],
   description:
     'Get general application settings including data directory and default configurations',
-  responses: withStandardErrors(
-    GeneralSettingsResponseSchema,
-    'Returns general settings configuration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: GeneralSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const updateGeneralSettingsRoute = createRoute({
@@ -51,7 +62,16 @@ export const updateGeneralSettingsRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(GeneralSettingsResponseSchema, 'Returns updated general settings'),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: GeneralSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 // Claude Settings Routes
@@ -60,10 +80,16 @@ export const getClaudeSettingsRoute = createRoute({
   path: '/api/v1/settings/claude',
   tags: ['Settings'],
   description: 'Get Claude AI settings including API configuration and model preferences',
-  responses: withStandardErrors(
-    ClaudeSettingsResponseSchema,
-    'Returns Claude settings configuration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ClaudeSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const updateClaudeSettingsRoute = createRoute({
@@ -80,7 +106,16 @@ export const updateClaudeSettingsRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(ClaudeSettingsResponseSchema, 'Returns updated Claude settings'),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ClaudeSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 // GitHub Settings Routes
@@ -89,10 +124,16 @@ export const getGitHubSettingsRoute = createRoute({
   path: '/api/v1/settings/github',
   tags: ['Settings'],
   description: 'Get GitHub integration settings including OAuth and authentication configuration',
-  responses: withStandardErrors(
-    GitHubSettingsResponseSchema,
-    'Returns GitHub settings configuration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: GitHubSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const updateGitHubSettingsRoute = createRoute({
@@ -109,7 +150,16 @@ export const updateGitHubSettingsRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(GitHubSettingsResponseSchema, 'Returns updated GitHub settings'),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: GitHubSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 // Publish Settings Routes
@@ -118,10 +168,16 @@ export const getPublishSettingsRoute = createRoute({
   path: '/api/v1/settings/publish',
   tags: ['Settings'],
   description: 'Get publish/deployment settings including platform configurations',
-  responses: withStandardErrors(
-    PublishSettingsResponseSchema,
-    'Returns publish settings configuration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: PublishSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const updatePublishSettingsRoute = createRoute({
@@ -138,5 +194,14 @@ export const updatePublishSettingsRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(PublishSettingsResponseSchema, 'Returns updated publish settings'),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: PublishSettingsResponseSchema,
+        },
+      },
+    },
+  },
 })

@@ -1,7 +1,6 @@
 import { createRoute } from '@hono/zod-openapi'
 import { EventSchema } from '@moatless/types'
 import { z } from 'zod'
-import { withStandardErrors } from '../responses.js'
 
 // Success response schema for worker event emission
 const EmitEventResponseSchema = z.object({
@@ -25,8 +24,14 @@ export const emitWorkerEventRoute = createRoute({
       description: 'Event data including task ID, type, and payload',
     },
   },
-  responses: withStandardErrors(
-    EmitEventResponseSchema,
-    'Event emitted successfully and broadcast to connected clients',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: EmitEventResponseSchema,
+        },
+      },
+    },
+  },
 })

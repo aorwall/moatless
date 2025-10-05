@@ -5,7 +5,6 @@ import {
   ClaudeUsageResponseSchema,
 } from '@moatless/types'
 import { pathParams } from '../params.js'
-import { withStandardErrors } from '../responses.js'
 
 // GET /api/v1/usage - Get Claude usage data
 export const getUsageRoute = createRoute({
@@ -16,10 +15,16 @@ export const getUsageRoute = createRoute({
   request: {
     query: ClaudeUsageQuerySchema,
   },
-  responses: withStandardErrors(
-    ClaudeUsageResponseSchema,
-    'Usage data retrieved successfully with current usage and limits',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ClaudeUsageResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 // GET /api/v1/usage/session/{sessionId} - Get session usage data
@@ -31,8 +36,14 @@ export const getSessionUsageRoute = createRoute({
   request: {
     params: pathParams.sessionId,
   },
-  responses: withStandardErrors(
-    ClaudeSessionUsageResponseSchema,
-    'Session usage data retrieved successfully with costs, tokens, and message counts',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ClaudeSessionUsageResponseSchema,
+        },
+      },
+    },
+  },
 })

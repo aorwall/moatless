@@ -12,7 +12,6 @@ import {
 } from '@moatless/types'
 import { z } from 'zod'
 import { pathParams } from '../params.js'
-import { noContentResponse, withStandardErrors } from '../responses.js'
 
 // ============================================================================
 // Repository Routes
@@ -37,7 +36,16 @@ export const createRepositoryRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(RepositoryConfigSchema, '', 201),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: RepositoryConfigSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -54,7 +62,16 @@ export const listRepositoriesRoute = createRoute({
       includeVibeRepos: z.string().optional(),
     }),
   },
-  responses: withStandardErrors(RepositoryListResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: RepositoryListResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -73,7 +90,16 @@ export const getRepositorySuggestionsRoute = createRoute({
       onlyGitRepos: z.string().optional(),
     }),
   },
-  responses: withStandardErrors(SuggestedRepositoriesResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SuggestedRepositoriesResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -88,7 +114,16 @@ export const getRepositoryRoute = createRoute({
   request: {
     params: pathParams.repositoryId,
   },
-  responses: withStandardErrors(RepositoryConfigSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: RepositoryConfigSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -110,7 +145,16 @@ export const updateRepositoryRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(RepositoryConfigSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: RepositoryConfigSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -121,10 +165,15 @@ export const deleteRepositoryRoute = createRoute({
   method: 'delete',
   path: '/api/v1/repositories/{repositoryId}',
   tags: ['Repositories'],
+  description: 'Delete a repository configuration',
   request: {
     params: pathParams.repositoryId,
   },
-  responses: noContentResponse('Repository deleted successfully'),
+  responses: {
+    204: {
+      description: 'Repository deleted successfully',
+    },
+  },
 })
 
 /**
@@ -146,7 +195,16 @@ export const searchRepositoryFilesRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(RepositoryFileSearchResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: RepositoryFileSearchResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -161,7 +219,16 @@ export const getRepositoryBranchesRoute = createRoute({
   request: {
     params: pathParams.repositoryId,
   },
-  responses: withStandardErrors(BranchListResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: BranchListResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -177,5 +244,14 @@ export const verifyRepositoryRoute = createRoute({
   request: {
     params: pathParams.repositoryId,
   },
-  responses: withStandardErrors(VerificationResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: VerificationResponseSchema,
+        },
+      },
+    },
+  },
 })

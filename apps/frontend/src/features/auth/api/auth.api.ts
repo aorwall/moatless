@@ -1,16 +1,21 @@
-import type { SessionResponse } from '@moatless/types'
+import { buildPath, type RouteSuccess } from '@moatless/api-contract'
+import { getCurrentUserRoute, logoutRoute } from '@moatless/api-contract/routes/auth'
 import { apiClient } from '@/lib/api/client'
+
+type SessionResponse = RouteSuccess<typeof getCurrentUserRoute>
 
 /**
  * Get the current authenticated user session
  */
 export async function getCurrentUser(): Promise<SessionResponse> {
-  return apiClient.get<SessionResponse>('/auth/me')
+  const path = buildPath(getCurrentUserRoute)
+  return apiClient.get<SessionResponse>(path)
 }
 
 /**
  * Logout and destroy the current session
  */
-export async function logout(): Promise<void> {
-  await apiClient.post<void>('/auth/logout')
+export async function logout(): Promise<RouteSuccess<typeof logoutRoute>> {
+  const path = buildPath(logoutRoute)
+  return await apiClient.post<RouteSuccess<typeof logoutRoute>>(path)
 }

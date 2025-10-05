@@ -101,7 +101,7 @@ export function useSearchFiles(
 ) {
   return useQuery({
     queryKey: queryKeys.repositoryFileSearch(repoId, query),
-    queryFn: () => repositoriesApi.searchFiles(repoId, { repositoryId: repoId, query, limit: 10 }),
+    queryFn: () => repositoriesApi.searchFiles(repoId, { query, limit: 10 }),
     enabled: !!repoId && query.length >= 3,
     staleTime: 30000, // Cache for 30 seconds
     ...options,

@@ -21,7 +21,6 @@ import {
   TaskResponseSchema,
 } from '@moatless/types'
 import { pathParams } from '../params.js'
-import { withStandardErrors } from '../responses.js'
 
 // ============================================================================
 // Task Routes
@@ -45,7 +44,16 @@ export const createTaskRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(SimpleTaskResponseSchema, '', 200),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SimpleTaskResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -66,7 +74,16 @@ export const createVibeTaskRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(SimpleTaskResponseSchema, '', 200),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SimpleTaskResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -81,7 +98,16 @@ export const getTaskRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(TaskResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: TaskResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -96,7 +122,16 @@ export const listTasksRoute = createRoute({
   request: {
     query: TaskListQuerySchema,
   },
-  responses: withStandardErrors(TaskListResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: TaskListResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -112,7 +147,16 @@ export const deleteTaskRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(DeleteTaskResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: DeleteTaskResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -134,7 +178,16 @@ export const sendMessageRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(SendMessageResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SendMessageResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -149,7 +202,16 @@ export const getCommandsRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(TaskCommandsResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: TaskCommandsResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -171,7 +233,16 @@ export const sendCommandRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(SendMessageResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SendMessageResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -186,7 +257,16 @@ export const getMessagesRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(AgentMessagesResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: AgentMessagesResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -201,7 +281,16 @@ export const startTaskRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(StartTaskResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: StartTaskResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -216,7 +305,16 @@ export const stopAgentRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(StopAgentResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: StopAgentResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -232,7 +330,16 @@ export const closeTaskRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(CloseTaskResponseSchemaAPI, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: CloseTaskResponseSchemaAPI,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -249,7 +356,16 @@ export const getTaskLogsRoute = createRoute({
     params: pathParams.taskId,
     query: ServerLogsQuerySchema,
   },
-  responses: withStandardErrors(ServerLogsResponseExtendedSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerLogsResponseExtendedSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -272,7 +388,16 @@ export const mcpRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(McpResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: McpResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 /**
@@ -287,5 +412,14 @@ export const deployRoute = createRoute({
   request: {
     params: pathParams.taskId,
   },
-  responses: withStandardErrors(DeployResponseSchema, ''),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: DeployResponseSchema,
+        },
+      },
+    },
+  },
 })

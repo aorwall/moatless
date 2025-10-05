@@ -21,7 +21,6 @@ import {
   WorkspaceStatusResponseSchema,
 } from '@moatless/types'
 import { z } from 'zod'
-import { withStandardErrors } from '../responses.js'
 
 const taskIdParams = z.object({ taskId: z.string().min(1) })
 const taskIdAndFileParams = z.object({
@@ -38,10 +37,16 @@ export const getWorkspaceStatusRoute = createRoute({
   description:
     'Retrieve comprehensive workspace status including environment state, git status, agent state, and capabilities',
   request: { params: taskIdParams },
-  responses: withStandardErrors(
-    WorkspaceStatusResponseSchema,
-    'Returns complete workspace status including workspace state, environment status, git status, agent info, and capabilities',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: WorkspaceStatusResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const listWorkspaceFilesRoute = createRoute({
@@ -54,10 +59,16 @@ export const listWorkspaceFilesRoute = createRoute({
     params: taskIdParams,
     query: FileQuerySchema,
   },
-  responses: withStandardErrors(
-    FileListResponseSchema,
-    'Returns list of files in the workspace with name, path, and type information',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: FileListResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const searchWorkspaceFilesRoute = createRoute({
@@ -76,10 +87,16 @@ export const searchWorkspaceFilesRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(
-    FileSearchResponseSchema,
-    'Returns search results with file paths, match counts, and total matches',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: FileSearchResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const getWorkspaceGitDiffRoute = createRoute({
@@ -89,10 +106,16 @@ export const getWorkspaceGitDiffRoute = createRoute({
   description:
     'Retrieve git diff showing all uncommitted changes in the workspace with file list and statistics',
   request: { params: taskIdParams },
-  responses: withStandardErrors(
-    GitDiffResponseSchema,
-    'Returns git diff string, list of changed files, and change statistics (additions, deletions, total changes)',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: GitDiffResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const setupWorkspaceRoute = createRoute({
@@ -111,10 +134,16 @@ export const setupWorkspaceRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(
-    WorkspaceSetupResponseSchema,
-    'Returns setup completion status with success flag, message, and final workspace status',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: WorkspaceSetupResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const readWorkspaceFileRoute = createRoute({
@@ -126,10 +155,16 @@ export const readWorkspaceFileRoute = createRoute({
   request: {
     params: taskIdAndFileParams,
   },
-  responses: withStandardErrors(
-    FileContentResponseSchema,
-    'Returns file content, encoding, and git change details if file is modified',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: FileContentResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const writeWorkspaceFileRoute = createRoute({
@@ -147,7 +182,16 @@ export const writeWorkspaceFileRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(z.object({ success: z.boolean() }), 'File written successfully'),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: z.object({ success: z.boolean() }),
+        },
+      },
+    },
+  },
 })
 
 export const getGitSyncStatusRoute = createRoute({
@@ -157,10 +201,16 @@ export const getGitSyncStatusRoute = createRoute({
   description:
     'Get git sync status including current branch, uncommitted changes, conflicts, and commits ahead/behind origin',
   request: { params: taskIdParams },
-  responses: withStandardErrors(
-    GitStatusSchema,
-    'Returns comprehensive git status with branch info, change detection, and sync state',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: GitStatusSchema,
+        },
+      },
+    },
+  },
 })
 
 export const getFileTreeWithChangesRoute = createRoute({
@@ -172,10 +222,16 @@ export const getFileTreeWithChangesRoute = createRoute({
     params: taskIdParams,
     query: pathQuery,
   },
-  responses: withStandardErrors(
-    FileTreeWithChangesResponseSchema,
-    'Returns hierarchical file tree with git status (modified, added, deleted) for each entry',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: FileTreeWithChangesResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const syncWithMainRoute = createRoute({
@@ -187,10 +243,16 @@ export const syncWithMainRoute = createRoute({
     params: taskIdParams,
     query: baseBranchQuery,
   },
-  responses: withStandardErrors(
-    SyncWorkspaceResponseSchema,
-    'Returns sync result with success status, message, and updated branch info',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: SyncWorkspaceResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const syncWithOriginRoute = createRoute({
@@ -202,10 +264,16 @@ export const syncWithOriginRoute = createRoute({
     params: taskIdParams,
     query: baseBranchQuery,
   },
-  responses: withStandardErrors(
-    WorkspaceStatusResponseSchema,
-    'Returns updated workspace status after syncing with origin',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: WorkspaceStatusResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const executeCommandRoute = createRoute({
@@ -223,10 +291,16 @@ export const executeCommandRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(
-    ShellCommandResultSchema,
-    'Returns command execution result with stdout, stderr, exit code, and execution metadata',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ShellCommandResultSchema,
+        },
+      },
+    },
+  },
 })
 
 export const refreshWorkspaceConfigRoute = createRoute({
@@ -244,10 +318,16 @@ export const refreshWorkspaceConfigRoute = createRoute({
       },
     },
   },
-  responses: withStandardErrors(
-    WorkspaceRefreshConfigResponseSchema,
-    'Returns refresh result with success status, message, updated workspace status, and server restart confirmation',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: WorkspaceRefreshConfigResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const getWorkspaceLogsRoute = createRoute({
@@ -260,8 +340,14 @@ export const getWorkspaceLogsRoute = createRoute({
     params: taskIdParams,
     query: ServerLogsQuerySchema,
   },
-  responses: withStandardErrors(
-    ServerLogsResponseExtendedSchema,
-    'Returns workspace logs with optional line limit and truncation indicator',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerLogsResponseExtendedSchema,
+        },
+      },
+    },
+  },
 })

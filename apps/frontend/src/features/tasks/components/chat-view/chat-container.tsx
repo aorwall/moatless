@@ -83,7 +83,7 @@ function ChatContainer({ className }: ChatContainerProps) {
     onValueChange: setMessage,
     enabled: true,
     onSearch: fileSearchMutation.mutate,
-    results: fileSearchMutation.data?.results || [],
+    results: fileSearchMutation.data?.files || [],
     isLoading: fileSearchMutation.isPending,
     error: fileSearchMutation.error,
   })

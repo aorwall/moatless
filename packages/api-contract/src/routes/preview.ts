@@ -6,7 +6,6 @@ import {
   ServerStopResponseSchema,
 } from '@moatless/types'
 import { pathParams } from '../params.js'
-import { withStandardErrors } from '../responses.js'
 
 export const startServerRoute = createRoute({
   method: 'post',
@@ -14,10 +13,16 @@ export const startServerRoute = createRoute({
   tags: ['Preview Server'],
   description: 'Start the development server for a task workspace to preview the application',
   request: { params: pathParams.taskId },
-  responses: withStandardErrors(
-    ServerStatusSchema,
-    'Returns server status including running state, URL, proxy URL, PID, and uptime',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerStatusSchema,
+        },
+      },
+    },
+  },
 })
 
 export const stopServerRoute = createRoute({
@@ -26,10 +31,16 @@ export const stopServerRoute = createRoute({
   tags: ['Preview Server'],
   description: 'Stop the running development server for a task workspace',
   request: { params: pathParams.taskId },
-  responses: withStandardErrors(
-    ServerStopResponseSchema,
-    'Returns stopped status and runtime duration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerStopResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 export const restartServerRoute = createRoute({
@@ -38,10 +49,16 @@ export const restartServerRoute = createRoute({
   tags: ['Preview Server'],
   description: 'Restart the development server for a task workspace (stops, waits 1s, then starts)',
   request: { params: pathParams.taskId },
-  responses: withStandardErrors(
-    ServerStatusSchema,
-    'Returns updated server status after restart including URL and running state',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerStatusSchema,
+        },
+      },
+    },
+  },
 })
 
 export const getServerStatusRoute = createRoute({
@@ -50,10 +67,16 @@ export const getServerStatusRoute = createRoute({
   tags: ['Preview Server'],
   description: 'Get current status of the development server for a task workspace',
   request: { params: pathParams.taskId },
-  responses: withStandardErrors(
-    ServerStatusSchema,
-    'Returns current server status including running state, URL, PID, uptime, and any errors',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerStatusSchema,
+        },
+      },
+    },
+  },
 })
 
 export const getServerLogsRoute = createRoute({
@@ -65,8 +88,14 @@ export const getServerLogsRoute = createRoute({
     params: pathParams.taskId,
     query: ServerLogsQuerySchema,
   },
-  responses: withStandardErrors(
-    ServerLogsResponseExtendedSchema,
-    'Returns server logs with line count and truncation status',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: ServerLogsResponseExtendedSchema,
+        },
+      },
+    },
+  },
 })

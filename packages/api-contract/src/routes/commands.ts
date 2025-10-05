@@ -6,7 +6,6 @@ import {
   UpdateCommandSchema,
 } from '@moatless/types'
 import { z } from 'zod'
-import { withStandardErrors } from '../responses.js'
 
 const commandNameParams = z.object({ commandName: z.string().min(1) })
 
@@ -26,11 +25,16 @@ export const createCommandRoute = createRoute({
       description: 'Command configuration including name, shell script, and execution parameters',
     },
   },
-  responses: withStandardErrors(
-    CommandSchema,
-    'Returns created command with unique name and configuration details',
-    201,
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: CommandSchema,
+        },
+      },
+    },
+  },
 })
 
 // GET /api/v1/commands - List commands
@@ -42,10 +46,16 @@ export const listCommandsRoute = createRoute({
   request: {
     query: z.object({}),
   },
-  responses: withStandardErrors(
-    CommandListResponseSchema,
-    'Returns array of commands with names, scripts, and configuration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: CommandListResponseSchema,
+        },
+      },
+    },
+  },
 })
 
 // GET /api/v1/commands/{commandName} - Get command by name
@@ -57,10 +67,16 @@ export const getCommandRoute = createRoute({
   request: {
     params: commandNameParams,
   },
-  responses: withStandardErrors(
-    CommandSchema,
-    'Returns command configuration including script, parameters, and metadata',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: CommandSchema,
+        },
+      },
+    },
+  },
 })
 
 // PUT /api/v1/commands/{commandName} - Update command
@@ -80,10 +96,16 @@ export const updateCommandRoute = createRoute({
       description: 'Updated command configuration including script and parameters',
     },
   },
-  responses: withStandardErrors(
-    CommandSchema,
-    'Returns updated command with modified configuration',
-  ),
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: CommandSchema,
+        },
+      },
+    },
+  },
 })
 
 // DELETE /api/v1/commands/{commandName} - Delete command
