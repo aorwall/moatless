@@ -145,8 +145,8 @@ export const TaskListResponseSchema = z.object({
   pagination: z.object({
     limit: z.number(),
     offset: z.number(),
-    total: z.number().optional(),
-    hasMore: z.boolean().optional(),
+    total: z.number().or(z.undefined()),
+    hasMore: z.boolean().or(z.undefined()),
   }),
 })
 
